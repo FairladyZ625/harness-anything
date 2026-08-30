@@ -149,7 +149,7 @@ export function taskCreated(revision: number, taskId: string): TaskEventV1 {
     occurredAt: "2026-08-13T00:00:00.000Z",
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId,
         title: "Cycle task",
         taskClass: "standard",
@@ -160,6 +160,7 @@ export function taskCreated(revision: number, taskId: string): TaskEventV1 {
         createdBy: actor,
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
       },
     },
   };

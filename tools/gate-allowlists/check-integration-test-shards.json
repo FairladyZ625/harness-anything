@@ -377,6 +377,11 @@
         "value": "packages/daemon/test/role-binding.integration.test.ts",
         "ref": "dec_B284A85A",
         "reason": "The integration exercised the retired transport command-class authorization; AuthorizationPort contract and daemon ingress tests now cover the single authorization path."
+      },
+      {
+        "value": "packages/kernel/test/store/review-entity.test.ts",
+        "ref": "dec_B284A85A2078145597CEF8D733",
+        "reason": "The event-backed Review contract is the canonical authority, so the legacy duplicate declaration projection and its integration test are retired together."
       }
     ]
   }

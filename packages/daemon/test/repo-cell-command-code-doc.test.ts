@@ -5,14 +5,14 @@ import {
   REPLAY_TASK_GRAPH,
   type ExecutionV1,
   type TaskLifecycleSnapshot,
-  type TaskV1,
+  type TaskV2,
 } from "../../kernel/src/index.ts";
 import { buildCommand } from "../src/repo-cell-command.ts";
 
 const taskId = "task-code-doc-source",
   actor = { principal: { personId: "person-owner" }, executor: null } as const,
-  task: TaskV1 = {
-    schema: "task/v1",
+  task: TaskV2 = {
+    schema: "task/v2",
     taskId,
     title: "Code-doc source",
     taskClass: "standard",
@@ -23,6 +23,7 @@ const taskId = "task-code-doc-source",
     createdBy: actor,
     completionGateIds: ["code-doc-reconciliation"],
     presetSnapshotDigest: null,
+    pinned: false,
   },
   submission = {
     completionClaim: "Complete",

@@ -350,7 +350,7 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): s
       taskId: task.taskId,
       title: task.title,
       taskClass: task.taskClass,
-      pinned: task.pinned ?? false,
+      pinned: task.pinned,
       metadata,
       relations,
     },

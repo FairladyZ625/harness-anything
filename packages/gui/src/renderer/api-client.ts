@@ -1029,7 +1029,7 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
   const task = value.snapshot.task;
   return (
     isRendererRecord(task) &&
-    task.schema === "task/v1" &&
+    task.schema === "task/v2" &&
     task.taskId === value.taskId &&
     typeof task.title === "string"
   );

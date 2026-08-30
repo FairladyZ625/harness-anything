@@ -47,14 +47,14 @@ export interface TaskProjectionListRead {
 export interface TaskIndexProjectionRow {
   readonly taskId: string;
   readonly title: string;
-  readonly status: import("../domain/task.ts").TaskV1["status"];
+  readonly status: import("../domain/task.ts").TaskV2["status"];
   readonly pinned: boolean;
   readonly parentTaskId: string | null;
   readonly moduleKey: string | null;
   readonly workKind: import("../domain/task.ts").TaskMetadataV1["workKind"];
   readonly riskTier: import("../domain/task.ts").TaskMetadataV1["riskTier"];
   readonly urgency: import("../domain/task.ts").TaskMetadataV1["urgency"];
-  readonly taskClass: import("../domain/task.ts").TaskV1["taskClass"];
+  readonly taskClass: import("../domain/task.ts").TaskV2["taskClass"];
   readonly packageDisposition: import("../domain/task.ts").TaskPackageDisposition;
   readonly packagePath: string | null;
   readonly updatedAt: string;

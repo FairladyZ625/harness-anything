@@ -286,7 +286,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
     occurredAt: input.occurredAt,
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId: input.taskId,
         title: input.title,
         taskClass: input.taskClass ?? "standard",
@@ -294,6 +294,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         graph: REPLAY_TASK_GRAPH,
         currentNode: "implementation",
         iteration: 0,
+        pinned: false,
         createdBy: input.actor,
         completionGateIds: compiled.snapshot.profile.completionGateIds,
         presetSnapshotDigest: compiled.snapshot.digest,

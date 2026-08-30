@@ -13,7 +13,7 @@ import {
   type RuntimeSession,
   type TaskBoundRuntimeBinding,
   type TaskEventV1,
-  type TaskV1,
+  type TaskV2,
 } from "../../kernel/src/index.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -22,12 +22,12 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 export function taskMutation(
   cell: RepoCellActionContext,
   action: RepoTaskAction,
-  task: TaskV1,
+  task: TaskV2,
   snapshot: Snapshot,
   binding: RepoCellBinding,
 ): {
   readonly type: TaskEventV1["type"];
-  readonly task: TaskV1;
+  readonly task: TaskV2;
   readonly audit: {
     readonly command:
       | "release"
@@ -123,7 +123,7 @@ export function taskMutation(
         "invalid_amend",
         `Use ha task amend ${task.taskId} --set <field>:<value> on a task with a current contract.`,
       );
-    let changed: TaskV1 = task;
+    let changed: TaskV2 = task;
     const fields: string[] = [];
     for (const raw of patches) {
       if (!raw || typeof raw !== "object")
@@ -146,7 +146,7 @@ export function taskMutation(
           ...changed,
           metadata: {
             ...changed.metadata!,
-            workKind: value as NonNullable<TaskV1["metadata"]>["workKind"],
+            workKind: value as NonNullable<TaskV2["metadata"]>["workKind"],
           },
         };
       else if ((field === "riskTier" || field === "urgency") && ["low", "medium", "high"].includes(value))
@@ -160,7 +160,7 @@ export function taskMutation(
           metadata: { ...changed.metadata!, moduleKey: value },
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
-        changed = { ...changed, taskClass: value as TaskV1["taskClass"] };
+        changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
       else
         throw cell.cellCodedError(
           "invalid_amend",

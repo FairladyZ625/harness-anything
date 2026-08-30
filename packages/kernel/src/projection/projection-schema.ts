@@ -1,5 +1,4 @@
-// Version 14 discards caches whose fact/fact_fts tables predate first-class,
-// optionally taskless Facts. CREATE TABLE IF NOT EXISTS cannot migrate that DDL.
-// A version mismatch takes the discard-and-replay path; explicit rebuild uses
-// the same cold path so it also repairs a cache whose version metadata is wrong.
-export const taskProjectionSchemaVersion = 14;
+// Version 16 adds the rebuildable archived_entity witness table used by genesis
+// migration truth-gap restatements. A version mismatch takes the discard-and-replay
+// path so an older cache cannot silently omit archived source identities.
+export const taskProjectionSchemaVersion = 16;

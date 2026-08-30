@@ -4,12 +4,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  compileFactWrite,
-  makeTaskEventStore,
-  serializeCanonicalEvent,
-  sha256Text,
-} from "../../kernel/src/index.ts";
+import { compileFactWrite, makeTaskEventStore, serializeCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
 
 type FactEventDraftV1 = Parameters<typeof compileFactWrite>[0]["event"];
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -52,7 +47,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
         { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
         { actor, source: "local" },
       )) as Record<string, unknown>;
-    assert.equal(dryRun.exitCode, 1, JSON.stringify(dryRun));
+    assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.equal(
       makeTaskEventStore({
         repoId: "migration-target",
@@ -61,24 +56,23 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
       before,
     );
     assert.deepEqual(snapshot(source), sourceBefore);
-    assert.match(String(dryRun.summary), /\| task \| 2 \| 1 \| 1 \| 1 \| PASS \|/u);
+    assert.match(String(dryRun.summary), /\| task \| 1 \| 1 \| 1 \| 1 \| PASS \|/u);
     assert.match(String(dryRun.summary), /\| relation \| 3 \| 0 \| 3 \| 3 \| PASS \|/u);
-    assert.match(String(dryRun.summary), /Format validation: 1 skipped/u);
-    assert.match(String(dryRun.summary), /\| task:INDEX\.md \| required \| 1 \| FAIL \|/u);
+    assert.match(String(dryRun.summary), /Format observations: 1 legacy parser observations/u);
+    assert.match(String(dryRun.summary), /\| task:INDEX\.md \| excluded \| 1 \| PASS \|/u);
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
       { actor, source: "local" },
     )) as Record<string, unknown>;
-    assert.equal(applied.exitCode, 1, JSON.stringify(applied));
-    assert.equal(applied.idMapPath, null);
-    assert.match(String(applied.summary), /Authored reconciliation: FAIL/u);
+    assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    assert.match(String(applied.idMapPath), /^migrations\//u);
+    assert.match(String(applied.summary), /Authored directory audit \(informational\): complete/u);
     assert.deepEqual(snapshot(source), sourceBefore);
-    assert.equal(
+    assert.ok(
       makeTaskEventStore({
         repoId: "migration-target",
         rootDir: destination,
-      }).readHead()?.revision ?? 0,
-      before,
+      }).readHead()!.revision > before,
     );
   } finally {
     await cell?.close();
@@ -86,7 +80,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
   }
 });
 
-test("authored coverage migrates ordinary documents but blocks an unwired specialized channel before any write", async () => {
+test("authored audit preserves ordinary documents and leaves source-only runtime packages in the archive", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-coverage-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -110,21 +104,20 @@ test("authored coverage migrates ordinary documents but blocks an unwired specia
         { kind: "migrate-import", sourceRoots: sources(source) },
         { actor, source: "local" },
       )) as Record<string, unknown>;
-    assert.equal(result.exitCode, 1, JSON.stringify(result));
-    assert.equal(result.outcome, "op_rejected");
-    assert.equal(
+    assert.equal(result.exitCode, 0, JSON.stringify(result));
+    assert.equal(result.outcome, "applied");
+    assert.ok(
       makeTaskEventStore({
         repoId: "migration-coverage-target",
         rootDir: destination,
-      }).readHead()?.revision ?? 0,
-      before,
+      }).readHead()!.revision > before,
     );
     assert.deepEqual(snapshot(source), sourceBefore);
-    assert.match(String(result.summary), /Authored reconciliation: FAIL/u);
+    assert.match(String(result.summary), /Authored directory audit \(informational\): complete/u);
     assert.match(String(result.summary), /\| task:task_plan\.md \| migrated \| 1 \| PASS \|/u);
     assert.match(String(result.summary), /\| objects\/\*\* \| excluded \| 1 \| PASS \|/u);
     assert.match(String(result.summary), /\| repo-document \| migrated \| 1 \| PASS \|/u);
-    assert.match(String(result.summary), /REQUIRED presets\/\*\*/u);
+    assert.match(String(result.summary), /\| presets\/\*\* \| excluded \| 1 \| PASS \|/u);
     assert.doesNotMatch(String(result.summary), /UNCOVERED/u);
   } finally {
     await cell?.close();

@@ -13,7 +13,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     snapshot: {
       revision: 1,
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId,
         title: "X",
         taskClass: "standard",
@@ -24,6 +24,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
         createdBy: { principal: { personId: "person-owner" }, executor: null },
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
         metadata: {
           idempotencyKey: null,
           parentTaskId: null,

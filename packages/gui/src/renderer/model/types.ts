@@ -56,7 +56,7 @@ interface TaskRowFields {
   title: string;
   projectId: string;
   coordinationStatus: SnapshotStatus;
-  /** Task/v1 真状态；relation overlay 永不覆写此字段。 */
+  /** Task/v2 真状态；relation overlay 永不覆写此字段。 */
   canonicalStatus?: CanonicalStatus;
   blocking?: BlockingState;
   blockingLabel?: string;
@@ -126,7 +126,7 @@ interface TaskRowFields {
    */
   spawningDecisionIds?: readonly string[];
   /**
-   * 台账 pin(task/v1 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
+   * 台账 pin(task/v2 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
    * 与 coordinationStatus=active 正交——进行中未必在做,在做未必进行中。
    */
   pinned?: boolean;

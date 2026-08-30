@@ -1,4 +1,4 @@
-import { lstatSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   REPLAY_TASK_GRAPH,
@@ -8,9 +8,13 @@ import {
   slugifyTaskTitle,
   taskEntryToRow,
   validateTaskIdSyntax,
+  validateTaskV2,
   type CanonicalContentBlob,
   type TaskSourceEntry,
 } from "../../kernel/src/index.ts";
+import type { ProjectionOracleTask } from "./migration-import-oracle.ts";
+import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
+import { isMigrationImportRecord } from "./migration-import-report.ts";
 import type { ImportedTask } from "./migration-import-types.ts";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 
@@ -31,11 +35,44 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
     return;
   }
   const taskId = row.taskId,
-    occurredAt =
+    projectedTask = context.oracle.tasks.get(taskId)?.snapshot.task,
+    projectedMetadata =
+      isMigrationImportRecord(projectedTask) && isMigrationImportRecord(projectedTask.metadata)
+        ? projectedTask.metadata
+        : null,
+    projectedParent = typeof projectedMetadata?.parentTaskId === "string" ? projectedMetadata.parentTaskId : null;
+  if (row.parentTaskId && !context.oracle.tasks.has(row.parentTaskId)) {
+    if (projectedParent !== null && context.oracle.tasks.has(projectedParent)) {
+      row = { ...row, parentTaskId: projectedParent };
+      recordTaskDerivation(
+        context,
+        "task",
+        taskId,
+        "metadata.parentTaskId",
+        `projection:task_snapshot@${context.oracle.watermark}`,
+      );
+    } else {
+      context.skips.push({
+        entityType: "task",
+        migratedFrom: taskId,
+        sourcePath: row.sourcePath,
+        reason: `task parent ${row.parentTaskId} has no same-cut active witness`,
+      });
+      return;
+    }
+  }
+  const titleWitness = taskTitleWitness(context, entry, readScalar(entry.frontmatter, "title")),
+    title = titleWitness?.value ?? "",
+    sourceOccurredAt =
       context.timestamp(readScalar(entry.frontmatter, "  bindingCreatedAt")) ??
       context.timestamp(readScalar(entry.frontmatter, "bindingCreatedAt")) ??
-      context.timestamp(readScalar(entry.frontmatter, "createdAt"));
-  if (!row.title.trim() || !occurredAt) {
+      context.timestamp(readScalar(entry.frontmatter, "createdAt")),
+    eventWitness = context.oracle.tasks.get(taskId)?.firstEvent ?? null,
+    occurredAt = sourceOccurredAt ?? eventWitness?.occurredAt ?? null;
+  if (titleWitness?.derived === true) recordTaskDerivation(context, "task", taskId, "title", titleWitness.source);
+  if (sourceOccurredAt === null && eventWitness !== null)
+    recordTaskDerivation(context, "task", taskId, "occurredAt", `event:${eventWitness.eventId}`);
+  if (!title || !occurredAt) {
     context.skips.push({
       entityType: "task",
       migratedFrom: taskId,
@@ -44,6 +81,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
     });
     return;
   }
+  row = { ...row, title };
   if (context.taskMap.has(taskId)) {
     context.skips.push({
       entityType: "task",
@@ -69,8 +107,9 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
     ),
     status = context.taskStatus(row.rawStatus),
     packagePath = `tasks/${targetTaskId}-${slugifyTaskTitle(row.title)}`,
+    sourceTask = context.legacyTaskRestatements.get(taskId),
     task: ImportedTask = {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId: targetTaskId,
       title: context.clean(row.title),
       taskClass: "standard",
@@ -78,6 +117,8 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       graph: REPLAY_TASK_GRAPH,
       currentNode: status === "in_review" ? "review" : "implementation",
       iteration: 0,
+      pinned: sourceTask === undefined ? false : sourceTask.pinned,
+      packageDisposition: row.packageDisposition,
       createdBy: context.actor,
       completionGateIds: [],
       presetSnapshotDigest: null,
@@ -105,6 +146,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
         workspaceRevision,
         {
           kind: "task",
+          provenance: "imported_snapshot",
           task: migrated,
           originalStatus: row.rawStatus,
           packagePath,
@@ -114,6 +156,107 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       );
     },
   });
+}
+
+export function addOracleTask(context: MigrationImportContext, source: ProjectionOracleTask): boolean {
+  if (context.taskMap.has(source.taskId)) return true;
+  const projected = isMigrationImportRecord(source.snapshot.task) ? source.snapshot.task : null,
+    packagePath = source.packagePath,
+    packageRoot = packagePath === null ? null : path.join(context.sourceLayout.authoredRoot, packagePath),
+    indexPath = packageRoot === null ? null : path.join(packageRoot, "INDEX.md"),
+    sourceBody = indexPath === null ? null : utf8Absolute(indexPath),
+    titleWitness = taskTitleFromPackage(packageRoot, sourceBody, context.sourceLayout.authoredRoot),
+    occurredAt = source.firstEvent?.occurredAt ?? null;
+  if (projected === null || titleWitness === null || occurredAt === null) return false;
+  const targetTaskId = context.mappedIdentifier(
+      "task",
+      source.taskId,
+      context.existingTasks,
+      new Set(context.taskMap.values()),
+    ),
+    status = context.taskStatus(String(projected.status ?? "unknown")),
+    task = {
+      ...projected,
+      schema: "task/v2",
+      taskId: targetTaskId,
+      title: titleWitness.value,
+      status,
+      pinned: projected.pinned === true,
+      packageDisposition: ["active", "archived", "tombstoned"].includes(String(projected.packageDisposition))
+        ? projected.packageDisposition
+        : "active",
+    } as unknown as ImportedTask;
+  if (validateTaskV2(task, true).length) return false;
+  const targetPackage =
+      packagePath !== null && targetTaskId === source.taskId && packagePath.startsWith(`tasks/${targetTaskId}-`)
+        ? packagePath
+        : `tasks/${targetTaskId}-${slugifyTaskTitle(task.title)}`,
+    syntheticEntry: TaskSourceEntry = {
+      taskId: source.taskId,
+      indexPath: indexPath ?? path.join(context.sourceLayout.tasksRoot, source.taskId, "INDEX.md"),
+      body: sourceBody ?? `# ${task.title}\n`,
+      frontmatter: [
+        `task_id: ${source.taskId}`,
+        `title: ${JSON.stringify(task.title)}`,
+        "lifecycle:",
+        `  status: ${status}`,
+        ...(isMigrationImportRecord(task.metadata) && typeof task.metadata.verticalId === "string"
+          ? [`vertical: ${task.metadata.verticalId}`]
+          : []),
+        ...(isMigrationImportRecord(task.metadata) && typeof task.metadata.presetId === "string"
+          ? [`preset: ${task.metadata.presetId}`]
+          : []),
+        ...(isMigrationImportRecord(task.metadata) && typeof task.metadata.profileId === "string"
+          ? [`profile: ${task.metadata.profileId}`]
+          : []),
+      ].join("\n"),
+    },
+    row = taskEntryToRow(context.sourceRoot, syntheticEntry),
+    body = context.taskDocument(
+      task,
+      source.taskId,
+      String(projected.status ?? "unknown"),
+      occurredAt,
+      row,
+      syntheticEntry.body,
+    ),
+    documentClaim = context.claim(`${targetPackage}/INDEX.md`, body, "text/markdown");
+  context.taskMap.set(source.taskId, targetTaskId);
+  context.taskPackages.set(source.taskId, targetPackage);
+  context.taskOccurredAt.set(source.taskId, occurredAt);
+  recordTaskDerivation(
+    context,
+    "task",
+    source.taskId,
+    "entity",
+    `projection:task_snapshot@${context.oracle.watermark}`,
+  );
+  recordTaskDerivation(context, "task", source.taskId, "title", titleWitness.source);
+  recordTaskDerivation(context, "task", source.taskId, "occurredAt", `event:${source.firstEvent!.eventId}`);
+  context.drafts.push({
+    kind: "task",
+    migratedFrom: source.taskId,
+    occurredAt,
+    build: (workspaceRevision: number) =>
+      context.prepare(
+        context.sourceKey,
+        context.actorFor(`task/${source.taskId}`),
+        "task",
+        source.taskId,
+        occurredAt,
+        workspaceRevision,
+        {
+          kind: "task",
+          provenance: "imported_snapshot",
+          task,
+          originalStatus: String(projected.status ?? "unknown"),
+          packagePath: targetPackage,
+          documentClaim,
+        },
+        [context.blob(body, "text/markdown")],
+      ),
+  });
+  return true;
 }
 
 export function importedTaskMetadata(
@@ -175,9 +318,31 @@ export function addTaskPackage(context: MigrationImportContext, entry: TaskSourc
     if (body === null) continue;
     const legacy = /^executions\/[^/]+\.md$/u.test(relative) ? context.decodeLegacyExecution(body, taskId) : null;
     if (relative.startsWith("executions/")) {
-      if (!legacy) continue;
+      if (!legacy) {
+        const original = jsonRecordOrBody(body),
+          declaredId =
+            typeof original.execution_id === "string" && original.execution_id.trim()
+              ? original.execution_id
+              : path.basename(relative, path.extname(relative));
+        if (!(typeof original.execution_id === "string" && original.execution_id.trim()))
+          context.fieldDerivations.push({
+            entityType: "execution",
+            entityId: declaredId,
+            field: "id",
+            derived_from: source.path,
+          });
+        scheduleArchivedEntity(context, {
+          entityKind: "execution",
+          entityId: declaredId,
+          sourcePath: source.path,
+          originalFields: original,
+          occurredAt: context.taskOccurredAt.get(taskId) ?? context.input.now(),
+        });
+        continue;
+      }
       const execution = context.archivedExecution(legacy, mappedTaskId),
         target = `${packagePath}/executions/${execution.executionId}.md`;
+      context.nativeExecutionIds.add(legacy.execution_id);
       context.packageDrafts.push({
         migratedFrom: legacy.execution_id,
         occurredAt: legacy.claimed_at,
@@ -314,5 +479,79 @@ export function addRepoDocuments(context: MigrationImportContext): void {
           [context.blob(body, type), ...referenced],
         ),
     });
+  }
+}
+
+function taskTitleWitness(
+  context: MigrationImportContext,
+  entry: TaskSourceEntry,
+  declared: string,
+): { readonly value: string; readonly source: string; readonly derived: boolean } | null {
+  const cleanDeclared = context.clean(declared).trim();
+  if (cleanDeclared) return { value: cleanDeclared, source: entry.indexPath, derived: false };
+  const fromPackage = taskTitleFromPackage(
+    path.dirname(entry.indexPath),
+    entry.body,
+    context.sourceLayout.authoredRoot,
+  );
+  return fromPackage === null ? null : { ...fromPackage, derived: true };
+}
+
+export function taskTitleFromPackage(
+  packageRoot: string | null,
+  indexBody: string | null,
+  authoredRoot: string,
+): { readonly value: string; readonly source: string } | null {
+  if (packageRoot === null) return null;
+  const planPath = path.join(packageRoot, "task_plan.md"),
+    planTitle = markdownH1(utf8Absolute(planPath));
+  if (planTitle) return { value: planTitle, source: path.relative(authoredRoot, planPath) };
+  const indexPath = path.join(packageRoot, "INDEX.md"),
+    indexTitle = markdownH1(indexBody ?? utf8Absolute(indexPath));
+  return indexTitle ? { value: indexTitle, source: path.relative(authoredRoot, indexPath) } : null;
+}
+
+function markdownH1(body: string | null): string | null {
+  const value = body?.match(/^#\s+(.+?)\s*$/mu)?.[1]?.trim() ?? "";
+  return value || null;
+}
+
+function utf8Absolute(target: string): string | null {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(target));
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+function recordTaskDerivation(
+  context: MigrationImportContext,
+  entityType: "task" | "execution",
+  entityId: string,
+  field: string,
+  derivedFrom: string,
+): void {
+  if (
+    context.fieldDerivations.some(
+      (row) =>
+        row.entityType === entityType &&
+        row.entityId === entityId &&
+        row.field === field &&
+        row.derived_from === derivedFrom,
+    )
+  )
+    return;
+  context.fieldDerivations.push({ entityType, entityId, field, derived_from: derivedFrom });
+  if (entityType === "task") context.derivedIds.task.add(entityId);
+}
+
+function jsonRecordOrBody(body: string): Readonly<Record<string, unknown>> {
+  try {
+    const value: unknown = JSON.parse(body);
+    return isMigrationImportRecord(value) ? value : { rawBody: body };
+  } catch (error) {
+    consumeKnownError(error);
+    return { rawBody: body };
   }
 }

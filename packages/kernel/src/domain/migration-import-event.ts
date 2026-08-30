@@ -18,7 +18,7 @@ import {
   type FactMemoryTag,
   type FactProvenanceRuntime,
 } from "./fact-event.ts";
-import { validateTaskV1, type TaskV1 } from "./task.ts";
+import { validateTaskV2, type TaskV2 } from "./task.ts";
 import {
   freezeDeclaredWritePlan,
   hasOnlyFields,
@@ -72,10 +72,23 @@ export interface MigrationFact {
     readonly boundAt: string;
   }[];
 }
+export const migrationArchivedEntityKinds = ["task", "decision", "fact", "execution"] as const;
+export type MigrationArchivedEntityKind = (typeof migrationArchivedEntityKinds)[number];
+export interface MigrationArchivedEntity {
+  readonly kind: "archived-entity";
+  readonly entityKind: MigrationArchivedEntityKind;
+  readonly entityId: string;
+  readonly disposition: "archived";
+  readonly reason: "truth_gap";
+  readonly provenance: "imported_snapshot";
+  readonly sourcePath: string;
+  readonly originalFields: Readonly<Record<string, unknown>>;
+}
 export type MigrationEntity =
   | {
       readonly kind: "task";
-      readonly task: TaskV1;
+      readonly provenance: "imported_snapshot";
+      readonly task: TaskV2;
       readonly originalStatus: string;
       readonly packagePath: string;
       readonly documentClaim: MigrationDocumentClaim;
@@ -99,7 +112,13 @@ export type MigrationEntity =
       readonly referencedContentClaims: readonly MigrationReferencedContentClaim[];
       readonly destinationPreimage?: MigrationDestinationPreimage;
     }
-  | { readonly kind: "relation"; readonly relation: EntityRelationRecord; readonly ownerRef: string }
+  | {
+      readonly kind: "relation";
+      readonly relation: EntityRelationRecord;
+      readonly ownerRef: string;
+      readonly retirementReason?: "truth_gap";
+    }
+  | MigrationArchivedEntity
   | { readonly kind: "id-map"; readonly importId: string; readonly documentClaim: MigrationDocumentClaim };
 export type MigrationImportEventV1 = EventEnvelope<
   "migration-import-event/v1",
@@ -161,6 +180,8 @@ function validateMigrationImportEventFields(value: unknown, allowUnknownFields: 
     return validRepoDocumentEntity(entity, allowUnknownFields) ? [] : ["migration repo document entity is invalid"];
   if (entity.kind === "relation")
     return validRelationEntity(entity, allowUnknownFields) ? [] : ["migration relation entity is invalid"];
+  if (entity.kind === "archived-entity")
+    return validArchivedEntity(entity, allowUnknownFields) ? [] : ["migration archived entity is invalid"];
   return entity.kind === "id-map" &&
     matchesMigrationFields(entity, ["kind", "importId", "documentClaim"], allowUnknownFields) &&
     isNonEmptyString(entity.importId) &&
@@ -212,13 +233,14 @@ function validTaskEntity(value: Readonly<Record<string, unknown>>, allowUnknownF
   return (
     matchesMigrationFields(
       value,
-      ["kind", "task", "originalStatus", "packagePath", "documentClaim"],
+      ["kind", "provenance", "task", "originalStatus", "packagePath", "documentClaim"],
       allowUnknownFields,
     ) &&
-    validateTaskV1(value.task, allowUnknownFields).length === 0 &&
+    value.provenance === "imported_snapshot" &&
+    validateTaskV2(value.task, allowUnknownFields).length === 0 &&
     isNonEmptyString(value.originalStatus) &&
     typeof value.packagePath === "string" &&
-    value.packagePath.startsWith(`tasks/${(value.task as TaskV1).taskId}-`) &&
+    value.packagePath.startsWith(`tasks/${(value.task as TaskV2).taskId}-`) &&
     validMigrationClaim(value.documentClaim, "text/markdown", allowUnknownFields) &&
     (value.documentClaim as MigrationDocumentClaim).path === `${value.packagePath}/INDEX.md`
   );
@@ -335,10 +357,17 @@ function validRepoDocumentEntity(value: Readonly<Record<string, unknown>>, allow
   );
 }
 function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
+  const fields = [
+    "kind",
+    "relation",
+    "ownerRef",
+    ...(value.retirementReason === undefined ? [] : ["retirementReason"]),
+  ];
   if (
-    !matchesMigrationFields(value, ["kind", "relation", "ownerRef"], allowUnknownFields) ||
+    !matchesMigrationFields(value, fields, allowUnknownFields) ||
     !isRecord(value.relation) ||
-    !isNonEmptyString(value.ownerRef)
+    !isNonEmptyString(value.ownerRef) ||
+    (value.retirementReason !== undefined && value.retirementReason !== "truth_gap")
   )
     return false;
   const relation = value.relation;
@@ -357,6 +386,22 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
     (relationOrigins as readonly unknown[]).includes(relation.origin) &&
     (relationStates as readonly unknown[]).includes(relation.state) &&
     isNonEmptyString(relation.rationale)
+  );
+}
+function validArchivedEntity(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
+  return (
+    matchesMigrationFields(
+      value,
+      ["kind", "entityKind", "entityId", "disposition", "reason", "provenance", "sourcePath", "originalFields"],
+      allowUnknownFields,
+    ) &&
+    (migrationArchivedEntityKinds as readonly unknown[]).includes(value.entityKind) &&
+    isNonEmptyString(value.entityId) &&
+    value.disposition === "archived" &&
+    value.reason === "truth_gap" &&
+    value.provenance === "imported_snapshot" &&
+    isNonEmptyString(value.sourcePath) &&
+    isRecord(value.originalFields)
   );
 }
 function validMigrationClaim(

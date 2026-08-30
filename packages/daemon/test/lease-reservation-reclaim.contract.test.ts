@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV1 } from "../../kernel/src/index.ts";
+import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "../../kernel/src/index.ts";
 import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
 import { taskMutation } from "../src/repo-cell-task-command.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -14,8 +14,8 @@ const owner = (executorId: string): ActorIdentity => ({
   principal: { personId: "person-owner" },
   executor: { kind: "agent", id: executorId },
 });
-const task: TaskV1 = {
-  schema: "task/v1",
+const task: TaskV2 = {
+  schema: "task/v2",
   taskId: "task-orphaned-reservation",
   title: "Orphaned reservation",
   taskClass: "standard",
@@ -26,6 +26,7 @@ const task: TaskV1 = {
   createdBy: owner("creator"),
   completionGateIds: [],
   presetSnapshotDigest: null,
+  pinned: false,
 };
 const lease: LeaseV1 = {
   schema: "lease/v1",

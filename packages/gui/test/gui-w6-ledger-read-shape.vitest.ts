@@ -22,12 +22,19 @@ const LEDGER_ROWS = 1_538; // canonical 2026-08-24 的实际台账规模
 function projectionRow(index: number): TaskListSuccess["rows"][number] {
   const taskId = `task_${String(index).padStart(6, "0")}`;
   return {
-    taskId, createdAt: null, updatedAt: "2026-08-24T00:00:00.000Z", generation: "v1",
-    snapshot: { task: { schema: "task/v1", taskId, title: `Task ${index}` } }
+    taskId,
+    createdAt: null,
+    updatedAt: "2026-08-24T00:00:00.000Z",
+    generation: "v1",
+    snapshot: { task: { schema: "task/v2", taskId, title: `Task ${index}`, pinned: false } },
   } as unknown as TaskListSuccess["rows"][number];
 }
 
-interface LedgerCall { readonly cursor: string | null; readonly changedAfterRevision: number | null; readonly rows: number }
+interface LedgerCall {
+  readonly cursor: string | null;
+  readonly changedAfterRevision: number | null;
+  readonly rows: number;
+}
 
 /**
  * daemon 分页语义的忠实替身:keyset 按不可变主键 task_id 升序
@@ -39,21 +46,39 @@ function installFakeLedger(size = LEDGER_ROWS) {
   const revisionOf = new Map(rows.map((row) => [row.taskId, 1_000]));
   const state = { watermark: 1_000, sourceRevision: 1_000, status: "ready" as "ready" | "pending" };
   const calls: LedgerCall[] = [];
-  const getTasks = vi.fn(async (payload: { readonly limit?: number; readonly cursor?: string; readonly changedAfterRevision?: number }) => {
-    const limit = payload.limit ?? 100, after = payload.cursor ?? null;
-    const eligible = rows.filter((row) => (after === null || row.taskId > after)
-      && (payload.changedAfterRevision === undefined || revisionOf.get(row.taskId)! > payload.changedAfterRevision));
-    const visible = eligible.slice(0, limit), last = visible.at(-1);
-    calls.push({ cursor: after, changedAfterRevision: payload.changedAfterRevision ?? null, rows: visible.length });
-    return {
-      ok: true, status: state.status, rows: visible, watermark: state.watermark, sourceRevision: state.sourceRevision,
-      warnings: [], page: { limit, cursor: after, nextCursor: eligible.length > limit && last ? last.taskId : null }
-    };
-  });
+  const getTasks = vi.fn(
+    async (payload: { readonly limit?: number; readonly cursor?: string; readonly changedAfterRevision?: number }) => {
+      const limit = payload.limit ?? 100,
+        after = payload.cursor ?? null;
+      const eligible = rows.filter(
+        (row) =>
+          (after === null || row.taskId > after) &&
+          (payload.changedAfterRevision === undefined || revisionOf.get(row.taskId)! > payload.changedAfterRevision),
+      );
+      const visible = eligible.slice(0, limit),
+        last = visible.at(-1);
+      calls.push({ cursor: after, changedAfterRevision: payload.changedAfterRevision ?? null, rows: visible.length });
+      return {
+        ok: true,
+        status: state.status,
+        rows: visible,
+        watermark: state.watermark,
+        sourceRevision: state.sourceRevision,
+        warnings: [],
+        page: { limit, cursor: after, nextCursor: eligible.length > limit && last ? last.taskId : null },
+      };
+    },
+  );
   Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
   return {
-    calls, state, rows,
-    touch(index: number) { state.watermark += 1; state.sourceRevision = state.watermark; revisionOf.set(rows[index]!.taskId, state.watermark); }
+    calls,
+    state,
+    rows,
+    touch(index: number) {
+      state.watermark += 1;
+      state.sourceRevision = state.watermark;
+      revisionOf.set(rows[index]!.taskId, state.watermark);
+    },
   };
 }
 
@@ -135,10 +160,14 @@ describe("W6 Goal 第二项:cursor/limit 读面不得被消费成「拉完为止
 
   it("台账规模下的读数(改前/改后同一条件的实测)", async () => {
     const ledger = installFakeLedger();
-    let cut = (await refresh(ledger)).cut, refreshes = 1, hydrationRequests = ledger.calls.length;
+    let cut = (await refresh(ledger)).cut,
+      refreshes = 1,
+      hydrationRequests = ledger.calls.length;
     while (cut.page?.nextCursor) {
       const step = await refresh(ledger, cut);
-      cut = step.cut; refreshes += 1; hydrationRequests += step.requests;
+      cut = step.cut;
+      refreshes += 1;
+      hydrationRequests += step.requests;
     }
     const worstPerRefresh = Math.max(...ledger.calls.map(() => 1), hydrationRequests / refreshes);
     ledger.touch(11);
@@ -150,7 +179,7 @@ describe("W6 Goal 第二项:cursor/limit 读面不得被消费成「拉完为止
       `refreshesToComplete=${refreshes}`,
       `maxRequestsPerRefresh=${worstPerRefresh}`,
       `steadyStateRequests=${steady.requests}`,
-      `rowsPulledDuringHydration=${rowsPulled}`
+      `rowsPulledDuringHydration=${rowsPulled}`,
     ].join(" ");
     process.stdout.write(`[W6-MEASURE] ${measurement}\n`);
     expect(worstPerRefresh).toBe(1);

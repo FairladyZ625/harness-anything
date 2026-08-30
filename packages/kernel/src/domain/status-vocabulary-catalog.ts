@@ -65,7 +65,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "replayTaskStatuses",
     words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
     subsetOf: "task.status",
-    note: "Task/v1 wire validator set; same words, same meanings.",
+    note: "Task/v2 wire validator set; same words, same meanings.",
   },
   {
     id: "decision.state",

@@ -183,20 +183,13 @@ export function task(value: unknown): boolean {
       "createdBy",
       "completionGateIds",
       "presetSnapshotDigest",
-    ],
-    optional = [
-      "provenance",
       "pinned",
-      "metadata",
-      "relations",
-      "packageDisposition",
-      "supersededBy",
-      "contractVersion",
-    ];
+    ],
+    optional = ["provenance", "metadata", "relations", "packageDisposition", "supersededBy", "contractVersion"];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
-    value.schema === "task/v1" &&
+    value.schema === "task/v2" &&
     [value.taskId, value.title].every(nonEmpty) &&
     ["standard", "milestone", "epic", "long_running"].includes(String(value.taskClass)) &&
     statusWord(taskStatusWords, value.status) &&
@@ -207,7 +200,7 @@ export function task(value: unknown): boolean {
     (value.presetSnapshotDigest === null || digest(value.presetSnapshotDigest)) &&
     (value.provenance === undefined ||
       (Array.isArray(value.provenance) && value.provenance.length > 0 && value.provenance.every(sessionProvenance))) &&
-    (value.pinned === undefined || typeof value.pinned === "boolean") &&
+    typeof value.pinned === "boolean" &&
     isJsonObject(value.graph) &&
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&
     (value.relations === undefined ||

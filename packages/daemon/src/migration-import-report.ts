@@ -7,9 +7,15 @@ import type {
   EntityKind,
   IdRemapping,
   ImportCounts,
+  MigrationDisposition,
+  MigrationFieldDerivation,
+  MigrationKindReconciliation,
+  MigrationOracleBasis,
   Skip,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
+import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-oracle.ts";
+import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
 
 export function isMigrationImportRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -27,10 +33,6 @@ export function hasNonEmptyMigrationStrings(value: unknown): boolean {
   return Array.isArray(value) && value.every(nonEmpty);
 }
 
-export function zeroCounts(): ImportCounts {
-  return { task: 0, decision: 0, fact: 0, relation: 0, coverage: 0 };
-}
-
 export function skippedCounts(skips: readonly Skip[]): ImportCounts {
   return {
     task: count(skips, "task"),
@@ -41,12 +43,6 @@ export function skippedCounts(skips: readonly Skip[]): ImportCounts {
   };
 }
 
-export function subtract(old: ImportCounts, skipped: ImportCounts): ImportCounts {
-  return Object.fromEntries(
-    (Object.keys(old) as EntityKind[]).map((kind) => [kind, old[kind] - skipped[kind]]),
-  ) as unknown as ImportCounts;
-}
-
 export function reportTable(
   dryRun: boolean,
   old: ImportCounts,
@@ -55,12 +51,17 @@ export function reportTable(
   actual: ImportCounts,
   skips: readonly Skip[],
   idMapPath: string,
-  unexplained: readonly EntityKind[],
+  unexplained: readonly MigrationOracleKind[],
   authored: AuthoredCoverage,
   attribution: { readonly restored: number; readonly fallback: number },
   sourceGit: SourceGitIdentity,
   remappings: readonly IdRemapping[],
   alreadyImported: ImportCounts,
+  taskRestatement: TaskContractRestatementCounts,
+  oracle: MigrationOracleBasis,
+  setReconciliation: Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>>,
+  fieldDerivations: readonly MigrationFieldDerivation[],
+  dispositions: readonly MigrationDisposition[],
 ): string {
   const rows = (Object.keys(old) as EntityKind[]).map((kind) =>
       [
@@ -101,22 +102,66 @@ export function reportTable(
       .filter(([, count]) => count > 0)
       .map(([kind, count]) => `${kind}=${count}`)
       .join(", "),
-    reconciliation =
-      unexplained.length || !authored.passed
-        ? `FAIL (${[...unexplained, ...(!authored.passed ? ["authored"] : [])].join(", ")})`
-        : "PASS";
+    reconciliation = unexplained.length ? `FAIL (${unexplained.join(", ")})` : "PASS",
+    oracleRows = migrationOracleKinds.map((kind) => {
+      const row = setReconciliation[kind];
+      return [
+        `| ${kind} | ${row.source} | ${row.target} | ${row.difference}`,
+        `| ${row.derived} | ${row.archived} | ${row.retired}`,
+        `| ${row.passed ? "PASS" : "FAIL"} |`,
+      ].join(" ");
+    }),
+    sampleRows = migrationOracleKinds.flatMap((kind) => [
+      ...fieldDerivations
+        .filter(({ entityType }) => entityType === kind)
+        .slice(0, 20)
+        .map(({ entityId, field, derived_from }) => `- SAMPLE derived ${kind} ${entityId}.${field} <- ${derived_from}`),
+      ...dispositions
+        .filter(({ entityType }) => entityType === kind)
+        .slice(0, 20)
+        .map(
+          ({ entityId, disposition, sourcePath, reason }) =>
+            `- SAMPLE ${disposition} ${kind} ${entityId} (${sourcePath}): ${reason}`,
+        ),
+    ]);
   return [
     `Migration import ${dryRun ? "dry-run" : "apply"}`,
     `Source Git: root=${sourceGit.rootCommit}, head=${sourceGit.head}, tree=${sourceGit.tree}, clean=true`,
+    [
+      `Oracle: ${oracle.kind}, database=${oracle.databasePath}, watermark=${oracle.watermark}`,
+      `eventHeadRevision=${oracle.eventHeadRevision ?? "absent"}`,
+    ].join(", "),
     "",
-    "| Entity | Old | Skipped | Expected | New | Result |",
+    "| Entity | Oracle | Observed skips | Expected | Target included | Result |",
     "| --- | ---: | ---: | ---: | ---: | --- |",
     ...rows,
+    "Skipped observations are diagnostic only; they are not subtracted from the same-cut oracle.",
+    "",
+    "| Kind | Source active | Target included | Difference | Derived | Archived | Retired | Result |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ...oracleRows,
+    ...sampleRows,
+    "",
+    "| Contract restatement | Source | Target | Pinned preserved | Pinned explicit false | Provenance |",
+    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    [
+      "| Task/v1 -> Task/v2 | ",
+      `${taskRestatement.sourceV1}`,
+      " | ",
+      `${taskRestatement.targetV2}`,
+      " | ",
+      `${taskRestatement.pinnedPreserved}`,
+      " | ",
+      `${taskRestatement.pinnedExplicitFalse}`,
+      " | ",
+      `${taskRestatement.importedSnapshot}`,
+      " imported_snapshot |",
+    ].join(""),
     "",
     `Already imported from this Git lineage: ${already || "none"}`,
     `ID remappings: ${remappings.length ? remappings.length : "none"}`,
     ...remappings.map((item) => `- REMAP ${item.entityType} ${item.sourceId} -> ${item.targetId}: ${item.reason}`),
-    `Format validation: ${skips.length ? `${skips.length} skipped` : "PASS"}`,
+    `Format observations: ${skips.length ? `${skips.length} legacy parser observations` : "none"}`,
     [
       "Attribution: principal restored from source records for ",
       `${attribution.restored}`,
@@ -132,7 +177,10 @@ export function reportTable(
     "| --- | --- | ---: | --- | --- |",
     ...authoredRows,
     ...requiredRows,
-    `Authored reconciliation: ${authored.passed ? "PASS" : `FAIL (required=${authored.counts.required})`}`,
+    [
+      "Authored directory audit (informational): ",
+      authored.passed ? "complete" : `required=${authored.counts.required}`,
+    ].join(""),
     `ID map: ${dryRun || !authored.passed ? `would write ${idMapPath}` : idMapPath}`,
     ["Reconciliation: ", reconciliation, ""].join(""),
   ].join("\n");

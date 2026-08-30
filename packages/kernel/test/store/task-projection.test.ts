@@ -573,6 +573,51 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
   });
 });
 
+test("migration truth-gap archives remain queryable after a cold projection rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "migration-archive", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      migration: MigrationImportEventV1 = {
+        schema: "migration-import-event/v1",
+        eventId: "event-migration-archive",
+        workspaceRevision: 1,
+        opId: "op-migration-archive",
+        type: "entity_migrated",
+        actor: { principal: { personId: "person-1" }, executor: null },
+        source: MIGRATION_IMPORT_SOURCE,
+        occurredAt: "2026-08-11T00:00:00.000Z",
+        payload: {
+          migratedFrom: "execution/legacy:id",
+          generation: "v0",
+          entity: {
+            kind: "archived-entity",
+            entityKind: "execution",
+            entityId: "legacy:id",
+            disposition: "archived",
+            reason: "truth_gap",
+            provenance: "imported_snapshot",
+            sourcePath: "tasks/task-1/executions/legacy:id.json",
+            originalFields: { schema: "execution/legacy", opaque: true },
+          },
+        },
+      };
+    eventStore.append({ event: migration, plan: migrationImportWritePlan(migration), blobs: [] });
+    projection.apply(migration, migrationImportWritePlan(migration));
+    projection.close();
+    projection.rebuild();
+    projection.close();
+    const db = new DatabaseSync(projection.path, { readOnly: true }),
+      row = db
+        .prepare("SELECT entity_id, workspace_revision, row_json FROM archived_entity WHERE entity_kind = ?")
+        .get("execution") as { entity_id: string; workspace_revision: number; row_json: string };
+    db.close();
+    assert.equal(row.entity_id, "legacy:id");
+    assert.equal(row.workspace_revision, 1);
+    assert.deepEqual(JSON.parse(row.row_json), migration.payload.entity);
+  });
+});
+
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -639,9 +684,9 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
     const db = new DatabaseSync(projection.path);
-    db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run();
+    assert.throws(() => db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run(), /malformed JSON/u);
     db.close();
-    assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
+    assert.equal(projection.read("task-1").snapshot.task?.title, "Fixture");
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
   });

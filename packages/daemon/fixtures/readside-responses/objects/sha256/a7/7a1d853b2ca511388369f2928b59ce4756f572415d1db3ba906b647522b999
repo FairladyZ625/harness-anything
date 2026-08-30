@@ -1,0 +1,58 @@
+---
+schema: task-package/v2
+task_id: task_62eb49f177c35bd599b0d128a9
+title: "W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核"
+lifecycle:
+  status: done
+  engine: migration-import/v1
+bindingCreatedAt: 2026-08-19T02:11:35.536Z
+generation: v0
+migratedFrom: task_62eb49f177c35bd599b0d128a9
+originalStatus: done
+vertical: software/coding
+preset: standard-task
+profile: baseline
+---
+
+# W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核
+
+Preset: standard-task/baseline
+
+## Documents
+
+- `INDEX.md` — machine
+- `task-contract.json` — machine
+- `task_plan.md` — doc-sync
+- `facts.md` — machine
+- `closeout.md` — doc-sync
+- `artifacts/.gitkeep` — doc-sync
+
+## Next
+
+Task complete.
+
+## Gate Checks
+
+- ci: pass
+- code-doc-reconciliation: pass
+
+## Migrated source frontmatter
+
+````yaml
+schema: task-package/v2
+task_id: task_62eb49f177c35bd599b0d128a9
+title: "W6c 销账死锁:worker 自 start 的 execution executor 为 null 且不可补,单 person 环境无人可复核"
+lifecycle:
+  engine: kernel/task-lifecycle/v1
+  status: done
+bindingCreatedAt: 2026-08-19T02:11:35.536Z
+packageDisposition: active
+workKind: fix
+riskTier: high
+urgency: high
+vertical: software/coding
+preset: standard-task
+profile: baseline
+packagePath: tasks/task_62eb49f177c35bd599b0d128a9-w6c-worker-start-execution-executor-null-person
+owner: machine
+````

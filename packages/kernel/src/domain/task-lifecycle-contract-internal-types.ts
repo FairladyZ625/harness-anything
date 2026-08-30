@@ -5,8 +5,8 @@ import type { ReviewConsentV1, ReviewV1, ReviewVerdict } from "./review.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
-import { TASK_V1_SCHEMA } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue, TaskClass, TaskV1 } from "./task.ts";
+import { TASK_V2_SCHEMA } from "./task.ts";
+import type { ActorAxes, ContractValidationIssue, TaskClass, TaskV2 } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
 import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
@@ -17,7 +17,7 @@ import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
   readonly revision: number;
-  readonly task: TaskV1 | null;
+  readonly task: TaskV2 | null;
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
@@ -29,7 +29,7 @@ export interface TaskLifecycleSnapshot {
 }
 export const TASK_LIFECYCLE_SCHEMA = Object.freeze({
   id: "task-lifecycle/v1",
-  task: TASK_V1_SCHEMA,
+  task: TASK_V2_SCHEMA,
   execution: EXECUTION_V1_SCHEMA,
   lease: LEASE_V1_SCHEMA,
   review: REVIEW_V1_SCHEMA,
