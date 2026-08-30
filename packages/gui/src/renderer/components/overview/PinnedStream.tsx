@@ -13,6 +13,16 @@ export interface PinnedAgendaItem {
   readonly updatedAt: string;
 }
 
+const PINNED_ROW_CLASS_NAME = [
+  "flex items-center gap-2 rounded-md border border-border bg-accent-fg/40 px-2 py-1",
+  "[contain-intrinsic-size:auto_1.75rem] [content-visibility:auto] hover:border-accent/60",
+].join(" ");
+
+const PIN_TOGGLE_CLASS_NAME = [
+  "inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[13px]",
+  "text-accent hover:bg-surface",
+].join(" ");
+
 /**
  * `repo.agenda.read` 的 pinned-first 四组收拢为一个 task 集。active task 可能同时
  * 出现在「在飞」和「球在别人手里」,所以 taskId 去重;待复核 execution 还原为
@@ -82,10 +92,7 @@ export function PinnedStream({
       </p>
       <StreamBody testId="pinned-stream-rows">
         {rows.map((task) => (
-          <div
-            key={task.taskId}
-            className="flex items-center gap-2 rounded-md border border-border bg-accent-fg/40 px-2 py-1 [contain-intrinsic-size:auto_1.75rem] [content-visibility:auto] hover:border-accent/60"
-          >
+          <div key={task.taskId} className={PINNED_ROW_CLASS_NAME}>
             <button
               type="button"
               onClick={() => onOpenPreview(task.taskId)}
@@ -108,7 +115,7 @@ export function PinnedStream({
                 onClick={() => onSetPin(task, false)}
                 aria-pressed="true"
                 title={t("views.overviewView.unpinTitle")}
-                className="inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[13px] text-accent hover:bg-surface"
+                className={PIN_TOGGLE_CLASS_NAME}
               >
                 <PushPin weight="fill" />
               </button>
