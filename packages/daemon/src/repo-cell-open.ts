@@ -181,7 +181,7 @@ async function openLockedRepoCell(
   });
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (runtimeSessionId) => {
-      projection.list();
+      projection.readTaskStatuses([]);
       return projection.readRuntimeSession(runtimeSessionId);
     },
     canAttach: (session) =>
