@@ -44,7 +44,7 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
   if (row.parentTaskId && !context.oracle.tasks.has(row.parentTaskId)) {
     if (projectedParent !== null && context.oracle.tasks.has(projectedParent)) {
       row = { ...row, parentTaskId: projectedParent };
-      recordDerivation(
+      recordTaskDerivation(
         context,
         "task",
         taskId,
@@ -69,9 +69,9 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       context.timestamp(readScalar(entry.frontmatter, "createdAt")),
     eventWitness = context.oracle.tasks.get(taskId)?.firstEvent ?? null,
     occurredAt = sourceOccurredAt ?? eventWitness?.occurredAt ?? null;
-  if (titleWitness?.derived === true) recordDerivation(context, "task", taskId, "title", titleWitness.source);
+  if (titleWitness?.derived === true) recordTaskDerivation(context, "task", taskId, "title", titleWitness.source);
   if (sourceOccurredAt === null && eventWitness !== null)
-    recordDerivation(context, "task", taskId, "occurredAt", `event:${eventWitness.eventId}`);
+    recordTaskDerivation(context, "task", taskId, "occurredAt", `event:${eventWitness.eventId}`);
   if (!title || !occurredAt) {
     context.skips.push({
       entityType: "task",
@@ -224,9 +224,9 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
   context.taskMap.set(source.taskId, targetTaskId);
   context.taskPackages.set(source.taskId, targetPackage);
   context.taskOccurredAt.set(source.taskId, occurredAt);
-  recordDerivation(context, "task", source.taskId, "entity", `projection:task_snapshot@${context.oracle.watermark}`);
-  recordDerivation(context, "task", source.taskId, "title", titleWitness.source);
-  recordDerivation(context, "task", source.taskId, "occurredAt", `event:${source.firstEvent!.eventId}`);
+  recordTaskDerivation(context, "task", source.taskId, "entity", `projection:task_snapshot@${context.oracle.watermark}`);
+  recordTaskDerivation(context, "task", source.taskId, "title", titleWitness.source);
+  recordTaskDerivation(context, "task", source.taskId, "occurredAt", `event:${source.firstEvent!.eventId}`);
   context.drafts.push({
     kind: "task",
     migratedFrom: source.taskId,
@@ -519,7 +519,7 @@ function utf8Absolute(target: string): string | null {
   }
 }
 
-function recordDerivation(
+function recordTaskDerivation(
   context: MigrationImportContext,
   entityType: "task" | "execution",
   entityId: string,

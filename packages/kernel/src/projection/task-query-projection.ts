@@ -4,7 +4,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { ReplayTaskStatus, TaskV2 } from "../domain/task.ts";
+import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
@@ -88,6 +88,7 @@ export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectio
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }
     if (task === null) return [];
+    if (validateTaskV2(task, true).length) throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     return [
       {
         taskId: row.task_id,

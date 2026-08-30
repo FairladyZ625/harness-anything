@@ -95,7 +95,12 @@ export function restateLegacyTaskEvents(
     if (snapshot.createsIdentity) created.add(snapshot.taskId);
     const pinnedWasPresent = Object.hasOwn(snapshot.task, "pinned"),
       pinned = pinnedWasPresent ? snapshot.task.pinned : false,
-      restated = { ...snapshot.task, schema: "task/v2", pinned };
+      restated = {
+        ...snapshot.task,
+        schema: "task/v2",
+        pinned,
+        packageDisposition: snapshot.task.packageDisposition ?? "active",
+      };
     const issues = validateTaskV2(restated, true);
     if (issues.length)
       throw new Error(

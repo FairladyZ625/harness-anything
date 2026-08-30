@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   makeTaskEventStore,
-  readRelationGraphProjection,
+  makeTaskProjection,
   readTaskProjection,
   rebuildTaskProjection,
 } from "../../kernel/src/index.ts";
@@ -126,9 +126,12 @@ test("task create publishes complete metadata and initial relations that survive
     const row = readTaskProjection({ rootDir }).rows.find(
         (candidate) => candidate.taskId === "task_surface",
       ),
-      edge = readRelationGraphProjection({ rootDir }).edges.find(
-        (candidate) => candidate.sourceRef === "task/task_surface",
-      );
+      replay = makeTaskProjection({
+        rootDir,
+        eventStore: makeTaskEventStore({ repoId: "task-surface", rootDir }),
+      }),
+      edge = replay.readRelationQuery({}).rows.find((candidate) => candidate.sourceRef === "task/task_surface");
+    replay.close();
     assert.equal(row?.parentTaskId, "task_dependency");
     assert.equal(row?.moduleKey, "kernel");
     assert.equal(row?.riskTier, "high");
@@ -475,11 +478,16 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     const rows = readTaskProjection({ rootDir }).rows,
       lifecycle = rows.find((row) => row.taskId === "task_lifecycle"),
       replacement = rows.find((row) => row.taskId === "task_replacement"),
-      edge = readRelationGraphProjection({ rootDir }).edges.find(
+      replay = makeTaskProjection({
+        rootDir,
+        eventStore: makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir }),
+      }),
+      edge = replay.readRelationQuery({}).rows.find(
         (row) =>
           row.sourceRef === "task/task_lifecycle" &&
           row.targetRef === "task/task_replacement",
       );
+    replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
     assert.equal(lifecycle?.riskTier, "high");
     assert.equal(lifecycle?.moduleKey, "daemon");

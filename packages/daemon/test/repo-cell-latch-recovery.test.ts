@@ -90,8 +90,10 @@ test("projection rebuild is executable from a projection latch and settles it", 
           }
         ).snapshot_json,
       );
+    const corrupted = JSON.parse(original) as { task: { schema: string } };
+    corrupted.task.schema = "task/broken";
     db.prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?").run(
-      "{broken",
+      JSON.stringify(corrupted),
       "task_projection_rebuild",
     );
     db.close();
@@ -112,10 +114,11 @@ test("projection rebuild is executable from a projection latch and settles it", 
     assert.equal(cell.status().state, "attached");
     await cell.close();
     cell = undefined;
-    const repaired = new DatabaseSync(cache);
-    repaired
-      .prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?")
-      .run(original, "task_projection_rebuild");
+    const repaired = new DatabaseSync(cache),
+      rebuiltSnapshot = repaired
+        .prepare("SELECT snapshot_json FROM task_snapshot WHERE task_id = ?")
+        .get("task_projection_rebuild") as { readonly snapshot_json: string };
+    assert.equal(rebuiltSnapshot.snapshot_json, original);
     repaired.close();
     cell = await openRepoCell({
       repoId: workspaceId("latch-projection-rebuild"),

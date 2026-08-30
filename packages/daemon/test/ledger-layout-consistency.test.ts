@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
-  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   serializeEventHead,
   sha256Text,
   type TaskEventV1,
@@ -101,7 +101,7 @@ test("a mixed ledger is repaired by ha migrate ledger, replays idempotently, and
     );
     assert.equal(
       show(rootDir, `HEAD:harness/${shardedEventRelativePath(shardedEvent.opId)}`),
-      serializeCanonicalEvent(shardedEvent).trimEnd(),
+      serializePersistedCanonicalEvent(shardedEvent).trimEnd(),
     );
     const repeated = (await cell.run({ kind: "ledger-migrate" }, { actor, source: "local" })) as Record<
       string,
@@ -178,7 +178,7 @@ function flatTaskEvent(revision: number, taskId: string): TaskEventV1 {
     occurredAt: "2026-08-18T00:00:00.000Z",
     payload: {
       task: {
-        schema: "task/v2",
+        schema: "task/v1",
         taskId,
         title: `Flat task ${revision}`,
         taskClass: "standard",
@@ -189,7 +189,6 @@ function flatTaskEvent(revision: number, taskId: string): TaskEventV1 {
         createdBy: actor,
         completionGateIds: [],
         presetSnapshotDigest: null,
-        pinned: false,
       },
     },
   } as TaskEventV1;
@@ -207,7 +206,7 @@ function initFlatLedger(rootDir: string, events: readonly TaskEventV1[]): void {
   const eventsRoot = path.join(rootDir, "harness/events");
   mkdirSync(eventsRoot, { recursive: true });
   for (const value of events)
-    writeFileSync(path.join(eventsRoot, `${value.opId}.json`), serializeCanonicalEvent(value));
+    writeFileSync(path.join(eventsRoot, `${value.opId}.json`), serializePersistedCanonicalEvent(value));
   writeHead(rootDir, events);
 }
 function initMixedLedger(rootDir: string, flatEvents: readonly TaskEventV1[], shardedEvent: TaskEventV1): void {
@@ -217,10 +216,10 @@ function initMixedLedger(rootDir: string, flatEvents: readonly TaskEventV1[], sh
   mkdirSync(eventsRoot, { recursive: true });
   mkdirSync(objectsRoot, { recursive: true });
   for (const value of flatEvents)
-    writeFileSync(path.join(eventsRoot, `${value.opId}.json`), serializeCanonicalEvent(value));
+    writeFileSync(path.join(eventsRoot, `${value.opId}.json`), serializePersistedCanonicalEvent(value));
   const shardedPath = path.join(rootDir, "harness", shardedEventRelativePath(shardedEvent.opId));
   mkdirSync(path.dirname(shardedPath), { recursive: true });
-  writeFileSync(shardedPath, serializeCanonicalEvent(shardedEvent));
+  writeFileSync(shardedPath, serializePersistedCanonicalEvent(shardedEvent));
   const twinBody = "mixed drill blob\n",
     twinHash = sha256Text(twinBody);
   writeFileSync(path.join(objectsRoot, twinHash), twinBody);
@@ -236,7 +235,7 @@ function writeHead(rootDir: string, events: readonly TaskEventV1[]): void {
     serializeEventHead({
       revision: last.workspaceRevision,
       opId: last.opId,
-      eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(last))}`,
+      eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(last))}`,
     }),
   );
   run(rootDir, "add", "harness");

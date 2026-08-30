@@ -244,7 +244,7 @@ export type {
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export { buildColdCoverage, readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
+export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export type {
   ColdDecisionProjectionRow,
   ColdRebuildIssue,

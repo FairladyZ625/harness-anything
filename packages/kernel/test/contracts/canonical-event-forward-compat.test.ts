@@ -6,6 +6,7 @@ import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   canonicalEventSchemas,
+  normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../../src/domain/doc-sync.contract.ts";
@@ -49,6 +50,22 @@ test("Task/v2 readers ignore a field that current writers do not know", () => {
 
   assert.deepEqual(parseCanonicalEvent(bytes), future);
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /unknown/u);
+});
+
+test("cold replay restates immutable Task/v1 payloads as explicit Task/v2 state", () => {
+  const persisted = structuredClone(taskCreated) as unknown as Record<string, unknown>,
+    payload = persisted.payload as Record<string, unknown>,
+    task = payload.task as Record<string, unknown>;
+  task.schema = "task/v1";
+  delete task.pinned;
+  delete task.packageDisposition;
+  const normalized = normalizePersistedCanonicalEvent(persisted as never) as unknown as typeof taskCreated & {
+    readonly payload: { readonly task: { readonly packageDisposition: string } };
+  };
+
+  assert.equal(normalized.payload.task.schema, "task/v2");
+  assert.equal(normalized.payload.task.pinned, false);
+  assert.equal(normalized.payload.task.packageDisposition, "active");
 });
 
 test("semantic actor and source equality ignores additions but not known-axis changes", () => {

@@ -273,7 +273,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
         { actor, source: "local" },
       )) as Record<string, unknown>;
     assert.equal(repeated.exitCode, 0, JSON.stringify(repeated));
-    assert.equal(repeated.revision, revision);
+    assert.equal(repeated.revision, revision, JSON.stringify(repeated));
     assert.match(
       String(repeated.summary),
       /Already imported from this Git lineage: task=1, decision=1, fact=1, relation=2/u,

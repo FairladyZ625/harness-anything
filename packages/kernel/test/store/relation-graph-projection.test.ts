@@ -7,9 +7,9 @@ import test from "node:test";
 import {
   checkTaskProjection,
   readLegacyMigrationSource,
-  readRelationGraphProjection,
   rebuildTaskProjection,
 } from "../../src/index.ts";
+import { readRelationGraphProjection } from "../../src/projection/sqlite-task-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
 import {

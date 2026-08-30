@@ -152,16 +152,26 @@ export function parseCanonicalEvent(body: string): CanonicalEventV1 {
 }
 
 export function normalizePersistedCanonicalEvent<Event extends PersistedCanonicalEventV1>(event: Event): Event {
-  return normalizeTimestampFields(event) as Event;
+  return normalizePersistedValue(event) as Event;
 }
 
-function normalizeTimestampFields(value: unknown, field = ""): unknown {
-  if (Array.isArray(value)) return value.map((entry) => normalizeTimestampFields(entry));
+function normalizePersistedValue(value: unknown, field = ""): unknown {
+  if (Array.isArray(value)) return value.map((entry) => normalizePersistedValue(entry));
   if (!isRecord(value)) {
     const normalized = /At$/u.test(field) ? normalizePersistedTimestamp(value) : null;
     return normalized ?? value;
   }
-  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, normalizeTimestampFields(nested, key)]));
+  const normalized = Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, normalizePersistedValue(nested, key)]),
+  );
+  return normalized.schema === "task/v1"
+    ? {
+        ...normalized,
+        schema: "task/v2",
+        pinned: typeof normalized.pinned === "boolean" ? normalized.pinned : false,
+        packageDisposition: normalized.packageDisposition ?? "active",
+      }
+    : normalized;
 }
 
 function canonicalEventBytes(event: PersistedCanonicalEventV1): string {
