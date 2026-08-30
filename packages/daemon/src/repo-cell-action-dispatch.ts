@@ -659,12 +659,14 @@ function dispatchedExecutor(
   if (candidates.length === 0)
     throw cell.cellCodedError(
       "invalid_proof",
-      `Execution ${executionId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; executor declaration remains unavailable until a real dispatch record exists.`,
+      `Execution ${executionId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; ` +
+        `executor declaration remains unavailable until a real dispatch record exists.`,
     );
   if (requested)
     throw cell.cellCodedError(
       "invalid_proof",
-      `--agent ${requested} does not name exactly one dispatch for execution ${executionId}. Choose ${choices.join(" or ")} from ha task dispatches ${taskId}.`,
+      `--agent ${requested} does not name exactly one dispatch for execution ${executionId}. ` +
+        `Choose ${choices.join(" or ")} from ha task dispatches ${taskId}.`,
     );
   throw cell.cellCodedError(
     "invalid_command",

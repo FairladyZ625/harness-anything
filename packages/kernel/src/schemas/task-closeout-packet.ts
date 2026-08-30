@@ -278,7 +278,11 @@ function collectHelp(
   const optional = !required || optionalAncestor ? " (optional section)" : "",
     kind =
       schema.type === "array"
-        ? `${schema.items.type === "string" && schema.items.format === "portable-relative-path" ? "portable-path" : schema.items.type}[]`
+        ? `${
+            schema.items.type === "string" && schema.items.format === "portable-relative-path"
+              ? "portable-path"
+              : schema.items.type
+          }[]`
         : schema.type === "string" && schema.enum
           ? schema.enum.join("|")
           : schema.type === "string" && schema.format === "portable-relative-path"

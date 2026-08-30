@@ -377,7 +377,8 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     )
       issues.push(
         invalidEventPayloadIssue(
-          "executor declaration must preserve the previous bare actor, bind a dispatched agent on the same principal, and state a reason",
+          "executor declaration must preserve the previous bare actor, " +
+            "bind a dispatched agent on the same principal, and state a reason",
         ),
       );
   }

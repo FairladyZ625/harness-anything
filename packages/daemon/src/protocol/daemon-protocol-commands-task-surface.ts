@@ -45,7 +45,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
           nextAction:
-            "Name an agent id or runtime-session:<id> from ha task dispatches; omit it when exactly one dispatch matches.",
+            "Name an agent id or runtime-session:<id> from ha task dispatches; " +
+            "omit it when exactly one dispatch matches.",
         },
         { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
       ),

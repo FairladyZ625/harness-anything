@@ -117,7 +117,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     return reject(
       opId,
       "terminal_task",
-      `Run ha task supersede ${taskId} --title <follow-up-title> to create new work; the cancelled task cannot be closed out.`,
+      `Run ha task supersede ${taskId} --title <follow-up-title> to create new work; ` +
+        `the cancelled task cannot be closed out.`,
     );
   if (task.status !== "active" && task.status !== "in_review")
     return reject(
@@ -137,7 +138,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       return reject(
         opId,
         "submission_required",
-        `packet.submission is required while ${taskId} has an active Execution. Run ha task closeout ${taskId} --print-template, fill it, then run ${invocation}.`,
+        `packet.submission is required while ${taskId} has an active Execution. ` +
+          `Run ha task closeout ${taskId} --print-template, fill it, then run ${invocation}.`,
       );
     submission = judgment.submission;
     if (!snapshot.lease)
@@ -177,7 +179,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       return reject(
         opId,
         "invalid_transition",
-        `Execution ${selected.executionId} has no canonical submission; run ha task show ${taskId}, then repair its lifecycle state.`,
+        `Execution ${selected.executionId} has no canonical submission; ` +
+          `run ha task show ${taskId}, then repair its lifecycle state.`,
       );
     submission = selected.submission;
     if (judgment.submission && !sameSubmission(selected.submission, judgment.submission))
@@ -187,7 +190,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         [
           `Execution ${selected.executionId} is already locked to this submission:\n`,
           `${JSON.stringify(selected.submission, null, 2)}\n`,
-          `Remove the submission section from ${fromFile} to resume from review, or replace it with the exact content above, then run ${invocation}.`,
+          `Remove the submission section from ${fromFile} to resume from review, ` +
+            `or replace it with the exact content above, then run ${invocation}.`,
         ].join(""),
       );
     const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review);
@@ -267,7 +271,8 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
           opId,
           judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved",
           judgment.review.verdict === "changes_requested"
-            ? `Run ha task start ${taskId} --execution-id <execution-id>, address the requested changes, then run ${invocation} with the next judgment.`
+            ? `Run ha task start ${taskId} --execution-id <execution-id>, address the requested changes, ` +
+                `then run ${invocation} with the next judgment.`
             : `Have an independent arbiter record an approved judgment, then run ${invocation}.`,
         ),
         stoppedAt: "review-execution",
@@ -361,7 +366,8 @@ function readJudgment(readText: () => string): TaskCloseoutPacket {
     parsed = JSON.parse(readText());
   } catch (error) {
     throw new Error(
-      `Closeout judgment must be one readable JSON object inside the workspace: ${error instanceof Error ? error.message : String(error)}`,
+      `Closeout judgment must be one readable JSON object inside the workspace: ` +
+        `${error instanceof Error ? error.message : String(error)}`,
     );
   }
   const validation = validateTaskCloseoutPacket(parsed);
@@ -418,7 +424,8 @@ function candidateRejection(
     candidateList = candidates.length ? candidates.join(", ") : "none",
     instruction = commands.length
       ? `Choose one explicitly: ${commands.join(" or ")}.`
-      : `Run ha task submit ${taskId} --json-input '<submission-json>', then run ${closeoutInvocation(taskId, fromFile)}.`;
+      : `Run ha task submit ${taskId} --json-input '<submission-json>', ` +
+        `then run ${closeoutInvocation(taskId, fromFile)}.`;
   return reject(
     opId,
     "ambiguous_execution",
