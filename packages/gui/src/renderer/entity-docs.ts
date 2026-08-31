@@ -30,6 +30,18 @@ export interface EntityEdgeDoc {
   readonly targetKind: string;
 }
 
+/**
+ * 目录里由 kernel 决定的那一半:schema id、ref 模板、状态词表、可执行动作。
+ * 这四项在 kernel 有权威,**不手写**——由 `tools/generate-entity-doc-contract.mjs`
+ * 从 `explainEntityKind` 投影进下面的 generated 区块。人只写「它是什么」那一半。
+ */
+export interface EntityKernelContract {
+  readonly schemaId: string | null;
+  readonly refTemplate: string | null;
+  readonly statuses: readonly { readonly field: string; readonly words: readonly string[] }[];
+  readonly actions: readonly string[];
+}
+
 export interface EntityKindDoc {
   readonly kind: string;
   /** kernel `explainEntityKind(kind).documentSchema.id`;目录实体(preset/adapter)为 null。 */
@@ -71,6 +83,200 @@ const field = (name: string, required: boolean, shape: string, meaning: string):
 
 const noNested: readonly { readonly container: string; readonly fields: readonly EntityFieldDoc[] }[] = [];
 
+// entity-kind-contract:generated:start
+/** Kernel-derived half of the catalog. Regenerate with tools/generate-entity-doc-contract.mjs. */
+export const KERNEL_ENTITY_CONTRACT = Object.freeze({
+  agent: {
+    schemaId: "agent-declaration/v1",
+    refTemplate: "agent/{id}",
+    statuses: [],
+    actions: [],
+  },
+  decision: {
+    schemaId: "decision-package",
+    refTemplate: "decision/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+      },
+    ],
+    actions: [
+      "propose",
+      "accept",
+      "reject",
+      "defer",
+      "supersede",
+      "retire",
+      "amend",
+      "repin",
+      "declare-claim",
+      "fulfill-claim",
+      "transition",
+      "reckon",
+      "validate",
+      "list",
+      "show",
+    ],
+  },
+  execution: {
+    schemaId: "Execution/v1",
+    refTemplate: "execution/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["active", "submitted", "accepted", "changes_requested", "abandoned"],
+      },
+    ],
+    actions: [],
+  },
+  fact: {
+    schemaId: "fact-event",
+    refTemplate: "fact/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["standing", "superseded_fact"],
+      },
+    ],
+    actions: ["record", "reclassify", "type-register", "search", "type-list", "show"],
+  },
+  person: {
+    schemaId: "person/v1",
+    refTemplate: "person/{id}",
+    statuses: [],
+    actions: [],
+  },
+  policy: {
+    schemaId: "policy/v1",
+    refTemplate: "policy/{id}",
+    statuses: [],
+    actions: [],
+  },
+  relation: {
+    schemaId: "Relation/v1",
+    refTemplate: "relation/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["active", "edge_retired", "deleted"],
+      },
+    ],
+    actions: ["relate", "unrelate"],
+  },
+  review: {
+    schemaId: "Review/v1",
+    refTemplate: "review/{id}",
+    statuses: [
+      {
+        field: "verdict",
+        words: ["approved", "changes_requested", "dismissed"],
+      },
+    ],
+    actions: [],
+  },
+  "runtime-session": {
+    schemaId: "runtime-session/v1",
+    refTemplate: "runtime-session/{id}",
+    statuses: [
+      {
+        field: "liveness",
+        words: ["live", "stale", "unknown", "exited"],
+      },
+      {
+        field: "outcome",
+        words: ["succeeded", "failed", "unknown", "cancelled"],
+      },
+      {
+        field: "semanticState",
+        words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+      },
+    ],
+    actions: [],
+  },
+  schedule: {
+    schemaId: "Schedule/v1",
+    refTemplate: "schedule/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["armed", "paused"],
+      },
+      {
+        field: "status.lastRun.outcome",
+        words: ["succeeded", "failed", "unknown", "cancelled"],
+      },
+    ],
+    actions: [
+      "create",
+      "update",
+      "delete",
+      "enable",
+      "disable",
+      "run-now",
+      "claim",
+      "link",
+      "record-missed",
+      "settle",
+      "list",
+      "runs",
+      "show",
+    ],
+  },
+  settings: {
+    schemaId: "SettingsRepository/v1",
+    refTemplate: "settings/{id}",
+    statuses: [],
+    actions: [],
+  },
+  squad: {
+    schemaId: "squad-declaration/v1",
+    refTemplate: "squad/{id}",
+    statuses: [],
+    actions: [],
+  },
+  task: {
+    schemaId: "task-frontmatter",
+    refTemplate: "task/{id}",
+    statuses: [
+      {
+        field: "lifecycle.status",
+        words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+      },
+    ],
+    actions: ["start", "submit", "review", "complete"],
+  },
+} as const satisfies Readonly<Record<string, EntityKernelContract>>);
+
+/** Relation 的类型词表:kernel `relationTypes`,不是 statusVocabulary,所以单独投影。 */
+export const RELATION_TYPE_WORDS: readonly string[] = Object.freeze([
+  "supports",
+  "supersedes",
+  "refines",
+  "narrows",
+  "derives",
+  "blocks",
+  "relates",
+  "implements",
+  "depends-on",
+  "produces",
+  "evidences",
+  "evidenced-by",
+  "refuted-by",
+  "invalidated-by",
+  "supersedes-fact",
+  "executes",
+  "reviews",
+  "owns",
+  "dispatches",
+  "authorizes",
+]);
+// entity-kind-contract:generated:end
+
+/** kernel 半:登记过的 kind 从生成区块取;目录层实体(preset/adapter)自带。 */
+const kernelContract = (kind: keyof typeof KERNEL_ENTITY_CONTRACT): EntityKernelContract =>
+  KERNEL_ENTITY_CONTRACT[kind];
+
 /**
  * Fact Type 受控词表(dec_2935057783CD5D56E9F287AE4D CH1-CH3):
  * 词表值来自 fact_domain_type 投影读面。这里仅保留裁决锚,不保存第二份词表。
@@ -81,8 +287,7 @@ export const FACT_TYPE_VOCABULARY = Object.freeze({
 
 const taskDoc: EntityKindDoc = {
   kind: "task",
-  schemaId: "task-frontmatter",
-  refTemplate: "task/{id}",
+  ...kernelContract("task"),
   storage: "tasks/ 任务包目录(frontmatter + 包内文档)",
   definition:
     "工作包:做什么、现在什么状态。最小派工单位——被创建、被认领(execution 租约)、被提交、被复核,直到完成或取消。",
@@ -102,7 +307,6 @@ const taskDoc: EntityKindDoc = {
     field("profile", false, "string", "任务 profile(preset 内的档位选择)。"),
   ],
   nestedFields: noNested,
-  statuses: [{ field: "lifecycle.status", words: ["planned", "active", "blocked", "in_review", "done", "cancelled"] }],
   edges: [
     { type: "derives", sourceKind: "decision", targetKind: "task" },
     { type: "relates", sourceKind: "decision", targetKind: "task" },
@@ -114,28 +318,13 @@ const taskDoc: EntityKindDoc = {
     { type: "executes", sourceKind: "execution", targetKind: "task" },
     { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
   ],
-  actions: [
-    "create_replay_task",
-    "start_execution",
-    "block_task",
-    "reinstate_task",
-    "unblock_task",
-    "cancel_task",
-    "submit_execution",
-    "record_execution_review",
-    "record_review_consent",
-    "reconcile_code_doc",
-    "repoint_code_doc",
-    "complete_task",
-  ],
   guiEntry: { view: "board", note: "看板 / 议程 / 列表;详情从任务行进入" },
   liveCount: "tasks",
 };
 
 const decisionDoc: EntityKindDoc = {
   kind: "decision",
-  schemaId: "decision-package",
-  refTemplate: "decision/{id}",
+  ...kernelContract("decision"),
   storage: "decisions/decision-dec_<id>/ 包(人话正文 + 事件流)",
   definition:
     "承重选择:为什么这么做。一个问题、被选中的方案(CH)与被否的方案(RJ);经裁定同意进入 in_effect 后约束后续实现。",
@@ -170,9 +359,6 @@ const decisionDoc: EntityKindDoc = {
       ],
     },
   ],
-  statuses: [
-    { field: "state", words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"] },
-  ],
   edges: [
     { type: "supersedes", sourceKind: "decision", targetKind: "decision" },
     { type: "refines", sourceKind: "decision", targetKind: "decision" },
@@ -187,34 +373,13 @@ const decisionDoc: EntityKindDoc = {
     { type: "evidenced-by", sourceKind: "decision", targetKind: "fact" },
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
   ],
-  actions: [
-    "propose",
-    "accept",
-    "reject",
-    "defer",
-    "supersede",
-    "retire",
-    "amend",
-    "repin",
-    "declare-claim",
-    "fulfill-claim",
-    "relate",
-    "retire-relation",
-    "replace-relation",
-    "transition",
-    "reckon",
-    "validate",
-    "list",
-    "show",
-  ],
   guiEntry: { view: "decisions", note: "决策批准 / 决策池;详情从决策行进入" },
   liveCount: "decisions",
 };
 
 const factDoc: EntityKindDoc = {
   kind: "fact",
-  schemaId: "fact-event",
-  refTemplate: "fact/{id}",
+  ...kernelContract("fact"),
   storage: "facts/F-<id>.md(机器写手策略 typed-machine-writer/v1)",
   definition:
     "可复核观察:测到什么、在哪测的、怎么复现。append-only——事件本身不可改,推翻一条观察用新事实取代它,不删除旧的。",
@@ -264,7 +429,6 @@ const factDoc: EntityKindDoc = {
       ],
     },
   ],
-  statuses: [{ field: "state", words: ["standing", "superseded_fact"] }],
   edges: [
     { type: "produces", sourceKind: "task", targetKind: "fact" },
     { type: "evidences", sourceKind: "task", targetKind: "fact" },
@@ -272,20 +436,21 @@ const factDoc: EntityKindDoc = {
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
     { type: "supersedes-fact", sourceKind: "fact", targetKind: "fact" },
   ],
-  actions: ["record", "reclassify", "type-register", "search", "type-list", "show"],
   guiEntry: { view: "graph", note: "关系图与 Task 详情·证据页签" },
   liveCount: null,
 };
 
 const relationDoc: EntityKindDoc = {
   kind: "relation",
-  schemaId: null,
-  refTemplate: "relation/{id}",
+  ...kernelContract("relation"),
+  // 关系动词是 kernel 的 relationTypes,不在 statusVocabulary 里,所以显式并进词表区一起展示。
+  statuses: [{ field: "type", words: RELATION_TYPE_WORDS }, ...kernelContract("relation").statuses],
   storage: "台账边表(canonical 事件)",
   definition:
-    "三元语之间的边:把 task / decision / fact 连成语义网。边是一等实体,有方向、强度、出处与状态;方向注册表规定哪种 (源, 动词, 目标) 三元组是合法的。",
+    "三元语之间的边:把 task / decision / fact 连成语义网。边是一等实体,有方向、强度、出处与状态;方向注册表规定哪种 (源, 动词, 目标) 三元组是合法的。边本身也可以作为关系端点——任何已登记的 kind 都能与一条边相关联,用来给边加注说明。",
   fields: [
-    field("relation_id", true, "string", "稳定 ID(rel_ 加 16 位十六进制)。"),
+    field("id", true, "string", "稳定 ID(rel_ 加 16 位十六进制)。"),
+    field("relationEndpoint", true, "object", "两端的 kind 与 ref;方向注册表按它判定三元组是否合法。"),
     field("source", true, "string", "源端 canonical 引用。"),
     field("target", true, "string", "目标端 canonical 引用。"),
     field("type", true, "enum", "关系动词(受控词表,见状态词表区)。"),
@@ -296,44 +461,14 @@ const relationDoc: EntityKindDoc = {
     field("state", true, "enum", "active / edge_retired / deleted。"),
   ],
   nestedFields: noNested,
-  statuses: [
-    {
-      field: "type",
-      words: [
-        "supports",
-        "supersedes",
-        "refines",
-        "narrows",
-        "derives",
-        "blocks",
-        "relates",
-        "implements",
-        "depends-on",
-        "produces",
-        "evidences",
-        "evidenced-by",
-        "refuted-by",
-        "invalidated-by",
-        "supersedes-fact",
-        "executes",
-        "reviews",
-        "owns",
-        "dispatches",
-        "authorizes",
-      ],
-    },
-    { field: "state", words: ["active", "edge_retired", "deleted"] },
-  ],
   edges: [],
-  actions: [],
   guiEntry: { view: "graph", note: "关系图;边即图上的连线" },
   liveCount: null,
 };
 
 const executionDoc: EntityKindDoc = {
   kind: "execution",
-  schemaId: "Execution/v1",
-  refTemplate: "execution/{id}",
+  ...kernelContract("execution"),
   storage: "task 生命周期事件流(不在独立包目录)",
   definition:
     "task 的一次执行尝试:认领租约、工作、提交、收口。一个 task 可以有多轮 execution(iteration 递增);同一时刻租约只归一个执行者。",
@@ -349,21 +484,18 @@ const executionDoc: EntityKindDoc = {
     field("submission", true, "object", "提交物:改动清单 / 测试证据 / 收口报告。"),
   ],
   nestedFields: noNested,
-  statuses: [{ field: "state", words: ["active", "submitted", "accepted", "changes_requested", "abandoned"] }],
   edges: [
     { type: "executes", sourceKind: "execution", targetKind: "task" },
     { type: "reviews", sourceKind: "review", targetKind: "execution" },
     { type: "authorizes", sourceKind: "policy", targetKind: "execution" },
   ],
-  actions: ["start", "renew", "submit", "complete", "release"],
   guiEntry: { view: "sessions", note: "会话页与 Task 详情;执行链随派工归属" },
   liveCount: null,
 };
 
 const reviewDoc: EntityKindDoc = {
   kind: "review",
-  schemaId: "Review/v1",
-  refTemplate: "review/{id}",
+  ...kernelContract("review"),
   storage: "task 生命周期事件流(review_recorded / review_consent_recorded)",
   definition: "对一次 execution 提交的复核判断:通过、要求修改或驳回;带证据核对清单与内容摘要。",
   fields: [
@@ -377,17 +509,14 @@ const reviewDoc: EntityKindDoc = {
     field("contentDigest", true, "string", "内容摘要(sha256)。"),
   ],
   nestedFields: noNested,
-  statuses: [{ field: "verdict", words: ["approved", "changes_requested", "dismissed"] }],
   edges: [{ type: "reviews", sourceKind: "review", targetKind: "execution" }],
-  actions: ["record"],
   guiEntry: null,
   liveCount: null,
 };
 
 const runtimeSessionDoc: EntityKindDoc = {
   kind: "runtime-session",
-  schemaId: "runtime-session/v1",
-  refTemplate: "runtime-session/{id}",
+  ...kernelContract("runtime-session"),
   storage: "agent 运行时事件流(runtime_session_*)",
   definition:
     "provider 侧的一次真实会话(claude / codex / …)。存活与结果分开记录:semanticState 是对两者的派生判断,不采信单边自报。",
@@ -399,26 +528,9 @@ const runtimeSessionDoc: EntityKindDoc = {
     field("semanticState", true, "enum", "派生语义态:liveness × outcome 的判定。"),
   ],
   nestedFields: noNested,
-  statuses: [
-    { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
-    { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
-    {
-      field: "semanticState",
-      words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
-    },
-  ],
   edges: [
     { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
     { type: "dispatches", sourceKind: "agent", targetKind: "runtime-session" },
-  ],
-  actions: [
-    "runtime_session_started",
-    "runtime_session_provider_bound",
-    "runtime_session_task_bound",
-    "runtime_session_liveness_changed",
-    "runtime_session_cancelled",
-    "runtime_session_exited",
-    "runtime_session_outcome_observed",
   ],
   guiEntry: { view: "sessions", note: "会话页;单会话段与派工链" },
   liveCount: null,
@@ -426,8 +538,7 @@ const runtimeSessionDoc: EntityKindDoc = {
 
 const agentDoc: EntityKindDoc = {
   kind: "agent",
-  schemaId: "agent-declaration/v1",
-  refTemplate: "agent/{id}",
+  ...kernelContract("agent"),
   storage: "agents/{id}.json 声明文件",
   definition:
     "执行者身份声明:这个身份用什么运行时、什么提示词纪律、什么模型与技能。角色只是注入的责任,不是模型能力白名单。",
@@ -443,17 +554,14 @@ const agentDoc: EntityKindDoc = {
     field("fallback", false, "object", "provider 故障时的候选链与退避策略。"),
   ],
   nestedFields: noNested,
-  statuses: [{ field: "state", words: ["configured", "active", "retired"] }],
   edges: [{ type: "dispatches", sourceKind: "agent", targetKind: "runtime-session" }],
-  actions: ["configure", "activate", "retire"],
   guiEntry: { view: "agentSquad", note: "Agent · 含 Squad 页" },
   liveCount: "agents",
 };
 
 const squadDoc: EntityKindDoc = {
   kind: "squad",
-  schemaId: "squad-declaration/v1",
-  refTemplate: "squad/{id}",
+  ...kernelContract("squad"),
   storage: "squads/{id}.json 声明文件",
   definition: "多 agent 编排:一个 leader 带若干 worker,整轮运行受 leaderTurnBudget 约束(规划轮 + 全部回调与重试轮)。",
   fields: [
@@ -465,17 +573,14 @@ const squadDoc: EntityKindDoc = {
     field("roster", true, "string", "花名册引用。"),
   ],
   nestedFields: noNested,
-  statuses: [],
   edges: [],
-  actions: [],
   guiEntry: { view: "agentSquad", note: "Agent · 含 Squad 页(小队编排面)" },
   liveCount: "squads",
 };
 
 const scheduleDoc: EntityKindDoc = {
   kind: "schedule",
-  schemaId: "Schedule/v1",
-  refTemplate: "schedule/{id}",
+  ...kernelContract("schedule"),
   storage: "schedule 事件流(定义 / 运行两类)",
   definition:
     "定时触发:按间隔或 cron 周期性派一次 agent 或 squad 运行。一次触发(occurrence)只被一个节点认领,产出归属该次运行而不是共享任务。",
@@ -488,12 +593,7 @@ const scheduleDoc: EntityKindDoc = {
     field("status", true, "object", "运行面:上次运行、活跃运行、错过计数与原因。"),
   ],
   nestedFields: noNested,
-  statuses: [
-    { field: "state", words: ["armed", "paused"] },
-    { field: "status.lastRun.outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
-  ],
   edges: [],
-  actions: ["create", "update", "delete", "enable", "disable", "run-now", "fire", "settle"],
   guiEntry: { view: "schedules", note: "定时计划页(hub:概览 / 运行 / 编辑)" },
   liveCount: "schedules",
 };
@@ -524,8 +624,7 @@ const presetDoc: EntityKindDoc = {
 
 const policyDoc: EntityKindDoc = {
   kind: "policy",
-  schemaId: "policy/v1",
-  refTemplate: "policy/{id}",
+  ...kernelContract("policy"),
   storage: "策略声明(predicate + action 规则)",
   definition: "写入面的授权规则:哪些动作在什么谓词下放行。执行授权走 policy → execution 边。",
   fields: [
@@ -536,17 +635,14 @@ const policyDoc: EntityKindDoc = {
     field("rules", false, "array", "谓词 → 动作的放行规则。"),
   ],
   nestedFields: noNested,
-  statuses: [{ field: "state", words: ["draft", "active", "retired"] }],
   edges: [{ type: "authorizes", sourceKind: "policy", targetKind: "execution" }],
-  actions: ["draft", "activate", "retire"],
   guiEntry: null,
   liveCount: null,
 };
 
 const settingsDoc: EntityKindDoc = {
   kind: "settings",
-  schemaId: "SettingsRepository/v1",
-  refTemplate: "settings/{id}",
+  ...kernelContract("settings"),
   storage: "settings 事件流(当前值是投影)",
   definition: "仓库级默认值:默认垂直领域、默认 preset 与 profile、locale、脚手架选择。",
   fields: [
@@ -557,17 +653,14 @@ const settingsDoc: EntityKindDoc = {
     field("scaffolds", true, "object", "任务 / 仓库脚手架选择。"),
   ],
   nestedFields: noNested,
-  statuses: [],
   edges: [],
-  actions: ["read", "update"],
   guiEntry: { view: "settings", note: "设置页(可写)" },
   liveCount: null,
 };
 
 const personDoc: EntityKindDoc = {
   kind: "person",
-  schemaId: "person/v1",
-  refTemplate: "person/{id}",
+  ...kernelContract("person"),
   storage: "people 花名册事件流",
   definition: "人:身份、角色与凭据。principal 引用(personId)由此登记;决策与执行 actor 都指向人。",
   fields: [
@@ -578,9 +671,7 @@ const personDoc: EntityKindDoc = {
     field("disabled", false, "boolean", "是否停用。"),
   ],
   nestedFields: noNested,
-  statuses: [],
   edges: [],
-  actions: ["add", "set-role", "bind", "remove"],
   guiEntry: null,
   liveCount: null,
 };

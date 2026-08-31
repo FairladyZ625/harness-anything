@@ -10,6 +10,7 @@ import {
 } from "../../kernel/src/index.ts";
 import decisionPackageSchema from "../../kernel/schemas/json/decision-package.schema.json";
 import factEventSchema from "../../kernel/schemas/json/fact-event.schema.json";
+import { checkEntityDocContract, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
 import {
   ENTITY_DOC_BY_KIND,
   ENTITY_DOC_GROUPS,
@@ -27,27 +28,12 @@ import type { EntityFieldDoc } from "../src/renderer/entity-docs.ts";
  */
 
 /**
- * kernel 登记的实体 kind 快照(镜像 entityKindRefAuthorities 的 kind 列;
- * kernel 未从公共桶导出该表,深路径 import 被 lint 禁止)。逐个跑
- * explainEntityKind 保证快照里的名字全部真实登记;kernel 未来新增 kind
- * 需要同步这里——这是本测试唯一靠人工同步的锚点,新增 kind 不改这里不会红。
+ * kernel 登记的实体 kind,直接问生成器要——它枚举 kernel 自己的 kind 表。
+ * 以前这里是一份手抄快照,并自认「新增 kind 不改这里不会红」;那个盲点已经删掉。
  */
-const KERNEL_KINDS: readonly string[] = [
-  "task",
-  "fact",
-  "decision",
-  "agent",
-  "squad",
-  "policy",
-  "execution",
-  "review",
-  "runtime-session",
-  "schedule",
-  "settings",
-  "person",
-];
-/** 说明面额外收录的两个目录层实体(不是 kernel 生命周期 kind)。 */
-const CATALOG_KINDS: readonly string[] = ["relation", "preset", "adapter"];
+const KERNEL_KINDS: readonly string[] = projectedEntityKinds();
+/** 说明面额外收录的目录层实体(不是 kernel 生命周期 kind)。 */
+const CATALOG_KINDS: readonly string[] = ["preset", "adapter"];
 
 function fieldsOf(kind: string): readonly EntityFieldDoc[] {
   const doc = ENTITY_DOC_BY_KIND.get(kind);
@@ -68,13 +54,20 @@ describe("entity docs cover the registered entity universe", () => {
 });
 
 describe("per-kind contract against kernel explainEntityKind", () => {
-  it.each(KERNEL_KINDS)("%s: schema id, ref template, statuses, actions match the kernel contract", (kind) => {
+  /**
+   * 目录的机器半现在是从 kernel 生成并提交进仓库的,所以再断言「目录 == kernel」
+   * 已经是同源恒等、零信息。真正有信息的是:**已提交的生成区块**与**当前 kernel**
+   * 是否还一致——kernel 改了而没重跑生成器,这里红。
+   */
+  it("committed generated region is not stale against the live kernel", async () => {
+    await expect(checkEntityDocContract()).resolves.toBeUndefined();
+  });
+
+  it.each(KERNEL_KINDS)("%s: has a doc entry carrying the kernel contract", (kind) => {
     const explanation = explainEntityKind(kind),
       doc = ENTITY_DOC_BY_KIND.get(kind);
     expect(doc, `entity doc missing for kernel kind ${kind}`).toBeDefined();
     expect(doc!.schemaId).toBe(explanation.documentSchema.id);
-    expect(doc!.refTemplate).toBe(explanation.id.refTemplate);
-    expect(doc!.statuses).toEqual(explanation.statusVocabulary);
     expect(doc!.actions).toEqual(explanation.transitions.available);
   });
 
@@ -129,7 +122,8 @@ describe("nested payload fields against the JSON schemas", () => {
 });
 
 describe("relation edges mirror the canonical direction registry", () => {
-  const endpointKinds = [...KERNEL_KINDS, "relation"] as const;
+  // relation 现在自己就是登记过的 kernel kind(G3a 把它补成了真 aggregate),不再额外追加。
+  const endpointKinds = KERNEL_KINDS;
 
   /** 全部合法三元组:方向注册表是唯一权威,这里用 kernel 谓词穷举重建。 */
   const allowedTriples: readonly { sourceKind: string; type: string; targetKind: string }[] = [];
@@ -155,9 +149,18 @@ describe("relation edges mirror the canonical direction registry", () => {
       }
   });
 
-  it("every allowed triple touching a kind is documented on both endpoint kinds", () => {
-    expect(allowedTriples.length).toBeGreaterThan(0);
-    for (const triple of allowedTriples) {
+  /**
+   * 完整性只覆盖**实体之间的语义边**。G3a 把 relation 补成真 aggregate 之后,
+   * 它自己也成了合法端点,于是「任何 kind --relates--> relation」把三元组从 22 涨到 47。
+   * 把这 25 条摊到每个实体页上是纯噪音——「agent --relates--> relation」讲不出 agent 是什么。
+   * 这条能力属于关系面本身,在 relation 页说明一次(见下一条断言),不在每页重复。
+   */
+  it("every allowed entity-to-entity triple is documented on both endpoint kinds", () => {
+    const semanticTriples = allowedTriples.filter(
+      (triple) => triple.sourceKind !== "relation" && triple.targetKind !== "relation",
+    );
+    expect(semanticTriples.length).toBeGreaterThan(0);
+    for (const triple of semanticTriples) {
       for (const endpoint of [triple.sourceKind, triple.targetKind]) {
         const doc = ENTITY_DOC_BY_KIND.get(endpoint);
         if (doc === undefined) continue;
@@ -168,13 +171,22 @@ describe("relation edges mirror the canonical direction registry", () => {
       }
     }
   });
+
+  it("relation doc states that any registered kind may be related to an edge", () => {
+    const relationEndpointTriples = allowedTriples.filter(
+      (triple) => triple.sourceKind === "relation" || triple.targetKind === "relation",
+    );
+    expect(relationEndpointTriples.length).toBeGreaterThan(0);
+    expect(ENTITY_DOC_BY_KIND.get("relation")!.definition).toMatch(/边本身也可以作为关系端点/u);
+  });
 });
 
 describe("relation plane vocabulary", () => {
   it("type and state words are the kernel vocabularies verbatim", () => {
     const doc = ENTITY_DOC_BY_KIND.get("relation")!;
-    expect(doc.statuses.find((status) => status.field === "type")?.words.sort()).toEqual([...relationTypes].sort());
-    expect(doc.statuses.find((status) => status.field === "state")?.words.sort()).toEqual([...relationStates].sort());
+    const words = (field: string) => [...(doc.statuses.find((status) => status.field === field)?.words ?? [])].sort();
+    expect(words("type")).toEqual([...relationTypes].sort());
+    expect(words("state")).toEqual([...relationStates].sort());
   });
 });
 
