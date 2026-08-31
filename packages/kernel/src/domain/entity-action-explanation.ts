@@ -5,6 +5,7 @@ import {
   type EntityActionContract,
   type EntityActionInputField,
 } from "./entity-kind-registry.ts";
+import { isEntityActionUnmetCriterion, type EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 
 export const ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({
@@ -48,8 +49,6 @@ export interface EntityActionCriterionExplanationV1 {
   readonly status: EntityActionCriterionStatus;
   readonly nextActions: readonly string[];
 }
-
-export type EntityActionUnmetCriterionV1 = Pick<EntityActionCriterionExplanationV1, "ref" | "failureCode" | "explain">;
 
 export interface EntityActionExplanationV1 {
   readonly action: {
@@ -231,7 +230,10 @@ function validateAction(
     JSON.stringify(value.criteria.map(staticCriterion)) !== JSON.stringify(canonicalAction.criteria)
   )
     errors.push("criteria must preserve the canonical Action contract identity and order");
-  if (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((criterion) => !validUnmetCriterion(criterion)))
+  if (
+    !Array.isArray(value.unmetCriteria) ||
+    value.unmetCriteria.some((criterion) => !isEntityActionUnmetCriterion(criterion))
+  )
     errors.push("unmetCriteria is invalid");
   else if (Array.isArray(value.criteria)) {
     const projected = value.criteria
@@ -370,16 +372,6 @@ function validateCriterion(value: unknown): readonly string[] {
     explanationStringList(value.nextActions)
     ? []
     : ["criterion values are invalid"];
-}
-
-function validUnmetCriterion(value: unknown): boolean {
-  return (
-    explanationRecord(value) &&
-    explanationExact(value, ["ref", "failureCode", "explain"]) &&
-    explanationNonEmpty(value.ref) &&
-    explanationNonEmpty(value.failureCode) &&
-    explanationNonEmpty(value.explain)
-  );
 }
 
 function validExplanationTarget(value: unknown): boolean {

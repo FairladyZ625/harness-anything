@@ -2,8 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { actionReplayKey, validateActionEnvelope } from "../../src/domain/action-envelope.ts";
+import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
-import { createWriteReceipt, explainEntityKind } from "../../src/index.ts";
+import { createWriteReceipt } from "../../src/index.ts";
 
 const actor = { principal: { personId: "person-action" }, executor: { kind: "agent" as const, id: "sol" } };
 const action = {

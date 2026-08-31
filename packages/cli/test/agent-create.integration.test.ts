@@ -116,22 +116,13 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       },
       ontologyGet = JSON.parse(
         String(run(root, env, ["entity", "get", "squad", "--id", ontologySquad.id]).evidence),
-      ) as { entity: { value: unknown } },
-      agentExplanation = JSON.parse(String(run(root, env, ["entity", "explain", "agent"]).evidence)) as Record<
-        string,
-        unknown
-      >,
-      squadExplanation = JSON.parse(String(run(root, env, ["entity", "explain", "squad"]).evidence)) as Record<
-        string,
-        unknown
-      >;
+      ) as { entity: { value: unknown } };
     assert.equal(
       entityList.entities.some(({ id }) => id === "meta-designer"),
       true,
     );
     assert.equal(entityGet.entity.value.id, "meta-designer");
     assert.deepEqual(ontologyGet.entity.value, ontologySquad);
-    assert.deepEqual(Object.keys(agentExplanation).sort(), Object.keys(squadExplanation).sort());
     const inventory = run(root, env, ["runtime", "instance", "list"]),
       installation = (inventory.installations as Array<Record<string, unknown>>).find(
         (row) => row.version === "codex agent-create-fixture",

@@ -13,6 +13,7 @@ import {
   type DaemonRepoMode,
   type DecisionProjectionRow,
   type EventPublicationKillpoint,
+  type EntityActionUnmetCriterionV1,
   type TaskProjection,
   type TaskProjectionListQuery,
   type WriteReceipt,
@@ -141,7 +142,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         withAuthorizationDecision(
           context.failed(actionId, error),
           decision,
-          ["runtime-session/executor-binding"],
+          [],
           error instanceof Error ? error.message : String(error),
         ),
       );
@@ -155,7 +156,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       durable = (durablePolicyActions as readonly string[]).includes(action.kind),
       frameCurrent = (
         receipt: WriteReceiptDraft,
-        criteria: readonly string[] = [],
+        criteria: readonly EntityActionUnmetCriterionV1[] = [],
         explanation?: string,
       ): WriteReceipt =>
         durable
@@ -174,7 +175,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
             "repo_unavailable",
             context.latched(),
           ),
-          ["repo-cell/availability"],
+          [],
           context.latched(),
         ),
       );
@@ -190,7 +191,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         ? withAuthorizationDecision(
             result,
             authorizationDecision,
-            result.unmetCriteria?.length ? result.unmetCriteria : [criterionForError(error)],
+            result.unmetCriteria ?? [],
             result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
           )
         : (result as WriteReceipt);
@@ -258,7 +259,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
               "invalid_command",
               "Squad input must contain only JSON values.",
             ),
-            ["action-envelope/json-input"],
+            [],
             "Squad input must contain only JSON values.",
           ),
         );
@@ -956,7 +957,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
 function withAuthorizationDecision(
   receipt: WriteReceiptDraft,
   authorizationDecision: AuthorizationDecision,
-  unmetCriteria: readonly string[] = receipt.unmetCriteria ?? [],
+  unmetCriteria: readonly EntityActionUnmetCriterionV1[] = receipt.unmetCriteria ?? [],
   rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
 ): WriteReceipt {
   return {
@@ -968,15 +969,11 @@ function withAuthorizationDecision(
         ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
         : null,
     nextActions: Object.freeze([
-      ...(receipt.nextActions ?? []),
-      ...(receipt.nextAction ? [receipt.nextAction] : []),
-      ...authorizationDecision.nextActions,
+      ...new Set([
+        ...(receipt.nextActions ?? []),
+        ...(receipt.nextAction ? [receipt.nextAction] : []),
+        ...authorizationDecision.nextActions,
+      ]),
     ]),
   };
-}
-
-function criterionForError(error: unknown): string {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? `criteria/${error.code}`
-    : "criteria/action-execution";
 }

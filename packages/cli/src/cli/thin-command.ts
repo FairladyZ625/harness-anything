@@ -41,6 +41,7 @@ import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
+import { preferTaskActionHelp } from "./task-action-help.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 type LifecyclePublicationAction =
@@ -87,11 +88,13 @@ function parseTaskRoute(
 
 export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], domain?: string): string {
   const rows = [
-      ...thinCliCommands.map(({ usage, summary, help }) => ({
-        usage,
-        summary,
-        help,
-      })),
+      ...thinCliCommands.map(({ usage, summary, help }) =>
+        preferTaskActionHelp({
+          usage,
+          summary,
+          help,
+        }),
+      ),
     ],
     visible = domain ? rows.filter(({ usage }) => usage.split(" ")[1] === domain) : rows,
     groups = commandDomains(),

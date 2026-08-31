@@ -113,7 +113,8 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-explain", "entity-get", "entity-list"],
+    entity: ["entity-get", "entity-list"],
+    explain: ["explain"],
     fact: ["fact-record", "fact-search", "fact-show"],
     init: ["repo-bootstrap"],
     migrate: ["fact-rekey", "ledger-migrate", "migrate-import"],
@@ -206,6 +207,30 @@ test("capabilities is an exact-set projection of the command contract", () => {
     template: ["template-list", "template-render"],
     vertical: ["vertical-validate"],
   });
+});
+
+test("explain routes catalog and object requests to the typed read method", () => {
+  const catalog = parseThinCommand(["explain", "task"]),
+    objects = parseThinCommand(["explain", "task/task-one", "task/task-two"]),
+    invalid = parseThinCommand(["explain", "decision/dec-one"]);
+  assert.equal(catalog.ok, true);
+  assert.equal(objects.ok, true);
+  assert.equal(invalid.ok, false);
+  if (!catalog.ok || !objects.ok || invalid.ok) return;
+  assert.equal(catalog.command.method, "repo.entity.actions.explain");
+  assert.deepEqual(catalog.command.action, {
+    kind: "entity-action-explain",
+    schema: "entity-action-explain-request/v1",
+    mode: "catalog",
+    refs: [],
+  });
+  assert.deepEqual(objects.command.action, {
+    kind: "entity-action-explain",
+    schema: "entity-action-explain-request/v1",
+    mode: "object",
+    refs: ["task/task-one", "task/task-two"],
+  });
+  assert.match(invalid.nextAction, /ha explain task\/.*1\.\.500 objects/u);
 });
 
 test("task transition conditional inputs preserve audited cancellation and reinstatement", () => {

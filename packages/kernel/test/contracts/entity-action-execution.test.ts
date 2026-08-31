@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/index.ts";
+import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 
 const ingressKinds = [
   "agent-install",

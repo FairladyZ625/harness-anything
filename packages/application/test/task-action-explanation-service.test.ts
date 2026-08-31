@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  explainEntityKind,
+  getEntityKindContract,
   projectBaseEntityAtCut,
   requireEntityTypeContract,
   type ActorIdentity,
@@ -18,7 +18,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
   try {
     await harness.create();
     const planned = await snapshot(harness),
-      oldPlanned = explainEntityKind("task").transitions.available,
+      oldPlanned = taskCatalogActionIds(),
       plannedOwner = explain(harness, planned, owner),
       plannedStart = row(plannedOwner, "start");
     assert.deepEqual(
@@ -36,7 +36,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
 
     await harness.start("execution-1");
     const active = await snapshot(harness),
-      oldActive = explainEntityKind("task").transitions.available,
+      oldActive = taskCatalogActionIds(),
       activeOwner = explain(harness, active, owner),
       activeOther = explain(harness, active, reviewer);
     assert.deepEqual(oldActive, oldPlanned, "the old catalog-only explain cannot distinguish lifecycle state");
@@ -119,6 +119,10 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
 
 async function snapshot(harness: ReturnType<typeof lifecycleHarness>): Promise<TaskLifecycleSnapshot> {
   return (await harness.service.read("task-1")).snapshot;
+}
+
+function taskCatalogActionIds(): readonly string[] {
+  return getEntityKindContract("task")?.actionCatalog?.actions.map(({ id }) => id) ?? [];
 }
 
 function explain(

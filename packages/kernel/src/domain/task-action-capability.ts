@@ -114,7 +114,7 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
     throw new Error(`Task Action ${action.id} has no Task command ingress.`);
   const flags = action.input.fields.flatMap((field) => {
     if (!field.cli) return [];
-    const value = field.cli.kind === "boolean" ? "" : ` ${field.cli.format ?? `<${field.field}>`}`;
+    const value = field.cli.kind === "boolean" ? "" : ` ${field.cli.format ?? `<${field.cli.name.slice(2)}>`}`;
     return [field.required ? `${field.cli.name}${value}` : `[${field.cli.name}${value}]`];
   });
   return ["ha", "task", ingress.slice("task-".length), taskId, ...flags].join(" ");

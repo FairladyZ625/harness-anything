@@ -80,7 +80,13 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     );
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "revision_conflict");
-    assert.deepEqual(stale.unmetCriteria, ["agent/entity-revision"]);
+    assert.deepEqual(stale.unmetCriteria, [
+      {
+        ref: "agent/entity-revision",
+        failureCode: "revision_conflict",
+        explain: "When supplied, expectedVersion must match the latest Agent entity revision.",
+      },
+    ]);
 
     const placeholder = await cell.run(
       {
@@ -97,7 +103,13 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     );
     assert.equal(placeholder.outcome, "op_rejected");
     assert.equal(placeholder.code, "instructions_placeholder");
-    assert.deepEqual(placeholder.unmetCriteria, ["agent/instructions-ready"]);
+    assert.deepEqual(placeholder.unmetCriteria, [
+      {
+        ref: "agent/instructions-ready",
+        failureCode: "instructions_placeholder",
+        explain: "Agent instructions must contain authored content rather than the declaration scaffold.",
+      },
+    ]);
 
     const inspected = await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding);
     assert.equal(JSON.parse(String(inspected.evidence)).agent.id, declaration.id);

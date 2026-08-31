@@ -18,6 +18,7 @@ export type {
   EntityActionExplanationV1,
   TaskLifecycleActionId,
 } from "./entity-action-explanation.ts";
+export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
@@ -143,7 +144,6 @@ export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
   createEntityKindRegistry,
-  explainEntityKind,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,

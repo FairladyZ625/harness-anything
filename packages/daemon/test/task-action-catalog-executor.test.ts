@@ -44,7 +44,7 @@ test("the catalog executor directly invokes Task execution metadata and derives 
   assert.deepEqual(receipt.nextActions, []);
 });
 
-test("rejected Task ActionResult names the expected-version criterion", async () => {
+test("rejected Task ActionResult preserves the exact structured criterion", async () => {
   const executor = makeEntityActionCatalogExecutor({
       store: {} as never,
       projection: {} as never,
@@ -59,11 +59,45 @@ test("rejected Task ActionResult names the expected-version criterion", async ()
         origin: "daemon",
         evidence: "rejection:invalid_transition",
         nextAction: "Refresh the Task projection and retry with its current revision.",
+        unmetCriteria: [
+          {
+            ref: "task-lifecycle-contract-support/revisionIssues",
+            failureCode: "invalid_transition",
+            explain: "The command expectedVersion matches the current Task aggregate revision.",
+          },
+        ],
       }),
     });
-  assert.ok(receipt.unmetCriteria?.includes("task-lifecycle-contract-support/revisionIssues"));
+  assert.deepEqual(receipt.unmetCriteria, [
+    {
+      ref: "task-lifecycle-contract-support/revisionIssues",
+      failureCode: "invalid_transition",
+      explain: "The command expectedVersion matches the current Task aggregate revision.",
+    },
+  ]);
   assert.deepEqual(receipt.effects, []);
   assert.equal(receipt.updatedProjection, null);
   assert.match(receipt.rejectionExplanation ?? "", /expectedVersion/u);
   assert.deepEqual(receipt.nextActions, ["Refresh the Task projection and retry with its current revision."]);
+});
+
+test("ambiguous failure codes do not invent a criterion", async () => {
+  const executor = makeEntityActionCatalogExecutor({
+      store: {} as never,
+      projection: {} as never,
+      now: () => "2026-08-30T00:00:00.000Z",
+      sessionIdentity: () => ({ kind: "unavailable", reason: "test" }) as never,
+    }),
+    receipt = await executor.run({ kind: "task-submit", taskId: "task_contract" }, {} as never, "op-ambiguous", {
+      task: async () => ({
+        outcome: "op_rejected",
+        opId: "op-ambiguous",
+        code: "invalid_transition",
+        origin: "daemon",
+        evidence: "rejection:invalid_transition",
+        nextAction: "Inspect the Task state.",
+      }),
+    });
+  assert.deepEqual(receipt.unmetCriteria, []);
+  assert.doesNotMatch(JSON.stringify(receipt), /criteria\/invalid_transition/u);
 });

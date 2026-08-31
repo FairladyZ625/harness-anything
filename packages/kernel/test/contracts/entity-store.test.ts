@@ -2,8 +2,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { createEntityStore, explainEntityKind } from "../../src/index.ts";
+import { createEntityStore } from "../../src/index.ts";
 import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
+import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import {
   assertEntityUpsertInputs,
   type EntityEventV1,

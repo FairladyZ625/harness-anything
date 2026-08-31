@@ -481,6 +481,13 @@ export const derivedTaskActionProtocolCommands = Object.freeze(
   generatedTaskActionProtocolDeclarations.map(taskActionProtocolCommand),
 );
 
+export const taskActionHelpRows = Object.freeze(
+  generatedTaskActionProtocolDeclarations.map((action) => {
+    const { usage, summary, help } = taskActionProtocolCommand(action);
+    return Object.freeze({ usage, summary, help });
+  }),
+);
+
 export const taskExecutionProtocolCommands = Object.freeze([
   ...derivedTaskActionProtocolCommands,
   defineCenterForwardWriteCommand({

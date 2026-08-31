@@ -4,6 +4,12 @@ import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
 
+export interface EntityActionUnmetCriterionV1 {
+  readonly ref: string;
+  readonly failureCode: string;
+  readonly explain: string;
+}
+
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
 export interface ReceiptProof {
   readonly committedRevision: number;
@@ -97,7 +103,7 @@ export interface WriteReceiptDraft {
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision;
-  readonly unmetCriteria?: readonly string[];
+  readonly unmetCriteria?: readonly EntityActionUnmetCriterionV1[];
   readonly effects?: readonly string[];
   readonly updatedProjection?: {
     readonly kind: string;
@@ -152,9 +158,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
   if (
     "unmetCriteria" in value &&
-    (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isNonEmptyString(entry)))
+    (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isEntityActionUnmetCriterion(entry)))
   )
-    errors.push("unmetCriteria must be an array of criterion references");
+    errors.push("unmetCriteria must be an array of structured criterion explanations");
   if (
     "nextActions" in value &&
     (!Array.isArray(value.nextActions) || value.nextActions.some((entry) => !isNonEmptyString(entry)))
@@ -268,6 +274,16 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if (!isNonEmptyString(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
     errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
+}
+
+export function isEntityActionUnmetCriterion(value: unknown): value is EntityActionUnmetCriterionV1 {
+  return (
+    isReceiptDomainRecord(value) &&
+    exact(value, ["ref", "failureCode", "explain"]) &&
+    isNonEmptyString(value.ref) &&
+    isNonEmptyString(value.failureCode) &&
+    isNonEmptyString(value.explain)
+  );
 }
 function validAuthorizationDecision(value: unknown): value is AuthorizationDecision {
   if (

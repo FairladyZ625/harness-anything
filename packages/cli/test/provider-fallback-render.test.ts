@@ -56,6 +56,23 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
   assert.deepEqual(humanError({ code: "top", nextAction: "repair" }), { code: "top", hint: "repair" });
   assert.deepEqual(
     humanError({
+      code: "invalid_transition",
+      nextAction: "refresh and retry",
+      unmetCriteria: [
+        {
+          ref: "task-lifecycle-contract-support/revisionIssues",
+          failureCode: "invalid_transition",
+          explain: "Expected revision must match.",
+        },
+      ],
+    }),
+    {
+      code: "invalid_transition",
+      hint: "refresh and retry Unmet criteria: task-lifecycle-contract-support/revisionIssues — Expected revision must match.",
+    },
+  );
+  assert.deepEqual(
+    humanError({
       code: "squad_leader_failed",
       leader: { error: { code: "lease_conflict", hint: "release the holder" } },
     }),

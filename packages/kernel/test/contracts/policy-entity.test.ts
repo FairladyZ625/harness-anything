@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
-import { explainEntityKind } from "../../src/index.ts";
+import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 
 test("the built-in v5 Policy registers only qualification predicates and all durable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);

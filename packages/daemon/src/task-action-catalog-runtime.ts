@@ -1,8 +1,13 @@
 import {
   canStartExecution,
+  evaluateTaskActionCapability,
   getExecutableEntityAction,
   heldLeaseForExecutionActor,
   isTerminalStatus,
+  revisionIssues,
+  type EntityActionContract,
+  type EntityActionUnmetCriterionV1,
+  type TaskLifecycleCommand,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actorHint } from "./repo-cell-proof.ts";
@@ -19,7 +24,8 @@ export async function runTaskActionCatalogRuntime(
     expectedRevision = Number.isSafeInteger(action.expectedVersion)
       ? Number(action.expectedVersion)
       : current.snapshot.revision,
-    lifecycle = getExecutableEntityAction(action.kind)?.execution?.lifecycle,
+    contract = getExecutableEntityAction(action.kind),
+    lifecycle = contract?.execution?.lifecycle,
     preview = lifecycle?.coordination === "reserve" && action.dryRun === true,
     activeLease = cell.projection.currentLease(taskId, cell.now());
   if (
@@ -73,6 +79,14 @@ export async function runTaskActionCatalogRuntime(
       "terminal_task",
       `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
     );
+  const unmet =
+    contract?.target.kind === "task"
+      ? evaluateTaskActionCapability({
+          action: contract,
+          snapshot: current.snapshot,
+          actor: binding.actor,
+        }).filter(({ status }) => status === "unmet")
+      : [];
   if (lifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
       rootDir: cell.rootDir,
@@ -81,15 +95,39 @@ export async function runTaskActionCatalogRuntime(
       slot: "task.plan",
       transition: "task.start",
     });
-  const normalized = cell.buildCommand(
-    preview ? cell.withoutDryRun(action) : action,
-    taskId,
-    binding,
-    cell.input.repoId,
-    expectedRevision,
-    cell.rootDir,
-    current.snapshot,
-  );
+  let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
+  try {
+    normalized = cell.buildCommand(
+      preview ? cell.withoutDryRun(action) : action,
+      taskId,
+      binding,
+      cell.input.repoId,
+      expectedRevision,
+      cell.rootDir,
+      current.snapshot,
+    );
+  } catch (error) {
+    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, unmet, error);
+    if (rejection) return rejection;
+    throw error;
+  }
+  if (
+    contract?.target.kind === "task" &&
+    revisionIssues(current.snapshot, {
+      ...normalized,
+      workspaceRevision: current.snapshot.revision + 1,
+    } as TaskLifecycleCommand).length > 0
+  ) {
+    const criterion = contract.criteria.find(({ ref }) => ref === "task-lifecycle-contract-support/revisionIssues");
+    if (!criterion)
+      throw new Error(`Task Action ${contract.id} does not declare its existing revisionIssues predicate.`);
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+      {
+        criterionRef: criterion.ref,
+        nextActions: [`${criterion.explain} Then retry with --expected-version ${String(current.snapshot.revision)}.`],
+      },
+    ]);
+  }
   if (preview && lifecycle) {
     const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
       executionId = commandFields[lifecycle.targetIdField];
@@ -108,13 +146,22 @@ export async function runTaskActionCatalogRuntime(
     );
   }
   const command = cell.withServerMeta(
-      normalized,
-      cell.store.readTaskEvent(normalized.opId),
-      cell.store.readHead()?.revision ?? 0,
-      cell.now(),
-    ),
-    authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection),
-    result = await cell.service.execute(command, authorityProof);
+    normalized,
+    cell.store.readTaskEvent(normalized.opId),
+    cell.store.readHead()?.revision ?? 0,
+    cell.now(),
+  );
+  let authorityProof: Awaited<ReturnType<RepoCellOperationalContext["proofFor"]>>;
+  try {
+    authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection);
+  } catch (error) {
+    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, unmet, error);
+    if (rejection) return rejection;
+    throw error;
+  }
+  if (unmet.length > 0 && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, unmet);
+  const result = await cell.service.execute(command, authorityProof);
   if (result.outcome === "applied" && result.event && result.proof)
     return cell.lifecycleReceipt(
       result.event,
@@ -138,4 +185,83 @@ export async function runTaskActionCatalogRuntime(
     result.code ?? "publication_unknown",
     result.nextAction ?? "Retry receipt show before resubmitting.",
   );
+}
+
+function taskActionFailure(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  revision: number,
+  contract: EntityActionContract | undefined,
+  unmet: readonly {
+    readonly criterionRef: string;
+    readonly nextActions: readonly string[];
+  }[],
+  error: unknown,
+): WriteReceipt | null {
+  if (!contract) return null;
+  const rejected = cell.failed(
+      cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, revision),
+      error,
+    ),
+    withCriteria = attachTaskActionCriteria(cell, action, binding, revision, contract, unmet, rejected);
+  return withCriteria.unmetCriteria?.length ? withCriteria : null;
+}
+
+function taskActionRejection(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  revision: number,
+  contract: EntityActionContract,
+  unmet: readonly {
+    readonly criterionRef: string;
+    readonly nextActions: readonly string[];
+  }[],
+  rejected?: WriteReceipt,
+): WriteReceipt {
+  const unmetCriteria: readonly EntityActionUnmetCriterionV1[] = unmet.map(({ criterionRef }) => {
+      const criterion = contract.criteria.find(({ ref }) => ref === criterionRef);
+      if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${criterionRef} is not declared.`);
+      return criterion;
+    }),
+    nextActions = Object.freeze([
+      ...new Set([
+        ...(rejected?.nextActions ?? []),
+        ...(rejected?.nextAction ? [rejected.nextAction] : []),
+        ...unmet.flatMap(({ nextActions: next }) => next),
+      ]),
+    ]),
+    first = unmetCriteria[0]!;
+  return {
+    ...(rejected ??
+      cell.rejected(
+        cell.operationId(action, binding, cell.input.repoId, revision),
+        first.failureCode,
+        nextActions[0] ?? first.explain,
+      )),
+    unmetCriteria,
+    rejectionExplanation: first.explain,
+    nextActions,
+  };
+}
+
+function attachTaskActionCriteria(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  revision: number,
+  contract: EntityActionContract,
+  unmet: readonly {
+    readonly criterionRef: string;
+    readonly nextActions: readonly string[];
+  }[],
+  rejected: WriteReceipt,
+): WriteReceipt {
+  const matching = unmet.filter(({ criterionRef }) =>
+    contract.criteria.some(({ ref, failureCode }) => ref === criterionRef && failureCode === rejected.code),
+  );
+  return matching.length > 0
+    ? taskActionRejection(cell, action, binding, revision, contract, matching, rejected)
+    : rejected;
 }

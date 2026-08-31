@@ -2,6 +2,7 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
+import { parseExplain } from "./thin-command-explain.ts";
 import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -63,6 +64,7 @@ export function parseRouted(
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "ledger-migrate" })
       : rejected("unknown_field", "ha ledger migrate takes no options.", json);
+  if (route.id === "explain") return parseExplain(args, rootDir, repoId, json, route.method);
   if (route.id.startsWith("runtime-instance-")) return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("runtime-")) return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);

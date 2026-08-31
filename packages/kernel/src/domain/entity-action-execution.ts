@@ -3,6 +3,7 @@ import type { SessionIdentity } from "./agent-runtime.ts";
 import { sessionProvenance } from "./agent-runtime.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
 import type { DecisionAmendableSnapshot, DecisionEventDraftV1 } from "./decision-event.ts";
+import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import { compileRelationCreatedEvent, compileRelationRetiredEvent, type RelationEventV1 } from "./relation-event.ts";
 import {
@@ -231,28 +232,35 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       source: input.source,
       occurredAt: input.occurredAt,
     };
-  if (id === "propose")
-    return {
-      ...base,
-      type: "decision_proposed",
-      payload: {
-        title: requiredText(input, action.title, "title"),
-        question: requiredText(input, action.question, "question"),
-        riskTier: choice(input, action.riskTier, ["low", "medium", "high"], "riskTier"),
-        urgency: choice(input, action.urgency, ["low", "medium", "high"], "urgency"),
-        vertical: requiredText(input, action.vertical, "vertical"),
-        preset: requiredText(input, action.preset, "preset"),
-        appliesTo: object(input, action.appliesTo, "appliesTo") as never,
-        decisionClass: choice(input, action.decisionClass, ["ordinary", "standing_policy"], "decisionClass"),
-        chosen: nonEmptyArray(input, action.chosen, "chosen") as never,
-        rejected: nonEmptyArray(input, action.rejected, "rejected") as never,
-        body: typeof action.body === "string" ? action.body : `\n# ${requiredText(input, action.title, "title")}\n`,
-        claims: array(input, action.claims, "claims") as never,
-        fulfillments: array(input, action.fulfillments, "fulfillments") as never,
+  if (id === "propose") {
+    const proposal = {
+        title: action.title,
+        question: action.question,
+        riskTier: action.riskTier,
+        urgency: action.urgency,
+        vertical: action.vertical,
+        preset: action.preset,
+        appliesTo: action.appliesTo,
+        decisionClass: action.decisionClass,
+        chosen: action.chosen,
+        rejected: action.rejected,
+        body:
+          typeof action.body === "string"
+            ? action.body
+            : `\n# ${typeof action.title === "string" ? action.title : ""}\n`,
+        claims: action.claims,
+        fulfillments: action.fulfillments,
         relations: [],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
       },
+      issues = proposalIssues(proposal, [], decisionId);
+    if (issues.length > 0) invalid(input, issues.join("; "));
+    return {
+      ...base,
+      type: "decision_proposed",
+      payload: proposal as never,
     };
+  }
   if (id === "transition") return transitionEvent(input, base);
   if (id === "accept")
     return {
@@ -427,10 +435,6 @@ function short(input: EntityActionCompileInput, value: unknown, field: string): 
   if ([...text].length <= 199) return text;
   invalid(input, `${field} must contain at most 199 characters.`);
 }
-function nonEmptyArray(input: EntityActionCompileInput, value: unknown, field: string): readonly unknown[] {
-  if (Array.isArray(value) && value.length) return value;
-  invalid(input, `${field} must be a non-empty array.`);
-}
 function array(input: EntityActionCompileInput, value: unknown, field: string): readonly unknown[] {
   if (Array.isArray(value)) return value;
   invalid(input, `${field} must be an array.`);
@@ -446,7 +450,7 @@ function choice<T extends string>(
   field: string,
 ): T {
   if (typeof value === "string" && choices.includes(value as T)) return value as T;
-  invalid(input, `${field} is invalid.`);
+  invalid(input, `${field} is invalid; expected one of: ${choices.join(", ")}.`);
 }
 function stringList(value: unknown): readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [];
