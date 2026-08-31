@@ -261,9 +261,17 @@ test("historical task relation events replay into the Relation projection and su
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
-    const list = projection.list(),
-      expected = list.rows.flatMap((row) =>
-        (row.snapshot.task?.relations ?? []).map((relation, recordIndex) => ({
+    projection.list();
+    // The stored snapshot no longer hosts legacy task.relations (normalized via
+    // currentTaskForWrite), so the expectation derives from the event payloads —
+    // the same replay input the Relation projection consumes.
+    const expected = fixture.events
+      .filter((event) => event.type === "task_relation_added")
+      .flatMap((event) => {
+        const task = event.payload.task as (typeof fixture.tasks)[number] & {
+          readonly relations?: readonly EntityRelationRecord[];
+        };
+        return (task.relations ?? []).map((relation, recordIndex) => ({
           relationId: relation.relation_id,
           sourceRef: relation.source,
           targetRef: relation.target,
@@ -273,11 +281,11 @@ test("historical task relation events replay into the Relation projection and su
           origin: relation.origin,
           state: relation.state,
           rationale: relation.rationale,
-          ownerRef: `task/${row.taskId}`,
-          sourcePath: `event:op-task_relation_added-${row.snapshot.revision}`,
+          ownerRef: `task/${task.taskId}`,
+          sourcePath: `event:${event.opId}`,
           recordIndex,
-        })),
-      );
+        }));
+      });
     const projected = projection.readTaskRelations();
     assert.equal(projected.status, "ready");
     assert.deepEqual(

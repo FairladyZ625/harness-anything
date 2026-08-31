@@ -1,4 +1,5 @@
-// Version 16 adds the rebuildable archived_entity witness table used by genesis
-// migration truth-gap restatements. A version mismatch takes the discard-and-replay
-// path so an older cache cannot silently omit archived source identities.
-export const taskProjectionSchemaVersion = 16;
+// Version 17 normalizes every stored snapshot.task through currentTaskForWrite so
+// legacy hosted fields (relations, metadata.longRunning) embedded in event payloads
+// never reach GUI-facing task rows. A version mismatch takes the discard-and-replay
+// path so caches written by older appliers are rebuilt with normalized rows.
+export const taskProjectionSchemaVersion = 17;

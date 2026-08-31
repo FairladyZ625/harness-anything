@@ -420,12 +420,8 @@ export function applyEvent(
         completionGateIds: event.payload.task.completionGateIds,
         presetSnapshotDigest: event.payload.task.presetSnapshotDigest,
       },
-      historical = { ...current.task, ...changed },
       currentShape = { ...currentTaskForWrite(current.task), ...changed };
-    if (
-      canonicalJson(historical) !== canonicalJson(event.payload.task) &&
-      canonicalJson(currentShape) !== canonicalJson(event.payload.task)
-    )
+    if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(event.payload.task)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
     const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
       contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
@@ -455,7 +451,7 @@ export function applyEvent(
       canonicalJson({
         ...current,
         revision: event.workspaceRevision,
-        task: event.payload.task,
+        task: currentTaskForWrite(event.payload.task),
       }),
       event.payload.task.status,
       event.occurredAt,
@@ -492,7 +488,7 @@ export function applyEvent(
       event.workspaceRevision,
       canonicalJson({
         ...emptyTaskLifecycleSnapshot(event.workspaceRevision),
-        task: event.payload.task,
+        task: currentTaskForWrite(event.payload.task),
       }),
       event.payload.task.status,
       event.occurredAt,

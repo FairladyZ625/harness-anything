@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { reduceTaskEvent, type TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
+import { currentTaskForWrite } from "../domain/task.ts";
 import { docByteLength, verifyDocEventChange, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
@@ -46,7 +47,12 @@ export function applyTaskEvent(
     UPSERT_TASK_SNAPSHOT_SQL,
     event.taskId,
     event.workspaceRevision,
-    canonicalJson({ ...snapshot, executions: [], reviews: [] }),
+    canonicalJson({
+      ...snapshot,
+      task: snapshot.task === null ? null : currentTaskForWrite(snapshot.task),
+      executions: [],
+      reviews: [],
+    }),
     snapshot.task?.status ?? null,
     event.occurredAt,
   );
