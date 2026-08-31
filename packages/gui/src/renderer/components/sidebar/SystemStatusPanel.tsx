@@ -64,7 +64,9 @@ export function systemHealthDetail(health: RuntimeHealth): string {
     `${t("components.appSidebar.healthLedgerChange")}: ${
       health.ledgerChange.at === null
         ? t("components.appSidebar.healthNever")
-        : `${ageText(health.ledgerChange.ageSec)} · ${formatTime(health.ledgerChange.at, { style: "date-time-seconds" }) ?? "—"}`
+        : `${ageText(health.ledgerChange.ageSec)} · ${
+            formatTime(health.ledgerChange.at, { style: "date-time-seconds" }) ?? "—"
+          }`
     }`,
   ].join("\n");
 }
@@ -210,7 +212,7 @@ export function SystemStatusPanel({
           · {projectionText(health)}
         </span>
       </div>
-      {/* 第三行:事件水位 + 相对刷新时间 + 手动刷新 + 连接圆点(原左上角状态栏整行搬来)。 */}
+      {/* 第三行:事件水位 + 刷新时间 + 手动刷新 + 连接圆点(原左上角状态栏搬来)。 */}
       <LedgerStatusBar status={status} onRefresh={onRefresh} />
     </div>
   );

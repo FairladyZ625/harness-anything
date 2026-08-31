@@ -59,7 +59,8 @@ export function AppSidebar({
   return (
     <aside
       data-testid="app-sidebar"
-      className="flex max-h-[42dvh] w-full shrink-0 flex-col overflow-hidden border-b border-border bg-surface md:max-h-none md:w-56 md:border-r md:border-b-0"
+      className={`flex max-h-[42dvh] w-full shrink-0 flex-col overflow-hidden border-b border-border bg-surface
+        md:max-h-none md:w-56 md:border-r md:border-b-0`}
     >
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -67,7 +68,8 @@ export function AppSidebar({
           <span className="font-mono text-[11px] font-semibold tracking-wide text-text-muted">HARNESS</span>
           <span
             title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
-            className="inline-flex items-center gap-1 rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint"
+            className={`inline-flex items-center gap-1 rounded border border-border px-1 py-px
+              font-mono text-[10px] text-text-faint`}
           >
             <CloudSlash weight="bold" />
             {t("components.appSidebar.local")}
@@ -82,7 +84,8 @@ export function AppSidebar({
             <button
               onClick={onProjectSwitcherToggle}
               title={t("components.appSidebar.quicklySwitchProjects")}
-              className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm font-medium hover:border-border-strong ${
+              className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm
+              font-medium hover:border-border-strong ${
                 projectSwitcherOpen || view === "home"
                   ? "border-border-strong bg-surface-raised"
                   : "border-border bg-surface-raised"
@@ -97,7 +100,10 @@ export function AppSidebar({
             </button>
 
             {projectSwitcherOpen && (
-              <div className="absolute left-0 right-0 z-30 mt-2 rounded-lg border border-border-strong bg-surface-raised p-2 shadow-2xl shadow-black/35 md:right-auto md:w-[320px]">
+              <div
+                className={`absolute left-0 right-0 z-30 mt-2 rounded-lg border border-border-strong
+                  bg-surface-raised p-2 shadow-2xl shadow-black/35 md:right-auto md:w-[320px]`}
+              >
                 <div className="flex items-center justify-between px-1 pb-2">
                   <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
                     {t("components.appSidebar.quickSwitch")}
@@ -119,13 +125,15 @@ export function AppSidebar({
                 <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-border pt-2">
                   <button
                     onClick={onOpenProjectManager}
-                    className="rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium text-text-muted hover:border-border-strong hover:text-text"
+                    className={`rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium
+                      text-text-muted hover:border-border-strong hover:text-text`}
                   >
                     {t("components.appSidebar.manageAll")}
                   </button>
                   <button
                     disabled
-                    className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-[12px] text-text-faint opacity-70"
+                    className={`inline-flex items-center justify-center gap-1 rounded-md border border-border
+                      px-2 py-1.5 text-[12px] text-text-faint opacity-70`}
                   >
                     <WarningCircle weight="bold" />
                     {t("components.appSidebar.localMode")}
@@ -139,7 +147,8 @@ export function AppSidebar({
         {NAV_GROUPS.map((group, groupIndex) => (
           <div key={group.id}>
             <div
-              className={`px-3 font-mono text-[12px] uppercase tracking-wide text-text-faint ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}
+              className={`px-3 font-mono text-[12px] uppercase tracking-wide text-text-faint
+                ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}
             >
               {t(group.labelKey)}
             </div>
@@ -172,7 +181,10 @@ export function AppSidebar({
           title={t("components.appSidebar.v2PreviewAfterLoggingYourAccountYou")}
           className="flex w-full cursor-not-allowed items-center gap-2 text-left opacity-70"
         >
-          <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised font-mono text-[11px] font-semibold text-text-muted">
+          <span
+            className={`grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised
+              font-mono text-[11px] font-semibold text-text-muted`}
+          >
             Z
           </span>
           <span className="min-w-0">
