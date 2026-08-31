@@ -1,13 +1,6 @@
-export const domainStatuses = [
-  "planned",
-  "active",
-  "blocked",
-  "in_review",
-  "done",
-  "cancelled"
-] as const;
+export const domainStatuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
 
-export type DomainStatus = typeof domainStatuses[number];
+export type DomainStatus = (typeof domainStatuses)[number];
 export type CanonicalStatus = DomainStatus;
 export type StatusCoarseClass = "open" | "terminal";
 export type StatusTransitionRejectionReason = "terminal_status" | "unsupported_transition";
@@ -19,18 +12,12 @@ export const openDomainStatuses = [
   "planned",
   "active",
   "blocked",
-  "in_review"
-] as const satisfies ReadonlyArray<DomainStatus>;
-
-export const terminalDomainStatuses = [
-  "done",
-  "cancelled"
-] as const satisfies ReadonlyArray<DomainStatus>;
-
-export const reviewArtifactStatuses = [
   "in_review",
-  "done"
 ] as const satisfies ReadonlyArray<DomainStatus>;
+
+export const terminalDomainStatuses = ["done", "cancelled"] as const satisfies ReadonlyArray<DomainStatus>;
+
+export const reviewArtifactStatuses = ["in_review", "done"] as const satisfies ReadonlyArray<DomainStatus>;
 
 export function isDomainStatus(value: string): value is DomainStatus {
   return (domainStatuses as ReadonlyArray<string>).includes(value);
@@ -55,11 +42,11 @@ export const reinstateTaskTargets = ["planned", "active", "in_review"] as const 
 
 const allowedStatusTransitions = {
   planned: ["active", "blocked", "cancelled"],
-  active: ["blocked", "in_review", "done", "cancelled"],
+  active: ["planned", "blocked", "in_review", "done", "cancelled"],
   blocked: ["active", "cancelled"],
   in_review: ["active", "blocked", "done", "cancelled"],
   done: [],
-  cancelled: reinstateTaskTargets
+  cancelled: reinstateTaskTargets,
 } as const satisfies Record<DomainStatus, ReadonlyArray<DomainStatus>>;
 
 export function explainStatusTransition(from: DomainStatus, to: DomainStatus): StatusTransitionExplanation {

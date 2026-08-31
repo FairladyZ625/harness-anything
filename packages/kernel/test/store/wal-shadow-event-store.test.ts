@@ -28,6 +28,7 @@ test("S4 acknowledges the durable WAL cut with zero Git processes and immediate 
         { kind: "local_wal_file", path: `.harness/wal/objects/${bundle.blobs[0]!.sha256}`, operation: "replace" },
       ],
     );
+    const committedEvents = store.read().events;
     const branchBefore = git(rootDir, "rev-parse", "HEAD");
     const receipt = store.append(bundle);
     const wal = openWalEventLog(rootDir);
@@ -39,6 +40,7 @@ test("S4 acknowledges the durable WAL cut with zero Git processes and immediate 
       store.currentCut(),
     );
     assert.equal(receipt.metrics.gitProcesses, 0);
+    assert.equal(committedEvents.length, 0, "an already-returned Git stream remains immutable");
     assert.equal(git(rootDir, "rev-parse", "HEAD"), branchBefore);
     assert.equal(
       readFileSync(path.join(rootDir, "harness", "tasks", "task-1", "task.md"), "utf8"),
@@ -80,6 +82,51 @@ test("S4 batches a WAL suffix into one Git commit and garbage-collects local con
       [1, 2, 3],
     );
     await reopened.drain();
+  });
+});
+
+test("bulk writes defer visibility and settle one Git cut", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({ repoId: "wal-bulk", rootDir, walFlushMs: 1 });
+    const bulk = store.beginBulkWrite!();
+    const countBefore = Number(git(rootDir, "rev-list", "--count", "HEAD"));
+    for (let revision = 1; revision <= 3; revision += 1)
+      store.append(taskBundle(revision, `bulk document ${revision}\n`));
+    assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-3/task.md")), false);
+    await bulk.finish();
+    assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-3/task.md"), "utf8"), "bulk document 3\n");
+    assert.equal(Number(git(rootDir, "rev-list", "--count", "HEAD")), countBefore + 1);
+    const eventPath = git(rootDir, "ls-tree", "-r", "--name-only", "HEAD")
+      .split("\n")
+      .find((target) => target.endsWith("/op-1.json"));
+    assert.ok(eventPath, "bulk event remains committed in Git");
+    assert.equal(existsSync(path.join(rootDir, eventPath)), false, "immutable bulk events stay out of the active tree");
+    assert.equal(
+      git(rootDir, "status", "--porcelain", "--untracked-files=no"),
+      "",
+      "skip-worktree keeps tracked compact objects clean",
+    );
+    await store.drain();
+  });
+});
+
+test("byte threshold flushes a durable WAL batch independently of the event threshold", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({
+      repoId: "wal-bytes",
+      rootDir,
+      walFlushEvents: 10_000,
+      walFlushBytes: 1,
+      walFlushMs: 60_000,
+      walFlushAdaptive: false,
+    });
+    store.append(taskBundle(1));
+    for (let attempt = 0; attempt < 100 && openWalEventLog(rootDir).records().length > 0; attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    await store.drain();
   });
 });
 
@@ -245,6 +292,7 @@ test("a concurrent append burst remains contiguous and materializes as one cut",
       store.read().events.map((event) => event.workspaceRevision),
       Array.from({ length: 24 }, (_, index) => index + 1),
     );
+    assert.equal(store.read().events, store.read().events, "repeated stream reads reuse the merged event array");
     await store.drain();
     assert.equal(git(rootDir, "log", "-1", "--format=%s"), "harness WAL flush 1-24");
   });
@@ -266,7 +314,7 @@ function taskCreated(revision: number): TaskCreatedEvent {
     occurredAt: "2026-08-20T00:00:00.000Z",
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId: `task-${revision}`,
         title: `Task ${revision}`,
         taskClass: "standard",
@@ -280,6 +328,7 @@ function taskCreated(revision: number): TaskCreatedEvent {
         },
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
       },
     },
   };

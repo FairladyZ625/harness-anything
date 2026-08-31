@@ -1,7 +1,6 @@
 import {
-  buildColdCoverage,
   deriveRelationId,
-  isMigrationImportEvent,
+  parseEntityRef,
   type ActorIdentity,
   type CanonicalEventStore,
   type ColdRebuildSource,
@@ -11,20 +10,21 @@ import {
 } from "../../kernel/src/index.ts";
 import type {
   Draft,
-  EntityKind,
   IdRemapping,
-  ImportCounts,
   ImportedRelation,
+  MigrationDisposition,
   Prepared,
   Skip,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
+import type { MigrationProjectionOracle } from "./migration-import-oracle.ts";
 
 export interface ReboundRelation {
   readonly oldId: string;
   readonly sourcePath: string;
   readonly ownerRef: string;
   readonly record: ImportedRelation;
+  readonly retirementReason?: "truth_gap";
 }
 
 export interface MigrationRelationsContext {
@@ -60,49 +60,58 @@ export interface MigrationRelationsContext {
   readonly migrationImportError: (code: string, detail: string) => Error;
   readonly idRemapConflict: (kind: IdRemapping["entityType"], sourceId: string, targetId: string) => Error;
   readonly remappings: IdRemapping[];
-  readonly taskRead: { readonly entries: readonly unknown[] };
-  readonly prepared: readonly Prepared[];
-  readonly alreadyImported: Readonly<Record<EntityKind, number>>;
-  readonly migratedEdges: readonly RelationGraphEdgeRow[];
+  readonly oracle: MigrationProjectionOracle;
+  readonly archivedIds: Readonly<Record<"task" | "decision" | "fact" | "relation" | "execution", Set<string>>>;
+  readonly dispositions: MigrationDisposition[];
+  readonly retiredIds: Set<string>;
 }
 
 export function reboundRelation(context: MigrationRelationsContext, row: RelationGraphEdgeRow): ReboundRelation | null {
   const source = context.reboundRef(row.sourceRef),
     target = context.reboundRef(row.targetRef),
-    ownerRef = context.reboundRef(row.ownerRef);
-  if (!source || !target || !ownerRef) {
-    context.skips.push({
-      entityType: "relation",
-      migratedFrom: row.relationId,
-      sourcePath: row.sourcePath,
-      reason: "relation endpoint or owner was skipped",
-    });
-    return null;
-  }
+    ownerRef = context.reboundRef(row.ownerRef),
+    truthGap = !source || !target || !ownerRef,
+    resolvedSource = truthGap ? row.sourceRef : source,
+    resolvedTarget = truthGap ? row.targetRef : target,
+    resolvedOwner = truthGap ? row.ownerRef || row.sourceRef : ownerRef;
+  if (!resolvedSource || !resolvedTarget || !resolvedOwner) return null;
   const record: ImportedRelation = {
-    relation_id: deriveRelationId({
-      source,
-      target,
-      type: row.relationType,
-      direction: row.direction,
-    }),
-    source,
-    target,
+    relation_id: truthGap
+      ? row.relationId
+      : deriveRelationId({
+          source: resolvedSource,
+          target: resolvedTarget,
+          type: row.relationType,
+          direction: row.direction,
+        }),
+    source: resolvedSource,
+    target: resolvedTarget,
     type: row.relationType,
     direction: row.direction,
     strength: row.strength,
-    origin: "imported_snapshot",
+    origin: truthGap ? row.origin : "imported_snapshot",
     rationale: row.rationale,
-    state: String(row.state) === "retired" ? "edge_retired" : row.state,
+    state: truthGap || String(row.state) === "retired" ? "edge_retired" : row.state,
   };
   const legacyRelationId = [...context.cold.legacyRelationIds.entries()].find(
     ([, canonicalId]) => canonicalId === row.relationId,
   )?.[0];
+  if (truthGap && !context.retiredIds.has(row.relationId)) {
+    context.retiredIds.add(row.relationId);
+    context.dispositions.push({
+      entityType: "relation",
+      entityId: row.relationId,
+      sourcePath: row.sourcePath,
+      disposition: "retired",
+      reason: "truth_gap",
+    });
+  }
   return {
     oldId: legacyRelationId ?? row.relationId,
     sourcePath: row.sourcePath,
-    ownerRef,
+    ownerRef: resolvedOwner,
     record,
+    ...(truthGap ? { retirementReason: "truth_gap" as const } : {}),
   };
 }
 
@@ -116,11 +125,30 @@ export function reboundRef(context: MigrationRelationsContext, ref: string): str
       : null;
   const fact =
     /^fact\/([^/]+)\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref) ?? /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
-  if (!fact) return null;
+  if (!fact) {
+    const parsed = parseEntityRef(ref);
+    if (
+      parsed !== null &&
+      !parsed.externalHarness &&
+      !isArchivedEndpoint(context, parsed.kind, parsed.id) &&
+      context.oracle.entityKeys.has(`${parsed.kind}\0${parsed.id}`)
+    )
+      return ref;
+    return null;
+  }
   const factId = fact.at(-1)!;
   if (context.factMap.has(ref)) return context.factMap.get(ref)!;
   const canonical = `fact/${factId}`;
-  return context.cold.knownFactRefs.has(canonical) ? canonical : null;
+  return context.cold.knownFactRefs.has(canonical) && !context.archivedIds.fact.has(factId) ? canonical : null;
+}
+
+function isArchivedEndpoint(context: MigrationRelationsContext, kind: string, id: string): boolean {
+  return (
+    (kind === "task" && context.archivedIds.task.has(id)) ||
+    (kind === "decision" && context.archivedIds.decision.has(id)) ||
+    (kind === "fact" && context.archivedIds.fact.has(id)) ||
+    (kind === "execution" && context.archivedIds.execution.has(id))
+  );
 }
 
 export function prepareRelation(
@@ -139,6 +167,7 @@ export function prepareRelation(
       kind: "relation",
       relation: value.record,
       ownerRef: value.ownerRef,
+      ...(value.retirementReason ? { retirementReason: value.retirementReason } : {}),
     },
     [],
   );
@@ -213,59 +242,4 @@ export function mappedIdentifier(
     ].join(""),
   });
   return targetId;
-}
-
-export function sourceCounts(context: MigrationRelationsContext): ImportCounts {
-  return {
-    task:
-      context.taskRead.entries.length +
-      context.skips.filter(({ entityType, reason }) => entityType === "task" && reason === "INDEX.md is malformed")
-        .length,
-    decision:
-      context.cold.decisions.length + context.cold.issues.filter(({ entityType }) => entityType === "decision").length,
-    fact: context.cold.facts.length + context.cold.issues.filter(({ entityType }) => entityType === "fact").length,
-    relation:
-      context.cold.truth.edges.length +
-      context.cold.issues.filter(({ entityType }) => entityType === "relation").length,
-    coverage: buildColdCoverage(context.cold, context.cold.truth.edges).length,
-  };
-}
-
-export function preparedCounts(context: MigrationRelationsContext): ImportCounts {
-  const kind = (name: "task" | "decision" | "fact" | "relation"): number =>
-    context.prepared.filter(
-      ({ event }: Prepared) => isMigrationImportEvent(event) && event.payload.entity.kind === name,
-    ).length + context.alreadyImported[name];
-  return {
-    task: kind("task"),
-    decision: kind("decision"),
-    fact: kind("fact"),
-    relation: kind("relation"),
-    coverage: buildColdCoverage(context.cold, context.migratedEdges).filter(({ decisionRef }) =>
-      context.decisionMap.has(decisionRef.slice("decision/".length)),
-    ).length,
-  };
-}
-
-export function projectedCounts(context: MigrationRelationsContext): ImportCounts {
-  const taskIds = new Set(context.taskMap.values()),
-    decisionIds = new Set(context.decisionMap.values()),
-    factRefs = new Set(context.factMap.values()),
-    relationIds = new Set(context.relationMap.values()),
-    decisions = context.input.projection.readDecisionGraph(),
-    facts = context.input.projection.readFactGraph();
-  return {
-    task: context.input.projection
-      .list()
-      .rows.filter(({ taskId, generation }) => taskIds.has(taskId) && generation === "v0").length,
-    decision: decisions.decisionAnchors.filter(({ decisionId }) => decisionIds.has(decisionId)).length,
-    fact: facts.facts.filter(({ ref }) => factRefs.has(ref)).length,
-    relation: new Set(
-      [...decisions.edges, ...facts.edges]
-        .filter(({ relationId }) => relationIds.has(relationId))
-        .map(({ relationId }) => relationId),
-    ).size,
-    coverage: decisions.coverageRows.filter(({ decisionRef }) => decisionIds.has(decisionRef.slice("decision/".length)))
-      .length,
-  };
 }

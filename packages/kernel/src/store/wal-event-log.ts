@@ -69,7 +69,8 @@ export function openWalEventLog(rootDir: string): WalEventLog {
   const walRoot = path.join(path.resolve(rootDir), ".harness", "wal");
   const segmentPath = path.join(walRoot, WAL_SEGMENT);
   const objectsRoot = path.join(walRoot, "objects");
-  let cached: readonly WalEventRecord[] | null = null;
+  let cached: WalEventRecord[] | null = null;
+  let cachedByOpId: Map<string, WalEventRecord> | null = null;
   let cachedHead: WalHead | null = null;
 
   const ensureRoot = (): void => {
@@ -80,6 +81,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     if (cached !== null) return cached;
     if (!fileSystem.exists(segmentPath)) {
       cached = [];
+      cachedByOpId = new Map();
       return cached;
     }
     const raw = fileSystem.readText(segmentPath);
@@ -96,6 +98,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
         throw new Error(`WAL revision or digest chain is not contiguous at revision ${current.revision}`);
     }
     cached = rows;
+    cachedByOpId = new Map(rows.map((record) => [record.opId, record] as const));
     return rows;
   };
   const readHead = (): WalHead => {
@@ -127,13 +130,14 @@ export function openWalEventLog(rootDir: string): WalEventLog {
   const append = (input: WalAppendInput): WalEventRecord => {
     ensureRoot();
     const eventBytes = serializeCanonicalEvent(input.event);
-    const existing = readRecords().find((candidate) => candidate.opId === input.event.opId);
+    const records = readRecords();
+    const existing = cachedByOpId!.get(input.event.opId);
     if (existing !== undefined) {
       if (existing.eventDigest !== `sha256:${sha256Text(eventBytes)}`)
         throw new Error(`WAL opId ${input.event.opId} names different event bytes`);
       return existing;
     }
-    const previous = readRecords().at(-1);
+    const previous = records.at(-1);
     const revision = input.event.workspaceRevision;
     if (previous !== undefined && revision !== previous.revision + 1)
       throw new Error(`WAL revision ${revision} must follow ${previous.revision}`);
@@ -160,14 +164,15 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       previousDigest: previous?.eventDigest ?? null,
     };
     const body = `${stableStringify(record)}\n`;
-    const current = fileSystem.exists(segmentPath) ? fileSystem.readText(segmentPath) : "";
+    const priorOffset = readHead().lastOffset;
     fileSystem.append(segmentPath, body);
-    cached = [...readRecords(), record];
+    cached!.push(record);
+    cachedByOpId!.set(record.opId, record);
     writeHead({
       schema: "harness-wal-head/v1",
       revision,
       lastSegment: WAL_SEGMENT,
-      lastOffset: Buffer.byteLength(current + body),
+      lastOffset: priorOffset + Buffer.byteLength(body),
       headDigest: record.eventDigest,
     });
     return record;
@@ -180,6 +185,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       if (fileSystem.exists(segmentPath)) fileSystem.replace(segmentPath, "");
     } else fileSystem.replace(segmentPath, body);
     cached = remaining;
+    cachedByOpId = new Map(remaining.map((record) => [record.opId, record] as const));
     const last = remaining.at(-1);
     writeHead(
       last === undefined
@@ -222,6 +228,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     const body = records.map((record) => `${stableStringify(record)}\n`).join("");
     fileSystem.replace(segmentPath, body);
     cached = records;
+    cachedByOpId = new Map(records.map((record) => [record.opId, record] as const));
     const last = records.at(-1);
     writeHead(
       last === undefined
@@ -246,7 +253,10 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     head: readHead,
     records: readRecords,
     append,
-    readEvent: (opId) => readRecords().find((record) => record.opId === opId)?.event ?? null,
+    readEvent: (opId) => {
+      readRecords();
+      return cachedByOpId!.get(opId)?.event ?? null;
+    },
     readContentBlob: (sha256) => {
       const target = path.join(objectsRoot, sha256);
       if (fileSystem.exists(target)) return Buffer.from(fileSystem.readText(target));

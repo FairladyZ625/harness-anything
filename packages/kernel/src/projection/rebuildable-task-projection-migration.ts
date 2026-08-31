@@ -7,10 +7,10 @@ import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../dom
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
-import { deriveRelationId } from "../domain/entity-relation.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
+import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 import { readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -179,41 +179,6 @@ export function projectMigration(
       JSON.stringify(row),
     );
     runSql(db, "INSERT INTO fact_fts VALUES (?, ?, ?)", value.factId, value.statement, value.evidenceSource);
-    if (value.taskId) {
-      const produces = {
-        source: `task/${value.taskId}`,
-        target: ref,
-        type: "produces" as const,
-        direction: "directed" as const,
-      };
-      runSql(
-        db,
-        "INSERT OR IGNORE INTO relation_edge" +
-          "(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json)" +
-          " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        deriveRelationId(produces),
-        produces.source,
-        produces.target,
-        produces.type,
-        "active",
-        produces.source,
-        event.workspaceRevision,
-        JSON.stringify({
-          relationId: deriveRelationId(produces),
-          sourceRef: produces.source,
-          targetRef: produces.target,
-          relationType: produces.type,
-          direction: produces.direction,
-          strength: "strong",
-          origin: "generated",
-          state: "active",
-          rationale: "Migrated fact owner.",
-          ownerRef: produces.source,
-          sourcePath: `event:${event.opId}`,
-          recordIndex: 1,
-        }),
-      );
-    }
     storeMigrationDocument(db, event, entity.documentClaim, readBlob);
     return;
   }
@@ -259,32 +224,22 @@ export function projectMigration(
     return;
   }
   if (entity.kind === "relation") {
-    const value = entity.relation,
-      edge = {
-        relationId: value.relation_id,
-        sourceRef: value.source,
-        targetRef: value.target,
-        relationType: value.type,
-        direction: value.direction,
-        strength: value.strength,
-        origin: value.origin,
-        state: value.state,
-        rationale: value.rationale,
-        ownerRef: entity.ownerRef,
-        sourcePath: `event:${event.opId}`,
-        recordIndex: 0,
-      };
+    applyRelationProjectionEvent(db, event);
+    return;
+  }
+  if (entity.kind === "archived-entity") {
     runSql(
       db,
-      "INSERT OR IGNORE INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      edge.relationId,
-      edge.sourceRef,
-      edge.targetRef,
-      edge.relationType,
-      edge.state,
-      edge.ownerRef,
+      [
+        "INSERT INTO archived_entity(entity_kind, entity_id, workspace_revision, row_json)",
+        "VALUES (?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+        "workspace_revision=excluded.workspace_revision, row_json=excluded.row_json",
+        "WHERE archived_entity.workspace_revision <= excluded.workspace_revision",
+      ].join(" "),
+      entity.entityKind,
+      entity.entityId,
       event.workspaceRevision,
-      JSON.stringify(edge),
+      canonicalJson(entity),
     );
     return;
   }

@@ -128,27 +128,29 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       ),
       relationPreview = await cell.run(
         {
-          kind: "task-relate",
-          taskId: "task_source",
-          target: "task/task_target",
+          kind: "relation-relate",
+          sourceRef: "task/task_source",
+          targetRef: "task/task_target",
           relationType: "depends-on",
           rationale: "Preview only",
+          expectedVersion: 0,
           dryRun: true,
         },
         binding,
       );
     assert.equal(startPreview.outcome, "pending");
     assert.equal(startPreview.proof?.canonicalVisible, false);
-    assert.equal(relationPreview.outcome, "pending");
-    assert.equal(relationPreview.proof?.canonicalVisible, false);
+    assert.equal(relationPreview.outcome, "op_rejected");
+    assert.equal(relationPreview.code, "invalid_command");
     assert.equal(makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
     await cell.run(
       {
-        kind: "task-relate",
-        taskId: "task_source",
-        target: "task/task_target",
+        kind: "relation-relate",
+        sourceRef: "task/task_source",
+        targetRef: "task/task_target",
         relationType: "depends-on",
         rationale: "Required target",
+        expectedVersion: 0,
       },
       binding,
     );
@@ -156,11 +158,12 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       (
         await cell.run(
           {
-            kind: "task-relate",
-            taskId: "task_target",
-            target: "task/task_source",
+            kind: "relation-relate",
+            sourceRef: "task/task_target",
+            targetRef: "task/task_source",
             relationType: "depends-on",
             rationale: "Would cycle",
+            expectedVersion: 0,
           },
           binding,
         )

@@ -9,7 +9,6 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readFrontmatter, readNestedScalar, readScalar } from "../markdown/frontmatter.ts";
-import { deriveRelationTaskAuthoredSources, type RelationAuthoredSourceKind } from "./relation-source-manifest.ts";
 import type {
   ProjectionCanonicalStatus,
   CoordinationStatus,
@@ -38,16 +37,9 @@ export function readTaskProjectionSourceHashInputs(
   return readTaskProjectionSource(rootInput).sourceInputs;
 }
 
-export function readRelationGraphSourceHashInputKinds(
-  rootInput: HarnessLayoutInput,
-): ReadonlyArray<RelationAuthoredSourceKind> {
-  return [...new Set(readTaskProjectionSource(rootInput).relationSourceInputs.map((input) => input.kind))].sort();
-}
-
 function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
   readonly entries: ReadonlyArray<TaskSourceEntry>;
   readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
-  readonly relationSourceInputs: ReadonlyArray<RelationSourceHashInput>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 } {
   const layout = resolveHarnessLayout(rootInput);
@@ -80,19 +72,17 @@ function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
     }
   }
 
-  const relationSourceInputs = readRelationGraphSourceInputs(rootDir, entries);
-  const supplementalSourceInputs = readTaskSupplementalSourceInputs(rootDir, entries);
-  const taskIndexInputs = entries.flatMap((entry) =>
-    relationSourceInputs.filter((input) => input.kind === "task-index" && input.taskId === entry.taskId),
-  );
-  const remainingSourceInputs = [
-    ...relationSourceInputs.filter((input) => input.kind !== "task-index"),
-    ...supplementalSourceInputs,
-  ].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
+  const taskIndexInputs = entries.map((entry) => ({
+      kind: "task-index",
+      sourcePath: sourcePath(rootDir, entry.indexPath),
+      body: entry.body,
+    })),
+    remainingSourceInputs = [...readTaskSupplementalSourceInputs(rootDir, entries)].sort((a, b) =>
+      a.sourcePath.localeCompare(b.sourcePath),
+    );
   return {
     entries,
     sourceInputs: [...taskIndexInputs, ...remainingSourceInputs],
-    relationSourceInputs,
     warnings,
   };
 }
@@ -108,11 +98,6 @@ export interface TaskProjectionSourceHashInput {
   readonly kind: string;
   readonly sourcePath: string;
   readonly body: string;
-}
-
-interface RelationSourceHashInput extends TaskProjectionSourceHashInput {
-  readonly kind: RelationAuthoredSourceKind;
-  readonly taskId?: string;
 }
 
 export function taskEntryToRow(
@@ -235,36 +220,6 @@ function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; rea
     ...(moduleKey ? { moduleKey } : {}),
     ...(moduleTitle ? { moduleTitle } : {}),
   };
-}
-
-function readRelationGraphSourceInputs(
-  rootDir: string,
-  entries: ReadonlyArray<TaskSourceEntry>,
-): ReadonlyArray<RelationSourceHashInput> {
-  const taskDocumentInputs = entries
-    .flatMap((entry) =>
-      deriveRelationTaskAuthoredSources(path.dirname(entry.indexPath)).map((source) => ({
-        kind: source.kind,
-        path: source.filePath,
-        ...(source.kind === "task-index" ? { taskId: entry.taskId } : {}),
-        ...(source.filePath === entry.indexPath ? { body: entry.body } : {}),
-      })),
-    )
-    .filter((input) => input.body !== undefined || existsSync(input.path))
-    .flatMap((input) => {
-      const body = input.body ?? readTextFileIfPresent(input.path);
-      return body === null
-        ? []
-        : [
-            {
-              kind: input.kind,
-              ...(input.taskId ? { taskId: input.taskId } : {}),
-              sourcePath: sourcePath(rootDir, input.path),
-              body,
-            },
-          ];
-    });
-  return taskDocumentInputs;
 }
 
 function readTaskSupplementalSourceInputs(

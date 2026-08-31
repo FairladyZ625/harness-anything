@@ -45,7 +45,7 @@ export interface LedgerMaintenanceReceipt {
   readonly applied: readonly string[];
   readonly degraded: string | null;
 }
-/** Pins the ledger repository's own maintenance policy so Git's automatic housekeeping stays out of the write path and repacks incrementally instead of rebuilding every pack from scratch, and pins `core.autocrlf=false` so committed blobs stay byte-identical to the documents written to disk (Git for Windows defaults `core.autocrlf=true` globally, which would rewrite CRLF documents to LF and break content-hash readback). Repository config outranks the user's global config, so a global `gc.autoDetach=false` cannot drag a repack into a ledger write. Idempotent: only differing keys are written. */
+/** Pins ledger maintenance and incremental-index policy out of the user-global config. */
 export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceReceipt {
   const version = readGitVersion(repoRoot),
     applied: string[] = [];
@@ -57,6 +57,11 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
   pin("maintenance.autoDetach", "true");
   pin("gc.autoDetach", "true");
   pin("core.autocrlf", "false");
+  // WAL commits use fast-import and touch-path update-index. A split index keeps
+  // the latter proportional to that cut, while the untracked cache prevents the
+  // authored settlement probe from re-statting the full active tree.
+  pin("core.splitIndex", "true");
+  pin("core.untrackedCache", "true");
   const geometric = version !== null && atLeastGitVersion(version.parts, geometricMaintenanceFloor);
   if (geometric) pin("maintenance.strategy", "geometric");
   return {
@@ -395,6 +400,7 @@ export const localGitWorktreeSettlement = Object.freeze({
         }
       | { readonly delete: string }
     )[],
+    skipWorktree = false,
   ): number => {
     if (files.length === 0) return 0;
     const zero = "0".repeat(40),
@@ -406,7 +412,17 @@ export const localGitWorktreeSettlement = Object.freeze({
         )
         .join("");
     localGitProcesses += 1;
-    awaitDurableSettlement(beginDurableSettlement({ index: { repoRoot, input: indexInput } }));
+    awaitDurableSettlement(
+      beginDurableSettlement({
+        index: {
+          repoRoot,
+          input: indexInput,
+          skipWorktreeInput: skipWorktree
+            ? files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")
+            : undefined,
+        },
+      }),
+    );
     return 1;
   },
   settle: (
@@ -521,6 +537,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     awaitDurableSettlement(
       beginDurableSettlement({
         index: files.length ? { repoRoot, input: indexInput } : undefined,
+        directories: links.length === 0 ? [...directories] : undefined,
       }),
     );
     for (const item of links) {
@@ -528,7 +545,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       runGit(repoRoot, "checkout-index", "--force", "--", item.logical);
       hooks.afterRename?.();
     }
-    awaitDurableSettlement(beginDurableSettlement({ directories: [...directories] }));
+    if (links.length > 0) awaitDurableSettlement(beginDurableSettlement({ directories: [...directories] }));
     return files.length + directories.size;
   },
   preserveConflict: (repoRoot: string, target: string, logical: string, commit: string): string =>
@@ -670,7 +687,7 @@ let settlementWorker: Worker | null = null;
 interface DurableSettlementInput {
   readonly files?: readonly { readonly temporary: string; readonly body: string }[];
   readonly directories?: readonly string[];
-  readonly index?: { readonly repoRoot: string; readonly input: string };
+  readonly index?: { readonly repoRoot: string; readonly input: string; readonly skipWorktreeInput?: string };
 }
 interface DurableSettlementWait {
   readonly state: Int32Array;
@@ -726,7 +743,7 @@ if (!isMainThread && workerData?.kind === settlementWorkerKind) {
     ) => {
       try {
         const durability = [
-          ...(request.files ?? []).map(async (file) => {
+          ...(request.files ?? []).map((file) => async () => {
             const descriptor = await /* @gate-identity check-bypass-write-boundary/bypass-write-079 */
             openAsync(file.temporary, "w", 0o644);
             try {
@@ -738,7 +755,7 @@ if (!isMainThread && workerData?.kind === settlementWorkerKind) {
           }),
           ...(process.platform === "win32"
             ? []
-            : (request.directories ?? []).map(async (directory) => {
+            : (request.directories ?? []).map((directory) => async () => {
                 const descriptor = await /* @gate-identity check-bypass-write-boundary/bypass-write-080 */
                 openAsync(directory, "r");
                 try {
@@ -757,8 +774,17 @@ if (!isMainThread && workerData?.kind === settlementWorkerKind) {
             windowsHide: true,
             ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
           });
+          if (request.index.skipWorktreeInput)
+            localGitBytes(
+              request.index.repoRoot,
+              ["update-index", "--skip-worktree", "-z", "--stdin"],
+              Buffer.from(request.index.skipWorktreeInput),
+            );
         }
-        await Promise.all(durability);
+        // Bound descriptors and fsync pressure while retaining parallelism. The
+        // request already contains only paths touched by this publication cut.
+        for (let offset = 0; offset < durability.length; offset += 128)
+          await Promise.all(durability.slice(offset, offset + 128).map((settle) => settle()));
         Atomics.store(request.state, 0, 1);
       } catch (error) {
         consumeKnownError(error);

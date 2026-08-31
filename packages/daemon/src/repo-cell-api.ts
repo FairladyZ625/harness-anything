@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
+  currentSubmittedExecutions,
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
+  relationDirections,
+  relationStates,
   timestamp,
   type AuthorizationDecision,
   type CanonicalEventStore,
@@ -51,7 +54,6 @@ import { readCiObservatory } from "./ci-observatory-read.ts";
 import type {
   RepoCellOperationalContext,
   RepoCellPeopleActions,
-  RepoCellScheduleActions,
   RepoCellSettingsActions,
 } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
@@ -61,11 +63,8 @@ import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import type {
-  ScheduleDispatchLinkInput,
-  ScheduleMissedInput,
-  ScheduleSettleInput,
-} from "./repo-cell-schedule-actions.ts";
+import { waitForOptionalTaskProjection } from "./projection-readiness-wait.ts";
+import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -113,7 +112,6 @@ export interface RepoCellApiContext {
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly scheduleActions: RepoCellScheduleActions;
   readonly settingsActions: RepoCellSettingsActions;
   readonly peopleActions: RepoCellPeopleActions;
   readonly appendRuntimeIngress: RepoCellOperationalContext["appendRuntimeIngress"];
@@ -187,13 +185,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         error,
       );
       const contract = getExecutableEntityAction(action.kind);
-      const result = contract?.target.kind === "task" ? deriveActionResult(contract, action, receipt) : receipt;
+      const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
       return authorizationDecision
         ? withAuthorizationDecision(
             result,
             authorizationDecision,
-            [criterionForError(error)],
-            error instanceof Error ? error.message : String(error),
+            result.unmetCriteria?.length ? result.unmetCriteria : [criterionForError(error)],
+            result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
           )
         : (result as WriteReceipt);
     };
@@ -410,6 +408,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
+    "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
@@ -514,10 +513,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   // apply their new cut without yielding; long asynchronous preparation (for example a vertical
   // script) happens before publication. A read can therefore see the complete cut before or after
   // a write, never its partial state, without waiting behind the write tail.
-  const read: RepoCell["read"] = async (method, payload = {}) => {
+  const read: RepoCell["read"] = async (method, payload = {}, binding) => {
     if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-    return context.dispatchRead(readHandlers, method, payload);
+    if (method === "repo.entity.actions.explain") {
+      return readTaskActionExplanation(
+        { store: context.store, projection: context.projection, binding, now: context.now },
+        payload,
+      ) as DaemonGuiReadResultMap[typeof method];
+    }
+    return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
   };
   // Narrow/paged query payloads for the two wide GUI reads: an empty payload keeps the
   // unparameterized full result; any explicit facet takes the indexed narrow path.
@@ -608,8 +613,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           facet === "edges" ? !["facet", "relationType", "state", "direction"].includes(field) : field !== "facet",
         ) ||
         (payload.relationType !== undefined && (typeof payload.relationType !== "string" || !payload.relationType)) ||
-        (payload.state !== undefined && !["active", "edge_retired", "deleted"].includes(String(payload.state))) ||
-        (payload.direction !== undefined && !["directed", "undirected"].includes(String(payload.direction)))
+        (payload.state !== undefined &&
+          !relationStates.includes(String(payload.state) as (typeof relationStates)[number])) ||
+        (payload.direction !== undefined &&
+          !relationDirections.includes(String(payload.direction) as (typeof relationDirections)[number]))
       )
         throw context.cellCodedError("invalid_command", "Relation graph facet selectors are invalid.");
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
@@ -651,9 +658,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     const stateInvalid =
       status !== undefined &&
       !(
-        method === "repo.tasks.list"
+        (method === "repo.tasks.list"
           ? ["planned", "active", "blocked", "in_review", "done", "cancelled"]
-          : ["active", "edge_retired", "deleted"]
+          : relationStates) as readonly string[]
       ).includes(status);
     if (stateInvalid) throw context.cellCodedError("invalid_command", "Query status is invalid for this read.");
     return {
@@ -718,7 +725,15 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         });
       const authorizedBinding = { ...binding, authorizationDecision };
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
-        idempotencyKey =
+        readyTask = await waitForOptionalTaskProjection({
+          invalidWait: (message) => context.cellCodedError("invalid_command", message),
+          projection: context.projection,
+          purpose: "runtime.run admission",
+          store: context.store,
+          taskId,
+          waitProjectionMs: payload.waitProjectionMs,
+        });
+      const idempotencyKey =
           typeof payload.idempotencyKey === "string" && payload.idempotencyKey ? payload.idempotencyKey : null,
         dispatchOpId = idempotencyKey
           ? `runtime-spawn-${createHash("sha256")
@@ -726,9 +741,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
               .digest("hex")
               .slice(0, 32)}`
           : null,
-        taskLease = taskId ? context.projection.currentLease(taskId) : null;
+        taskLease = taskId ? context.projection.currentLease(taskId) : null,
+        taskSnapshot = readyTask?.snapshot ?? null,
+        reviewContinuation =
+          taskSnapshot?.task?.status === "in_review" &&
+          taskSnapshot.task.currentNode === "review" &&
+          taskSnapshot.lease === null &&
+          currentSubmittedExecutions(taskSnapshot).length === 1;
       if (
         taskId &&
+        !reviewContinuation &&
         (taskLease === null || taskLease.phase === "released") &&
         (!dispatchOpId || context.store.readEvent(dispatchOpId) === null)
       ) {
@@ -861,84 +883,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     );
     return pending;
   };
-  const scheduleOperation = (
-    commandKind: "schedule-run-now" | "schedule-settle",
-    input: Readonly<Record<string, unknown>>,
-    binding: RepoCellBinding,
-    execute: (authorizedBinding: RepoCellBinding) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
-  ): Promise<WriteReceipt> => {
-    const command = commandDescriptorForAction(commandKind),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        action = { ...input, kind: commandKind },
-        authorizationDecision = authorizeRepoCellAction({
-          action,
-          binding,
-          actionId: context.operationId(action, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        return withAuthorizationDecision(
-          context.rejected(
-            context.operationId(action, binding, context.input.repoId, revision),
-            "authorization_denied",
-            authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
-          ),
-          authorizationDecision,
-        );
-      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
-      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
-      try {
-        return withAuthorizationDecision(await execute({ ...binding, authorizationDecision }), authorizationDecision);
-      } finally {
-        context.activeWriterEpochGuard = null;
-        context.activeWriterEpochFence = null;
-      }
-    });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
-  };
-  const schedulePort: RepoCell["schedule"] = {
-    claimOccurrence: (input, binding) =>
-      scheduleOperation("schedule-run-now", input, binding, (authorized) =>
-        context.scheduleActions.claimOccurrence(input, authorized),
-      ),
-    recordMissed: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleMissedInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule missed input is invalid.");
-        return context.scheduleActions.recordMissed(input, authorized);
-      }),
-    linkDispatch: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleDispatchLinkInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule dispatch link input is invalid.");
-        return context.scheduleActions.linkDispatch(input, authorized);
-      }),
-    settle: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleSettleInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule settlement input is invalid.");
-        return context.scheduleActions.settle(input, authorized);
-      }),
-  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
     run,
@@ -946,7 +890,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     spawnRuntime,
     cancelRuntime,
     runtimeIngress,
-    schedule: schedulePort,
     catalog: context.catalog,
     terminal: context.terminal,
     read,
@@ -1036,43 +979,4 @@ function criterionForError(error: unknown): string {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
     ? `criteria/${error.code}`
     : "criteria/action-execution";
-}
-
-function isScheduleMissedInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleMissedInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.from === "string" &&
-    typeof value.to === "string" &&
-    typeof value.count === "number" &&
-    typeof value.reason === "string" &&
-    typeof value.idempotencyKey === "string" &&
-    (value.observedDefinitionRevision === undefined || typeof value.observedDefinitionRevision === "number")
-  );
-}
-
-function isScheduleDispatchLinkInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleDispatchLinkInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.claimFence === "string" &&
-    typeof value.dispatchId === "string" &&
-    typeof value.runtimeSessionId === "string" &&
-    typeof value.idempotencyKey === "string"
-  );
-}
-
-function isScheduleSettleInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleSettleInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.claimFence === "string" &&
-    ["succeeded", "failed", "cancelled", "unknown"].includes(String(value.outcome)) &&
-    typeof value.endedAt === "string" &&
-    (value.detail === undefined || typeof value.detail === "string") &&
-    typeof value.idempotencyKey === "string"
-  );
 }

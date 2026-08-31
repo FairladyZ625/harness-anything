@@ -8,9 +8,8 @@ export function PhaseSteps({ status }: { status: SnapshotStatus }) {
     const note =
       /* @gate-identity check-gui-status-judgments/gui-status-017 */
       status === "blocked"
-        ? "blocked：relation overlay，不是 Task/v1 状态机节点"
-        :
-          /* @gate-identity check-gui-status-judgments/gui-status-018 */
+        ? "blocked：relation overlay，不是 Task/v2 状态机节点"
+        : /* @gate-identity check-gui-status-judgments/gui-status-018 */
           status === "cancelled"
           ? "cancelled：终态，不参与阶段流"
           : "unknown：快照展示值，无阶段位置";
@@ -20,16 +19,10 @@ export function PhaseSteps({ status }: { status: SnapshotStatus }) {
     <div className="flex w-full items-center">
       {STEP_FLOW.map((s, i) => (
         <Fragment key={s}>
-          {i > 0 && (
-            <span className={`h-px min-w-1 flex-1 ${i <= idx ? "bg-accent" : "bg-border"}`} />
-          )}
+          {i > 0 && <span className={`h-px min-w-1 flex-1 ${i <= idx ? "bg-accent" : "bg-border"}`} />}
           <span
             className={`rounded px-1 py-0.5 font-mono text-[11px] ${
-              i === idx
-                ? "bg-accent font-semibold text-accent-fg"
-                : i < idx
-                  ? "text-text-muted"
-                  : "text-text-faint"
+              i === idx ? "bg-accent font-semibold text-accent-fg" : i < idx ? "text-text-muted" : "text-text-faint"
             }`}
           >
             {s}

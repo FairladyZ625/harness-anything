@@ -1,3 +1,4 @@
+import { relationStateWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
   cliInput,
@@ -393,12 +394,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "relation-list",
     phase: "W3",
     path: ["relation", "list"],
-    summary: "Query Task, Decision, and Fact relation edges from the converged projection.",
+    summary: "Query first-class Relation aggregates from the canonical versioned projection.",
     method: "repo.task.run",
     inputs: [
       cliInput("--entity", "single", false, {
         code: "invalid_field",
-        nextAction: "Use task/<id>, decision/<id>, or fact/<id>.",
+        nextAction: "Use a canonical registered Entity ref.",
       }),
       cliInput("--source", "single", false, {
         code: "invalid_field",
@@ -420,7 +421,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
           code: "invalid_field",
           nextAction: "Use active, edge_retired, or deleted.",
         },
-        { enum: ["active", "edge_retired", "deleted"] },
+        { enum: relationStateWords },
       ),
       cliInput(
         "--updated-after",
@@ -459,23 +460,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
         nextAction: "Use the cursor returned by the previous page.",
-      }),
-    ],
-  }),
-  defineLedgerWriteCommand({
-    id: "task-relate",
-    phase: "W3",
-    path: ["task", "relate", "<source-task-id>", "depends-on", "<target-task-id>"],
-    summary: "Declare a cycle-checked depends-on edge owned by the source Task.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--rationale", "single", true, {
-        code: "missing_field",
-        nextAction: "Add --rationale <why-this-dependency-is-required>.",
-      }),
-      cliInput("--dry-run", "boolean", false, {
-        code: "invalid_field",
-        nextAction: "Use --dry-run once to preview the edge.",
       }),
     ],
   }),

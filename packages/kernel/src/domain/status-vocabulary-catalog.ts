@@ -1,6 +1,15 @@
 import type { StatusVocabulary } from "./status-vocabulary-types.ts";
+import { relationStates } from "./entity-relation.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  {
+    id: "entity-action-criterion.status",
+    entity: "EntityActionCriterion",
+    field: "status",
+    module: "packages/kernel/src/domain/entity-action-explanation.ts",
+    anchor: "entityActionCriterionStatuses",
+    words: ["met", "unmet", "invocation-required", "not-evaluated"],
+  },
   {
     id: "ci-test.status",
     entity: "CiTest",
@@ -65,7 +74,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "replayTaskStatuses",
     words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
     subsetOf: "task.status",
-    note: "Task/v1 wire validator set; same words, same meanings.",
+    note: "Task/v2 wire validator set; same words, same meanings.",
   },
   {
     id: "decision.state",
@@ -146,11 +155,11 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   },
   {
     id: "relation.state",
-    entity: "RelationEdge",
+    entity: "Relation",
     field: "state",
     module: "packages/kernel/src/domain/entity-relation.ts",
     anchor: "relationStates",
-    words: ["active", "edge_retired", "deleted"],
+    words: relationStates,
   },
   {
     id: "task-blocking.assessment",
@@ -447,7 +456,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "relationStateWords",
-    words: ["active", "edge_retired", "deleted"],
+    words: relationStates,
     mirrorOf: "relation.state",
   },
   {

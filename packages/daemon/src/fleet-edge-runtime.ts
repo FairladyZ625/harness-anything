@@ -32,7 +32,7 @@ import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } fro
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { dispatchClaimedSchedule } from "./repo-cell-schedule-actions.ts";
+import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
@@ -332,7 +332,6 @@ export function openFleetEdgeRuntime(input: {
           opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
           action: {
             kind: "schedule-settle",
-            phase: "outcome",
             scheduleId: scheduled.scheduleId,
             claimFence: scheduled.claimFence,
             outcome: terminal.outcome,
@@ -462,7 +461,7 @@ export function openFleetEdgeRuntime(input: {
           repoId: request.repoId,
           scheduleId,
           opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
-          action: { kind: "schedule-settle", phase: "dispatch-link", ...linked },
+          action: { kind: "schedule-dispatch-link", ...linked },
         }),
       settleFailure: ({ idempotencyKey, ...failed }) =>
         runFleetScheduleCommandClient({
@@ -470,7 +469,7 @@ export function openFleetEdgeRuntime(input: {
           repoId: request.repoId,
           scheduleId,
           opId: fleetScheduleOpId(request.repoId, request.assignmentId, idempotencyKey),
-          action: { kind: "schedule-settle", phase: "outcome", ...failed },
+          action: { kind: "schedule-settle", ...failed },
         }),
     });
     if (dispatched.kind === "spawn-failed") throw dispatched.error;

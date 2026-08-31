@@ -15,6 +15,7 @@ import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-sur
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
 import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
+import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
@@ -36,6 +37,14 @@ const settingsWriteTopology = {
         nextAction: `Use ${name} with a non-empty Settings identifier or relative scaffold path.`,
       },
       { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
+    ),
+  positiveSettingInput = (name: string) =>
+    cliInput(
+      name,
+      "single",
+      false,
+      { code: "invalid_field", nextAction: `Use ${name} with a positive integer.` },
+      { regex: "^[1-9][0-9]*$" },
     ),
   settingsProtocolCommands = Object.freeze([
     defineRepoReadCommand({
@@ -70,6 +79,16 @@ const settingsWriteTopology = {
         ),
         settingValueInput("--task-scaffold"),
         settingValueInput("--repository-scaffold"),
+        cliInput(
+          "--wal-flush-adaptive",
+          "single",
+          false,
+          { code: "invalid_field", nextAction: "Use --wal-flush-adaptive true or false." },
+          { enum: ["true", "false"] },
+        ),
+        positiveSettingInput("--wal-flush-events"),
+        positiveSettingInput("--wal-flush-bytes"),
+        positiveSettingInput("--wal-flush-milliseconds"),
         cliInput("--idempotency-key", "single", false, {
           code: "invalid_field",
           nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
@@ -86,6 +105,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...docFactProtocolCommands,
   ...decisionLifecycleProtocolCommands,
   ...decisionRelationProtocolCommands,
+  ...relationProtocolCommands,
   ...runtimeConfigProtocolCommands,
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,

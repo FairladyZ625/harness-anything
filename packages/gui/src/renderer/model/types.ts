@@ -1,4 +1,10 @@
-import type { DecisionProjectionRow, RelationType, TaskSnapshotProjectionRow } from "../../api/renderer-dto.ts";
+import type {
+  DecisionProjectionRow,
+  RelationDirection,
+  RelationState,
+  RelationType,
+  TaskSnapshotProjectionRow,
+} from "../../api/renderer-dto.ts";
 
 export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled";
 
@@ -56,7 +62,7 @@ interface TaskRowFields {
   title: string;
   projectId: string;
   coordinationStatus: SnapshotStatus;
-  /** Task/v1 真状态；relation overlay 永不覆写此字段。 */
+  /** Task/v2 真状态；relation overlay 永不覆写此字段。 */
   canonicalStatus?: CanonicalStatus;
   blocking?: BlockingState;
   blockingLabel?: string;
@@ -126,7 +132,7 @@ interface TaskRowFields {
    */
   spawningDecisionIds?: readonly string[];
   /**
-   * 台账 pin(task/v1 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
+   * 台账 pin(task/v2 `pinned`,经 `ha task pin` 写入):「我当下正在做的」,
    * 与 coordinationStatus=active 正交——进行中未必在做,在做未必进行中。
    */
   pinned?: boolean;
@@ -162,8 +168,8 @@ export interface RelationEdge {
   from: string;
   to: string;
   kind: RelationKind;
-  direction?: "directed" | "undirected";
-  state?: "active" | "edge_retired" | "deleted";
+  direction?: RelationDirection;
+  state?: RelationState;
   /** ⚠️ 同名陷阱消歧：这是「边的来源」标量；entity 顶层的 provenance 是 session 原文溯源数组（见 DecisionRow/TaskRow），同名不同义 */
   provenance: "local-document" | "external-engine";
   /** 强 relation 的 rationale 必填非空（INV-5）；evidenced-by/derives/supersedes 承重边在此给决策卡证据栏展示 */

@@ -6,9 +6,11 @@ import type {
   ProjectionPage,
   ProjectionWarning,
   RelationCoverageRow,
+  RelationFactRow,
   RelationGraphEdgeRow,
   TaskProjection,
   SettingsV1,
+  EntityActionExplanationSetV1,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
@@ -321,6 +323,7 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
+  readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
@@ -378,6 +381,11 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
+  readonly "repo.entity.actions.explain": {
+    readonly schema: "entity-action-explain-request/v1";
+    readonly mode: "catalog" | "object";
+    readonly refs: readonly string[];
+  };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
@@ -485,14 +493,21 @@ export interface DaemonFactSummaryRow {
   readonly taskId?: string;
 }
 
-type DaemonRelationGraphProjection = Omit<
-  ReturnType<typeof import("../../../kernel/src/projection/sqlite-task-projection.ts").readRelationGraphProjection>,
-  "taskRows" | "coverageRows"
+type EventProjectionCut = Pick<
+  ReturnType<TaskProjection["readRelationQuery"]>,
+  "status" | "watermark" | "sourceRevision"
 >;
+type DaemonRelationGraphProjection = {
+  readonly edges: ReturnType<TaskProjection["readRelationQuery"]>["rows"];
+  readonly factAnchors: ReturnType<TaskProjection["readFactAnchors"]>["rows"];
+  readonly facts: readonly RelationFactRow[];
+  readonly warnings: readonly ProjectionWarning[];
+};
 
 type ServedCoverageRow = RelationCoverageRow & { readonly freshnessReason?: FreshnessReason };
 
-export type DaemonRelationGraphFullResult = { readonly ok: true } & DaemonRelationGraphProjection & {
+export type DaemonRelationGraphFullResult = { readonly ok: true } & EventProjectionCut &
+  DaemonRelationGraphProjection & {
     /** Coverage rows as served: the kernel row plus the optional uncovered-cause
      * classification (kernel `freshnessReasonOf`), attached only to uncovered rows.
      * Optional so older daemons and every persisted record shape stay valid. */
@@ -509,16 +524,20 @@ type EmptyRelationFacetRows = {
 };
 
 export type DaemonRelationGraphFacetResult =
-  | ({ readonly ok: true; readonly facet: "edges" } & Omit<EmptyRelationFacetRows, "edges"> & {
+  | ({ readonly ok: true; readonly facet: "edges" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "edges"> & {
         readonly edges: DaemonRelationGraphProjection["edges"];
       })
-  | ({ readonly ok: true; readonly facet: "coverageRows" } & Omit<EmptyRelationFacetRows, "coverageRows"> & {
+  | ({ readonly ok: true; readonly facet: "coverageRows" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "coverageRows"> & {
         readonly coverageRows: readonly ServedCoverageRow[];
       })
-  | ({ readonly ok: true; readonly facet: "factAnchors" } & Omit<EmptyRelationFacetRows, "factAnchors"> & {
+  | ({ readonly ok: true; readonly facet: "factAnchors" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "factAnchors"> & {
         readonly factAnchors: DaemonRelationGraphProjection["factAnchors"];
       })
-  | ({ readonly ok: true; readonly facet: "facts" } & Omit<EmptyRelationFacetRows, "facts"> & {
+  | ({ readonly ok: true; readonly facet: "facts" } & EventProjectionCut &
+      Omit<EmptyRelationFacetRows, "facts"> & {
         readonly facts: readonly DaemonFactSummaryRow[];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {

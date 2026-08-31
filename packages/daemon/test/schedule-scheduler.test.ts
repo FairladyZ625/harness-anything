@@ -450,7 +450,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
       }
       const value = schedules.find(({ scheduleId }) => scheduleId === action.scheduleId);
       assert.ok(value);
-      if (action.kind === "schedule-settle" && action.phase === "missed") {
+      if (action.kind === "schedule-missed") {
         const row = {
           scheduleId: value.scheduleId,
           from: String(action.from),

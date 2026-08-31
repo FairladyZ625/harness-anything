@@ -3,7 +3,6 @@ import {
   executionV1StateWords,
   leasePhaseWords,
   packageDispositionWords,
-  relationStateWords,
   reviewVerdictWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -130,46 +129,6 @@ export function validTaskMetadata(value: unknown): boolean {
   );
 }
 
-export function taskRelation(value: unknown, taskId: string): boolean {
-  return (
-    exactRecord(value, [
-      "relation_id",
-      "source",
-      "target",
-      "type",
-      "strength",
-      "direction",
-      "origin",
-      "rationale",
-      "state",
-    ]) &&
-    /^rel_[0-9a-f]{16}$/u.test(String(value.relation_id)) &&
-    value.source === `task/${taskId}` &&
-    [value.target, value.rationale].every(nonEmpty) &&
-    [
-      "supports",
-      "supersedes",
-      "refines",
-      "narrows",
-      "derives",
-      "blocks",
-      "relates",
-      "implements",
-      "depends-on",
-      "produces",
-      "evidences",
-      "evidenced-by",
-      "refuted-by",
-      "invalidated-by",
-      "supersedes-fact",
-    ].includes(String(value.type)) &&
-    ["strong", "weak"].includes(String(value.strength)) &&
-    ["directed", "undirected"].includes(String(value.direction)) &&
-    ["declared", "imported_snapshot", "generated", "inferred"].includes(String(value.origin)) &&
-    statusWord(relationStateWords, value.state)
-  );
-}
-
 export function task(value: unknown): boolean {
   const required = [
       "schema",
@@ -183,20 +142,13 @@ export function task(value: unknown): boolean {
       "createdBy",
       "completionGateIds",
       "presetSnapshotDigest",
-    ],
-    optional = [
-      "provenance",
       "pinned",
-      "metadata",
-      "relations",
-      "packageDisposition",
-      "supersededBy",
-      "contractVersion",
-    ];
+    ],
+    optional = ["provenance", "metadata", "packageDisposition", "supersededBy", "contractVersion"];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
-    value.schema === "task/v1" &&
+    value.schema === "task/v2" &&
     [value.taskId, value.title].every(nonEmpty) &&
     ["standard", "milestone", "epic", "long_running"].includes(String(value.taskClass)) &&
     statusWord(taskStatusWords, value.status) &&
@@ -207,12 +159,9 @@ export function task(value: unknown): boolean {
     (value.presetSnapshotDigest === null || digest(value.presetSnapshotDigest)) &&
     (value.provenance === undefined ||
       (Array.isArray(value.provenance) && value.provenance.length > 0 && value.provenance.every(sessionProvenance))) &&
-    (value.pinned === undefined || typeof value.pinned === "boolean") &&
+    typeof value.pinned === "boolean" &&
     isJsonObject(value.graph) &&
     (value.metadata === undefined || validTaskMetadata(value.metadata)) &&
-    (value.relations === undefined ||
-      (Array.isArray(value.relations) &&
-        value.relations.every((relation) => taskRelation(relation, String(value.taskId))))) &&
     (value.packageDisposition === undefined || statusWord(packageDispositionWords, value.packageDisposition)) &&
     (value.supersededBy === undefined || value.supersededBy === null || nonEmpty(value.supersededBy)) &&
     (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0))

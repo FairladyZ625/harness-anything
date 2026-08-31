@@ -13,7 +13,8 @@ import type {
   ProjectionWarning,
   RelationCoverageRow,
   RelationGraphEdgeRow,
-  RelationType,
+  RelationDirection,
+  RelationState,
   TaskDocumentListProjectionRead,
   TaskDocumentProjectionRead,
   TaskDispatchesRead,
@@ -22,6 +23,7 @@ import type {
   SettingsRead,
 } from "../api/renderer-dto.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 
 export interface TaskListSuccess {
@@ -85,8 +87,8 @@ export interface RelationPageQuery {
 export interface RelationEdgeFacetQuery {
   readonly facet: "edges";
   readonly relationType?: string;
-  readonly state?: "active" | "edge_retired" | "deleted";
-  readonly direction?: "directed" | "undirected";
+  readonly state?: RelationState;
+  readonly direction?: RelationDirection;
 }
 export interface RelationFactFacetQuery {
   readonly facet: "facts";
@@ -149,6 +151,10 @@ export type SettingsUpdateInput = RepoScope &
     locale: "en-US" | "zh-CN";
     taskScaffold: string;
     repositoryScaffold: string;
+    walFlushAdaptive: boolean;
+    walFlushEvents: number;
+    walFlushBytes: number;
+    walFlushMilliseconds: number;
   }> & { readonly idempotencyKey: string };
 
 export interface DecisionControlListSuccess {
@@ -340,12 +346,6 @@ export interface DecisionProposalInput {
     readonly claimId: string;
     readonly mode: "evidenced" | "delivered" | "standing_policy";
   }>;
-  readonly relations: ReadonlyArray<{
-    readonly anchor: string;
-    readonly type: RelationType;
-    readonly target: string;
-    readonly rationale: string;
-  }>;
 }
 
 export const harnessClient = {
@@ -523,25 +523,6 @@ function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionR
 function readSettingsResult(value: unknown): SettingsSuccess {
   if (!isSettingsSuccess(value)) throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
   return value;
-}
-
-function isSettingsSuccess(value: unknown): value is SettingsSuccess {
-  if (!isRendererRecord(value) || !isRendererRecord(value.settings)) return false;
-  const settings = value.settings;
-  return (
-    value.schema === "daemon.settings-read/v1" &&
-    value.ok === true &&
-    settings.schema === "settings/v1" &&
-    settings.settingsId === "repository" &&
-    [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].every(
-      (field) => typeof field === "string" && field.length > 0,
-    ) &&
-    ["en-US", "zh-CN"].includes(String(settings.locale)) &&
-    isRendererRecord(settings.scaffolds) &&
-    [settings.scaffolds.task, settings.scaffolds.repository].every(
-      (field) => typeof field === "string" && field.length > 0,
-    )
-  );
 }
 
 function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
@@ -1029,7 +1010,7 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
   const task = value.snapshot.task;
   return (
     isRendererRecord(task) &&
-    task.schema === "task/v1" &&
+    task.schema === "task/v2" &&
     task.taskId === value.taskId &&
     typeof task.title === "string"
   );

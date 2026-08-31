@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import {
   makeTaskEventStore,
   type CanonicalEventStore,
@@ -349,6 +350,47 @@ test("cold rebuild replaces the projection database and accepts a larger bounded
   });
 });
 
+test("migration-sized catch-up reduces 5k events in bounded projection transactions", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const template = lifecycleFixture().events[0]!;
+    if (template.type !== "task_created") throw new Error("lifecycle fixture must begin with task_created");
+    const count = 5_000,
+      events = Array.from({ length: count }, (_, index) => {
+        const revision = index + 1,
+          taskId = `catch-up-${revision}`;
+        return {
+          ...template,
+          eventId: `catch-up-event-${revision}`,
+          opId: `catch-up-op-${revision}`,
+          taskId,
+          workspaceRevision: revision,
+          payload: { ...template.payload, task: { ...template.payload.task, taskId } },
+        };
+      }),
+      eventStore: EventStreamPort = {
+        readHead: () => ({ revision: count, eventDigest: `sha256:${"a".repeat(64)}` }),
+        readBatch: (cursor, maxItems) => {
+          const start = cursor === null ? 0 : events.findIndex((event) => event.opId === cursor) + 1,
+            batch = events.slice(start, start + maxItems);
+          return {
+            sourceRevision: count,
+            events: batch,
+            cursor: batch.at(-1)?.opId ?? cursor,
+            done: start + batch.length >= events.length,
+            accessedItems: batch.length,
+            prefetchContent: () => new Map(),
+          };
+        },
+        readContentBlob: () => null,
+      },
+      projection = makeTaskProjection({ rootDir, eventStore });
+    const receipt = projection.catchUp!();
+    assert.equal(receipt.watermark, count);
+    assert.deepEqual(receipt.metrics, { sqliteTransactions: 3, reducedItems: count, maxBatchItems: 4_096 });
+    projection.close();
+  });
+});
+
 test("WAL-shadow cold projection preserves Git batch content prefetch", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -573,6 +615,51 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
   });
 });
 
+test("migration truth-gap archives remain queryable after a cold projection rebuild", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "migration-archive", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore }),
+      migration: MigrationImportEventV1 = {
+        schema: "migration-import-event/v1",
+        eventId: "event-migration-archive",
+        workspaceRevision: 1,
+        opId: "op-migration-archive",
+        type: "entity_migrated",
+        actor: { principal: { personId: "person-1" }, executor: null },
+        source: MIGRATION_IMPORT_SOURCE,
+        occurredAt: "2026-08-11T00:00:00.000Z",
+        payload: {
+          migratedFrom: "execution/legacy:id",
+          generation: "v0",
+          entity: {
+            kind: "archived-entity",
+            entityKind: "execution",
+            entityId: "legacy:id",
+            disposition: "archived",
+            reason: "truth_gap",
+            provenance: "imported_snapshot",
+            sourcePath: "tasks/task-1/executions/legacy:id.json",
+            originalFields: { schema: "execution/legacy", opaque: true },
+          },
+        },
+      };
+    eventStore.append({ event: migration, plan: migrationImportWritePlan(migration), blobs: [] });
+    projection.apply(migration, migrationImportWritePlan(migration));
+    projection.close();
+    projection.rebuild();
+    projection.close();
+    const db = new DatabaseSync(projection.path, { readOnly: true }),
+      row = db
+        .prepare("SELECT entity_id, workspace_revision, row_json FROM archived_entity WHERE entity_kind = ?")
+        .get("execution") as { entity_id: string; workspace_revision: number; row_json: string };
+    db.close();
+    assert.equal(row.entity_id, "legacy:id");
+    assert.equal(row.workspace_revision, 1);
+    assert.deepEqual(JSON.parse(row.row_json), migration.payload.entity);
+  });
+});
+
 test("steady apply and rebuild use the same reducer and reproduce watermark, op index, lease intervals", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -639,9 +726,9 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
 
     const db = new DatabaseSync(projection.path);
-    db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run();
+    assert.throws(() => db.prepare("UPDATE task_snapshot SET snapshot_json = 'not-json'").run(), /malformed JSON/u);
     db.close();
-    assert.throws(() => projection.read("task-1"), /projection.*mismatch/u);
+    assert.equal(projection.read("task-1").snapshot.task?.title, "Fixture");
     projection.rebuild();
     assert.equal(projection.read("task-1").snapshot.executions[0]?.state, "accepted");
   });

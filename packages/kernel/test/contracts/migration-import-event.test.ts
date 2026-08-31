@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
+  deriveRelationId,
   migrationImportWritePlan,
   sha256Text,
   validateMigrationImportEvent,
@@ -30,14 +31,8 @@ const body = "# Repository document\n",
 test("repo-document readers ignore additions while current writers keep exact fields", () => {
   const event = repoDocumentEvent(documentClaim.path);
   assert.deepEqual(validateMigrationImportEvent(event), []);
-  assert.deepEqual(
-    validateMigrationImportEvent(repoDocumentEvent("decisions/README.md")),
-    [],
-  );
-  assert.deepEqual(
-    validateMigrationImportEvent(repoDocumentEvent("tasks/README.md")),
-    [],
-  );
+  assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("decisions/README.md")), []);
+  assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("tasks/README.md")), []);
   const additive = {
     ...event,
     payload: {
@@ -46,13 +41,8 @@ test("repo-document readers ignore additions while current writers keep exact fi
     },
   };
   assert.deepEqual(validateMigrationImportEvent(additive), []);
-  assert.deepEqual(validateCurrentMigrationImportEvent(additive), [
-    "migration repo document entity is invalid",
-  ]);
-  assert.deepEqual(
-    validateMigrationImportEvent(repoDocumentEvent("people.yaml")),
-    [],
-  );
+  assert.deepEqual(validateCurrentMigrationImportEvent(additive), ["migration repo document entity is invalid"]);
+  assert.deepEqual(validateMigrationImportEvent(repoDocumentEvent("people.yaml")), []);
   for (const target of [
     "tasks/task_x/note.md",
     "decisions/decision-dec_X/note.md",
@@ -67,10 +57,7 @@ test("repo-document readers ignore additions while current writers keep exact fi
       target,
     );
   }
-  const symbolicLink = repoDocumentEvent(
-    "tasks/task_x/note.md",
-    "symbolic-link",
-  );
+  const symbolicLink = repoDocumentEvent("tasks/task_x/note.md", "symbolic-link");
   assert.deepEqual(validateMigrationImportEvent(symbolicLink), []);
   assert.deepEqual(
     validateMigrationImportEvent({
@@ -105,9 +92,7 @@ test("repo-document accepts an exact file or link destination preimage but never
     });
   assert.deepEqual(validateMigrationImportEvent(resolved("file")), []);
   assert.deepEqual(validateMigrationImportEvent(resolved("symbolic-link")), []);
-  assert.deepEqual(validateMigrationImportEvent(resolved("directory")), [
-    "migration repo document entity is invalid",
-  ]);
+  assert.deepEqual(validateMigrationImportEvent(resolved("directory")), ["migration repo document entity is invalid"]);
   const additive = {
     ...resolved("file"),
     payload: {
@@ -116,9 +101,7 @@ test("repo-document accepts an exact file or link destination preimage but never
     },
   };
   assert.deepEqual(validateMigrationImportEvent(additive), []);
-  assert.deepEqual(validateCurrentMigrationImportEvent(additive), [
-    "migration repo document entity is invalid",
-  ]);
+  assert.deepEqual(validateCurrentMigrationImportEvent(additive), ["migration repo document entity is invalid"]);
 });
 
 test("repo-document write plan publishes the document and every referenced CAS claim", () => {
@@ -126,18 +109,12 @@ test("repo-document write plan publishes the document and every referenced CAS c
   assert.equal(
     plan.targets.some(
       (target) =>
-        target.kind === "authored_file" &&
-        target.path === documentClaim.path &&
-        target.sha256 === documentClaim.sha256,
+        target.kind === "authored_file" && target.path === documentClaim.path && target.sha256 === documentClaim.sha256,
     ),
     true,
   );
   assert.equal(
-    plan.targets.some(
-      (target) =>
-        target.kind === "content_blob" &&
-        target.sha256 === documentClaim.sha256,
-    ),
+    plan.targets.some((target) => target.kind === "content_blob" && target.sha256 === documentClaim.sha256),
     true,
   );
   assert.equal(
@@ -151,10 +128,54 @@ test("repo-document write plan publishes the document and every referenced CAS c
   );
 });
 
-function repoDocumentEvent(
-  target: string,
-  nodeKind: "file" | "symbolic-link" = "file",
-): MigrationImportEventV1 {
+test("truth-gap restatements preserve archived entities and retire unresolved edges", () => {
+  const archived = {
+      ...repoDocumentEvent("field-notes/archive.json"),
+      payload: {
+        migratedFrom: "execution/exe_LEGACY",
+        generation: "v0" as const,
+        entity: {
+          kind: "archived-entity" as const,
+          entityKind: "execution" as const,
+          entityId: "exe_LEGACY",
+          disposition: "archived" as const,
+          reason: "truth_gap" as const,
+          provenance: "imported_snapshot" as const,
+          sourcePath: "tasks/task_x/executions/exe_LEGACY.md",
+          originalFields: { schema: "execution/legacy", opaque: true },
+        },
+      },
+    },
+    relation = {
+      source: "task/task_missing",
+      target: "fact/F-ABCDEFGH",
+      type: "produces" as const,
+      strength: "strong" as const,
+      direction: "directed" as const,
+      origin: "imported_snapshot" as const,
+      rationale: "The source endpoint has no active same-cut witness.",
+      state: "edge_retired" as const,
+    },
+    retired = {
+      ...repoDocumentEvent("field-notes/retired.json"),
+      payload: {
+        migratedFrom: "rel_legacy",
+        generation: "v0" as const,
+        entity: {
+          kind: "relation" as const,
+          relation: { ...relation, relation_id: deriveRelationId(relation) },
+          ownerRef: relation.source,
+          retirementReason: "truth_gap" as const,
+        },
+      },
+    };
+  assert.deepEqual(validateMigrationImportEvent(archived), []);
+  assert.deepEqual(validateCurrentMigrationImportEvent(archived), []);
+  assert.deepEqual(validateMigrationImportEvent(retired), []);
+  assert.deepEqual(validateCurrentMigrationImportEvent(retired), []);
+});
+
+function repoDocumentEvent(target: string, nodeKind: "file" | "symbolic-link" = "file"): MigrationImportEventV1 {
   const opId = `migration-${sha256Text(target).slice(0, 26)}`;
   return {
     schema: "migration-import-event/v1",

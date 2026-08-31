@@ -82,14 +82,20 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
 export function validateDaemonRelationGraph(value: unknown): readonly string[] {
   if (!recordWith(value, DAEMON_RELATION_GRAPH_SCHEMA.required)) return ["daemon relation graph is invalid"];
   const full = value.facet === undefined,
+    canonicalCut = full || value.facet !== "runtimeEdges",
     topFields = [
       ...DAEMON_RELATION_GRAPH_SCHEMA.required,
+      ...(canonicalCut ? DAEMON_RELATION_GRAPH_SCHEMA.canonicalCut : []),
       ...(full && value.page !== undefined ? ["page"] : []),
       ...(full ? [] : ["facet"]),
     ];
   if (
     !exactRecord(value, topFields) ||
     value.ok !== true ||
+    (canonicalCut &&
+      ((value.status !== "ready" && value.status !== "pending") ||
+        !integer(value.watermark) ||
+        !integer(value.sourceRevision))) ||
     !warningArray(value.warnings) ||
     (full && value.page !== undefined && !queryPageRow(value.page)) ||
     !Array.isArray(value.edges) ||

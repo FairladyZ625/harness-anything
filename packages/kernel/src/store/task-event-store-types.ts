@@ -142,5 +142,13 @@ export interface CanonicalEventStore {
   }) => CanonicalEventAppendReceipt;
   readonly recover: () => EventRecoveryReceipt;
   readonly materialize: () => MaterializationReceipt;
+  /** Suspends timer/threshold materialization until one explicit batch settlement. */
+  readonly beginBulkWrite?: () => { readonly finish: () => Promise<void> };
+  readonly configureWalFlushPolicy?: (policy: {
+    readonly adaptive: boolean;
+    readonly events: number;
+    readonly bytes: number;
+    readonly milliseconds: number;
+  }) => void;
   readonly drain: () => Promise<void>;
 }

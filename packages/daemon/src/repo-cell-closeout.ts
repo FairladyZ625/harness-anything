@@ -1,6 +1,7 @@
 import { runTaskCloseoutAction } from "../../application/src/task-closeout-action.ts";
 import { closeoutReadiness, type WriteReceiptDraft } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { isPresetSnapshotCurrent } from "./repo-cell-task-progress.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
@@ -32,6 +33,16 @@ export async function closeoutTask(
         readonly task: NonNullable<Snapshot["task"]>;
         readonly lease: Snapshot["lease"];
       },
+    presetSnapshotCurrent: () => {
+      const projected = cell.projection.read(taskId);
+      return isPresetSnapshotCurrent(
+        cell,
+        taskId,
+        projected.snapshot,
+        projected.packagePath,
+        `ha task closeout ${taskId} --from-file ${String(action.fromFile)}`,
+      );
+    },
     invoke: async (stage, leaf, actor) => {
       const leafAction = leaf as RepoTaskAction,
         revision = cell.store.readHead()?.revision ?? 0,
@@ -55,6 +66,7 @@ export async function closeoutTask(
           authorizationDecision,
         };
       if (stage === "task-show") return cell.showTask(taskId);
+      if (stage === "preset-upgrade") return cell.upgradePresetSnapshot(leafAction, leafBinding);
       if (stage === "complete") return cell.completeTask(leafAction, leafBinding);
       return cell.lifecycleAction(leafAction, leafBinding);
     },

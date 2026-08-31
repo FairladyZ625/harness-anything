@@ -1,4 +1,5 @@
-import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
+import { useState } from "react";
+import { CaretDown, CaretUp, CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import type { RuntimeHealth } from "../../model/runtime-health.ts";
 import { runtimeHealthWorst } from "../../model/runtime-health.ts";
 import { formatUptimeMs } from "../../views/SystemView.tsx";
@@ -72,21 +73,43 @@ const CELL_LABEL: Record<string, string> = {
  */
 export function RuntimeHealthCard({ health, onOpenSystem }: { health: RuntimeHealth; onOpenSystem: () => void }) {
   const worst = runtimeHealthWorst(health);
+  const [expanded, setExpanded] = useState(false);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1" data-testid="runtime-health-card">
+      {/* 一行摘要(task_b2fb4bc7 再压缩):灯色 + 观测年龄 + 投影落后,详情点开才占高。 */}
       <div className="flex items-center gap-2">
-        <span
-          className={`font-mono text-[12px] font-semibold ${HEALTH_TONE[worst]}`}
-          data-testid="runtime-health-worst"
+        <button
+          type="button"
+          data-testid="runtime-health-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          title={expanded ? t("views.overviewView.healthCollapseTitle") : t("views.overviewView.healthExpandTitle")}
+          className="flex shrink-0 items-center gap-1.5 rounded p-0.5 hover:bg-surface-raised"
         >
-          {worst === "ok"
-            ? t("views.overviewView.healthAllGreen")
-            : worst === "degraded"
-              ? t("views.overviewView.healthDegraded")
-              : t("views.overviewView.healthDown")}
-        </span>
-        <span className="font-mono text-[11px] text-text-faint">
+          {expanded ? (
+            <CaretUp weight="bold" className="size-3 text-text-faint" />
+          ) : (
+            <CaretDown weight="bold" className="size-3 text-text-faint" />
+          )}
+          <span
+            className={`font-mono text-[12px] font-semibold ${HEALTH_TONE[worst]}`}
+            data-testid="runtime-health-worst"
+          >
+            {worst === "ok"
+              ? t("views.overviewView.healthAllGreen")
+              : worst === "degraded"
+                ? t("views.overviewView.healthDegraded")
+                : t("views.overviewView.healthDown")}
+          </span>
+        </button>
+        <span className="truncate font-mono text-[11px] text-text-faint" data-testid="runtime-health-summary">
           {t("views.overviewView.healthObservedAge", { age: ageText(health.daemon.observedAgeSec) })}
+          {" · "}
+          {health.projection.lag === null
+            ? t("views.overviewView.healthUnknown")
+            : t("views.overviewView.healthLagRevs", { lag: health.projection.lag })}
+          {" · "}
+          {health.ledgerChange.at === null ? t("views.overviewView.healthNever") : ageText(health.ledgerChange.ageSec)}
         </span>
         <StreamExitButton
           label={t("views.overviewView.goSystem")}
@@ -94,7 +117,10 @@ export function RuntimeHealthCard({ health, onOpenSystem }: { health: RuntimeHea
           onClick={onOpenSystem}
         />
       </div>
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
+      <div
+        data-testid="runtime-health-detail"
+        className={expanded ? "grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4" : "hidden"}
+      >
         <HealthRow
           label={t("views.overviewView.healthDaemon")}
           ok={health.daemon.state === "responsive" ? true : health.daemon.state === "unresponsive" ? false : null}

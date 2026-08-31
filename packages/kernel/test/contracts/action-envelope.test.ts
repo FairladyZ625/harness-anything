@@ -39,10 +39,10 @@ test("the five promoted Entity explanations declare metadata-only transitions wi
   ]);
   assert.deepEqual(catalogs.review?.transitions.available, []);
   assert.deepEqual(declared("review"), ["record"]);
-  assert.deepEqual(catalogs.agent?.statusVocabulary, [{ field: "state", words: ["configured", "active", "retired"] }]);
+  assert.deepEqual(catalogs.agent?.statusVocabulary, []);
   assert.deepEqual(catalogs.agent?.transitions.available, []);
   assert.deepEqual(declared("agent"), ["configure", "activate", "retire"]);
-  assert.deepEqual(catalogs.policy?.statusVocabulary, [{ field: "state", words: ["draft", "active", "retired"] }]);
+  assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
   assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, []);

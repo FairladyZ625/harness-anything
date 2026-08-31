@@ -34,6 +34,7 @@ export {
   normalizeTaskLifecycleCommand,
   requiredGateWitnessCount,
   reviewDigest,
+  validateTaskEvent,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
 export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
@@ -59,8 +60,8 @@ export type {
   TaskLifecycleCommand,
   TaskLifecycleSnapshot,
 } from "./domain/task-lifecycle.contract.ts";
-export { canonicalizeContractValue, currentTaskForWrite, taskClasses } from "./domain/task.ts";
-export type { TaskClass, TaskMetadataV1, TaskV1 } from "./domain/task.ts";
+export { canonicalizeContractValue, currentTaskForWrite, taskClasses, validateTaskV2 } from "./domain/task.ts";
+export type { TaskClass, TaskMetadataV1, TaskV2 } from "./domain/task.ts";
 export {
   assertTaskBootstrapWritePlan,
   isTaskBootstrapEvent,
@@ -142,6 +143,7 @@ export {
   serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
   isMigrationImportEvent,
+  normalizePersistedCanonicalEvent,
 } from "./domain/doc-sync.contract.ts";
 export type {
   CanonicalEventV1,
@@ -154,10 +156,13 @@ export type {
 export {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
+  canonicalMigrationProvenance,
   migrationImportWritePlan,
+  validateCurrentMigrationImportEvent,
   validateMigrationImportEvent,
 } from "./domain/migration-import-event.ts";
 export type {
+  MigrationArchivedEntityKind,
   MigrationDestinationPreimage,
   MigrationDocumentClaim,
   MigrationImportEventV1,
@@ -171,7 +176,21 @@ export type {
 } from "./domain/execution.ts";
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
-export * from "./entity/registry.ts";
+export type {
+  CompositeManifestBlobDeclaration,
+  DispositionAction,
+  DispositionLevel,
+  DispositionMatrixEntry,
+  EntityAnchorDeclaration,
+  EntityDispositionMatrix,
+  EntityDocumentCodec,
+  EntityProjectionColumnDeclaration,
+  EntityProjectionDeclaration,
+  EntityRegistration,
+  EntityRootResolverDeclaration,
+  EntityStorageForm,
+  HostedEntityDeclaration,
+} from "./entity/registry-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
   contentObjectRelativePath,
@@ -210,24 +229,18 @@ export type {
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
-export {
-  detectRelationGraphCycles,
-  readRelationGraphAuthoredSourceKinds,
-  validateRelationGraphRecords,
-} from "./projection/relation-graph-projection.ts";
+export { detectRelationGraphCycles } from "./projection/relation-graph-projection.ts";
 export type {
   FactAnchorRow,
   RelationCoverageRow,
   RelationFactRow,
   RelationGraphEdgeRow,
   RelationGraphProjection,
-  RelationRecordEntry,
-  RelationRecordValidationIssue,
 } from "./projection/relation-graph-projection.ts";
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export { buildColdCoverage, readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
+export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export type {
   ColdDecisionProjectionRow,
   ColdRebuildIssue,
@@ -238,7 +251,32 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export * from "./publish/index.ts";
-export * from "./projection/sqlite-task-projection.ts";
+export {
+  checkTaskProjection,
+  defaultTaskProjectionPath,
+  hashTaskProjectionRows,
+  queryTaskChildren,
+  readTaskProjection,
+  rebuildTaskProjection,
+} from "./projection/sqlite-task-projection.ts";
+export type {
+  CoordinationStatus,
+  ProjectionCanonicalStatus,
+  ProjectionCheckAxisReport,
+  ProjectionCheckReport,
+  ProjectionCheckResult,
+  ProjectionFreshness,
+  ProjectionReadResult,
+  ProjectionSource,
+  ProjectionWarning,
+  ProjectionWarningCode,
+  ProjectionWarningSeverity,
+  ProjectionWarningSource,
+  TaskFieldExtensionProjection,
+  TaskProjectionOptions,
+  TaskProjectionQueryFilters,
+  TaskProjectionRow,
+} from "./projection/sqlite-task-projection.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {

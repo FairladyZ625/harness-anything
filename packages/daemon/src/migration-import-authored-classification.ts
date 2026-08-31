@@ -52,9 +52,9 @@ export function classifyAuthored(
   if (sourcePath.startsWith("objects/"))
     return excluded("objects/**", "referenced CAS content is regenerated from claims carried by migrated events");
   if (sourcePath.startsWith("presets/"))
-    return required(
+    return excluded(
       "presets/**",
-      "legacy preset packages have a dedicated channel that this migration importer does not wire",
+      "source runtime presets remain in the forensic archive and are not activated in the destination",
     );
   if (symlink) {
     const target = symlinkTarget(root, sourcePath);
@@ -87,7 +87,11 @@ export function classifyAuthored(
     const taskId = packageOwners.get(task[1]!),
       tail = task[2]!,
       surface = `task:${tail.includes("/") ? `${tail.split("/")[0]}/**` : tail}`;
-    if (!taskId) return required(surface, "task package has no valid INDEX.md owner and cannot be replayed");
+    if (!taskId)
+      return excluded(
+        surface,
+        "the package has no same-cut active task owner and remains intact in the forensic source archive",
+      );
     if (tail === "INDEX.md") return migrated("task:INDEX.md", "task replay writes the native v2 package index");
     const taskBody = utf8File(root, sourcePath);
     if (taskBody === null)
@@ -101,7 +105,10 @@ export function classifyAuthored(
     if (tail.startsWith("executions/"))
       return /^executions\/[^/]+\.md$/u.test(tail) && decodeLegacyExecution(taskBody, taskId)
         ? migrated("task:executions/**", "legacy execution/v2 is replayed as a native archived-execution/v1 projection")
-        : required("task:executions/**", "execution evidence does not satisfy the strict legacy execution/v2 contract");
+        : migrated(
+            "task:executions/**",
+            "non-conforming execution evidence is restated as disposition=archived with its source fields intact",
+          );
     return migrated(surface, "UTF-8 task package content is replayed through a typed migration document claim");
   }
   if (/^decisions\/[^/]+\/decision\.md$/u.test(sourcePath))

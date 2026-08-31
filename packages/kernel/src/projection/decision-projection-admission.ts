@@ -5,33 +5,15 @@ import {
   assertDecisionJudgmentConsent,
   type DecisionEventV1,
 } from "../domain/decision-event.ts";
-import { validateRelationRecordsForHost } from "../domain/entity-relation.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { FactProjectionError } from "./fact-event-projection.ts";
-import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1): void {
   const row = decisionState(db, event.decisionId);
   if (event.type === "decision_proposed") {
     if (row) fail("invalid_transition", `Decision ${event.decisionId} already exists.`);
-    const host = `decision/${event.decisionId}`,
-      anchors = new Set(
-        [...event.payload.chosen, ...event.payload.rejected, ...event.payload.claims].map(
-          (entry) => `${host}/${entry.id}`,
-        ),
-      );
-    if (validateRelationRecordsForHost(host, event.payload.relations).length)
-      fail("relation_invalid", "Initial relation owner, kind triple, rationale, or deterministic id is invalid.");
-    for (const relation of event.payload.relations) {
-      if (!anchors.has(relation.source))
-        fail("anchor_not_found", `Relation source ${relation.source} is not owned by this Decision.`);
-      if (relation.target !== host && !anchors.has(relation.target) && !knownEndpoint(db, relation.target))
-        fail("entity_not_found", `Relation target ${relation.target} does not exist.`);
-      if (db.prepare("SELECT 1 FROM relation_edge WHERE relation_id=?").get(relation.relation_id))
-        fail("relation_invalid", `Relation ${relation.relation_id} already exists.`);
-    }
     return;
   }
   if (!row) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
@@ -119,39 +101,14 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     if (claim.fulfillment) fail("invalid_transition", `Claim ${event.payload.claimId} already has a fulfillment.`);
     return;
   }
-  if (event.type === "decision_related") {
-    const relation = event.payload.relation,
-      host = `decision/${event.decisionId}`;
-    if (validateRelationRecordsForHost(host, [relation]).length)
-      fail("relation_invalid", "Relation owner, kind triple, rationale, or deterministic id is invalid.");
-    if (!knownDecisionSource(db, event.decisionId, relation.source))
-      fail("anchor_not_found", `Relation source ${relation.source} is not owned by this Decision.`);
-    if (!knownEndpoint(db, relation.target))
-      fail("entity_not_found", `Relation target ${relation.target} does not exist.`);
-    if (db.prepare("SELECT 1 FROM relation_edge WHERE relation_id=?").get(relation.relation_id))
-      fail("relation_invalid", `Relation ${relation.relation_id} already exists.`);
+  if (
+    event.type === "decision_related" ||
+    event.type === "decision_relation_retired" ||
+    event.type === "decision_relation_replaced"
+  ) {
     return;
   }
-  if (event.type !== "decision_relation_retired" && event.type !== "decision_relation_replaced")
-    fail("invalid_transition", "Unsupported Decision event.");
-  const edge = db
-    .prepare("SELECT state, owner_ref FROM relation_edge WHERE relation_id=?")
-    .get(event.payload.relationId) as { readonly state: string; readonly owner_ref: string } | undefined;
-  if (!edge) fail("entity_not_found", `Relation ${event.payload.relationId} does not exist.`);
-  if (edge.owner_ref !== `decision/${event.decisionId}` || edge.state !== "active")
-    fail("relation_invalid", `Relation ${event.payload.relationId} is not an active edge owned by this Decision.`);
-  if (event.type === "decision_relation_replaced") {
-    const relation = event.payload.replacement,
-      host = `decision/${event.decisionId}`;
-    if (validateRelationRecordsForHost(host, [relation]).length)
-      fail("relation_invalid", "Replacement relation owner, kind triple, rationale, or deterministic id is invalid.");
-    if (!knownDecisionSource(db, event.decisionId, relation.source))
-      fail("anchor_not_found", `Relation source ${relation.source} is not owned by this Decision.`);
-    if (!knownEndpoint(db, relation.target))
-      fail("entity_not_found", `Relation target ${relation.target} does not exist.`);
-    if (db.prepare("SELECT 1 FROM relation_edge WHERE relation_id=?").get(relation.relation_id))
-      fail("relation_invalid", `Replacement relation ${relation.relation_id} already exists.`);
-  }
+  fail("invalid_transition", "Unsupported Decision event.");
 }
 
 function assertAmendment(
@@ -204,35 +161,6 @@ export function decisionState(
   return db.prepare("SELECT state,proposer_json FROM decision WHERE decision_id=?").get(id) as
     | { readonly state: DecisionState; readonly proposer_json: string }
     | undefined;
-}
-
-function decisionAnchorRefs(db: DatabaseSync, id: string): string[] {
-  const root = `decision/${id}`,
-    option = queryRows<{ readonly option_id: string }>(
-      db,
-      "SELECT option_id FROM decision_option WHERE decision_id=?",
-      id,
-    ),
-    claims = queryRows<{ readonly claim_id: string }>(
-      db,
-      "SELECT claim_id FROM decision_claim WHERE decision_id=?",
-      id,
-    );
-  return [root, ...option.map((o) => `${root}/${o.option_id}`), ...claims.map((c) => `${root}/${c.claim_id}`)].sort();
-}
-
-function knownDecisionSource(db: DatabaseSync, id: string, ref: string): boolean {
-  return decisionAnchorRefs(db, id).includes(ref);
-}
-
-function knownEndpoint(db: DatabaseSync, ref: string): boolean {
-  const decision = /^decision\/([^/]+)(?:\/([^/]+))?$/u.exec(ref);
-  if (decision)
-    return decision[2] ? decisionAnchorRefs(db, decision[1]!).includes(ref) : Boolean(decisionState(db, decision[1]!));
-  const fact = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
-  if (fact) return Boolean(db.prepare("SELECT 1 FROM fact WHERE fact_id=?").get(fact[1]));
-  const task = /^task\/([^/]+)$/u.exec(ref);
-  return Boolean(task && db.prepare("SELECT 1 FROM task_snapshot WHERE task_id=?").get(task[1]));
 }
 
 export function fail(code: FactProjectionError["code"], message: string): never {

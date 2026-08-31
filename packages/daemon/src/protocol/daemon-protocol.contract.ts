@@ -602,6 +602,8 @@ export default Object.freeze({
     "Persons-Registry",
     "PLT-TestEng-W1",
     "Schedule-S5",
+    "Ontology-Explain-A",
+    "Relation-G3c",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -717,6 +719,7 @@ export {
   DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,

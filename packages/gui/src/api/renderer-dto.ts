@@ -9,6 +9,8 @@ export type {
   DecisionProjectionRow,
   ProjectionWarning,
   RelationType,
+  RelationDirection,
+  RelationState,
   FactProjectionRow,
   FactAnchorRow,
   RelationFactRow,

@@ -279,12 +279,22 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         "locale",
         "taskScaffold",
         "repositoryScaffold",
+        "walFlushAdaptive",
+        "walFlushEvents",
+        "walFlushBytes",
+        "walFlushMilliseconds",
       ],
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
     if (
       changed.length === 0 ||
-      changed.some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
+      changed
+        .filter((field) => !field.startsWith("walFlush"))
+        .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
+      (value.walFlushAdaptive !== undefined && typeof value.walFlushAdaptive !== "boolean") ||
+      [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
+        (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
+      ) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale)))
     )
       errors.push("settings update is invalid");
@@ -314,8 +324,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       chosen = value.chosen,
       rejected = value.rejected,
       claims = value.claims,
-      fulfillments = value.fulfillments,
-      relations = value.relations;
+      fulfillments = value.fulfillments;
     if (
       ![value.riskTier, value.urgency].every((field) => ["low", "medium", "high"].includes(String(field))) ||
       !["ordinary", "standing_policy"].includes(String(value.decisionClass)) ||
@@ -346,9 +355,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         (item) =>
           !exactItem(item, ["claimId", "mode"]) ||
           (isJsonObject(item) && !["evidenced", "delivered", "standing_policy"].includes(String(item.mode))),
-      ) ||
-      !Array.isArray(relations) ||
-      relations.some((item) => !exactItem(item, ["anchor", "type", "target", "rationale"]))
+      )
     )
       errors.push("decision proposal is invalid");
   }
@@ -376,6 +383,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.permissionMode !== undefined && !nonEmpty(value.permissionMode)) ||
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && !nonEmpty(value.taskId)) ||
+      (value.waitProjectionMs !== undefined &&
+        (!Number.isSafeInteger(value.waitProjectionMs) || Number(value.waitProjectionMs) < 0)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||
       !exactCwd(value.cwd) ||
       (value.taskId !== null && !nonEmpty(value.taskId)) ||

@@ -22,6 +22,7 @@ import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import { watermark, parseEventJson, queryRow, queryRows, transaction } from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
+import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -215,11 +216,12 @@ export function taskQueryApi(
     readRelationTruth: () =>
       withDatabase(projectionPath, readHead, (db) => {
         const facts = readFactGraphRows(db),
-          decisions = readDecisionGraphRows(db);
+          decisions = readDecisionGraphRows(db),
+          edges = readRelationProjectionRows(db);
         return {
           factAnchors: facts.factAnchors,
           decisionAnchors: decisions.decisionAnchors,
-          edges: [...facts.edges, ...decisions.edges],
+          edges,
           coverageRows: decisions.coverageRows.map((row) => ({
             ...row,
             fulfillment: row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment,

@@ -48,6 +48,27 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     );
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
     assert.match(readFileSync(configPath, "utf8"), /defaultPreset: docs-task[\s\S]*defaultProfile: baseline/u);
+
+    const flushApplied = await cell.run(
+      {
+        kind: "settings-update",
+        walFlushAdaptive: false,
+        walFlushEvents: 4096,
+        walFlushBytes: 16_777_216,
+        walFlushMilliseconds: 30_000,
+        idempotencyKey: "wal-flush-settings",
+      },
+      binding,
+    );
+    assert.equal(flushApplied.outcome, "applied", JSON.stringify(flushApplied));
+    const settings = (await cell.read("repo.settings.read")) as { readonly settings: { readonly walFlush: unknown } };
+    assert.deepEqual(settings.settings.walFlush, {
+      adaptive: false,
+      events: 4096,
+      bytes: 16_777_216,
+      milliseconds: 30_000,
+    });
+    assert.match(readFileSync(configPath, "utf8"), /walFlush:[\s\S]*adaptive: false[\s\S]*events: 4096/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
@@ -68,6 +89,11 @@ function initRepo(root: string): void {
       "  defaultVertical: software/coding",
       "  defaultPreset: standard-task",
       "  defaultProfile: baseline",
+      "  walFlush:",
+      "    adaptive: true",
+      "    events: 256",
+      "    bytes: 8388608",
+      "    milliseconds: 2000",
       "  locale: en-US",
       "  scaffolds:",
       "    task: governance/task-scaffold.json",

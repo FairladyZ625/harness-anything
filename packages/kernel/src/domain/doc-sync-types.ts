@@ -10,6 +10,7 @@ import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-eve
 import type { MigrationDocumentClaim, MigrationImportEventV1 } from "./migration-import-event.ts";
 import type { PeopleEventV1 } from "./people-event.ts";
 import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-event.ts";
+import type { RelationEventV1 } from "./relation-event.ts";
 import type { ScheduleEventV1 } from "./schedule-event.ts";
 import type { SettingsEventV1 } from "./settings-event.ts";
 import type {
@@ -180,6 +181,7 @@ export type CanonicalEventV1 =
   | PresetSnapshotUpgradeEventV1
   | FactEventV1
   | DecisionEventV1
+  | RelationEventV1
   | MigrationImportEventV1
   | LedgerLayoutMigrationEventV1
   | CiRunObservationEventV1;

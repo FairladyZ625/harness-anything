@@ -246,7 +246,6 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       riskTier: "high",
       registerModule: { key: "kernel", title: "Kernel", prefix: "task", scope: "repo" },
       surfaces: ["ha task start"],
-      relations: [{ type: "depends-on", target: "task/task_parent", rationale: "ordered" }],
     },
     { kind: "task-start", taskId: "task_abc", executionId: "exe_abc", ttlMs: 60_000, dryRun: true },
     {
@@ -295,15 +294,30 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       idempotencyKey: "timer-probe",
     },
     {
-      kind: "schedule-settle",
+      kind: "schedule-missed",
       scheduleId: "probe",
-      phase: "missed",
       from: "2099-01-01T00:00:00.000Z",
       to: "2099-01-01T01:00:00.000Z",
       count: 2,
       reason: "scheduler_unavailable",
       observedDefinitionRevision: 7,
       idempotencyKey: "missed-probe",
+    },
+    {
+      kind: "schedule-dispatch-link",
+      scheduleId: "probe",
+      claimFence: "claim-probe",
+      dispatchId: "dispatch-probe",
+      runtimeSessionId: "runtime-probe",
+      idempotencyKey: "link-probe",
+    },
+    {
+      kind: "schedule-settle",
+      scheduleId: "probe",
+      claimFence: "claim-probe",
+      outcome: "succeeded",
+      endedAt: "2099-01-01T01:00:00.000Z",
+      idempotencyKey: "settle-probe",
     },
   ])
     assert.deepEqual(parseFleetFrame({ ...scheduleCommand, action }).action, action);
@@ -370,7 +384,6 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
       action: {
         kind: "schedule-settle",
         scheduleId: "probe",
-        phase: "outcome",
         claimFence: "claim",
         outcome: "passed",
         endedAt: "2099-01-01T00:00:00.000Z",

@@ -80,7 +80,6 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       ],
       claims: [],
       fulfillments: [],
-      relations: [],
     });
     const proposed = run(fixture, ["decision", "propose", "--json-input", "@-"], claude, proposal),
       proposedEvidence = evidence(proposed),

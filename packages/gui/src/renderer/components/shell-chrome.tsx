@@ -1,7 +1,5 @@
-import { FolderSimple, CheckCircle, Sun, Moon, Desktop } from "@phosphor-icons/react";
+import { ArrowClockwise, FolderSimple, CheckCircle, Sun, Moon, Desktop } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
-import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
-import { STATUS_META } from "./badges.tsx";
 import { t } from "../i18n/index.tsx";
 import { useTheme, type ThemeMode } from "../theme.tsx";
 
@@ -64,25 +62,85 @@ export function NavButton({
   );
 }
 
-/** Side-bar numbers are rendered verbatim from the daemon workspace summary. */
-export function TaskCensusSummary({ summary }: { summary: WorkspaceSummaryRead["tasks"] }) {
+/**
+ * 左上角一行实时状态栏(task_b2fb4bc7,取代原任务普查块):
+ * 事件/版本总数 + 最后刷新相对时间 + 手动刷新 + 连接状态圆点。
+ *
+ * 计数直读 daemon 报的投影事实(`repo.tasks.list` 的 sourceRevision),不在 renderer
+ * 重数行;刷新走既有 react-query refetch,不加轮询密度。原普查块的分状态计数整体
+ * 搬去总览页底部的 OverviewStatsBar(那里才是要读数字的地方)。
+ */
+export interface LedgerStatusBarInput {
+  /** null = 还没读到过一次台账切面。 */
+  readonly revision: number | null;
+  /** 距最近一次成功刷新的秒数;null = 从未成功。 */
+  readonly refreshedAgoSec: number | null;
+  /** 连接状态:绿 = 最近一次读成功;红 = 最近一次读失败。 */
+  readonly connected: boolean;
+  readonly refreshing: boolean;
+  readonly empty: boolean;
+  readonly error: string | null;
+}
+
+export function LedgerStatusBar({
+  status,
+  onRefresh,
+}: {
+  readonly status: LedgerStatusBarInput;
+  readonly onRefresh: () => void;
+}) {
+  const testId = status.error !== null ? "task-error-state" : status.empty ? "task-empty-state" : "real-task-summary";
+  const headline =
+    status.error !== null
+      ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
+      : status.empty
+        ? t("components.appSidebar.noTaskRowsFromLocalBridge")
+        : t("components.appSidebar.ledgerEvents", {
+            count: status.revision === null ? "—" : status.revision.toLocaleString("en-US"),
+          });
   return (
-    <span data-testid="real-task-summary" className="block font-mono text-[11px] text-text-faint">
-      {t("components.appSidebar.taskCensus", { totalCount: summary.total })}
-      <span>
-        {" "}
-        · {STATUS_META.active.label} {summary.byStatus.active}
+    <span
+      data-testid={testId}
+      className={`flex h-[26px] items-center gap-1.5 font-mono text-[11px] ${
+        status.error !== null ? "text-status-blocked" : "text-text-faint"
+      }`}
+    >
+      <span
+        data-testid="ledger-connection-dot"
+        title={status.connected ? undefined : t("components.appSidebar.ledgerDisconnected")}
+        className={`size-2 shrink-0 rounded-full ${status.connected ? "bg-success" : "bg-danger"}`}
+      />
+      <span className={`shrink-0 tabular-nums ${status.empty ? "" : "text-text"}`}>{headline}</span>
+      <span className="min-w-0 flex-1 truncate">
+        ·{" "}
+        {status.refreshedAgoSec === null
+          ? t("components.appSidebar.ledgerNeverRefreshed")
+          : t("components.appSidebar.ledgerRefreshedAgo", { ago: relativeRefresh(status.refreshedAgoSec) })}
       </span>
-      <span>
-        {" "}
-        · {STATUS_META.blocked.label} {summary.byStatus.blocked}
-      </span>
-      <span>
-        {" "}
-        · {STATUS_META.in_review.label} {summary.byStatus.in_review}
-      </span>
+      <button
+        type="button"
+        data-testid="ledger-refresh-button"
+        onClick={onRefresh}
+        disabled={status.refreshing}
+        title={t("components.appSidebar.ledgerRefreshTitle")}
+        aria-label={t("components.appSidebar.ledgerRefreshTitle")}
+        className={[
+          "shrink-0 rounded px-1 text-[11px] text-text-faint",
+          "hover:bg-surface-raised hover:text-text disabled:opacity-50",
+        ].join(" ")}
+      >
+        <ArrowClockwise weight="bold" className="size-3" />
+      </button>
     </span>
   );
+}
+
+function relativeRefresh(seconds: number): string {
+  if (seconds < 5) return t("components.appSidebar.ledgerJustNow");
+  if (seconds < 90) return t("components.appSidebar.ledgerSecondsAgo", { seconds: String(seconds) });
+  if (seconds < 5_400)
+    return t("components.appSidebar.ledgerMinutesAgo", { minutes: String(Math.round(seconds / 60)) });
+  return t("components.appSidebar.ledgerHoursAgo", { hours: String(Math.round(seconds / 3_600)) });
 }
 
 export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; active: boolean; onOpen: () => void }) {

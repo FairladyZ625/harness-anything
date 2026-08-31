@@ -8,6 +8,7 @@ import {
 } from "../domain/task-lifecycle.contract.ts";
 import { TASK_LEASE_BROKER_CONTRACT, validateLeaseV1, type LeaseHolder, type LeaseV1 } from "../domain/execution.ts";
 import { markRuntimeSessionUnknown, type RuntimeInstallation, type RuntimeSession } from "../domain/agent-runtime.ts";
+import { validateTaskV2 } from "../domain/task.ts";
 import { canonicalJson, queryPreparedRows, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
 import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "./task-projection-port.ts";
@@ -110,6 +111,8 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   } catch {
     throw new Error(`projection snapshot mismatch for task ${taskId}`);
   }
+  if (snapshot.task !== null && validateTaskV2(snapshot.task, true).length)
+    throw new Error(`projection snapshot mismatch for task ${taskId}`);
   const executions = queryRows(
       db,
       "SELECT value_json FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ? ORDER BY entity_id",

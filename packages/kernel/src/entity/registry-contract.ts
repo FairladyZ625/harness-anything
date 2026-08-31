@@ -1,6 +1,5 @@
 import type { EntityFieldContract } from "./field-contracts.ts";
 
-export type KernelEntityKind = "decision" | "task" | "fact" | "relation" | "session";
 export const entityStorageForms = [
   "lifecycle",
   "schema",
@@ -81,7 +80,7 @@ export interface DispositionMatrixEntry {
 export interface EntityDispositionMatrix {
   readonly entries: Readonly<Record<DispositionAction, DispositionMatrixEntry>>;
 }
-export interface EntityRegistration<FieldKey extends string, Kind extends string = KernelEntityKind> {
+export interface EntityRegistration<FieldKey extends string, Kind extends string = string> {
   readonly kind: Kind;
   readonly schema: unknown;
   readonly mutabilityContract: Readonly<Record<FieldKey, EntityFieldContract>>;

@@ -2,22 +2,17 @@ import {
   REPLAY_TASK_GRAPH,
   classifyTextualArtifactPath,
   currentTaskForWrite,
-  deriveRelationId,
-  formatRelationFlowRecord,
   presetSnapshotUpgradeWritePlan,
   sha256Text,
   slugifyTaskTitle,
   taskBootstrapWritePlan,
   validatePresetSnapshotUpgradeEvent,
-  validateRelationRecordsForHost,
   validateTaskBootstrapEvent,
   validateTaskIdSyntax,
   type ActorIdentity,
-  type EntityRelationRecord,
   type FrozenWritePlan,
   type PresetSnapshotUpgradeBundle,
   type PresetSnapshotUpgradeEventV1,
-  type RelationType,
   type TaskBootstrapBlob,
   type TaskBootstrapEventV1,
   type TaskClass,
@@ -29,11 +24,6 @@ import {
 import { serializePresetSnapshotV1, type PresetSnapshotV1 } from "./preset.contract.ts";
 import { createRuntime, type PresetResolverOptions } from "./preset-resolver.ts";
 
-export interface TaskRelationDraft {
-  readonly type: RelationType;
-  readonly target: string;
-  readonly rationale: string;
-}
 export interface TaskModuleRegistration {
   readonly key: string;
   readonly title: string;
@@ -57,7 +47,6 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly registerModule?: TaskModuleRegistration;
   readonly slug?: string;
   readonly surfaces?: readonly string[];
-  readonly relations?: readonly TaskRelationDraft[];
   readonly fromLegacyId?: string;
 }
 export interface CompileTaskBootstrapInput extends CompileTaskPackageInput {
@@ -84,7 +73,6 @@ export interface CompiledTaskPackage {
   readonly scaffoldDigest: `sha256:${string}`;
   readonly documents: readonly CompiledTaskDocument[];
   readonly metadata: TaskMetadataV1;
-  readonly relations: readonly EntityRelationRecord[];
 }
 export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly event: TaskBootstrapEventV1;
@@ -137,7 +125,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       surfaces: [...(input.surfaces ?? [])],
       fromLegacyId: input.fromLegacyId ?? null,
     },
-    relations = taskRelations(input),
     prose = resolved.documents.map(
       (document): CompiledTaskDocument => ({
         slot: document.slot,
@@ -199,7 +186,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       ...additions.map(descriptor),
       ...presetScripts.map(descriptor),
     ],
-    index = machine("task.index", "INDEX.md", renderIndex(input, packagePath, metadata, relations, descriptors)),
+    index = machine("task.index", "INDEX.md", renderIndex(input, packagePath, metadata, descriptors)),
     contract = machine(
       "task.contract",
       "task-contract.json",
@@ -216,7 +203,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           profileId: metadata.profileId,
           locale: input.locale,
           metadata,
-          relations,
           registerModule: input.registerModule ?? null,
           completionGates: resolved.snapshot.profile.completionGateIds,
           presetSnapshotDigest: resolved.snapshot.digest,
@@ -241,7 +227,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       ...additions,
       ...presetScripts,
     ];
-  return { snapshot: resolved.snapshot, packagePath, scaffoldDigest, documents, metadata, relations };
+  return { snapshot: resolved.snapshot, packagePath, scaffoldDigest, documents, metadata };
   function machine(slot: string, relativePath: string, body: string): CompiledTaskDocument {
     return {
       slot,
@@ -286,7 +272,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
     occurredAt: input.occurredAt,
     payload: {
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId: input.taskId,
         title: input.title,
         taskClass: input.taskClass ?? "standard",
@@ -294,11 +280,11 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         graph: REPLAY_TASK_GRAPH,
         currentNode: "implementation",
         iteration: 0,
+        pinned: false,
         createdBy: input.actor,
         completionGateIds: compiled.snapshot.profile.completionGateIds,
         presetSnapshotDigest: compiled.snapshot.digest,
         metadata: compiled.metadata,
-        relations: compiled.relations,
         packageDisposition: "active",
         supersededBy: null,
         contractVersion: 1,
@@ -451,7 +437,6 @@ function renderIndex(
   input: CompileTaskPackageInput,
   packagePath: string,
   metadata: TaskMetadataV1,
-  relations: readonly EntityRelationRecord[],
   documents: readonly { readonly path: string; readonly owner: TaskDocumentOwner }[],
 ): string {
   return `---\nschema: task-package/v2\ntask_id: ${input.taskId}\ntitle: ${JSON.stringify(input.title)}\n${
@@ -462,34 +447,13 @@ function renderIndex(
     metadata.urgency ? `urgency: ${metadata.urgency}\n` : ""
   }vertical: ${metadata.verticalId}\npreset: ${metadata.presetId}\nprofile: ${metadata.profileId}\npackagePath: ${
     packagePath
-  }\nowner: machine\nrelations:\n${relations.map(formatRelationFlowRecord).join("\n")}\n---\n# ${
+  }\nowner: machine\n---\n# ${
     input.title
   }\n\nPreset: ${input.presetId}/${metadata.profileId}\n\n## Documents\n\n${documents
     .map((document) => `- \`${document.path}\` — ${document.owner}`)
     .join("\n")}\n\n## Next\n\nEdit \`task_plan.md\`, then run \`ha task start ${
     input.taskId
   } --execution-id <id>\`.\n`;
-}
-function taskRelations(input: CompileTaskPackageInput): readonly EntityRelationRecord[] {
-  const records = (input.relations ?? []).map((draft): EntityRelationRecord => {
-    const basis = {
-      source: `task/${input.taskId}`,
-      target: draft.target,
-      type: draft.type,
-      direction: "directed" as const,
-    };
-    return {
-      relation_id: deriveRelationId(basis),
-      ...basis,
-      strength: "strong",
-      origin: "declared",
-      rationale: draft.rationale.trim(),
-      state: "active",
-    };
-  });
-  const issues = validateRelationRecordsForHost(`task/${input.taskId}`, records);
-  if (issues.length) throw bootstrapFailure("invalid_relation", `${issues[0]!.message}. Fix --relation and retry.`);
-  return records;
 }
 function bootstrapFailure(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });

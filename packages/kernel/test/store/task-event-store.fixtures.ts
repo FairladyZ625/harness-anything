@@ -32,7 +32,7 @@ export const event: TaskCreatedEvent = {
   occurredAt: "2026-08-11T00:00:00.000Z",
   payload: {
     task: {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId: "task-1",
       title: "Replay task",
       taskClass: "standard",
@@ -46,6 +46,7 @@ export const event: TaskCreatedEvent = {
       },
       completionGateIds: [],
       presetSnapshotDigest: null,
+      pinned: false,
     },
   },
 };

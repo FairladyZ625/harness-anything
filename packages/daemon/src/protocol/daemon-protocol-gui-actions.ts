@@ -69,12 +69,8 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/submit",
     "repo-write",
   ),
-  // The GUI pin/unpin surface is a *named ingress onto the existing task amend
-  // write*, not a second write path: `actionDefaults` carries the pinned-only
-  // patch, so the renderer payload stays `{taskId}` and the daemon still runs the
-  // same `task-amend` action (and therefore the same WriteCoordinator, canonical
-  // event, and projection apply) that `ha task pin` runs. The declared payload is
-  // closed, so no other amend field can be smuggled through this method.
+  // Pin/unpin is a named ingress onto task-amend, not a second path; the closed
+  // payload and actionDefaults keep WriteCoordinator/event/projection canonical.
   guiAction(
     "task.pin",
     "repo.task.pin",
@@ -138,7 +134,6 @@ export const daemonGuiActionMethods = Object.freeze([
       body: "string",
       claims: "array",
       fulfillments: "array",
-      relations: "array",
     }),
     "proposeDecision",
     "/api/decision-control/propose",
@@ -195,6 +190,10 @@ export const daemonGuiActionMethods = Object.freeze([
       locale: "string?",
       taskScaffold: "string?",
       repositoryScaffold: "string?",
+      walFlushAdaptive: "boolean?",
+      walFlushEvents: "number?",
+      walFlushBytes: "number?",
+      walFlushMilliseconds: "number?",
       idempotencyKey: "string",
     }),
     "updateSettings",
@@ -230,6 +229,7 @@ export const daemonGuiActionMethods = Object.freeze([
       prompt: "string?",
       promptSource: "string?",
       missionName: "string?",
+      waitProjectionMs: "number?",
       onExitCommand: "string?",
       taskId: "string-null?",
       idempotencyKey: "string",
@@ -413,7 +413,6 @@ export const daemonGuiActionMethods = Object.freeze([
     TERMINAL_CONTROL_RECEIPT_SCHEMA.id,
   ),
 ] as const);
-
 export const daemonStreamFacets = Object.freeze([
   {
     id: "agentRuntime.attach",

@@ -65,6 +65,5 @@ export function taskSurfaceWriteKind(kind: string): boolean {
     "task-delete",
     "task-reopen",
     "task-contract-migrate",
-    "task-relate",
   ].includes(kind);
 }

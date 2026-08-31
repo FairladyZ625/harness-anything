@@ -346,7 +346,6 @@ const optionalShape =
     required.every((field) => Object.hasOwn(value, field)) &&
     Object.entries(value).every(([field, entry]) => Object.hasOwn(fields, field) && fields[field]!(entry));
 const registerModule = shape({ key: text, title: text, prefix: text, scope: text });
-const taskRelation = shape({ type: text, target: text, rationale: text });
 const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
 const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
   "task-create": optionalShape(
@@ -366,7 +365,6 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       registerModule,
       slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value),
       surfaces: array(text),
-      relations: array(taskRelation),
       taskClass: one("standard", "milestone", "epic", "long_running"),
       locale: one("zh-CN", "en-US"),
       dryRun: boolean,
@@ -517,37 +515,36 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
       },
       ["kind", "scheduleId"],
     ),
-    "schedule-settle": (value) =>
+    "schedule-dispatch-link": (value) =>
       optionalShape(
         {
-          kind: one("schedule-settle"),
+          kind: one("schedule-dispatch-link"),
           scheduleId: id,
-          phase: one("dispatch-link"),
           claimFence: id,
           dispatchId: id,
           runtimeSessionId: id,
           idempotencyKey: text,
         },
-        ["kind", "scheduleId", "phase", "claimFence", "dispatchId", "runtimeSessionId"],
-      )(value) ||
+        ["kind", "scheduleId", "claimFence", "dispatchId", "runtimeSessionId"],
+      )(value),
+    "schedule-settle": (value) =>
       optionalShape(
         {
           kind: one("schedule-settle"),
           scheduleId: id,
-          phase: one("outcome"),
           claimFence: id,
           outcome: one("succeeded", "failed", "unknown", "cancelled"),
           endedAt: isUtcTimestamp,
           detail: scheduleMission,
           idempotencyKey: text,
         },
-        ["kind", "scheduleId", "phase", "claimFence", "outcome", "endedAt"],
-      )(value) ||
+        ["kind", "scheduleId", "claimFence", "outcome", "endedAt"],
+      )(value),
+    "schedule-missed": (value) =>
       optionalShape(
         {
-          kind: one("schedule-settle"),
+          kind: one("schedule-missed"),
           scheduleId: id,
-          phase: one("missed"),
           from: isUtcTimestamp,
           to: isUtcTimestamp,
           count: positiveInt,
@@ -555,7 +552,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           observedDefinitionRevision: uint,
           idempotencyKey: text,
         },
-        ["kind", "scheduleId", "phase", "from", "to", "count", "reason", "observedDefinitionRevision"],
+        ["kind", "scheduleId", "from", "to", "count", "reason", "observedDefinitionRevision"],
       )(value),
   },
   scheduleAction: Check = (value) =>

@@ -362,14 +362,13 @@ function factRetirementBlocker(taskId: string, executionId: string, assessment: 
   } as const;
 }
 
-export function completionContext(
+function currentPresetSnapshotDigest(
   cell: RepoCellOperationalContext,
   taskId: string,
   snapshot: Snapshot,
   packagePath: string | null,
-  binding: RepoCellBinding,
   retryCommand: string,
-): CompletionReadinessContext {
+): string {
   if (!packagePath || !snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError(
       "content_not_ready",
@@ -396,7 +395,34 @@ export function completionContext(
         taskClass: contract.taskClass,
       },
     });
-  if (current.snapshot.digest !== snapshot.task.presetSnapshotDigest)
+  return current.snapshot.digest;
+}
+
+export function isPresetSnapshotCurrent(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  snapshot: Snapshot,
+  packagePath: string | null,
+  retryCommand: string,
+): boolean {
+  return (
+    currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand) ===
+    snapshot.task?.presetSnapshotDigest
+  );
+}
+
+export function completionContext(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  snapshot: Snapshot,
+  packagePath: string | null,
+  binding: RepoCellBinding,
+  retryCommand: string,
+): CompletionReadinessContext {
+  if (
+    currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand) !==
+    snapshot.task?.presetSnapshotDigest
+  )
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
   const closeoutDocument = readTaskTransitionDocument({
       projection: cell.projection,

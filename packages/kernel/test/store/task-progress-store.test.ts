@@ -139,11 +139,7 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
   const rootDir = workspace();
   try {
     const { store, projection, start } = bootstrapAndStart(rootDir),
-      texts = [
-        "First exact entry.",
-        "Second exact entry.\nwith another line",
-        "Third exact entry.",
-      ],
+      texts = ["First exact entry.", "Second exact entry.\nwith another line", "Third exact entry."],
       evidence = [
         { type: "test", path: "reports/check.txt", summary: "same evidence" },
         { type: "test", path: "reports/check.txt", summary: "same evidence" },
@@ -169,50 +165,31 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
             : null,
           activeLease: start.payload.lease,
         });
-      assert.equal(
-        compiled.body.startsWith(previous ?? "# Progress\n\n## Entries\n\n"),
-        true,
-      );
+      assert.equal(compiled.body.startsWith(previous ?? "# Progress\n\n## Entries\n\n"), true);
       store.append(compiled);
       projection.apply(compiled.event, compiled.plan);
       previous = compiled.body;
     }
-    const body = readFileSync(
-      path.join(rootDir, "harness", progressPath),
-      "utf8",
-    );
+    const body = readFileSync(path.join(rootDir, "harness", progressPath), "utf8");
     assert.equal(body, previous);
     assert.equal(
-      texts.every(
-        (text, index) =>
-          body.indexOf(text) >= (index ? body.indexOf(texts[index - 1]!) : 0),
-      ),
+      texts.every((text, index) => body.indexOf(text) >= (index ? body.indexOf(texts[index - 1]!) : 0)),
       true,
     );
-    assert.equal(
-      body.match(/Evidence: test:reports\/check\.txt:same evidence/gu)?.length,
-      2,
-    );
+    assert.equal(body.match(/Evidence: test:reports\/check\.txt:same evidence/gu)?.length, 2);
     assert.deepEqual(
-      projection
-        .readProgress("task-progress")
-        .rows.map((event) => event.payload.text),
+      projection.readProgress("task-progress").rows.map((event) => event.payload.text),
       texts,
     );
     unlinkSync(path.join(rootDir, "harness", progressPath));
     assert.deepEqual(store.materialize().changed, [progressPath]);
-    assert.equal(
-      readFileSync(path.join(rootDir, "harness", progressPath), "utf8"),
-      body,
-    );
+    assert.equal(readFileSync(path.join(rootDir, "harness", progressPath), "utf8"), body);
     projection.close();
     rmSync(projection.path, { force: true });
     assert.equal(projection.rebuild().watermark, 5);
     assert.equal(projection.readDocument(progressPath).document?.body, body);
     assert.deepEqual(
-      projection
-        .readProgress("task-progress")
-        .rows.map((event) => event.payload.evidence),
+      projection.readProgress("task-progress").rows.map((event) => event.payload.evidence),
       [[], evidence, []],
     );
     projection.close();
@@ -241,10 +218,7 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
         },
       });
     assert.throws(() => interrupted.append(compiled), /kill/u);
-    assert.equal(
-      makeTaskEventStore({ repoId: "progress", rootDir }).recover().status,
-      "committed",
-    );
+    assert.equal(makeTaskEventStore({ repoId: "progress", rootDir }).recover().status, "committed");
     const resumed = makeTaskEventStore({ repoId: "progress", rootDir }),
       before = resumed.currentCommit();
     assert.deepEqual(resumed.append(compiled).metrics.changedPaths, []);
@@ -253,11 +227,7 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
     replay.rebuild();
     assert.equal(replay.readProgress("task-progress").rows.length, 1);
     assert.equal(
-      (
-        readFileSync(path.join(rootDir, "harness", progressPath), "utf8").match(
-          /Exact progress text/gu,
-        ) ?? []
-      ).length,
+      (readFileSync(path.join(rootDir, "harness", progressPath), "utf8").match(/Exact progress text/gu) ?? []).length,
       1,
     );
   } finally {
@@ -307,10 +277,7 @@ function bootstrapAndStart(rootDir: string) {
   return {
     store,
     projection,
-    start: start as Extract<
-      TaskEventV1,
-      { readonly type: "execution_started" }
-    >,
+    start: start as Extract<TaskEventV1, { readonly type: "execution_started" }>,
   };
 }
 function bootstrap(): {
@@ -335,7 +302,7 @@ function bootstrap(): {
       occurredAt: "2026-08-13T00:00:00.000Z",
       payload: {
         task: {
-          schema: "task/v1",
+          schema: "task/v2",
           taskId: "task-progress",
           title: "Progress",
           taskClass: "standard",
@@ -346,6 +313,7 @@ function bootstrap(): {
           createdBy: actor,
           completionGateIds: [],
           presetSnapshotDigest: digest,
+          pinned: false,
         },
         presetSnapshotClaim: {
           digest,
@@ -379,9 +347,7 @@ function domainFixture() {
     executionId: "execution-progress",
     packagePath,
     text: "Exact progress text.",
-    evidence: [
-      { type: "commit", path: "reports/result.txt", summary: "verified" },
-    ],
+    evidence: [{ type: "commit", path: "reports/result.txt", summary: "verified" }],
     expectedBaseSha256: null,
     currentDocument: null,
     activeLease: {
@@ -421,7 +387,5 @@ function git(rootDir: string, ...args: readonly string[]): string {
   }).trim();
 }
 function code(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error
-    ? String(error.code)
-    : undefined;
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
 }

@@ -143,43 +143,45 @@ export function lifecycleReceipt(
     checks = gateChecks(snapshot, executionId ?? ""),
     missingGate = checks.find((value) => value.status === "blocked")?.gate,
     nextCommand =
-      snapshot.task?.status === "active" && executionId
-        ? `ha task submit ${event.taskId} --json-input '<submission-json>'`
-        : snapshot.task?.status === "active"
-          ? `ha task start ${event.taskId} --execution-id <id>`
-          : snapshot.task?.status !== "in_review"
-            ? null
-            : !approved.length
-              ? declarationNeeded
-                ? [
-                    "ha task declare-executor ",
-                    `${event.taskId}`,
-                    " --execution-id ",
-                    `${executionId}`,
-                    " --reason <auditable-recovery-reason>",
-                  ].join("")
-                : [
-                    "ha task review-execution ",
-                    `${event.taskId}`,
-                    " --execution-id ",
-                    `${executionId}`,
-                    " --review-id <id> --from-file <review.json>",
-                  ].join("")
-              : !selected
-                ? [
-                    "ha task review-consent ",
-                    `${event.taskId}`,
-                    " --execution-id ",
-                    `${executionId}`,
-                    " --review-id ",
-                    `${consentReviewId}`,
-                    " --consent-id <id>",
-                  ].join("")
-                : missingGate === "ci"
-                  ? `ha task complete ${event.taskId} --execution-id ${executionId} --ci passed`
-                  : missingGate === "code-doc-reconciliation"
-                    ? `ha task code-doc reconcile ${event.taskId}`
-                    : `ha task complete ${event.taskId} --execution-id ${executionId}`,
+      event.type === "lease_released" && snapshot.task?.status === "active"
+        ? `ha task transition ${event.taskId} planned --reason <why-work-is-returning-to-planning>`
+        : snapshot.task?.status === "active" && executionId
+          ? `ha task submit ${event.taskId} --json-input '<submission-json>'`
+          : snapshot.task?.status === "active"
+            ? `ha task start ${event.taskId} --execution-id <id>`
+            : snapshot.task?.status !== "in_review"
+              ? null
+              : !approved.length
+                ? declarationNeeded
+                  ? [
+                      "ha task declare-executor ",
+                      `${event.taskId}`,
+                      " --execution-id ",
+                      `${executionId}`,
+                      " --reason <auditable-recovery-reason>",
+                    ].join("")
+                  : [
+                      "ha task review-execution ",
+                      `${event.taskId}`,
+                      " --execution-id ",
+                      `${executionId}`,
+                      " --review-id <id> --from-file <review.json>",
+                    ].join("")
+                : !selected
+                  ? [
+                      "ha task review-consent ",
+                      `${event.taskId}`,
+                      " --execution-id ",
+                      `${executionId}`,
+                      " --review-id ",
+                      `${consentReviewId}`,
+                      " --consent-id <id>",
+                    ].join("")
+                  : missingGate === "ci"
+                    ? `ha task complete ${event.taskId} --execution-id ${executionId} --ci passed`
+                    : missingGate === "code-doc-reconciliation"
+                      ? `ha task code-doc reconcile ${event.taskId}`
+                      : `ha task complete ${event.taskId} --execution-id ${executionId}`,
     next = nextCommand
       ? [
           {

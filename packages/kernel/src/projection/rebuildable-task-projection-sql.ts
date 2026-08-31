@@ -23,6 +23,7 @@ const stateDigestTables = [
   ["task_relation", "relation_id"],
   ["task_progress", "workspace_revision"],
   ["entity_projection", "entity_kind, entity_id"],
+  ["archived_entity", "entity_kind, entity_id"],
   ["edge", "task_id, edge_id, iteration"],
   ["lease_cas", "task_id"],
   ["lease_interval", "task_id, execution_id, acquired_revision"],

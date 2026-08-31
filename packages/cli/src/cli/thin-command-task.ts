@@ -3,7 +3,7 @@ import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts
 import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
 import { parseCodeDoc, parseCodeDocRepoint, parseProgress } from "./thin-command-task-evidence.ts";
-import { parseAmend, parseRelate, parseSupersede } from "./thin-command-task-relations.ts";
+import { parseAmend, parseSupersede } from "./thin-command-task-relations.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseTask(
@@ -62,7 +62,6 @@ export function parseTask(
       patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
-  if (id === "task-relate") return parseRelate(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-closeout") {
     const f = readFlags(id, args.slice(3), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);

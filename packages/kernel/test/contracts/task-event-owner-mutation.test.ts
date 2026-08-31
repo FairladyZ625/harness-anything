@@ -6,7 +6,7 @@ import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 const task = {
-  schema: "task/v1" as const,
+  schema: "task/v2" as const,
   taskId: "task_owner_mutation",
   title: "Owner mutation contract",
   taskClass: "standard" as const,
@@ -17,6 +17,7 @@ const task = {
   createdBy: actor,
   completionGateIds: [],
   presetSnapshotDigest: null,
+  pinned: false,
 };
 
 function event(fields: readonly string[]) {

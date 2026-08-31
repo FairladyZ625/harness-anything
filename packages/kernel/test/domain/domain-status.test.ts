@@ -6,22 +6,13 @@ import {
   domainStatuses,
   explainStatusTransition,
   needsReviewArtifacts,
-  statusCoarseClass
+  statusCoarseClass,
 } from "../../src/domain/lifecycle-status.ts";
-import {
-  decisionStates
-} from "../../src/domain/decision-event.ts";
+import { decisionStates } from "../../src/domain/decision-event.ts";
 import { DomainStatusSchema } from "../../src/schemas/registry.ts";
 
 test("domain status vocabulary is exactly the six canonical coordination states", () => {
-  assert.deepEqual([...domainStatuses], [
-    "planned",
-    "active",
-    "blocked",
-    "in_review",
-    "done",
-    "cancelled"
-  ]);
+  assert.deepEqual([...domainStatuses], ["planned", "active", "blocked", "in_review", "done", "cancelled"]);
   assert.equal(domainStatuses.includes("unknown" as never), false);
 });
 
@@ -52,6 +43,7 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "planned->blocked",
     "planned->cancelled",
     "active->active",
+    "active->planned",
     "active->blocked",
     "active->in_review",
     "active->done",
@@ -68,7 +60,7 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "cancelled->cancelled",
     "cancelled->planned",
     "cancelled->active",
-    "cancelled->in_review"
+    "cancelled->in_review",
   ]);
 
   for (const from of domainStatuses) {
@@ -83,12 +75,8 @@ test("domain owns canonical lifecycle status transition semantics", () => {
 });
 
 test("Decision event vocabulary exposes only canonical projection states", () => {
-  assert.deepEqual([...decisionStates], [
-    "proposed",
-    "in_effect",
-    "rejected",
-    "deferred",
-    "superseded",
-    "outcome_retired"
-  ]);
+  assert.deepEqual(
+    [...decisionStates],
+    ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+  );
 });

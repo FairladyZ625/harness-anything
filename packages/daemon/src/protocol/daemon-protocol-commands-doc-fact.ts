@@ -198,6 +198,16 @@ export const docFactProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction: "--memory-tag requires a non-empty value.",
       }),
+      cliInput(
+        "--wait-projection",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use a non-negative integer projection wait limit in milliseconds.",
+        },
+        { regex: "^(?:0|[1-9][0-9]*)$" },
+      ),
       cliInput("--supersedes", "single", false, {
         code: "invalid_field",
         nextAction: "Pair --supersedes with a rationale of at most 199 characters.",

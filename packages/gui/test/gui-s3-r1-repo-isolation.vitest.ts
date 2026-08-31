@@ -6,9 +6,22 @@ vi.hoisted(() => {
   Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
 });
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
-import { controlSucceeded, selectActiveRepoId, settleDaemonControl, systemQueryKeys } from "../src/renderer/system-data.ts";
+import {
+  controlSucceeded,
+  selectActiveRepoId,
+  settleDaemonControl,
+  systemQueryKeys,
+} from "../src/renderer/system-data.ts";
 import type { DaemonControlReceipt, SystemRepoRow, TaskListSuccess } from "../src/renderer/api-client.ts";
-import { invalidateLedgerDependents, LEDGER_REFRESH_INTERVAL_MS, readTaskList, TASK_LIST_PAGE_LIMIT, taskDocumentQuery, taskListQuery, taskQueryKeys } from "../src/renderer/task-data.ts";
+import {
+  invalidateLedgerDependents,
+  LEDGER_REFRESH_INTERVAL_MS,
+  readTaskList,
+  TASK_LIST_PAGE_LIMIT,
+  taskDocumentQuery,
+  taskListQuery,
+  taskQueryKeys,
+} from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
 import { favoritesStorageKey } from "../src/renderer/model/favorites.ts";
 import { workspaceSummaryQuery, workspaceSummaryQueryKeys } from "../src/renderer/workspace-summary-data.ts";
@@ -17,13 +30,21 @@ describe("GUI S3 R1 repository isolation", () => {
   it("namespaces every repository projection by repo id", () => {
     expect(taskQueryKeys.list("repo-a")).toEqual(["tasks", "repo-a", "list"]);
     expect(taskQueryKeys.document("repo-b", "task-1", "INDEX.md")).toEqual([
-      "tasks", "repo-b", "task-1", "document", "INDEX.md",
+      "tasks",
+      "repo-b",
+      "task-1",
+      "document",
+      "INDEX.md",
     ]);
     expect(triadicQueryKeys.graph("repo-a")).toEqual(["triadic", "repo-a", "relation-graph"]);
     expect(triadicQueryKeys.decisions("repo-b")).toEqual(["triadic", "repo-b", "decisions"]);
     expect(catalogQueryKeys.snapshot("repo-a")).toEqual(["catalog", "repo-a", "snapshot"]);
     expect(catalogQueryKeys.preset("repo-b", "preset-a", "zh-TW")).toEqual([
-      "catalog", "repo-b", "preset", "preset-a", "zh-TW",
+      "catalog",
+      "repo-b",
+      "preset",
+      "preset-a",
+      "zh-TW",
     ]);
     expect(workspaceSummaryQueryKeys.read("repo-a")).toEqual(["workspace-summary", "repo-a"]);
     expect(favoritesStorageKey("repo-a")).not.toBe(favoritesStorageKey("repo-b"));
@@ -58,7 +79,14 @@ describe("GUI S3 R1 repository isolation", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const observer = new QueryObserver(client, {
       ...taskListQuery("repo-a"),
-      queryFn: async () => ({ ok: true as const, status: "ready" as const, rows: [], watermark: revision, sourceRevision: revision, warnings: [] }),
+      queryFn: async () => ({
+        ok: true as const,
+        status: "ready" as const,
+        rows: [],
+        watermark: revision,
+        sourceRevision: revision,
+        warnings: [],
+      }),
     });
     const unsubscribe = observer.subscribe(() => undefined);
     try {
@@ -79,15 +107,21 @@ describe("GUI S3 R1 repository isolation", () => {
   // 把游标和 pending 状态一起交回缓存"。分页读取形态的完整门在
   // packages/gui/test/gui-w6-ledger-read-shape.vitest.ts。
   it("reads one bounded page per refresh and carries the cursor in the returned cut", async () => {
-    const getTasks = vi.fn(async (payload: { readonly repoId: string; readonly limit: number; readonly cursor?: string }) => ({
-      ok: true as const,
-      status: "ready" as const,
-      rows: [],
-      watermark: 42,
-      sourceRevision: 42,
-      warnings: [],
-      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
-    }));
+    const getTasks = vi.fn(
+      async (payload: { readonly repoId: string; readonly limit: number; readonly cursor?: string }) => ({
+        ok: true as const,
+        status: "ready" as const,
+        rows: [],
+        watermark: 42,
+        sourceRevision: 42,
+        warnings: [],
+        page: {
+          limit: TASK_LIST_PAGE_LIMIT,
+          cursor: payload.cursor ?? null,
+          nextCursor: payload.cursor ? null : "task-page-2",
+        },
+      }),
+    );
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
 
     const first = await taskListQuery("repo-a").queryFn();
@@ -98,7 +132,11 @@ describe("GUI S3 R1 repository isolation", () => {
 
     const second = await readTaskList("repo-a", first);
     expect(getTasks).toHaveBeenCalledTimes(2);
-    expect(getTasks).toHaveBeenNthCalledWith(2, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT, cursor: "task-page-2" });
+    expect(getTasks).toHaveBeenNthCalledWith(2, {
+      repoId: "repo-a",
+      limit: TASK_LIST_PAGE_LIMIT,
+      cursor: "task-page-2",
+    });
     expect(second).toEqual({ ok: true, status: "ready", rows: [], watermark: 42, sourceRevision: 42, warnings: [] });
   });
 
@@ -112,7 +150,11 @@ describe("GUI S3 R1 repository isolation", () => {
       watermark: payload.cursor ? 43 : 42,
       sourceRevision: payload.cursor ? 43 : 42,
       warnings: [],
-      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: payload.cursor ?? null, nextCursor: payload.cursor ? null : "task-page-2" }
+      page: {
+        limit: TASK_LIST_PAGE_LIMIT,
+        cursor: payload.cursor ?? null,
+        nextCursor: payload.cursor ? null : "task-page-2",
+      },
     }));
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
 
@@ -124,41 +166,60 @@ describe("GUI S3 R1 repository isolation", () => {
   });
 
   it("polls only rows changed after the cached task projection revision", async () => {
-    const getTasks = vi.fn(async () => ({ ok: true as const, status: "ready" as const, rows: [], watermark: 43, sourceRevision: 43, warnings: [], page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null } }));
+    const getTasks = vi.fn(async () => ({
+      ok: true as const,
+      status: "ready" as const,
+      rows: [],
+      watermark: 43,
+      sourceRevision: 43,
+      warnings: [],
+      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null },
+    }));
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
     const cachedRows = [
       { taskId: "task-cached", updatedAt: "2026-08-21T23:58:00.000Z" },
-      { taskId: "task_cached", updatedAt: "2026-08-21T23:59:00.000Z" }
+      { taskId: "task_cached", updatedAt: "2026-08-21T23:59:00.000Z" },
     ] as TaskListSuccess["rows"];
-    const result = await readTaskList("repo-a", { ok: true, status: "ready", rows: cachedRows, watermark: 42, sourceRevision: 42, warnings: [] });
+    const result = await readTaskList("repo-a", {
+      ok: true,
+      status: "ready",
+      rows: cachedRows,
+      watermark: 42,
+      sourceRevision: 42,
+      warnings: [],
+    });
     expect(getTasks).toHaveBeenCalledWith({ repoId: "repo-a", changedAfterRevision: 42, limit: TASK_LIST_PAGE_LIMIT });
     expect(result.rows).toEqual(cachedRows);
   });
 
   it("includes a task whose newer projection revision carries an older occurredAt", async () => {
-    const projectionRow = (taskId: string, updatedAt: string) => ({
-      taskId,
-      createdAt: null,
-      updatedAt,
-      generation: "v1",
-      snapshot: { task: { schema: "task/v1", taskId, title: taskId } }
-    }) as TaskListSuccess["rows"][number];
-    const cachedRows = [
-      projectionRow("task-cached", "2026-08-21T23:59:00.000Z")
-    ];
+    const projectionRow = (taskId: string, updatedAt: string) =>
+      ({
+        taskId,
+        createdAt: null,
+        updatedAt,
+        generation: "v1",
+        snapshot: { task: { schema: "task/v2", taskId, title: taskId, pinned: false } },
+      }) as TaskListSuccess["rows"][number];
+    const cachedRows = [projectionRow("task-cached", "2026-08-21T23:59:00.000Z")];
     const migratedRow = projectionRow("task-migrated", "2026-06-14T00:00:00.000Z");
     const projectionRows = [...cachedRows, migratedRow];
-    const getTasks = vi.fn(async (payload: { readonly changedAfterRevision?: number; readonly updatedAfter?: string }) => ({
-      ok: true as const,
-      status: "ready" as const,
-      rows: payload.changedAfterRevision !== undefined
-        ? [migratedRow]
-        : payload.updatedAfter === undefined ? projectionRows : projectionRows.filter((row) => row.updatedAt >= payload.updatedAfter!),
-      watermark: 43,
-      sourceRevision: 43,
-      warnings: [],
-      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null }
-    }));
+    const getTasks = vi.fn(
+      async (payload: { readonly changedAfterRevision?: number; readonly updatedAfter?: string }) => ({
+        ok: true as const,
+        status: "ready" as const,
+        rows:
+          payload.changedAfterRevision !== undefined
+            ? [migratedRow]
+            : payload.updatedAfter === undefined
+              ? projectionRows
+              : projectionRows.filter((row) => row.updatedAt >= payload.updatedAfter!),
+        watermark: 43,
+        sourceRevision: 43,
+        warnings: [],
+        page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: null },
+      }),
+    );
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
 
     const result = await readTaskList("repo-a", {
@@ -167,7 +228,7 @@ describe("GUI S3 R1 repository isolation", () => {
       rows: cachedRows,
       watermark: 42,
       sourceRevision: 42,
-      warnings: []
+      warnings: [],
     });
 
     expect(result.watermark).toBe(43);
@@ -180,7 +241,16 @@ describe("GUI S3 R1 repository isolation", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const observer = new QueryObserver(client, {
       ...taskDocumentQuery("repo-a", "task-1", "progress.md"),
-      queryFn: async () => ({ ok: true as const, status: "ready" as const, taskId: "task-1", path: "progress.md", body, blobSha256: "sha", watermark: body === "before" ? 41 : 42, sourceRevision: body === "before" ? 41 : 42 }),
+      queryFn: async () => ({
+        ok: true as const,
+        status: "ready" as const,
+        taskId: "task-1",
+        path: "progress.md",
+        body,
+        blobSha256: "sha",
+        watermark: body === "before" ? 41 : 42,
+        sourceRevision: body === "before" ? 41 : 42,
+      }),
     });
     const unsubscribe = observer.subscribe(() => undefined);
     try {
@@ -196,19 +266,66 @@ describe("GUI S3 R1 repository isolation", () => {
   });
 
   it("selects only enabled repos and retains an enabled unavailable repo", () => {
-    const repos = [repo("disabled", "disabled", "not_loaded"), repo("unavailable", "enabled", "unavailable"), repo("attached", "enabled", "attached")];
+    const repos = [
+      repo("disabled", "disabled", "not_loaded"),
+      repo("unavailable", "enabled", "unavailable"),
+      repo("attached", "enabled", "attached"),
+    ];
     expect(selectActiveRepoId(repos, null)).toBe("attached");
     expect(selectActiveRepoId(repos, "unavailable")).toBe("unavailable");
     expect(selectActiveRepoId(repos, "disabled")).toBe("attached");
   });
 
   it("polls a control receipt without replaying the request and requires a new pid for restart", async () => {
-    const pending = receipt("queued"), settled = receipt("settled", 10, 11), read = vi.fn(async () => settled);
+    const pending = receipt("queued"),
+      settled = receipt("settled", 10, 11),
+      read = vi.fn(async () => settled);
     await expect(settleDaemonControl(pending, read, async () => undefined)).resolves.toBe(settled);
-    expect(read).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledWith(pending.operationId);
-    expect(controlSucceeded(settled)).toBe(true); expect(controlSucceeded(receipt("settled", 10, 10))).toBe(false);
+    expect(read).toHaveBeenCalledOnce();
+    expect(read).toHaveBeenCalledWith(pending.operationId);
+    expect(controlSucceeded(settled)).toBe(true);
+    expect(controlSucceeded(receipt("settled", 10, 10))).toBe(false);
   });
 });
 
-function repo(repoId: string, registrationState: SystemRepoRow["registrationState"], cellState: SystemRepoRow["cellState"]): SystemRepoRow { return { repoId, displayName: repoId, canonicalRoot: `/tmp/${repoId}`, authoredBranch: "main", registrationState, cellState, generation: null, queueDepth: null, lockState: registrationState === "disabled" ? "not_applicable" : "unknown", recoveryMs: null, lastError: null, unavailableReason: cellState === "unavailable" ? "fixture unavailable" : null }; }
-function receipt(phase: DaemonControlReceipt["phase"], beforePid: number | null = null, afterPid: number | null = null): DaemonControlReceipt { const point = (pid: number) => ({ daemonId: "daemon", pid, startedAt: `generation-${pid}` }); return { schema: "daemon-control-receipt/v1", ok: phase !== "failed", outcome: phase === "failed" ? "rejected" : "pending", kind: "restart", operationId: "operation-r1", phase, requestedAt: "2026-08-14T00:00:00.000Z", completedAt: phase === "settled" ? "2026-08-14T00:00:01.000Z" : null, before: beforePid === null ? null : point(beforePid), after: afterPid === null ? null : point(afterPid), error: null, nextAction: phase === "settled" ? null : "poll" }; }
+function repo(
+  repoId: string,
+  registrationState: SystemRepoRow["registrationState"],
+  cellState: SystemRepoRow["cellState"],
+): SystemRepoRow {
+  return {
+    repoId,
+    displayName: repoId,
+    canonicalRoot: `/tmp/${repoId}`,
+    authoredBranch: "main",
+    registrationState,
+    cellState,
+    generation: null,
+    queueDepth: null,
+    lockState: registrationState === "disabled" ? "not_applicable" : "unknown",
+    recoveryMs: null,
+    lastError: null,
+    unavailableReason: cellState === "unavailable" ? "fixture unavailable" : null,
+  };
+}
+function receipt(
+  phase: DaemonControlReceipt["phase"],
+  beforePid: number | null = null,
+  afterPid: number | null = null,
+): DaemonControlReceipt {
+  const point = (pid: number) => ({ daemonId: "daemon", pid, startedAt: `generation-${pid}` });
+  return {
+    schema: "daemon-control-receipt/v1",
+    ok: phase !== "failed",
+    outcome: phase === "failed" ? "rejected" : "pending",
+    kind: "restart",
+    operationId: "operation-r1",
+    phase,
+    requestedAt: "2026-08-14T00:00:00.000Z",
+    completedAt: phase === "settled" ? "2026-08-14T00:00:01.000Z" : null,
+    before: beforePid === null ? null : point(beforePid),
+    after: afterPid === null ? null : point(afterPid),
+    error: null,
+    nextAction: phase === "settled" ? null : "poll",
+  };
+}
