@@ -1,0 +1,6 @@
+{
+  "schema": "entity-action-explanation/v1",
+  "mode": "object",
+  "subjects": [],
+  "evaluatedAtCut": "caller:chosen"
+}

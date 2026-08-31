@@ -13,6 +13,7 @@ export type StatusEntity =
   | "RuntimeSession"
   | "WriteReceipt"
   | "AuthorizationDecision"
+  | "EntityActionCriterion"
   | "Recovery"
   | "PresetRun"
   | "TaskCloseout"

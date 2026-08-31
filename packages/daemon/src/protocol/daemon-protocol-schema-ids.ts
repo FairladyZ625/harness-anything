@@ -10,6 +10,15 @@ export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "settings"]),
 });
 
+export const ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA = Object.freeze({
+  id: "entity-action-explain-request/v1",
+  required: Object.freeze(["schema", "refs", "mode"]),
+});
+
+export const DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({
+  id: "entity-action-explanation/v1",
+});
+
 export const DAEMON_CI_OBSERVATORY_SCHEMA = Object.freeze({
   id: "daemon.ci-observatory/v1",
 });

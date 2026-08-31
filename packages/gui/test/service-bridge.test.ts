@@ -140,7 +140,14 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                 ? { ...scope, window: 10 }
                                 : contract.id === "gui.catalog.preset.read"
                                   ? { ...scope, presetId: catalog.defaults.presetId }
-                                  : scope;
+                                  : contract.id === "entity.actions.explain"
+                                    ? {
+                                        ...scope,
+                                        schema: "entity-action-explain-request/v1",
+                                        mode: "catalog",
+                                        refs: [],
+                                      }
+                                    : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"
@@ -148,6 +155,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
           : parseDaemonGuiReadResponse(contract.method, result);
       if (contract.id === "gui.control.receipt")
         assert.equal(parsed.schema, "daemon-control-receipt/v1", contract.method);
+      else if (contract.id === "entity.actions.explain")
+        assert.equal(parsed.schema, "entity-action-explanation/v1", contract.method);
       else assert.equal(parsed.ok, true, `${contract.method}: ${JSON.stringify(parsed)}`);
       results.set(contract.method, result);
     }

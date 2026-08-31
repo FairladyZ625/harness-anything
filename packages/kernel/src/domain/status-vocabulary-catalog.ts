@@ -3,6 +3,14 @@ import { relationStates } from "./entity-relation.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   {
+    id: "entity-action-criterion.status",
+    entity: "EntityActionCriterion",
+    field: "status",
+    module: "packages/kernel/src/domain/entity-action-explanation.ts",
+    anchor: "entityActionCriterionStatuses",
+    words: ["met", "unmet", "invocation-required", "not-evaluated"],
+  },
+  {
     id: "ci-test.status",
     entity: "CiTest",
     field: "status",
