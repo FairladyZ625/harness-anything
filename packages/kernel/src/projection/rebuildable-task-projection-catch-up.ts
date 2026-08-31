@@ -29,7 +29,7 @@ export function reduceBatch(
   events: readonly CanonicalEventV1[],
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
-  sourceRevision: number,
+  _sourceRevision: number,
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
