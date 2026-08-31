@@ -100,6 +100,18 @@
         "until": "2026-09-30"
       },
       {
+        "value": "compileScheduleDefinitionEvent",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: GUI service-bridge integration test seeds canonical schedule definitions; production schedule ingress derives these events from entity actions.",
+        "until": "2026-09-30"
+      },
+      {
+        "value": "compileScheduleRunEvent",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: daemon schedule-runs read test seeds canonical run events; production schedule ingress derives these events from entity actions.",
+        "until": "2026-09-30"
+      },
+      {
         "value": "CompleteTaskProof",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",

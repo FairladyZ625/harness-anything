@@ -192,7 +192,7 @@ export type {
   ScheduleTriggerV1,
   ScheduleV1,
 } from "./schedule.ts";
-export { isScheduleEvent } from "./schedule-event.ts";
+export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
 export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
