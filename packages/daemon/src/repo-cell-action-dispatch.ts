@@ -20,6 +20,7 @@ import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts"
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 
 export async function executeAction(
@@ -28,7 +29,6 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   if (action.kind === "ci-observe-pull") return pullAndIngestCiObservations(cell, action, binding);
-  if (action.kind.startsWith("schedule-")) return cell.scheduleActions.run(action, binding);
   if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
   if (
     action.kind === "people-add" ||
@@ -194,28 +194,25 @@ export async function executeAction(
       action,
       binding,
       cell.operationId(action, binding, cell.input.repoId, cell.projection.read(taskId).snapshot.revision),
-      async (contract, catalogAction, catalogBinding) => {
-        if (Array.isArray(catalogAction.docChanges))
-          return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
-        return contract.execution?.implementation === "task-completion"
-          ? cell.completeTask(catalogAction, catalogBinding)
-          : cell.lifecycleAction(catalogAction, catalogBinding);
+      {
+        ...cell.entityActionRuntimes,
+        task: async (contract, catalogAction, catalogBinding) => {
+          if (Array.isArray(catalogAction.docChanges))
+            return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
+          return contract.execution?.implementation === "task-completion"
+            ? cell.completeTask(catalogAction, catalogBinding)
+            : cell.lifecycleAction(catalogAction, catalogBinding);
+        },
       },
     );
   }
-  if (action.kind.startsWith("fact-"))
+  if (taskActionContract?.target.kind === "relation" && taskActionContract.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(
-        action,
-        binding,
-        cell.input.repoId,
-        action.kind === "fact-record" && typeof action.taskId === "string" && action.taskId.trim().length > 0
-          ? cell.projection.read(action.taskId).snapshot.revision
-          : (cell.store.readHead()?.revision ?? 0),
-      ),
+      cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
     );
+  if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action);
     return cell.entityActionExecutor.run(
@@ -229,6 +226,14 @@ export async function executeAction(
       ),
     );
   }
+  const entityActionContract = getExecutableEntityAction(action.kind);
+  if (entityActionContract?.execution)
+    return cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      cell.entityActionRuntimes,
+    );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:explain|get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,

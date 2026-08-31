@@ -1,19 +1,16 @@
 import {
-  deriveRelationId,
   isSameExecution,
   isSamePerson,
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionSemanticState,
   taskClasses,
-  validateRelationRecordsForHost,
-  type EntityRelationRecord,
   type AuthorizationDecision,
   type LeaseV1,
   type RuntimeSession,
   type TaskBoundRuntimeBinding,
   type TaskEventV1,
-  type TaskV1,
+  type TaskV2,
 } from "../../kernel/src/index.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -22,22 +19,14 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 export function taskMutation(
   cell: RepoCellActionContext,
   action: RepoTaskAction,
-  task: TaskV1,
+  task: TaskV2,
   snapshot: Snapshot,
   binding: RepoCellBinding,
 ): {
   readonly type: TaskEventV1["type"];
-  readonly task: TaskV1;
+  readonly task: TaskV2;
   readonly audit: {
-    readonly command:
-      | "release"
-      | "amend"
-      | "archive"
-      | "supersede"
-      | "delete"
-      | "reopen"
-      | "contract-migrate"
-      | "relate";
+    readonly command: "release" | "amend" | "archive" | "supersede" | "delete" | "reopen" | "contract-migrate";
     readonly reason: string;
     readonly fields: readonly string[];
   };
@@ -113,7 +102,7 @@ export function taskMutation(
       },
     };
   }
-  if (activeLease && !pinOnlyAmend)
+  if (activeLease && !pinOnlyAmend && action.kind !== "task-contract-migrate")
     throw cell.cellCodedError("active_lease", `Run ha task release ${task.taskId} before ${action.kind}.`);
   if (action.kind === "task-amend") {
     const patches = amendPatches,
@@ -123,7 +112,7 @@ export function taskMutation(
         "invalid_amend",
         `Use ha task amend ${task.taskId} --set <field>:<value> on a task with a current contract.`,
       );
-    let changed: TaskV1 = task;
+    let changed: TaskV2 = task;
     const fields: string[] = [];
     for (const raw of patches) {
       if (!raw || typeof raw !== "object")
@@ -146,7 +135,7 @@ export function taskMutation(
           ...changed,
           metadata: {
             ...changed.metadata!,
-            workKind: value as NonNullable<TaskV1["metadata"]>["workKind"],
+            workKind: value as NonNullable<TaskV2["metadata"]>["workKind"],
           },
         };
       else if ((field === "riskTier" || field === "urgency") && ["low", "medium", "high"].includes(value))
@@ -160,7 +149,7 @@ export function taskMutation(
           metadata: { ...changed.metadata!, moduleKey: value },
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
-        changed = { ...changed, taskClass: value as TaskV1["taskClass"] };
+        changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
       else
         throw cell.cellCodedError(
           "invalid_amend",
@@ -182,74 +171,9 @@ export function taskMutation(
       },
     };
   }
-  if (action.kind === "task-relate") {
-    const target = cell.requiredCellText(action.target, "target"),
-      targetTask = /^task\/([^/]+)$/u.exec(target)?.[1];
-    if (action.relationType !== "depends-on" || !targetTask)
-      throw cell.cellCodedError(
-        "invalid_relation",
-        "Use ha task relate <task-id> --depends-on <task-id> --rationale <text>.",
-      );
-    if (!cell.projectedTaskIds().has(targetTask))
-      throw cell.cellCodedError(
-        "relation_target_not_found",
-        `Create relation target ${targetTask} before adding the dependency.`,
-      );
-    const basis = {
-        source: `task/${task.taskId}`,
-        target,
-        type: "depends-on" as const,
-        direction: "directed" as const,
-      },
-      relation: EntityRelationRecord = {
-        relation_id: deriveRelationId(basis),
-        ...basis,
-        strength: "strong",
-        origin: "declared",
-        rationale: cell.requiredCellText(action.rationale, "rationale"),
-        state: "active",
-      },
-      relations = [...(task.relations ?? [])];
-    if (relations.some((value) => value.relation_id === relation.relation_id))
-      throw cell.cellCodedError(
-        "relation_exists",
-        `Use ha relation list --entity task/${task.taskId} to inspect the existing dependency.`,
-      );
-    const issues = validateRelationRecordsForHost(`task/${task.taskId}`, [...relations, relation]);
-    if (issues.length)
-      throw cell.cellCodedError("invalid_relation", `${issues[0]!.message}; fix the endpoints or rationale and retry.`);
-    if (cell.dependencyPath(target, `task/${task.taskId}`))
-      throw cell.cellCodedError(
-        "relation_cycle",
-        `Remove the dependency path from ${target} to task/${task.taskId} before adding this edge.`,
-      );
-    return {
-      type: "task_relation_added",
-      task: { ...task, relations: [...relations, relation] },
-      audit: {
-        command: "relate",
-        reason: relation.rationale,
-        fields: [relation.relation_id],
-      },
-    };
-  }
   if (action.kind === "task-archive") {
     if ((task.packageDisposition ?? "active") !== "active")
       throw cell.cellCodedError("invalid_disposition", `Reopen task ${task.taskId} before archiving it again.`);
-    const unresolved = (task.relations ?? []).filter(
-      (relation) => relation.state === "active" && !cell.relationEndpointExists(relation.target),
-    );
-    if (unresolved.length)
-      throw cell.cellCodedError(
-        "archive_reference_unresolved",
-        [
-          "Repair or retire ",
-          `${unresolved.map((relation) => relation.relation_id).join(", ")}`,
-          "; inspect them with ha relation list --entity task/",
-          `${task.taskId}`,
-          ".",
-        ].join(""),
-      );
     return {
       type: "task_archived",
       task: { ...task, packageDisposition: "archived" },
@@ -340,18 +264,30 @@ export function taskMutation(
     };
   }
   if (action.kind === "task-contract-migrate") {
-    if ((task.contractVersion ?? 0) >= 1)
+    const repairedDigest =
+      typeof action.repairPresetSnapshotDigest === "string" &&
+      /^sha256:[0-9a-f]{64}$/u.test(action.repairPresetSnapshotDigest)
+        ? (action.repairPresetSnapshotDigest as `sha256:${string}`)
+        : null;
+    if ((task.contractVersion ?? 0) >= 1 && repairedDigest === null)
       throw cell.cellCodedError(
         "contract_current",
         `Task ${task.taskId} already has task-contract/v1; run ha task show ${task.taskId} to inspect it.`,
       );
     return {
       type: "task_contract_migrated",
-      task: { ...task, contractVersion: 1 },
+      task: {
+        ...task,
+        contractVersion: 1,
+        ...(repairedDigest === null ? {} : { presetSnapshotDigest: repairedDigest }),
+      },
       audit: {
         command: "contract-migrate",
-        reason: "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
-        fields: ["contractVersion"],
+        reason:
+          repairedDigest === null
+            ? "Backfilled immutable task-contract/v1 from unambiguous L1 task truth"
+            : "Repaired migrated task preset digest and canonical task-contract package path",
+        fields: repairedDigest === null ? ["contractVersion"] : ["contractVersion", "presetSnapshotDigest"],
       },
     };
   }

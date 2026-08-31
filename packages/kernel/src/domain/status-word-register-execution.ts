@@ -69,10 +69,10 @@ export const executionAndRelationStatusWords: readonly StatusWordRegistration[] 
     divergence: "entity-scoped",
   },
 
-  // ---- RelationEdge.state (bookkeeping of an edge) ----
+  // ---- Relation.state (bookkeeping of a first-class relation) ----
   {
     word: "active",
-    entity: "RelationEdge",
+    entity: "Relation",
     field: "state",
     meaning: "Edge is load-bearing (not edge_retired, not deleted).",
     divergence: "divergent",
@@ -82,14 +82,14 @@ export const executionAndRelationStatusWords: readonly StatusWordRegistration[] 
   },
   {
     word: "edge_retired",
-    entity: "RelationEdge",
+    entity: "Relation",
     field: "state",
     meaning: "Edge was retired in place; kept as audit history.",
     divergence: "entity-scoped",
   },
   {
     word: "deleted",
-    entity: "RelationEdge",
+    entity: "Relation",
     field: "state",
     meaning: "Edge record removed from the live document.",
     divergence: "entity-scoped",

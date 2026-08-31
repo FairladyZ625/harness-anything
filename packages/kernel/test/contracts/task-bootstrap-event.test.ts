@@ -6,7 +6,7 @@ import {
   currentTaskForWrite,
   parseCanonicalEvent,
   serializeCanonicalEvent,
-  type TaskBootstrapEventV1
+  type TaskBootstrapEventV1,
 } from "../../src/index.ts";
 import { validateCurrentCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 
@@ -22,7 +22,7 @@ const event: TaskBootstrapEventV1 = {
   occurredAt: "2026-08-13T00:00:00.000Z",
   payload: {
     task: {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId: "task-bootstrap-1",
       title: "Bootstrap",
       taskClass: "milestone",
@@ -30,51 +30,138 @@ const event: TaskBootstrapEventV1 = {
       graph: REPLAY_TASK_GRAPH,
       currentNode: "implementation",
       iteration: 0,
+      pinned: false,
       createdBy: { principal: { personId: "person-1" }, executor: null },
       completionGateIds: ["ci"],
-      presetSnapshotDigest: `sha256:${"a".repeat(64)}`
+      presetSnapshotDigest: `sha256:${"a".repeat(64)}`,
     },
     presetSnapshotClaim: {
       digest: `sha256:${"a".repeat(64)}`,
       sha256: "b".repeat(64),
       size: 2,
-      mediaType: "application/json"
+      mediaType: "application/json",
     },
-    initialDocumentClaims: [{
-      path: "tasks/task-bootstrap-1-bootstrap/task_plan.md",
-      sha256: "c".repeat(64),
-      size: 7,
-      mediaType: "text/markdown",
-      owner: "doc-sync",
-      policyId: "markdown-body-replaceable/v1"
-    }]
-  }
+    initialDocumentClaims: [
+      {
+        path: "tasks/task-bootstrap-1-bootstrap/task_plan.md",
+        sha256: "c".repeat(64),
+        size: 7,
+        mediaType: "text/markdown",
+        owner: "doc-sync",
+        policyId: "markdown-body-replaceable/v1",
+      },
+    ],
+  },
 };
 
 test("TaskBootstrapEventV1 is a canonical closed-union member with an explicit taskClass", () => {
   const body = serializeCanonicalEvent(event);
   assert.deepEqual(parseCanonicalEvent(body), event);
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: undefined } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, initialDocumentClaims: [{ ...event.payload.initialDocumentClaims[0]!, path: "tasks/task-bootstrap-1-/task_plan.md" }] } }), /package path/u);
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, initialDocumentClaims: [{ ...event.payload.initialDocumentClaims[0]!, mediaType: "application/json" }] } } as unknown as TaskBootstrapEventV1), /claims are invalid/u);
+  assert.throws(
+    () =>
+      serializeCanonicalEvent({
+        ...event,
+        payload: { ...event.payload, task: { ...event.payload.task, taskClass: undefined } },
+      } as unknown as TaskBootstrapEventV1),
+    /invalid taskClass/u,
+  );
+  assert.throws(
+    () =>
+      serializeCanonicalEvent({
+        ...event,
+        payload: {
+          ...event.payload,
+          initialDocumentClaims: [
+            { ...event.payload.initialDocumentClaims[0]!, path: "tasks/task-bootstrap-1-/task_plan.md" },
+          ],
+        },
+      }),
+    /package path/u,
+  );
+  assert.throws(
+    () =>
+      serializeCanonicalEvent({
+        ...event,
+        payload: {
+          ...event.payload,
+          initialDocumentClaims: [{ ...event.payload.initialDocumentClaims[0]!, mediaType: "application/json" }],
+        },
+      } as unknown as TaskBootstrapEventV1),
+    /claims are invalid/u,
+  );
 });
 
 test("long_running is a kernel taskClass and the retired longRunning boolean is only read-tolerated", () => {
-  const metadata = { idempotencyKey: null, parentTaskId: null, workKind: null, riskTier: null, urgency: null, verticalId: "software/coding", presetId: "docs-task", profileId: "default", moduleKey: null, slug: "bootstrap", surfaces: [], fromLegacyId: null };
-  const resident = serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata } } } as TaskBootstrapEventV1);
+  const metadata = {
+    idempotencyKey: null,
+    parentTaskId: null,
+    workKind: null,
+    riskTier: null,
+    urgency: null,
+    verticalId: "software/coding",
+    presetId: "docs-task",
+    profileId: "default",
+    moduleKey: null,
+    slug: "bootstrap",
+    surfaces: [],
+    fromLegacyId: null,
+  };
+  const resident = serializeCanonicalEvent({
+    ...event,
+    payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata } },
+  } as TaskBootstrapEventV1);
   assert.match(resident, /"taskClass":"long_running"/u);
   assert.doesNotMatch(resident, /longRunning/u);
   // Historical events recorded metadata.longRunning before taskClass=long_running existed; the
   // immutable log must keep replaying, so the retired key is tolerated when it carries its old type.
-  const legacy = parseCanonicalEvent(serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long_running", metadata: { ...metadata, longRunning: true } } } } as unknown as TaskBootstrapEventV1));
+  const legacy = parseCanonicalEvent(
+    serializeCanonicalEvent({
+      ...event,
+      payload: {
+        ...event.payload,
+        task: { ...event.payload.task, taskClass: "long_running", metadata: { ...metadata, longRunning: true } },
+      },
+    } as unknown as TaskBootstrapEventV1),
+  );
   assert.deepEqual(legacy.payload.task.metadata, { ...metadata, longRunning: true });
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } } } as unknown as TaskBootstrapEventV1), /retired task metadata field longRunning must be a boolean/u);
-  const future = { ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } } };
+  assert.throws(
+    () =>
+      serializeCanonicalEvent({
+        ...event,
+        payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } },
+      } as unknown as TaskBootstrapEventV1),
+    /retired task metadata field longRunning must be a boolean/u,
+  );
+  const future = {
+    ...event,
+    payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } },
+  };
   assert.doesNotThrow(() => serializeCanonicalEvent(future as unknown as TaskBootstrapEventV1));
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /task metadata contains unknown fields: orbit/u);
-  const { fromLegacyId: _missing, ...missingField } = metadata; void _missing;
-  assert.match(validateCurrentCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, metadata: missingField } } }).join("\n"), /task metadata is missing required fields: fromLegacyId/u);
-  const sanitized = currentTaskForWrite({ ...event.payload.task, metadata: { ...metadata, longRunning: false, orbit: true } } as unknown as TaskBootstrapEventV1["payload"]["task"]);
-  assert.deepEqual(sanitized.metadata, { ...metadata, orbit: true }, "only the known retired key is removed; future fields stay visible to the strict writer gate");
-  assert.throws(() => serializeCanonicalEvent({ ...event, payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long-running", metadata } } } as unknown as TaskBootstrapEventV1), /invalid taskClass/u);
+  const { fromLegacyId: _missing, ...missingField } = metadata;
+  void _missing;
+  assert.match(
+    validateCurrentCanonicalEvent({
+      ...event,
+      payload: { ...event.payload, task: { ...event.payload.task, metadata: missingField } },
+    }).join("\n"),
+    /task metadata is missing required fields: fromLegacyId/u,
+  );
+  const sanitized = currentTaskForWrite({
+    ...event.payload.task,
+    metadata: { ...metadata, longRunning: false, orbit: true },
+  } as unknown as TaskBootstrapEventV1["payload"]["task"]);
+  assert.deepEqual(
+    sanitized.metadata,
+    { ...metadata, orbit: true },
+    "only the known retired key is removed; future fields stay visible to the strict writer gate",
+  );
+  assert.throws(
+    () =>
+      serializeCanonicalEvent({
+        ...event,
+        payload: { ...event.payload, task: { ...event.payload.task, taskClass: "long-running", metadata } },
+      } as unknown as TaskBootstrapEventV1),
+    /invalid taskClass/u,
+  );
 });

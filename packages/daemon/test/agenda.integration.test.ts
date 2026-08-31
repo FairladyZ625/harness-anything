@@ -82,11 +82,12 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       (
         await cell.run(
           {
-            kind: "task-relate",
-            taskId: "task_wait",
-            target: "task/task_dependency",
+            kind: "relation-relate",
+            sourceRef: "task/task_wait",
+            targetRef: "task/task_dependency",
             relationType: "depends-on",
             rationale: "Dependency must finish first",
+            expectedVersion: 0,
           },
           binding,
         )
@@ -411,7 +412,6 @@ function decisionProposal() {
       rejected: [{ id: "RJ1", text: "Hide it", whyNot: "It needs review" }],
       claims: [],
       fulfillments: [],
-      relations: [],
     }),
   } as const;
 }

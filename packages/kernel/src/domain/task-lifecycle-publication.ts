@@ -12,7 +12,6 @@ import {
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { formatRelationFlowRecord } from "./entity-relation.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateRequiresWitness } from "./closeout-readiness.ts";
@@ -216,7 +215,8 @@ export function renderLifecycleDocument(
   base: string | null,
 ): string {
   if (path.endsWith("/INDEX.md")) return renderIndex(event, snapshot, path, base);
-  if (path.endsWith("/task-contract.json")) return renderContract(snapshot, base);
+  if (path.endsWith("/task-contract.json"))
+    return renderContract(snapshot, base, path.slice(0, -"/task-contract.json".length));
   if (path.endsWith("/module.md")) return renderModule(snapshot);
   if (path.endsWith("/task_plan.md") && retitledTaskPlanPath(event, path.slice(0, -"/task_plan.md".length)) !== null)
     return renderTaskPlan(snapshot, path, base);
@@ -327,32 +327,33 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
       `preset: ${metadata.presetId}\n`,
       `profile: ${metadata.profileId}\n`,
       `packagePath: ${packagePath}\n`,
-      "owner: machine\nrelations:\n",
-      (task.relations ?? []).map(formatRelationFlowRecord).join("\n"),
-      `\n---\n${body}`,
+      "owner: machine\n",
+      `---\n${body}`,
     ].join("");
   }
   return initial
+    .replace(/^relations:\n(?:- .*\n)*/mu, "")
     .replace(/^status:.*$/mu, `status: ${task.status}`)
     .replace(/^  status:.*$/mu, `  status: ${task.status}`)
     .replace(/## Next\n[\s\S]*$/u, `## Next\n\n${next}\n\n## Gate Checks\n\n${gates}\n`);
 }
-function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): string {
+function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, packagePath: string): string {
   const task = snapshot.task!,
     current = base ? (JSON.parse(base) as Record<string, unknown>) : {},
-    metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown,
-    relations = JSON.parse(stableStringify(task.relations ?? [])) as unknown;
+    { relations: _legacyRelations, ...withoutHostedRelations } = current,
+    metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown;
   return `${JSON.stringify(
     {
-      ...current,
+      ...withoutHostedRelations,
       schema: "task-contract/v1",
       contractVersion: task.contractVersion ?? 1,
       taskId: task.taskId,
+      packagePath,
       title: task.title,
       taskClass: task.taskClass,
-      pinned: task.pinned ?? false,
+      pinned: task.pinned,
+      presetSnapshotDigest: task.presetSnapshotDigest,
       metadata,
-      relations,
     },
     null,
     2,

@@ -120,34 +120,12 @@ export interface RepoCell {
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
-  readonly schedule: {
-    readonly claimOccurrence: (
-      input: {
-        readonly scheduleId: string;
-        readonly kind: "scheduled" | "manual";
-        readonly scheduledFor: string;
-        readonly nodeId: string;
-        readonly assignmentId: string | null;
-        readonly observedDefinitionRevision?: number;
-        readonly idempotencyKey: string;
-      },
-      binding: RepoCellBinding,
-    ) => Promise<WriteReceipt>;
-    readonly recordMissed: (
-      input: Readonly<Record<string, unknown>>,
-      binding: RepoCellBinding,
-    ) => Promise<WriteReceipt>;
-    readonly linkDispatch: (
-      input: Readonly<Record<string, unknown>>,
-      binding: RepoCellBinding,
-    ) => Promise<WriteReceipt>;
-    readonly settle: (input: Readonly<Record<string, unknown>>, binding: RepoCellBinding) => Promise<WriteReceipt>;
-  };
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;
   readonly read: <M extends RepoCellReadMethod>(
     method: M,
     payload?: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
   readonly observeTail: (

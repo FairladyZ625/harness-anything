@@ -159,7 +159,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
               '"dispatchId", "agentId", "targetAgentId", "squadId", "model", "effort", "fast", "permissionMode", "cwd", ' +
-              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "idempotencyKey", ' +
+              '"prompt", "promptSource", "missionName", "waitProjectionMs", "onExitCommand", "taskId", "idempotencyKey", ' +
               '"providerSessionId".',
       );
       await assert.rejects(
@@ -518,6 +518,7 @@ test("attached task runtime settlement releases its execution lease before publi
           cwd: { scope: "repo-root" },
           prompt: "Settle the durable tail after attach",
           taskId,
+          waitProjectionMs: 0,
           idempotencyKey: "attached-tail",
         },
         binding,

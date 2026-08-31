@@ -2,8 +2,8 @@ import { isNativeCommitSha, validateExecutionV1, validateLeaseHolder, validateLe
 import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { validateReviewConsentV1, validateReviewV1 } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
-import { validateActorAxes, validateTaskV1 } from "./task.ts";
-import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
+import { validateActorAxes, validateTaskV2 } from "./task.ts";
+import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import {
@@ -78,7 +78,7 @@ export type TaskCreatedEvent = EventEnvelope<
   "task_created",
   ActorAxes,
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly documentClaims?: readonly LifecycleDocumentClaim[];
     readonly carriedDocumentClaims?: readonly TaskCarriedDocumentChange[];
   }
@@ -87,7 +87,7 @@ export type LeaseChangeReason = "initial_claim" | "same_principal_reconnect" | "
 export type ExecutionStartedEvent = TaskEventEnvelope<
   "execution_started",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly lease: LeaseV1;
     readonly previousHolder: LeaseHolder | null;
@@ -98,7 +98,7 @@ export type ExecutionStartedEvent = TaskEventEnvelope<
 export type LeaseRenewedEvent = TaskEventEnvelope<
   "lease_renewed",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly lease: LeaseV1;
     readonly previousHolder: LeaseHolder;
@@ -109,7 +109,7 @@ export type LeaseRenewedEvent = TaskEventEnvelope<
 export type ExecutionSubmittedEvent = TaskEventEnvelope<
   "execution_submitted",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly edge: TaskEdgeTaken;
   }
@@ -117,7 +117,7 @@ export type ExecutionSubmittedEvent = TaskEventEnvelope<
 export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
   "execution_executor_declared",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly previousActor: ActorAxes;
     readonly reason: string;
@@ -126,7 +126,7 @@ export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
 export type ReviewRecordedEvent = TaskEventEnvelope<
   "review_recorded",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly review: ReviewV1;
     readonly edge?: TaskEdgeTaken;
@@ -135,7 +135,7 @@ export type ReviewRecordedEvent = TaskEventEnvelope<
 export type ReviewConsentRecordedEvent = TaskEventEnvelope<
   "review_consent_recorded",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly review: ReviewV1;
     readonly consent: ReviewConsentV1;
@@ -144,7 +144,7 @@ export type ReviewConsentRecordedEvent = TaskEventEnvelope<
 export type CodeDocReconciledEvent = TaskEventEnvelope<
   "code_doc_reconciled",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly witness: CodeDocWitnessV1;
   }
@@ -152,7 +152,7 @@ export type CodeDocReconciledEvent = TaskEventEnvelope<
 export type CodeDocRepointedEvent = TaskEventEnvelope<
   "code_doc_repointed",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly record: CodeDocRepointV1;
   }
@@ -160,7 +160,7 @@ export type CodeDocRepointedEvent = TaskEventEnvelope<
 export type CompletionGateVerifiedEvent = TaskEventEnvelope<
   "completion_gate_verified",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly witness: CompletionGateWitnessV1;
   }
@@ -168,7 +168,7 @@ export type CompletionGateVerifiedEvent = TaskEventEnvelope<
 export type TaskCompletedEvent = TaskEventEnvelope<
   "task_completed",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
   }
@@ -190,7 +190,7 @@ export interface TaskMutationV1 {
 export type LeaseReleasedEvent = TaskEventEnvelope<
   "lease_released",
   {
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly releasedLease: LeaseV1;
     readonly mutation: TaskMutationV1;
@@ -213,7 +213,7 @@ export type TaskMutationEventType = Exclude<
 >;
 export type TaskMutationEvent = TaskEventEnvelope<
   TaskMutationEventType,
-  { readonly task: TaskV1; readonly mutation: TaskMutationV1 }
+  { readonly task: TaskV2; readonly mutation: TaskMutationV1 }
 >;
 export type TaskEventV1 =
   | TaskCreatedEvent
@@ -328,7 +328,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
         carried.some((change) => !isValidDocEventChange(change, allowUnknownFields))))
   )
     return [...issues, invalidEventPayloadIssue(`${String(value.type)} payload fields or document claims are invalid`)];
-  issues.push(...validateTaskV1(payload.task, allowUnknownFields));
+  issues.push(...validateTaskV2(payload.task, allowUnknownFields));
   if (
     [
       "execution_started",

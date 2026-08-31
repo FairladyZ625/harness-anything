@@ -5,7 +5,7 @@ import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
-import type { ContractValidationIssue, TaskV1 } from "./task.ts";
+import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type {
@@ -121,7 +121,7 @@ export const review: Transition = {
           reviews: [...snapshot.reviews, recorded],
         },
         event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
-          task: snapshot.task as TaskV1,
+          task: snapshot.task as TaskV2,
           execution: current,
           review: recorded,
         }),
@@ -131,14 +131,14 @@ export const review: Transition = {
         state: "changes_requested",
         closedAt: command.occurredAt,
       },
-      task: TaskV1 = {
-        ...(snapshot.task as TaskV1),
+      task: TaskV2 = {
+        ...(snapshot.task as TaskV2),
         status: "active",
         currentNode: "implementation",
         iteration: 1,
       },
       edge = takeEdge(
-        snapshot.task as TaskV1,
+        snapshot.task as TaskV2,
         "changes_requested",
         command.reason,
         command.commitSha,
@@ -226,7 +226,7 @@ export const consent: Transition = {
         consents: [...snapshot.consents, value],
       },
       event: envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
-        task: snapshot.task as TaskV1,
+        task: snapshot.task as TaskV2,
         execution: current,
         review: recorded,
         consent: value,
@@ -292,7 +292,7 @@ export const reconcile: Transition = {
         codeDocWitnesses: witnesses,
       },
       event: envelope<CodeDocReconciledEvent>(command, "code_doc_reconciled", {
-        task: snapshot.task as TaskV1,
+        task: snapshot.task as TaskV2,
         execution: current,
         witness,
       }),
@@ -371,8 +371,8 @@ export const complete: Transition = {
         state: "accepted",
         closedAt: command.occurredAt,
       },
-      task: TaskV1 = {
-        ...(snapshot.task as TaskV1),
+      task: TaskV2 = {
+        ...(snapshot.task as TaskV2),
         status: "done",
         pinned: false,
       };

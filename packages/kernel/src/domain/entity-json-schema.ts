@@ -182,4 +182,4 @@ function stableJson(value: unknown): string {
   );
 }
 import { isRecord } from "./write-chain.contract.ts";
-export { ENTITY_ID_PATTERN } from "./entity-ref.ts";
+export { ENTITY_ID_PATTERN } from "./base-entity.ts";

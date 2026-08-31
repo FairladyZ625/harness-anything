@@ -9,7 +9,7 @@ import {
   validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
-import { validateSettingsV1 } from "../../../kernel/src/index.ts";
+import { validateEntityActionExplanationSet, validateSettingsV1 } from "../../../kernel/src/index.ts";
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
@@ -72,6 +72,7 @@ const resultValidators = {
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,

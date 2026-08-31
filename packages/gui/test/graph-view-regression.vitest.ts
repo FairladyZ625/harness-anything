@@ -90,12 +90,36 @@ beforeAll(() => {
 describe("graph page keeps its behavior after the ego extraction (W4)", () => {
   it("spotlight renders focus card + neighbor chips and reports header counts", async () => {
     const { div, root } = await mountGraph();
+    // 跳数步进器默认父 1 / 子 1(task_b4258de1):d1 焦点只铺 t1 一跳,t2/t3 要再点。
     expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(1);
     expect(div.querySelector("[data-testid='focus-history-bar']")).not.toBeNull();
-    expect(div.textContent).toContain("聚光灯 · 4 节点 · 3 边");
+    expect(div.textContent).toContain("聚光灯 · 2 节点 · 1 边");
     // 同一时刻 DOM 里只有一个 ReactFlow(可访问性/选择器不二义)。
     expect(div.querySelectorAll(".react-flow").length).toBe(1);
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("hop stepper lives on the spotlight toolbar and re-spreads without dropping focus", async () => {
+    const { div, root, render } = await mountGraph();
+    expect(div.querySelector("[data-testid='ego-hops-up-value']")?.textContent).toBe("1");
+    expect(div.querySelector("[data-testid='ego-hops-down-value']")?.textContent).toBe("1");
+    await act(async () => {
+      (div.querySelector("[data-testid='ego-hops-down-inc']") as HTMLButtonElement).click();
+      await null;
+    });
+    await act(async () => {
+      (div.querySelector("[data-testid='ego-hops-up-inc']") as HTMLButtonElement).click();
+    });
+    // 2/2:与抽取前的 ±2 同集 —— 头部计数恢复 4 节点 3 边,焦点仍是决策卡。
+    expect(div.textContent).toContain("聚光灯 · 4 节点 · 3 边");
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
+    // 步进器只出现在聚光灯:领地没有这份控制。
+    await render({ viewMode: "territory" });
+    expect(div.querySelector("[data-testid='ego-hops-control']")).toBeNull();
     await act(async () => {
       root.unmount();
     });

@@ -90,7 +90,6 @@ function decisionProposal() {
       rejected: [{ id: "RJ1", text: "Allow self-review", whyNot: "It lacks executor-axis independence" }],
       claims: [{ id: "C1", text: "The reviewer is independent.", loadBearing: true }],
       fulfillments: [],
-      relations: [],
     }),
   } as const;
 }

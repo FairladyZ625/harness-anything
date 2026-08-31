@@ -1,7 +1,17 @@
 import { useEffect, useRef } from "react";
 import { buildHtmlArtifactDataUrl, HTML_ARTIFACT_PARTITION } from "../../api/html-artifact-policy.ts";
 
-export function HtmlArtifactPreview({ content, path }: { readonly content: string; readonly path: string }) {
+const ISOLATION_BADGE = "隔离本地预览 · 脚本 / 外联已禁用";
+
+export function HtmlArtifactPreview({
+  content,
+  path,
+  fillAvailable = false,
+}: {
+  readonly content: string;
+  readonly path: string;
+  readonly fillAvailable?: boolean;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,14 +43,27 @@ export function HtmlArtifactPreview({ content, path }: { readonly content: strin
   }, [content, path]);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-surface" data-testid="html-artifact-preview">
-      <header className="flex items-center justify-between gap-3 border-b border-border bg-surface-raised px-3 py-2">
+    <section
+      className={[
+        "overflow-hidden rounded-lg border border-border bg-surface",
+        fillAvailable ? "html-artifact-preview-fill flex h-full min-h-0 min-w-0 flex-col" : "",
+      ].join(" ")}
+      data-testid="html-artifact-preview"
+    >
+      <header
+        className={[
+          "flex shrink-0 items-center justify-between gap-3",
+          "border-b border-border bg-surface-raised px-3 py-2",
+        ].join(" ")}
+      >
         <span className="min-w-0 truncate font-mono text-[11px] text-text-muted">{path}</span>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">
-          隔离本地预览 · 脚本 / 外联已禁用
-        </span>
+        <span className="shrink-0 font-mono text-[10px] text-text-faint">{ISOLATION_BADGE}</span>
       </header>
-      <div ref={hostRef} className="min-h-[42rem] bg-white" />
+      <div
+        ref={hostRef}
+        className={fillAvailable ? "min-h-0 min-w-0 flex-1 overflow-hidden bg-white" : "min-h-[42rem] bg-white"}
+        data-testid="html-artifact-host"
+      />
     </section>
   );
 }

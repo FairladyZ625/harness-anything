@@ -11,16 +11,12 @@ import {
   type AgentRuntimeEventV1,
   type SessionProvenanceV1,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const runtimeSessionId = "runtime-session-identity",
   providerSessionId = "01a02711-fb92-7ae2-b5bc-76c9b7154ead",
-  transcriptRef =
-    "file:.harness/runtime/dispatches/dispatch_5beaecffdf966066d2816b0d.jsonl";
+  transcriptRef = "file:.harness/runtime/dispatches/dispatch_5beaecffdf966066d2816b0d.jsonl";
 const runtimeBinding = {
   actor: {
     principal: { personId: "person-runtime" },
@@ -34,9 +30,7 @@ const humanBinding = {
 };
 
 test("task create, fact record, and decision propose project the canonical runtime session identity", async () => {
-  const rootDir = mkdtempSync(
-    path.join(tmpdir(), "ha-session-identity-writes-"),
-  );
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-session-identity-writes-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -83,8 +77,7 @@ test("task create, fact record, and decision propose project the canonical runti
         kind: "decision-propose",
         jsonInput: JSON.stringify({
           title: "Retain session identity",
-          question:
-            "Should authored writes retain the canonical runtime session?",
+          question: "Should authored writes retain the canonical runtime session?",
           riskTier: "medium",
           urgency: "medium",
           vertical: "software/coding",
@@ -101,7 +94,6 @@ test("task create, fact record, and decision propose project the canonical runti
           ],
           claims: [],
           fulfillments: [],
-          relations: [],
         }),
       },
       runtimeBinding,
@@ -109,12 +101,8 @@ test("task create, fact record, and decision propose project the canonical runti
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     const decisionId = String(receiptEvidence(proposed).decisionId);
 
-    const task = receiptEvidence(
-      await cell.run(
-        { kind: "task-show", taskId: "task-session-identity" },
-        runtimeBinding,
-      ),
-    ).task as { readonly provenance: readonly SessionProvenanceV1[] };
+    const task = receiptEvidence(await cell.run({ kind: "task-show", taskId: "task-session-identity" }, runtimeBinding))
+      .task as { readonly provenance: readonly SessionProvenanceV1[] };
     const fact = receiptEvidence(
       await cell.run(
         {
@@ -125,14 +113,9 @@ test("task create, fact record, and decision propose project the canonical runti
         runtimeBinding,
       ),
     ).fact as { readonly provenance: readonly SessionProvenanceV1[] };
-    const decision = receiptEvidence(
-      await cell.run({ kind: "decision-show", decisionId }, runtimeBinding),
-    ).decision as { readonly provenance: readonly SessionProvenanceV1[] };
-    for (const provenance of [
-      task.provenance,
-      fact.provenance,
-      decision.provenance,
-    ])
+    const decision = receiptEvidence(await cell.run({ kind: "decision-show", decisionId }, runtimeBinding))
+      .decision as { readonly provenance: readonly SessionProvenanceV1[] };
+    for (const provenance of [task.provenance, fact.provenance, decision.provenance])
       assert.deepEqual(withoutBoundAt(provenance), [
         {
           runtime: "codex",
@@ -141,9 +124,7 @@ test("task create, fact record, and decision propose project the canonical runti
         },
       ]);
 
-    const runtime = (
-      await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId })
-    ).session;
+    const runtime = (await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId })).session;
     assert.equal(runtime.providerSessionId, providerSessionId);
     const auditStore = makeTaskEventStore({
         repoId: "session-identity-writes",
@@ -169,10 +150,7 @@ test("task create, fact record, and decision propose project the canonical runti
       "applied",
     );
     const unavailable = receiptEvidence(
-      await cell.run(
-        { kind: "task-show", taskId: "task-session-unavailable" },
-        humanBinding,
-      ),
+      await cell.run({ kind: "task-show", taskId: "task-session-unavailable" }, humanBinding),
     ).task as { readonly provenance: readonly SessionProvenanceV1[] };
     assert.deepEqual(withoutBoundAt(unavailable.provenance), [
       {
@@ -220,12 +198,7 @@ function runtimeEvents(): readonly AgentRuntimeEventV1[] {
         hostRef: "host:local",
         version: "1.0.0",
         discoverySource: "wrapper",
-        capabilities: [
-          "structured_witness",
-          "resume",
-          "attach",
-          "session_identity",
-        ],
+        capabilities: ["structured_witness", "resume", "attach", "session_identity"],
       },
     },
     {
@@ -273,14 +246,10 @@ function runtimeEvents(): readonly AgentRuntimeEventV1[] {
     },
   ] as readonly AgentRuntimeEventV1[];
 }
-function receiptEvidence(receipt: {
-  readonly evidence?: string;
-}): Record<string, unknown> {
+function receiptEvidence(receipt: { readonly evidence?: string }): Record<string, unknown> {
   return JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
 }
-function withoutBoundAt(
-  value: readonly SessionProvenanceV1[],
-): readonly Omit<SessionProvenanceV1, "boundAt">[] {
+function withoutBoundAt(value: readonly SessionProvenanceV1[]): readonly Omit<SessionProvenanceV1, "boundAt">[] {
   return value.map(({ boundAt: _boundAt, ...identity }) => identity);
 }
 function monotonicClock(): () => string {

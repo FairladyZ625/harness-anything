@@ -110,7 +110,13 @@ export async function rpcAttach(
     },
   });
   assert.ok(response && !Array.isArray(response) && "result" in response);
-  assert.equal((response as { result: { ok: boolean } }).result.ok, true, JSON.stringify(response));
+  const result = (
+    response as {
+      result: { ok: boolean; events?: readonly Record<string, unknown>[] };
+    }
+  ).result;
+  assert.equal(result.ok, true, JSON.stringify(response));
+  if (Array.isArray(result.events)) frames.push(...result.events);
   return { close: server.close };
 }
 export async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
@@ -124,7 +130,12 @@ export async function eventuallyValue<T>(read: () => T | null | Promise<T | null
   }
   throw new Error("runtime provider event did not arrive");
 }
-export function writeProviderStub(target: string, kindId: "claude" | "codex", argsTarget?: string): string {
+export function writeProviderStub(
+  target: string,
+  kindId: "claude" | "codex",
+  argsTarget?: string,
+  lineDelayMs = 40,
+): string {
   const lines =
     kindId === "claude"
       ? [
@@ -215,7 +226,7 @@ export function writeProviderStub(target: string, kindId: "claude" | "codex", ar
     : "";
   return writeProviderExecutable(
     target,
-    `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\n${recordArgs}if (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * 40)); }\n`,
+    `import fs from "node:fs";\nconst auth = process.argv[2] === "auth" || process.argv[2] === "login";\nif (auth) process.exit(0);\n${recordArgs}if (!(${structuredFlag})) process.exit(9);\nconst prompt = fs.readFileSync(0, "utf8"), secret = "sk-runtime-secret-1234567890";\nif (prompt === "failure:empty") process.exit(1);\nelse if (prompt === "failure:secret") process.stderr.write("OPENAI_API_KEY=" + secret + "\\n", () => process.exit(1));\nelse if (prompt === "failure:structured") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "codex-provider-session" }), JSON.stringify({ type: "turn.failed", error: { message: "structured provider failure", apiToken: secret } })].join("\\n") + "\\n", () => process.exit(1));\nelse if (prompt === "permission-denied") process.stdout.write([JSON.stringify({ type: "system", subtype: "init", session_id: "claude-provider-session" }), JSON.stringify({ type: "assistant", session_id: "claude-provider-session", message: { content: [{ type: "tool_use", id: "denied-write", name: "Write", input: { file_path: "/tmp/outside", content: "denied" } }] } }), JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: "claude-provider-session", result: "write denied", permission_denials: [{ tool_name: "Write", tool_use_id: "denied-write" }] })].join("\\n") + "\\n");\nelse { let emitted = ${JSON.stringify(lines)}; if (prompt === "read-only") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "read-only final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-action") emitted = [{ type: "thread.started", thread_id: "codex-provider-session" }, { type: "item.completed", item: { id: "message", type: "agent_message", text: "no-action final result" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; else if (prompt === "no-write") emitted.splice(1, 0, { type: "item.completed", item: { id: "inspect", type: "command_execution", command: "git status --short", aggregated_output: "", exit_code: 0, status: "completed" } }, { type: "item.updated", item: { id: "plan", type: "todo_list", items: [{ text: "locate cause", status: "completed" }, { text: "write fix", status: "in_progress" }] } }); emitted.forEach((line, index) => setTimeout(() => console.log(JSON.stringify(line)), index * ${lineDelayMs})); }\n`,
   );
 }
 export function installationFixture(kindId: "claude" | "codex", executablePath: string): RuntimeInstallationWitness {

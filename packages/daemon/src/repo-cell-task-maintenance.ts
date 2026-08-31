@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import {
   createEntityStore,
+  isMigrationImportEvent,
   requireEntityStoreKindContract,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import {
+  compileRestatedTaskContract,
+  restateTaskContractBody,
+  type RestatedTaskContract,
+} from "./migration-import-task-restatement.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
@@ -121,21 +127,92 @@ export function migrateTaskContracts(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
-  const candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
+  const migratedTaskIds = new Set(
+      cell.store
+        .read()
+        .events.filter(isMigrationImportEvent)
+        .flatMap((event) => (event.payload.entity.kind === "task" ? [event.payload.entity.task.taskId] : [])),
+    ),
+    candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
+    repairs = new Map<string, RestatedTaskContract>(),
     report = candidates.map((taskId) => {
       const current = cell.projection.read(taskId),
         task = current.snapshot.task;
-      return !task
-        ? { taskId, status: "manual", reason: "task_not_found" }
-        : (task.contractVersion ?? 0) >= 1
-          ? { taskId, status: "current" }
-          : !task.metadata || !task.presetSnapshotDigest || !current.packagePath
-            ? {
-                taskId,
-                status: "manual",
-                reason: "contract_metadata_incomplete",
-              }
-            : { taskId, status: "backfill" };
+      if (!task) return { taskId, status: "manual", reason: "task_not_found" };
+      if (migratedTaskIds.has(taskId) && current.packagePath) {
+        const projected = cell.projection.readDocument(`${current.packagePath}/task-contract.json`);
+        if (!cell.projectionReady(projected))
+          return { taskId, status: "manual", reason: "contract_projection_pending" };
+        let restated: RestatedTaskContract,
+          packagePathBefore: string | null = null;
+        try {
+          const fallback = {
+            title: task.title,
+            taskClass: task.taskClass,
+            verticalId: task.metadata?.verticalId,
+            presetId: task.metadata?.presetId,
+            profileId: task.metadata?.profileId,
+            slug: task.metadata?.slug,
+          };
+          if (projected.document) {
+            restated = restateTaskContractBody({
+              sourceRoot: cell.rootDir,
+              sourcePath: `${current.packagePath}/task-contract.json`,
+              body: projected.document.body,
+              targetTaskId: taskId,
+              targetPackagePath: current.packagePath,
+              fallback,
+            });
+            const contract = JSON.parse(projected.document.body) as Record<string, unknown>;
+            packagePathBefore = typeof contract.packagePath === "string" ? contract.packagePath : null;
+          } else
+            restated = compileRestatedTaskContract({
+              sourceRoot: cell.rootDir,
+              sourcePath: `${current.packagePath}/task-contract.json`,
+              targetTaskId: taskId,
+              targetPackagePath: current.packagePath,
+              fallback,
+            });
+        } catch (error) {
+          return {
+            taskId,
+            status: "manual",
+            reason: "contract_digest_not_derivable",
+            detail: error instanceof Error ? error.message : String(error),
+          };
+        }
+        const digestBefore = task.presetSnapshotDigest;
+        if (digestBefore !== null && digestBefore !== restated.presetSnapshotDigest)
+          return {
+            taskId,
+            status: "manual",
+            reason: "contract_digest_conflict",
+            presetSnapshotDigest: digestBefore,
+            contractPresetSnapshotDigest: restated.presetSnapshotDigest,
+          };
+        if (digestBefore === null || packagePathBefore !== current.packagePath || (task.contractVersion ?? 0) < 1) {
+          repairs.set(taskId, restated);
+          return {
+            taskId,
+            status: "repair",
+            presetSnapshotDigestBefore: digestBefore,
+            presetSnapshotDigestAfter: restated.presetSnapshotDigest,
+            packagePathBefore,
+            packagePathAfter: current.packagePath,
+            digestSource: restated.source,
+          };
+        }
+        return { taskId, status: "current" };
+      }
+      return (task.contractVersion ?? 0) >= 1
+        ? { taskId, status: "current" }
+        : !task.metadata || !task.presetSnapshotDigest || !current.packagePath
+          ? {
+              taskId,
+              status: "manual",
+              reason: "contract_metadata_incomplete",
+            }
+          : { taskId, status: "backfill" };
     });
   if (action.mode === "dry-run")
     return cell.previewResult(
@@ -148,8 +225,18 @@ export function migrateTaskContracts(
       cell.store.readHead()?.revision ?? 0,
       "Run task contract migrate --apply to publish the eligible backfill events.",
     );
-  const backfills = report.filter((row) => row.status === "backfill"),
-    steps = backfills.map(({ taskId }) => cell.taskSurfaceWrite({ kind: "task-contract-migrate", taskId }, binding));
+  const backfills = report.filter((row) => row.status === "backfill" || row.status === "repair"),
+    steps = backfills.map(({ taskId }) =>
+      cell.taskSurfaceWrite(
+        {
+          kind: "task-contract-migrate",
+          taskId,
+          ...(repairs.has(taskId) ? { repairPresetSnapshotDigest: repairs.get(taskId)!.presetSnapshotDigest } : {}),
+          ...(repairs.has(taskId) ? { repairTaskContractBody: repairs.get(taskId)!.body } : {}),
+        },
+        binding,
+      ),
+    );
   return cell.readResult(
     cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
     {

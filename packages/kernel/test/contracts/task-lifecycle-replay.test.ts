@@ -28,7 +28,7 @@ const metadata = {
 
 test("lease release replay ignores only the retired longRunning task metadata", () => {
   const task = {
-      schema: "task/v1",
+      schema: "task/v2",
       taskId: "task-legacy-release",
       title: "Legacy release",
       taskClass: "standard",
@@ -39,6 +39,7 @@ test("lease release replay ignores only the retired longRunning task metadata", 
       createdBy: actor,
       completionGateIds: [],
       presetSnapshotDigest: null,
+      pinned: false,
       metadata: { ...metadata, longRunning: false },
     } as const,
     execution = {

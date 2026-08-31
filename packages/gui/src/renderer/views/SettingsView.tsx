@@ -176,6 +176,10 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                     defaultProfile: draft.defaultProfile,
                     taskScaffold: draft.scaffolds.task,
                     repositoryScaffold: draft.scaffolds.repository,
+                    walFlushAdaptive: draft.walFlush.adaptive,
+                    walFlushEvents: draft.walFlush.events,
+                    walFlushBytes: draft.walFlush.bytes,
+                    walFlushMilliseconds: draft.walFlush.milliseconds,
                   })
                 }
               >
@@ -242,6 +246,48 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 disabled={catalogBlocked}
                 options={repositoryScaffoldOptions}
                 onChange={(value) => setDraft({ ...draft, scaffolds: { ...draft.scaffolds, repository: value } })}
+              />
+            </Row>
+            <Row
+              label={t("views.settingsView.walFlushAdaptiveLabel")}
+              desc={t("views.settingsView.walFlushAdaptiveDescription")}
+            >
+              <Toggle
+                checked={draft.walFlush.adaptive}
+                onChange={(adaptive) => setDraft({ ...draft, walFlush: { ...draft.walFlush, adaptive } })}
+              />
+            </Row>
+            <Row
+              label={t("views.settingsView.walFlushEventsLabel")}
+              desc={t("views.settingsView.walFlushEventsDescription")}
+            >
+              <SettingNumberInput
+                label={t("views.settingsView.walFlushEventsLabel")}
+                testId="settings-wal-flush-events"
+                value={draft.walFlush.events}
+                onChange={(events) => setDraft({ ...draft, walFlush: { ...draft.walFlush, events } })}
+              />
+            </Row>
+            <Row
+              label={t("views.settingsView.walFlushBytesLabel")}
+              desc={t("views.settingsView.walFlushBytesDescription")}
+            >
+              <SettingNumberInput
+                label={t("views.settingsView.walFlushBytesLabel")}
+                testId="settings-wal-flush-bytes"
+                value={draft.walFlush.bytes}
+                onChange={(bytes) => setDraft({ ...draft, walFlush: { ...draft.walFlush, bytes } })}
+              />
+            </Row>
+            <Row
+              label={t("views.settingsView.walFlushMillisecondsLabel")}
+              desc={t("views.settingsView.walFlushMillisecondsDescription")}
+            >
+              <SettingNumberInput
+                label={t("views.settingsView.walFlushMillisecondsLabel")}
+                testId="settings-wal-flush-milliseconds"
+                value={draft.walFlush.milliseconds}
+                onChange={(milliseconds) => setDraft({ ...draft, walFlush: { ...draft.walFlush, milliseconds } })}
               />
             </Row>
             <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
@@ -520,6 +566,34 @@ function SettingSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+function SettingNumberInput({
+  label,
+  testId,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly testId: string;
+  readonly value: number;
+  readonly onChange: (value: number) => void;
+}) {
+  return (
+    <input
+      aria-label={label}
+      data-testid={testId}
+      type="number"
+      min={1}
+      step={1}
+      className="w-36 rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
+      value={value}
+      onChange={(event) => {
+        const next = Number(event.currentTarget.value);
+        if (Number.isSafeInteger(next) && next > 0) onChange(next);
+      }}
+    />
   );
 }
 

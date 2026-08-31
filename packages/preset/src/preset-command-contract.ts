@@ -126,7 +126,6 @@ export const taskCreateJsonFields = Object.freeze([
   "registerModule",
   "slug",
   "surfaces",
-  "relations",
   "taskClass",
   "locale",
   "fromLegacyId",
@@ -146,7 +145,6 @@ export const decisionProposalJsonFields = Object.freeze([
   "rejected",
   "claims",
   "fulfillments",
-  "relations",
 ] as const);
 export function defineCliCommand<
   const Command extends {
@@ -199,7 +197,7 @@ export const presetCommands = Object.freeze([
     id: "task-create",
     phase: "Preset-A",
     path: ["task", "create"],
-    summary: "Create a task package with its complete metadata and initial relations.",
+    summary: "Create a task package with its complete metadata.",
     method: "repo.task.create",
     inputs: [
       cliInput(
@@ -362,16 +360,6 @@ export const presetCommands = Object.freeze([
         false,
         { code: "invalid_field", nextAction: "Use a non-empty command, flag, file path, or identifier for --surface." },
         { field: "surfaces" },
-      ),
-      cliInput(
-        "--relation",
-        "repeated",
-        false,
-        {
-          code: "invalid_field",
-          nextAction: "Use --relation <type>:<entity-ref>:<rationale>; for example depends-on:task/task_id:reason.",
-        },
-        { field: "relations", regex: "^[a-z][a-z-]*:(?:task|decision|fact)/[^:]+:.+$" },
       ),
       cliInput(
         "--task-class",
@@ -733,7 +721,6 @@ const taskCreateRpcFields: RpcShape["fields"] = {
   registerModule: "json?",
   slug: "string?",
   surfaces: "array?",
-  relations: "array?",
   taskClass: "string?",
   dryRun: "boolean?",
   locale: "string?",

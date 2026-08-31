@@ -5,9 +5,7 @@ import {
   explainStatusTransition,
   hasCloseoutEvidence,
   isDomainStatus,
-  readRelationGraphProjection,
   taskWipOccupyingStatuses,
-  type CanonicalEventStore,
   type DomainStatus,
   type TaskProjection,
   type TaskProjectionListQuery,
@@ -16,7 +14,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import type { TaskQueryReadModel } from "./task-query-read.ts";
+import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { selectTaskIndex } from "./task-index-query.ts";
 
@@ -24,7 +22,6 @@ export interface TaskQueryCell {
   readonly input: { readonly repoId: string };
   readonly rootDir: string;
   readonly projection: TaskProjection;
-  readonly store: Pick<CanonicalEventStore, "readHead">;
   readonly taskListQueryFromAction: (action: RepoTaskAction) => TaskProjectionListQuery;
   readonly relationQueryFromAction: (action: RepoTaskAction) => TaskRelationQuery;
   readonly queryRead: () => TaskQueryReadModel;
@@ -66,22 +63,25 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   const read = cell.projection.readTaskIndex();
   let selected: ReturnType<typeof selectTaskIndex>;
   try {
-    selected = selectTaskIndex(read.rows, {
-      ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
-      ...(depth === undefined ? {} : { depth }),
-      filters: {
-        ...(query.status ? { status: query.status } : {}),
-        ...(typeof action.module === "string" ? { module: action.module } : {}),
-        ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
-        ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
-        ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
-        ...(typeof action.search === "string" ? { search: action.search } : {}),
-        ...(query.updatedAfter ? { updatedAfter: query.updatedAfter } : {}),
-        ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
+    selected = selectTaskIndex(
+      read.rows.filter((row) => row.packageDisposition === "active"),
+      {
+        ...(typeof action.parentTaskId === "string" ? { parentTaskId: action.parentTaskId } : {}),
+        ...(depth === undefined ? {} : { depth }),
+        filters: {
+          ...(query.status ? { status: query.status } : {}),
+          ...(typeof action.module === "string" ? { module: action.module } : {}),
+          ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
+          ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
+          ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
+          ...(typeof action.search === "string" ? { search: action.search } : {}),
+          ...(query.updatedAfter ? { updatedAfter: query.updatedAfter } : {}),
+          ...(query.updatedBefore ? { updatedBefore: query.updatedBefore } : {}),
+        },
+        ...(query.limit === undefined ? {} : { limit: query.limit }),
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
       },
-      ...(query.limit === undefined ? {} : { limit: query.limit }),
-      ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
-    });
+    );
   } catch (error) {
     if (error instanceof Error && error.message === "task list cursor is invalid")
       throw cell.cellCodedError("invalid_command", "Task list cursor is invalid; restart the filtered query.");
@@ -202,21 +202,16 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
 }
 
 export function wipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapshotEntryV1[] {
-  const l2 = new Map(
-      readRelationGraphProjection({ rootDir: cell.rootDir }).taskRows.map((row) => [
-        row.taskId,
-        row.packageDisposition,
-      ]),
-    ),
-    childCounts = cell.directChildCounts();
-  return cell.projection.list().rows.map((row) => {
+  const rows = cell.projection.list().rows,
+    childCounts = directChildCountsFrom(rows);
+  return rows.map((row) => {
     const task = row.snapshot.task;
     return {
       taskId: row.taskId,
       title: task?.title ?? "",
       status: task?.status ?? "planned",
       taskClass: task?.taskClass ?? "standard",
-      packageDisposition: task?.packageDisposition ?? l2.get(row.taskId) ?? "active",
+      packageDisposition: requiredPackageDisposition(row.taskId, task?.packageDisposition),
       hasCloseoutEvidence: hasCloseoutEvidence(row.snapshot.executions),
       directChildCount: childCounts.get(row.taskId) ?? 0,
     };
@@ -224,8 +219,12 @@ export function wipSnapshotEntries(cell: TaskQueryCell): readonly TaskWipSnapsho
 }
 
 export function directChildCounts(cell: TaskQueryCell): Map<string, number> {
+  return directChildCountsFrom(cell.projection.list().rows);
+}
+
+function directChildCountsFrom(rows: ReturnType<TaskProjection["list"]>["rows"]): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const row of cell.projection.list().rows) {
+  for (const row of rows) {
     const parentTaskId = row.snapshot.task?.metadata?.parentTaskId;
     if (parentTaskId) counts.set(parentTaskId, (counts.get(parentTaskId) ?? 0) + 1);
   }
@@ -242,17 +241,22 @@ export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, bindi
         (!action.target || edge.targetRef === action.target) &&
         (!action.relationType || edge.relationType === action.relationType) &&
         (!action.state || edge.state === action.state),
-    );
-  return cell.readResult(
-    cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
-    {
+    ),
+    payload = {
       rows,
       count: rows.length,
+      status: read.status,
+      watermark: read.watermark,
+      sourceRevision: read.sourceRevision,
       warnings: read.warnings,
       ...(read.page ? { page: read.page } : {}),
-    },
-    cell.store.readHead()?.revision ?? 0,
+    };
+  return cell.readResult(
+    cell.operationId(action, binding, cell.input.repoId, read.sourceRevision),
+    payload,
+    read.sourceRevision,
     null,
+    read,
   );
 }
 

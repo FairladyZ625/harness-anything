@@ -65,7 +65,7 @@ describe("useTaskActions pin write channel", () => {
           snapshot: {
             revision: 9,
             task: {
-              schema: "task/v1",
+              schema: "task/v2",
               taskId: "task-pin",
               title: "Pin me",
               pinned,

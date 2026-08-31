@@ -39,14 +39,19 @@ import {
   ProjectionIdentityMismatchError,
   withDatabase,
 } from "./rebuildable-task-projection-database.ts";
-import { reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
+import { catchUpRound, reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
 import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
 import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
 import { markRuntimeSessionsUnknown } from "./rebuildable-task-projection-runtime.ts";
-import { readStateDigest, refreshStateDigestAtSourceCut, transaction } from "./rebuildable-task-projection-sql.ts";
+import {
+  readStateDigest,
+  refreshStateDigestAtSourceCut,
+  transaction,
+  watermark,
+} from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -140,6 +145,30 @@ export function makeTaskProjection(options: {
       hotAppliedHead = null;
       closeDatabase(projectionPath, readHead);
       return rebuildProjection(projectionPath, readHead, options.eventStore, limit);
+    },
+    catchUp: () => {
+      let sqliteTransactions = 0,
+        reducedItems = 0,
+        maxBatchItems = 0;
+      for (;;) {
+        const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, options.eventStore, limit));
+        sqliteTransactions += round.sqliteTransactions;
+        reducedItems += round.reducedItems;
+        maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
+        if (round.watermark !== round.sourceRevision) continue;
+        const settled = withDatabase(projectionPath, readHead, (db) =>
+          transaction(db, () => ({
+            watermark: watermark(db),
+            stateDigest: refreshStateDigestAtSourceCut(db, readHead()?.revision ?? 0),
+          })),
+        );
+        if (settled.stateDigest === null) throw new Error("projection catch-up did not reach the source cut");
+        return {
+          watermark: settled.watermark,
+          stateDigest: settled.stateDigest,
+          metrics: { sqliteTransactions: sqliteTransactions + 1, reducedItems, maxBatchItems },
+        };
+      }
     },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),

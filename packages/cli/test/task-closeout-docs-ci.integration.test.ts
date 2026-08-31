@@ -33,7 +33,6 @@ const createFields = [
   "registerModule",
   "slug",
   "surfaces",
-  "relations",
   "taskClass",
   "locale",
   "fromLegacyId",

@@ -118,32 +118,6 @@ export function withHumanSummary(cell: RepoCellOperationalContext, receipt: Writ
       } as WriteReceipt);
 }
 
-export function dependencyPath(cell: RepoCellOperationalContext, start: string, goal: string): boolean {
-  const graph = new Map<string, string[]>();
-  for (const edge of cell.queryRead().relationGraph().edges)
-    if (edge.state === "active" && edge.relationType === "depends-on")
-      graph.set(edge.sourceRef, [...(graph.get(edge.sourceRef) ?? []), edge.targetRef]);
-  const queue = [start],
-    seen = new Set<string>();
-  while (queue.length) {
-    const current = queue.shift()!;
-    if (current === goal) return true;
-    if (seen.has(current)) continue;
-    seen.add(current);
-    queue.push(...(graph.get(current) ?? []));
-  }
-  return false;
-}
-
-export function relationEndpointExists(cell: RepoCellOperationalContext, ref: string): boolean {
-  const task = /^task\/([^/]+)$/u.exec(ref)?.[1];
-  if (task) return cell.projectedTaskIds().has(task);
-  const decision = /^decision\/([^/]+)/u.exec(ref)?.[1];
-  if (decision) return cell.projection.readDecision(decision).decision !== null;
-  const fact = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(ref);
-  return fact ? cell.projection.readFact(fact[1]!).fact !== null : false;
-}
-
 export function createTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -203,16 +177,6 @@ export function createTask(
         ".",
       ].join(""),
     );
-  for (const relation of Array.isArray(canonicalAction.relations) ? canonicalAction.relations : []) {
-    const target =
-      relation && typeof relation === "object" ? String((relation as Record<string, unknown>).target ?? "") : "";
-    if (target && !cell.relationEndpointExists(target))
-      return cell.rejected(
-        opId,
-        "relation_target_not_found",
-        `Create or restore relation target ${target}, then retry the same --relation.`,
-      );
-  }
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,

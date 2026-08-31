@@ -14,7 +14,7 @@ import { createRelationGraphProjectionTables } from "../../src/projection/relati
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
-import type { TaskV1 } from "../../src/domain/task.ts";
+import type { TaskV2 } from "../../src/domain/task.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -48,7 +48,7 @@ function memoryEventStore(events: readonly CanonicalEventV1[]) {
 
 interface Fixture {
   readonly events: readonly TaskEventV1[];
-  readonly tasks: readonly TaskV1[];
+  readonly tasks: readonly TaskV2[];
 }
 
 /** 6 tasks across statuses and update times; task 2 and 4 own depends-on relations. */
@@ -56,11 +56,11 @@ function taskFixture(): Fixture {
   const events: TaskEventV1[] = [];
   let revision = 0;
   const statuses = ["planned", "active", "active", "blocked", "done", "planned"] as const;
-  const tasks: TaskV1[] = [];
+  const tasks: TaskV2[] = [];
   for (let index = 0; index < statuses.length; index += 1) {
     const taskId = `task_query_${String(index).padStart(2, "0")}`,
-      base: TaskV1 = {
-        schema: "task/v1",
+      base: TaskV2 = {
+        schema: "task/v2",
         taskId,
         title: `Query ${index}`,
         taskClass: "standard",
@@ -68,6 +68,7 @@ function taskFixture(): Fixture {
         graph: REPLAY_TASK_GRAPH,
         currentNode: "implementation",
         iteration: 0,
+        pinned: false,
         createdBy: actor,
         completionGateIds: [],
         presetSnapshotDigest: null,
@@ -133,7 +134,7 @@ function taskFixture(): Fixture {
 }
 
 function envelope(
-  task: TaskV1,
+  task: TaskV2,
   revision: number,
   type: TaskEventV1["type"],
   payload: Record<string, unknown>,
@@ -175,7 +176,7 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
         title: snapshot.task!.title,
         status: snapshot.task!.status,
         parentTaskId: snapshot.task!.metadata?.parentTaskId ?? null,
-        pinned: snapshot.task!.pinned ?? false,
+        pinned: snapshot.task!.pinned,
       })),
     );
     // First page of 2, then follow cursors to exhaustion.
@@ -256,7 +257,7 @@ test("task runtime batch reads up to 500 ids without a variable SQLite IN list",
   });
 });
 
-test("task relation projection rows equal the snapshot-derived edges and survive a cold rebuild", async () => {
+test("historical task relation events replay into the Relation projection and survive a cold rebuild", async () => {
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
@@ -273,7 +274,7 @@ test("task relation projection rows equal the snapshot-derived edges and survive
           state: relation.state,
           rationale: relation.rationale,
           ownerRef: `task/${row.taskId}`,
-          sourcePath: `${row.packagePath}/INDEX.md`,
+          sourcePath: `event:op-task_relation_added-${row.snapshot.revision}`,
           recordIndex,
         })),
       );

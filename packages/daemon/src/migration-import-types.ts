@@ -4,6 +4,8 @@ import {
   type MigrationImportEventV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
+import type { MigrationOracleKind } from "./migration-import-oracle.ts";
 
 export type EntityKind = "task" | "decision" | "fact" | "relation" | "coverage";
 
@@ -13,6 +15,46 @@ export interface Skip {
   readonly sourcePath: string;
   readonly reason: string;
   readonly coverage?: number;
+}
+
+export interface MigrationFieldDerivation {
+  readonly entityType: MigrationOracleKind;
+  readonly entityId: string;
+  readonly field: string;
+  readonly derived_from: string;
+}
+
+export interface MigrationDisposition {
+  readonly entityType: MigrationOracleKind;
+  readonly entityId: string;
+  readonly sourcePath: string;
+  readonly disposition: "archived" | "retired";
+  readonly reason: "truth_gap";
+}
+
+export interface MigrationKindReconciliation {
+  readonly source: number;
+  readonly target: number;
+  readonly difference: number;
+  readonly derived: number;
+  readonly archived: number;
+  readonly retired: number;
+  readonly missingIds: readonly string[];
+  readonly passed: boolean;
+}
+
+export interface MigrationOracleBasis {
+  readonly kind: "same-cut-projection" | "rebuilt-source";
+  readonly databasePath: string;
+  readonly watermark: number;
+  readonly eventHeadRevision: number | null;
+}
+
+export interface MigrationFormatObservation {
+  readonly code: "legacy_event_normalized" | "schedule_definition_facet_mismatch" | "source_projection_rebuilt";
+  readonly sourcePath: string;
+  readonly detail: string;
+  readonly treatment: "mechanically_normalized" | "accepted_truth_gap" | "rebuilt_read_only";
 }
 
 export interface Draft {
@@ -96,6 +138,12 @@ export type MigrationImportReceipt = WriteReceipt & {
     readonly expected: ImportCounts;
     readonly new: ImportCounts;
   };
+  readonly contractRestatements: { readonly task: TaskContractRestatementCounts };
+  readonly oracle: MigrationOracleBasis;
+  readonly reconciliation: Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>>;
+  readonly fieldDerivations: readonly MigrationFieldDerivation[];
+  readonly dispositions: readonly MigrationDisposition[];
+  readonly formatObservations: readonly MigrationFormatObservation[];
   readonly authoredCoverage: AuthoredCoverage;
   readonly skippedEntities: readonly Skip[];
   readonly idMapPath: string | null;

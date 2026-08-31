@@ -358,11 +358,18 @@ cat "$DRY_RUN"
 **Use the importer as the classifier.** Do not inventory the old repository or
 invent categories of your own. Act only on what the report prints:
 
-- five entity rows (task / decision / fact / relation / coverage)
-- `Format validation` and each `- SKIP` line
+- `Oracle: same-cut-projection` or `Oracle: rebuilt-source`
+- five reconciliation rows (task / decision / fact / relation / execution)
+- `Format observations` and each `ACCEPT` or `SKIP` line
 - `Attribution`
 - the authored coverage table and each `required` row
 - `Authored reconciliation`
+
+Do not manufacture `.harness/cache/task.sqlite` in the working source. If it is
+absent, the importer rebuilds a disposable read-only oracle from committed flat
+or sharded events and older authored packages. `Oracle: rebuilt-source` is the
+expected receipt for that path; the source tree and Git refs must remain byte-for-byte
+unchanged.
 
 Branch on those rows:
 
@@ -370,9 +377,11 @@ Branch on those rows:
 | --- | --- |
 | a `required` row saying `destination content differs` | section 5 |
 | `required` on `presets/**` | section 6 |
-| any `- SKIP` line | section 7 |
+| `ACCEPT schedule_definition_facet_mismatch` | review it in section 7; no source edit |
+| `unsupported_legacy_event` or `migration_projection_rebuild_failed` | section 7 |
+| any `- SKIP` line | review it in section 7; it is diagnostic, not a count subtraction |
 | any other `required` row | show the exact row to the user and stop — this workflow does not cover it |
-| no `required`, no `SKIP` | section 8 |
+| no `required` and all five reconciliation rows pass | section 8 |
 
 ## 5. Resolve destination conflicts — one batch, one decision
 
@@ -505,23 +514,34 @@ mv "$WORK_SOURCE/harness/presets" "$HARNESS_MIGRATION_WORK/legacy-presets-rebuil
 Re-run the dry-run from section 4 with `"${RESOLVE_ARGS[@]}"`. The `presets/**`
 row must be gone.
 
-## 7. Repair strict format failures on the working copy
+## 7. Handle historical-format observations
 
 ```bash
-grep '^- SKIP ' "$DRY_RUN"
+grep -E '^- (ACCEPT|SKIP) ' "$DRY_RUN"
 ```
 
-Each line names one rejected entity, its source path, and why strict validation
-refused it — for example a decision whose `occurredAt` is invalid. Show every
-line to the user.
+Show every observation to the user. `SKIP` rows are legacy-parser diagnostics;
+they are not subtracted from the projection oracle and do not independently
+block a reconciled import.
 
-Fix only the named record, **under `$WORK_SOURCE`**. If a value cannot be
-recovered from the record itself, ask the user for it. **Never add a
-compatibility rule to the importer** — a one-time historical artifact does not
-belong in product logic.
+`ACCEPT schedule_definition_facet_mismatch` with
+`treatment=accepted_truth_gap` is the one known schedule declaration-claim
+variant. The disposable oracle uses the definition facet from the event while
+the original claim blob stays untouched in the forensic archive. Confirm the
+warning has that exact code and treatment, then continue; do not rewrite it.
 
-Exit code `3` means strict failures remain. Repeat until `Format validation`
-reports none and every entity row has `Skipped = 0`.
+For `unsupported_legacy_event`, preserve the source and collect the exact event
+path, schema, and nested parser error. For `migration_projection_rebuild_failed`,
+collect the nested cause and identify any missing or corrupt committed blob.
+Stop and report either case as a missing compatibility fixture. Do not hand-edit
+canonical event bytes to get past it. A `migration_projection_oracle_cut_mismatch`
+means source writers were not frozen or a local projection is stale: stop the
+writers, remove or regenerate that local cache, and dry-run again.
+
+If a dry-run reports reconciliation `FAIL` or `invalid_write_plan`, do not apply.
+Keep the full receipt and report the named kind/event. Apply is allowed only
+after dry-run exits zero and proves every planned event against the current
+write contract.
 
 ## 8. Recreate the destination, then apply once
 
@@ -537,8 +557,9 @@ for NEW_PRESET in "$HARNESS_MIGRATION_WORK/rebuilt-presets"/*; do ha preset inst
 ha migrate import --source "$WORK_SOURCE" "${RESOLVE_ARGS[@]}" --dry-run; echo "exit=$?"
 ```
 
-Apply only when that exits zero, all five rows show `Old = Expected = New` with
-`Skipped = 0`, authored coverage has no `required`, and reconciliation passes.
+Apply only when that exits zero, all five reconciliation rows pass, authored
+coverage has no `required`, and every accepted historical observation has been
+reviewed. A source rebuilt without `task.sqlite` must say `Oracle: rebuilt-source`.
 
 **Run apply detached, and poll it.** It prints **nothing at all** until it
 finishes, so a foreground run is indistinguishable from a hang and any caller
@@ -1006,7 +1027,9 @@ success and failure paths.
 ## Done when
 
 - Apply exited zero and the final dry-run had `Reconciliation: PASS`.
-- All five entity classes show `Old = Expected = New`, `Skipped = 0`.
+- All five entity reconciliation rows pass and satisfy the reported
+  source/target explained-difference equality.
+- `Oracle` basis is recorded; every `ACCEPT` observation has been reviewed.
 - Authored coverage has no `required` row.
 - Every conflict appears as an explicit `resolved:` row.
 - Every merge recorded in the step 5 table has been applied to the destination.

@@ -244,7 +244,7 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     meaning: "Task is in an open executing state and occupies a WIP slot.",
     divergence: "divergent",
     resolution:
-      "One of four unrelated `active` concepts (Task/Execution/RelationEdge/Package); rename is stored data " +
+      "One of four unrelated `active` concepts (Task/Execution/Relation/Package); rename is stored data " +
       "(task snapshots and events), so this slice registers the meaning instead — CH2 proposal only.",
   },
   {

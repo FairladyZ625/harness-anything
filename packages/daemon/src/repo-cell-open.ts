@@ -37,7 +37,7 @@ import {
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import { makeRepoCellScheduleActions } from "./repo-cell-schedule-actions.ts";
+import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -52,6 +52,7 @@ import type {
   RepoTaskAction,
   Snapshot,
 } from "./repo-cell-types.ts";
+import type { EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import {
   makeRuntimeSpawner,
@@ -181,7 +182,7 @@ async function openLockedRepoCell(
   });
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (runtimeSessionId) => {
-      projection.list();
+      projection.readTaskStatuses([]);
       return projection.readRuntimeSession(runtimeSessionId);
     },
     canAttach: (session) =>
@@ -217,6 +218,7 @@ async function openLockedRepoCell(
     throw error;
   }
   let { store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = core;
+  let entityActionRuntimes: EntityActionCatalogRuntimes = Object.freeze({});
   let knownTaskIds: Set<string> | null = null,
     state: RepoCellStatus["state"] = recovery.status === "indeterminate" ? "unavailable" : "attached",
     recoveryUncertain = recovery.status === "indeterminate";
@@ -521,6 +523,7 @@ async function openLockedRepoCell(
     getProjection: () => projection,
     getStore: () => store,
     getEntityActionExecutor: () => entityActionExecutor,
+    getEntityActionRuntimes: () => entityActionRuntimes,
     getService: () => service,
     getRecovery: () => recovery,
     getRecoveryUncertain: () => recoveryUncertain,
@@ -535,10 +538,11 @@ async function openLockedRepoCell(
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
-  const scheduleActions = makeRepoCellScheduleActions(runtimeContext);
+  const scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext);
+  entityActionRuntimes = Object.freeze({ schedule: scheduleActionRuntime });
   const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
-  const operationalContext = Object.assign(runtimeContext, { scheduleActions, settingsActions, peopleActions });
+  const operationalContext = Object.assign(runtimeContext, { settingsActions, peopleActions });
   operationalContext satisfies RepoCellOperationalContext;
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const roleBindings = declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
@@ -585,11 +589,16 @@ async function openLockedRepoCell(
         idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
       },
       binding = authorizeRuntimeAction(
-        { kind: "schedule-settle", phase: "outcome", ...settlement },
+        { kind: "schedule-settle", ...settlement },
         terminal.binding,
         `runtime-schedule-settle:${terminal.runtimeSessionId}`,
       ),
-      receipt = scheduleActions.settle(settlement, binding);
+      receipt = await entityActionExecutor.run(
+        { kind: "schedule-settle", ...settlement },
+        binding,
+        operationId({ kind: "schedule-settle", ...settlement }, binding, input.repoId, 0),
+        entityActionRuntimes,
+      );
     if (receipt.outcome !== "applied")
       throw cellCodedError(
         "schedule_settlement_pending",
@@ -713,7 +722,6 @@ async function openLockedRepoCell(
       return runtimeReads;
     },
     runtimeSpawner,
-    scheduleActions,
     settingsActions,
     peopleActions,
     appendRuntimeIngress: extracted.appendRuntimeIngress,

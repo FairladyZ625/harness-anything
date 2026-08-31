@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -313,16 +313,45 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       "the role prompt, declared prompts, and preset must reach the real CLI dispatch in declaration order",
     );
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    const progressRun = run(root, env, [
-        "runtime",
-        "run",
-        "cli-worker",
-        "--prompt",
-        `progress-middle:${taskId}`,
-        "--task",
-        taskId,
-        "--no-stream",
+    const concurrentProjectionReads = await Promise.all([
+        ...Array.from({ length: 6 }, (_, index) =>
+          runAsync(root, env, [
+            "fact",
+            "record",
+            taskId,
+            "--statement",
+            `Concurrent projection observation ${String(index + 1)}`,
+            "--source",
+            `test:runtime-cli-concurrency:${String(index + 1)}`,
+            "--wait-projection",
+            "30000",
+          ]),
+        ),
+        runAsync(root, env, [
+          "runtime",
+          "run",
+          "cli-worker",
+          "--prompt",
+          `progress-middle:${taskId}`,
+          "--task",
+          taskId,
+          "--wait-projection",
+          "30000",
+          "--no-stream",
+        ]),
       ]),
+      factWrites = concurrentProjectionReads.slice(0, 6),
+      progressResult = concurrentProjectionReads[6]!;
+    assert.equal(
+      factWrites.every((result) => result.status === 0 && result.receipt.outcome === "applied"),
+      true,
+      JSON.stringify(factWrites),
+    );
+    assert.equal(progressResult.status, 0, `${progressResult.stderr}\n${JSON.stringify(progressResult.receipt)}`);
+    context.diagnostic(
+      `projection wait concurrency: ${JSON.stringify({ factWrites: factWrites.length, runtime: progressResult.receipt.outcome })}`,
+    );
+    const progressRun = progressResult.receipt,
       progressDispatchId = String((progressRun.spawn as Record<string, unknown>).dispatchId),
       shownProgress = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
         progress: Array<{
@@ -877,7 +906,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(unknownDispatch.status, 1);
     assert.equal(
       rejectionHint(unknownDispatch.receipt),
-      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "fast", "permission-mode", "prompt", "mission", "cwd", "task".',
+      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "fast", "permission-mode", "prompt", "mission", "wait-projection", "cwd", "task".',
     );
     const unknownSpawn = await runCommandThroughDaemon(
       {
@@ -1381,6 +1410,36 @@ function runMaybe(
     receipt: result.stdout.trim() ? (JSON.parse(result.stdout) as Record<string, unknown>) : {},
     stderr: result.stderr,
   };
+}
+function runAsync(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<{
+  readonly status: number | null;
+  readonly pid: number | undefined;
+  readonly receipt: Record<string, unknown>;
+  readonly stderr: string;
+}> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, "--root", root, "--json", ...args], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "",
+      stderr = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+    child.once("error", reject);
+    child.once("close", (status) =>
+      resolve({
+        status,
+        pid: child.pid,
+        receipt: stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {},
+        stderr,
+      }),
+    );
+  });
 }
 async function eventuallyRuntimeReaderReuse(
   userRoot: string,

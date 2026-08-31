@@ -14,22 +14,24 @@ test("the catalog executor directly invokes Task execution metadata and derives 
       { kind: "task-start", taskId: "task_contract", expectedVersion: 4 },
       {} as never,
       "op-contract",
-      async (contract) => {
-        assert.equal(contract.execution.lifecycle?.transitionId, "start_execution");
-        return {
-          outcome: "applied",
-          opId: "op-contract",
-          revision: 5,
-          evidence: "event:event-5",
-          visibility: "center",
-          proof: {
-            committedRevision: 5,
-            appliedCut: 5,
-            durable: true,
-            canonicalVisible: true,
-            worktreeVisible: true,
-          },
-        };
+      {
+        task: async (contract) => {
+          assert.equal(contract.execution.lifecycle?.transitionId, "start_execution");
+          return {
+            outcome: "applied",
+            opId: "op-contract",
+            revision: 5,
+            evidence: "event:event-5",
+            visibility: "center",
+            proof: {
+              committedRevision: 5,
+              appliedCut: 5,
+              durable: true,
+              canonicalVisible: true,
+              worktreeVisible: true,
+            },
+          };
+        },
       },
     );
   assert.deepEqual(receipt.unmetCriteria, []);
@@ -49,11 +51,8 @@ test("rejected Task ActionResult names the expected-version criterion", async ()
       now: () => "2026-08-30T00:00:00.000Z",
       sessionIdentity: () => ({ kind: "unavailable", reason: "test" }) as never,
     }),
-    receipt = await executor.run(
-      { kind: "task-submit", taskId: "task_contract" },
-      {} as never,
-      "op-fenced",
-      async () => ({
+    receipt = await executor.run({ kind: "task-submit", taskId: "task_contract" }, {} as never, "op-fenced", {
+      task: async () => ({
         outcome: "op_rejected",
         opId: "op-fenced",
         code: "invalid_transition",
@@ -61,7 +60,7 @@ test("rejected Task ActionResult names the expected-version criterion", async ()
         evidence: "rejection:invalid_transition",
         nextAction: "Refresh the Task projection and retry with its current revision.",
       }),
-    );
+    });
   assert.ok(receipt.unmetCriteria?.includes("task-lifecycle-contract-support/revisionIssues"));
   assert.deepEqual(receipt.effects, []);
   assert.equal(receipt.updatedProjection, null);

@@ -1,6 +1,6 @@
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, LeaseV1, ProjectedExecution } from "./execution.ts";
-import type { ActorAxes, ContractValidationIssue, TaskV1 } from "./task.ts";
+import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import type { TaskEdgeTaken } from "./task-graph.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { codeDocRecordId, currentCodeDocWitness } from "./code-doc-witness.ts";
@@ -102,7 +102,7 @@ export function executionExecutorDeclarationCandidates(
   );
 }
 export function takeEdge(
-  task: TaskV1,
+  task: TaskV2,
   trigger: TaskEdgeTaken["on"],
   reason: string,
   commitSha: string,

@@ -257,7 +257,6 @@ function taskPackageFields(
   | "registerModule"
   | "slug"
   | "surfaces"
-  | "relations"
   | "fromLegacyId"
 > {
   const register =
@@ -291,42 +290,6 @@ function taskPackageFields(
       : {}),
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
-    ...(Array.isArray(action.relations)
-      ? {
-          relations: action.relations.map((value) => {
-            if (!value || typeof value !== "object" || Array.isArray(value))
-              throw presetActionError(
-                "invalid_relation",
-                "Each relation must provide type, target, and rationale; fix --relation and retry.",
-              );
-            const row = value as Record<string, unknown>,
-              type = oneOf(row.type, [
-                "supports",
-                "supersedes",
-                "refines",
-                "narrows",
-                "derives",
-                "blocks",
-                "relates",
-                "implements",
-                "depends-on",
-                "produces",
-                "evidences",
-                "evidenced-by",
-                "refuted-by",
-                "invalidated-by",
-                "supersedes-fact",
-              ] as const);
-            if (!type)
-              throw presetActionError("invalid_relation", "Use a relation type allowed for the selected endpoints.");
-            return {
-              type,
-              target: required(row.target, "relation.target"),
-              rationale: required(row.rationale, "relation.rationale"),
-            };
-          }),
-        }
-      : {}),
     ...(optionalActionText(action.fromLegacyId) ? { fromLegacyId: optionalActionText(action.fromLegacyId)! } : {}),
   };
 }

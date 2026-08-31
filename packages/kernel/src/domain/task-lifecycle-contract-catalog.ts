@@ -1,6 +1,6 @@
 import { EXECUTION_V1_SCHEMA } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
-import { TASK_V1_SCHEMA } from "./task.ts";
+import { TASK_V2_SCHEMA } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA } from "./task-graph.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 
@@ -18,7 +18,7 @@ export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(
 );
 export type TaskLifecycleCliCatalogEntry = (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
 export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({
-  task: TASK_V1_SCHEMA.required,
+  task: TASK_V2_SCHEMA.required,
   execution: EXECUTION_V1_SCHEMA.required,
   review: REVIEW_V1_SCHEMA.required,
   consent: REVIEW_CONSENT_V1_SCHEMA.required,

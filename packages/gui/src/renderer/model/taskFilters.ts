@@ -167,7 +167,7 @@ export function sortByFavoritesFirst<T>(
 }
 
 /**
- * 台账 pin 排序助手:pin 是 canonical 台账字段(`task/v1.pinned`,经 `ha task pin`
+ * 台账 pin 排序助手:pin 是 canonical 台账字段(`task/v2.pinned`,经 `ha task pin`
  * 或 GUI 同一动作写入),所以它排在本地收藏之前——「今天当前在做」先于个人偏好。
  * 稳定排序:每个等级内不改变原有顺序。
  */

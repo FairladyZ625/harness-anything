@@ -534,7 +534,6 @@ describe("renderer app model", () => {
       "rejected",
       "claims",
       "fulfillments",
-      "relations",
       "背景",
       "权衡",
       "结论",

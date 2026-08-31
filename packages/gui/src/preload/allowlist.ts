@@ -1,5 +1,6 @@
 import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { relationDirections, relationStates } from "../../../kernel/src/index.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
@@ -362,9 +363,7 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
     changedAfterRevision = value.changedAfterRevision,
     facet = value.facet,
     states =
-      method === "getTasks"
-        ? ["planned", "active", "blocked", "in_review", "done", "cancelled"]
-        : ["active", "edge_retired", "deleted"],
+      method === "getTasks" ? ["planned", "active", "blocked", "in_review", "done", "cancelled"] : relationStates,
     common =
       (value.limit === undefined ||
         (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&
@@ -382,7 +381,8 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
         (method !== "getTasks" ||
           changedAfterRevision === undefined ||
           (Number.isSafeInteger(changedAfterRevision) && Number(changedAfterRevision) >= 0)) &&
-        (value.status === undefined || (typeof value.status === "string" && states.includes(value.status))) &&
+        (value.status === undefined ||
+          (typeof value.status === "string" && (states as readonly string[]).includes(value.status))) &&
         [after, before].every((item) => item === undefined || isUtcTimestamp(item)) &&
         !(typeof after === "string" && typeof before === "string" && after > before);
 }
@@ -391,8 +391,9 @@ function validRelationEdgeFacetSelectors(value: Record<string, unknown>): boolea
   return (
     (value.relationType === undefined || typeof value.relationType === "string") &&
     (value.state === undefined ||
-      (typeof value.state === "string" && ["active", "edge_retired", "deleted"].includes(value.state))) &&
-    (value.direction === undefined || ["directed", "undirected"].includes(String(value.direction)))
+      (typeof value.state === "string" && relationStates.includes(value.state as (typeof relationStates)[number]))) &&
+    (value.direction === undefined ||
+      relationDirections.includes(String(value.direction) as (typeof relationDirections)[number]))
   );
 }
 /** `repo.decisions.list` carries one selector: the summary projection the mounted chrome reads. */

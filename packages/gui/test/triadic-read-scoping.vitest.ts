@@ -42,7 +42,7 @@ function taskRow(taskId: string) {
     snapshot: {
       revision: 1,
       task: {
-        schema: "task/v1",
+        schema: "task/v2",
         taskId,
         title: `Probe ${taskId}`,
         taskClass: "standard",
@@ -53,6 +53,7 @@ function taskRow(taskId: string) {
         createdBy: { principal: { personId: "person-probe" }, executor: null },
         completionGateIds: [],
         presetSnapshotDigest: null,
+        pinned: false,
         metadata: {
           idempotencyKey: null,
           parentTaskId: null,

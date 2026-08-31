@@ -1,7 +1,7 @@
 import { isNativeExecution, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
-import type { TaskV1 } from "./task.ts";
+import type { TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
@@ -65,8 +65,8 @@ export const create: Transition = {
   },
   reduce: (snapshot, raw) => {
     const command = raw as CreateReplayTaskCommand,
-      task: TaskV1 = {
-        schema: "task/v1",
+      task: TaskV2 = {
+        schema: "task/v2",
         taskId: command.taskId,
         title: command.title,
         taskClass: command.taskClass,
@@ -77,6 +77,7 @@ export const create: Transition = {
         createdBy: command.actor,
         completionGateIds: command.completionGateIds,
         presetSnapshotDigest: command.presetSnapshotDigest,
+        pinned: false,
       };
     return {
       snapshot: { ...snapshot, revision: command.workspaceRevision, task },
@@ -151,7 +152,7 @@ export const start: Transition = {
   reduce: (snapshot, raw, rawProof) => {
     const command = raw as StartExecutionCommand,
       reservation = (rawProof as StartExecutionProof).reservation,
-      task = { ...(snapshot.task as TaskV1), status: "active" as const },
+      task = { ...(snapshot.task as TaskV2), status: "active" as const },
       rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as
         | ExecutionV1
         | undefined,
@@ -203,8 +204,8 @@ function transitionTask(
   command: TransitionTaskCommand,
   status: "planned" | "active" | "in_review" | "blocked" | "cancelled",
 ): TransitionResult {
-  const task: TaskV1 = {
-      ...(snapshot.task as TaskV1),
+  const task: TaskV2 = {
+      ...(snapshot.task as TaskV2),
       status,
       ...(status === "cancelled" ? { pinned: false } : {}),
     },
@@ -284,6 +285,34 @@ export const reinstate: Transition = {
       (raw as TransitionTaskCommand).status as "planned" | "active" | "in_review",
     ),
 };
+export const returnToPlanned: Transition = {
+  id: "return_to_planned",
+  commandType: "TransitionTask",
+  from: "active",
+  proof: ["auditedReason"],
+  eventType: "task_transitioned",
+  matches: (command, snapshot) =>
+    command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
+  validate: (snapshot, raw) => {
+    const command = raw as TransitionTaskCommand,
+      issues = revisionIssues(snapshot, command);
+    if (
+      snapshot.task?.status !== "active" ||
+      snapshot.lease !== null ||
+      !explainStatusTransition("active", "planned").allowed
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          "ReturnToPlanned requires an unleased active task after its execution lease is released",
+        ),
+      );
+    if (!isNonEmptyString(command.reason))
+      issues.push(lifecycleContractIssue("invalid_schema", "ReturnToPlanned requires an auditable reason"));
+    return issues;
+  },
+  reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "planned"),
+};
 export const unblock: Transition = {
   id: "unblock_task",
   commandType: "TransitionTask",
@@ -360,8 +389,8 @@ export const submit: Transition = {
         submittedAt: command.occurredAt,
         submission: command.submission,
       },
-      task: TaskV1 = {
-        ...(snapshot.task as TaskV1),
+      task: TaskV2 = {
+        ...(snapshot.task as TaskV2),
         status: "in_review",
         currentNode: "review",
       },

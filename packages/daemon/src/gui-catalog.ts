@@ -122,8 +122,8 @@ export function openGuiCatalog(input: {
           kind: "preset-inspect",
           presetId,
           verticalId: defaults.verticalId,
-          ...(text(payload.profileId) ? { profileId: payload.profileId } : {}),
-          ...(text(payload.locale) ? { locale: payload.locale } : {}),
+          ...(catalogText(payload.profileId) ? { profileId: payload.profileId } : {}),
+          ...(catalogText(payload.locale) ? { locale: payload.locale } : {}),
         },
         settings,
       })) as {
@@ -167,7 +167,7 @@ export function openGuiCatalog(input: {
   };
   const reread = async (payload: JsonObject): Promise<CatalogRereadReceipt> => {
     const before = lastDigest ?? (await snapshot()).catalogDigest,
-      expected = text(payload.expectedDigest);
+      expected = catalogText(payload.expectedDigest);
     if (expected && expected !== before)
       return receipt(
         false,
@@ -210,6 +210,6 @@ function requiredCatalogText(value: unknown, field: string): string {
   if (typeof value === "string" && value.length) return value;
   throw Object.assign(new Error(`${field} is required.`), { code: "invalid_catalog_request" });
 }
-function text(value: unknown): string | undefined {
+function catalogText(value: unknown): string | undefined {
   return typeof value === "string" && value.length ? value : undefined;
 }

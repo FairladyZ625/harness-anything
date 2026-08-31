@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { deriveRelationId, sha256Text } from "../../kernel/src/index.ts";
+import {
+  REPLAY_TASK_GRAPH,
+  deriveRelationId,
+  readLegacyMigrationSource,
+  readMarkdownSource,
+  readScalar,
+  sha256Text,
+  taskEntryToRow,
+} from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {
@@ -280,18 +289,212 @@ export function sources(root: string): readonly string[] {
   }
   git(root, "add", ".");
   if (git(root, "diff", "--cached", "--name-only") !== "") git(root, "commit", "-qm", "source snapshot");
+  const exclude = path.join(root, ".git/info/exclude"),
+    currentExclude = readFileSync(exclude, "utf8");
+  if (!currentExclude.split("\n").includes(".harness/")) writeFileSync(exclude, `${currentExclude}\n.harness/\n`);
+  buildProjectionOracle(root);
   return [root];
 }
 export function snapshot(root: string): readonly string[] {
   const walk = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      if (entry.name === ".git") return [];
+      if (entry.name === ".git" || entry.name === ".harness") return [];
       const target = path.join(dir, entry.name);
       return entry.isDirectory()
         ? walk(target)
         : [`${path.relative(root, target)}:${statSync(target).size}:${readFileSync(target, "utf8")}`];
     });
   return walk(root).sort();
+}
+
+export function buildProjectionOracle(root: string): void {
+  const localRoot = path.join(root, ".harness/cache"),
+    databasePath = path.join(localRoot, "task.sqlite"),
+    taskRead = readMarkdownSource(root),
+    cold = readLegacyMigrationSource(root);
+  mkdirSync(localRoot, { recursive: true });
+  rmSync(databasePath, { force: true });
+  const database = new DatabaseSync(databasePath),
+    statements = [
+      "CREATE TABLE projection_meta(singleton INTEGER PRIMARY KEY, watermark INTEGER NOT NULL)",
+      "CREATE TABLE task_snapshot(task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL)",
+      "CREATE TABLE task_package(task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL)",
+      "CREATE TABLE event_index(op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL)",
+      "CREATE TABLE decision(decision_id TEXT PRIMARY KEY, state TEXT, title TEXT, question TEXT, risk_tier TEXT, urgency TEXT, vertical TEXT, preset TEXT, decision_class TEXT, applies_json TEXT, proposer_json TEXT, arbiter_json TEXT, proposed_at TEXT, decided_at TEXT, provenance_json TEXT, workspace_revision INTEGER NOT NULL)",
+      "CREATE TABLE decision_option(decision_id TEXT NOT NULL, kind TEXT NOT NULL, option_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, rationale TEXT, workspace_revision INTEGER NOT NULL)",
+      "CREATE TABLE decision_claim(decision_id TEXT NOT NULL, claim_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, load_bearing INTEGER NOT NULL, fulfillment TEXT, workspace_revision INTEGER NOT NULL)",
+      "CREATE TABLE fact(fact_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
+      "CREATE TABLE relation_edge(relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, state TEXT NOT NULL, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
+      "CREATE TABLE entity_projection(entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+      "CREATE TABLE runtime_session(runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    ];
+  try {
+    for (const statement of statements) database.exec(statement);
+    let revision = 0;
+    for (const entry of taskRead.entries) {
+      const row = taskEntryToRow(root, entry),
+        title = row.title || markdownH1(entry.body) || row.taskId,
+        occurredAt =
+          readScalar(entry.frontmatter, "  bindingCreatedAt") ||
+          readScalar(entry.frontmatter, "bindingCreatedAt") ||
+          readScalar(entry.frontmatter, "createdAt") ||
+          "2026-01-01T00:00:00.000Z",
+        packagePath = path.relative(path.join(root, "harness"), path.dirname(entry.indexPath)),
+        task = {
+          schema: "task/v2",
+          taskId: row.taskId,
+          title,
+          taskClass: "standard",
+          status: row.canonicalStatus,
+          graph: REPLAY_TASK_GRAPH,
+          currentNode: row.canonicalStatus === "in_review" ? "review" : "implementation",
+          iteration: 0,
+          pinned: false,
+          packageDisposition: row.packageDisposition,
+          createdBy: actor,
+          completionGateIds: [],
+          presetSnapshotDigest: null,
+        };
+      revision += 1;
+      database
+        .prepare("INSERT INTO task_snapshot VALUES (?, ?, ?)")
+        .run(row.taskId, revision, JSON.stringify({ task }));
+      database.prepare("INSERT INTO task_package VALUES (?, ?)").run(row.taskId, packagePath);
+      database.prepare("INSERT INTO event_index VALUES (?, ?, ?, ?)").run(
+        `fixture-task-${row.taskId}`,
+        revision,
+        row.taskId,
+        JSON.stringify({
+          eventId: `fixture-event-${row.taskId}`,
+          occurredAt,
+          workspaceRevision: revision,
+        }),
+      );
+    }
+    for (const decision of cold.decisions) {
+      revision += 1;
+      database
+        .prepare("INSERT INTO decision VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(
+          decision.decisionId,
+          decision.state,
+          decision.title,
+          decision.question,
+          decision.riskTier,
+          decision.urgency,
+          decision.vertical,
+          decision.preset,
+          decision.decisionClass ?? "ordinary",
+          JSON.stringify({ modules: decision.moduleKeys, productLines: decision.productLineKeys }),
+          JSON.stringify(actor.principal),
+          null,
+          decision.proposedAt,
+          decision.decidedAt,
+          JSON.stringify([]),
+          revision,
+        );
+      for (const [position, option] of decision.chosenRecords.entries())
+        database
+          .prepare("INSERT INTO decision_option VALUES (?, 'chosen', ?, ?, ?, ?, ?)")
+          .run(decision.decisionId, option.id, position, option.text, option.rationale ?? null, revision);
+      for (const [position, option] of decision.rejectedRecords.entries())
+        database
+          .prepare("INSERT INTO decision_option VALUES (?, 'rejected', ?, ?, ?, ?, ?)")
+          .run(decision.decisionId, option.id, position, option.text, option.whyNot, revision);
+      for (const [position, claim] of decision.claimRecords.entries())
+        database
+          .prepare("INSERT INTO decision_claim VALUES (?, ?, ?, ?, ?, ?, ?)")
+          .run(
+            decision.decisionId,
+            claim.id,
+            position,
+            claim.text,
+            claim.loadBearing ? 1 : 0,
+            claim.fulfillment ?? null,
+            revision,
+          );
+    }
+    for (const fact of cold.facts) {
+      revision += 1;
+      // The active projection is keyed by fact_id. Legacy task-scoped duplicate
+      // documents remain authored inputs, but only the first canonical fact ID
+      // can be a same-cut projection witness.
+      database.prepare("INSERT OR IGNORE INTO fact VALUES (?, ?, ?)").run(
+        fact.factId,
+        revision,
+        JSON.stringify({
+          taskId: fact.taskId,
+          factId: fact.factId,
+          statement: fact.statement,
+          evidenceSource: fact.source,
+          observedAt: fact.observedAt,
+          confidence: fact.confidence,
+          memoryClass: fact.memoryClass,
+          memoryTags: fact.memoryTags,
+          provenance: fact.provenance,
+        }),
+      );
+    }
+    for (const edge of cold.truth.edges) {
+      revision += 1;
+      const current = { ...edge, state: edge.state === "retired" ? "edge_retired" : edge.state };
+      database
+        .prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(
+          current.relationId,
+          current.sourceRef,
+          current.targetRef,
+          current.relationType,
+          current.state,
+          current.ownerRef,
+          revision,
+          JSON.stringify(current),
+        );
+    }
+    for (const execution of fixtureExecutions(root)) {
+      revision += 1;
+      database
+        .prepare("INSERT INTO entity_projection VALUES ('execution', ?, ?, ?)")
+        .run(execution.id, revision, JSON.stringify(execution.fields));
+    }
+    database.prepare("INSERT INTO projection_meta VALUES (1, ?)").run(revision);
+  } finally {
+    database.close();
+  }
+}
+
+function fixtureExecutions(root: string): readonly {
+  readonly id: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+}[] {
+  const authored = path.join(root, "harness"),
+    walk = (directory: string): string[] =>
+      readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+        const target = path.join(directory, entry.name);
+        return entry.isDirectory() ? walk(target) : [target];
+      });
+  if (!statOrNull(path.join(authored, "tasks"))) return [];
+  return walk(path.join(authored, "tasks"))
+    .filter((target) => /^tasks\/[^/]+\/executions\/[^/]+\.md$/u.test(path.relative(authored, target)))
+    .map((target) => {
+      const body = readFileSync(target, "utf8");
+      let fields: Readonly<Record<string, unknown>> = { body };
+      try {
+        const parsed = JSON.parse(body) as unknown;
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) fields = parsed;
+      } catch {
+        // A malformed execution remains a same-cut active witness and is archived by the importer.
+      }
+      const declared = fields.execution_id;
+      return {
+        id: typeof declared === "string" && declared.trim() ? declared : path.basename(target, ".md"),
+        fields,
+      };
+    });
+}
+
+function markdownH1(body: string): string | null {
+  return /^#\s+(.+)$/mu.exec(body)?.[1]?.trim() || null;
 }
 export function statOrNull(target: string): ReturnType<typeof statSync> | null {
   try {

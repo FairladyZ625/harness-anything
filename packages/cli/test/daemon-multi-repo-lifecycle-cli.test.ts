@@ -148,7 +148,6 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
         rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }],
         claims: [],
         fulfillments: [],
-        relations: [],
       }),
       decisionPropose = run(fixture.alpha, fixture.userRoot, ["decision", "propose", "--json-input", decisionPacket]);
     assert.equal(decisionPropose.outcome, "applied", JSON.stringify(decisionPropose));
@@ -169,7 +168,10 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     );
     const decisionFile = path.join(fixture.alpha, "harness", decisionPath),
       decisionBody = readFileSync(decisionFile, "utf8");
-    writeFileSync(decisionFile, `${decisionBody}\n## Decision\n\nUse the event-backed lifecycle selected by this fixture.\n`);
+    writeFileSync(
+      decisionFile,
+      `${decisionBody}\n## Decision\n\nUse the event-backed lifecycle selected by this fixture.\n`,
+    );
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
       "applied",

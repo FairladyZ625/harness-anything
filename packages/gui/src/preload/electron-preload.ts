@@ -9,6 +9,7 @@ import {
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
 import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
+import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ guiBridgeMethod }) => guiBridgeMethod));
 const exposedApi = Object.fromEntries(
   preloadAllowlist
@@ -28,6 +29,9 @@ const exposedHarnessApi = {
     chooseRepository: () => ipcRenderer.invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
     bootstrap: (input) => ipcRenderer.invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
   } satisfies FirstRunApi,
+  artifacts: {
+    openExternal: (input) => ipcRenderer.invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
+  } satisfies ArtifactOpenApi,
   capabilities: preloadApiCapabilities,
 };
 

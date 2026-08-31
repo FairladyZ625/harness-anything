@@ -19,7 +19,7 @@ test("the built-in v5 Policy registers only qualification predicates and all dur
     ],
     ["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"],
   );
-  assert.equal(DEFAULT_POLICY.rules?.length, 102);
+  assert.equal(DEFAULT_POLICY.rules?.length, 103);
 });
 
 test("ha entity explain policy exposes the same predicate, Action, and rule authority", () => {

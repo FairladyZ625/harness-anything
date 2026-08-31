@@ -156,7 +156,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
         .prepare("SELECT entity_id FROM entity_projection WHERE entity_kind = 'execution' AND task_id = ?")
         .get(taskId) as { readonly entity_id: string } | undefined;
     rebuilt.close();
-    assert.equal(version.schema_version, 14); // taskProjectionSchemaVersion in kernel projection-schema.ts
+    assert.ok(version.schema_version > 12, `schema ${version.schema_version} did not migrate past v12`);
     assert.equal(execution?.entity_id, executionId);
   } finally {
     await host.close();

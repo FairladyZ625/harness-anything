@@ -100,6 +100,18 @@
         "until": "2026-09-30"
       },
       {
+        "value": "compileScheduleDefinitionEvent",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: GUI service-bridge integration test seeds canonical schedule definitions; production schedule ingress derives these events from entity actions.",
+        "until": "2026-09-30"
+      },
+      {
+        "value": "compileScheduleRunEvent",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: daemon schedule-runs read test seeds canonical run events; production schedule ingress derives these events from entity actions.",
+        "until": "2026-09-30"
+      },
+      {
         "value": "CompleteTaskProof",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
@@ -108,7 +120,7 @@
       {
         "value": "CompositeManifestBlobDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -139,6 +151,12 @@
         "value": "CreateReplayTaskCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
+      },
+      {
+        "value": "createScheduleV1",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: daemon/CLI schedule tests construct canonical ScheduleV1 rows through this factory while production schedule ingress derives rows from entity actions.",
         "until": "2026-09-30"
       },
       {
@@ -294,7 +312,7 @@
       {
         "value": "EntityDocumentCodec",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -360,13 +378,13 @@
       {
         "value": "EntityProjectionColumnDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
         "value": "EntityProjectionDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -432,7 +450,7 @@
       {
         "value": "EntityRootResolverDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -612,7 +630,7 @@
       {
         "value": "HostedEntityDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -679,12 +697,6 @@
         "value": "isTaskWorkKind",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "KernelEntityKind",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
         "until": "2026-09-30"
       },
       {
@@ -1006,12 +1018,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "readRelationGraphAuthoredSourceKinds",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "ReadScalarOptions",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
@@ -1037,18 +1043,6 @@
       },
       {
         "value": "RedactionFindingSchema",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "RelationDirection",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "relationDirections",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
         "until": "2026-09-30"
@@ -1096,27 +1090,9 @@
         "until": "2026-09-30"
       },
       {
-        "value": "RelationRecordEntry",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "RelationRecordValidationIssue",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "RelationState",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "relationStates",
-        "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
-        "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
+        "value": "relationRecord",
+        "ref": "task_75b563eb585e8afbfdc8939801",
+        "reason": "Relation entity-ization: application-tier lifecycle tests build canonical relation rows through this factory while production relation ingress derives rows from relation entity actions.",
         "until": "2026-09-30"
       },
       {
@@ -1453,12 +1429,6 @@
         "value": "validateLifecycleBindingInvariant",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
-        "until": "2026-09-30"
-      },
-      {
-        "value": "validateRelationGraphRecords",
-        "ref": "task_P4_INT",
-        "reason": "Relation graph validation remains part of the retained read projection surface.",
         "until": "2026-09-30"
       },
       {

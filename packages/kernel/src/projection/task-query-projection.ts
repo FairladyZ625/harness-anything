@@ -4,7 +4,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { ReplayTaskStatus, TaskV1 } from "../domain/task.ts";
+import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
@@ -81,19 +81,20 @@ export function readTaskIndexRows(db: DatabaseSync): readonly TaskIndexProjectio
     ].join(" "),
   );
   return rows.flatMap((row) => {
-    let task: TaskV1 | null;
+    let task: TaskV2 | null;
     try {
-      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV1 | null }).task ?? null;
+      task = (JSON.parse(row.snapshot_json) as { readonly task?: TaskV2 | null }).task ?? null;
     } catch {
       throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     }
     if (task === null) return [];
+    if (validateTaskV2(task, true).length) throw new Error(`projection snapshot mismatch for task ${row.task_id}`);
     return [
       {
         taskId: row.task_id,
         title: task.title,
         status: task.status,
-        pinned: task.pinned ?? false,
+        pinned: task.pinned,
         parentTaskId: task.metadata?.parentTaskId ?? null,
         moduleKey: task.metadata?.moduleKey ?? null,
         workKind: task.metadata?.workKind ?? null,
@@ -208,53 +209,27 @@ export function createTaskRelationProjectionTable(db: DatabaseSync): void {
   `);
 }
 
-/**
- * Replace one task's projected relation rows with the records its current
- * snapshot declares. The rows are byte-equal to what the wide relation graph
- * read used to derive by materializing every task snapshot and flat-mapping
- * `task.relations`, so the projection table is a cache of that exact shape.
- */
+/** Rebuild the task-local lookup index strictly from the canonical Relation projection. */
 export function refreshTaskRelationProjection(
   db: DatabaseSync,
   taskId: string,
-  task: TaskV1 | null,
-  revision: number,
+  _task: TaskV2 | null,
+  _revision: number,
   updatedAt: string,
-  packagePath?: string | null,
+  _packagePath?: string | null,
 ): void {
   db.prepare("DELETE FROM task_relation WHERE task_id = ?").run(taskId);
-  if (!task?.relations?.length) return;
-  const resolvedPackagePath =
-    packagePath ??
-    (
-      db.prepare("SELECT package_path FROM task_package WHERE task_id = ?").get(taskId) as
-        | { readonly package_path: string }
-        | undefined
-    )?.package_path ??
-    `harness/tasks/${taskId}`;
-  const ownerRef = `task/${taskId}`,
-    sourcePath = `${resolvedPackagePath}/INDEX.md`;
-  const insert = db.prepare(
-    "INSERT OR REPLACE INTO task_relation(relation_id, task_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index, workspace_revision, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  );
-  for (const [recordIndex, relation] of task.relations.entries())
-    insert.run(
-      relation.relation_id,
-      taskId,
-      relation.source,
-      relation.target,
-      relation.type,
-      relation.direction,
-      relation.strength,
-      relation.origin,
-      relation.state,
-      relation.rationale,
-      ownerRef,
-      sourcePath,
-      recordIndex,
-      revision,
-      updatedAt,
-    );
+  db.prepare(
+    [
+      "INSERT INTO task_relation(relation_id, task_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index, workspace_revision, updated_at)",
+      "SELECT relation_id, ?, source_ref, target_ref, relation_type,",
+      "json_extract(row_json, '$.direction'), json_extract(row_json, '$.strength'),",
+      "json_extract(row_json, '$.origin'), state, json_extract(row_json, '$.rationale'), owner_ref,",
+      "json_extract(row_json, '$.sourcePath'), json_extract(row_json, '$.recordIndex'), workspace_revision,",
+      "COALESCE(json_extract(row_json, '$.entity.updatedAt'), ?)",
+      "FROM relation_edge WHERE source_ref=?",
+    ].join(" "),
+  ).run(taskId, updatedAt, `task/${taskId}`);
 }
 
 /** Every task-owned edge, ordered by relation id — the event-side task rows of the converged relation graph. */

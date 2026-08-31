@@ -3,6 +3,22 @@ export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-e
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { ReceiptJsonValue } from "./receipt-frame.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export {
+  ENTITY_ACTION_EXPLANATION_SCHEMA,
+  taskLifecycleActionIds,
+  validateEntityActionExplainRequest,
+  validateEntityActionExplanationSet,
+} from "./entity-action-explanation.ts";
+export type {
+  EntityActionCriterionExplanationV1,
+  EntityActionExplainRequestV1,
+  EntityActionExplanationFailureCode,
+  EntityActionExplanationSetV1,
+  EntityActionExplanationSubjectV1,
+  EntityActionExplanationV1,
+  TaskLifecycleActionId,
+} from "./entity-action-explanation.ts";
+export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
   ActorAxes,
@@ -145,22 +161,27 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
-export type { EntityActionDraft, EntityActionExecutionContract } from "./entity-action-execution.ts";
+
+export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
+export type { BaseEntity } from "./base-entity.ts";
+export type {
+  EntityActionCompileInput,
+  EntityActionDraft,
+  EntityActionExecutionContract,
+} from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,
   deriveRelationId,
-  formatRelationFlowRecord,
   isAllowedRelationKindTriple,
   relationDirections,
   relationOrigins,
   relationStates,
   relationStrengths,
   relationTypes,
-  validateRelationRecordsForHost,
 } from "./entity-relation.ts";
+export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
 export type {
-  EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,
@@ -179,28 +200,17 @@ export type {
   TemplateLibraryError,
 } from "./errors.ts";
 
-export {
-  createScheduleV1,
-  nextScheduleOccurrence,
-  scheduleMissedReasons,
-  scheduleRunOutcomes,
-  validateScheduleV1,
-} from "./schedule.ts";
+export { createScheduleV1, nextScheduleOccurrence, validateScheduleV1 } from "./schedule.ts";
 export type {
   ScheduleActiveRunV1,
   ScheduleLastRunV1,
   ScheduleMissedReason,
-  ScheduleMode,
   ScheduleRunOutcome,
   ScheduleTriggerV1,
   ScheduleV1,
 } from "./schedule.ts";
-export {
-  compileScheduleDefinitionEvent,
-  compileScheduleDeletedEvent,
-  compileScheduleRunEvent,
-  isScheduleEvent,
-} from "./schedule-event.ts";
+export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
+export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
   INITIAL_SETTINGS_V1,

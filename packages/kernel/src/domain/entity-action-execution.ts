@@ -4,6 +4,7 @@ import { sessionProvenance } from "./agent-runtime.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
 import type { DecisionAmendableSnapshot, DecisionEventDraftV1 } from "./decision-event.ts";
 import { deriveRelationId } from "./entity-relation.ts";
+import { compileRelationCreatedEvent, compileRelationRetiredEvent, type RelationEventV1 } from "./relation-event.ts";
 import {
   factMemoryTags,
   type FactConfidence,
@@ -13,13 +14,15 @@ import {
 } from "./fact-event.ts";
 import { timestamp } from "./timestamp.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
+import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
   readonly compile: EntityActionCompileHook | null;
   readonly read: boolean;
-  readonly implementation: "compiled-event" | "declared-only" | "task-lifecycle" | "task-completion";
+  readonly implementation: "compiled-event" | "declared-only" | "schedule-event" | "task-lifecycle" | "task-completion";
   readonly topology?: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly targetIdField?: string;
   readonly lifecycle?: {
     readonly transitionId: string;
     readonly commandType: string;
@@ -36,6 +39,9 @@ export interface EntityActionCompileInput {
   readonly opId: string;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
+  readonly currentEntity?: unknown;
+  readonly entityRevision?: number;
+  readonly currentDocumentBlobSha256?: string | null;
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -50,7 +56,9 @@ export interface EntityActionCompileInput {
 
 export type EntityActionDraft =
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
-  | { readonly kind: "fact"; readonly event: FactEventDraftV1 };
+  | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
+  | { readonly kind: "relation"; readonly event: RelationEventV1 }
+  | { readonly kind: "schedule"; readonly result: ScheduleActionDraft };
 export type EntityActionCompileHook = (input: EntityActionCompileInput) => EntityActionDraft;
 
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {
@@ -163,6 +171,48 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
   };
 }
 
+export function relationActionCompiler(id: "relate" | "unrelate"): EntityActionCompileHook {
+  return (input) => {
+    if (id === "unrelate")
+      return {
+        kind: "relation",
+        event: compileRelationRetiredEvent({
+          relationId: requiredText(input, input.action.relationId, "relationId"),
+          reason: requiredText(input, input.action.reason, "reason"),
+          actor: input.actor,
+          source: input.source,
+          opId: input.opId,
+          occurredAt: input.occurredAt,
+          workspaceRevision: input.workspaceRevision,
+        }),
+      };
+    const identity = {
+      source: requiredText(input, input.action.sourceRef, "sourceRef"),
+      target: requiredText(input, input.action.targetRef, "targetRef"),
+      type: requiredText(input, input.action.relationType, "relationType") as never,
+      direction: (typeof input.action.direction === "string" ? input.action.direction : "directed") as "directed",
+    };
+    return {
+      kind: "relation",
+      event: compileRelationCreatedEvent({
+        record: {
+          relation_id: deriveRelationId(identity),
+          ...identity,
+          strength: (typeof input.action.strength === "string" ? input.action.strength : "strong") as "strong",
+          origin: (typeof input.action.origin === "string" ? input.action.origin : "declared") as "declared",
+          state: "active",
+          rationale: requiredText(input, input.action.rationale, "rationale"),
+        },
+        actor: input.actor,
+        source: input.source,
+        opId: input.opId,
+        occurredAt: input.occurredAt,
+        workspaceRevision: input.workspaceRevision,
+      }),
+    };
+  };
+}
+
 function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileInput): DecisionEventDraftV1 {
   const action = input.action,
     decisionId =
@@ -197,7 +247,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
         body: typeof action.body === "string" ? action.body : `\n# ${requiredText(input, action.title, "title")}\n`,
         claims: array(input, action.claims, "claims") as never,
         fulfillments: array(input, action.fulfillments, "fulfillments") as never,
-        relations: proposalRelations(input, action.relations, decisionId),
+        relations: [],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
       },
     };
@@ -364,26 +414,6 @@ function replacementEvent(
       body: typeof action.body === "string" ? action.body : null,
     },
   };
-}
-
-function proposalRelations(input: EntityActionCompileInput, value: unknown, decisionId: string) {
-  return array(input, value, "relations").map((entry) => {
-    const relation = object(input, entry, "relation"),
-      identity = {
-        source: `decision/${decisionId}/${requiredText(input, relation.anchor, "anchor")}`,
-        target: requiredText(input, relation.target, "target"),
-        type: requiredText(input, relation.type, "type") as never,
-        direction: "directed" as const,
-      };
-    return {
-      relation_id: deriveRelationId(identity),
-      ...identity,
-      strength: "strong" as const,
-      origin: "declared" as const,
-      rationale: short(input, relation.rationale, "rationale"),
-      state: "active" as const,
-    };
-  });
 }
 
 function requiredText(input: EntityActionCompileInput, value: unknown, field: string): string {

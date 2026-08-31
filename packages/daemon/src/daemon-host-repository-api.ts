@@ -338,7 +338,7 @@ export function createDaemonHostRepositoryApi(
             ? context.warmingMessage(repoId)
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
-      await context.binding(cell.status().rootDir, auth);
+      const binding = await context.binding(cell.status().rootDir, auth);
       let result: unknown;
       if (method === "observe.tail")
         result = await cell.observeTail(payload, {
@@ -355,7 +355,7 @@ export function createDaemonHostRepositoryApi(
       else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
-        result = await cell.read(method, payload);
+        result = await cell.read(method, payload, binding);
       }
       return parseDaemonGuiReadResult(method, result);
     },

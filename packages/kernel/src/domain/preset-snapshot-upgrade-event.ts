@@ -2,7 +2,7 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { digest } from "./digest.ts";
-import { validateTaskV1, type TaskV1 } from "./task.ts";
+import { validateTaskV2, type TaskV2 } from "./task.ts";
 import { type InitialDocumentClaim, type PresetSnapshotClaim, type TaskBootstrapBlob } from "./task-bootstrap-event.ts";
 import {
   freezeDeclaredWritePlan,
@@ -24,7 +24,7 @@ export type PresetSnapshotUpgradeEventV1 = EventEnvelope<
   ActorIdentity,
   {
     readonly previousDigest: `sha256:${string}`;
-    readonly task: TaskV1;
+    readonly task: TaskV2;
     readonly presetSnapshotClaim: PresetSnapshotClaim;
     readonly taskContractClaim: InitialDocumentClaim;
   }
@@ -68,7 +68,7 @@ function validatePresetSnapshotUpgradeEventFields(value: unknown, allowUnknownFi
     contract = value.payload.taskContractClaim,
     previous = value.payload.previousDigest;
   if (
-    validateTaskV1(task, allowUnknownFields).length ||
+    validateTaskV2(task, allowUnknownFields).length ||
     !isRecord(task) ||
     task.taskId !== value.taskId ||
     !digest(previous) ||

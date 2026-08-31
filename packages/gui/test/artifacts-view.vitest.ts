@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
@@ -59,6 +60,7 @@ async function renderSurface(element: ReturnType<typeof createElement>): Promise
 
 afterEach(async () => {
   for (const { root } of mounted.splice(0)) await act(async () => root.unmount());
+  document.defaultView?.localStorage.clear();
   document.body.innerHTML = "";
 });
 
@@ -67,6 +69,17 @@ async function click(container: HTMLElement, testId: string): Promise<void> {
   if (target === null) throw new Error(`missing ${testId}`);
   await act(async () => {
     target.click();
+  });
+}
+
+async function pointer(target: HTMLElement, type: string, clientX: number, pointerId = 1): Promise<void> {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperties(event, {
+    clientX: { value: clientX },
+    pointerId: { value: pointerId },
+  });
+  await act(async () => {
+    target.dispatchEvent(event);
   });
 }
 
@@ -109,13 +122,150 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("weathering.html");
     expect(text).toContain("Weathering escalation");
-    expect(text).toContain("tasks/task_weathering-slug/artifacts/reports/weathering.html");
-    expect(text).toContain("ledger");
-    expect(text).toMatch(/2026-08-28 \d{2}:\d{2}/u);
+    // 全路径进抽屉行与预览头的 title(抽屉行宽度有限,不与文件名抢正文)。
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-testid="artifact-row-task_weathering-artifacts/reports/weathering.html"]')
+        ?.getAttribute("title"),
+    ).toBe("tasks/task_weathering-slug/artifacts/reports/weathering.html");
+    // 相对时间是主显;绝对时间与时间来源(ledger)进 tooltip。
+    expect(text).not.toMatch(/2026-08-28 \d{2}:\d{2}/u);
+    const rowTime = container.querySelector<HTMLElement>(
+      '[data-testid="artifact-row-task_weathering-artifacts/reports/weathering.html"] [title*="2026-08-28"]',
+    );
+    expect(rowTime?.getAttribute("title")).toContain("ledger");
     expect(container.querySelector('[data-testid="artifacts-timeline"]')).not.toBeNull();
     // 两种 kind 的计数都来自 daemon DTO,筛选 chip 展示全量计数而非本页行数。
     expect(text).toContain("HTML · 2");
     expect(text).toContain("Markdown · 5729");
+  });
+
+  it("lays out as a left drawer plus full-width preview on one row axis, never a stacked split", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    const row = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer-row"]');
+    expect(row).not.toBeNull();
+    expect(row?.classList.contains("flex-row")).toBe(true);
+    expect(row?.classList.contains("flex-col")).toBe(false);
+    // 预览吃剩余宽度与整高:flex-1 且不是定宽。
+    const preview = container.querySelector<HTMLElement>('[data-testid="artifact-preview-pane"]');
+    expect(preview?.classList.contains("flex-1")).toBe(true);
+    expect(preview?.className).not.toMatch(/w-\[/u);
+    const drawer = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]');
+    expect(drawer).not.toBeNull();
+    expect(drawer?.style.width).toBe("420px");
+    expect(container.querySelector('[data-testid="artifacts-drawer-resize"]')).not.toBeNull();
+  });
+
+  it("resizes the left drawer in the same direction as the pointer and keeps its bounds", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    const host = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer-row"]')!;
+    const handle = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer-resize"]')!;
+    Object.defineProperty(host, "clientWidth", { configurable: true, value: 1_000 });
+    handle.setPointerCapture = vi.fn();
+
+    await pointer(handle, "pointerdown", 420);
+    await pointer(handle, "pointermove", 470);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("470px");
+
+    await pointer(handle, "pointermove", 370);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("370px");
+
+    await pointer(handle, "pointermove", 900);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("500px");
+
+    await pointer(handle, "pointermove", 0);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("200px");
+  });
+
+  it("collapses the drawer to a rail and restores it, remembering the state in localStorage", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await click(container, "artifacts-drawer-collapse");
+    expect(container.querySelector('[data-testid="artifacts-drawer"]')).toBeNull();
+    expect(container.querySelector('[data-testid="artifact-preview-pane"]')).not.toBeNull();
+    expect(JSON.parse(window.localStorage.getItem("harness:gui:artifacts-drawer") ?? "null")).toEqual({
+      width: 420,
+      collapsed: true,
+    });
+    await click(container, "artifacts-drawer-expand");
+    expect(container.querySelector('[data-testid="artifacts-drawer"]')).not.toBeNull();
+    expect(JSON.parse(window.localStorage.getItem("harness:gui:artifacts-drawer") ?? "null")).toEqual({
+      width: 420,
+      collapsed: false,
+    });
+  });
+
+  it("asks the preload artifacts channel to open the selected artifact in the system viewer", async () => {
+    stubDocumentBridge("<h1>Weathering</h1>");
+    const openExternal = vi.fn(async () => ({ ok: true, openedPath: "/repo/harness/tasks/p/a.html", error: null }));
+    vi.stubGlobal("window", { harness: { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } } });
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await click(container, "artifact-focus-task_weathering-artifacts/reports/weathering.html");
+    await settle();
+    await click(container, "artifact-open-external");
+    expect(openExternal).toHaveBeenCalledWith({
+      repoId: "repo-a",
+      path: "tasks/task_weathering-slug/artifacts/reports/weathering.html",
+    });
+  });
+
+  it("surfaces an open failure inline instead of throwing into the renderer", async () => {
+    stubDocumentBridge("<h1>Weathering</h1>");
+    const openExternal = vi.fn(async () => {
+      throw new Error("Artifact path escapes the repository harness directory.");
+    });
+    vi.stubGlobal("window", { harness: { getTaskDocument: async () => ({ ok: true }), artifacts: { openExternal } } });
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await click(container, "artifact-focus-task_weathering-artifacts/reports/weathering.html");
+    await settle();
+    await click(container, "artifact-open-external");
+    expect(container.querySelector('[data-testid="artifact-open-external-error"]')?.textContent).toContain(
+      "escapes the repository harness directory",
+    );
   });
 
   it("previews a selected HTML artifact through the isolated webview path", async () => {
@@ -143,6 +293,25 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(webview?.getAttribute("webpreferences")).toContain("sandbox=yes");
     expect(webview?.getAttribute("webpreferences")).toContain("javascript=no");
     expect(String(webview?.getAttribute("src")).startsWith("data:text/html;charset=utf-8,")).toBe(true);
+    // HTML 分支不再由父容器滚动或 42rem 最小高度撑开;高度链路一直 flex 到 webview,
+    // 长页面的滚动因此留在 guest 内部。
+    const content = container.querySelector<HTMLElement>('[data-testid="artifact-preview-content"]');
+    expect(content?.classList.contains("overflow-hidden")).toBe(true);
+    expect(content?.classList.contains("overflow-y-auto")).toBe(false);
+    const preview = container.querySelector<HTMLElement>('[data-testid="html-artifact-preview"]');
+    expect(preview?.classList.contains("h-full")).toBe(true);
+    expect(preview?.classList.contains("min-h-0")).toBe(true);
+    expect(preview?.classList.contains("flex-col")).toBe(true);
+    expect(preview?.classList.contains("html-artifact-preview-fill")).toBe(true);
+    const host = container.querySelector<HTMLElement>('[data-testid="html-artifact-host"]');
+    expect(host?.classList.contains("flex-1")).toBe(true);
+    expect(host?.classList.contains("min-h-0")).toBe(true);
+    const styles = readFileSync("src/renderer/styles.css", "utf8");
+    const webviewRule = styles.match(/\.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
+    const fillRule = styles.match(/\.html-artifact-preview-fill \.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
+    expect(webviewRule).toContain("height: 100%");
+    expect(webviewRule).toContain("max-width: 100%");
+    expect(fillRule).toContain("min-height: 0");
   });
 
   it("renders a Markdown artifact with the shared markdown reader, not a webview", async () => {
@@ -161,6 +330,11 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     await click(container, "artifact-focus-task_weathering-artifacts/report.md");
     await settle();
     expect(container.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-testid="artifact-preview-content"]')
+        ?.classList.contains("overflow-y-auto"),
+    ).toBe(true);
     expect(container.textContent).toContain("Markdown report");
   });
 
@@ -177,19 +351,14 @@ describe("artifacts timeline — list, preview, and task jump", () => {
         onNavigateTask,
       }),
     );
+    // 左抽屉的行不再带独立的路径链接(路径进 title,预览头仍显示全路径):
+    // 跳任务的两条出口是抽屉行与预览头。
     await click(container, "artifact-task-task_weathering");
-    const pathLink = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
-      (button) => button.textContent === "tasks/task_weathering-slug/artifacts/reports/weathering.html",
-    );
-    expect(pathLink).not.toBeUndefined();
-    await act(async () => {
-      pathLink!.click();
-    });
     await click(container, "artifact-focus-task_weathering-artifacts/reports/weathering.html");
     await settle();
     await click(container, "artifact-open-task");
     expect(onNavigateTask).toHaveBeenCalledWith("task_weathering");
-    expect(onNavigateTask).toHaveBeenCalledTimes(3);
+    expect(onNavigateTask).toHaveBeenCalledTimes(2);
   });
 
   it("switches the kind facet through the filter, and an unmapped row keeps no task link", async () => {
@@ -208,6 +377,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     );
     await click(container, "artifacts-filter-md");
     expect(onKindChange).toHaveBeenCalledWith("md");
+    // 时间来源是 daemon 事实:mtime 的行把它显形在正文里,ledger 的留在 tooltip。
     expect(container.textContent).toContain("file mtime");
     // 投影无归属 task:不渲染跳转,时间来源仍标明。
     expect(container.querySelector('[data-testid="artifact-task-null"]')).toBeNull();

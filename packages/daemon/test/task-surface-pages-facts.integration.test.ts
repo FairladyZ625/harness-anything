@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -66,11 +67,12 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       (
         await cell.run(
           {
-            kind: "task-relate",
-            taskId: "task_real_Alpha",
-            target: "task/task_real_Beta",
+            kind: "relation-relate",
+            sourceRef: "task/task_real_Alpha",
+            targetRef: "task/task_real_Beta",
             relationType: "depends-on",
             rationale: "Alpha waits for Beta",
+            expectedVersion: 0,
           },
           binding,
         )
@@ -81,11 +83,12 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       (
         await cell.run(
           {
-            kind: "task-relate",
-            taskId: "task_real_Gamma",
-            target: "task/task_real_Delta",
+            kind: "relation-relate",
+            sourceRef: "task/task_real_Gamma",
+            targetRef: "task/task_real_Delta",
             relationType: "depends-on",
             rationale: "Gamma waits for Delta",
+            expectedVersion: 0,
           },
           binding,
         )
@@ -114,14 +117,6 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
           ],
           claims: [],
           fulfillments: [],
-          relations: [
-            {
-              anchor: "CH1",
-              type: "derives",
-              target: "task/task_real_Alpha",
-              rationale: "The Decision supplies task placement.",
-            },
-          ],
         }),
       },
       binding,
@@ -129,6 +124,36 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     const spawningDecisionId = String(evidence(proposed).decisionId);
     assert.match(spawningDecisionId, /^dec_/u);
+    const placement = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${spawningDecisionId}/CH1`,
+        targetRef: "task/task_real_Alpha",
+        relationType: "derives",
+        rationale: "The Decision supplies task placement.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(placement.outcome, "applied", JSON.stringify(placement));
+    const missingStartedAt = performance.now(),
+      missingFact = await cell.run(
+        {
+          kind: "fact-record",
+          taskId: "task_missing",
+          statement: "This Fact must not be published",
+          evidenceSource: "test:missing-task",
+          confidence: "high",
+          memoryClass: "semantic",
+          waitProjectionMs: 30_000,
+        },
+        binding,
+      );
+    assert.equal(missingFact.code, "task_not_found");
+    assert.ok(
+      performance.now() - missingStartedAt < 1_000,
+      "a missing canonical task must not consume the wait budget",
+    );
     const factReceipt = await cell.run(
       {
         kind: "fact-record",
@@ -137,6 +162,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
         evidenceSource: "task-relation/depends-on",
         confidence: "high",
         memoryClass: "semantic",
+        waitProjectionMs: 0,
       },
       binding,
     );

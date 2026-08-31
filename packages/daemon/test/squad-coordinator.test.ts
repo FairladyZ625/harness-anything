@@ -1,15 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV1 } from "../../kernel/src/index.ts";
+import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "../../kernel/src/index.ts";
 import { reacquireSquadTaskLease } from "../src/repo-cell-open.ts";
 
 const squadActor: ActorIdentity = {
     principal: { personId: "person-squad" },
     executor: { kind: "agent", id: "squad-runner" },
   },
-  task: TaskV1 = {
-    schema: "task/v1",
+  task: TaskV2 = {
+    schema: "task/v2",
     taskId: "task-squad-reacquire",
     title: "Squad reacquire",
     taskClass: "standard",
@@ -20,6 +20,7 @@ const squadActor: ActorIdentity = {
     createdBy: squadActor,
     completionGateIds: [],
     presetSnapshotDigest: null,
+    pinned: false,
   };
 
 test("squad lease reacquisition reports conflict when another actor takes the released execution", async () => {

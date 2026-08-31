@@ -42,7 +42,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
       occurredAt: "2026-08-13T00:00:00.000Z",
       payload: {
         task: {
-          schema: "task/v1",
+          schema: "task/v2",
           taskId: "task-bootstrap",
           title: "Bootstrap",
           taskClass: "standard",
@@ -53,6 +53,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
           createdBy: { principal: { personId: "person-1" }, executor: null },
           completionGateIds: ["ci"],
           presetSnapshotDigest: digest,
+          pinned: false,
         },
         presetSnapshotClaim: {
           digest,
@@ -92,10 +93,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
           },
         },
       },
-      tamperedBlobs = [
-        { ...tampered.payload.presetSnapshotClaim, body: tamperedBody },
-        blobs[1]!,
-      ] as const;
+      tamperedBlobs = [{ ...tampered.payload.presetSnapshotClaim, body: tamperedBody }, blobs[1]!] as const;
     assert.throws(
       () =>
         store.append({
@@ -119,9 +117,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
     const plan = taskBootstrapWritePlan(event);
     assert.equal(
       plan.targets.some(
-        (target) =>
-          target.kind === "authored_file" &&
-          target.path === "tasks/task-bootstrap-bootstrap/task_plan.md",
+        (target) => target.kind === "authored_file" && target.path === "tasks/task-bootstrap-bootstrap/task_plan.md",
       ),
       true,
     );
@@ -129,60 +125,25 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
     assert.equal(receipt.revision, 1);
     assert.equal(receipt.commitSha, null);
     assert.equal(
-      readFileSync(
-        path.join(
-          rootDir,
-          "harness/tasks/task-bootstrap-bootstrap/task_plan.md",
-        ),
-        "utf8",
-      ),
+      readFileSync(path.join(rootDir, "harness/tasks/task-bootstrap-bootstrap/task_plan.md"), "utf8"),
       documentBody,
     );
     await store.drain();
     const publication = store.publication(event);
     assert.notEqual(publication.commitSha, null);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), publication.commitSha?.sha);
-    assert.equal(
-      git(rootDir, "rev-parse", "refs/ha/canonical"),
-      publication.commitSha?.sha,
-    );
+    assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), publication.commitSha?.sha);
     assert.equal(projection.apply(event, plan).metrics.reducedItems, 1);
-    assert.deepEqual(
-      projection.read("task-bootstrap").snapshot.task,
-      event.payload.task,
-    );
-    assert.equal(
-      projection.read("task-bootstrap").packagePath,
-      "tasks/task-bootstrap-bootstrap",
-    );
-    assert.deepEqual(
-      projection.readPresetSnapshot(digest).snapshot,
-      JSON.parse(snapshotBody),
-    );
-    assert.equal(
-      projection.readDocument("tasks/task-bootstrap-bootstrap/task_plan.md")
-        .document?.body,
-      documentBody,
-    );
+    assert.deepEqual(projection.read("task-bootstrap").snapshot.task, event.payload.task);
+    assert.equal(projection.read("task-bootstrap").packagePath, "tasks/task-bootstrap-bootstrap");
+    assert.deepEqual(projection.readPresetSnapshot(digest).snapshot, JSON.parse(snapshotBody));
+    assert.equal(projection.readDocument("tasks/task-bootstrap-bootstrap/task_plan.md").document?.body, documentBody);
     projection.rebuild();
-    assert.deepEqual(
-      projection.read("task-bootstrap").snapshot.task,
-      event.payload.task,
-    );
-    assert.equal(
-      projection.list().rows[0]?.packagePath,
-      "tasks/task-bootstrap-bootstrap",
-    );
+    assert.deepEqual(projection.read("task-bootstrap").snapshot.task, event.payload.task);
+    assert.equal(projection.list().rows[0]?.packagePath, "tasks/task-bootstrap-bootstrap");
     assert.equal(projection.list().rows[0]?.createdAt, event.occurredAt);
-    assert.deepEqual(
-      projection.readPresetSnapshot(digest).snapshot,
-      JSON.parse(snapshotBody),
-    );
-    assert.equal(
-      projection.readDocument("tasks/task-bootstrap-bootstrap/task_plan.md")
-        .document?.body,
-      documentBody,
-    );
+    assert.deepEqual(projection.readPresetSnapshot(digest).snapshot, JSON.parse(snapshotBody));
+    assert.equal(projection.readDocument("tasks/task-bootstrap-bootstrap/task_plan.md").document?.body, documentBody);
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });

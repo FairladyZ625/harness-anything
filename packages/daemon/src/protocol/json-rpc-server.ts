@@ -93,7 +93,7 @@ export function createJsonRpcProtocolServer(options: {
       result: DaemonRpcResult<Method>,
     ): JsonRpcResponse | undefined => {
       const durationMs = Date.now() - startedAt;
-      record(method, observed, result, durationMs);
+      recordRequest(method, observed, result, durationMs);
       traffic(method, startedAt, durationMs, resultOk(result), resultErrorCode(result));
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
@@ -472,7 +472,7 @@ export function createJsonRpcProtocolServer(options: {
   }
   // Repo-scoped by design: the log lives in the repository's local root, so a request that binds no
   // repository (protocol.hello, daemon.status, registry admin) has nowhere to be filed and is skipped.
-  function record(method: string, observed: ObservedRequest, result: object, durationMs: number): void {
+  function recordRequest(method: string, observed: ObservedRequest, result: object, durationMs: number): void {
     if (!options.recordRequest || !observed.repoId) return;
     options.recordRequest({
       method,

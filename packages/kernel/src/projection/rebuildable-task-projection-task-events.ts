@@ -10,6 +10,7 @@ import { projectEmbeddedCanonicalEntities } from "./rebuildable-task-projection-
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { readSnapshot, replayClaim, replayRelease, replayRenew } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -49,6 +50,7 @@ export function applyTaskEvent(
     snapshot.task?.status ?? null,
     event.occurredAt,
   );
+  applyEmbeddedRelationProjectionEvents(db, event);
   if (event.type === "task_created") {
     runSql(
       db,

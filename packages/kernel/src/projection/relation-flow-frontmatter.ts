@@ -4,8 +4,8 @@ import {
   relationStates,
   relationStrengths,
   relationTypes,
-  type EntityRelationRecord,
 } from "../domain/index.ts";
+import { type EntityRelationRecord } from "../domain/entity-relation.ts";
 
 export function parseRelationFlowRecords(body: string): ReadonlyArray<EntityRelationRecord> {
   const records: EntityRelationRecord[] = [];

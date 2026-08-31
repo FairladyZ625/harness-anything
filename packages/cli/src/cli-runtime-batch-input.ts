@@ -63,6 +63,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     effort = text("effort"),
     fast = record.fast,
     permissionMode = text("permission-mode"),
+    waitProjectionMs = record["wait-projection"],
     cwd = text("cwd"),
     task = text("task");
   if (!instance) throw new Error(`Batch dispatch ${index} requires instance.`);
@@ -76,6 +77,8 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     throw new Error(`Batch dispatch ${index} field fast must be a boolean.`);
   if (permissionMode && !["bypass", "workspace-write", "read-only"].includes(permissionMode))
     throw new Error(`Batch dispatch ${index} permission-mode must be bypass, workspace-write, or read-only.`);
+  if (waitProjectionMs !== undefined && (!Number.isSafeInteger(waitProjectionMs) || Number(waitProjectionMs) < 0))
+    throw new Error(`Batch dispatch ${index} wait-projection must be a non-negative safe integer.`);
   return {
     instance,
     ...(agent ? { agent } : {}),
@@ -86,6 +89,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
     ...(permissionMode ? { permissionMode } : {}),
     ...(prompt ? { prompt } : {}),
     ...(mission ? { mission } : {}),
+    ...(waitProjectionMs === undefined ? {} : { waitProjectionMs: Number(waitProjectionMs) }),
     ...(cwd ? { cwd } : {}),
     ...(task ? { task } : {}),
   };

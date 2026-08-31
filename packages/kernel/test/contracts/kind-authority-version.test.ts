@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
 import { entityKindContracts } from "../../src/domain/entity-kind-registry.ts";
-import { entityKindRefAuthorities } from "../../src/domain/entity-ref.ts";
 import {
   explainEntityKind,
   getEntityKindContract,
@@ -18,6 +17,7 @@ const expectedKinds = [
   "fact",
   "person",
   "policy",
+  "relation",
   "review",
   "runtime-session",
   "schedule",
@@ -32,6 +32,7 @@ const expectedResidency = {
   fact: { authored: "ledger" },
   person: { authored: "ledger" },
   policy: { authored: "ledger" },
+  relation: { history: "ledger", graph: "projection" },
   review: { authored: "ledger" },
   "runtime-session": { authored: "ledger", live: "runtime-local" },
   schedule: { definition: "ledger", execution: "runtime-local", runView: "projection" },
@@ -40,7 +41,7 @@ const expectedResidency = {
   task: { authored: "ledger" },
 } as const;
 
-test("one named kind-contract authority explains all twelve entity kinds with one shape", () => {
+test("one named kind-contract authority explains all thirteen entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);
@@ -69,7 +70,21 @@ test("one named kind-contract authority explains all twelve entity kinds with on
   });
   assert.deepEqual(
     schedule?.transitions.actions.map(({ id }) => id),
-    ["create", "update", "delete", "enable", "disable", "run-now", "fire", "settle"],
+    [
+      "create",
+      "update",
+      "delete",
+      "enable",
+      "disable",
+      "run-now",
+      "claim",
+      "link",
+      "record-missed",
+      "settle",
+      "list",
+      "runs",
+      "show",
+    ],
   );
   assert.equal(
     schedule?.transitions.actions.some((action) => Object.hasOwn(action, "admission")),
@@ -104,18 +119,6 @@ test("every Action declares version, target, and SDK exposure metadata", () => {
   }
 });
 
-test("kind identity views are derived from the ref grammar authority without leaking parser metadata", () => {
-  for (const authority of entityKindRefAuthorities) {
-    const contract = getEntityKindContract(authority.kind);
-    assert.ok(contract);
-    assert.deepEqual(contract.id, {
-      field: authority.field,
-      pattern: authority.pattern,
-      refTemplate: authority.refTemplate,
-    });
-  }
-});
-
 test("generic entity-store boundaries stay aligned with the kind authority", () => {
   for (const kind of ["task", "fact", "decision"] as const) {
     const contract = entityKindContracts.find((candidate) => candidate.kind === kind),
@@ -123,7 +126,8 @@ test("generic entity-store boundaries stay aligned with the kind authority", () 
     assert.ok(framework);
     assert.throws(() => requireEntityStoreKindContract(kind), /no generic entity-store surface/u);
   }
-  assert.equal(getEntityKindContract("relation"), undefined);
+  assert.equal(getEntityKindContract("relation")?.kind, "relation");
+  assert.throws(() => requireEntityStoreKindContract("relation"), /no generic entity-store surface/u);
   assert.equal(getEntityKindContract("session"), undefined);
   assert.equal(requireEntityStoreKindContract("agent").kind, "agent");
   assert.equal(requireEntityStoreKindContract("squad").kind, "squad");

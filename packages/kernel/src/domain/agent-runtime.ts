@@ -144,7 +144,7 @@ export const runtimeSessionEntityV1Schema = Object.freeze({
     schema: { type: "string", const: "runtime-session/v1", description: "Schema discriminator." },
     runtimeSessionId: {
       type: "string",
-      pattern: "^runtime_[a-z0-9]+$",
+      pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
       minLength: 1,
       description: "Stable runtime session identity.",
     },
