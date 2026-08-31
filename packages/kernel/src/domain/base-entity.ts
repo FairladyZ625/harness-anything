@@ -119,7 +119,7 @@ const reviewIdentity = Object.freeze({
 });
 const runtimeSessionIdentity = Object.freeze({
   field: "runtimeSessionId",
-  pattern: "^runtime_[a-z0-9]+$",
+  pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
   refTemplate: "runtime-session/{id}" as const,
 });
 const scheduleIdentity = Object.freeze({

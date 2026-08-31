@@ -40,6 +40,10 @@ import type {
   RelationFactRow,
   RelationGraphEdgeRow,
 } from "./relation-graph-projection.ts";
+import {
+  normalizeLegacyRelationMigrationEvent,
+  normalizeLegacyRelationRecord,
+} from "./relation-migration-normalization.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
 import { coverageOf } from "../domain/decision-coverage.ts";
@@ -118,6 +122,7 @@ interface AuthoredEventRead {
   readonly rows: readonly EventFactSource[];
   readonly relations: readonly RelationEntry[];
   readonly legacyFactRefs: ReadonlyMap<string, string>;
+  readonly legacyRelationIds: ReadonlyMap<string, string>;
   readonly issues: readonly ColdRebuildIssue[];
 }
 
@@ -165,7 +170,7 @@ function readColdRebuildSourceInternal(
     factRows = new Map(eventFacts.map(({ identityRef, row }) => [identityRef, row])),
     knownFactRefs = new Set([...factRows.keys(), ...seedTruth.factAnchors.map(({ factRef }) => factRef)]),
     legacyFactRefs = new Map<string, string>(eventRead.legacyFactRefs),
-    legacyRelationIds = new Map<string, string>(),
+    legacyRelationIds = new Map<string, string>(eventRead.legacyRelationIds),
     factAnchors = new Map<string, FactAnchorRow>(seedTruth.factAnchors.map((row) => [row.factRef, row]));
   const entries: RelationEntry[] = [],
     decisionAnchors: DecisionAnchorTruth[] = [];
@@ -644,6 +649,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
     relations: RelationEntry[] = [],
     relationHistory: Array<RelationEventV1 | MigrationImportEventV1> = [],
     legacyFactRefs = new Map<string, string>(),
+    legacyRelationIds = new Map<string, string>(),
     issues: ColdRebuildIssue[] = [];
   for (const file of listColdRebuildFiles(eventsRoot).filter(
     (candidate) => path.extname(candidate) === ".json" && path.basename(candidate) !== "head.json",
@@ -760,11 +766,24 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           ),
         );
       }
-    } else if (entity.kind === "relation") relationHistory.push(event);
+    } else if (entity.kind === "relation") {
+      if (allowLegacyFactRefs)
+        for (const endpoint of [entity.relation.source, entity.relation.target]) {
+          const match = /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(endpoint);
+          if (match) legacyFactRefs.set(endpoint, `fact/${match[1]}`);
+        }
+      relationHistory.push(event);
+    }
   }
   const projected = new Map<string, { readonly entity: RelationEntity; readonly sourcePath: string }>();
-  for (const event of relationHistory.sort((a, b) => a.workspaceRevision - b.workspaceRevision)) {
-    const migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
+  for (const sourceEvent of relationHistory.sort((a, b) => a.workspaceRevision - b.workspaceRevision)) {
+    const event =
+        allowLegacyFactRefs &&
+        sourceEvent.schema === "migration-import-event/v1" &&
+        sourceEvent.payload.entity.kind === "relation"
+          ? normalizeLegacyRelationMigrationEvent(sourceEvent, legacyFactRefs, legacyRelationIds)
+          : sourceEvent,
+      migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
       relationId =
         migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId,
       entity = reduceRelationEntity(projected.get(relationId)?.entity ?? null, event);
@@ -772,7 +791,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
   }
   for (const { entity, sourcePath: eventPath } of projected.values())
     relations.push(relationEntry(relationRecord(entity), relationOwnerRef(entity.source), eventPath, 0));
-  return { rows: [...rows.values()], relations, legacyFactRefs, issues };
+  return { rows: [...rows.values()], relations, legacyFactRefs, legacyRelationIds, issues };
 }
 
 function addEventFactSource(
@@ -831,19 +850,6 @@ function parseLegacyFactEvent(body: string): FactEventV1 | null {
     return null;
   const envelope = { ...candidate, schema: candidate.schema };
   return isFactEvent(envelope) ? envelope : null;
-}
-
-function normalizeLegacyRelationRecord(
-  record: EntityRelationRecord,
-  legacyFactRefs: ReadonlyMap<string, string>,
-  legacyRelationIds?: Map<string, string>,
-): EntityRelationRecord {
-  const source = legacyFactRefs.get(record.source) ?? record.source,
-    target = legacyFactRefs.get(record.target) ?? record.target;
-  if (source === record.source && target === record.target) return record;
-  const relation_id = deriveRelationId({ source, target, type: record.type, direction: record.direction });
-  legacyRelationIds?.set(record.relation_id, relation_id);
-  return { ...record, source, target, relation_id };
 }
 
 function relationProvenance(

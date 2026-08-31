@@ -1,10 +1,11 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
+import type { AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { entityKindContracts } from "../domain/entity-kind-registry.ts";
 import { interpretEmbeddedEntityProjections } from "../domain/entity-kind-projection.ts";
-import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
+import { deriveRelationId, relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle-event.ts";
 import {
   assertRelationRecord,
@@ -70,9 +71,26 @@ export function applyRelationProjectionEvent(
 
 export function applyEmbeddedRelationProjectionEvents(
   db: DatabaseSync,
-  event: DecisionEventV1 | FactEventV1 | TaskEventV1,
+  event: AgentRuntimeEventV1 | DecisionEventV1 | FactEventV1 | TaskEventV1,
 ): void {
-  for (const relationEvent of embeddedRelationEventsForReplay(event)) applyRelationProjectionEvent(db, relationEvent);
+  if (event.schema !== "agent-runtime-event/v1")
+    for (const relationEvent of embeddedRelationEventsForReplay(event)) applyRelationProjectionEvent(db, relationEvent);
+  if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_task_bound") {
+    const identity = {
+      source: `runtime-session/${event.payload.runtimeSessionId}`,
+      target: `task/${event.payload.taskId}`,
+      type: "executes" as const,
+      direction: "directed" as const,
+    };
+    projectDerivedRelation(db, event, {
+      relation_id: deriveRelationId(identity),
+      ...identity,
+      strength: "strong",
+      origin: "generated",
+      state: "active",
+      rationale: "Runtime session is bound to the task execution.",
+    });
+  }
   for (const contract of entityKindContracts)
     for (const projection of interpretEmbeddedEntityProjections(contract, event))
       for (const relation of projection.relations) {
@@ -87,24 +105,32 @@ export function applyEmbeddedRelationProjectionEvents(
           state: relation.state,
           rationale: relation.rationale,
         } as EntityRelationRecord;
-        assertRelationRecord(record);
-        const current = readRelationProjectionRow(db, record.relation_id);
-        if (current === null)
-          applyRelationProjectionEvent(db, {
-            schema: "relation-event/v1",
-            eventId: event.eventId,
-            workspaceRevision: event.workspaceRevision,
-            opId: event.opId,
-            relationId: record.relation_id,
-            type: "relation_created",
-            actor: event.actor,
-            source: event.source,
-            occurredAt: event.occurredAt,
-            payload: { relation: record },
-          });
-        else if (canonicalJson(relationRecord(current.entity)) !== canonicalJson(record))
-          throw new Error(`Embedded relation ${record.relation_id} changed identity`);
+        projectDerivedRelation(db, event, record);
       }
+}
+
+function projectDerivedRelation(
+  db: DatabaseSync,
+  event: AgentRuntimeEventV1 | DecisionEventV1 | FactEventV1 | TaskEventV1,
+  record: EntityRelationRecord,
+): void {
+  assertRelationRecord(record);
+  const current = readRelationProjectionRow(db, record.relation_id);
+  if (current === null)
+    applyRelationProjectionEvent(db, {
+      schema: "relation-event/v1",
+      eventId: event.eventId,
+      workspaceRevision: event.workspaceRevision,
+      opId: event.opId,
+      relationId: record.relation_id,
+      type: "relation_created",
+      actor: event.actor,
+      source: event.source,
+      occurredAt: event.occurredAt,
+      payload: { relation: record },
+    });
+  else if (canonicalJson(relationRecord(current.entity)) !== canonicalJson(record))
+    throw new Error(`Embedded relation ${record.relation_id} changed identity`);
 }
 
 export function readRelationProjectionRow(db: DatabaseSync, relationId: string): VersionedRelationProjectionRow | null {

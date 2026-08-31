@@ -393,7 +393,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         body: "## 背景\nResident bridge test.\n\n## 权衡\nTyped receipts over local optimism.\n\n## 结论\nUse daemon facets.\n",
         claims: [],
         fulfillments: [],
-        relations: [],
       }),
     );
     assert.equal(proposed.ok, true, JSON.stringify(proposed));

@@ -52,7 +52,7 @@ import {
   refreshRuntimeSessionAssociations,
 } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, runSql } from "./rebuildable-task-projection-sql.ts";
-import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
+import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -336,6 +336,7 @@ export function applyEvent(
         refreshRuntimeSessionAssociations(db, session);
       }
     }
+    applyEmbeddedRelationProjectionEvents(db, event);
     return;
   }
   if (isDocEvent(event)) {
