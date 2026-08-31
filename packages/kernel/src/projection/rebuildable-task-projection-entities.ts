@@ -1,9 +1,11 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
+import { runtimeSessionEntityV1, type RuntimeSession } from "../domain/agent-runtime.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import {
   deriveEntityProjection,
   interpretEmbeddedEntityProjections,
+  interpretEntityValue,
   type InterpretedEntityValue,
   type InterpretedEntityProjection,
 } from "../domain/entity-kind-projection.ts";
@@ -29,6 +31,23 @@ const GET_ENTITY_SQL = [
 export function projectEmbeddedCanonicalEntities(db: DatabaseSync, event: CanonicalEventV1): void {
   for (const contract of entityKindContracts)
     for (const projection of interpretEmbeddedEntityProjections(contract, event)) writeEntityProjection(db, projection);
+}
+
+export function projectRuntimeSessionCanonicalEntity(
+  db: DatabaseSync,
+  session: RuntimeSession,
+  workspaceRevision: number,
+  sourcePath: string,
+): void {
+  const contract = entityKindContracts.find(({ kind }) => kind === "runtime-session");
+  if (!contract) throw new Error("RuntimeSession EntityKindContract is unavailable");
+  projectInterpretedEntityValue(
+    db,
+    contract,
+    interpretEntityValue(contract, runtimeSessionEntityV1(session)),
+    workspaceRevision,
+    sourcePath,
+  );
 }
 
 export function projectInterpretedEntityValue(

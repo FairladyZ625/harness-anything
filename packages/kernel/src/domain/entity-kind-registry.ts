@@ -4,7 +4,7 @@ import decisionPackageJsonSchema from "../../schemas/json/decision-package.schem
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
-import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
+import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
 import { decisionEventTypes, decisionStates } from "./decision-event-types.ts";
 import {
   requireEntityTypeContract,
@@ -50,6 +50,7 @@ import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
+import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -549,6 +550,11 @@ const agentActionCatalog = createAgentActionCatalog(
   actionResultContract,
 );
 
+const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
+  (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -859,7 +865,10 @@ export const entityKindContracts = Object.freeze([
       directions: ["directed"],
       edges: [{ type: "executes", sourceKind: "runtime-session", targetKind: "task" }],
     },
-    canonicalProjection: null,
+    canonicalProjection: {
+      embeddedEvents: [],
+      row: { idField: "runtimeSessionId", ownerField: null },
+    },
     statusVocabulary: [
       { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
       { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
@@ -868,12 +877,7 @@ export const entityKindContracts = Object.freeze([
         words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
       },
     ],
-    actionCatalog: actionCatalog(
-      "kernel/agent-runtime-event/v1",
-      "runtime-session",
-      runtimeSessionIdentity,
-      agentRuntimeEventTypes.filter((type) => type.startsWith("runtime_session_")),
-    ),
+    actionCatalog: runtimeSessionActionCatalog,
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,

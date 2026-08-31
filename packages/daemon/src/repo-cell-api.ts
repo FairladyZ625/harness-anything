@@ -7,6 +7,7 @@ import {
   projectDecisionReadiness,
   relationDirections,
   relationStates,
+  runtimeSessionActionIds,
   timestamp,
   type AuthorizationDecision,
   type CanonicalEventStore,
@@ -115,7 +116,7 @@ export interface RepoCellApiContext {
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
   readonly settingsActions: RepoCellSettingsActions;
   readonly peopleActions: RepoCellPeopleActions;
-  readonly appendRuntimeIngress: RepoCellOperationalContext["appendRuntimeIngress"];
+  readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
   readonly catalog: RepoCell["catalog"];
   readonly terminal: RepoCell["terminal"];
@@ -690,16 +691,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       judgments: repoCellTaskQueryJudgments,
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
-  const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
-    const verified = bindVerifiedExecutorClaim({
-      action: { kind: "runtime-spawn", ...payload },
-      binding,
-      projection: context.projection,
-      now: context.now(),
-    });
-    binding = verified.binding;
-    payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
-    const command = commandDescriptorForAction("runtime-run"),
+  const enqueueRuntimePublication = (
+    commandKind: "runtime-run" | "runtime-cancel",
+    policyAction: RepoTaskAction,
+    binding: RepoCellBinding,
+    execute: (authorizedBinding: RepoCellBinding, revision: number) => JsonObject | Promise<JsonObject>,
+  ): Promise<JsonObject> => {
+    const command = commandDescriptorForAction(commandKind),
       admission = admitRepoMode(context.mode, command, binding.source);
     if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
     context.queueDepth += 1;
@@ -711,11 +709,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
       const revision = context.store.readHead()?.revision ?? 0,
-        action = { kind: "runtime-spawn", ...payload },
         authorizationDecision = authorizeRepoCellAction({
-          action,
+          action: policyAction,
           binding,
-          actionId: context.operationId(action, binding, context.input.repoId, revision),
+          actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
           revision,
           now: context.now(),
         });
@@ -724,7 +721,37 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           code: "authorization_denied",
           authorizationDecision,
         });
-      const authorizedBinding = { ...binding, authorizationDecision };
+      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
+      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
+      try {
+        const result = await execute({ ...binding, authorizationDecision }, revision);
+        return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
+      } finally {
+        context.activeWriterEpochGuard = null;
+        context.activeWriterEpochFence = null;
+      }
+    });
+    context.tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    void pending.then(
+      () => context.replica.kick(),
+      () => context.replica.kick(),
+    );
+    return pending;
+  };
+  const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
+    const verified = bindVerifiedExecutorClaim({
+      action: { kind: "runtime-spawn", ...payload },
+      binding,
+      projection: context.projection,
+      now: context.now(),
+    });
+    binding = verified.binding;
+    payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
+    const action = { kind: "runtime-spawn", ...payload };
+    return enqueueRuntimePublication("runtime-run", action, binding, async (authorizedBinding, revision) => {
       const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
         readyTask = await waitForOptionalTaskProjection({
           invalidWait: (message) => context.cellCodedError("invalid_command", message),
@@ -758,30 +785,23 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         const startAction = { kind: "task-start", taskId },
           startDecision = authorizeRepoCellAction({
             action: startAction,
-            binding,
-            actionId: context.operationId(startAction, binding, context.input.repoId, revision),
+            binding: authorizedBinding,
+            actionId: context.operationId(startAction, authorizedBinding, context.input.repoId, revision),
             revision,
             now: context.now(),
           }),
-          started = await context.executeAction(startAction, { ...binding, authorizationDecision: startDecision });
+          started = await context.executeAction(startAction, {
+            ...authorizedBinding,
+            authorizationDecision: startDecision,
+          });
         if (started.outcome !== "applied")
           throw context.cellCodedError(
             started.code ?? "runtime_task_lease_required",
             started.nextAction ?? `Task ${taskId} could not acquire an execution lease for runtime dispatch.`,
           );
       }
-      const result = await context.runtimeSpawner.spawn(payload, authorizedBinding);
-      return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
+      return context.runtimeSpawner.spawn(payload, authorizedBinding);
     });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
   };
   const cancelRuntime: RepoCell["cancelRuntime"] = (payload, binding) => {
     const verified = bindVerifiedExecutorClaim({
@@ -792,43 +812,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     });
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
-    const command = commandDescriptorForAction("runtime-cancel"),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        action = { kind: "runtime-cancel", ...payload },
-        authorizationDecision = authorizeRepoCellAction({
-          action,
-          binding,
-          actionId: context.operationId(action, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
-          code: "authorization_denied",
-          authorizationDecision,
-        });
-      const result = await context.runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
-      return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
-    });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
+    return enqueueRuntimePublication(
+      "runtime-cancel",
+      { kind: "runtime-cancel", ...payload },
+      binding,
+      (authorizedBinding) => context.runtimeSpawner.cancel(payload, authorizedBinding),
     );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
   };
   const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding) => {
     if (
@@ -843,46 +832,30 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           executor: { kind: "agent", id: `runtime-session:${action.payload.runtimeSessionId}` },
         },
       };
-    const command = commandDescriptorForAction("runtime-run"),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") context.attemptRecovery();
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        policyAction = { ...action, kind: "runtime-run" },
-        authorizationDecision = authorizeRepoCellAction({
-          action: policyAction,
-          binding,
-          actionId: context.operationId(policyAction, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {
-          code: "authorization_denied",
-          authorizationDecision,
-        });
-      binding.assertWriterEpoch?.();
-      return Promise.resolve(context.appendRuntimeIngress(action, { ...binding, authorizationDecision })).then(
-        (result) => ({
-          ...result,
-          authorizationDecision: authorizationDecision as unknown as JsonObject,
-        }),
-      );
+    const policyAction = { ...action, kind: "runtime-run" };
+    return enqueueRuntimePublication("runtime-run", policyAction, binding, async (authorizedBinding) => {
+      if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
+        const catalogAction = {
+            kind: action.type,
+            ...action.payload,
+            ...(action.resultBody === undefined ? {} : { resultBody: action.resultBody }),
+            idempotencyKey: action.opId,
+          },
+          receipt = await context.extracted.entityActionExecutor.run(
+            catalogAction,
+            authorizedBinding,
+            action.opId,
+            context.extracted.entityActionRuntimes,
+          );
+        return {
+          schema: "command-receipt/v2",
+          ok: receipt.outcome === "applied" || receipt.outcome === "no_changes",
+          command: "runtime-ingress",
+          ...receipt,
+        } as unknown as JsonObject;
+      }
+      return context.appendAuxiliaryRuntimeIngress(action, authorizedBinding);
     });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
