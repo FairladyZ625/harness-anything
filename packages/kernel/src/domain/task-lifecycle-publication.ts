@@ -216,7 +216,8 @@ export function renderLifecycleDocument(
   base: string | null,
 ): string {
   if (path.endsWith("/INDEX.md")) return renderIndex(event, snapshot, path, base);
-  if (path.endsWith("/task-contract.json")) return renderContract(snapshot, base);
+  if (path.endsWith("/task-contract.json"))
+    return renderContract(snapshot, base, path.slice(0, -"/task-contract.json".length));
   if (path.endsWith("/module.md")) return renderModule(snapshot);
   if (path.endsWith("/task_plan.md") && retitledTaskPlanPath(event, path.slice(0, -"/task_plan.md".length)) !== null)
     return renderTaskPlan(snapshot, path, base);
@@ -337,7 +338,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     .replace(/^  status:.*$/mu, `  status: ${task.status}`)
     .replace(/## Next\n[\s\S]*$/u, `## Next\n\n${next}\n\n## Gate Checks\n\n${gates}\n`);
 }
-function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): string {
+function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null, packagePath: string): string {
   const task = snapshot.task!,
     current = base ? (JSON.parse(base) as Record<string, unknown>) : {},
     metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown,
@@ -348,9 +349,11 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): s
       schema: "task-contract/v1",
       contractVersion: task.contractVersion ?? 1,
       taskId: task.taskId,
+      packagePath,
       title: task.title,
       taskClass: task.taskClass,
       pinned: task.pinned,
+      presetSnapshotDigest: task.presetSnapshotDigest,
       metadata,
       relations,
     },

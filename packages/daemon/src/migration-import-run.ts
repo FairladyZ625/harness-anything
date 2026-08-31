@@ -91,6 +91,7 @@ import {
 } from "./migration-import-tasks.ts";
 import {
   readLegacyTaskRestatements,
+  type RestatedTaskContract,
   taskContractRestatementCounts,
   type LegacyTaskRestatement,
 } from "./migration-import-task-restatement.ts";
@@ -191,6 +192,7 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly alreadyImported: Record<EntityKind, number>;
   readonly taskRead: ReturnType<typeof readMarkdownSource>;
   readonly legacyTaskRestatements: ReadonlyMap<string, LegacyTaskRestatement>;
+  readonly taskContracts: Map<string, RestatedTaskContract>;
   readonly oracle: MigrationProjectionOracle;
   readonly fieldDerivations: MigrationFieldDerivation[];
   readonly dispositions: MigrationDisposition[];
@@ -307,6 +309,7 @@ export async function runSingleMigrationImport(
     >,
     retiredIds = new Set<string>(),
     nativeExecutionIds = new Set<string>();
+  const taskContracts = new Map<string, RestatedTaskContract>();
   const extracted: MigrationImportContext = {
     sourceRoot,
     message,
@@ -372,6 +375,7 @@ export async function runSingleMigrationImport(
     migrationImportError,
     taskRead,
     legacyTaskRestatements: legacyTaskRead.tasks,
+    taskContracts,
     oracle,
     fieldDerivations,
     dispositions,

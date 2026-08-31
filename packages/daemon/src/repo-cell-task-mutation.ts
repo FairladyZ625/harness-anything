@@ -113,7 +113,7 @@ export function taskMutation(
       },
     };
   }
-  if (activeLease && !pinOnlyAmend)
+  if (activeLease && !pinOnlyAmend && action.kind !== "task-contract-migrate")
     throw cell.cellCodedError("active_lease", `Run ha task release ${task.taskId} before ${action.kind}.`);
   if (action.kind === "task-amend") {
     const patches = amendPatches,
@@ -340,18 +340,30 @@ export function taskMutation(
     };
   }
   if (action.kind === "task-contract-migrate") {
-    if ((task.contractVersion ?? 0) >= 1)
+    const repairedDigest =
+      typeof action.repairPresetSnapshotDigest === "string" &&
+      /^sha256:[0-9a-f]{64}$/u.test(action.repairPresetSnapshotDigest)
+        ? (action.repairPresetSnapshotDigest as `sha256:${string}`)
+        : null;
+    if ((task.contractVersion ?? 0) >= 1 && repairedDigest === null)
       throw cell.cellCodedError(
         "contract_current",
         `Task ${task.taskId} already has task-contract/v1; run ha task show ${task.taskId} to inspect it.`,
       );
     return {
       type: "task_contract_migrated",
-      task: { ...task, contractVersion: 1 },
+      task: {
+        ...task,
+        contractVersion: 1,
+        ...(repairedDigest === null ? {} : { presetSnapshotDigest: repairedDigest }),
+      },
       audit: {
         command: "contract-migrate",
-        reason: "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
-        fields: ["contractVersion"],
+        reason:
+          repairedDigest === null
+            ? "Backfilled immutable task-contract/v1 from unambiguous L1 task truth"
+            : "Repaired migrated task preset digest and canonical task-contract package path",
+        fields: repairedDigest === null ? ["contractVersion"] : ["contractVersion", "presetSnapshotDigest"],
       },
     };
   }

@@ -1,9 +1,11 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   canonicalizeContractValue,
   consumeKnownError,
   normalizePersistedCanonicalEvent,
+  readSettingsFacet,
+  resolveHarnessLayout,
   validateMigrationImportEvent,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
@@ -12,6 +14,7 @@ import {
   type PersistedCanonicalEventV1,
   type TaskV2,
 } from "../../kernel/src/index.ts";
+import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 
 export interface LegacyTaskRestatement {
   readonly taskId: string;
@@ -38,6 +41,168 @@ export interface LegacyTaskEventInput {
   readonly sourcePath: string;
   readonly value: unknown;
   readonly body?: string;
+}
+
+export interface RestatedTaskContract {
+  readonly body: string;
+  readonly presetSnapshotDigest: `sha256:${string}`;
+  readonly source: "contract" | "compiled";
+}
+
+export interface TaskContractCompileFallback {
+  readonly title?: unknown;
+  readonly taskClass?: unknown;
+  readonly verticalId?: unknown;
+  readonly presetId?: unknown;
+  readonly profileId?: unknown;
+  readonly locale?: unknown;
+  readonly slug?: unknown;
+}
+
+/** Restates the machine contract into its migrated package and derives the immutable preset digest when needed. */
+export function restateTaskContract(input: {
+  readonly sourceRoot: string;
+  readonly sourcePackageRoot: string;
+  readonly targetTaskId: string;
+  readonly targetPackagePath: string;
+  readonly fallback?: TaskContractCompileFallback;
+}): RestatedTaskContract | null {
+  const contractPath = path.join(input.sourcePackageRoot, "task-contract.json");
+  if (!existsSync(contractPath)) return null;
+  return restateTaskContractBody({
+    sourceRoot: input.sourceRoot,
+    sourcePath: portablePath(path.relative(input.sourceRoot, contractPath)),
+    body: readFileSync(contractPath, "utf8"),
+    targetTaskId: input.targetTaskId,
+    targetPackagePath: input.targetPackagePath,
+    fallback: input.fallback,
+  });
+}
+
+export function compileRestatedTaskContract(input: {
+  readonly sourceRoot: string;
+  readonly sourcePath: string;
+  readonly targetTaskId: string;
+  readonly targetPackagePath: string;
+  readonly fallback: TaskContractCompileFallback;
+}): RestatedTaskContract {
+  const compiled = compileContract(input.sourceRoot, input.targetTaskId, input.fallback),
+    document = compiled.documents.find(({ slot }) => slot === "task.contract");
+  if (!document) throw new Error(`${input.sourcePath}: compiled task package has no task.contract document`);
+  return {
+    ...restateTaskContractBody({ ...input, body: document.body }),
+    source: "compiled",
+  };
+}
+
+export function restateTaskContractBody(input: {
+  readonly sourceRoot: string;
+  readonly sourcePath: string;
+  readonly body: string;
+  readonly targetTaskId: string;
+  readonly targetPackagePath: string;
+  readonly fallback?: TaskContractCompileFallback;
+}): RestatedTaskContract {
+  let contract: Record<string, unknown>;
+  try {
+    const value = JSON.parse(input.body) as unknown;
+    if (!migrationImportRecord(value)) throw new Error("root must be an object");
+    contract = value;
+  } catch (error) {
+    throw new Error(`${input.sourcePath}: invalid task-contract.json`, { cause: error });
+  }
+  const declaredDigest = contract.presetSnapshotDigest;
+  if (declaredDigest !== undefined && declaredDigest !== null && !presetDigest(declaredDigest))
+    throw new Error(`${input.sourcePath}: presetSnapshotDigest is not SHA-256`);
+  const metadata = contractCompileMetadata(contract, input.fallback),
+    settings = readSettingsFacet(
+      readFileSync(path.join(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"), "utf8"),
+    );
+  let digest = presetDigest(declaredDigest) ? declaredDigest : null,
+    source: RestatedTaskContract["source"] = "contract";
+  if (digest === null) {
+    try {
+      digest = compileContract(input.sourceRoot, input.targetTaskId, metadata).snapshot.digest;
+      source = "compiled";
+    } catch (error) {
+      throw new Error(`${input.sourcePath}: cannot derive presetSnapshotDigest from task contract metadata`, {
+        cause: error,
+      });
+    }
+  }
+  return {
+    presetSnapshotDigest: digest,
+    source,
+    body: `${JSON.stringify(
+      {
+        ...contract,
+        schema: "task-contract/v1",
+        contractVersion: 1,
+        taskId: input.targetTaskId,
+        packagePath: input.targetPackagePath,
+        title: metadata.title,
+        taskClass: metadata.taskClass ?? "standard",
+        verticalId: metadata.verticalId ?? settings.defaultVertical,
+        presetId: metadata.presetId ?? settings.defaultPreset,
+        profileId: metadata.profileId ?? settings.defaultProfile,
+        locale: metadata.locale ?? settings.locale,
+        ...(Array.isArray(contract.documents) ? { documents: normalizeContractDocuments(contract.documents) } : {}),
+        presetSnapshotDigest: digest,
+      },
+      null,
+      2,
+    )}\n`,
+  };
+}
+
+function compileContract(sourceRoot: string, taskId: string, metadata: TaskContractCompileFallback) {
+  const authoredRoot = resolveHarnessLayout(sourceRoot).authoredRoot,
+    settings = readSettingsFacet(readFileSync(path.join(authoredRoot, "harness.yaml"), "utf8"));
+  return compileRepoTaskPackage({
+    rootDir: sourceRoot,
+    settings,
+    taskId,
+    action: {
+      kind: "task-create",
+      title: metadata.title,
+      taskClass: metadata.taskClass,
+      verticalId: metadata.verticalId,
+      presetId: metadata.presetId,
+      profileId: metadata.profileId,
+      locale: metadata.locale,
+      slug: metadata.slug,
+    },
+  });
+}
+
+function contractCompileMetadata(
+  contract: Readonly<Record<string, unknown>>,
+  fallback: TaskContractCompileFallback | undefined,
+): TaskContractCompileFallback {
+  const preset = migrationImportRecord(contract.preset) ? contract.preset : {},
+    profile = migrationImportRecord(contract.profile) ? contract.profile : {},
+    documentLocale = Array.isArray(contract.documents)
+      ? contract.documents
+          .filter(migrationImportRecord)
+          .map(({ locale }) => locale)
+          .find((locale) => typeof locale === "string")
+      : undefined;
+  return {
+    title: contract.title ?? fallback?.title,
+    taskClass: contract.taskClass ?? fallback?.taskClass,
+    verticalId: contract.verticalId ?? contract.vertical ?? fallback?.verticalId,
+    presetId: contract.presetId ?? preset.id ?? fallback?.presetId,
+    profileId: contract.profileId ?? profile.id ?? fallback?.profileId,
+    locale: contract.locale ?? documentLocale ?? fallback?.locale,
+    slug: contract.slug ?? fallback?.slug,
+  };
+}
+
+function normalizeContractDocuments(documents: readonly unknown[]): readonly unknown[] {
+  return documents.map((document) => {
+    if (!migrationImportRecord(document) || typeof document.path === "string") return document;
+    return typeof document.materializeAs === "string" ? { ...document, path: document.materializeAs } : document;
+  });
 }
 
 interface LegacyTaskSnapshot {
@@ -219,6 +384,10 @@ function listJsonFiles(root: string): readonly string[] {
 
 function portablePath(value: string): string {
   return value.split(path.sep).join("/");
+}
+
+function presetDigest(value: unknown): value is `sha256:${string}` {
+  return typeof value === "string" && /^sha256:[0-9a-f]{64}$/u.test(value);
 }
 
 function migrationImportRecord(value: unknown): value is Readonly<Record<string, unknown>> {
