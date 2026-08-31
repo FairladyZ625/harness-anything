@@ -4,6 +4,7 @@ import {
   type AgentRuntimeEventType,
   type AgentRuntimeEventV1,
   type RuntimeSession,
+  RuntimeSessionAdoptionStaleError,
 } from "./agent-runtime.ts";
 import type {
   EntityActionContract,
@@ -219,7 +220,7 @@ function compileRuntimeSessionAction(
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);
     invalidRuntimeSessionAction(
-      message.includes("launch generation is stale")
+      error instanceof RuntimeSessionAdoptionStaleError
         ? "runtime_session_adoption_stale"
         : "runtime_session_transition_invalid",
       message,

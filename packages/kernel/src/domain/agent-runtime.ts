@@ -11,6 +11,8 @@ import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
 
+export class RuntimeSessionAdoptionStaleError extends Error {}
+
 export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
 export const runtimeCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
 export const runtimeLivenessStates = ["live", "stale", "unknown", "exited"] as const;
@@ -454,7 +456,9 @@ export function reduceRuntimeSession(
   if (event.type === "runtime_session_started") {
     const value = event.payload;
     if (current !== null && value.launchGeneration <= current.launchGeneration)
-      throw new Error(`runtime session ${value.runtimeSessionId} launch generation is stale`);
+      throw new RuntimeSessionAdoptionStaleError(
+        `runtime session ${value.runtimeSessionId} launch generation is stale`,
+      );
     return {
       runtimeSessionId: value.runtimeSessionId,
       instanceId: value.instanceId,
