@@ -3,30 +3,57 @@
   "rows": [
     {
       "id": "lifecycle.event-publication",
-      "actions": ["task-create", "task-submit", "task-review-execution", "task-complete"],
+      "actions": [
+        "task-create",
+        "task-submit",
+        "task-review-execution",
+        "task-complete"
+      ],
       "authority": "packages/daemon/src/repo-cell.ts",
       "store": "packages/kernel/src/store/task-event-store.ts",
       "leasePolicy": "domain-contract",
-      "evidence": ["packages/daemon/src/repo-cell.ts", "packages/application/src/task-lifecycle-service.ts", "packages/kernel/src/store/task-event-store.ts", "packages/kernel/src/store/wal-event-log.ts"]
+      "evidence": [
+        "packages/daemon/src/repo-cell.ts",
+        "packages/application/src/task-lifecycle-service.ts",
+        "packages/kernel/src/store/task-event-store.ts",
+        "packages/kernel/src/store/wal-event-log.ts"
+      ]
     },
     {
       "id": "workspace.bootstrap",
-      "actions": ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"],
+      "actions": [
+        "repo-bootstrap",
+        "daemon-repo-register",
+        "daemon-repo-unregister"
+      ],
       "authority": "packages/daemon/src/daemon-host.ts",
-      "evidence": ["packages/daemon/src/daemon-host.ts", "packages/daemon/src/repo-bootstrap.ts", "packages/kernel/src/daemon/registry.ts"]
+      "evidence": [
+        "packages/daemon/src/daemon-host.ts",
+        "packages/daemon/src/repo-bootstrap.ts",
+        "packages/kernel/src/daemon/registry.ts"
+      ]
     },
     {
       "id": "daemon.runtime-control",
-      "actions": ["daemon-start", "daemon-stop"],
+      "actions": [
+        "daemon-start",
+        "daemon-stop"
+      ],
       "authority": "packages/daemon/src/runtime.ts",
-      "evidence": ["packages/cli/src/daemon/control.ts", "packages/daemon/src/runtime.ts", "packages/daemon/src/transport/unix-socket.ts"]
+      "evidence": [
+        "packages/cli/src/daemon/control.ts",
+        "packages/daemon/src/runtime.ts",
+        "packages/daemon/src/transport/unix-socket.ts"
+      ]
     },
     {
       "id": "projection.sqlite",
       "actions": [],
       "source": "task-event-store",
       "authority": "packages/kernel/src/projection/rebuildable-task-projection.ts",
-      "evidence": ["packages/kernel/src/projection/rebuildable-task-projection.ts"]
+      "evidence": [
+        "packages/kernel/src/projection/rebuildable-task-projection.ts"
+      ]
     }
   ],
   "physicalWriteFiles": [
@@ -35,30 +62,31 @@
     "packages/daemon/src/ci-observation-actions.ts",
     "packages/daemon/src/daemon-singleton.ts",
     "packages/daemon/src/dispatch-stream.ts",
+    "packages/daemon/src/doc-sync-candidate-scanner.ts",
     "packages/daemon/src/doc-sync-details.ts",
     "packages/daemon/src/doc-sync-files.ts",
-    "packages/daemon/src/doc-sync-candidate-scanner.ts",
+    "packages/daemon/src/durable-file.ts",
+    "packages/daemon/src/fleet-edge-mirror.ts",
     "packages/daemon/src/fleet/center-lease-claims.ts",
     "packages/daemon/src/fleet/center-listener.ts",
     "packages/daemon/src/fleet/edge.ts",
-    "packages/daemon/src/durable-file.ts",
-    "packages/daemon/src/writer-epoch.ts",
     "packages/daemon/src/fleet/replica-ack-store.ts",
     "packages/daemon/src/fleet/replica-cut-store.ts",
-    "packages/daemon/src/fleet-edge-mirror.ts",
     "packages/daemon/src/lifecycle-log.ts",
+    "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/repo-bootstrap.ts",
     "packages/daemon/src/repo-cell-errors.ts",
     "packages/daemon/src/repo-cell-lock.ts",
     "packages/daemon/src/request-log.ts",
     "packages/daemon/src/runtime.ts",
     "packages/daemon/src/transport/unix-socket.ts",
+    "packages/daemon/src/writer-epoch.ts",
     "packages/kernel/src/daemon/registry.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
     "packages/kernel/src/projection/sqlite-projection-store.ts",
     "packages/kernel/src/store/local-version-control-system.ts",
-    "packages/preset/src/preset-process-service.ts",
-    "packages/preset/src/preset-installation.ts"
+    "packages/preset/src/preset-installation.ts",
+    "packages/preset/src/preset-process-service.ts"
   ]
 }

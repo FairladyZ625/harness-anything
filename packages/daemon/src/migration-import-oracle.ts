@@ -3,6 +3,8 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { resolveHarnessLayout, type RelationGraphEdgeRow } from "../../kernel/src/index.ts";
 import { isMigrationImportRecord, migrationImportError, nonEmpty } from "./migration-import-report.ts";
+import { inspectMigrationSourceEvents, rebuildMigrationProjectionOracle } from "./migration-import-oracle-rebuild.ts";
+import type { MigrationFormatObservation } from "./migration-import-types.ts";
 
 export const migrationOracleKinds = ["task", "decision", "fact", "relation", "execution"] as const;
 export type MigrationOracleKind = (typeof migrationOracleKinds)[number];
@@ -48,6 +50,8 @@ export interface ProjectionOracleExecution {
 }
 
 export interface MigrationProjectionOracle {
+  readonly basis: "same-cut-projection" | "rebuilt-source";
+  readonly formatObservations: readonly MigrationFormatObservation[];
   readonly databasePath: string;
   readonly watermark: number;
   readonly eventHeadRevision: number | null;
@@ -67,11 +71,22 @@ interface SqlRow {
 export function readMigrationProjectionOracle(sourceRoot: string): MigrationProjectionOracle {
   const layout = resolveHarnessLayout(sourceRoot),
     databasePath = path.join(layout.localRoot, "cache", "task.sqlite");
-  if (!existsSync(databasePath))
-    throw migrationImportError(
-      "migration_projection_oracle_missing",
-      `Same-cut migration oracle is missing: ${path.relative(sourceRoot, databasePath)}.`,
-    );
+  if (!existsSync(databasePath)) return rebuildMigrationProjectionOracle(sourceRoot);
+  return readMigrationProjectionOracleAtPath(
+    sourceRoot,
+    databasePath,
+    "same-cut-projection",
+    inspectMigrationSourceEvents(sourceRoot).observations,
+  );
+}
+
+export function readMigrationProjectionOracleAtPath(
+  sourceRoot: string,
+  databasePath: string,
+  basis: MigrationProjectionOracle["basis"],
+  formatObservations: readonly MigrationFormatObservation[],
+): MigrationProjectionOracle {
+  const layout = resolveHarnessLayout(sourceRoot);
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     const meta = rows(database, "SELECT watermark FROM projection_meta WHERE singleton=1")[0],
@@ -183,6 +198,8 @@ export function readMigrationProjectionOracle(sourceRoot: string): MigrationProj
       ),
       coverage = rows(database, "SELECT COUNT(*) AS count FROM decision_claim WHERE load_bearing=1")[0];
     return {
+      basis,
+      formatObservations,
       databasePath,
       watermark,
       eventHeadRevision,
