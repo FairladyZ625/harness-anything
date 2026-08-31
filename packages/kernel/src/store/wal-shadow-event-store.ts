@@ -502,7 +502,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     if (hasWalRecords())
       throw new TaskEventStoreError(
         "publication_indeterminate",
-        `WAL drain exhausted ${retryLimit} attempts with ${wal.records().length} record(s) still pending checkpoint`,
+        `WAL drain exhausted ${retryLimit} attempts ` +
+          `with ${wal.records().length} record(s) still pending checkpoint`,
       );
   };
   const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
