@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
@@ -59,6 +60,7 @@ async function renderSurface(element: ReturnType<typeof createElement>): Promise
 
 afterEach(async () => {
   for (const { root } of mounted.splice(0)) await act(async () => root.unmount());
+  document.defaultView?.localStorage.clear();
   document.body.innerHTML = "";
 });
 
@@ -67,6 +69,17 @@ async function click(container: HTMLElement, testId: string): Promise<void> {
   if (target === null) throw new Error(`missing ${testId}`);
   await act(async () => {
     target.click();
+  });
+}
+
+async function pointer(target: HTMLElement, type: string, clientX: number, pointerId = 1): Promise<void> {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperties(event, {
+    clientX: { value: clientX },
+    pointerId: { value: pointerId },
+  });
+  await act(async () => {
+    target.dispatchEvent(event);
   });
 }
 
@@ -150,6 +163,36 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(drawer).not.toBeNull();
     expect(drawer?.style.width).toBe("420px");
     expect(container.querySelector('[data-testid="artifacts-drawer-resize"]')).not.toBeNull();
+  });
+
+  it("resizes the left drawer in the same direction as the pointer and keeps its bounds", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    const host = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer-row"]')!;
+    const handle = container.querySelector<HTMLElement>('[data-testid="artifacts-drawer-resize"]')!;
+    Object.defineProperty(host, "clientWidth", { configurable: true, value: 1_000 });
+    handle.setPointerCapture = vi.fn();
+
+    await pointer(handle, "pointerdown", 420);
+    await pointer(handle, "pointermove", 470);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("470px");
+
+    await pointer(handle, "pointermove", 370);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("370px");
+
+    await pointer(handle, "pointermove", 900);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("500px");
+
+    await pointer(handle, "pointermove", 0);
+    expect(container.querySelector<HTMLElement>('[data-testid="artifacts-drawer"]')?.style.width).toBe("200px");
   });
 
   it("collapses the drawer to a rail and restores it, remembering the state in localStorage", async () => {
@@ -250,6 +293,25 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(webview?.getAttribute("webpreferences")).toContain("sandbox=yes");
     expect(webview?.getAttribute("webpreferences")).toContain("javascript=no");
     expect(String(webview?.getAttribute("src")).startsWith("data:text/html;charset=utf-8,")).toBe(true);
+    // HTML 分支不再由父容器滚动或 42rem 最小高度撑开;高度链路一直 flex 到 webview,
+    // 长页面的滚动因此留在 guest 内部。
+    const content = container.querySelector<HTMLElement>('[data-testid="artifact-preview-content"]');
+    expect(content?.classList.contains("overflow-hidden")).toBe(true);
+    expect(content?.classList.contains("overflow-y-auto")).toBe(false);
+    const preview = container.querySelector<HTMLElement>('[data-testid="html-artifact-preview"]');
+    expect(preview?.classList.contains("h-full")).toBe(true);
+    expect(preview?.classList.contains("min-h-0")).toBe(true);
+    expect(preview?.classList.contains("flex-col")).toBe(true);
+    expect(preview?.classList.contains("html-artifact-preview-fill")).toBe(true);
+    const host = container.querySelector<HTMLElement>('[data-testid="html-artifact-host"]');
+    expect(host?.classList.contains("flex-1")).toBe(true);
+    expect(host?.classList.contains("min-h-0")).toBe(true);
+    const styles = readFileSync("src/renderer/styles.css", "utf8");
+    const webviewRule = styles.match(/\.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
+    const fillRule = styles.match(/\.html-artifact-preview-fill \.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
+    expect(webviewRule).toContain("height: 100%");
+    expect(webviewRule).toContain("max-width: 100%");
+    expect(fillRule).toContain("min-height: 0");
   });
 
   it("renders a Markdown artifact with the shared markdown reader, not a webview", async () => {
@@ -268,6 +330,11 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     await click(container, "artifact-focus-task_weathering-artifacts/report.md");
     await settle();
     expect(container.querySelector('[data-testid="html-artifact-webview"]')).toBeNull();
+    expect(
+      container
+        .querySelector<HTMLElement>('[data-testid="artifact-preview-content"]')
+        ?.classList.contains("overflow-y-auto"),
+    ).toBe(true);
     expect(container.textContent).toContain("Markdown report");
   });
 
