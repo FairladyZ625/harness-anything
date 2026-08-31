@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
+import { currentTaskForWrite } from "../domain/task.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { type MigrationDocumentClaim, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
@@ -69,7 +70,7 @@ export function projectMigration(
       event.workspaceRevision,
       canonicalJson({
         ...emptyTaskLifecycleSnapshot(event.workspaceRevision),
-        task: entity.task,
+        task: currentTaskForWrite(entity.task),
       }),
       entity.task.status,
       event.occurredAt,
