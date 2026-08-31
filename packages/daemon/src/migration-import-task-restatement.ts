@@ -192,7 +192,7 @@ function compileContractForRestatement(
     return { contract: compileContract(sourceRoot, taskId, metadata), metadata };
   } catch (error) {
     const code = codedError(error),
-      presetId = optionalText(metadata.presetId);
+      presetId = optionalTrimmedText(metadata.presetId);
     if (code === "preset_not_found" && presetId && retiredTaskPresetIds.has(presetId)) {
       const repaired = { ...metadata, presetId: "standard-task", taskClass: "standard" as const };
       return {
@@ -247,7 +247,7 @@ function codedError(error: unknown): string | null {
     : null;
 }
 
-function optionalText(value: unknown): string | null {
+function optionalTrimmedText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
