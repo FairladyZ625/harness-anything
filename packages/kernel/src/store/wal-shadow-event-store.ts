@@ -516,7 +516,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     if (hasWalRecords())
       throw new TaskEventStoreError(
         "publication_indeterminate",
-        `WAL ${context} exhausted ${retryLimit} attempts with ${wal.records().length} record(s) still pending checkpoint`,
+        `WAL ${context} exhausted ${retryLimit} attempts ` +
+          `with ${wal.records().length} record(s) still pending checkpoint`,
       );
   };
   const beginBulkWrite = (): { readonly finish: () => Promise<void> } => {
