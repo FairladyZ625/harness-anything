@@ -44,7 +44,11 @@ test("daemon-missing write rejects without autostart or local fallback", () => {
       false,
       "an unregistered workspace must not launch a daemon",
     );
-    const budgetMs = controlMs * 5 + 100;
+    // The constant term absorbs TS source-graph loading, which scales worse than bare Node
+    // startup on loaded CI runners (observed: control 33ms, CLI 296ms). A real autostart
+    // stall is the connect/hello backoff family (>=1s); the sibling preset test bounds the
+    // identical rejection path at an absolute 1_000ms, and this stays strictly inside that.
+    const budgetMs = controlMs * 5 + 500;
     assert.equal(
       elapsedMs < budgetMs,
       true,
