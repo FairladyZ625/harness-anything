@@ -31,6 +31,6 @@ function fields(value: Readonly<Record<string, unknown>>, required: readonly str
     (allowUnknown || Object.keys(value).every((field) => required.includes(field)))
   );
 }
-function record(value: unknown): value is Readonly<Record<string, unknown>> {
+export function record(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

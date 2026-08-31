@@ -32,11 +32,15 @@ type ExecutableAction = EntityActionContract & { readonly execution: EntityActio
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
 type CatalogBundle = FactBundle | DecisionBundle;
-export type TaskActionCatalogRunner = (
+export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ) => Promise<WriteReceipt>;
+export interface EntityActionCatalogRuntimes {
+  readonly schedule?: EntityActionCatalogRunner;
+  readonly task?: EntityActionCatalogRunner;
+}
 
 export function makeEntityActionCatalogExecutor(input: {
   readonly store: CanonicalEventStore;
@@ -79,19 +83,28 @@ export function makeEntityActionCatalogExecutor(input: {
     action: RepoTaskAction,
     binding: RepoCellBinding,
     opId: string,
-    taskRunner?: TaskActionCatalogRunner,
+    runtimes: EntityActionCatalogRuntimes = {},
   ): WriteReceipt | Promise<WriteReceipt> => {
     const contract = executableAction(action.kind);
+    if (contract.execution.implementation === "schedule-event") {
+      if (!runtimes.schedule)
+        throw Object.assign(new Error(`Action ${action.kind} requires the Schedule Action runtime.`), {
+          code: "unsupported_command",
+        });
+      return runtimes
+        .schedule(contract, action, binding)
+        .then((receipt) => deriveActionResult(contract, action, receipt));
+    }
     if (
       contract.execution.implementation !== "task-lifecycle" &&
       contract.execution.implementation !== "task-completion"
     )
       return runCompiled(action, binding, opId);
-    if (!taskRunner)
+    if (!runtimes.task)
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
       });
-    return taskRunner(contract, action, binding).then((receipt) => deriveActionResult(contract, action, receipt));
+    return runtimes.task(contract, action, binding).then((receipt) => deriveActionResult(contract, action, receipt));
   };
 
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
@@ -207,7 +220,14 @@ export function deriveActionResult(
   receipt: WriteReceipt,
 ): WriteReceipt {
   const rejected = receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate",
-    taskId = typeof action.taskId === "string" ? action.taskId : null,
+    targetIdField = contract.execution?.targetIdField ?? contract.execution?.lifecycle?.targetIdField ?? null,
+    receiptFields = receipt as WriteReceipt & Readonly<Record<string, unknown>>,
+    targetId =
+      targetIdField && typeof action[targetIdField] === "string"
+        ? action[targetIdField]
+        : targetIdField && typeof receiptFields[targetIdField] === "string"
+          ? receiptFields[targetIdField]
+          : null,
     unmetCriteria = rejected
       ? contract.criteria
           .filter((criterion) => criterion.failureCode === receipt.code)
@@ -223,11 +243,11 @@ export function deriveActionResult(
     unmetCriteria,
     effects: rejected ? [] : contract.effects.map(({ ref }) => ref),
     updatedProjection:
-      rejected || !taskId
+      rejected || !targetId
         ? null
         : {
             kind: contract.target.kind,
-            ref: contract.target.refTemplate.replace("{id}", taskId),
+            ref: contract.target.refTemplate.replace("{id}", targetId),
             revision: receipt.revision ?? null,
           },
     rejectionExplanation: explanation,
@@ -250,6 +270,7 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
 
 function compileDraft(projection: TaskProjection, draft: EntityActionDraft): CatalogBundle {
   if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
+  if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   const read = projection.readDecision(draft.event.decisionId);
   if (read.watermark !== read.sourceRevision)
     reject("content_not_ready", `Decision ${draft.event.decisionId} is pending.`);

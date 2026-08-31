@@ -196,13 +196,19 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "runtime-spawn":
       return authorizeRepoCellAction(input);
+    case "schedule-claim":
+      return authorizeRepoCellAction(input);
     case "schedule-create":
       return authorizeRepoCellAction(input);
     case "schedule-delete":
       return authorizeRepoCellAction(input);
     case "schedule-disable":
       return authorizeRepoCellAction(input);
+    case "schedule-dispatch-link":
+      return authorizeRepoCellAction(input);
     case "schedule-enable":
+      return authorizeRepoCellAction(input);
+    case "schedule-missed":
       return authorizeRepoCellAction(input);
     case "schedule-run-now":
       return authorizeRepoCellAction(input);
