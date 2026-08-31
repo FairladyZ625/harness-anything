@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
@@ -13,9 +13,12 @@ import {
   attributionFixture,
   hierarchyFixture,
   illegalRelationFixture,
+  legacyRelationCanonicalCollisionFixture,
   initRepo,
+  legacyRelationTypeFixture,
   orphanEndpointFixture,
   sources,
+  sourcesWithoutProjection,
 } from "./migration-import.fixtures.ts";
 test("task hierarchy and task-side relations replay into the event stream", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-hierarchy-")),
@@ -91,7 +94,117 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
   }
 });
 
-test("legacy relation parser issues remain diagnostic and do not shrink the same-cut oracle", async () => {
+test("each ratified legacy relation type replays canonically and reruns idempotently", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-relation-types-")),
+    source = path.join(scratch, "legacy"),
+    destination = path.join(scratch, "new"),
+    normalizedTypes = new Map([
+      ["decision/dec_F2_ACCEPT_RECKON/C1|fact/F-HKPMAP7K", "evidenced-by"],
+      ["decision/dec_F2_ACCEPT_RECKON/CH1|task/task_01KWPY434ZHW6ADS2TBC1N8TX6", "derives"],
+      ["decision/dec_M5_E76_CLI_AGENT_ERGONOMICS/C1|fact/F-96WCR25Q", "evidenced-by"],
+      ["decision/dec_VERT_DECISION_CONFORMANCE_PRESET/CH1|task/task_01KWMC7H04ZRY0VZ5MRR6M4XVQ", "relates"],
+    ]);
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    legacyRelationTypeFixture(source);
+    initRepo(destination);
+    cell = await openRepoCell({
+      repoId: workspaceId("migration-relation-type-target"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "migration-daemon",
+      now: () => "2026-08-31T00:00:00.000Z",
+    });
+    const sourceRoots = sourcesWithoutProjection(source),
+      applied = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
+        string,
+        unknown
+      >;
+    assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    const store = makeTaskEventStore({
+        repoId: "migration-relation-type-target",
+        rootDir: destination,
+      }),
+      first = store.read(),
+      relations = first.events.filter(
+        (event) =>
+          event.schema === "migration-import-event/v1" &&
+          event.payload.entity.kind === "relation" &&
+          normalizedTypes.has(`${event.payload.entity.relation.source}|${event.payload.entity.relation.target}`),
+      );
+    assert.equal(relations.length, 4);
+    for (const event of relations) {
+      if (event.schema !== "migration-import-event/v1" || event.payload.entity.kind !== "relation") continue;
+      const record = event.payload.entity.relation,
+        expectedType = normalizedTypes.get(`${record.source}|${record.target}`)!;
+      assert.equal(record.type, expectedType, `${record.source}|${record.target}`);
+      assert.equal(
+        record.relation_id,
+        deriveRelationId({
+          source: record.source,
+          target: record.target,
+          type: expectedType as typeof record.type,
+          direction: record.direction,
+        }),
+      );
+    }
+
+    const rerun = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
+        string,
+        unknown
+      >,
+      second = store.read();
+    assert.equal(rerun.exitCode, 0, JSON.stringify(rerun));
+    assert.equal(second.head?.revision, first.head?.revision);
+    assert.equal(second.events.length, first.events.length);
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("a canonical relation snapshot wins over its later retired legacy alias", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-relation-collision-")),
+    source = path.join(scratch, "legacy"),
+    destination = path.join(scratch, "new");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    legacyRelationCanonicalCollisionFixture(source);
+    initRepo(destination);
+    cell = await openRepoCell({
+      repoId: workspaceId("migration-relation-collision-target"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "migration-daemon",
+      now: () => "2026-08-31T00:00:00.000Z",
+    });
+    const applied = (await cell.run(
+      { kind: "migrate-import", sourceRoots: sourcesWithoutProjection(source) },
+      { actor, source: "local" },
+    )) as Record<string, unknown>;
+    assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    const events = makeTaskEventStore({
+        repoId: "migration-relation-collision-target",
+        rootDir: destination,
+      }).read().events,
+      matching = events.filter(
+        (event) =>
+          event.schema === "migration-import-event/v1" &&
+          event.payload.entity.kind === "relation" &&
+          event.payload.entity.relation.source === "decision/dec_VERT_DECISION_CONFORMANCE_PRESET/CH1" &&
+          event.payload.entity.relation.target === "task/task_01KWMC7H04ZRY0VZ5MRR6M4XVQ",
+      );
+    assert.equal(matching.length, 1);
+    const relation = matching[0];
+    assert.equal(relation?.schema, "migration-import-event/v1");
+    if (relation?.schema !== "migration-import-event/v1" || relation.payload.entity.kind !== "relation") return;
+    assert.equal(relation.payload.entity.relation.type, "relates");
+    assert.equal(relation.payload.entity.relation.state, "active");
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("unmapped legacy relation triples fail the row into the manual table", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-illegal-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
@@ -112,7 +225,11 @@ test("legacy relation parser issues remain diagnostic and do not shrink the same
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.match(String(dryRun.summary), /\| relation \| 2 \| 1 \| 2 \| 2 \| PASS \|/u);
     assert.match(String(dryRun.summary), /Format observations: 1 legacy parser observations/u);
-    assert.match(String(dryRun.summary), /type supports is not allowed for decision->fact/u);
+    assert.match(
+      String(dryRun.summary),
+      /\| relation \| rel_[a-f0-9]{16} \| FAIL \| .* \| manual adjudication required:/u,
+    );
+    assert.match(String(dryRun.summary), /no deterministic legacy mapping for decision --blocks--> fact/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

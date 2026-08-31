@@ -8,7 +8,10 @@ import {
   compileFactWrite,
   consumeKnownError,
   makeTaskProjection,
+  isMigrationImportEvent,
+  legacyRelationManualReason,
   normalizePersistedCanonicalEvent,
+  normalizeLegacyRelationMigrationEvent,
   parseCanonicalEvent,
   readLegacyMigrationSource,
   readMarkdownSource,
@@ -50,7 +53,10 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
     eventsRoot = path.join(layout.authoredRoot, "events"),
     observations: MigrationFormatObservation[] = [],
     syntheticBlobs = new Map<string, Uint8Array>(),
-    events: CanonicalEventV1[] = [];
+    events: CanonicalEventV1[] = [],
+    normalizedRelationAliases = new Set<string>(),
+    legacyRelationIds = new Map<string, string>(),
+    legacyFactRefs = new Map<string, string>();
   for (const file of jsonFiles(eventsRoot).filter((candidate) => path.basename(candidate) !== "head.json")) {
     const sourcePath = portable(path.relative(sourceRoot, file));
     let raw: unknown;
@@ -90,16 +96,47 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
         treatment: "mechanically_normalized",
       });
     event = normalizeScheduleFacet(sourceRoot, event, sourcePath, observations, syntheticBlobs);
+    if (isMigrationImportEvent(event) && event.payload.entity.kind === "relation") {
+      const legacyRelationId = event.payload.entity.relation.relation_id;
+      for (const endpoint of [event.payload.entity.relation.source, event.payload.entity.relation.target]) {
+        const match = /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(endpoint);
+        if (match) legacyFactRefs.set(endpoint, `fact/${match[1]}`);
+      }
+      event = normalizeLegacyRelationMigrationEvent(event, legacyFactRefs, legacyRelationIds);
+      const entity = event.payload.entity;
+      if (entity.kind !== "relation") throw new Error("Legacy relation normalization changed entity kind");
+      if (legacyRelationId !== entity.relation.relation_id) normalizedRelationAliases.add(event.opId);
+      if (legacyRelationManualReason(entity.relation) !== null) continue;
+    }
     events.push(event);
   }
-  events.sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.opId.localeCompare(right.opId));
-  const eventHeadRevision = readHeadRevision(eventsRoot) ?? events.at(-1)?.workspaceRevision ?? null;
-  if (eventHeadRevision !== null && events.some((event) => event.workspaceRevision > eventHeadRevision))
+  const canonicalRelationIds = new Set(
+      events.flatMap((event) =>
+        isMigrationImportEvent(event) &&
+        event.payload.entity.kind === "relation" &&
+        !normalizedRelationAliases.has(event.opId)
+          ? [event.payload.entity.relation.relation_id]
+          : [],
+      ),
+    ),
+    replayEvents = events
+      .filter(
+        (event) =>
+          !(
+            normalizedRelationAliases.has(event.opId) &&
+            isMigrationImportEvent(event) &&
+            event.payload.entity.kind === "relation" &&
+            canonicalRelationIds.has(event.payload.entity.relation.relation_id)
+          ),
+      )
+      .sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.opId.localeCompare(right.opId));
+  const eventHeadRevision = readHeadRevision(eventsRoot) ?? replayEvents.at(-1)?.workspaceRevision ?? null;
+  if (eventHeadRevision !== null && replayEvents.some((event) => event.workspaceRevision > eventHeadRevision))
     throw migrationImportError(
       "migration_projection_oracle_cut_mismatch",
       `Canonical event revision exceeds source head ${eventHeadRevision}.`,
     );
-  return { events, eventHeadRevision, observations, syntheticBlobs };
+  return { events: replayEvents, eventHeadRevision, observations, syntheticBlobs };
 }
 
 function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspection): MigrationProjectionOracle {
