@@ -4,11 +4,10 @@ import { Card } from "../components/overview/parts";
 import { DecisionStream } from "../components/overview/DecisionStream.tsx";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
 import { PinnedStream } from "../components/overview/PinnedStream.tsx";
-import { RuntimeHealthCard } from "../components/overview/RuntimeHealthCard.tsx";
 import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
 import { DecisionPreviewDrawer } from "../components/DecisionPreviewDrawer.tsx";
 import { decisionStateLabel } from "../components/badges";
-import { deriveRuntimeHealth, type RuntimeHealthInput } from "../model/runtime-health.ts";
+import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
@@ -17,10 +16,11 @@ import type { AgendaSuccess } from "../api-client.ts";
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
 /**
- * 总览 = 四条流(2026-08-21 泽宇反馈重构):
- * 决策流 / 任务流 / Pin 在做 / 运行时健康。
+ * 总览 = 三条流(2026-08-21 泽宇反馈重构;2026-08-31 收纳后运行时健康移出主区):
+ * 决策流 / 任务流 / Pin 在做。系统运行状态(事件水位、刷新、健康)常驻侧栏左下角,
+ * 本页不再占一行渲染近乎全空的健康区块,腾出的高度归决策流/任务流。
  * 交互规则:点击先开抽屉不跳页;状态切换是就地筛选;时间倒序;
- * 「去批准 / 去看板 / 系统页」是仅有的显式路由出口。
+ * 「去批准 / 去看板」是仅有的显式路由出口。
  */
 export function OverviewView({
   project,
@@ -29,14 +29,14 @@ export function OverviewView({
   decisions,
   workspaceSummary,
   relations,
-  systemHealth,
+  health,
+  daemonReadFailed,
   ledgerRevision,
   onSelect,
   onNavigateEntity,
   onDrill,
   onOpenInbox,
   onOpenDecision,
-  onOpenSystem,
   onSetPin,
   onDecisionPreviewChange,
 }: {
@@ -47,8 +47,10 @@ export function OverviewView({
   decisions: DecisionRow[];
   workspaceSummary: WorkspaceSummaryRead;
   relations: RelationEdge[];
-  /** 第四格输入(App 从 systemQuery / tasksQuery 折算,见 model/runtime-health.ts)。 */
-  systemHealth: Omit<RuntimeHealthInput, "lastSnapshotAt" | "now">;
+  /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里只喂底部统计条的异常口径。 */
+  health: RuntimeHealth;
+  /** systemQuery 直接读失败(与「观测年龄超时」分开点名)。 */
+  daemonReadFailed: boolean;
   /** 底部统计条的版本对(null = 台账切面还没读到过);同一份 repo.tasks.read 切面。 */
   ledgerRevision: { readonly watermark: number; readonly sourceRevision: number } | null;
   onSelect: (id: string) => void;
@@ -59,7 +61,6 @@ export function OverviewView({
   onOpenDecision: (decisionId: string) => void;
   /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
   onNavigateEntity: (ref: string) => void;
-  onOpenSystem: () => void;
   onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
   /** 让 App 只在决策抽屉实际打开时挂载 active-edge 窄面。 */
   onDecisionPreviewChange?: (decisionId: string | null) => void;
@@ -70,15 +71,6 @@ export function OverviewView({
     () => decisions.find((decision) => decision.decisionId === previewDecisionId) ?? null,
     [decisions, previewDecisionId],
   );
-  const lastSnapshotAt = useMemo(
-    () => tasks.reduce((latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest), ""),
-    [tasks],
-  );
-  const health = deriveRuntimeHealth({
-    ...systemHealth,
-    lastSnapshotAt: lastSnapshotAt || null,
-    now: new Date().toISOString(),
-  });
   // 底部统计条的异常口径(task_b2fb4bc7):daemon 断连 / 投影落后 / 读失败。
   // 只消费本页已经拿到的读面,不为此新增任何查询。
   const statsAnomalies: OverviewStatsAnomaly[] = [];
@@ -89,8 +81,7 @@ export function OverviewView({
       code: "projection",
       label: t("views.overviewView.statsAnomalyProjection", { lag: String(health.projection.lag) }),
     });
-  if (systemHealth.daemon?.ok === false)
-    statsAnomalies.push({ code: "read", label: t("views.overviewView.statsAnomalyRead") });
+  if (daemonReadFailed) statsAnomalies.push({ code: "read", label: t("views.overviewView.statsAnomalyRead") });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -109,7 +100,7 @@ export function OverviewView({
         className={[
           "grid min-h-0 flex-1 grid-cols-1 auto-rows-[22rem] gap-4 overflow-y-auto p-5",
           "xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]",
-          "xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)_minmax(10rem,0.66fr)] xl:overflow-hidden",
+          "xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:overflow-hidden",
         ].join(" ")}
       >
         <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3" className="xl:col-start-1">
@@ -145,14 +136,6 @@ export function OverviewView({
           className="xl:col-start-1 xl:row-start-2"
         >
           <PinnedStream agenda={agenda} onOpenPreview={onSelect} onSetPin={onSetPin} />
-        </Card>
-
-        <Card
-          title={t("views.overviewView.runtimeHealthTitle")}
-          bodyClassName="p-3"
-          className="xl:col-span-2 xl:row-start-3"
-        >
-          <RuntimeHealthCard health={health} onOpenSystem={onOpenSystem} />
         </Card>
       </div>
 

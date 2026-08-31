@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { FolderSimple, CaretUpDown, CloudSlash, WarningCircle } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -19,13 +18,8 @@ import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
-import {
-  LedgerStatusBar,
-  LedgerStatusBarInput,
-  NavButton,
-  ProjectSummary,
-  ThemeToggle,
-} from "./components/shell-chrome.tsx";
+import { AppSidebar } from "./components/AppSidebar.tsx";
+import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette, buildPaletteIndex } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
@@ -42,6 +36,7 @@ import {
   useTriadicProjectionQuery,
 } from "./triadic-data.ts";
 import { useFavorites } from "./model/favorites.ts";
+import { deriveRuntimeHealth } from "./model/runtime-health.ts";
 import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
@@ -55,12 +50,11 @@ import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
-import { t } from "./i18n/index.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { useLocationRestore } from "./navigation/useLocationRestore.ts";
 import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
-import { navLabel, NAV_GROUPS } from "./navigation/navConfig.tsx";
+import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
@@ -97,7 +91,8 @@ function AppShell() {
   const tasksQuery = useTasksQuery(activeRepoId);
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
 
-  // 左上角状态栏的输入(task_b2fb4bc7):全部来自上面两条既有查询,不加第二条读路。
+  // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
+  // 全部来自上面两条既有查询,不加第二条读路。
   const ledgerReadError = [workspaceSummaryQuery.error, tasksQuery.error].find(
     (error): error is Error => error instanceof Error,
   );
@@ -234,10 +229,16 @@ function AppShell() {
   // The badge is the daemon's canonical inbox count; renderer rows are not a second census.
   const inboxCount = workspaceSummaryQuery.data?.decisions.inboxCount;
 
-  // 总览第四格输入(口径见 model/runtime-health.ts):daemon 响应折算自
-  // systemQuery 成败 + observedAt 年龄;投影落后取 tasksQuery 的同一对数字。
-  const overviewSystemHealth = useMemo(
-    () => ({
+  // 系统运行区输入(口径见 model/runtime-health.ts;原总览第四格,2026-08-31 收纳进
+  // 侧栏后改为常驻派生):daemon 响应折算自 systemQuery 成败 + observedAt 年龄;
+  // 投影落后取 tasksQuery 的同一对数字。读面不变,只是消费点从总览页移到外壳。
+  const daemonReadFailed = systemQuery.isError;
+  const runtimeHealth = useMemo(() => {
+    const lastSnapshotAt = projectTasks.reduce(
+      (latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest),
+      "",
+    );
+    return deriveRuntimeHealth({
       daemon: systemQuery.data
         ? {
             ok: !systemQuery.isError,
@@ -253,9 +254,10 @@ function AppShell() {
             status: tasksQuery.data.status,
           }
         : null,
-    }),
-    [activeRepo, systemQuery.data, systemQuery.isError, tasksQuery.data],
-  );
+      lastSnapshotAt: lastSnapshotAt || null,
+      now: new Date().toISOString(),
+    });
+  }, [activeRepo, projectTasks, systemQuery.data, systemQuery.isError, tasksQuery.data]);
 
   const goto = (v: ViewId) => {
     navigate({
@@ -356,132 +358,28 @@ function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
-      <aside className="flex max-h-[42dvh] w-full shrink-0 flex-col overflow-y-auto border-b border-border bg-surface md:max-h-none md:w-56 md:overflow-visible md:border-r md:border-b-0">
-        <div className="flex items-center gap-2 px-3 pt-3 pb-1">
-          <span className="font-mono text-[11px] font-semibold tracking-wide text-text-muted">HARNESS</span>
-          <span
-            title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
-            className="inline-flex items-center gap-1 rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint"
-          >
-            <CloudSlash weight="bold" />
-            {t("components.appSidebar.local")}
-          </span>
-          <div className="ml-auto">
-            <ThemeToggle />
-          </div>
-        </div>
-
-        <div className="px-3 pb-1">
-          {/* 左上角一行实时状态栏(task_b2fb4bc7):取代原任务普查块,普查数字搬去
-              总览页底部 OverviewStatsBar。刷新走既有 react-query refetch,不加轮询。 */}
-          <LedgerStatusBar status={ledgerStatusBar} onRefresh={refreshLedger} />
-        </div>
-
-        <div className="px-3 pt-2 pb-2">
-          <div className="relative">
-            <button
-              onClick={() => setProjectSwitcherOpen((open) => !open)}
-              title={t("components.appSidebar.quicklySwitchProjects")}
-              className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm font-medium hover:border-border-strong ${
-                projectSwitcherOpen || view === "home"
-                  ? "border-border-strong bg-surface-raised"
-                  : "border-border bg-surface-raised"
-              }`}
-            >
-              <FolderSimple weight="duotone" className="shrink-0 text-text-muted" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{project.name}</span>
-                <span className="block truncate font-mono text-[11px] text-text-faint">{project.preset}</span>
-              </span>
-              <CaretUpDown weight="bold" className="shrink-0 text-text-faint" />
-            </button>
-
-            {projectSwitcherOpen && (
-              <div className="absolute left-0 right-0 z-30 mt-2 rounded-lg border border-border-strong bg-surface-raised p-2 shadow-2xl shadow-black/35 md:right-auto md:w-[320px]">
-                <div className="flex items-center justify-between px-1 pb-2">
-                  <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                    {t("components.appSidebar.quickSwitch")}
-                  </span>
-                  <span className="font-mono text-[11px] text-text-faint">
-                    {t("components.appSidebar.projectCount", { count: systemQuery.data?.repos.length ?? 0 })}
-                  </span>
-                </div>
-                <div className="flex max-h-[330px] flex-col gap-1.5 overflow-y-auto">
-                  {(systemQuery.data?.repos ?? []).map((repo) => (
-                    <ProjectSummary
-                      key={repo.repoId}
-                      repo={repo}
-                      active={repo.repoId === activeRepoId}
-                      onOpen={() => {
-                        void openProject(repo.repoId);
-                      }}
-                    />
-                  ))}
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-border pt-2">
-                  <button
-                    onClick={() => {
-                      setProjectSwitcherOpen(false);
-                      goto("home");
-                    }}
-                    className="rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium text-text-muted hover:border-border-strong hover:text-text"
-                  >
-                    {t("components.appSidebar.manageAll")}
-                  </button>
-                  <button
-                    disabled
-                    className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1.5 text-[12px] text-text-faint opacity-70"
-                  >
-                    <WarningCircle weight="bold" />
-                    {t("components.appSidebar.localMode")}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {NAV_GROUPS.map((group, groupIndex) => (
-          <div key={group.id}>
-            <div
-              className={`px-3 font-mono text-[12px] uppercase tracking-wide text-text-faint ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}
-            >
-              {t(group.labelKey)}
-            </div>
-            <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
-              {group.items.map((item) => (
-                <NavButton
-                  key={item.id}
-                  active={view === item.id && !selected}
-                  onClick={() => goto(item.id)}
-                  icon={item.icon}
-                  label={navLabel(item.id)}
-                  badge={item.id === "decisions" ? inboxCount : undefined}
-                />
-              ))}
-            </nav>
-          </div>
-        ))}
-
-        <div className="mt-auto hidden border-t border-border px-3 py-2.5 md:block">
-          <button
-            disabled
-            title={t("components.appSidebar.v2PreviewAfterLoggingYourAccountYou")}
-            className="flex w-full cursor-not-allowed items-center gap-2 text-left opacity-70"
-          >
-            <span className="grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised font-mono text-[11px] font-semibold text-text-muted">
-              Z
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-xs text-text">{t("components.appSidebar.localMode2")}</span>
-              <span className="block truncate text-[10px] text-text-faint">
-                {t("components.appSidebar.accountSynchronizationV2")}
-              </span>
-            </span>
-          </button>
-        </div>
-      </aside>
-
+      <AppSidebar
+        project={project}
+        repos={systemQuery.data?.repos ?? []}
+        activeRepoId={activeRepoId}
+        view={view}
+        hasSelection={selected !== null}
+        inboxCount={inboxCount}
+        projectSwitcherOpen={projectSwitcherOpen}
+        onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
+        onOpenProject={(repoId) => {
+          void openProject(repoId);
+        }}
+        onOpenProjectManager={() => {
+          setProjectSwitcherOpen(false);
+          goto("home");
+        }}
+        onNavigate={goto}
+        ledgerStatus={ledgerStatusBar}
+        onRefreshLedger={refreshLedger}
+        health={runtimeHealth}
+        onOpenSystem={() => goto("system")}
+      />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
         <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
@@ -522,7 +420,8 @@ function AppShell() {
                   decisions={decisions}
                   workspaceSummary={workspaceSummaryQuery.data}
                   relations={edgeRelations}
-                  systemHealth={overviewSystemHealth}
+                  health={runtimeHealth}
+                  daemonReadFailed={daemonReadFailed}
                   ledgerRevision={
                     tasksQuery.data
                       ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
@@ -532,7 +431,6 @@ function AppShell() {
                   onDrill={(status) => drillToBoard("__all__", status, "root")}
                   onOpenInbox={() => goto("decisions")}
                   onOpenDecision={navigateToDecision}
-                  onOpenSystem={() => goto("system")}
                   onNavigateEntity={navigateToEntity}
                   onDecisionPreviewChange={setOverviewDecisionPreviewId}
                   onSetPin={(task, pinned) => {

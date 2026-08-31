@@ -35,6 +35,23 @@ export function formatTime(iso: string, options: FormatTimeOptions): string | nu
 
 export const systemTimeZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
+/**
+ * 原始运行时长毫秒 → 人读时长。未知(NaN/负数/缺投影)不伪造,回落 `unknown` 占位,
+ * 由调用方传本地化占位词(SystemView 传「—」)。
+ */
+export function formatUptimeMs(uptimeMs: number | undefined, unknown = "—"): string {
+  if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) return unknown;
+  const totalSec = Math.floor(uptimeMs / 1_000),
+    days = Math.floor(totalSec / 86_400),
+    hours = Math.floor((totalSec % 86_400) / 3_600),
+    minutes = Math.floor((totalSec % 3_600) / 60),
+    seconds = totalSec % 60;
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 export function readTimeZoneOverride(storage: TimeZoneStorage | null = browserStorage()): string | null {
   if (storage === null) return null;
   try {

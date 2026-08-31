@@ -9,13 +9,13 @@ import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { PinnedStream, pinnedAgendaItems } from "../src/renderer/components/overview/PinnedStream.tsx";
-import { RuntimeHealthCard } from "../src/renderer/components/overview/RuntimeHealthCard.tsx";
 import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPreviewDrawer.tsx";
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { formatTime } from "../src/renderer/model/time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
+import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
@@ -55,6 +55,7 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
 }
 
 const noop = () => {};
+const NOW = "2026-08-31T12:00:00.000Z";
 const blocking = { state: "clear" as const, blockers: [], warnings: [] };
 const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   ok: true,
@@ -341,12 +342,12 @@ describe("overview task stream", () => {
           decisions: decisionSummary({ proposed: 1 }),
         },
         relations: [],
-        systemHealth: { daemon: null, repo: null, projection: null },
+        health: deriveRuntimeHealth({ daemon: null, repo: null, projection: null, lastSnapshotAt: null, now: NOW }),
+        daemonReadFailed: false,
         onSelect: noop,
         onDrill: noop,
         onOpenInbox: noop,
         onOpenDecision: noop,
-        onOpenSystem: noop,
         onSetPin: noop,
       }),
     );
@@ -355,9 +356,12 @@ describe("overview task stream", () => {
     expect(tabText(page, "overview-status-blocked")).toBe("已阻塞 1");
     expect(page).toContain("xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]");
     expect(page).toContain("xl:row-span-2");
-    expect(page).toContain("xl:col-span-2");
     expect(page).toContain("overflow-y-auto");
     expect(page).toContain("overview-pin-toggle-task_a1");
+    // 2026-08-31 收纳:运行时健康不再占总览主区一行,腾出的高度归决策流/任务流
+    // (第三行模板删除,只剩两行)。
+    expect(page).toContain("xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)]");
+    expect(page).not.toContain("runtime-health-card");
   });
 
   it("filters to the selected status in place with census counts on every tab (sidebar parity)", () => {
@@ -696,12 +700,12 @@ describe("overview task stream: freshly created tasks are visible with zero inte
           decisions: decisionSummary({ proposed: 0 }),
         },
         relations: [],
-        systemHealth: { daemon: null, repo: null, projection: null },
+        health: deriveRuntimeHealth({ daemon: null, repo: null, projection: null, lastSnapshotAt: null, now: NOW }),
+        daemonReadFailed: false,
         onSelect: noop,
         onDrill: noop,
         onOpenInbox: noop,
         onOpenDecision: noop,
-        onOpenSystem: noop,
         onNavigateEntity: noop,
       }),
     );
@@ -850,46 +854,6 @@ describe("overview pinned stream", () => {
     const markup = renderToStaticMarkup(createElement(PinnedStream, { agenda: undefined, onOpenPreview: noop }));
     expect(markup).toContain("ha agenda");
     expect(markup).not.toContain("当前没有 pin 的任务");
-  });
-});
-
-describe("overview runtime health card", () => {
-  it("renders the worst lamp, four signal rows and the system exit", () => {
-    const markup = renderToStaticMarkup(
-      createElement(RuntimeHealthCard, {
-        health: {
-          daemon: { state: "responsive", observedAgeSec: 5, uptimeMs: 3_600_000 },
-          cell: { state: "attached", queueDepth: 0, problem: null },
-          projection: { lag: 0, status: "ready" },
-          ledgerChange: { at: "2026-08-21T11:00:00.000Z", ageSec: 3_600 },
-        },
-        onOpenSystem: noop,
-      }),
-    );
-    expect(markup).toContain('data-testid="runtime-health-card"');
-    expect(markup).toContain("运行正常");
-    expect(markup).toContain("台账服务");
-    expect(markup).toContain("投影落后");
-    expect(markup).toContain("最新台账变化");
-    expect(markup).toContain("系统页");
-  });
-
-  it("renders down state without hiding rows", () => {
-    const markup = renderToStaticMarkup(
-      createElement(RuntimeHealthCard, {
-        health: {
-          daemon: { state: "unresponsive", observedAgeSec: 900, uptimeMs: null },
-          cell: { state: "unavailable", queueDepth: null, problem: "cell crashed" },
-          projection: { lag: 12, status: "pending" },
-          ledgerChange: { at: null, ageSec: null },
-        },
-        onOpenSystem: noop,
-      }),
-    );
-    expect(markup).toContain("不可用");
-    expect(markup).toContain("无响应");
-    expect(markup).toContain("cell crashed");
-    expect(markup).toContain("12 revisions");
   });
 });
 
