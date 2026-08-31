@@ -7,7 +7,15 @@ import {
 import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
 import type { MigrationOracleKind } from "./migration-import-oracle.ts";
 
-export type EntityKind = "task" | "decision" | "fact" | "relation" | "coverage";
+export type EntityKind =
+  | "task"
+  | "decision"
+  | "fact"
+  | "relation"
+  | "agent"
+  | "schedule"
+  | "runtime-session"
+  | "coverage";
 
 export interface Skip {
   readonly entityType: EntityKind;
@@ -77,7 +85,17 @@ export interface ImportCounts {
   readonly decision: number;
   readonly fact: number;
   readonly relation: number;
+  readonly agent: number;
+  readonly schedule: number;
+  readonly "runtime-session": number;
   readonly coverage: number;
+}
+
+export interface MigrationBackfillRow {
+  readonly entityType: "agent" | "schedule" | "runtime-session";
+  readonly entityId: string;
+  readonly action: "create" | "unchanged" | "conflict";
+  readonly sourceAnchor: string;
 }
 
 export type AuthoredDisposition = "migrated" | "excluded" | "required";
@@ -147,6 +165,8 @@ export type MigrationImportReceipt = WriteReceipt & {
   readonly authoredCoverage: AuthoredCoverage;
   readonly skippedEntities: readonly Skip[];
   readonly idMapPath: string | null;
+  readonly backfillMapPath: string | null;
+  readonly backfillRows: readonly MigrationBackfillRow[];
 };
 
 export type ImportedTask = Extract<MigrationImportEventV1["payload"]["entity"], { readonly kind: "task" }>["task"];

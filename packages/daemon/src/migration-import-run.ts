@@ -18,6 +18,7 @@ import {
   type MigrationImportEventV1,
   type RelationFactRow,
   type RelationGraphEdgeRow,
+  type RuntimeSession,
   type TaskProjection,
   type TaskSourceEntry,
 } from "../../kernel/src/index.ts";
@@ -43,6 +44,7 @@ import {
   validFact,
 } from "./migration-import-events.ts";
 import { archivedExecution, decodeLegacyExecution, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
+import { prepareEntityBackfills } from "./migration-import-backfill.ts";
 import {
   actorFor as actorForImpl,
   dropMap as dropMapImpl,
@@ -102,6 +104,7 @@ import type {
   ImportCounts,
   ImportedRelation,
   ImportedTask,
+  MigrationBackfillRow,
   MigrationDisposition,
   MigrationFieldDerivation,
   MigrationImportReceipt,
@@ -200,6 +203,13 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly archivedIds: Readonly<Record<MigrationOracleKind, Set<string>>>;
   readonly retiredIds: Set<string>;
   readonly nativeExecutionIds: Set<string>;
+  readonly agentMap: Map<string, string>;
+  readonly scheduleMap: Map<string, string>;
+  readonly runtimeSessionMap: Map<string, string>;
+  readonly existingAgents: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly existingSchedules: ReadonlyMap<string, Readonly<Record<string, unknown>>>;
+  readonly existingRuntimeSessions: ReadonlyMap<string, RuntimeSession>;
+  readonly backfillRows: MigrationBackfillRow[];
 }
 
 export async function runSingleMigrationImport(
@@ -266,6 +276,11 @@ export async function runSingleMigrationImport(
     existingTasks = new Set(input.projection.list().rows.map(({ taskId }) => taskId)),
     existingDecisions = new Set(decisionGraph.decisionAnchors.map(({ decisionId }) => decisionId)),
     existingFacts = new Set(input.projection.readFactGraph().facts.map(({ ref }) => ref)),
+    existingAgents = new Map(input.projection.listEntities("agent").map(({ id, value }) => [id, value])),
+    existingSchedules = new Map(input.projection.listEntities("schedule").map(({ id, value }) => [id, value])),
+    existingRuntimeSessions = new Map(
+      input.projection.readRuntimeSessions().map((value) => [value.runtimeSessionId, value]),
+    ),
     existingRelations = new Set(
       [...decisionGraph.edges, ...input.projection.readFactGraph().edges].map(({ relationId }) => relationId),
     );
@@ -273,6 +288,9 @@ export async function runSingleMigrationImport(
     decisionMap = new Map<string, string>(),
     factMap = new Map<string, string>(),
     relationMap = new Map<string, string>(),
+    agentMap = new Map<string, string>(),
+    scheduleMap = new Map<string, string>(),
+    runtimeSessionMap = new Map<string, string>(),
     taskPackages = new Map<string, string>(),
     taskOccurredAt = new Map<string, string>(),
     factDocuments = new Map<
@@ -295,8 +313,12 @@ export async function runSingleMigrationImport(
       decision: 0,
       fact: 0,
       relation: 0,
+      agent: 0,
+      schedule: 0,
+      "runtime-session": 0,
       coverage: 0,
     },
+    backfillRows: MigrationBackfillRow[] = [],
     fieldDerivations: MigrationFieldDerivation[] = [],
     dispositions: MigrationDisposition[] = [],
     derivedIds = Object.fromEntries(migrationOracleKinds.map((kind) => [kind, new Set<string>()])) as Record<
@@ -383,6 +405,13 @@ export async function runSingleMigrationImport(
     archivedIds,
     retiredIds,
     nativeExecutionIds,
+    agentMap,
+    scheduleMap,
+    runtimeSessionMap,
+    existingAgents,
+    existingSchedules,
+    existingRuntimeSessions,
+    backfillRows,
     relationMap,
   };
 
@@ -398,6 +427,9 @@ export async function runSingleMigrationImport(
   for (const row of oracle.decisions.values()) addOracleDecision(extracted, row);
   for (const row of oracle.facts.values()) addOracleFact(extracted, row);
   prepareEntityDrafts();
+  const backfill = prepareEntityBackfills(extracted, revision);
+  prepared.push(...backfill.prepared);
+  revision = backfill.revision;
   for (const source of oracle.tasks.values())
     if (!taskMap.has(source.taskId))
       scheduleArchivedEntity(extracted, {
@@ -526,6 +558,9 @@ export async function runSingleMigrationImport(
       decision: oracle.decisions.size,
       fact: oracle.facts.size,
       relation: oracle.relations.size,
+      agent: oracle.agents.size,
+      schedule: oracle.schedules.size,
+      "runtime-session": oracle.runtimeSessions.size,
       coverage: oracle.coverageCount,
     },
     skipped = skippedCounts(skips),
@@ -539,6 +574,9 @@ export async function runSingleMigrationImport(
       decision: reconciliation.decision.target,
       fact: reconciliation.fact.target,
       relation: reconciliation.relation.target,
+      agent: reconciliation.agent.target,
+      schedule: reconciliation.schedule.target,
+      "runtime-session": reconciliation["runtime-session"].target,
       coverage: preservedCoverage,
     },
     contractRestatements = {
@@ -556,6 +594,9 @@ export async function runSingleMigrationImport(
         decision: Object.fromEntries(decisionMap),
         fact: Object.fromEntries(factMap),
         relation: Object.fromEntries(relationMap),
+        agent: Object.fromEntries(agentMap),
+        schedule: Object.fromEntries(scheduleMap),
+        "runtime-session": Object.fromEntries(runtimeSessionMap),
       },
       remappings,
       skipped: [...skips].sort(bySkip),
@@ -585,6 +626,39 @@ export async function runSingleMigrationImport(
     input.store.readEvent(mapPrepared.event.opId) === null
   ) {
     prepared.push(mapPrepared);
+    revision += 1;
+  }
+  const backfillMapPath = `migrations/${importId}/entity-backfill.json`,
+    backfillMapBody = `${stableStringify({
+      schema: "migration-entity-backfill-map/v1",
+      importId,
+      source: sourceRoot,
+      sourceGit,
+      generatedAt: input.now(),
+      rows: backfillRows,
+      maps: {
+        agent: Object.fromEntries(agentMap),
+        schedule: Object.fromEntries(scheduleMap),
+        "runtime-session": Object.fromEntries(runtimeSessionMap),
+      },
+    })}\n`,
+    backfillMapPrepared = prepare(
+      sourceKey,
+      actor,
+      "entity-backfill-map",
+      importId,
+      input.now(),
+      revision + 1,
+      {
+        kind: "repo-document",
+        nodeKind: "file",
+        documentClaim: claim(backfillMapPath, backfillMapBody, "application/json"),
+        referencedContentClaims: [],
+      },
+      [blob(backfillMapBody, "application/json")],
+    );
+  if (input.store.readEvent(backfillMapPrepared.event.opId) === null) {
+    prepared.push(backfillMapPrepared);
     revision += 1;
   }
   // The WAL is authoritative for each append. Migration defers worktree/Git
@@ -642,16 +716,20 @@ export async function runSingleMigrationImport(
       fieldDerivations,
       dispositions,
       oracle.formatObservations,
+      backfillRows,
+      backfillMapPath,
     ),
-    publishedMap = dryRun ? null : input.store.readEvent(mapPrepared.event.opId),
+    publicationMarker = backfillMapPrepared,
+    publishedMap = dryRun ? null : input.store.readEvent(publicationMarker.event.opId),
     publication = publishedMap ? input.store.publication(publishedMap) : null,
     canonicalVisible =
-      publication?.cut.opId === mapPrepared.event.opId && publication.cut.revision === publishedMap?.workspaceRevision,
+      publication?.cut.opId === publicationMarker.event.opId &&
+      publication.cut.revision === publishedMap?.workspaceRevision,
     outcome =
       exitCode === 1 ? ("op_rejected" as const) : canonicalVisible ? ("applied" as const) : ("pending" as const);
   return {
     outcome,
-    opId: mapPrepared.event.opId,
+    opId: publicationMarker.event.opId,
     revision: writesAllowed ? revision : initialRevision,
     evidence: JSON.stringify({
       importId,
@@ -665,6 +743,8 @@ export async function runSingleMigrationImport(
       reconciliation,
       fieldDerivations,
       dispositions,
+      backfillRows,
+      backfillMapPath,
       formatObservations: oracle.formatObservations,
     }),
     visibility: "center",
@@ -688,6 +768,8 @@ export async function runSingleMigrationImport(
     authoredCoverage,
     skippedEntities: [...skips].sort(bySkip),
     idMapPath: writesAllowed ? idMapPath : null,
+    backfillMapPath: writesAllowed ? backfillMapPath : null,
+    backfillRows: [...backfillRows],
     ...(exitCode === 1
       ? {
           code: "migration_reconciliation_failed",
@@ -699,7 +781,7 @@ export async function runSingleMigrationImport(
         ? {
             nextAction: dryRun
               ? "Remove --dry-run to publish this reconciled migration plan."
-              : `Query receipt ${mapPrepared.event.opId}; the canonical import-map publication is missing.`,
+              : `Query receipt ${publicationMarker.event.opId}; the canonical import-map publication is missing.`,
           }
         : {
             nextAction: "Migration reconciliation passed; rerunning or appending another --source is safe.",

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -325,6 +326,255 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("migration backfills agents, schedules, and runtime sessions with a source-anchored idempotent diff", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-entity-backfill-")),
+    source = path.join(scratch, "legacy"),
+    destination = path.join(scratch, "new"),
+    fixture = entityBackfillSource(source),
+    sourceRoots = sources(source);
+  seedEntityBackfillProjection(source, fixture);
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(destination);
+    cell = await openRepoCell({
+      repoId: workspaceId("migration-entity-backfill-target"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "migration-daemon",
+      now: () => "2026-08-30T00:00:00.000Z",
+    });
+    const store = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination }),
+      revisionBefore = store.read().revision,
+      dry = (await cell.run(
+        { kind: "migrate-import", sourceRoots, dryRun: true },
+        { actor, source: "local" },
+      )) as Record<string, unknown>;
+    assert.equal(dry.exitCode, 0, JSON.stringify(dry));
+    assert.equal(store.read().revision, revisionBefore, "dry-run must not mutate the destination ledger");
+    assert.match(String(dry.summary), /\| agent \| backfill-agent \| create \| agents\/backfill-agent\.json \|/u);
+    assert.match(String(dry.summary), /\| schedule \| backfill-schedule \| create \| event:fixture-schedule \|/u);
+    assert.match(
+      String(dry.summary),
+      /\| runtime-session \| runtime_backfill \| create \| event:fixture-runtime-outcome \|/u,
+    );
+
+    const first = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(first.exitCode, 0, JSON.stringify(first));
+    assert.match(String(first.backfillMapPath), /^migrations\/import_[0-9a-f_]+\/entity-backfill\.json$/u);
+    const projection = new DatabaseSync(path.join(destination, ".harness/cache/task.sqlite"), { readOnly: true });
+    try {
+      const entity = projection
+          .prepare(
+            "SELECT entity_kind, entity_id, value_json FROM entity_projection WHERE entity_kind IN ('agent', 'schedule') ORDER BY entity_kind",
+          )
+          .all() as readonly {
+          readonly entity_kind: string;
+          readonly entity_id: string;
+          readonly value_json: string;
+        }[],
+        runtime = projection
+          .prepare("SELECT value_json FROM runtime_session WHERE runtime_session_id='runtime_backfill'")
+          .get() as { readonly value_json: string };
+      assert.deepEqual(
+        entity.map(({ entity_kind, entity_id }) => [entity_kind, entity_id]),
+        [
+          ["agent", "backfill-agent"],
+          ["schedule", "backfill-schedule"],
+        ],
+      );
+      assert.deepEqual(JSON.parse(entity[0]!.value_json), fixture.agent);
+      assert.deepEqual(JSON.parse(entity[1]!.value_json), fixture.schedule);
+      assert.deepEqual(JSON.parse(runtime.value_json), fixture.runtimeSession);
+    } finally {
+      projection.close();
+    }
+    assert.equal(readFileSync(path.join(destination, "harness/agents/backfill-agent.json"), "utf8"), fixture.agentBody);
+    assert.equal(
+      readFileSync(path.join(destination, "harness/schedules/backfill-schedule.json"), "utf8"),
+      fixture.scheduleBody,
+    );
+    const appliedStore = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination });
+    assert.equal(
+      Buffer.from(appliedStore.readContentBlob(fixture.resultHash) ?? []).toString("utf8"),
+      fixture.resultBody,
+    );
+    const firstRevision = appliedStore.read().revision,
+      firstEventCount = appliedStore.read().events.length,
+      second = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
+        string,
+        unknown
+      >;
+    assert.equal(second.exitCode, 0, JSON.stringify(second));
+    const rerunStore = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination });
+    assert.equal(rerunStore.read().revision, firstRevision);
+    assert.equal(rerunStore.read().events.length, firstEventCount);
+    assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=1/u);
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+function entityBackfillSource(root: string) {
+  coverageCompleteFixture(root);
+  const resultBody = "migration entity backfill result",
+    resultHash = sha256Text(resultBody),
+    agent = {
+      schema: "agent-declaration/v1",
+      id: "backfill-agent",
+      name: "Backfill Agent",
+      instructions: "Preserve the source projection and report migration evidence precisely.",
+      runtime_type: "codex",
+      role: "worker",
+      model: "gpt-5.6-terra",
+      skills: [],
+    },
+    schedule = {
+      schema: "schedule/v1",
+      scheduleId: "backfill-schedule",
+      name: "Backfill schedule",
+      state: "armed",
+      mode: "detect",
+      spec: {
+        trigger: {
+          kind: "interval",
+          everyMs: 300_000,
+          anchorAt: "2026-08-29T00:00:00.000Z",
+        },
+        target: {
+          kind: "agent",
+          agentId: "backfill-agent",
+          runtimeInstanceId: "codex-default",
+        },
+        mission: "Inspect the migration projection without changing source history.",
+      },
+      createdAt: "2026-08-29T00:00:00.000Z",
+      createdBy: actor,
+      updatedAt: "2026-08-29T00:00:00.000Z",
+      status: {
+        automaticEvaluatedThrough: "2026-08-29T00:00:00.000Z",
+        activeRun: null,
+        lastRun: null,
+        missedCount: 0,
+        lastMissedAt: null,
+        lastMissedReason: null,
+      },
+    },
+    runtimeSession = {
+      runtimeSessionId: "runtime_backfill",
+      instanceId: "codex-default",
+      installationId: "installation-codex",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/backfill",
+      providerSessionId: "provider-backfill",
+      transcriptRef: "file:runtime-transcripts/backfill.jsonl",
+      launchGeneration: 1,
+      liveness: "exited",
+      attachable: false,
+      taskBindings: [
+        {
+          taskId: "task_coverage",
+          executionId: "exe_history",
+          providerSessionId: "provider-backfill",
+          transcriptRef: "file:runtime-transcripts/backfill.jsonl",
+          boundAt: "2026-08-29T00:00:01.000Z",
+        },
+      ],
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef: `artifact:runtime-result/sha256/${resultHash}`,
+      lastObservedAt: "2026-08-29T00:00:02.000Z",
+    },
+    agentBody = `${JSON.stringify(agent, null, 2)}\n`,
+    scheduleBody = `${JSON.stringify({ ...schedule, status: undefined }, null, 2)}\n`,
+    objectRoot = path.join(root, `harness/objects/sha256/${resultHash.slice(0, 2)}`);
+  mkdirSync(path.join(root, "harness/agents"), { recursive: true });
+  mkdirSync(path.join(root, "harness/schedules"), { recursive: true });
+  mkdirSync(objectRoot, { recursive: true });
+  writeFileSync(path.join(root, "harness/agents/backfill-agent.json"), agentBody);
+  writeFileSync(path.join(root, "harness/schedules/backfill-schedule.json"), scheduleBody);
+  writeFileSync(path.join(objectRoot, resultHash.slice(2)), resultBody);
+  return { agent, schedule, runtimeSession, resultBody, resultHash, agentBody, scheduleBody } as const;
+}
+
+function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof entityBackfillSource>): void {
+  const database = new DatabaseSync(path.join(root, ".harness/cache/task.sqlite"));
+  try {
+    const current = database.prepare("SELECT MAX(workspace_revision) AS revision FROM event_index").get() as {
+        readonly revision: number;
+      },
+      agentRevision = current.revision + 1,
+      scheduleRevision = agentRevision + 1,
+      startedRevision = scheduleRevision + 1,
+      outcomeRevision = startedRevision + 1,
+      insertEvent = database.prepare("INSERT INTO event_index VALUES (?, ?, NULL, ?)");
+    database
+      .prepare("INSERT INTO entity_projection VALUES ('agent', 'backfill-agent', ?, ?)")
+      .run(agentRevision, JSON.stringify(fixture.agent));
+    database
+      .prepare("INSERT INTO entity_projection VALUES ('schedule', 'backfill-schedule', ?, ?)")
+      .run(scheduleRevision, JSON.stringify(fixture.schedule));
+    database
+      .prepare("INSERT INTO runtime_session VALUES ('runtime_backfill', ?, ?)")
+      .run(outcomeRevision, JSON.stringify(fixture.runtimeSession));
+    insertEvent.run(
+      "fixture-agent",
+      agentRevision,
+      JSON.stringify({
+        schema: "entity-event/v1",
+        eventId: "fixture-agent",
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        payload: { entityKind: "agent", entityId: "backfill-agent" },
+      }),
+    );
+    insertEvent.run(
+      "fixture-schedule",
+      scheduleRevision,
+      JSON.stringify({
+        schema: "schedule-event/v1",
+        eventId: "fixture-schedule",
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        entity: { kind: "schedule", id: "backfill-schedule" },
+        payload: {},
+      }),
+    );
+    insertEvent.run(
+      "fixture-runtime-started",
+      startedRevision,
+      JSON.stringify({
+        schema: "agent-runtime-event/v1",
+        eventId: "fixture-runtime-started",
+        type: "runtime_session_started",
+        occurredAt: "2026-08-29T00:00:00.000Z",
+        payload: { runtimeSessionId: "runtime_backfill" },
+      }),
+    );
+    insertEvent.run(
+      "fixture-runtime-outcome",
+      outcomeRevision,
+      JSON.stringify({
+        schema: "agent-runtime-event/v1",
+        eventId: "fixture-runtime-outcome",
+        type: "runtime_session_outcome_observed",
+        occurredAt: fixture.runtimeSession.lastObservedAt,
+        payload: {
+          runtimeSessionId: "runtime_backfill",
+          result: {
+            sha256: fixture.resultHash,
+            size: Buffer.byteLength(fixture.resultBody),
+            mediaType: "text/plain; charset=utf-8",
+          },
+        },
+      }),
+    );
+    database.prepare("UPDATE projection_meta SET watermark=? WHERE singleton=1").run(outcomeRevision);
+  } finally {
+    database.close();
+  }
+}
 
 test("migration adopts the source contract digest and rewrites the contract package path", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-contract-")),

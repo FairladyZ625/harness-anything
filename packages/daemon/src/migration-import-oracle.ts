@@ -1,12 +1,28 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import { resolveHarnessLayout, type RelationGraphEdgeRow } from "../../kernel/src/index.ts";
+import {
+  consumeKnownError,
+  resolveHarnessLayout,
+  type RelationGraphEdgeRow,
+  type RuntimeResultClaim,
+  type RuntimeSession,
+  type ScheduleV1,
+} from "../../kernel/src/index.ts";
 import { isMigrationImportRecord, migrationImportError, nonEmpty } from "./migration-import-report.ts";
 import { inspectMigrationSourceEvents, rebuildMigrationProjectionOracle } from "./migration-import-oracle-rebuild.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";
 
-export const migrationOracleKinds = ["task", "decision", "fact", "relation", "execution"] as const;
+export const migrationOracleKinds = [
+  "task",
+  "decision",
+  "fact",
+  "relation",
+  "execution",
+  "agent",
+  "schedule",
+  "runtime-session",
+] as const;
 export type MigrationOracleKind = (typeof migrationOracleKinds)[number];
 
 export interface ProjectionOracleTask {
@@ -49,6 +65,37 @@ export interface ProjectionOracleExecution {
   readonly fields: Readonly<Record<string, unknown>>;
 }
 
+export interface MigrationSourceAnchor {
+  readonly source: string;
+  readonly occurredAt: string;
+}
+
+export interface ProjectionOracleAgent {
+  readonly agentId: string;
+  readonly workspaceRevision: number;
+  readonly value: Readonly<Record<string, unknown>>;
+  readonly sourceAnchor: MigrationSourceAnchor;
+}
+
+export interface ProjectionOracleSchedule {
+  readonly scheduleId: string;
+  readonly workspaceRevision: number;
+  readonly value: ScheduleV1;
+  readonly sourceAnchor: MigrationSourceAnchor;
+}
+
+export interface ProjectionOracleRuntimeSession {
+  readonly runtimeSessionId: string;
+  readonly workspaceRevision: number;
+  readonly value: RuntimeSession;
+  readonly startedAt: string;
+  readonly sourceAnchor: MigrationSourceAnchor;
+  readonly outcome: {
+    readonly result: RuntimeResultClaim;
+    readonly reasonCode?: string;
+  } | null;
+}
+
 export interface MigrationProjectionOracle {
   readonly basis: "same-cut-projection" | "rebuilt-source";
   readonly formatObservations: readonly MigrationFormatObservation[];
@@ -60,6 +107,9 @@ export interface MigrationProjectionOracle {
   readonly facts: ReadonlyMap<string, ProjectionOracleFact>;
   readonly relations: ReadonlyMap<string, ProjectionOracleRelation>;
   readonly executions: ReadonlyMap<string, ProjectionOracleExecution>;
+  readonly agents: ReadonlyMap<string, ProjectionOracleAgent>;
+  readonly schedules: ReadonlyMap<string, ProjectionOracleSchedule>;
+  readonly runtimeSessions: ReadonlyMap<string, ProjectionOracleRuntimeSession>;
   readonly entityKeys: ReadonlySet<string>;
   readonly coverageCount: number;
 }
@@ -71,13 +121,15 @@ interface SqlRow {
 export function readMigrationProjectionOracle(sourceRoot: string): MigrationProjectionOracle {
   const layout = resolveHarnessLayout(sourceRoot),
     databasePath = path.join(layout.localRoot, "cache", "task.sqlite");
-  if (!existsSync(databasePath)) return rebuildMigrationProjectionOracle(sourceRoot);
-  return readMigrationProjectionOracleAtPath(
-    sourceRoot,
-    databasePath,
-    "same-cut-projection",
-    inspectMigrationSourceEvents(sourceRoot).observations,
-  );
+  const oracle = !existsSync(databasePath)
+    ? rebuildMigrationProjectionOracle(sourceRoot)
+    : readMigrationProjectionOracleAtPath(
+        sourceRoot,
+        databasePath,
+        "same-cut-projection",
+        inspectMigrationSourceEvents(sourceRoot).observations,
+      );
+  return overlayAgentDeclarations(sourceRoot, oracle);
 }
 
 export function readMigrationProjectionOracleAtPath(
@@ -187,6 +239,52 @@ export function readMigrationProjectionOracleAtPath(
           ] as const;
         }),
       ),
+      sourceEvents = readEntitySourceEvents(database),
+      agents = readEntityRows(database, "agent", (entityId, workspaceRevision, value) => ({
+        agentId: entityId,
+        workspaceRevision,
+        value,
+        sourceAnchor: sourceEvents.agents.get(entityId) ?? {
+          source: `agents/${entityId}.json`,
+          occurredAt: "1970-01-01T00:00:00.000Z",
+        },
+      })),
+      schedules = readEntityRows(database, "schedule", (entityId, workspaceRevision, value) => ({
+        scheduleId: entityId,
+        workspaceRevision,
+        value: value as unknown as ScheduleV1,
+        sourceAnchor: sourceEvents.schedules.get(entityId) ?? {
+          source: `projection:entity_projection/schedule/${entityId}`,
+          occurredAt: String(value.updatedAt ?? value.createdAt ?? "1970-01-01T00:00:00.000Z"),
+        },
+      })),
+      runtimeSessions = new Map(
+        rows(
+          database,
+          "SELECT runtime_session_id, workspace_revision, value_json FROM runtime_session ORDER BY runtime_session_id",
+        ).map((row) => {
+          const runtimeSessionId = text(row.runtime_session_id, "runtime session id"),
+            value = record(row.value_json, `runtime session ${runtimeSessionId}`) as unknown as RuntimeSession,
+            events = sourceEvents.runtimeSessions.get(runtimeSessionId);
+          return [
+            runtimeSessionId,
+            {
+              runtimeSessionId,
+              workspaceRevision: number(
+                row.workspace_revision,
+                `runtime session ${runtimeSessionId} workspace revision`,
+              ),
+              value,
+              startedAt: events?.startedAt ?? value.lastObservedAt,
+              sourceAnchor: events?.latest ?? {
+                source: `projection:runtime_session/${runtimeSessionId}`,
+                occurredAt: value.lastObservedAt,
+              },
+              outcome: events?.outcome ?? null,
+            },
+          ] as const;
+        }),
+      ),
       entityKeys = new Set(
         rows(
           database,
@@ -208,12 +306,139 @@ export function readMigrationProjectionOracleAtPath(
       facts,
       relations,
       executions,
+      agents,
+      schedules,
+      runtimeSessions,
       entityKeys,
       coverageCount: number(coverage?.count, "coverage count"),
     };
   } finally {
     database.close();
   }
+}
+
+function readEntityRows<T>(
+  database: DatabaseSync,
+  kind: string,
+  project: (entityId: string, workspaceRevision: number, value: Readonly<Record<string, unknown>>) => T,
+): ReadonlyMap<string, T> {
+  return new Map(
+    rows(
+      database,
+      "SELECT entity_id, workspace_revision, value_json FROM entity_projection WHERE entity_kind=? ORDER BY entity_id",
+      kind,
+    ).map((row) => {
+      const entityId = text(row.entity_id, `${kind} id`);
+      return [
+        entityId,
+        project(
+          entityId,
+          number(row.workspace_revision, `${kind} ${entityId} workspace revision`),
+          record(row.value_json, `${kind} ${entityId}`),
+        ),
+      ] as const;
+    }),
+  );
+}
+
+function overlayAgentDeclarations(sourceRoot: string, oracle: MigrationProjectionOracle): MigrationProjectionOracle {
+  const layout = resolveHarnessLayout(sourceRoot),
+    agentsRoot = path.join(layout.authoredRoot, "agents"),
+    agents = new Map(oracle.agents),
+    entityKeys = new Set(oracle.entityKeys);
+  let names: readonly string[];
+  try {
+    names = readdirSync(agentsRoot)
+      .filter((name) => name.endsWith(".json"))
+      .sort();
+  } catch (error) {
+    consumeKnownError(error);
+    return oracle;
+  }
+  for (const name of names) {
+    const target = path.join(agentsRoot, name),
+      source = `agents/${name}`;
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(target, "utf8")) as unknown;
+    } catch (error) {
+      consumeKnownError(error);
+      continue;
+    }
+    if (!isMigrationImportRecord(value) || typeof value.id !== "string") continue;
+    const held = agents.get(value.id);
+    agents.set(value.id, {
+      agentId: value.id,
+      workspaceRevision: held?.workspaceRevision ?? 0,
+      value,
+      sourceAnchor: {
+        source,
+        occurredAt: held?.sourceAnchor.occurredAt ?? statSync(target).mtime.toISOString(),
+      },
+    });
+    entityKeys.add(`agent\0${value.id}`);
+  }
+  return { ...oracle, agents, entityKeys };
+}
+
+function readEntitySourceEvents(database: DatabaseSync): {
+  readonly agents: ReadonlyMap<string, MigrationSourceAnchor>;
+  readonly schedules: ReadonlyMap<string, MigrationSourceAnchor>;
+  readonly runtimeSessions: ReadonlyMap<
+    string,
+    {
+      readonly startedAt: string;
+      readonly latest: MigrationSourceAnchor;
+      readonly outcome: ProjectionOracleRuntimeSession["outcome"];
+    }
+  >;
+} {
+  const agents = new Map<string, MigrationSourceAnchor>(),
+    schedules = new Map<string, MigrationSourceAnchor>(),
+    runtime = new Map<
+      string,
+      {
+        startedAt: string;
+        latest: MigrationSourceAnchor;
+        outcome: ProjectionOracleRuntimeSession["outcome"];
+      }
+    >();
+  for (const row of rows(
+    database,
+    "SELECT workspace_revision, event_json FROM event_index ORDER BY workspace_revision",
+  )) {
+    const event = record(row.event_json, "source event"),
+      eventId = typeof event.eventId === "string" ? event.eventId : null,
+      occurredAt = typeof event.occurredAt === "string" ? event.occurredAt : null,
+      payload = isMigrationImportRecord(event.payload) ? event.payload : null;
+    if (eventId === null || occurredAt === null || payload === null) continue;
+    const anchor = { source: `event:${eventId}`, occurredAt };
+    if (
+      (event.schema === "entity-event/v1" || event.schema === "agent-entity-event/v1") &&
+      payload.entityKind === "agent" &&
+      typeof payload.entityId === "string"
+    )
+      agents.set(payload.entityId, anchor);
+    if (
+      event.schema === "schedule-event/v1" &&
+      isMigrationImportRecord(event.entity) &&
+      event.entity.kind === "schedule" &&
+      typeof event.entity.id === "string"
+    )
+      schedules.set(event.entity.id, anchor);
+    if (event.schema !== "agent-runtime-event/v1" || typeof payload.runtimeSessionId !== "string") continue;
+    const sessionId = payload.runtimeSessionId,
+      held = runtime.get(sessionId) ?? { startedAt: occurredAt, latest: anchor, outcome: null };
+    held.latest = anchor;
+    if (event.type === "runtime_session_started") held.startedAt = occurredAt;
+    if (event.type === "runtime_session_outcome_observed" && isMigrationImportRecord(payload.result))
+      held.outcome = {
+        result: payload.result as unknown as RuntimeResultClaim,
+        ...(typeof payload.reasonCode === "string" ? { reasonCode: payload.reasonCode } : {}),
+      };
+    runtime.set(sessionId, held);
+  }
+  return { agents, schedules, runtimeSessions: runtime };
 }
 
 function readDecisions(database: DatabaseSync): ReadonlyMap<string, ProjectionOracleDecision> {
@@ -294,8 +519,12 @@ function relationRow(row: SqlRow, original: Readonly<Record<string, unknown>>): 
   };
 }
 
-function rows(database: DatabaseSync, sql: string): readonly SqlRow[] {
-  return database.prepare(sql).all() as SqlRow[];
+function rows(
+  database: DatabaseSync,
+  sql: string,
+  ...params: readonly (string | number | bigint | null)[]
+): readonly SqlRow[] {
+  return database.prepare(sql).all(...params) as SqlRow[];
 }
 
 function group(values: readonly SqlRow[], field: string): ReadonlyMap<string, readonly SqlRow[]> {
