@@ -10,6 +10,7 @@ import type {
   RelationGraphEdgeRow,
   TaskProjection,
   SettingsV1,
+  EntityActionExplanationSetV1,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
@@ -322,6 +323,7 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
+  readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
@@ -379,6 +381,11 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
+  readonly "repo.entity.actions.explain": {
+    readonly schema: "entity-action-explain-request/v1";
+    readonly mode: "catalog" | "object";
+    readonly refs: readonly string[];
+  };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;

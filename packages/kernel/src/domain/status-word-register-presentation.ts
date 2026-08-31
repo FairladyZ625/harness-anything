@@ -1,6 +1,35 @@
 import type { StatusWordRegistration } from "./status-vocabulary-types.ts";
 
 export const presentationStatusWords: readonly StatusWordRegistration[] = [
+  // ---- EntityActionCriterion explanation status (advisory read; entity-action-explanation.ts) ----
+  {
+    word: "met",
+    entity: "EntityActionCriterion",
+    field: "status",
+    meaning: "The action criterion holds at the evaluated projection cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "unmet",
+    entity: "EntityActionCriterion",
+    field: "status",
+    meaning: "The action criterion fails at the evaluated projection cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "invocation-required",
+    entity: "EntityActionCriterion",
+    field: "status",
+    meaning: "The criterion can only be decided by invoking the action; the read cannot evaluate it.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "not-evaluated",
+    entity: "EntityActionCriterion",
+    field: "status",
+    meaning: "Catalog explanations do not evaluate criteria against a target.",
+    divergence: "entity-scoped",
+  },
   // ---- PresetRun outcome/phase (documented; declared in packages/preset) ----
   {
     word: "started",

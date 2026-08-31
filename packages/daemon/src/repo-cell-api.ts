@@ -62,6 +62,7 @@ import type { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { waitForOptionalTaskProjection } from "./projection-readiness-wait.ts";
+import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -405,6 +406,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
+    "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
@@ -509,10 +511,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   // apply their new cut without yielding; long asynchronous preparation (for example a vertical
   // script) happens before publication. A read can therefore see the complete cut before or after
   // a write, never its partial state, without waiting behind the write tail.
-  const read: RepoCell["read"] = async (method, payload = {}) => {
+  const read: RepoCell["read"] = async (method, payload = {}, binding) => {
     if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-    return context.dispatchRead(readHandlers, method, payload);
+    if (method === "repo.entity.actions.explain") {
+      return readTaskActionExplanation(
+        { store: context.store, projection: context.projection, binding, now: context.now },
+        payload,
+      ) as DaemonGuiReadResultMap[typeof method];
+    }
+    return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
   };
   // Narrow/paged query payloads for the two wide GUI reads: an empty payload keeps the
   // unparameterized full result; any explicit facet takes the indexed narrow path.
