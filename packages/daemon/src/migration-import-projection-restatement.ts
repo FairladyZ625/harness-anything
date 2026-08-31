@@ -1,4 +1,5 @@
 import {
+  canonicalMigrationProvenance,
   renderDecisionDocument,
   renderFactsDocument,
   sha256Text,
@@ -146,7 +147,7 @@ export function addOracleFact(context: MigrationImportContext, source: Projectio
           confidence: fields.confidence as "low" | "medium" | "high",
           memoryClass: fields.memoryClass as "semantic" | "episodic" | "procedural",
           memoryTags: fields.memoryTags as never,
-          provenance: provenance as never,
+          provenance: canonicalMigrationProvenance(provenance) as never,
         },
         record = {
           factId: targetFactId,

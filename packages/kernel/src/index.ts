@@ -156,7 +156,9 @@ export type {
 export {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
+  canonicalMigrationProvenance,
   migrationImportWritePlan,
+  validateCurrentMigrationImportEvent,
   validateMigrationImportEvent,
 } from "./domain/migration-import-event.ts";
 export type {
