@@ -8,7 +8,7 @@ export const executionStateWords = ["active", "submitted", "changes_requested", 
 
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
-/** Wire copies of the Relation contract vocabulary; check-status-vocabulary ratchets them against the kernel authority. */
+/** Wire copies of the Relation vocabulary; the status-vocabulary ratchet pins them to the kernel authority. */
 export const relationStateWords = ["active", "edge_retired", "deleted"] as const;
 export const relationTypeWords = [
   "supports",

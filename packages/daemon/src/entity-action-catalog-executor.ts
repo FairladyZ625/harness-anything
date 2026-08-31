@@ -260,7 +260,8 @@ export function makeEntityActionCatalogExecutor(input: {
     if (Number(expectedVersion) !== aggregateRevision)
       reject(
         "revision_conflict",
-        `Relation ${relationId} expected revision ${String(expectedVersion)}, current revision is ${aggregateRevision}.`,
+        `Relation ${relationId} expected revision ${String(expectedVersion)}, ` +
+          `current revision is ${aggregateRevision}.`,
       );
     if (compiled.type === "relation_retired" && (!current || current.state !== "active"))
       reject("entity_not_found", `Relation ${relationId} is not an active aggregate.`);

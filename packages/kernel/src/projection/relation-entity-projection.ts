@@ -28,7 +28,8 @@ export function applyRelationProjectionEvent(
   runSql(
     db,
     [
-      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json)",
+      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, " +
+        "state, owner_ref, workspace_revision, row_json)",
       "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       "ON CONFLICT(relation_id) DO UPDATE SET source_ref=excluded.source_ref, target_ref=excluded.target_ref,",
       "relation_type=excluded.relation_type, state=excluded.state, owner_ref=excluded.owner_ref,",
