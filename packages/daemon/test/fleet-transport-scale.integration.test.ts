@@ -32,7 +32,7 @@ function reclaimer() {
 
 test(
   "production Fleet TLS entry sustains 3/10/32 Git-less edge processes across eight repos without duplicate writes",
-  { timeout: 120_000 },
+  { timeout: 240_000 },
   async (t) => {
     const fixture = await scaleFixture();
     t.after(() => fixture.close());
@@ -40,9 +40,9 @@ test(
     for (const count of [3, 10, 32]) {
       const clients = fixture.clients.splice(0, count),
         before = fixture.commitCounts(),
-        results = await Promise.all(
-          clients.map((client, index) => runChild(fixture, center.port, client, Math.floor(index / 8) * 120)),
-        );
+        children = await startChildrenAtWriteBarrier(fixture, center.port, clients);
+      for (const child of children) child.release();
+      const results = await Promise.all(children.map((child) => child.result));
       assert.equal(results.length, count);
       assert.equal(
         results.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"),
@@ -130,6 +130,32 @@ function localAuthFixture() {
 }
 
 type ScaleClient = { assignment: FleetAssignmentRecord; path: string; body: string; label: string };
+type ChildResult = {
+  ok: boolean;
+  gitAbsent: boolean;
+  repoId: string;
+  startedAt: number;
+  endedAt: number;
+  center: { opId: string };
+  replica: { outcome: string };
+};
+type ChildRun = { ready: Promise<void>; release: () => void; result: Promise<ChildResult> };
+async function startChildrenAtWriteBarrier(
+  fixture: Awaited<ReturnType<typeof scaleFixture>>,
+  port: number,
+  clients: readonly ScaleClient[],
+): Promise<ChildRun[]> {
+  const children: ChildRun[] = [];
+  // Readiness is setup, not the scale assertion: serialize cold pulls so a loaded
+  // runner cannot starve one wave. Every ready child remains alive, and all 32
+  // write/replica windows are still released together below.
+  for (const client of clients) {
+    const child = runChild(fixture, port, client);
+    children.push(child);
+    await child.ready;
+  }
+  return children;
+}
 async function scaleFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-scale-")),
     userRoot = path.join(root, "user"),
@@ -180,47 +206,54 @@ async function scaleFixture() {
     clients: ScaleClient[] = [],
     assignments = new Map<string, FleetAssignmentRecord>();
   await host.attachmentsSettled();
-  const setupCuts = new Map<string, { readonly opId: string; readonly assignment: FleetAssignmentRecord }>();
-  for (let index = 0; index < 45; index += 1) {
-    const repo = repos[index % repos.length]!,
-      taskId = `task-f${index}`,
-      assignment: FleetAssignmentRecord = {
-        nodeId: `node-${index}`,
-        assignmentId: `assignment-${index}`,
-        repoId: repo.repoId,
+  const prepared = await Promise.all(
+    Array.from({ length: 45 }, async (_, index) => {
+      const repo = repos[index % repos.length]!,
+        taskId = `task-f${index}`,
+        assignment: FleetAssignmentRecord = {
+          nodeId: `node-${index}`,
+          assignmentId: `assignment-${index}`,
+          repoId: repo.repoId,
+          taskId,
+          executionId: `execution-${index}`,
+          paths: [`tasks/${taskId}-${taskId}/notes.md`],
+          viewId: `view-${index}`,
+          expiresAt: "2099-01-01T00:00:00.000Z",
+          actor: { principal: { personId: "fleet-owner" }, executor: { kind: "agent", id: `edge-${index}` } },
+        },
+        auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
+        created = await host.run(repo.repoId, { kind: "task-create", taskId, title: taskId }, auth);
+      assert.equal(created.outcome, "applied");
+      await realizeTaskPlanFixture(
+        repo.rootDir,
+        String((created as Record<string, unknown>).packagePath),
+        (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
         taskId,
-        executionId: `execution-${index}`,
-        paths: [`tasks/${taskId}-${taskId}/notes.md`],
-        viewId: `view-${index}`,
-        expiresAt: "2099-01-01T00:00:00.000Z",
-        actor: { principal: { personId: "fleet-owner" }, executor: { kind: "agent", id: `edge-${index}` } },
-      },
-      auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
-    assignments.set(assignment.assignmentId, assignment);
-    const created = await host.run(repo.repoId, { kind: "task-create", taskId, title: taskId }, auth);
-    assert.equal(created.outcome, "applied");
-    await realizeTaskPlanFixture(
-      repo.rootDir,
-      String((created as Record<string, unknown>).packagePath),
-      (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
-      taskId,
-    );
-    const started = await host.run(
-      repo.repoId,
-      { kind: "task-start", taskId, executionId: assignment.executionId },
-      auth,
-    );
-    assert.equal(started.outcome, "applied", JSON.stringify(started));
-    setupCuts.set(repo.repoId, { opId: started.opId, assignment });
-    clients.push({
-      assignment,
-      path: assignment.paths[0]!,
-      body: `# ${taskId}\n\nbody-${index}\n`,
-      label: `client-${index}`,
-    });
+      );
+      const started = await host.run(
+        repo.repoId,
+        { kind: "task-start", taskId, executionId: assignment.executionId },
+        auth,
+      );
+      assert.equal(started.outcome, "applied", JSON.stringify(started));
+      return {
+        assignment,
+        opId: started.opId,
+        client: {
+          assignment,
+          path: assignment.paths[0]!,
+          body: `# ${taskId}\n\nbody-${index}\n`,
+          label: `client-${index}`,
+        },
+      };
+    }),
+  );
+  for (const value of prepared) {
+    assignments.set(value.assignment.assignmentId, value.assignment);
+    clients.push(value.client);
   }
   await Promise.all(
-    [...setupCuts].map(([repoId, value]) => waitForReceiptCommit(host, repoId, value.opId, value.assignment)),
+    prepared.map((value) => waitForReceiptCommit(host, value.assignment.repoId, value.opId, value.assignment)),
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile);
@@ -258,20 +291,7 @@ async function scaleFixture() {
 // Edge children report their result on stdout, so both runners settle on `close`, not `exit`:
 // `exit` fires when the process ends and can precede the last stdout chunk, which under a
 // 32-way fan-out leaves the parent parsing a truncated line.
-function runChild(
-  fixture: Awaited<ReturnType<typeof scaleFixture>>,
-  port: number,
-  client: ScaleClient,
-  startDelayMs: number,
-): Promise<{
-  ok: boolean;
-  gitAbsent: boolean;
-  repoId: string;
-  startedAt: number;
-  endedAt: number;
-  center: { opId: string };
-  replica: { outcome: string };
-}> {
+function runChild(fixture: Awaited<ReturnType<typeof scaleFixture>>, port: number, client: ScaleClient): ChildRun {
   const directory = path.join(fixture.root, "children", client.label);
   mkdirSync(directory, { recursive: true });
   const bodyFile = path.join(directory, "body"),
@@ -292,35 +312,61 @@ function runChild(
       bodyFile,
       retry: true,
       label: client.label,
-      startDelayMs,
+      writeBarrier: true,
     }),
   );
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [path.join(import.meta.dirname, "fixtures/fleet-edge-child.mjs"), configFile],
-      { env: { ...process.env, PATH: fixture.emptyPath }, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    fixture.track(() => child.kill("SIGKILL"));
-    let output = "",
-      errors = "";
-    child.stdout.setEncoding("utf8").on("data", (chunk) => {
-      output += chunk;
-    });
-    child.stderr.setEncoding("utf8").on("data", (chunk) => {
-      errors += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code !== 0) reject(new Error(`edge ${client.label} exited ${code}: ${errors}`));
-      else
-        try {
-          resolve(JSON.parse(output.trim()));
-        } catch (error) {
-          reject(error);
+  let resolveReady!: () => void,
+    rejectReady!: (error: unknown) => void,
+    release = (): void => {};
+  const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve;
+      rejectReady = reject;
+    }),
+    result = new Promise<ChildResult>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [path.join(import.meta.dirname, "fixtures/fleet-edge-child.mjs"), configFile],
+        { env: { ...process.env, PATH: fixture.emptyPath }, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      fixture.track(() => child.kill("SIGKILL"));
+      release = () => child.stdin.end("write\n");
+      let buffered = "",
+        resultLine = "",
+        errors = "",
+        readySeen = false;
+      child.stdout.setEncoding("utf8").on("data", (chunk) => {
+        buffered += chunk;
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+        for (const line of lines) {
+          const frame = JSON.parse(line) as { event?: string };
+          if (frame.event === "write-ready") {
+            readySeen = true;
+            resolveReady();
+          } else resultLine = line;
         }
+      });
+      child.stderr.setEncoding("utf8").on("data", (chunk) => {
+        errors += chunk;
+      });
+      child.on("error", (error) => {
+        if (!readySeen) rejectReady(error);
+        reject(error);
+      });
+      child.on("close", (code) => {
+        if (code !== 0) {
+          const error = new Error(`edge ${client.label} exited ${code}: ${errors}`);
+          if (!readySeen) rejectReady(error);
+          reject(error);
+        } else
+          try {
+            resolve(JSON.parse(resultLine || buffered.trim()));
+          } catch (error) {
+            reject(error);
+          }
+      });
     });
-  });
+  return { ready, release: () => release(), result };
 }
 
 async function waitForReceiptCommit(
