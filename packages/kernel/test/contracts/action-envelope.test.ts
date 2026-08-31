@@ -24,7 +24,7 @@ test("Action envelope is one closed kernel contract with a stable replay identit
   assert.match(validateActionEnvelope({ ...action, idempotencyKey: "" }).join("\n"), /idempotencyKey is required/u);
 });
 
-test("the five promoted Entity explanations declare metadata-only transitions without advertising availability", () => {
+test("the remaining promoted Entities stay metadata-only while Agent advertises executable install", () => {
   const catalogs = Object.fromEntries(
     ["execution", "review", "agent", "runtime-session", "policy"].map((kind) => [kind, explainEntityKind(kind)]),
   );
@@ -40,8 +40,9 @@ test("the five promoted Entity explanations declare metadata-only transitions wi
   assert.deepEqual(catalogs.review?.transitions.available, []);
   assert.deepEqual(declared("review"), ["record"]);
   assert.deepEqual(catalogs.agent?.statusVocabulary, []);
-  assert.deepEqual(catalogs.agent?.transitions.available, []);
-  assert.deepEqual(declared("agent"), ["configure", "activate", "retire"]);
+  assert.equal(catalogs.agent?.transitions.catalogRef, "kernel/agent-action/v1");
+  assert.deepEqual(catalogs.agent?.transitions.available, ["install"]);
+  assert.deepEqual(declared("agent"), ["install"]);
   assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
   assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);

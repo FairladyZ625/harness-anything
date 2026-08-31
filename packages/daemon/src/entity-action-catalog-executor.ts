@@ -265,7 +265,6 @@ export function makeEntityActionCatalogExecutor(input: {
         commitSha: appended.commitSha?.sha ?? null,
         cut: appended.cut,
         authorizationDecision,
-        entityId: bundle.event.payload.entityId,
       };
     return visible
       ? { outcome: "applied", ...receipt }
