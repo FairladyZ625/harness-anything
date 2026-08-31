@@ -4,12 +4,15 @@ export type { ActionEnvelope } from "./action-envelope.ts";
 export type { ReceiptJsonValue } from "./receipt-frame.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export {
+  ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA,
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   taskLifecycleActionIds,
+  validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
 } from "./entity-action-explanation.ts";
 export type {
   EntityActionCriterionExplanationV1,
+  EntityActionExplainRequestV1,
   EntityActionExplanationFailureCode,
   EntityActionExplanationSetV1,
   EntityActionExplanationSubjectV1,

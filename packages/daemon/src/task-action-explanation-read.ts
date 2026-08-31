@@ -2,18 +2,19 @@ import { makeTaskActionExplanationService } from "../../application/src/task-act
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   parseEntityRef,
+  validateEntityActionExplainRequest,
   projectBaseEntityAtCut,
   requireEntityTypeContract,
   validateEntityActionExplanationSet,
   type CanonicalEventStore,
   type BaseEntity,
+  type EntityActionExplainRequestV1,
   type EntityActionExplanationFailureCode,
   type EntityActionExplanationSetV1,
   type EntityActionExplanationSubjectV1,
   type EntityRef,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import { validateEntityActionExplainRequest } from "./protocol/daemon-protocol-rpc-validation.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -41,7 +42,7 @@ export function readTaskActionExplanation(
   const binding = requireTaskActionExplanationBinding(dependencies.binding);
   const issues = validateEntityActionExplainRequest(payload);
   if (issues.length > 0) throw invalidCommand(issues.join("; "));
-  const request = payload as unknown as { readonly mode: "object" | "catalog"; readonly refs: readonly string[] };
+  const request = payload as unknown as EntityActionExplainRequestV1;
   if (request.mode === "catalog")
     return makeTaskActionExplanationService({
       actor: binding.actor,

@@ -1,6 +1,5 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import { ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   validateShape,
   validateObserveTailPayload,
@@ -77,8 +76,6 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
   if (!errors.length && (value.method === "repo.tasks.list" || value.method === "repo.triadic.relationGraph"))
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
-  if (!errors.length && value.method === "repo.entity.actions.explain")
-    errors.push(...validateEntityActionExplainRequest((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")
@@ -424,23 +421,4 @@ export function serializeDaemonRpcCall(value: unknown): string {
   const errors = validateDaemonRpcCall(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_rpc", errors.join("; "));
   return `${JSON.stringify(value)}\n`;
-}
-
-export function validateEntityActionExplainRequest(value: unknown): readonly string[] {
-  const record = isJsonObject(value) ? (value as Record<string, unknown>) : null;
-  if (!record || Object.keys(record).sort().join(",") !== "mode,refs,schema")
-    return ["Entity Action explain request fields are incomplete or unknown"];
-  const errors: string[] =
-    record.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id
-      ? ["Entity Action explain request schema is invalid"]
-      : [];
-  if (record.mode !== "object" && record.mode !== "catalog")
-    errors.push("Entity Action explain request mode is invalid");
-  if (!Array.isArray(record.refs) || record.refs.some((ref) => typeof ref !== "string" || ref.length === 0))
-    errors.push("Entity Action explain request refs must be non-empty strings");
-  else if (record.mode === "object" && (record.refs.length < 1 || record.refs.length > 500))
-    errors.push("Entity Action object explain requires 1..500 refs");
-  else if (record.mode === "catalog" && record.refs.length !== 0)
-    errors.push("Entity Action catalog explain does not accept object refs");
-  return errors;
 }

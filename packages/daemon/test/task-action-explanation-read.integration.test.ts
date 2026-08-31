@@ -127,7 +127,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
   }
 });
 
-test("RPC contract rejects actor/cut overrides and object batches beyond 500", () => {
+test("RPC contract rejects actor and cut overrides at the wire shape", () => {
   const params = {
     repo: { repoId: "action-explain" },
     payload: { schema: requestSchema, mode: "object", refs: ["task/task-explain"] },
@@ -146,16 +146,6 @@ test("RPC contract rejects actor/cut overrides and object batches beyond 500", (
       params: { ...params, payload: { ...params.payload, cut: "canonical:1" } },
     }).join("\n"),
     /unknown field/u,
-  );
-  assert.match(
-    validateDaemonRpcCall({
-      method,
-      params: {
-        ...params,
-        payload: { ...params.payload, refs: Array.from({ length: 501 }, () => "task/task-explain") },
-      },
-    }).join("\n"),
-    /1\.\.500/u,
   );
 });
 
