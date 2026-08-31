@@ -48,7 +48,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--from-file",
       "consent.json",
     ]),
-    reconcile = parseThinCommand(["task", "code-doc", "reconcile", "task-1"]),
+    reconcile = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--path", "README.md"]),
     complete = parseThinCommand([
       "task",
       "complete",
@@ -125,6 +125,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     assert.deepEqual(reconcile.command.action, {
       kind: "task-code-doc-reconcile",
       taskId: "task-1",
+      paths: ["README.md"],
     });
   if (complete.ok)
     assert.deepEqual(complete.command.action, {
@@ -357,10 +358,19 @@ test("task submit accepts one inline packet source and code-doc rejects retired 
     parseThinCommand(["task", "submit", "task-1", "--from-file", "submission.json", "--json-input", packet]).ok,
     false,
   );
-  const obsolete = parseThinCommand(["task", "code-doc", "reconcile", "task-1", "--execution-id", "execution-1"]);
+  const obsolete = parseThinCommand([
+    "task",
+    "code-doc",
+    "reconcile",
+    "task-1",
+    "--path",
+    "README.md",
+    "--execution-id",
+    "execution-1",
+  ]);
   assert.equal(obsolete.ok, false);
   if (!obsolete.ok)
-    assert.match(obsolete.nextAction, /submitted execution supplies execution id, commit, iteration, and paths/u);
+    assert.match(obsolete.nextAction, /submitted execution supplies execution id, commit, and iteration/u);
 });
 test("artifact add emits only a source-to-destination descriptor", () => {
   const parsed = parseThinCommand([

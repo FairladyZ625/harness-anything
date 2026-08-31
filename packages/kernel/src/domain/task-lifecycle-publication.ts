@@ -14,7 +14,6 @@ import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
-import { completionGateRequiresWitness } from "./closeout-readiness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -271,8 +270,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
     consentReviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>",
     gateStatus = (gateId: string) =>
       gateId === "code-doc-reconciliation"
-        ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) !== undefined ||
-          !completionGateRequiresWitness(gateId, current?.submission)
+        ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) !== undefined
         : snapshot.gateWitnesses.some((value) => value.executionId === executionId && value.gateId === gateId),
     missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
     next =
@@ -291,7 +289,7 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
             : missingGate === "ci"
               ? `Run \`ha task complete ${task.taskId} --execution-id <id> --ci passed\`.`
               : missingGate === "code-doc-reconciliation"
-                ? `Run \`ha task code-doc reconcile ${task.taskId}\`.`
+                ? `Run \`ha task closeout ${task.taskId} --from-file <packet.json>\`.`
                 : task.status === "done"
                   ? "Task complete."
                   : task.status === "cancelled"

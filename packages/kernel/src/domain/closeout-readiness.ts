@@ -4,7 +4,7 @@ export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
 import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
-import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
+import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import { currentCodeDocWitness } from "./code-doc-witness.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
@@ -43,30 +43,6 @@ export interface CloseoutSnapshot {
   readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
-}
-
-/**
- * A reviewed submission that delivers only authored task-package material has no public code/doc
- * cut to reconcile. Empty or free-form deliverable lists stay ambiguous and therefore keep the
- * witness requirement fail-closed.
- */
-export function taskPackageOnlySubmission(submission: SubmissionV1 | null | undefined): boolean {
-  return (
-    submission !== null &&
-    submission !== undefined &&
-    submission.deliverables.length > 0 &&
-    repositoryDeliverablePaths(submission).length === 0
-  );
-}
-
-export function repositoryDeliverablePaths(submission: SubmissionV1 | null | undefined): readonly string[] {
-  return (submission?.deliverables ?? []).filter(
-    (deliverable) => !["artifacts/", "tasks/", "harness/tasks/"].some((prefix) => deliverable.startsWith(prefix)),
-  );
-}
-
-export function completionGateRequiresWitness(gateId: string, submission: SubmissionV1 | null | undefined): boolean {
-  return gateId !== "code-doc-reconciliation" || !taskPackageOnlySubmission(submission);
 }
 
 /** The one cross-aggregate closeout judgment used by transitions and read models. */
@@ -160,16 +136,11 @@ export function gateResults(
   commitSha?: string,
   iteration?: number,
 ): readonly CloseoutGateResult[] {
-  const submission = snapshot.executions.find(
-    (value) => value.executionId === executionId && value.iteration === iteration,
-  )?.submission;
   return (snapshot.task?.completionGateIds ?? []).map((gateId) => {
     const codeDoc = gateId === "code-doc-reconciliation",
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
     if (!executionId || !commitSha || iteration === undefined)
       return { gateId, status: "missing", detail: "no submitted execution cut" };
-    if (codeDoc && !completionGateRequiresWitness(gateId, submission))
-      return { gateId, status: "passed", detail: "not applicable: submission delivers task-package artifacts only" };
     if (!known) return { gateId, status: "unknown", detail: "witness projection unknown" };
     if (codeDoc) {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);

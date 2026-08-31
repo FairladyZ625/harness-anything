@@ -52,7 +52,7 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
     run(root, userRoot, ["doc", "sync", "--submit", "--task", taskId], "agent:worker");
     const submission = {
       completionClaim: "The fixture is complete.",
-      deliverables: ["README.md"],
+      deliverables: ["README.md (documented fixture outcome)"],
       outputs: ["done task"],
       verificationNotes: ["one closeout invocation"],
       knownGaps: [],
@@ -172,7 +172,12 @@ test("a standard task with only task-package deliverables completes without a fa
         codeDocWitnesses: readonly unknown[];
       };
     assert.equal(evidence.task.status, "done");
-    assert.deepEqual(evidence.codeDocWitnesses, [], "report-only completion must not fabricate a witness");
+    assert.equal(evidence.codeDocWitnesses.length, 1);
+    assert.deepEqual(
+      (evidence.codeDocWitnesses[0] as { paths: readonly string[] }).paths,
+      [],
+      "an explicit empty codeDocPaths list is preserved in its typed witness",
+    );
   } finally {
     if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });

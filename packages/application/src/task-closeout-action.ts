@@ -296,7 +296,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     if (stopped) return stopped;
   }
   const ciFlag = judgment.completion.ci === "passed" ? { ci: "passed" as const } : {};
-  const pathFlag = judgment.completion.codeDocPaths.length ? { paths: judgment.completion.codeDocPaths } : {};
+  const pathFlag = { paths: judgment.completion.codeDocPaths };
   const completion = { kind: "task-complete", taskId, ...selector, ...ciFlag, ...pathFlag };
   const stopped = await invoke("complete", completion, caller);
   if (stopped) return stopped;

@@ -113,7 +113,12 @@ test("all public commands expose the canonical structured input facet", () => {
   assert.deepEqual(submitJson.jsonFields, submitFile.jsonFields);
   assert.deepEqual(submitFile.conflictsWith, ["--json-input"]);
   assert.deepEqual(submitJson.conflictsWith, ["--from-file"]);
-  assert.deepEqual(daemonProtocolCommands.find((command) => command.id === "task-code-doc-reconcile")?.inputs, []);
+  assert.deepEqual(
+    daemonProtocolCommands
+      .find((command) => command.id === "task-code-doc-reconcile")
+      ?.inputs.map((input) => [input.name, input.required]),
+    [["--path", true]],
+  );
   assert.deepEqual(
     daemonProtocolCommands.find((command) => command.id === "task-code-doc-repoint")?.inputs.map((input) => input.name),
     ["--record", "--path", "--reason"],

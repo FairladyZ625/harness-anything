@@ -113,7 +113,8 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
       "applied",
     );
     assert.equal(
-      run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId], "agent:worker").outcome,
+      run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], "agent:worker")
+        .outcome,
       "applied",
     );
     writeFileSync(

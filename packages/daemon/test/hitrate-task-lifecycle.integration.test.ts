@@ -148,7 +148,10 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     assert.equal(obsolete.code, "invalid_command");
     assert.match(String(obsolete.nextAction), /ha task code-doc reconcile task-hitrate-lifecycle/u);
 
-    const reconciled = (await cell.run({ kind: "task-code-doc-reconcile", taskId }, holder)) as Record<string, unknown>;
+    const reconciled = (await cell.run(
+      { kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] },
+      holder,
+    )) as Record<string, unknown>;
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     assert.equal(reconciled.executionId, executionId);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(reconciled.opId));

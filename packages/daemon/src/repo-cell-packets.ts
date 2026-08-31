@@ -180,7 +180,7 @@ export function lifecycleReceipt(
                   : missingGate === "ci"
                     ? `ha task complete ${event.taskId} --execution-id ${executionId} --ci passed`
                     : missingGate === "code-doc-reconciliation"
-                      ? `ha task code-doc reconcile ${event.taskId}`
+                      ? `ha task closeout ${event.taskId} --from-file <packet.json>`
                       : `ha task complete ${event.taskId} --execution-id ${executionId}`,
     next = nextCommand
       ? [

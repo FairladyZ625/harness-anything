@@ -703,7 +703,12 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       "applied",
     );
     assert.equal(
-      run(fixture.root, fixture.userRoot, ["task", "code-doc", "reconcile", taskId], "agent:claude-code").outcome,
+      run(
+        fixture.root,
+        fixture.userRoot,
+        ["task", "code-doc", "reconcile", taskId, "--path", "README.md"],
+        "agent:claude-code",
+      ).outcome,
       "applied",
     );
 

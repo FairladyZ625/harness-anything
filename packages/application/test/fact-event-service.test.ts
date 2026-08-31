@@ -122,18 +122,6 @@ test("Fact identity is global and supersedes only a known live Fact", () => {
       (error: unknown) => code(error) === "relation_invalid",
     );
     assert.throws(
-      () =>
-        recordFact(
-          service,
-          projection,
-          factEvent(4, "task-a", "F-DEFGHJKM", {
-            factRef: "fact/F-12345678",
-            rationale: "Missing target.",
-          }),
-        ),
-      (error: unknown) => code(error) === "entity_not_found",
-    );
-    assert.throws(
       () => recordFact(service, projection, factEvent(4, "task-a", "F-BCDEFGHJ")),
       (error: unknown) => code(error) === "invalid_transition",
     );
@@ -151,6 +139,27 @@ test("Fact identity is global and supersedes only a known live Fact", () => {
         document: projection.readDocument(factsPath).document,
       },
       before,
+    );
+  });
+});
+
+test("a superseding Fact can audit a dangling canonical Fact ref", () => {
+  withFixture(({ service, projection }) => {
+    const correction = recordFact(
+      service,
+      projection,
+      factEvent(1, "task-a", "F-ABCDEFGH", {
+        factRef: "fact/F-12345678",
+        rationale: "The migration retained relations but omitted the referenced Fact entity.",
+      }),
+    );
+    assert.equal(correction.fact.state, "standing");
+    assert.deepEqual(
+      projection
+        .readFactGraph()
+        .edges.filter((edge) => edge.relationType === "supersedes-fact")
+        .map((edge) => [edge.sourceRef, edge.targetRef, edge.state]),
+      [["fact/F-ABCDEFGH", "fact/F-12345678", "active"]],
     );
   });
 });

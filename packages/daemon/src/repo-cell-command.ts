@@ -7,7 +7,6 @@ import {
   isDomainStatus,
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
-  repositoryDeliverablePaths,
   reviewDigest,
   type TaskLifecycleCommand,
 } from "../../kernel/src/index.ts";
@@ -40,7 +39,13 @@ export function dispatchRead<M extends RepoCellReadMethod>(
   return handlers[method](payload);
 }
 
-function submittedExecutionWitness(action: RepoTaskAction, snapshot: Snapshot, taskId: string, allowed: string[]) {
+function submittedExecutionWitness(
+  action: RepoTaskAction,
+  snapshot: Snapshot,
+  taskId: string,
+  allowed: string[],
+  paths: readonly string[],
+) {
   const unsupported = Object.keys(action).filter((field) => !allowed.includes(field));
   if (unsupported.length)
     throw cellCodedError(
@@ -57,7 +62,7 @@ function submittedExecutionWitness(action: RepoTaskAction, snapshot: Snapshot, t
     executionId: execution.executionId,
     commitSha: execution.submission!.commitSha,
     iteration: execution.iteration,
-    paths: repositoryDeliverablePaths(execution.submission),
+    paths,
   };
 }
 
@@ -244,13 +249,13 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-code-doc-reconcile") {
-    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId"]);
-    if (!witness.paths.length)
+    const paths = cellStringList(action.paths);
+    if (!Array.isArray(action.paths) || paths.length !== action.paths.length)
       throw cellCodedError(
         "invalid_command",
-        "The submitted execution names no repository deliverable paths; " +
-          "task-package-only submissions do not need a code-doc witness.",
+        "Code-doc reconcile requires explicit canonical paths from completion.codeDocPaths.",
       );
+    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], paths);
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,
@@ -259,7 +264,7 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-code-doc-repoint") {
-    const witness = submittedExecutionWitness(action, snapshot, taskId, CODE_DOC_REPOINT_FIELDS);
+    const witness = submittedExecutionWitness(action, snapshot, taskId, CODE_DOC_REPOINT_FIELDS, []);
     return normalizeTaskLifecycleCommand(bound, {
       type: "RepointCodeDoc",
       taskId,

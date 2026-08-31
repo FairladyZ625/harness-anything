@@ -90,7 +90,7 @@ test("reconcile and repoint derive the commit from the same execution submission
     repointed = repoint(snapshot([accepted])),
     submitted = execution("execution-one", "submitted"),
     reconciled = buildCommand(
-      { kind: "task-code-doc-reconcile", taskId },
+      { kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] },
       taskId,
       binding,
       "repo-code-doc-source",
