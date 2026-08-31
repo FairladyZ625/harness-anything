@@ -211,6 +211,7 @@ export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEven
 export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
+  DEFAULT_WAL_FLUSH_SETTINGS,
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   parseLocalSettings,

@@ -20,6 +20,7 @@ import {
   OPAQUE_TEXTUAL_POLICY_ID,
   ledgerGitPath,
   migrationImportWritePlan,
+  normalizeLegacyRelationMigrationEvent,
   parseCanonicalEvent,
   readLegacyMigrationSource,
   repositorySettings,
@@ -318,9 +319,19 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     map.set(fact.legacyRef, `fact/${id}`);
   }
   const canonicalToNew = new Map(facts.map((fact) => [fact.canonicalRef, map.get(fact.legacyRef)!]));
-  const mapRef = (value: string): string => map.get(value) ?? canonicalToNew.get(value) ?? value;
+  const mapRef = (value: string): string =>
+    map.get(value) ?? canonicalToNew.get(value) ?? cold.legacyFactRefs.get(value) ?? value;
   const relationMap = new Map(cold.legacyRelationIds);
   const factByLegacyRef = new Map(facts.map((fact) => [fact.legacyRef, fact]));
+  // Restate legacy relation records (out-of-vocabulary types, task-scoped fact
+  // endpoints) into the current relation contract before the rewrite pass, so
+  // canonical replay never needs to tolerate the legacy shapes.
+  const normalizedRelationEvents = new Map<string, PersistedCanonicalEventV1>();
+  for (const event of events) {
+    if (!isMigrationImportEvent(event) || event.payload.entity.kind !== "relation") continue;
+    const normalized = normalizeLegacyRelationMigrationEvent(event, cold.legacyFactRefs, relationMap);
+    if (normalized !== event) normalizedRelationEvents.set(event.opId, normalized as PersistedCanonicalEventV1);
+  }
   const currentSquadClaims = new Map<string, EntityDeclarationClaimSnapshot>();
   for (const event of events)
     if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
@@ -393,8 +404,8 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
           mapRef,
           relationMap,
         );
-      } else next = transformCanonicalEvent(event, mapRef, relationMap);
-    } else next = transformCanonicalEvent(event, mapRef, relationMap);
+      } else next = transformCanonicalEvent(normalizedRelationEvents.get(event.opId) ?? event, mapRef, relationMap);
+    } else next = transformCanonicalEvent(normalizedRelationEvents.get(event.opId) ?? event, mapRef, relationMap);
     if (next.schema === "settings-event/v1" && isJsonObject(next.payload.settings)) {
       const settings = repositorySettings(next.payload.settings);
       if (stableStringify(settings) !== stableStringify(next.payload.settings)) {
@@ -1068,6 +1079,9 @@ function counts(plan: FactRekeyPlan): Record<string, number> {
     factEvents: plan.eventRewrites.filter(({ event }) => isFactEvent(event)).length + plan.docsOnly.length,
     producesEdges: plan.facts.filter((fact) => fact.row.taskId).length,
     retargetedRelations: [...plan.relationMap].filter(([from, to]) => from !== to).length,
+    rewrittenRelationEvents: plan.eventRewrites.filter(
+      ({ event }) => isMigrationImportEvent(event) && event.payload.entity.kind === "relation",
+    ).length,
     rewrittenAgentEvents: plan.rewrittenAgentEvents,
     rewrittenSettingsEvents: plan.rewrittenSettingsEvents,
   };
