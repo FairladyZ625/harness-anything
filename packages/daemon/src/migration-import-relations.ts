@@ -271,10 +271,10 @@ export function readMigrationOperationRestatements(store: CanonicalEventStore): 
       continue;
     }
     if (sha256Text(body) !== claim.sha256) continue;
-    if (!isRecord(parsed) || parsed.schema !== "fact-rekey-id-map/v1" || !isRecord(parsed.maps)) continue;
+    if (!isRecordValue(parsed) || parsed.schema !== "fact-rekey-id-map/v1" || !isRecordValue(parsed.maps)) continue;
     for (const kind of ["fact", "relation"] as const) {
       const entries = parsed.maps[kind];
-      if (!isRecord(entries)) continue;
+      if (!isRecordValue(entries)) continue;
       for (const [sourceId, targetId] of Object.entries(entries)) {
         if (typeof targetId !== "string" || !validRestatementId(kind, sourceId, targetId)) continue;
         const key = `${kind}\0${sourceId}`,
@@ -293,7 +293,7 @@ function validRestatementId(kind: "fact" | "relation", sourceId: string, targetI
   return source !== null && target !== null && source[1] === target[1];
 }
 
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+function isRecordValue(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
