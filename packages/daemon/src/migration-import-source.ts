@@ -138,10 +138,9 @@ export function combineMigrationReceipts(
   if (!last) throw migrationImportError("invalid_command", "migrate import requires at least one --source.");
   const sum = (select: (receipt: MigrationImportReceipt) => ImportCounts): ImportCounts =>
       Object.fromEntries(
-        (["task", "decision", "fact", "relation", "coverage"] as const).map((kind) => [
-          kind,
-          receipts.reduce((total, receipt) => total + select(receipt)[kind], 0),
-        ]),
+        (["task", "decision", "fact", "relation", "agent", "schedule", "runtime-session", "coverage"] as const).map(
+          (kind) => [kind, receipts.reduce((total, receipt) => total + select(receipt)[kind], 0)],
+        ),
       ) as unknown as ImportCounts,
     counts = {
       old: sum((receipt) => receipt.counts.old),
@@ -224,6 +223,8 @@ export function combineMigrationReceipts(
     authoredCoverage,
     skippedEntities: receipts.flatMap(({ skippedEntities }) => skippedEntities),
     idMapPath: last.idMapPath,
+    backfillMapPath: last.backfillMapPath,
+    backfillRows: receipts.flatMap(({ backfillRows }) => backfillRows),
     ...(exitCode === 1
       ? {
           code: "migration_reconciliation_failed",

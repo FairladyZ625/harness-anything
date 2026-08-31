@@ -8,6 +8,7 @@ import type {
   IdRemapping,
   ImportCounts,
   MigrationDisposition,
+  MigrationBackfillRow,
   MigrationFieldDerivation,
   MigrationFormatObservation,
   MigrationKindReconciliation,
@@ -40,6 +41,9 @@ export function skippedCounts(skips: readonly Skip[]): ImportCounts {
     decision: count(skips, "decision"),
     fact: count(skips, "fact"),
     relation: count(skips, "relation"),
+    agent: count(skips, "agent"),
+    schedule: count(skips, "schedule"),
+    "runtime-session": count(skips, "runtime-session"),
     coverage: skips.reduce((sum, item) => sum + (item.coverage ?? 0), 0),
   };
 }
@@ -64,6 +68,8 @@ export function reportTable(
   fieldDerivations: readonly MigrationFieldDerivation[],
   dispositions: readonly MigrationDisposition[],
   formatObservations: readonly MigrationFormatObservation[],
+  backfillRows: readonly MigrationBackfillRow[],
+  backfillMapPath: string,
 ): string {
   const rows = (Object.keys(old) as EntityKind[]).map((kind) =>
       [
@@ -125,7 +131,11 @@ export function reportTable(
           ({ entityId, disposition, sourcePath, reason }) =>
             `- SAMPLE ${disposition} ${kind} ${entityId} (${sourcePath}): ${reason}`,
         ),
-    ]);
+    ]),
+    backfillDifferenceRows = backfillRows.map(
+      ({ entityType, entityId, action, sourceAnchor }) =>
+        `| ${entityType} | ${entityId} | ${action} | ${sourceAnchor} |`,
+    );
   return [
     `Migration import ${dryRun ? "dry-run" : "apply"}`,
     `Source Git: root=${sourceGit.rootCommit}, head=${sourceGit.head}, tree=${sourceGit.tree}, clean=true`,
@@ -170,6 +180,11 @@ export function reportTable(
     ...formatObservations.map(
       (item) => `- ACCEPT ${item.code} (${item.sourcePath}): ${item.detail}; treatment=${item.treatment}`,
     ),
+    "",
+    "| Backfill family | Entity ID | Difference | Source anchor |",
+    "| --- | --- | --- | --- |",
+    ...backfillDifferenceRows,
+    `Backfill map: ${dryRun || !authored.passed ? `would write ${backfillMapPath}` : backfillMapPath}`,
     [
       "Attribution: principal restored from source records for ",
       `${attribution.restored}`,

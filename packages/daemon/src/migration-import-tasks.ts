@@ -429,6 +429,15 @@ export function addTaskPackage(context: MigrationImportContext, entry: TaskSourc
 
 export function addRepoDocuments(context: MigrationImportContext): void {
   for (const source of context.authoredEntries) {
+    const agent = /^agents\/([^/]+)\.json$/u.exec(source.path),
+      schedule = /^schedules\/([^/]+)\.json$/u.exec(source.path);
+    // Native entity events below own these paths. A generic repo-document
+    // event would make a fresh import depend on event ordering for final bytes.
+    if (
+      (agent?.[1] !== undefined && context.oracle.agents.has(agent[1])) ||
+      (schedule?.[1] !== undefined && context.oracle.schedules.has(schedule[1]))
+    )
+      continue;
     const classification = context.resolveAuthoredConflict(
       context.classifyAuthored(
         context.sourceLayout.authoredRoot,

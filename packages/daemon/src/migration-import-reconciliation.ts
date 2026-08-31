@@ -38,7 +38,10 @@ function oracleIds(context: MigrationImportContext, kind: MigrationOracleKind): 
   if (kind === "decision") return new Set(context.oracle.decisions.keys());
   if (kind === "fact") return new Set(context.oracle.facts.keys());
   if (kind === "relation") return new Set(context.oracle.relations.keys());
-  return new Set(context.oracle.executions.keys());
+  if (kind === "execution") return new Set(context.oracle.executions.keys());
+  if (kind === "agent") return new Set(context.oracle.agents.keys());
+  if (kind === "schedule") return new Set(context.oracle.schedules.keys());
+  return new Set(context.oracle.runtimeSessions.keys());
 }
 
 function isIncluded(context: MigrationImportContext, kind: MigrationOracleKind, id: string): boolean {
@@ -50,7 +53,10 @@ function isIncluded(context: MigrationImportContext, kind: MigrationOracleKind, 
       ([source, target]) => source.endsWith(`/${id}`) || target.endsWith(`/${id}`),
     );
   if (kind === "relation") return context.relationMap.has(id) || context.retiredIds.has(id);
-  return context.nativeExecutionIds.has(id);
+  if (kind === "execution") return context.nativeExecutionIds.has(id);
+  if (kind === "agent") return context.agentMap.has(id);
+  if (kind === "schedule") return context.scheduleMap.has(id);
+  return context.runtimeSessionMap.has(id);
 }
 
 function intersection(left: ReadonlySet<string>, right: ReadonlySet<string>): Set<string> {

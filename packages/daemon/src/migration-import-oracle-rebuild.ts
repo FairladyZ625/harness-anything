@@ -322,6 +322,9 @@ function emptyOracle(inspection: MigrationEventInspection): MigrationProjectionO
     facts: new Map(),
     relations: new Map(),
     executions: new Map(),
+    agents: new Map(),
+    schedules: new Map(),
+    runtimeSessions: new Map(),
     entityKeys: new Set(),
     coverageCount: 0,
   };
