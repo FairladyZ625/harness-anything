@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AppSidebar } from "../src/renderer/components/AppSidebar.tsx";
+import { quickSwitcherPosition } from "../src/renderer/components/sidebar/QuickSwitcher.tsx";
 import {
   LedgerStatusBar,
   SystemStatusPanel,
@@ -62,6 +63,37 @@ const project = {
   engines: [],
   watermarkAt: NOW,
 };
+
+const switcherRepos = [
+  {
+    repoId: "repo",
+    displayName: "harness-anything canonical workspace",
+    canonicalRoot: "/repo",
+    authoredBranch: "main",
+    registrationState: "enabled",
+    cellState: "attached",
+    generation: 1,
+    queueDepth: 0,
+    lockState: "held",
+    recoveryMs: 0,
+    lastError: null,
+    unavailableReason: null,
+  },
+  {
+    repoId: "migration-rehearsal-with-long-identifier",
+    displayName: "Migration rehearsal / legacy workspace import",
+    canonicalRoot: "/migration",
+    authoredBranch: "migration/rehearsal",
+    registrationState: "enabled",
+    cellState: "unavailable",
+    generation: 2,
+    queueDepth: 0,
+    lockState: "unknown",
+    recoveryMs: null,
+    lastError: "migration task entity is invalid: missing canonical source relation",
+    unavailableReason: "migration task entity is invalid: missing canonical source relation",
+  },
+] as const;
 
 function sidebarMarkup() {
   return renderToStaticMarkup(
@@ -143,6 +175,114 @@ async function mount(element: ReturnType<typeof createElement>) {
   });
   return { div, root: root as Root };
 }
+
+function anchorRect(left: number, bottom: number): DOMRect {
+  return {
+    bottom,
+    height: 40,
+    left,
+    right: left + 172,
+    top: bottom - 40,
+    width: 172,
+    x: left,
+    y: bottom - 40,
+    toJSON: () => ({}),
+  };
+}
+
+describe("quick switcher overflow regression", () => {
+  it("portals the open panel outside both clipping ancestors and preserves the existing actions", async () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(anchorRect(12, 84));
+    const onOpenProject = vi.fn();
+    const onOpenProjectManager = vi.fn();
+    const { div, root } = await mount(
+      createElement(AppSidebar, {
+        project,
+        repos: switcherRepos,
+        activeRepoId: "repo",
+        view: "overview",
+        hasSelection: false,
+        inboxCount: 0,
+        projectSwitcherOpen: true,
+        onProjectSwitcherToggle: () => undefined,
+        onOpenProject,
+        onOpenProjectManager,
+        onNavigate: () => undefined,
+        ledgerStatus,
+        onRefreshLedger: () => undefined,
+        health: healthy,
+        onOpenSystem: () => undefined,
+      }),
+    );
+
+    const aside = div.querySelector('[data-testid="app-sidebar"]') as HTMLElement;
+    const panel = document.body.querySelector('[data-testid="quick-switcher-panel"]') as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(aside.contains(panel)).toBe(false);
+    expect(panel.parentElement).toBe(document.body);
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).toContain("w-max");
+    expect(panel.className).toContain("min-w-[min(320px,90vw)]");
+    expect(panel.className).toContain("max-w-[min(480px,90vw)]");
+    expect(panel.innerHTML).not.toContain("truncate");
+    expect(panel.textContent).toContain("Migration rehearsal / legacy workspace import");
+    expect(panel.textContent).toContain("unavailable");
+    expect(panel.textContent).toContain("queue 0");
+    expect(panel.textContent).toContain("migration task entity is invalid: missing canonical source relation");
+
+    await act(async () => {
+      (panel.querySelector("button") as HTMLButtonElement).click();
+    });
+    expect(onOpenProject).toHaveBeenCalledWith("repo");
+    await act(async () => {
+      (panel.querySelectorAll("button")[2] as HTMLButtonElement).click();
+    });
+    expect(onOpenProjectManager).toHaveBeenCalledTimes(1);
+
+    await act(async () => root.unmount());
+    rect.mockRestore();
+  });
+
+  it("tracks the trigger after layout changes and bounds its height inside the viewport", async () => {
+    let currentRect = anchorRect(12, 84);
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => currentRect);
+    const { root } = await mount(
+      createElement(AppSidebar, {
+        project,
+        repos: switcherRepos,
+        activeRepoId: "repo",
+        view: "overview",
+        hasSelection: false,
+        inboxCount: 0,
+        projectSwitcherOpen: true,
+        onProjectSwitcherToggle: () => undefined,
+        onOpenProject: () => undefined,
+        onOpenProjectManager: () => undefined,
+        onNavigate: () => undefined,
+        ledgerStatus,
+        onRefreshLedger: () => undefined,
+        health: healthy,
+        onOpenSystem: () => undefined,
+      }),
+    );
+    const panel = document.body.querySelector('[data-testid="quick-switcher-panel"]') as HTMLElement;
+    expect(panel.style.left).toBe("12px");
+    expect(panel.style.top).toBe("92px");
+
+    currentRect = anchorRect(20, 104);
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(panel.style.left).toBe("20px");
+    expect(panel.style.top).toBe("112px");
+
+    expect(quickSwitcherPosition(anchorRect(-20, 84), { width: 320, height: 600 })).toEqual({
+      left: 8,
+      top: 92,
+      maxHeight: 500,
+    });
+    await act(async () => root.unmount());
+    rect.mockRestore();
+  });
+});
 
 describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
   it("keeps every migrated fact visible: events, refresh time, health lamp, revisions, system exit", async () => {

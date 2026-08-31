@@ -82,8 +82,8 @@ export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; 
         <FolderSimple weight="duotone" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[15px] font-semibold text-text">{repo.displayName}</span>
-        <span className="block truncate font-mono text-[13px] text-text-faint">
+        <span className="block break-words text-[15px] font-semibold text-text">{repo.displayName}</span>
+        <span className="block font-mono text-[13px] text-text-faint [overflow-wrap:anywhere]">
           {repo.repoId} · {repo.registrationState} / {repo.cellState}
         </span>
         <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px] tabular-nums">
@@ -94,7 +94,7 @@ export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; 
           <span className="text-text-faint">lock {repo.lockState}</span>
         </span>
         {repo.cellState !== "attached" && (
-          <span className="mt-1 block text-[11px] text-status-blocked">
+          <span className="mt-1 block break-words text-[11px] text-status-blocked">
             {repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}
           </span>
         )}

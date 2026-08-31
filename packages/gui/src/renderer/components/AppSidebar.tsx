@@ -1,10 +1,12 @@
-import { FolderSimple, CaretUpDown, CloudSlash, WarningCircle } from "@phosphor-icons/react";
+import { useRef } from "react";
+import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { NAV_GROUPS, navLabel } from "../navigation/navConfig.tsx";
-import { NavButton, ProjectSummary, ThemeToggle } from "./shell-chrome.tsx";
+import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
+import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
 import { t } from "../i18n/index.tsx";
 
@@ -56,6 +58,7 @@ export function AppSidebar({
   health,
   onOpenSystem,
 }: AppSidebarProps) {
+  const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
   return (
     <aside
       data-testid="app-sidebar"
@@ -82,6 +85,7 @@ export function AppSidebar({
         <div className="px-3 pt-2 pb-2">
           <div className="relative">
             <button
+              ref={projectSwitcherAnchor}
               onClick={onProjectSwitcherToggle}
               title={t("components.appSidebar.quicklySwitchProjects")}
               className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm
@@ -99,48 +103,14 @@ export function AppSidebar({
               <CaretUpDown weight="bold" className="shrink-0 text-text-faint" />
             </button>
 
-            {projectSwitcherOpen && (
-              <div
-                className={`absolute left-0 right-0 z-30 mt-2 rounded-lg border border-border-strong
-                  bg-surface-raised p-2 shadow-2xl shadow-black/35 md:right-auto md:w-[320px]`}
-              >
-                <div className="flex items-center justify-between px-1 pb-2">
-                  <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
-                    {t("components.appSidebar.quickSwitch")}
-                  </span>
-                  <span className="font-mono text-[11px] text-text-faint">
-                    {t("components.appSidebar.projectCount", { count: repos.length })}
-                  </span>
-                </div>
-                <div className="flex max-h-[330px] flex-col gap-1.5 overflow-y-auto">
-                  {repos.map((repo) => (
-                    <ProjectSummary
-                      key={repo.repoId}
-                      repo={repo}
-                      active={repo.repoId === activeRepoId}
-                      onOpen={() => onOpenProject(repo.repoId)}
-                    />
-                  ))}
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-1.5 border-t border-border pt-2">
-                  <button
-                    onClick={onOpenProjectManager}
-                    className={`rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium
-                      text-text-muted hover:border-border-strong hover:text-text`}
-                  >
-                    {t("components.appSidebar.manageAll")}
-                  </button>
-                  <button
-                    disabled
-                    className={`inline-flex items-center justify-center gap-1 rounded-md border border-border
-                      px-2 py-1.5 text-[12px] text-text-faint opacity-70`}
-                  >
-                    <WarningCircle weight="bold" />
-                    {t("components.appSidebar.localMode")}
-                  </button>
-                </div>
-              </div>
-            )}
+            <QuickSwitcher
+              open={projectSwitcherOpen}
+              anchorRef={projectSwitcherAnchor}
+              repos={repos}
+              activeRepoId={activeRepoId}
+              onOpenProject={onOpenProject}
+              onOpenProjectManager={onOpenProjectManager}
+            />
           </div>
         </div>
 
