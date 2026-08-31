@@ -5,6 +5,7 @@ export {
   runtimeSessionInActivityWindow,
   runtimeSessionIsRunning,
   runtimeSessionSemanticState,
+  runtimeTaskExecutionRelation,
   sessionProvenance,
   unavailableSessionIdentity,
 } from "./domain/agent-runtime.ts";

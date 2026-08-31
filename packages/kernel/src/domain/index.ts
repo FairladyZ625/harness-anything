@@ -180,6 +180,7 @@ export {
 } from "./entity-relation.ts";
 export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
 export type {
+  EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,

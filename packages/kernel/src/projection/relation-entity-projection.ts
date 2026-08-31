@@ -1,11 +1,11 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
-import type { AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
+import { runtimeTaskExecutionRelation, type AgentRuntimeEventV1 } from "../domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { entityKindContracts } from "../domain/entity-kind-registry.ts";
 import { interpretEmbeddedEntityProjections } from "../domain/entity-kind-projection.ts";
-import { deriveRelationId, relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
+import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle-event.ts";
 import {
   assertRelationRecord,
@@ -75,22 +75,15 @@ export function applyEmbeddedRelationProjectionEvents(
 ): void {
   if (event.schema !== "agent-runtime-event/v1")
     for (const relationEvent of embeddedRelationEventsForReplay(event)) applyRelationProjectionEvent(db, relationEvent);
-  if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_task_bound") {
-    const identity = {
-      source: `runtime-session/${event.payload.runtimeSessionId}`,
-      target: `task/${event.payload.taskId}`,
-      type: "executes" as const,
-      direction: "directed" as const,
-    };
-    projectDerivedRelation(db, event, {
-      relation_id: deriveRelationId(identity),
-      ...identity,
-      strength: "strong",
-      origin: "generated",
-      state: "active",
-      rationale: "Runtime session is bound to the task execution.",
-    });
-  }
+  for (const record of derivedRelationRecordsForReplay(event)) projectDerivedRelation(db, event, record);
+}
+
+function derivedRelationRecordsForReplay(
+  event: AgentRuntimeEventV1 | DecisionEventV1 | FactEventV1 | TaskEventV1,
+): readonly EntityRelationRecord[] {
+  const records: EntityRelationRecord[] = [];
+  if (event.schema === "agent-runtime-event/v1" && event.type === "runtime_session_task_bound")
+    records.push(runtimeTaskExecutionRelation(event.payload.runtimeSessionId, event.payload.taskId));
   for (const contract of entityKindContracts)
     for (const projection of interpretEmbeddedEntityProjections(contract, event))
       for (const relation of projection.relations) {
@@ -105,8 +98,9 @@ export function applyEmbeddedRelationProjectionEvents(
           state: relation.state,
           rationale: relation.rationale,
         } as EntityRelationRecord;
-        projectDerivedRelation(db, event, record);
+        records.push(record);
       }
+  return records;
 }
 
 function projectDerivedRelation(
