@@ -3,6 +3,23 @@ export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-e
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { ReceiptJsonValue } from "./receipt-frame.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export {
+  ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA,
+  ENTITY_ACTION_EXPLANATION_SCHEMA,
+  taskLifecycleActionIds,
+  validateEntityActionExplainRequest,
+  validateEntityActionExplanationSet,
+} from "./entity-action-explanation.ts";
+export type {
+  EntityActionCriterionExplanationV1,
+  EntityActionExplainRequestV1,
+  EntityActionExplanationFailureCode,
+  EntityActionExplanationSetV1,
+  EntityActionExplanationSubjectV1,
+  EntityActionExplanationV1,
+  TaskLifecycleActionId,
+} from "./entity-action-explanation.ts";
+export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
   ActorAxes,
@@ -145,6 +162,9 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
+
+export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
+export type { BaseEntity } from "./base-entity.ts";
 export type { EntityActionDraft, EntityActionExecutionContract } from "./entity-action-execution.ts";
 
 export {

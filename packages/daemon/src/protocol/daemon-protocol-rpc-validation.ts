@@ -1,5 +1,6 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+import { validateEntityActionExplainRequest } from "../../../kernel/src/index.ts";
 import {
   validateShape,
   validateObserveTailPayload,
@@ -76,6 +77,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
   if (!errors.length && (value.method === "repo.tasks.list" || value.method === "repo.triadic.relationGraph"))
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.entity.actions.explain")
+    errors.push(...validateEntityActionExplainRequest((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.task.dispatches")

@@ -1,4 +1,4 @@
-import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
+import { ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA, type EntityResidencyFacets } from "../../../kernel/src/index.ts";
 import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
 import { observeTailKinds, optionalEnum, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import {
@@ -15,6 +15,7 @@ import {
   DAEMON_CONTROL_RECEIPT_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
   DAEMON_RELATION_GRAPH_SCHEMA,
@@ -153,6 +154,29 @@ export const daemonGuiReadMethods = Object.freeze([
     outputSchemaId: DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.id,
     errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
     serviceMethod: "listTasks",
+    auth: "local-session-token",
+    commandClass: "repo-read",
+  },
+  {
+    id: "entity.actions.explain",
+    phase: "Ontology-Explain-A",
+    method: "repo.entity.actions.explain",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        schema: "string",
+        mode: { values: ["catalog", "object"], optional: false },
+        refs: "array",
+      }),
+    }),
+    guiBridgeMethod: "explainEntityActions",
+    httpMethod: "POST",
+    path: "/api/entities/actions/explain",
+    inputSchemaId: ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id,
+    outputSchemaId: DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA.id,
+    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
+    serviceMethod: "explainEntityActions",
     auth: "local-session-token",
     commandClass: "repo-read",
   },

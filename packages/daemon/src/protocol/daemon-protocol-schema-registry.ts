@@ -15,6 +15,7 @@ import {
   DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
+  DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA,
   DAEMON_PROTOCOL_ERROR_SCHEMA,
@@ -41,6 +42,14 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA.id,
+    schema: "packages/kernel/src/domain/entity-action-explanation.ts#ENTITY_ACTION_EXPLANATION_SCHEMA",
+    parser: "packages/kernel/src/domain/entity-action-explanation.ts#validateEntityActionExplanationSet",
+    writer: "packages/kernel/src/domain/entity-action-explanation.ts#serializeEntityActionExplanationSet",
+    error: "packages/kernel/src/domain/entity-action-explanation.ts#EntityActionExplanationContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/entity-action-explanation-invalid.json"]),
+  },
   {
     id: DAEMON_CI_OBSERVATORY_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_CI_OBSERVATORY_SCHEMA",

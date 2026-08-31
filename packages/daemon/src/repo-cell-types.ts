@@ -148,6 +148,7 @@ export interface RepoCell {
   readonly read: <M extends RepoCellReadMethod>(
     method: M,
     payload?: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
   readonly observeTail: (
