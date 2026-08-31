@@ -602,6 +602,7 @@ export default Object.freeze({
     "Persons-Registry",
     "PLT-TestEng-W1",
     "Schedule-S5",
+    "Ontology-Explain-A",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
