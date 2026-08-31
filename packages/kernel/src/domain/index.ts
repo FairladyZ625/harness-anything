@@ -183,29 +183,17 @@ export type {
   TemplateLibraryError,
 } from "./errors.ts";
 
-export {
-  createScheduleV1,
-  nextScheduleOccurrence,
-  scheduleMissedReasons,
-  scheduleRunOutcomes,
-  validateScheduleV1,
-} from "./schedule.ts";
+export { createScheduleV1, nextScheduleOccurrence, validateScheduleV1 } from "./schedule.ts";
 export type {
   ScheduleActiveRunV1,
   ScheduleLastRunV1,
   ScheduleMissedReason,
-  ScheduleMode,
   ScheduleRunOutcome,
   ScheduleTriggerV1,
   ScheduleV1,
 } from "./schedule.ts";
-export {
-  compileScheduleDefinitionEvent,
-  compileScheduleDeletedEvent,
-  compileScheduleRunEvent,
-  isScheduleEvent,
-} from "./schedule-event.ts";
-export { createScheduleActionCatalog, type ScheduleActionDraft } from "./schedule-action-contract.ts";
+export { isScheduleEvent } from "./schedule-event.ts";
+export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
   INITIAL_SETTINGS_V1,

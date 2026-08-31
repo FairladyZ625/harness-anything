@@ -108,7 +108,7 @@
       {
         "value": "CompositeManifestBlobDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -139,6 +139,12 @@
         "value": "CreateReplayTaskCommand",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
+        "until": "2026-09-30"
+      },
+      {
+        "value": "createScheduleV1",
+        "ref": "task_8c0e974b7c612ace414f92ab56",
+        "reason": "Schedule tier-2 entity-ization: daemon/CLI schedule tests construct canonical ScheduleV1 rows through this factory while production schedule ingress derives rows from entity actions.",
         "until": "2026-09-30"
       },
       {
@@ -294,7 +300,7 @@
       {
         "value": "EntityDocumentCodec",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -360,13 +366,13 @@
       {
         "value": "EntityProjectionColumnDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
         "value": "EntityProjectionDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -432,7 +438,7 @@
       {
         "value": "EntityRootResolverDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
@@ -612,7 +618,7 @@
       {
         "value": "HostedEntityDeclaration",
         "ref": "task_01KX7G4G3C4H62Y5SFXZV6RYT2",
-        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) — the stale-entry rule will force removal once they land.",
+        "reason": "F1 registry substrate declaration contract; scheduled consumers are the F2 Session and F3 Execution/Review slices (dec_mrem0ys8, ADR-0027) \u2014 the stale-entry rule will force removal once they land.",
         "until": "2026-09-30"
       },
       {
