@@ -39,6 +39,7 @@ export interface GeneratedTaskActionProtocolDeclaration {
     readonly read: false;
     readonly implementation: "task-lifecycle" | "task-completion";
     readonly topology: "center-forward-write" | "ledger-write" | "local-arbiter";
+    readonly targetIdField: "taskId";
     readonly lifecycle: {
       readonly transitionId: string;
       readonly commandType: "StartExecution" | "SubmitExecution" | "RecordReview" | "CompleteTask";
