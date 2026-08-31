@@ -11,7 +11,9 @@ import {
   validateTaskBootstrapEvent,
   validateTaskEvent,
   validateTaskV2,
+  taskClasses,
   type PersistedCanonicalEventV1,
+  type TaskClass,
   type TaskV2,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
@@ -47,6 +49,11 @@ export interface RestatedTaskContract {
   readonly body: string;
   readonly presetSnapshotDigest: `sha256:${string}`;
   readonly source: "contract" | "compiled";
+  readonly repair?: {
+    readonly disposition: "retired-preset-to-standard-task" | "preset-task-class-aligned";
+    readonly presetId: string;
+    readonly taskClass: TaskClass;
+  };
 }
 
 export interface TaskContractCompileFallback {
@@ -58,6 +65,16 @@ export interface TaskContractCompileFallback {
   readonly locale?: unknown;
   readonly slug?: unknown;
 }
+
+const retiredTaskPresetIds = new Set([
+  "doc-canon-sync",
+  "gate-architecture-retrospective",
+  "idea-to-ship",
+  "long-running-task",
+  "milestone-dossier",
+  "progress-site",
+  "usage-acceptance",
+]);
 
 /** Restates the machine contract into its migrated package and derives the immutable preset digest when needed. */
 export function restateTaskContract(input: {
@@ -86,12 +103,13 @@ export function compileRestatedTaskContract(input: {
   readonly targetPackagePath: string;
   readonly fallback: TaskContractCompileFallback;
 }): RestatedTaskContract {
-  const compiled = compileContract(input.sourceRoot, input.targetTaskId, input.fallback),
-    document = compiled.documents.find(({ slot }) => slot === "task.contract");
+  const compiled = compileContractForRestatement(input.sourceRoot, input.targetTaskId, input.fallback),
+    document = compiled.contract.documents.find(({ slot }) => slot === "task.contract");
   if (!document) throw new Error(`${input.sourcePath}: compiled task package has no task.contract document`);
   return {
     ...restateTaskContractBody({ ...input, body: document.body }),
     source: "compiled",
+    ...(compiled.repair ? { repair: compiled.repair } : {}),
   };
 }
 
@@ -114,15 +132,20 @@ export function restateTaskContractBody(input: {
   const declaredDigest = contract.presetSnapshotDigest;
   if (declaredDigest !== undefined && declaredDigest !== null && !presetDigest(declaredDigest))
     throw new Error(`${input.sourcePath}: presetSnapshotDigest is not SHA-256`);
-  const metadata = contractCompileMetadata(contract, input.fallback),
-    settings = readSettingsFacet(
-      readFileSync(path.join(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"), "utf8"),
-    );
+  let metadata = contractCompileMetadata(contract, input.fallback);
+  const settings = readSettingsFacet(
+    readFileSync(path.join(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"), "utf8"),
+  );
   let digest = presetDigest(declaredDigest) ? declaredDigest : null,
-    source: RestatedTaskContract["source"] = "contract";
+    source: RestatedTaskContract["source"] = "contract",
+    repair: RestatedTaskContract["repair"];
   if (digest === null) {
     try {
-      digest = compileContract(input.sourceRoot, input.targetTaskId, metadata).snapshot.digest;
+      const compiled = compileContractForRestatement(input.sourceRoot, input.targetTaskId, metadata);
+      digest = compiled.contract.snapshot.digest;
+      metadata = compiled.metadata;
+      repair = compiled.repair;
+      if (repair) contract = compiledContractDocument(compiled.contract, input.sourcePath);
       source = "compiled";
     } catch (error) {
       throw new Error(`${input.sourcePath}: cannot derive presetSnapshotDigest from task contract metadata`, {
@@ -133,6 +156,7 @@ export function restateTaskContractBody(input: {
   return {
     presetSnapshotDigest: digest,
     source,
+    ...(repair ? { repair } : {}),
     body: `${JSON.stringify(
       {
         ...contract,
@@ -153,6 +177,78 @@ export function restateTaskContractBody(input: {
       2,
     )}\n`,
   };
+}
+
+function compileContractForRestatement(
+  sourceRoot: string,
+  taskId: string,
+  metadata: TaskContractCompileFallback,
+): {
+  readonly contract: ReturnType<typeof compileContract>;
+  readonly metadata: TaskContractCompileFallback;
+  readonly repair?: RestatedTaskContract["repair"];
+} {
+  try {
+    return { contract: compileContract(sourceRoot, taskId, metadata), metadata };
+  } catch (error) {
+    const code = codedError(error),
+      presetId = optionalTrimmedText(metadata.presetId);
+    if (code === "preset_not_found" && presetId && retiredTaskPresetIds.has(presetId)) {
+      const repaired = { ...metadata, presetId: "standard-task", taskClass: "standard" as const };
+      return {
+        contract: compileContract(sourceRoot, taskId, repaired),
+        metadata: repaired,
+        repair: {
+          disposition: "retired-preset-to-standard-task",
+          presetId: "standard-task",
+          taskClass: "standard",
+        },
+      };
+    }
+    if (code === "task_class_mismatch" || code === "task_class_required") {
+      const matches = taskClasses.flatMap((taskClass) => {
+        const candidate = { ...metadata, taskClass };
+        try {
+          return [{ contract: compileContract(sourceRoot, taskId, candidate), metadata: candidate }];
+        } catch {
+          return [];
+        }
+      });
+      if (matches.length === 1 && presetId) {
+        const match = matches[0]!;
+        return {
+          ...match,
+          repair: {
+            disposition: "preset-task-class-aligned",
+            presetId,
+            taskClass: match.metadata.taskClass as TaskClass,
+          },
+        };
+      }
+    }
+    throw error;
+  }
+}
+
+function compiledContractDocument(
+  compiled: ReturnType<typeof compileContract>,
+  sourcePath: string,
+): Record<string, unknown> {
+  const document = compiled.documents.find(({ slot }) => slot === "task.contract");
+  if (!document) throw new Error(`${sourcePath}: compiled task package has no task.contract document`);
+  const value = JSON.parse(document.body) as unknown;
+  if (!migrationImportRecord(value)) throw new Error(`${sourcePath}: compiled task.contract document is invalid`);
+  return value;
+}
+
+function codedError(error: unknown): string | null {
+  return error !== null && typeof error === "object" && typeof (error as { readonly code?: unknown }).code === "string"
+    ? String((error as { readonly code: string }).code)
+    : null;
+}
+
+function optionalTrimmedText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function compileContract(sourceRoot: string, taskId: string, metadata: TaskContractCompileFallback) {
