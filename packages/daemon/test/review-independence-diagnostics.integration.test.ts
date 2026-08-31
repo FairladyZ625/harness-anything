@@ -122,7 +122,7 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
 
 // The complementary half: when the execution declared no executor, the same principal genuinely cannot
 // review it until an agent executor accepts that attribution through its own audited lifecycle event.
-test("a bare-invocation execution has a visible warning and an audited recovery path", async () => {
+test("a child bare-invocation execution can recover from its parent Task dispatch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -177,10 +177,21 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       },
       "arbiter",
     );
-    const taskId = "task-bare-axis",
+    const parentTaskId = "task-bare-parent",
+      parentExecutionId = "exec-bare-parent",
+      taskId = "task-bare-axis",
       priorExecutionId = "exec-bare-prior",
       executionId = "exec-bare-recovery";
-    const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare);
+    const parentCreated = await cell.run({ kind: "task-create", taskId: parentTaskId, title: "Bare parent" }, bare);
+    assert.equal(parentCreated.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((parentCreated as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: parentTaskId, executionId: parentExecutionId }, bare)).outcome,
+      "applied",
+    );
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis", parentTaskId }, bare);
     assert.equal(created.outcome, "applied");
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
@@ -196,7 +207,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
         runtimeInstanceId: "review-runtime",
         cwd: { scope: "repo-root" },
         prompt: "Implement the task.",
-        taskId,
+        taskId: parentTaskId,
         idempotencyKey: "review-bare-worker",
       },
       bare,
@@ -347,6 +358,7 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       assert.deepEqual(event.payload.previousActor, bare.actor);
       assert.deepEqual(event.payload.execution.actor, agent.actor);
       assert.deepEqual(event.actor, bare.actor);
+      assert.equal(event.payload.dispatchTaskId, parentTaskId);
       assert.equal(event.payload.reason, "Recovered the executor omitted by the original start invocation.");
     }
 
@@ -379,10 +391,11 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
   }
 });
 
-test("a reviewed bare-invocation execution without a dispatch cannot declare an executor", async () => {
+test("a reviewed child execution cannot declare an executor when neither it nor its parent has a dispatch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-reviewed-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("review-bare-reviewed"),
+    parentTaskId = "task-bare-reviewed-parent",
     taskId = "task-bare-reviewed",
     executionId = "exec-bare-reviewed",
     bare = withRoleBinding(
@@ -398,7 +411,15 @@ test("a reviewed bare-invocation execution without a dispatch cannot declare an 
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "--quiet", "-m", "fixture output");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed" });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Bare reviewed" }, bare);
+    const parentCreated = await cell.run(
+      { kind: "task-create", taskId: parentTaskId, title: "Bare reviewed parent" },
+      bare,
+    );
+    assert.equal(parentCreated.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((parentCreated as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
+    );
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bare reviewed", parentTaskId }, bare);
     assert.equal(created.outcome, "applied");
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),

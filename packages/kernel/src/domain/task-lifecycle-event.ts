@@ -120,6 +120,8 @@ export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly previousActor: ActorAxes;
+    /** Absent only on executor declarations written before dispatch-lineage auditing. */
+    readonly dispatchTaskId?: string;
     readonly reason: string;
   }
 >;
@@ -303,6 +305,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       String(value.type),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "edge"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
     ),
     claims = payload.documentClaims;
   const claimlessFields =
@@ -312,6 +315,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
           String(value.type),
           Object.hasOwn(payload, "edge"),
           Object.hasOwn(payload, "factRetirementAttestations"),
+          Object.hasOwn(payload, "dispatchTaskId"),
         ).filter((field) => field !== "documentClaims");
   const payloadFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   const validPayloadFields =
@@ -367,6 +371,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(...validateActorAxes(previousActor, allowUnknownFields));
     if (
       !isNonEmptyString(payload.reason) ||
+      (Object.hasOwn(payload, "dispatchTaskId") && !isNonEmptyString(payload.dispatchTaskId)) ||
       !actorsValid ||
       (previousActor as ActorAxes).executor !== null ||
       (executionActor as ActorAxes).executor === null ||
@@ -442,13 +447,19 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     issues.push(invalidEventPayloadIssue("payload Task identity must match the envelope"));
   return issues;
 }
-function lifecyclePayloadFields(type: string, edge: boolean, factRetirementAttestations = false): readonly string[] {
+function lifecyclePayloadFields(
+  type: string,
+  edge: boolean,
+  factRetirementAttestations = false,
+  dispatchTaskId = false,
+): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
   if (type === "execution_submitted") return [...common, "edge"];
-  if (type === "execution_executor_declared") return [...common, "previousActor", "reason"];
+  if (type === "execution_executor_declared")
+    return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
