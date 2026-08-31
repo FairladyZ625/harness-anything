@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../kernel/src/index.ts";
-import { restateLegacyTaskEvents, restateTaskContractBody } from "../src/migration-import-task-restatement.ts";
+import {
+  compileRestatedTaskContract,
+  restateLegacyTaskEvents,
+  restateTaskContractBody,
+} from "../src/migration-import-task-restatement.ts";
 
 const actor = { principal: { personId: "person_zeyu" }, executor: null } as const;
 
@@ -119,6 +123,159 @@ test("task contract restatement fails closed when a missing digest cannot be der
         }),
       /cannot derive presetSnapshotDigest from task contract metadata/u,
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("retired long-running-task metadata restates the real M3 sample through standard-task", () => {
+  const rootDir = fixtureRoot();
+  try {
+    const taskId = "task_01KWFQ0285MRXE92BYX7AGF9HD",
+      restated = restateTaskContractBody({
+        sourceRoot: rootDir,
+        sourcePath: `harness/tasks/${taskId}/task-contract.json`,
+        body: JSON.stringify({ schema: "task-contract/v1", taskId, taskClass: "standard" }),
+        targetTaskId: taskId,
+        targetPackagePath: `tasks/${taskId}-m3-triadic-kernel`,
+        fallback: {
+          title: "M3 triadic kernel milestone main coordination task",
+          taskClass: "standard",
+          verticalId: "software/coding",
+          presetId: "long-running-task",
+          profileId: "baseline",
+          slug: "m3-triadic-kernel",
+        },
+      }),
+      contract = JSON.parse(restated.body) as Record<string, unknown>;
+    assert.deepEqual(restated.repair, {
+      disposition: "retired-preset-to-standard-task",
+      presetId: "standard-task",
+      taskClass: "standard",
+    });
+    assert.equal(contract.presetId, "standard-task");
+    assert.equal(contract.taskClass, "standard");
+    assert.equal(contract.presetSnapshotDigest, restated.presetSnapshotDigest);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("another retired preset uses the same explicit standard-task disposition", () => {
+  const rootDir = fixtureRoot();
+  try {
+    const taskId = "task_01KX51Z7HJTS56CTSVCTEM1SRF",
+      restated = restateTaskContractBody({
+        sourceRoot: rootDir,
+        sourcePath: `harness/tasks/${taskId}/task-contract.json`,
+        body: JSON.stringify({ schema: "task-contract/v1", taskId, taskClass: "standard" }),
+        targetTaskId: taskId,
+        targetPackagePath: `tasks/${taskId}-library-qianbaner-top`,
+        fallback: {
+          title: "进展页持续维护（library.qianbaner.top）",
+          taskClass: "standard",
+          verticalId: "software/coding",
+          presetId: "progress-site",
+          profileId: "baseline",
+          slug: "library-qianbaner-top",
+        },
+      });
+    assert.equal(restated.repair?.disposition, "retired-preset-to-standard-task");
+    assert.equal(restated.repair?.presetId, "standard-task");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("preset taskClass requirement overrides the real Attribution sample declaration", () => {
+  const rootDir = fixtureRoot();
+  try {
+    const taskId = "task_01KXAWVMTP3GV0QD7E5570CE4B",
+      restated = restateTaskContractBody({
+        sourceRoot: rootDir,
+        sourcePath: `harness/tasks/${taskId}/task-contract.json`,
+        body: JSON.stringify({ schema: "task-contract/v1", taskId, taskClass: "standard" }),
+        targetTaskId: taskId,
+        targetPackagePath: `tasks/${taskId}-plt-attribution-adr-0028`,
+        fallback: {
+          title: "PLT-Attribution:双轴归属主干统一切面(ADR-0028)",
+          taskClass: "standard",
+          verticalId: "software/coding",
+          presetId: "create-milestone",
+          profileId: "baseline",
+          slug: "plt-attribution-adr-0028",
+        },
+      }),
+      contract = JSON.parse(restated.body) as Record<string, unknown>;
+    assert.deepEqual(restated.repair, {
+      disposition: "preset-task-class-aligned",
+      presetId: "create-milestone",
+      taskClass: "milestone",
+    });
+    assert.equal(contract.presetId, "create-milestone");
+    assert.equal(contract.taskClass, "milestone");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("unrecognized missing presets remain manual instead of receiving a guessed contract", () => {
+  const rootDir = fixtureRoot();
+  try {
+    assert.throws(
+      () =>
+        restateTaskContractBody({
+          sourceRoot: rootDir,
+          sourcePath: "harness/tasks/task-unknown/task-contract.json",
+          body: JSON.stringify({
+            ...taskContractMetadata(),
+            presetId: "unknown-retired-preset",
+            presetSnapshotDigest: null,
+          }),
+          targetTaskId: "task-unknown",
+          targetPackagePath: "tasks/task-unknown",
+        }),
+      /cannot derive presetSnapshotDigest from task contract metadata/u,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("missing contract synthesis uses the same deterministic retired-preset and taskClass rules", () => {
+  const rootDir = fixtureRoot();
+  try {
+    const retired = compileRestatedTaskContract({
+        sourceRoot: rootDir,
+        sourcePath: "harness/tasks/task_01KWFQ0285MRXE92BYX7AGF9HD/task-contract.json",
+        targetTaskId: "task_01KWFQ0285MRXE92BYX7AGF9HD",
+        targetPackagePath: "tasks/task_01KWFQ0285MRXE92BYX7AGF9HD-m3-triadic-kernel",
+        fallback: {
+          title: "M3 triadic kernel milestone main coordination task",
+          taskClass: "standard",
+          verticalId: "software/coding",
+          presetId: "long-running-task",
+          profileId: "baseline",
+          slug: "m3-triadic-kernel",
+        },
+      }),
+      conflict = compileRestatedTaskContract({
+        sourceRoot: rootDir,
+        sourcePath: "harness/tasks/task_01KXAWVMTP3GV0QD7E5570CE4B/task-contract.json",
+        targetTaskId: "task_01KXAWVMTP3GV0QD7E5570CE4B",
+        targetPackagePath: "tasks/task_01KXAWVMTP3GV0QD7E5570CE4B-plt-attribution-adr-0028",
+        fallback: {
+          title: "PLT-Attribution:双轴归属主干统一切面(ADR-0028)",
+          taskClass: "standard",
+          verticalId: "software/coding",
+          presetId: "create-milestone",
+          profileId: "baseline",
+          slug: "plt-attribution-adr-0028",
+        },
+      });
+    assert.equal(retired.repair?.disposition, "retired-preset-to-standard-task");
+    assert.equal(conflict.repair?.disposition, "preset-task-class-aligned");
+    assert.equal(conflict.repair?.taskClass, "milestone");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

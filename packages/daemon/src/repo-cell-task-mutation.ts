@@ -265,10 +265,23 @@ export function taskMutation(
   }
   if (action.kind === "task-contract-migrate") {
     const repairedDigest =
-      typeof action.repairPresetSnapshotDigest === "string" &&
-      /^sha256:[0-9a-f]{64}$/u.test(action.repairPresetSnapshotDigest)
-        ? (action.repairPresetSnapshotDigest as `sha256:${string}`)
-        : null;
+        typeof action.repairPresetSnapshotDigest === "string" &&
+        /^sha256:[0-9a-f]{64}$/u.test(action.repairPresetSnapshotDigest)
+          ? (action.repairPresetSnapshotDigest as `sha256:${string}`)
+          : null,
+      repairedTaskClass = (taskClasses as readonly unknown[]).includes(action.repairTaskClass)
+        ? (action.repairTaskClass as TaskV2["taskClass"])
+        : null,
+      repairedPresetId =
+        typeof action.repairPresetId === "string" && action.repairPresetId.trim() ? action.repairPresetId.trim() : null,
+      repairedMetadata =
+        repairedPresetId === null || !task.metadata ? task.metadata : { ...task.metadata, presetId: repairedPresetId },
+      fields = [
+        "contractVersion",
+        ...(repairedDigest === null ? [] : ["presetSnapshotDigest"]),
+        ...(repairedTaskClass === null || repairedTaskClass === task.taskClass ? [] : ["taskClass"]),
+        ...(repairedPresetId === null || repairedPresetId === task.metadata?.presetId ? [] : ["presetId"]),
+      ];
     if ((task.contractVersion ?? 0) >= 1 && repairedDigest === null)
       throw cell.cellCodedError(
         "contract_current",
@@ -280,6 +293,8 @@ export function taskMutation(
         ...task,
         contractVersion: 1,
         ...(repairedDigest === null ? {} : { presetSnapshotDigest: repairedDigest }),
+        ...(repairedTaskClass === null ? {} : { taskClass: repairedTaskClass }),
+        ...(repairedMetadata === undefined ? {} : { metadata: repairedMetadata }),
       },
       audit: {
         command: "contract-migrate",
@@ -287,7 +302,7 @@ export function taskMutation(
           repairedDigest === null
             ? "Backfilled immutable task-contract/v1 from unambiguous L1 task truth"
             : "Repaired migrated task preset digest and canonical task-contract package path",
-        fields: repairedDigest === null ? ["contractVersion"] : ["contractVersion", "presetSnapshotDigest"],
+        fields,
       },
     };
   }

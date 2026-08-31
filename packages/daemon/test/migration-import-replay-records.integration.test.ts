@@ -855,6 +855,194 @@ test("contract migration repairs old migrated rows through one canonical event a
   }
 });
 
+test("contract migration deterministically disposes all three canonical manual families and stays idempotent", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-migrate-contract-manual-families-")),
+    repoId = workspaceId("migration-contract-manual-families"),
+    occurredAt = "2026-08-31T00:00:00.000Z",
+    samples = [
+      {
+        taskId: "task_01KWFQ0285MRXE92BYX7AGF9HD",
+        title: "M3 triadic kernel milestone main coordination task",
+        slug: "m3-triadic-kernel",
+        sourcePresetId: "long-running-task",
+        targetPresetId: "standard-task",
+        targetTaskClass: "standard" as const,
+        disposition: "retired-preset-to-standard-task",
+        hasSourceContract: false,
+      },
+      {
+        taskId: "task_01KX51Z7HJTS56CTSVCTEM1SRF",
+        title: "进展页持续维护（library.qianbaner.top）",
+        slug: "library-qianbaner-top",
+        sourcePresetId: "progress-site",
+        targetPresetId: "standard-task",
+        targetTaskClass: "standard" as const,
+        disposition: "retired-preset-to-standard-task",
+        hasSourceContract: true,
+      },
+      {
+        taskId: "task_01KXAWVMTP3GV0QD7E5570CE4B",
+        title: "PLT-Attribution:双轴归属主干统一切面(ADR-0028)",
+        slug: "plt-attribution-adr-0028",
+        sourcePresetId: "create-milestone",
+        targetPresetId: "create-milestone",
+        targetTaskClass: "milestone" as const,
+        disposition: "preset-task-class-aligned",
+        hasSourceContract: false,
+      },
+    ];
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "manual-family-bootstrap" });
+    assert.equal((await cell.run({ kind: "projection-rebuild" }, { actor, source: "local" })).outcome, "applied");
+    await cell.close();
+    cell = undefined;
+    const settings = readSettingsFacet(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8")),
+      store = makeTaskEventStore({ repoId, rootDir });
+    let revision = store.readHead()?.revision ?? 0;
+    for (const sample of samples) {
+      const target = compileRepoTaskPackage({
+          rootDir,
+          settings,
+          taskId: sample.taskId,
+          action: {
+            kind: "task-create",
+            title: sample.title,
+            slug: sample.slug,
+            presetId: sample.targetPresetId,
+            taskClass: sample.targetTaskClass,
+            verticalId: "software/coding",
+            profileId: "baseline",
+          },
+        }),
+        packagePath = target.packagePath,
+        index = target.documents.find(({ slot }) => slot === "task.index")!,
+        task = {
+          schema: "task/v2" as const,
+          taskId: sample.taskId,
+          title: sample.title,
+          taskClass: "standard" as const,
+          status: "planned" as const,
+          graph: REPLAY_TASK_GRAPH,
+          currentNode: "implementation",
+          iteration: 0,
+          pinned: false,
+          packageDisposition: "active" as const,
+          createdBy: actor,
+          completionGateIds: [],
+          presetSnapshotDigest: null,
+          metadata: {
+            idempotencyKey: null,
+            parentTaskId: null,
+            workKind: "chore" as const,
+            riskTier: "medium" as const,
+            urgency: "medium" as const,
+            verticalId: "software/coding",
+            presetId: sample.sourcePresetId,
+            profileId: "baseline",
+            moduleKey: null,
+            slug: sample.slug,
+            surfaces: [],
+            fromLegacyId: null,
+          },
+        };
+      store.append(
+        prepare(
+          "legacy-source",
+          actor,
+          "task",
+          sample.taskId,
+          occurredAt,
+          ++revision,
+          {
+            kind: "task",
+            provenance: "imported_snapshot",
+            task,
+            originalStatus: "planned",
+            packagePath,
+            documentClaim: claim(index.path, index.body, index.mediaType),
+          },
+          [blob(index.body, index.mediaType)],
+        ),
+      );
+      for (const document of target.documents.filter(({ slot }) => slot !== "task.index")) {
+        if (document.slot === "task.contract" && !sample.hasSourceContract) continue;
+        const body =
+          document.slot === "task.contract"
+            ? `${JSON.stringify(
+                {
+                  schema: "task-contract/v1",
+                  contractVersion: 1,
+                  taskId: sample.taskId,
+                  title: sample.title,
+                  taskClass: "standard",
+                  metadata: task.metadata,
+                },
+                null,
+                2,
+              )}\n`
+            : document.body;
+        store.append(
+          prepare(
+            "legacy-source",
+            actor,
+            "task-document",
+            `harness/${packagePath}/${document.relativePath}`,
+            occurredAt,
+            ++revision,
+            {
+              kind: "task-document",
+              taskId: sample.taskId,
+              documentClaim: claim(document.path, body, document.mediaType),
+            },
+            [blob(body, document.mediaType)],
+          ),
+        );
+      }
+    }
+    await store.drain();
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "manual-family-daemon" });
+    const binding = { actor, source: "local" as const },
+      before = makeTaskEventStore({ repoId, rootDir }).read().revision,
+      dry = await cell.run({ kind: "task-contract-migrate", mode: "dry-run" }, binding),
+      evidence = JSON.parse(String(dry.evidence)) as {
+        readonly report: readonly Record<string, unknown>[];
+        readonly manual: readonly Record<string, unknown>[];
+      };
+    assert.equal(dry.outcome, "pending");
+    assert.equal(makeTaskEventStore({ repoId, rootDir }).read().revision, before);
+    assert.equal(evidence.manual.length, 0);
+    for (const sample of samples) {
+      const row = evidence.report.find(({ taskId }) => taskId === sample.taskId)!;
+      assert.equal(row.status, "repair");
+      assert.equal(row.disposition, sample.disposition);
+      assert.equal(row.presetIdAfter, sample.targetPresetId);
+      assert.equal(row.taskClassAfter, sample.targetTaskClass);
+    }
+    const applied = await cell.run({ kind: "task-contract-migrate", mode: "apply" }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const firstLedger = makeTaskEventStore({ repoId, rootDir }).read();
+    assert.equal(firstLedger.revision, before + samples.length);
+    assert.equal(firstLedger.events.filter((event) => event.type === "task_contract_migrated").length, samples.length);
+    const rows = (await cell.read("repo.tasks.list")).rows;
+    for (const sample of samples) {
+      const repaired = rows.find(({ taskId }) => taskId === sample.taskId)!.snapshot.task!;
+      assert.equal(repaired.metadata?.presetId, sample.targetPresetId);
+      assert.equal(repaired.taskClass, sample.targetTaskClass);
+      assert.match(String(repaired.presetSnapshotDigest), /^sha256:[0-9a-f]{64}$/u);
+    }
+    const rerun = await cell.run({ kind: "task-contract-migrate", mode: "apply" }, binding),
+      secondLedger = makeTaskEventStore({ repoId, rootDir }).read();
+    assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
+    assert.equal(secondLedger.revision, firstLedger.revision);
+    assert.equal(secondLedger.events.length, firstLedger.events.length);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function contractMetadata(taskId: string, packagePath: string, title = "Migrated repair fixture") {
   return {
     schema: "task-contract/v1",

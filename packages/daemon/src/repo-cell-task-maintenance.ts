@@ -200,6 +200,15 @@ export function migrateTaskContracts(
             packagePathBefore,
             packagePathAfter: current.packagePath,
             digestSource: restated.source,
+            ...(restated.repair
+              ? {
+                  disposition: restated.repair.disposition,
+                  presetIdBefore: task.metadata?.presetId ?? null,
+                  presetIdAfter: restated.repair.presetId,
+                  taskClassBefore: task.taskClass,
+                  taskClassAfter: restated.repair.taskClass,
+                }
+              : {}),
           };
         }
         return { taskId, status: "current" };
@@ -233,6 +242,12 @@ export function migrateTaskContracts(
           taskId,
           ...(repairs.has(taskId) ? { repairPresetSnapshotDigest: repairs.get(taskId)!.presetSnapshotDigest } : {}),
           ...(repairs.has(taskId) ? { repairTaskContractBody: repairs.get(taskId)!.body } : {}),
+          ...(repairs.get(taskId)?.repair
+            ? {
+                repairPresetId: repairs.get(taskId)!.repair!.presetId,
+                repairTaskClass: repairs.get(taskId)!.repair!.taskClass,
+              }
+            : {}),
         },
         binding,
       ),
