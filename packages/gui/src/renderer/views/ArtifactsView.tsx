@@ -125,7 +125,7 @@ export function ArtifactsWorkspace({
     writeArtifactDrawerState(drawer);
   }, [drawer]);
 
-  // 拖右边缘改宽:左抽屉向左拖变宽。宽度钳在 [200px, 容器宽 50%]。
+  // 拖右边缘改宽:水平位移直接加到左抽屉宽度,宽度钳在 [200px, 容器宽 50%]。
   const onResizePointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
@@ -139,7 +139,7 @@ export function ArtifactsWorkspace({
     if (drag === null) return;
     const host = rowHostRef.current;
     const max = host === null ? Number.POSITIVE_INFINITY : Math.floor(host.clientWidth / 2);
-    const next = clampDrawerWidth(drag.startWidth + (drag.startX - event.clientX), max);
+    const next = clampDrawerWidth(drag.startWidth + (event.clientX - drag.startX), max);
     setDrawer((state) => (state.width === next ? state : { ...state, width: next }));
   }, []);
   const onResizePointerUp = useCallback(() => {
@@ -388,6 +388,7 @@ function ArtifactPreviewBody({
   readonly openError: string | null;
 }) {
   const taskId = row.taskId;
+  const html = isHtmlDocument(row.path);
   return (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
@@ -430,7 +431,10 @@ function ArtifactPreviewBody({
           {openError}
         </p>
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div
+        data-testid="artifact-preview-content"
+        className={`min-h-0 flex-1 p-3 ${html ? "overflow-hidden" : "overflow-y-auto"}`}
+      >
         {row.taskId === null ? (
           <PreviewNote text={t("artifacts.preview.noTask")} />
         ) : document.isPending ? (
@@ -440,8 +444,9 @@ function ArtifactPreviewBody({
         ) : document.data.blobSha256 === null && document.data.worktreeBody === null ? (
           <PreviewNote text={t("artifacts.preview.absent")} />
         ) : // 工作树实时内容优先(与 Task 详情文件页同一规则):未提交的产物是真实工作。
-        isHtmlDocument(row.path) ? (
+        html ? (
           <HtmlArtifactPreview
+            fillAvailable
             content={
               document.data.uncommitted && document.data.worktreeBody !== null
                 ? document.data.worktreeBody
