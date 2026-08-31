@@ -103,21 +103,9 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
   }
 });
 
-test("Agent and Squad install reject the canonical blank declaration scaffolds", async () => {
+test("Squad install rejects the canonical blank roster scaffold", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-placeholder-"));
   try {
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          declaration: {
-            ...agent,
-            instructions: "(To be written: this text becomes the agent's system prompt verbatim.)",
-          },
-        }),
-      (error: unknown) => (error as { readonly code?: unknown }).code === "instructions_placeholder",
-    );
     await assert.rejects(
       () =>
         install({ rootDir, kind: "squad-install", declaration: { ...squad, roster: "## Squad Roster\n（待补写）" } }),

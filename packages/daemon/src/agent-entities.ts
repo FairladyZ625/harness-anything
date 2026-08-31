@@ -355,10 +355,15 @@ export function prepareAgentEntityInstall(input: {
     readonly models: readonly string[];
     readonly enabled: boolean;
   }[];
+  readonly replay?: boolean;
 }): PreparedAgentEntityInstall {
   const kind = entityKind(input.action.kind);
   if (!input.action.kind.endsWith("-install"))
     throw entityError("invalid_command", "Only an entity install action can prepare a declaration write.");
+  const hasDeclaration = Object.hasOwn(input.action, "declaration"),
+    hasPackageSource = Object.hasOwn(input.action, "packageSource");
+  if (hasDeclaration === hasPackageSource)
+    throw entityError("invalid_command", `${kind} install requires exactly one declaration or packageSource.`);
   const decoded = declarationSource(input.action),
     source = decoded.source ?? "runtime-result";
   if ("issues" in decoded)
@@ -373,7 +378,23 @@ export function prepareAgentEntityInstall(input: {
     );
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
-  if (input.action.generatedOnly === true && current.exists) throw generatedAgentConflict(declaration.id);
+  if (
+    input.action.expectedVersion !== undefined &&
+    (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) < 0)
+  )
+    throw entityError("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
+  if (
+    input.action.expectedVersion !== undefined &&
+    input.replay !== true &&
+    (current.workspaceRevision ?? 0) !== Number(input.action.expectedVersion)
+  )
+    throw entityError(
+      "revision_conflict",
+      `${kind} ${declaration.id} expected revision ${String(input.action.expectedVersion)}, ` +
+        `current revision is ${String(current.workspaceRevision ?? 0)}.`,
+    );
+  if (input.action.generatedOnly === true && current.exists && input.replay !== true)
+    throw generatedAgentConflict(declaration.id);
   if (input.action.generatedOnly === true && kind === "agent")
     admitGeneratedAgent(declaration as AgentDeclarationV1, input.runtimeInstances);
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
@@ -397,13 +418,19 @@ function repairableStoredDeclaration(
   entityStore: EntityStore,
   kind: AgentEntityKind,
   id: string,
-): { readonly exists: boolean; readonly value: Readonly<Record<string, unknown>> | null } {
+): {
+  readonly exists: boolean;
+  readonly value: Readonly<Record<string, unknown>> | null;
+  readonly workspaceRevision: number | null;
+} {
   try {
     const current = entityStore.get<Readonly<Record<string, unknown>>>(kind, id);
-    return current === null ? { exists: false, value: null } : { exists: true, value: current.value };
+    return current === null
+      ? { exists: false, value: null, workspaceRevision: null }
+      : { exists: true, value: current.value, workspaceRevision: current.workspaceRevision };
   } catch (error) {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
-    return { exists: true, value: null };
+    return { exists: true, value: null, workspaceRevision: null };
   }
 }
 function declarationSource(

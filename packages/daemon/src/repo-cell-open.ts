@@ -11,7 +11,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
-import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
+import { prepareAgentEntityInstall, readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -52,7 +52,7 @@ import type {
   RepoTaskAction,
   Snapshot,
 } from "./repo-cell-types.ts";
-import type { EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
+import type { EntityActionCatalogPreparer, EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import {
   makeRuntimeSpawner,
@@ -538,8 +538,27 @@ async function openLockedRepoCell(
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
-  const scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext);
-  entityActionRuntimes = Object.freeze({ schedule: scheduleActionRuntime });
+  const scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext),
+    prepareAgentAction: EntityActionCatalogPreparer = (_contract, action, _binding, opId) => {
+      const existing = store.readEvent(opId),
+        prepared = prepareAgentEntityInstall({
+          rootDir,
+          action,
+          entityStore: createEntityStore(store),
+          runtimeInstances: input.runtimeInstances?.(),
+          replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === "agent",
+        });
+      return {
+        ...action,
+        declaration: prepared.declaration,
+        entityId: prepared.declaration.id,
+        preparedEntityAction: { report: prepared.report },
+      };
+    };
+  entityActionRuntimes = Object.freeze({
+    schedule: scheduleActionRuntime,
+    prepare: Object.freeze({ agent: prepareAgentAction }),
+  });
   const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
   const operationalContext = Object.assign(runtimeContext, { settingsActions, peopleActions });

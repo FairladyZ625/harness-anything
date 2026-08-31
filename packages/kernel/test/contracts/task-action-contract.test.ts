@@ -34,7 +34,7 @@ test("Task start submit review complete are complete executable Action contracts
     assert.ok(action.explain.length > 0);
   }
   assert.deepEqual(explainEntityKind("task").transitions.available, ["start", "submit", "review", "complete"]);
-  assert.deepEqual(explainEntityKind("agent").transitions.available, []);
+  assert.deepEqual(explainEntityKind("agent").transitions.available, ["install"]);
 });
 
 test("Agent-readable input and CLI facets share the same field declarations", () => {

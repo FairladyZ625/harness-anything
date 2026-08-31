@@ -182,10 +182,10 @@ export async function executeAction(
       ),
     );
   }
-  const taskActionContract = getExecutableEntityAction(action.kind);
-  if (taskActionContract?.target.kind === "task" && taskActionContract.execution) {
+  const actionContract = getExecutableEntityAction(action.kind);
+  if (actionContract?.target.kind === "task" && actionContract.execution) {
     const taskId = cell.requiredCellText(action.taskId, "taskId"),
-      lifecycle = taskActionContract.execution.lifecycle,
+      lifecycle = actionContract.execution.lifecycle,
       leasedStart =
         lifecycle?.coordination === "reserve" &&
         ["held", "reserving"].includes(cell.projection.currentLease(taskId, cell.now())?.phase ?? "");
@@ -206,7 +206,7 @@ export async function executeAction(
       },
     );
   }
-  if (taskActionContract?.target.kind === "relation" && taskActionContract.execution)
+  if (actionContract?.target.kind === "relation" && actionContract.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
@@ -226,12 +226,12 @@ export async function executeAction(
       ),
     );
   }
-  const entityActionContract = getExecutableEntityAction(action.kind);
-  if (entityActionContract?.execution)
+  const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
+  if (actionContract?.execution)
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      cell.operationId(action, binding, cell.input.repoId, actionVersion),
       cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
@@ -259,7 +259,7 @@ export async function executeAction(
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
   }
-  if (/^(?:agent|squad)-install$/u.test(action.kind)) {
+  if (action.kind === "squad-install") {
     const prepared = prepareAgentEntityInstall({
       rootDir: cell.rootDir,
       action,

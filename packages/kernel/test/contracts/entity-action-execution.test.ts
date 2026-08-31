@@ -4,6 +4,7 @@ import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/index.ts";
 
 const ingressKinds = [
+  "agent-install",
   "decision-accept",
   "decision-amend",
   "decision-claim-add",
@@ -49,7 +50,7 @@ const readIngressKinds = new Set([
   "schedule-show",
 ]);
 
-test("Decision, Fact, Relation, and Schedule ingress resolves to executable per-action catalog declarations", () => {
+test("Agent, Decision, Fact, Relation, and Schedule ingress resolves to executable per-action catalog declarations", () => {
   for (const ingress of ingressKinds) {
     const action = getExecutableEntityAction(ingress);
     assert.ok(action?.execution, ingress);
@@ -62,11 +63,74 @@ test("Decision, Fact, Relation, and Schedule ingress resolves to executable per-
 });
 
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
-  for (const kind of ["decision", "fact", "schedule"] as const) {
+  for (const kind of ["agent", "decision", "fact", "schedule"] as const) {
     const explanation = explainEntityKind(kind);
     assert.ok(explanation.transitions.actions.length > 0);
     for (const action of explanation.transitions.actions) assert.equal(Object.hasOwn(action, "execution"), false);
   }
+});
+
+test("Agent install owns declaration readiness, revision, idempotency, and artifact contracts", () => {
+  const explanation = explainEntityKind("agent"),
+    action = getExecutableEntityAction("agent-install");
+  assert.deepEqual(explanation.transitions.available, ["install"]);
+  assert.deepEqual(
+    explanation.transitions.actions.map(({ id }) => id),
+    ["install"],
+  );
+  assert.ok(action?.execution?.compile);
+  assert.equal(action.execution.implementation, "compiled-event");
+  assert.deepEqual(action.input.exactlyOneOf, [["packageSource", "declaration"]]);
+  assert.equal(action.concurrency.expectedVersion.conflict, "revision_conflict");
+  assert.equal(action.concurrency.idempotency.retry, "canonical-event-replay");
+  assert.equal(action.concurrency.leasePolicy.authority, "not-applicable");
+  assert.equal(action.concurrency.occurrenceClaim.authority, "not-applicable");
+  assert.deepEqual(action.concurrency.artifactOwnership, {
+    owner: "agent/{id}",
+    declaration: "agents/{id}.json",
+    policy: "typed-entity/v1",
+  });
+  const compile = (declaration: Readonly<Record<string, unknown>>) =>
+    action.execution!.compile!({
+      action: { kind: "agent-install", declaration },
+      actor: { principal: { personId: "person-agent-action" }, executor: null },
+      source: "local",
+      session: { kind: "unavailable", reason: "contract-test" },
+      opId: "agent-action-contract",
+      occurredAt: "2026-09-01T00:00:00.000Z",
+      workspaceRevision: 1,
+    });
+  assert.deepEqual(
+    compile({
+      schema: "agent-declaration/v1",
+      id: "contract-agent",
+      name: "Contract Agent",
+      instructions: "Execute the assigned contract.",
+      runtime_type: "codex",
+    }),
+    {
+      kind: "entity",
+      entityKind: "agent",
+      entity: {
+        schema: "agent-declaration/v1",
+        id: "contract-agent",
+        name: "Contract Agent",
+        instructions: "Execute the assigned contract.",
+        runtime_type: "codex",
+      },
+    },
+  );
+  assert.throws(
+    () =>
+      compile({
+        schema: "agent-declaration/v1",
+        id: "placeholder-agent",
+        name: "Placeholder Agent",
+        instructions: "(To be written: this text becomes the agent's system prompt verbatim.)",
+        runtime_type: "codex",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "instructions_placeholder",
+  );
 });
 
 test("Schedule explanations expose revision, single-flight, assignment, claim-fence, and replay contracts", () => {

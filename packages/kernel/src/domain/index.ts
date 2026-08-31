@@ -259,7 +259,8 @@ export type {
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
 
-export { compileEntityUpsert, isEntityEvent } from "./entity-event.ts";
+export { compileEntityUpsert, entityUpsertWritePlan, isEntityEvent } from "./entity-event.ts";
+export type { EntityEventV1, EntityUpsertBundle } from "./entity-event.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 
