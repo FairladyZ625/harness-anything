@@ -47,7 +47,7 @@ function seedQueries(client: QueryClient): void {
       defaultProfile: "baseline",
       locale: "zh-CN",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-      walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
+      walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
     },
   });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), {
@@ -268,7 +268,7 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         defaultProfile: "baseline",
         locale: "zh-CN" as const,
         scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-        walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
+        walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
       },
       updateSettings = vi.fn(async (payload: Record<string, unknown>) => ({
         schema: "command-receipt/v2",

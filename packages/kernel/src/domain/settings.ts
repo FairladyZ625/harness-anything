@@ -14,11 +14,15 @@ export interface WalFlushSettingsV1 {
   readonly milliseconds: number;
 }
 
+// Owner ruling (Zeyu, 2026-08-31): the idle timer is a floor, not the flush
+// driver — 256 events / 8 MiB remain the load-bounded triggers, and one commit
+// per hour of idle activity replaces the ~2s cadence that produced 100+
+// ledger commits per day.
 export const DEFAULT_WAL_FLUSH_SETTINGS: WalFlushSettingsV1 = Object.freeze({
   adaptive: true,
   events: 256,
   bytes: 8 * 1024 * 1024,
-  milliseconds: 2_000,
+  milliseconds: 3_600_000,
 });
 
 export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
