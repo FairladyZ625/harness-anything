@@ -23,6 +23,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } from "./migration-import-oracle.ts";
 import { isMigrationImportRecord, migrationImportError, timestamp } from "./migration-import-report.ts";
+import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";
 
 export interface MigrationEventInspection {
@@ -183,6 +184,20 @@ function overlayAuthoredOracle(
         firstTaskEvents.get(row.taskId) ??
         (occurredAt ? { eventId: `authored:${row.taskId}`, occurredAt, workspaceRevision: 0 } : null),
       title = cleanScalar(readScalar(entry.frontmatter, "title")) || markdownH1(entry.body) || row.taskId,
+      packagePath = portable(path.relative(layout.authoredRoot, path.dirname(entry.indexPath))),
+      contract = restateTaskContract({
+        sourceRoot,
+        sourcePackageRoot: path.dirname(entry.indexPath),
+        targetTaskId: row.taskId,
+        targetPackagePath: packagePath,
+        fallback: {
+          title,
+          taskClass: "standard",
+          verticalId: row.vertical,
+          presetId: row.preset,
+          profileId: row.profile,
+        },
+      }),
       task = {
         schema: "task/v2",
         taskId: row.taskId,
@@ -196,13 +211,14 @@ function overlayAuthoredOracle(
         packageDisposition: row.packageDisposition,
         createdBy: migrationOracleActor,
         completionGateIds: [],
-        presetSnapshotDigest: null,
+        presetSnapshotDigest: contract?.presetSnapshotDigest ?? null,
+        ...(contract === null ? {} : { contractVersion: 1 as const }),
       };
     if (!tasks.has(row.taskId))
       tasks.set(row.taskId, {
         taskId: row.taskId,
         workspaceRevision: firstEvent?.workspaceRevision ?? 0,
-        packagePath: portable(path.relative(layout.authoredRoot, path.dirname(entry.indexPath))),
+        packagePath,
         snapshot: { task },
         firstEvent,
       });

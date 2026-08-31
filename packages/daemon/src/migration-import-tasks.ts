@@ -15,6 +15,7 @@ import {
 import type { ProjectionOracleTask } from "./migration-import-oracle.ts";
 import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
 import { isMigrationImportRecord } from "./migration-import-report.ts";
+import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { ImportedTask } from "./migration-import-types.ts";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 
@@ -108,6 +109,19 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
     status = context.taskStatus(row.rawStatus),
     packagePath = `tasks/${targetTaskId}-${slugifyTaskTitle(row.title)}`,
     sourceTask = context.legacyTaskRestatements.get(taskId),
+    contract = restateTaskContract({
+      sourceRoot: context.sourceRoot,
+      sourcePackageRoot: path.dirname(entry.indexPath),
+      targetTaskId,
+      targetPackagePath: packagePath,
+      fallback: {
+        title: row.title,
+        taskClass: "standard",
+        verticalId: row.vertical,
+        presetId: row.preset,
+        profileId: row.profile,
+      },
+    }),
     task: ImportedTask = {
       schema: "task/v2",
       taskId: targetTaskId,
@@ -121,8 +135,10 @@ export function addTask(context: MigrationImportContext, entry: TaskSourceEntry)
       packageDisposition: row.packageDisposition,
       createdBy: context.actor,
       completionGateIds: [],
-      presetSnapshotDigest: null,
+      presetSnapshotDigest: contract?.presetSnapshotDigest ?? null,
+      ...(contract === null ? {} : { contractVersion: 1 as const }),
     };
+  if (contract !== null) context.taskContracts.set(taskId, contract);
   context.taskMap.set(taskId, targetTaskId);
   context.taskPackages.set(taskId, packagePath);
   context.taskOccurredAt.set(taskId, occurredAt);
@@ -175,7 +191,7 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
       new Set(context.taskMap.values()),
     ),
     status = context.taskStatus(String(projected.status ?? "unknown")),
-    task = {
+    projectedTask = {
       ...projected,
       schema: "task/v2",
       taskId: targetTaskId,
@@ -186,12 +202,33 @@ export function addOracleTask(context: MigrationImportContext, source: Projectio
         ? projected.packageDisposition
         : "active",
     } as unknown as ImportedTask;
-  if (validateTaskV2(task, true).length) return false;
+  if (validateTaskV2(projectedTask, true).length) return false;
   const targetPackage =
       packagePath !== null && targetTaskId === source.taskId && packagePath.startsWith(`tasks/${targetTaskId}-`)
         ? packagePath
-        : `tasks/${targetTaskId}-${slugifyTaskTitle(task.title)}`,
-    syntheticEntry: TaskSourceEntry = {
+        : `tasks/${targetTaskId}-${slugifyTaskTitle(projectedTask.title)}`,
+    contract = restateTaskContract({
+      sourceRoot: context.sourceRoot,
+      sourcePackageRoot: packageRoot!,
+      targetTaskId,
+      targetPackagePath: targetPackage,
+      fallback: {
+        title: projectedTask.title,
+        taskClass: projectedTask.taskClass,
+        verticalId: projectedTask.metadata?.verticalId,
+        presetId: projectedTask.metadata?.presetId,
+        profileId: projectedTask.metadata?.profileId,
+        slug: projectedTask.metadata?.slug,
+      },
+    }),
+    task = {
+      ...projectedTask,
+      presetSnapshotDigest: contract?.presetSnapshotDigest ?? projectedTask.presetSnapshotDigest,
+      ...(contract === null ? {} : { contractVersion: 1 as const }),
+    } as ImportedTask;
+  if (validateTaskV2(task, true).length) return false;
+  if (contract !== null) context.taskContracts.set(source.taskId, contract);
+  const syntheticEntry: TaskSourceEntry = {
       taskId: source.taskId,
       indexPath: indexPath ?? path.join(context.sourceLayout.tasksRoot, source.taskId, "INDEX.md"),
       body: sourceBody ?? `# ${task.title}\n`,
@@ -314,7 +351,9 @@ export function addTaskPackage(context: MigrationImportContext, entry: TaskSourc
   for (const source of context.authoredEntries) {
     if (source.symlink || !source.path.startsWith(prefix) || source.path === `${sourcePackage}/INDEX.md`) continue;
     const relative = source.path.slice(prefix.length),
-      body = context.utf8File(context.sourceLayout.authoredRoot, source.path);
+      originalBody = context.utf8File(context.sourceLayout.authoredRoot, source.path),
+      body =
+        relative === "task-contract.json" ? (context.taskContracts.get(taskId)?.body ?? originalBody) : originalBody;
     if (body === null) continue;
     const legacy = /^executions\/[^/]+\.md$/u.test(relative) ? context.decodeLegacyExecution(body, taskId) : null;
     if (relative.startsWith("executions/")) {

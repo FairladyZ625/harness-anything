@@ -367,15 +367,27 @@ export function taskSurfaceWrite(
           "content_not_ready",
           `Retry ${action.kind} after document projection ${target} catches up.`,
         );
-      return read.document
+      const repairBody =
+        target === `${current.packagePath}/task-contract.json` && typeof action.repairTaskContractBody === "string"
+          ? action.repairTaskContractBody
+          : null;
+      return repairBody !== null
         ? [
             {
               path: target,
-              body: read.document.body,
-              blobSha256: read.document.blobSha256,
+              body: repairBody,
+              blobSha256: sha256Text(repairBody),
             },
           ]
-        : [];
+        : read.document
+          ? [
+              {
+                path: target,
+                body: read.document.body,
+                blobSha256: read.document.blobSha256,
+              },
+            ]
+          : [];
     }),
     compiled = compileTaskLifecycleWrite({
       event,
