@@ -44,10 +44,17 @@ export interface MigrationKindReconciliation {
 }
 
 export interface MigrationOracleBasis {
-  readonly kind: "same-cut-projection";
+  readonly kind: "same-cut-projection" | "rebuilt-source";
   readonly databasePath: string;
   readonly watermark: number;
   readonly eventHeadRevision: number | null;
+}
+
+export interface MigrationFormatObservation {
+  readonly code: "legacy_event_normalized" | "schedule_definition_facet_mismatch" | "source_projection_rebuilt";
+  readonly sourcePath: string;
+  readonly detail: string;
+  readonly treatment: "mechanically_normalized" | "accepted_truth_gap" | "rebuilt_read_only";
 }
 
 export interface Draft {
@@ -136,6 +143,7 @@ export type MigrationImportReceipt = WriteReceipt & {
   readonly reconciliation: Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>>;
   readonly fieldDerivations: readonly MigrationFieldDerivation[];
   readonly dispositions: readonly MigrationDisposition[];
+  readonly formatObservations: readonly MigrationFormatObservation[];
   readonly authoredCoverage: AuthoredCoverage;
   readonly skippedEntities: readonly Skip[];
   readonly idMapPath: string | null;
