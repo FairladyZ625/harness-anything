@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  canonicalCodeDocPaths,
   currentExecutionCuts,
   currentSubmittedExecutions,
   heldLeaseForExecutionActor,
@@ -206,10 +207,7 @@ export function buildCommand(
         contentDigest: digest(packet.value.contentDigest, "contentDigest"),
       });
     }
-    // Without a packet the daemon derives both digests from the explicitly selected recorded Review,
-    // read from the same revision-pinned projection snapshot the kernel validates against. The
-    // operator cannot compute reviewDigest by hand (actor and capabilityRef never appear in the
-    // task package), and the kernel-side binding check still runs on the derived command.
+    // Derive both digests from the revision-pinned Review; kernel binding validation still runs.
     const executionReviews = snapshot.reviews.filter((value) => value.executionId === executionId),
       recorded = executionReviews.find((value) => value.reviewId === reviewId);
     if (!executionReviews.length)
@@ -249,13 +247,9 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-code-doc-reconcile") {
-    const paths = cellStringList(action.paths);
-    if (!Array.isArray(action.paths) || paths.length !== action.paths.length)
-      throw cellCodedError(
-        "invalid_command",
-        "Code-doc reconcile requires explicit canonical paths from completion.codeDocPaths.",
-      );
-    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], paths);
+    if (!canonicalCodeDocPaths(action.paths, true))
+      throw cellCodedError("invalid_command", "Pass explicit canonical completion.codeDocPaths to code-doc reconcile.");
+    const witness = submittedExecutionWitness(action, snapshot, taskId, ["kind", "taskId", "paths"], action.paths);
     return normalizeTaskLifecycleCommand(bound, {
       type: "ReconcileCodeDoc",
       taskId,

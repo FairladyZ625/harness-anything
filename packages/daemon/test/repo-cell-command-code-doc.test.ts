@@ -107,6 +107,25 @@ test("reconcile and repoint derive the commit from the same execution submission
   }
 });
 
+test("reconcile requires an explicit canonical path list while preserving an explicit empty list", () => {
+  const submitted = snapshot([execution("execution-one", "submitted")]),
+    reconcile = (paths?: unknown) =>
+      buildCommand(
+        { kind: "task-code-doc-reconcile", taskId, ...(paths === undefined ? {} : { paths }) },
+        taskId,
+        binding,
+        "repo-code-doc-source",
+        7,
+        "/repo",
+        submitted,
+      );
+  assert.throws(() => reconcile(), /explicit canonical completion\.codeDocPaths/u);
+  assert.throws(() => reconcile(["../escape"]), /explicit canonical completion\.codeDocPaths/u);
+  const empty = reconcile([]);
+  assert.equal(empty.type, "ReconcileCodeDoc");
+  if (empty.type === "ReconcileCodeDoc") assert.deepEqual(empty.paths, []);
+});
+
 test("repoint rejects caller drift and missing or conflicting canonical submissions", () => {
   assert.throws(
     () => repoint(snapshot([execution("execution-one", "accepted")]), { commitSha: "b".repeat(40) }),
