@@ -7,7 +7,7 @@ import {
   resolveHarnessLayout,
   stableStringify,
   taskEntryToRow,
-  validateMigrationImportEvent,
+  validateCurrentMigrationImportEvent,
   validateCurrentCanonicalEvent,
   compilePeopleRosterActionEvent,
   MIGRATION_IMPORT_SOURCE,
@@ -459,7 +459,7 @@ export async function runSingleMigrationImport(
       continue;
     }
     const next = prepareRelation(rebound, revision + 1);
-    const errors = validateMigrationImportEvent(next.event);
+    const errors = validateCurrentMigrationImportEvent(next.event);
     if (existingRelations.has(rebound.record.relation_id)) {
       relationMap.set(row.relationId, rebound.record.relation_id);
       derivedIds.relation.add(row.relationId);
@@ -573,7 +573,7 @@ export async function runSingleMigrationImport(
       [blob(mapBody, "application/json")],
     );
   if (
-    !validateMigrationImportEvent(mapPrepared.event).length &&
+    !validateCurrentMigrationImportEvent(mapPrepared.event).length &&
     input.store.readEvent(mapPrepared.event.opId) === null
   ) {
     prepared.push(mapPrepared);
@@ -755,7 +755,7 @@ export async function runSingleMigrationImport(
       );
     for (const draft of pending) {
       const next = draft.build(revision + 1),
-        errors = validateMigrationImportEvent(next.event);
+        errors = validateCurrentMigrationImportEvent(next.event);
       if (errors.length) {
         skips.push({
           entityType: draft.kind,

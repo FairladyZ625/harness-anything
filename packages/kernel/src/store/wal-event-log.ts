@@ -160,14 +160,14 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       previousDigest: previous?.eventDigest ?? null,
     };
     const body = `${stableStringify(record)}\n`;
-    const current = fileSystem.exists(segmentPath) ? fileSystem.readText(segmentPath) : "";
+    const priorOffset = readHead().lastOffset;
     fileSystem.append(segmentPath, body);
     cached = [...readRecords(), record];
     writeHead({
       schema: "harness-wal-head/v1",
       revision,
       lastSegment: WAL_SEGMENT,
-      lastOffset: Buffer.byteLength(current + body),
+      lastOffset: priorOffset + Buffer.byteLength(body),
       headDigest: record.eventDigest,
     });
     return record;
