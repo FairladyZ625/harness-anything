@@ -25,7 +25,7 @@ test("Action envelope is one closed kernel contract with a stable replay identit
   assert.match(validateActionEnvelope({ ...action, idempotencyKey: "" }).join("\n"), /idempotencyKey is required/u);
 });
 
-test("the remaining promoted Entities stay metadata-only while Agent advertises executable install", () => {
+test("promoted Entity catalogs distinguish executable Agent and RuntimeSession actions", () => {
   const catalogs = Object.fromEntries(
     ["execution", "review", "agent", "runtime-session", "policy"].map((kind) => [kind, explainEntityKind(kind)]),
   );
@@ -47,7 +47,15 @@ test("the remaining promoted Entities stay metadata-only while Agent advertises 
   assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
   assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);
-  assert.deepEqual(catalogs["runtime-session"]?.transitions.available, []);
+  assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
+    "runtime_session_started",
+    "runtime_session_provider_bound",
+    "runtime_session_task_bound",
+    "runtime_session_liveness_changed",
+    "runtime_session_cancelled",
+    "runtime_session_exited",
+    "runtime_session_outcome_observed",
+  ]);
   assert.deepEqual(declared("runtime-session"), [
     "runtime_session_started",
     "runtime_session_provider_bound",

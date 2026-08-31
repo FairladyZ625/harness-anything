@@ -155,15 +155,3 @@ export type PublicPublication = {
 };
 
 export const leaseTtlMs = 24 * 60 * 60 * 1_000;
-
-export const runtimeIngressEventTypes: readonly AgentRuntimeEventV1["type"][] = [
-  "runtime_installation_observed",
-  "runtime_dispatch_requested",
-  "runtime_session_started",
-  "runtime_session_provider_bound",
-  "runtime_session_task_bound",
-  "runtime_session_cancelled",
-  "runtime_session_exited",
-  "runtime_session_outcome_observed",
-  "runtime_dispatch_outcome_unknown",
-];

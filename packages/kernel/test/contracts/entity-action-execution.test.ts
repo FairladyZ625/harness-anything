@@ -25,6 +25,13 @@ const ingressKinds = [
   "fact-show",
   "relation-relate",
   "relation-unrelate",
+  "runtime_session_cancelled",
+  "runtime_session_exited",
+  "runtime_session_liveness_changed",
+  "runtime_session_outcome_observed",
+  "runtime_session_provider_bound",
+  "runtime_session_started",
+  "runtime_session_task_bound",
   "schedule-claim",
   "schedule-create",
   "schedule-delete",
@@ -50,7 +57,7 @@ const readIngressKinds = new Set([
   "schedule-show",
 ]);
 
-test("Agent, Decision, Fact, Relation, and Schedule ingress resolves to executable per-action catalog declarations", () => {
+test("Agent, Decision, Fact, Relation, RuntimeSession, and Schedule ingress resolves to executable actions", () => {
   for (const ingress of ingressKinds) {
     const action = getExecutableEntityAction(ingress);
     assert.ok(action?.execution, ingress);
@@ -163,4 +170,36 @@ test("Schedule explanations expose revision, single-flight, assignment, claim-fe
   );
   assert.equal(byId.get("link")?.concurrency.occurrenceClaim.mode, "claim-fence");
   assert.equal(byId.get("settle")?.concurrency.idempotency.retry, "canonical-event-replay");
+});
+
+test("RuntimeSession explains adoption, operation replay, center arbitration, and dispatch-owned artifacts", () => {
+  const explanation = explainEntityKind("runtime-session"),
+    byId = new Map(explanation.transitions.actions.map((action) => [action.id, action]));
+  assert.deepEqual(explanation.transitions.available, [
+    "runtime_session_started",
+    "runtime_session_provider_bound",
+    "runtime_session_task_bound",
+    "runtime_session_liveness_changed",
+    "runtime_session_cancelled",
+    "runtime_session_exited",
+    "runtime_session_outcome_observed",
+  ]);
+  assert.deepEqual(explanation.canonicalProjection, {
+    embeddedEvents: [],
+    row: { idField: "runtimeSessionId", ownerField: null },
+  });
+  const started = byId.get("runtime_session_started"),
+    outcome = byId.get("runtime_session_outcome_observed");
+  assert.equal(started?.concurrency.expectedVersion.startFence, "launchGeneration");
+  assert.equal(started?.concurrency.expectedVersion.writerFence, "center-issued writerEpoch");
+  assert.equal(started?.concurrency.leasePolicy.arbitration, "center-single-write-queue");
+  assert.equal(started?.concurrency.idempotency.input, "idempotencyKey");
+  assert.equal(started?.concurrency.idempotency.retry, "canonical-event-replay");
+  assert.equal(started?.concurrency.artifactOwnership.owner, "dispatch/{dispatchId}");
+  assert.equal(started?.policy.action, "runtime-run");
+  assert.equal(
+    outcome?.input.fields.some(({ field }) => field === "resultBody"),
+    true,
+  );
+  assert.ok(getExecutableEntityAction("runtime_session_task_bound")?.execution?.compile);
 });

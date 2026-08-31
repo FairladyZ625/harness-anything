@@ -35,11 +35,18 @@ import {
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import {
+  commitRuntimeSessionBundle,
+  compileRuntimeSessionDraft,
+  isRuntimeSessionBundle,
+  matchingRuntimeSessionReplayBundle,
+  type RuntimeSessionBundle,
+} from "./entity-action-runtime-session.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
-type CatalogBundle = FactBundle | DecisionBundle | EntityUpsertBundle;
+type CatalogBundle = FactBundle | DecisionBundle | EntityUpsertBundle | RuntimeSessionBundle;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -196,8 +203,23 @@ export function makeEntityActionCatalogExecutor(input: {
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
       reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
     const bundle =
-      matchingReplayBundle(input.store, contract, existing) ??
+      matchingReplayBundle(input.store, contract, action, existing) ??
       compileAction(contract, action, binding, opId, occurredAt);
+    if (isRuntimeSessionBundle(bundle)) {
+      if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
+      return deriveActionResult(
+        contract,
+        action,
+        commitRuntimeSessionBundle(
+          input.store,
+          input.projection,
+          bundle,
+          existing !== null,
+          authorizationDecision,
+          () => publicationKillpoints(input.killpoint),
+        ),
+      );
+    }
     if (isEntityBundle(bundle)) {
       if (dryRun)
         return entityPreview(contract, action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
@@ -401,6 +423,10 @@ export function makeEntityActionCatalogExecutor(input: {
     if (!compile) reject("invalid_command", `${contract.execution.ingress} has no write compiler.`);
     const headRevision = input.store.readHead()?.revision ?? 0,
       coverage = contract.id === "reckon" ? decisionCoverage(action, decisions) : undefined,
+      currentEntity =
+        contract.target.kind === "runtime-session"
+          ? input.projection.readRuntimeSession(requiredCommandText(action.runtimeSessionId, "runtimeSessionId"))
+          : undefined,
       draft = compile({
         action,
         actor: binding.actor,
@@ -409,6 +435,7 @@ export function makeEntityActionCatalogExecutor(input: {
         opId,
         occurredAt,
         workspaceRevision: headRevision + 1,
+        ...(currentEntity === undefined ? {} : { currentEntity }),
         ...(coverage ? { coverage } : {}),
       });
     return compileDraft(input.projection, draft, {
@@ -491,6 +518,7 @@ function compileDraft(
   if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
   if (draft.kind === "entity")
     return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
+  if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "relation")
     reject("invalid_command", "Relation drafts are committed directly through the Relation aggregate executor.");
@@ -526,9 +554,12 @@ function compileDraft(
 function matchingReplayBundle(
   store: CanonicalEventStore,
   contract: ExecutableAction,
+  action: RepoTaskAction,
   existing: ReturnType<CanonicalEventStore["readEvent"]>,
 ): CatalogBundle | null {
   const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
+  if (contract.target.kind === "runtime-session" && existing !== null)
+    return matchingRuntimeSessionReplayBundle(store, contract, action, existing);
   if (existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind) {
     const claim = existing.payload.declarationDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
@@ -979,6 +1010,7 @@ function reject(
     | "content_not_ready"
     | "entity_not_found"
     | "invalid_command"
+    | "op_conflict"
     | "relation_cycle"
     | "revision_conflict",
   message: string,

@@ -39,10 +39,7 @@ import {
   receiptForOperation as receiptForOperationImpl,
 } from "./repo-cell-receipts.ts";
 import { legacyReviewLint } from "./repo-cell-review-lint.ts";
-import {
-  appendRuntimeIngress as appendRuntimeIngressImpl,
-  runtimeIngressReceipt as runtimeIngressReceiptImpl,
-} from "./repo-cell-runtime-actions.ts";
+import { appendAuxiliaryRuntimeIngress as appendAuxiliaryRuntimeIngressImpl } from "./repo-cell-runtime-ingress.ts";
 import {
   cellStringList,
   completionApplied,
@@ -89,7 +86,7 @@ import {
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
-import { runtimeIngressEventTypes, type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
+import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
@@ -130,9 +127,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   };
-  readonly runtimeIngressEventTypes: typeof runtimeIngressEventTypes;
-  readonly runtimeIngressReceipt: Bound<typeof runtimeIngressReceiptImpl>;
-  readonly appendRuntimeIngress: Bound<typeof appendRuntimeIngressImpl>;
+  readonly appendAuxiliaryRuntimeIngress: Bound<typeof appendAuxiliaryRuntimeIngressImpl>;
   readonly requiredCellText: typeof requiredCellText;
   readonly now: () => string;
   readonly operationId: typeof operationId;
@@ -261,15 +256,13 @@ export function createRepoCellActionContext(bindings: {
   const context: RepoCellActionContext = {
     cellCodedError,
     input: bindings.input,
-    runtimeIngressEventTypes,
     get projection() {
       return bindings.getProjection();
     },
     get store() {
       return bindings.getStore();
     },
-    runtimeIngressReceipt: bind(runtimeIngressReceiptImpl),
-    appendRuntimeIngress: bind(appendRuntimeIngressImpl),
+    appendAuxiliaryRuntimeIngress: bind(appendAuxiliaryRuntimeIngressImpl),
     requiredCellText,
     now: bindings.now,
     operationId,

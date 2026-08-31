@@ -167,6 +167,8 @@ export type {
   EntityActionDraft,
   EntityActionExecutionContract,
 } from "./entity-action-execution.ts";
+export { runtimeSessionActionIds, runtimeSessionActionPayload } from "./runtime-session-action-contract.ts";
+export type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 
 export {
   canonicalRelationIdentityInput,

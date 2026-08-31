@@ -17,6 +17,7 @@ import { timestamp } from "./timestamp.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 import type { AgentActionDraft } from "./agent-action-contract.ts";
+import type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
@@ -58,6 +59,7 @@ export interface EntityActionCompileInput {
 
 export type EntityActionDraft =
   | AgentActionDraft
+  | RuntimeSessionActionDraft
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
   | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
   | { readonly kind: "relation"; readonly event: RelationEventV1 }

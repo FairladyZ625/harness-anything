@@ -260,7 +260,10 @@ test("a synthetic third contract drives the same embedded projection interpreter
     },
   );
   assert.equal(containsFunction(contract.canonicalProjection), false);
-  assert.equal(getEntityKindContract("runtime-session")?.canonicalProjection, null);
+  assert.deepEqual(getEntityKindContract("runtime-session")?.canonicalProjection, {
+    embeddedEvents: [],
+    row: { idField: "runtimeSessionId", ownerField: null },
+  });
   assert.equal(getEntityKindContract("runtime-session")?.relations.edges[0]?.projection, undefined);
 });
 

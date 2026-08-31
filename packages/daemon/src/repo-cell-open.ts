@@ -38,6 +38,7 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
+import { runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
 import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -557,7 +558,10 @@ async function openLockedRepoCell(
     };
   entityActionRuntimes = Object.freeze({
     schedule: scheduleActionRuntime,
-    prepare: Object.freeze({ agent: prepareAgentAction }),
+    prepare: Object.freeze({
+      agent: prepareAgentAction,
+      "runtime-session": runtimeSessionActionPreparer(() => projection),
+    }),
   });
   const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
@@ -743,7 +747,7 @@ async function openLockedRepoCell(
     runtimeSpawner,
     settingsActions,
     peopleActions,
-    appendRuntimeIngress: extracted.appendRuntimeIngress,
+    appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;
     },

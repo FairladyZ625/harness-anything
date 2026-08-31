@@ -199,6 +199,19 @@ export function runtimeSessionSemanticState(
   return session.liveness === "live" ? "running" : "unavailable";
 }
 
+export function runtimeSessionEntityV1(session: RuntimeSession): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    schema: "runtime-session/v1",
+    runtimeSessionId: session.runtimeSessionId,
+    taskBindings: Object.freeze(
+      session.taskBindings.map(({ taskId, executionId }) => Object.freeze({ taskId, executionId })),
+    ),
+    liveness: session.liveness,
+    outcome: session.outcome,
+    semanticState: runtimeSessionSemanticState(session),
+  });
+}
+
 export function runtimeSessionIsRunning(session: Pick<RuntimeSession, "liveness" | "outcome">): boolean {
   return runtimeSessionSemanticState(session) === "running";
 }

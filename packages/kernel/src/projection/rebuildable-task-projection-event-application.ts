@@ -44,6 +44,7 @@ import {
   deleteEntityProjectionRow,
   projectEmbeddedCanonicalEntities,
   projectInterpretedEntityValue,
+  projectRuntimeSessionCanonicalEntity,
 } from "./rebuildable-task-projection-entities.ts";
 import {
   readRuntimeInstallation,
@@ -334,6 +335,7 @@ export function applyEvent(
           canonicalJson(session),
         );
         refreshRuntimeSessionAssociations(db, session);
+        projectRuntimeSessionCanonicalEntity(db, session, event.workspaceRevision, `event:${event.opId}`);
       }
     }
     applyEmbeddedRelationProjectionEvents(db, event);
