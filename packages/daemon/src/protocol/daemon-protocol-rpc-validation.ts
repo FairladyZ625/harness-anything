@@ -1,6 +1,6 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
-import { validateEntityActionExplainRequest } from "../../../kernel/src/index.ts";
+import { ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   validateShape,
   validateObserveTailPayload,
@@ -424,4 +424,23 @@ export function serializeDaemonRpcCall(value: unknown): string {
   const errors = validateDaemonRpcCall(value);
   if (errors.length) throw new DaemonProtocolContractError("invalid_rpc", errors.join("; "));
   return `${JSON.stringify(value)}\n`;
+}
+
+export function validateEntityActionExplainRequest(value: unknown): readonly string[] {
+  const record =
+    typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  if (!record || Object.keys(record).sort().join(",") !== "mode,refs,schema")
+    return ["Entity Action explain request fields are incomplete or unknown"];
+  const errors: string[] = [];
+  if (record.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id)
+    errors.push("Entity Action explain request schema is invalid");
+  if (record.mode !== "object" && record.mode !== "catalog")
+    errors.push("Entity Action explain request mode is invalid");
+  if (!Array.isArray(record.refs) || record.refs.some((ref) => typeof ref !== "string" || ref.length === 0))
+    errors.push("Entity Action explain request refs must be non-empty strings");
+  else if (record.mode === "object" && (record.refs.length < 1 || record.refs.length > 500))
+    errors.push("Entity Action object explain requires 1..500 refs");
+  else if (record.mode === "catalog" && record.refs.length !== 0)
+    errors.push("Entity Action catalog explain does not accept object refs");
+  return errors;
 }

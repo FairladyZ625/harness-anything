@@ -1,4 +1,4 @@
-import { ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA, type EntityResidencyFacets } from "../../../kernel/src/index.ts";
+import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
 import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
 import { observeTailKinds, optionalEnum, shape, type DaemonGuiRpcReadMethod } from "./daemon-protocol-gui-types.ts";
 import {
@@ -39,6 +39,7 @@ import {
   GUI_CATALOG_SNAPSHOT_SCHEMA,
   GUI_SYSTEM_STATUS_SCHEMA,
   TERMINAL_SESSION_LIST_SCHEMA,
+  ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
 
 export const observeTailReadMethod = Object.freeze({

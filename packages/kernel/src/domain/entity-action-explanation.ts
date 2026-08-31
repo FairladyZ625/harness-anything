@@ -10,9 +10,6 @@ import type { AuthorizationDecision } from "./receipt-frame.ts";
 export const ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({
   id: "entity-action-explanation/v1" as const,
 });
-export const ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA = Object.freeze({
-  id: "entity-action-explain-request/v1" as const,
-});
 
 export class EntityActionExplanationContractError extends Error {
   readonly code = "invalid_entity_action_explanation";
@@ -34,12 +31,6 @@ export const entityActionExplanationFailureCodes = Object.freeze([
   "projection_pending",
 ] as const);
 export type EntityActionExplanationFailureCode = (typeof entityActionExplanationFailureCodes)[number];
-
-export interface EntityActionExplainRequestV1 {
-  readonly schema: typeof ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id;
-  readonly refs: readonly string[];
-  readonly mode: "object" | "catalog";
-}
 
 export interface EntityActionCriterionExplanationV1 {
   readonly ref: string;
@@ -94,22 +85,6 @@ export interface EntityActionExplanationSetV1 {
   readonly mode: "catalog" | "object" | "failure";
   readonly subjects: readonly EntityActionExplanationSubjectV1[];
   readonly evaluatedAtCut: string | null;
-}
-
-export function validateEntityActionExplainRequest(value: unknown): readonly string[] {
-  if (!explanationRecord(value) || !explanationExact(value, ["schema", "refs", "mode"]))
-    return ["Entity Action explain request fields are incomplete or unknown"];
-  const errors: string[] = [];
-  if (value.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id)
-    errors.push("Entity Action explain request schema is invalid");
-  if (value.mode !== "object" && value.mode !== "catalog") errors.push("Entity Action explain request mode is invalid");
-  if (!Array.isArray(value.refs) || value.refs.some((ref) => typeof ref !== "string" || ref.length === 0))
-    errors.push("Entity Action explain request refs must be non-empty strings");
-  else if (value.mode === "object" && (value.refs.length < 1 || value.refs.length > 500))
-    errors.push("Entity Action object explain requires 1..500 refs");
-  else if (value.mode === "catalog" && value.refs.length !== 0)
-    errors.push("Entity Action catalog explain does not accept object refs");
-  return errors;
 }
 
 export function validateEntityActionExplanationSet(value: unknown): readonly string[] {
