@@ -44,9 +44,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
           nextAction:
-            "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.",
+            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh"] },
+        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
@@ -356,7 +356,7 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
   ] as const),
   scheduleDeleteJsonFields = Object.freeze(["scheduleId"] as const),
   scheduleDeleteJsonAllowedFields = Object.freeze([...scheduleDeleteJsonFields, "reason", "idempotencyKey"] as const),
-  scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh"] as const;
+  scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 const scheduleFromFileInput = (requiredFields: readonly string[], allowedFields: readonly string[]) =>
   cliInput(
@@ -432,7 +432,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
           nextAction:
-            "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.",
+            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: scheduleReasoningEfforts },
       ),
@@ -547,7 +547,7 @@ export const scheduleProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
           nextAction:
-            "Use minimal, low, medium, high, or xhigh with Claude or Codex; agy supports low, medium, or high.",
+            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: scheduleReasoningEfforts },
       ),

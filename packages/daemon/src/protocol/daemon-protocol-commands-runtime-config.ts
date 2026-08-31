@@ -157,7 +157,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         code: "invalid_field",
         nextAction:
           "Use a kind-supported reasoning effort: agy low, medium, high; " +
-          "Claude or Codex minimal, low, medium, high, xhigh.",
+          "Claude or Codex minimal, low, medium, high, xhigh, max.",
       }),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
