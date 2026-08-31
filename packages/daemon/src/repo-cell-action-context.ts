@@ -62,10 +62,8 @@ import {
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import {
   createTask as createTaskImpl,
-  dependencyPath as dependencyPathImpl,
   previewResult as previewResultImpl,
   readResult as readResultImpl,
-  relationEndpointExists as relationEndpointExistsImpl,
   upgradePresetSnapshot as upgradePresetSnapshotImpl,
   withHumanSummary as withHumanSummaryImpl,
   withLayoutAdvisory as withLayoutAdvisoryImpl,
@@ -187,8 +185,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly withoutDryRun: typeof withoutDryRun;
   readonly previewResult: Bound<typeof previewResultImpl>;
   readonly projectedTaskIds: Bound<typeof projectedTaskIdsImpl>;
-  readonly dependencyPath: Bound<typeof dependencyPathImpl>;
-  readonly relationEndpointExists: Bound<typeof relationEndpointExistsImpl>;
   readonly directChildCounts: Bound<typeof directChildCountsImpl>;
   readonly wipSnapshotEntries: Bound<typeof wipSnapshotEntriesImpl>;
   readonly legacyReviewLint: typeof legacyReviewLint;
@@ -339,8 +335,6 @@ export function createRepoCellActionContext(bindings: {
     withoutDryRun,
     previewResult: bind(previewResultImpl),
     projectedTaskIds: bind(projectedTaskIdsImpl),
-    dependencyPath: bind(dependencyPathImpl),
-    relationEndpointExists: bind(relationEndpointExistsImpl),
     directChildCounts: bind(directChildCountsImpl),
     wipSnapshotEntries: bind(wipSnapshotEntriesImpl),
     legacyReviewLint,

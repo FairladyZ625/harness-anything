@@ -1,16 +1,5 @@
 import type { RelationType } from "./entity-relation.ts";
-
-/** Endpoint kinds that can host a canonical relation edge. Parsed refs may also be
- * "relation" or external-harness aliases; neither can host an edge. */
-export type RelationEndpointKind =
-  | "task"
-  | "decision"
-  | "fact"
-  | "execution"
-  | "review"
-  | "agent"
-  | "runtime-session"
-  | "policy";
+import { entityTypeContracts, type EntityKind } from "./base-entity.ts";
 
 /** Whether the reading of an allowed triple has a registered semantics. */
 export type RelationDirectionRegistration = "ratified" | "unregistered" | "derived";
@@ -23,8 +12,8 @@ export type RelationDirectionRegistration = "ratified" | "unregistered" | "deriv
  */
 export interface CanonicalRelationDirection {
   readonly type: RelationType;
-  readonly sourceKind: RelationEndpointKind;
-  readonly targetKind: RelationEndpointKind;
+  readonly sourceKind: EntityKind;
+  readonly targetKind: EntityKind;
   /** dec_mr74sbka: an active edge reads as `source <reads> target` in the storage direction. */
   readonly reads: string;
   /** The retired reverse alias this direction replaced, if the pair had one. The alias
@@ -34,6 +23,11 @@ export interface CanonicalRelationDirection {
    * its semantics await an owner decision; new data should avoid leaning on it. */
   readonly registration: RelationDirectionRegistration;
 }
+
+/** Canonical Relation endpoint kinds derive from the BaseEntity contracts. */
+export const relationEndpointKinds = Object.freeze(
+  entityTypeContracts.filter(({ relationEndpoint }) => relationEndpoint.eligible).map(({ kind }) => kind),
+);
 
 /** decision → decision: policy lineage among decisions. */
 export const canonicalRelationDirections: readonly CanonicalRelationDirection[] = [
@@ -214,6 +208,23 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     reads: "the policy authorizes the target execution",
     registration: "ratified",
   },
+  ...entityTypeContracts.flatMap(({ kind }) => {
+    const outgoing: CanonicalRelationDirection = {
+        type: "relates",
+        sourceKind: "relation",
+        targetKind: kind,
+        reads: `the relation relates to the target ${kind}`,
+        registration: "ratified",
+      },
+      incoming: CanonicalRelationDirection = {
+        type: "relates",
+        sourceKind: kind,
+        targetKind: "relation",
+        reads: `the ${kind} relates to the target relation`,
+        registration: "ratified",
+      };
+    return kind === "relation" ? [outgoing] : [outgoing, incoming];
+  }),
 ];
 
 /** Minimal structural shape the reverse query needs; callers keep their own richer rows. */

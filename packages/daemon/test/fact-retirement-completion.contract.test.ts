@@ -59,14 +59,6 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
             rejected: [{ id: "RJ1", text: "Leave it manual", whyNot: "That leaves the loop open" }],
             claims: [{ id: "C1", text: "The loop is currently open", loadBearing: true }],
             fulfillments: [{ claimId: "C1", mode: "evidenced" }],
-            relations: [
-              {
-                anchor: "C1",
-                type: "evidenced-by",
-                target: factRef,
-                rationale: "The observed open loop motivates the gate.",
-              },
-            ],
           }),
         },
         binding,
@@ -76,12 +68,28 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
       (
         await cell.run(
           {
-            kind: "decision-relate",
-            decisionId,
-            anchor: "CH1",
+            kind: "relation-relate",
+            sourceRef: `decision/${decisionId}/CH1`,
             relationType: "derives",
-            target: `task/${taskId}`,
+            targetRef: `task/${taskId}`,
             rationale: "The chosen gate is implemented by this task.",
+            expectedVersion: 0,
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "relation-relate",
+            sourceRef: `decision/${decisionId}/C1`,
+            relationType: "evidenced-by",
+            targetRef: factRef,
+            rationale: "The observed open loop motivates the gate.",
+            expectedVersion: 0,
           },
           binding,
         )
@@ -150,7 +158,7 @@ async function reachGreenInReview(
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     title,
   );
-  await cell.run(
+  const completionFact = await cell.run(
     {
       kind: "fact-record",
       taskId,
@@ -162,6 +170,7 @@ async function reachGreenInReview(
     },
     binding,
   );
+  assert.equal(completionFact.outcome, "applied", JSON.stringify(completionFact));
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
   const packagePath = "tasks/task_fact_retirement-fact-retirement-contract",
     closeoutPath = `${packagePath}/closeout.md`;

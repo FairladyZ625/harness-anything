@@ -54,7 +54,7 @@ test("standalone facts use canonical identity and a per-fact document", () => {
   assert.equal(parseEntityRef("fact/task-legacy/F-ABCDEFGH"), null);
 });
 
-test("a task-owned fact projection emits exactly one active produces edge", () => {
+test("a Fact event replays its ownership edge into the sole Relation projection", () => {
   const db = new DatabaseSync(":memory:");
   createFactProjectionTables(db);
   createRelationGraphProjectionTables(db);
@@ -69,6 +69,8 @@ test("a task-owned fact projection emits exactly one active produces edge", () =
         edge.state === "active",
     );
   assert.equal(owned.length, 1);
+  assert.equal((owned[0] as { readonly schema?: string } | undefined)?.schema, "relation-projection/v1");
+  assert.equal(owned[0]?.ownerRef, "task/task-contract");
   assert.equal(graph.facts[0]?.ref, "fact/F-BCDEFGHJ");
   db.close();
 });

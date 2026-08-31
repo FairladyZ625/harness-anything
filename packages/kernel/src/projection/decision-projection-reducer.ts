@@ -1,10 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
-import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import { readDecisionBody } from "./decision-projection-documents.ts";
-import type { DecisionRelationEdgeRow } from "./decision-projection-model.ts";
+import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
@@ -46,7 +45,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
         fulfillment ? revision : null,
       );
     }
-    for (const [index, relation] of p.relations.entries()) insertDecisionRelation(db, event, relation, index);
+    applyEmbeddedRelationProjectionEvents(db, event);
     refreshDecisionFts(db, event.decisionId);
     return;
   }
@@ -153,70 +152,15 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     );
     return;
   }
-  if (event.type === "decision_related") {
-    insertDecisionRelation(db, event, event.payload.relation, 0);
+  if (
+    event.type === "decision_related" ||
+    event.type === "decision_relation_retired" ||
+    event.type === "decision_relation_replaced"
+  ) {
+    applyEmbeddedRelationProjectionEvents(db, event);
     return;
   }
-  if (event.type !== "decision_relation_retired" && event.type !== "decision_relation_replaced")
-    fail("invalid_transition", "Unsupported Decision event.");
-  retireDecisionRelation(db, event, event.payload.relationId, event.payload.reason);
-  if (event.type === "decision_relation_replaced") insertDecisionRelation(db, event, event.payload.replacement, 0);
-}
-
-function insertDecisionRelation(
-  db: DatabaseSync,
-  event: DecisionEventV1,
-  relation: EntityRelationRecord,
-  recordIndex: number,
-): void {
-  const edge: DecisionRelationEdgeRow = {
-    relationId: relation.relation_id,
-    sourceRef: relation.source,
-    targetRef: relation.target,
-    relationType: relation.type,
-    direction: relation.direction,
-    strength: relation.strength,
-    origin: relation.origin,
-    state: "active",
-    rationale: relation.rationale,
-    ownerRef: `decision/${event.decisionId}`,
-    sourcePath: `event:${event.opId}`,
-    recordIndex,
-  };
-  db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
-    edge.relationId,
-    edge.sourceRef,
-    edge.targetRef,
-    edge.relationType,
-    edge.state,
-    edge.ownerRef,
-    event.workspaceRevision,
-    JSON.stringify(edge),
-  );
-}
-
-function retireDecisionRelation(db: DatabaseSync, event: DecisionEventV1, relationId: string, reason: string): void {
-  const current = JSON.parse(
-      String(
-        (
-          db.prepare("SELECT row_json FROM relation_edge WHERE relation_id=?").get(relationId) as {
-            readonly row_json: string;
-          }
-        ).row_json,
-      ),
-    ) as DecisionRelationEdgeRow,
-    retired = {
-      ...current,
-      state: "edge_retired" as const,
-      retiredRevision: event.workspaceRevision,
-      retiredAt: event.occurredAt,
-      retirementReason: reason,
-    };
-  db.prepare("UPDATE relation_edge SET state='edge_retired', workspace_revision=?, row_json=? WHERE relation_id=?").run(
-    event.workspaceRevision,
-    JSON.stringify(retired),
-    relationId,
-  );
+  fail("invalid_transition", "Unsupported Decision event.");
 }
 
 function insertDecisionPin(db: DatabaseSync, event: DecisionEventV1): void {

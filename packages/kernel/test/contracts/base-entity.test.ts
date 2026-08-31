@@ -26,9 +26,10 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   schedule: "schedule-base",
   settings: "repository",
   person: "person_baseentity",
+  relation: "rel_b75516c583945a52",
 };
 
-test("all twelve registered kinds are referenceable relation endpoints from one type contract", () => {
+test("all thirteen registered kinds are referenceable relation endpoints from one type contract", () => {
   const registeredKinds = entityKindContracts.map(({ kind }) => kind).sort();
   const referenceableKinds: EntityKind[] = [];
   const endpointKinds: EntityKind[] = [];
@@ -45,10 +46,15 @@ test("all twelve registered kinds are referenceable relation endpoints from one 
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 12);
+  assert.equal(registeredKinds.length, 13);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
-  assert.equal(parseEntityRef("relation/rel_b75516c583945a52"), null);
+  assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
+    raw: "relation/rel_b75516c583945a52",
+    kind: "relation",
+    id: "rel_b75516c583945a52",
+    externalHarness: false,
+  });
   assert.equal(parseEntityRef("unknown/id"), null);
   assert.equal(parseEntityRef("agent/bad/id"), null);
   assert.throws(() => formatEntityRef("unknown", "id"), /no ref authority/u);

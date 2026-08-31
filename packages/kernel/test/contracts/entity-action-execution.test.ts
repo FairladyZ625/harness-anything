@@ -13,9 +13,6 @@ const ingressKinds = [
   "decision-propose",
   "decision-reckon",
   "decision-reject",
-  "decision-relate",
-  "decision-relation-replace",
-  "decision-relation-retire",
   "decision-repin",
   "decision-retire",
   "decision-show",
@@ -25,6 +22,8 @@ const ingressKinds = [
   "fact-record",
   "fact-search",
   "fact-show",
+  "relation-relate",
+  "relation-unrelate",
   "schedule-claim",
   "schedule-create",
   "schedule-delete",
@@ -50,7 +49,7 @@ const readIngressKinds = new Set([
   "schedule-show",
 ]);
 
-test("Decision, Fact, and Schedule ingress resolves to executable per-action catalog declarations", () => {
+test("Decision, Fact, Relation, and Schedule ingress resolves to executable per-action catalog declarations", () => {
   for (const ingress of ingressKinds) {
     const action = getExecutableEntityAction(ingress);
     assert.ok(action?.execution, ingress);

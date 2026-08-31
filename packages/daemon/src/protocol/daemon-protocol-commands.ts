@@ -15,6 +15,7 @@ import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-sur
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
 import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
+import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 
@@ -104,6 +105,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...docFactProtocolCommands,
   ...decisionLifecycleProtocolCommands,
   ...decisionRelationProtocolCommands,
+  ...relationProtocolCommands,
   ...runtimeConfigProtocolCommands,
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,

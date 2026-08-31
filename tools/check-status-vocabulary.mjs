@@ -31,10 +31,14 @@ const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
 const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
 const DAEMON_MIRROR_CONST = /(?:Status|State|Phase|Disposition|Verdict|Outcome)Words$/u;
-const LOCAL_MIRROR_CONST = /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
-export const KERNEL_DECLARATION_SUFFIX = /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses)$/u;
+const LOCAL_MIRROR_CONST =
+  /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
+const LOCAL_MIRROR_ALIAS = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/gu;
+export const KERNEL_DECLARATION_SUFFIX =
+  /(?:Statuses|Status|States|State|Phases|Phase|Dispositions|Disposition|Verdicts|Verdict|Outcomes|Outcome|Liveness|Readinesses)$/u;
 const STATUS_FIELD = /(?:status|state|phase|disposition|verdict|outcome|liveness)$/iu;
-const NAMED_CONST = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
+const NAMED_CONST =
+  /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
 // The `\|?` after the `=` accepts prettier's canonical multi-line union, which
 // leads with a pipe:
 //
@@ -70,7 +74,11 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
         findings.push(`statusVocabularies[${vocabulary.id ?? "?"}]: ${field} must be a non-empty string`);
       }
     }
-    if (!Array.isArray(vocabulary.words) || vocabulary.words.length === 0 || vocabulary.words.some((word) => typeof word !== "string" || word.trim() === "")) {
+    if (
+      !Array.isArray(vocabulary.words) ||
+      vocabulary.words.length === 0 ||
+      vocabulary.words.some((word) => typeof word !== "string" || word.trim() === "")
+    ) {
       findings.push(`${vocabulary.id}: words must be a non-empty array of non-empty strings`);
     }
     const anchorKey = `${vocabulary.module}#${vocabulary.anchor}`;
@@ -94,7 +102,9 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
       }
       const expected = [...parent.words, ...(vocabulary.plusWords ?? [])];
       if (!sameWords(vocabulary.words, expected)) {
-        findings.push(`${vocabulary.id}: mirror words [${vocabulary.words}] must equal ${vocabulary.mirrorOf} plus [${vocabulary.plusWords ?? []}]`);
+        findings.push(
+          `${vocabulary.id}: mirror words [${vocabulary.words}] must equal ${vocabulary.mirrorOf} plus [${vocabulary.plusWords ?? []}]`,
+        );
       }
     }
   }
@@ -102,7 +112,9 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
   for (const row of statusWordRegister) {
     for (const field of ["word", "entity", "field", "meaning"]) {
       if (typeof row[field] !== "string" || row[field].trim() === "") {
-        findings.push(`statusWordRegister: ${field} must be a non-empty string (row ${row.word ?? "?"} on ${row.entity ?? "?"})`);
+        findings.push(
+          `statusWordRegister: ${field} must be a non-empty string (row ${row.word ?? "?"} on ${row.entity ?? "?"})`,
+        );
       }
     }
     const key = `${row.word}|${row.entity}|${row.field}`;
@@ -120,8 +132,13 @@ export function checkRegisterShape({ statusVocabularies, statusWordRegister }, f
     // the source entity, so mirror words do not need their own GuiAdapter rows.
     if (vocabulary.mirrorOf !== undefined) continue;
     for (const word of vocabulary.words) {
-      const covered = statusWordRegister.some((row) => row.word === word && row.entity === vocabulary.entity && row.field === vocabulary.field);
-      if (!covered) findings.push(`${vocabulary.id}: word "${word}" has no register row for ${vocabulary.entity}.${vocabulary.field}`);
+      const covered = statusWordRegister.some(
+        (row) => row.word === word && row.entity === vocabulary.entity && row.field === vocabulary.field,
+      );
+      if (!covered)
+        findings.push(
+          `${vocabulary.id}: word "${word}" has no register row for ${vocabulary.entity}.${vocabulary.field}`,
+        );
     }
   }
   if (statusVocabularies.length === 0) findings.push("statusVocabularies: register is empty");
@@ -133,7 +150,9 @@ export function checkKernelVocabularyBijection(register, modulesByFile, sites, f
     if (!vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) || vocabulary.anchor.startsWith("#")) continue;
     // Only runtime const vocabularies have an export to bijection-check; literal-union
     // type aliases are text-checked by the coverage scan.
-    const site = sites.find((candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor);
+    const site = sites.find(
+      (candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor,
+    );
     if (site?.kind !== "const") continue;
     const module = modulesByFile.get(vocabulary.module);
     if (!module) {
@@ -142,11 +161,15 @@ export function checkKernelVocabularyBijection(register, modulesByFile, sites, f
     }
     const exported = module[vocabulary.anchor];
     if (!Array.isArray(exported)) {
-      findings.push(`${vocabulary.id}: ${vocabulary.module} does not export a runtime array named ${vocabulary.anchor}`);
+      findings.push(
+        `${vocabulary.id}: ${vocabulary.module} does not export a runtime array named ${vocabulary.anchor}`,
+      );
       continue;
     }
     if (!sameWords(exported, vocabulary.words)) {
-      findings.push(`${vocabulary.id}: kernel export ${vocabulary.anchor} is [${exported}] but the register says [${vocabulary.words}]`);
+      findings.push(
+        `${vocabulary.id}: kernel export ${vocabulary.anchor} is [${exported}] but the register says [${vocabulary.words}]`,
+      );
     }
   }
   return findings;
@@ -175,21 +198,37 @@ export function collectKernelDeclarationSites(sourcesByFile) {
 }
 
 export function checkKernelDeclarationCoverage(register, sites, findings = []) {
-  const registered = register.statusVocabularies.filter((vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`));
+  const registered = register.statusVocabularies.filter((vocabulary) =>
+    vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`),
+  );
   for (const site of sites) {
-    const match = registered.find((vocabulary) => vocabulary.module === site.module && vocabulary.anchor === site.anchor && sameWords(vocabulary.words, site.words));
+    const match = registered.find(
+      (vocabulary) =>
+        vocabulary.module === site.module &&
+        vocabulary.anchor === site.anchor &&
+        sameWords(vocabulary.words, site.words),
+    );
     if (!match) {
-      const anchorRegistered = registered.find((vocabulary) => vocabulary.module === site.module && vocabulary.anchor === site.anchor);
-      findings.push(anchorRegistered
-        ? `${site.module}#${site.anchor}: declared words [${site.words}] drift from the register [${anchorRegistered.words}]`
-        : `${site.module}#${site.anchor}: unregistered status vocabulary [${site.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`);
+      const anchorRegistered = registered.find(
+        (vocabulary) => vocabulary.module === site.module && vocabulary.anchor === site.anchor,
+      );
+      findings.push(
+        anchorRegistered
+          ? `${site.module}#${site.anchor}: declared words [${site.words}] drift from the register [${anchorRegistered.words}]`
+          : `${site.module}#${site.anchor}: unregistered status vocabulary [${site.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
+      );
     }
   }
   for (const vocabulary of registered) {
-    const site = sites.find((candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor);
-    if (!site) findings.push(`${vocabulary.id}: registered anchor ${vocabulary.module}#${vocabulary.anchor} no longer exists`);
+    const site = sites.find(
+      (candidate) => candidate.module === vocabulary.module && candidate.anchor === vocabulary.anchor,
+    );
+    if (!site)
+      findings.push(`${vocabulary.id}: registered anchor ${vocabulary.module}#${vocabulary.anchor} no longer exists`);
     else if (!sameWords(site.words, vocabulary.words)) {
-      findings.push(`${vocabulary.id}: declaration at ${vocabulary.module}#${vocabulary.anchor} is [${site.words}] but the register says [${vocabulary.words}]`);
+      findings.push(
+        `${vocabulary.id}: declaration at ${vocabulary.module}#${vocabulary.anchor} is [${site.words}] but the register says [${vocabulary.words}]`,
+      );
     }
   }
   return findings;
@@ -206,7 +245,11 @@ function parseTypeUnion(text, name) {
 }
 
 export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, findings = []) {
-  const byAnchor = new Map(register.statusVocabularies.filter((vocabulary) => vocabulary.module === GUI_MODEL).map((vocabulary) => [vocabulary.anchor, vocabulary]));
+  const byAnchor = new Map(
+    register.statusVocabularies
+      .filter((vocabulary) => vocabulary.module === GUI_MODEL)
+      .map((vocabulary) => [vocabulary.anchor, vocabulary]),
+  );
   for (const [anchor, vocabulary] of byAnchor) {
     const words = parseTypeUnion(guiModelText, anchor);
     if (words === null) {
@@ -228,7 +271,9 @@ export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, 
     findings.push("BOARD_COLUMNS declaration not found in the GUI model");
   }
   if (KERNEL_DECISION_FALLBACK.test(guiAdapterText)) {
-    findings.push(`${GUI_ADAPTER}: decisionState must map unrecognised states to "unknown", not to a known neighbour (the deleted proposed-fallback defect)`);
+    findings.push(
+      `${GUI_ADAPTER}: decisionState must map unrecognised states to "unknown", not to a known neighbour (the deleted proposed-fallback defect)`,
+    );
   }
   return findings;
 }
@@ -238,16 +283,30 @@ export function checkDaemonMirrorAgreement(register, daemonText, findings = []) 
   // startup path, so it carries plain-data mirrors. This check makes those mirrors
   // ratchet-locked to the register instead of being free-floating hand copies.
   const registered = register.statusVocabularies.filter((vocabulary) => vocabulary.module === DAEMON_PROTOCOL);
-  const declared = [...daemonText.matchAll(LOCAL_MIRROR_CONST)]
-    .map((match) => ({ anchor: match[1], words: literalWords(match[2]) }))
-    .filter((entry) => DAEMON_MIRROR_CONST.test(entry.anchor));
+  const aliases = [...daemonText.matchAll(LOCAL_MIRROR_ALIAS)].map((match) => {
+      const source = register.statusVocabularies.find((vocabulary) => vocabulary.anchor === match[2]);
+      if (!source)
+        findings.push(`${DAEMON_PROTOCOL}#${match[1]}: mirror alias ${match[2]} has no registered vocabulary`);
+      return { anchor: match[1], words: source?.words ?? [] };
+    }),
+    declared = [
+      ...[...daemonText.matchAll(LOCAL_MIRROR_CONST)].map((match) => ({
+        anchor: match[1],
+        words: literalWords(match[2]),
+      })),
+      ...aliases,
+    ].filter((entry) => DAEMON_MIRROR_CONST.test(entry.anchor));
   for (const entry of declared) {
-    const match = registered.find((vocabulary) => vocabulary.anchor === entry.anchor && sameWords(vocabulary.words, entry.words));
+    const match = registered.find(
+      (vocabulary) => vocabulary.anchor === entry.anchor && sameWords(vocabulary.words, entry.words),
+    );
     if (!match) {
       const anchorRegistered = registered.find((vocabulary) => vocabulary.anchor === entry.anchor);
-      findings.push(anchorRegistered
-        ? `${DAEMON_PROTOCOL}#${entry.anchor}: mirrored words [${entry.words}] drift from the register [${anchorRegistered.words}]`
-        : `${DAEMON_PROTOCOL}#${entry.anchor}: unregistered status-word mirror [${entry.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`);
+      findings.push(
+        anchorRegistered
+          ? `${DAEMON_PROTOCOL}#${entry.anchor}: mirrored words [${entry.words}] drift from the register [${anchorRegistered.words}]`
+          : `${DAEMON_PROTOCOL}#${entry.anchor}: unregistered status-word mirror [${entry.words}] — register it in status-vocabulary.ts (blueprint 铁律四)`,
+      );
     }
   }
   for (const vocabulary of registered) {
@@ -286,9 +345,13 @@ async function main() {
   const register = await import(pathToFileURL(path.resolve(import.meta.dirname, REGISTER)).href);
   const kernelSources = readKernelDomainSources(root);
   const sites = collectKernelDeclarationSites(kernelSources);
-  const kernelModules = await loadModules([...new Set(register.statusVocabularies
-    .filter((vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) && !vocabulary.anchor.startsWith("#"))
-    .map((vocabulary) => vocabulary.module))]);
+  const kernelModules = await loadModules([
+    ...new Set(
+      register.statusVocabularies
+        .filter((vocabulary) => vocabulary.module.startsWith(`${KERNEL_DOMAIN}/`) && !vocabulary.anchor.startsWith("#"))
+        .map((vocabulary) => vocabulary.module),
+    ),
+  ]);
   const guiModelText = readFileSync(path.join(root, GUI_MODEL), "utf8");
   const guiAdapterText = readFileSync(path.join(root, GUI_ADAPTER), "utf8");
   const daemonText = readFileSync(path.join(root, DAEMON_PROTOCOL), "utf8");
@@ -297,17 +360,20 @@ async function main() {
     ...checkKernelVocabularyBijection(register, kernelModules, sites),
     ...checkKernelDeclarationCoverage(register, sites),
     ...checkGuiMirrorAgreement(register, guiModelText, guiAdapterText),
-    ...checkDaemonMirrorAgreement(register, daemonText)
+    ...checkDaemonMirrorAgreement(register, daemonText),
   ];
   if (findings.length > 0) {
     console.error("Status vocabulary check failed:");
     for (const finding of findings) console.error(`- ${finding}`);
     process.exit(1);
   }
-  console.log("Status vocabulary check passed (register, kernel vocabularies, and GUI mirrors agree; unknown stays unknown).");
+  console.log(
+    "Status vocabulary check passed (register, kernel vocabularies, and GUI mirrors agree; unknown stays unknown).",
+  );
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+const invokedDirectly =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (invokedDirectly) {
   await main();
 }

@@ -3,13 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import {
-  deriveRelationId,
-  formatRelationFlowRecord,
-  readEntityCascadeImpact,
-  rebuildTaskProjection,
-  type EntityRelationRecord,
-} from "../../src/index.ts";
+import { deriveRelationId, readEntityCascadeImpact, rebuildTaskProjection } from "../../src/index.ts";
+import { formatRelationFlowRecord, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import { withTempStore } from "./helpers.ts";
 
 test("entity cascade treats undirected relations as incoming and outgoing on both endpoints", () => {

@@ -173,17 +173,15 @@ export type {
 export {
   canonicalRelationIdentityInput,
   deriveRelationId,
-  formatRelationFlowRecord,
   isAllowedRelationKindTriple,
   relationDirections,
   relationOrigins,
   relationStates,
   relationStrengths,
   relationTypes,
-  validateRelationRecordsForHost,
 } from "./entity-relation.ts";
+export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
 export type {
-  EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,

@@ -10,14 +10,13 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
-  formatRelationFlowRecord,
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,
-  type EntityRelationRecord,
   type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";
+import { formatRelationFlowRecord, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";

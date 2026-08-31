@@ -9,11 +9,10 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
-import { readColdRebuildSource } from "./cold-rebuild-source.ts";
+import { readColdRebuildSource, type ColdRebuildIssue } from "./cold-rebuild-source.ts";
 import {
   buildRelationGraphProjection,
   detectRelationGraphCycles,
-  validateRelationGraphRecords,
   type EventBackedRelationTruth,
 } from "./relation-graph-projection.ts";
 import type {
@@ -32,7 +31,8 @@ export function runPostMergeChecks(
 ): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const source = readMarkdownSource(rootInput),
-    relationTruth = convergeTruth(readColdRebuildSource(rootInput).truth, eventTruth ?? emptyEventTruth());
+    replay = readColdRebuildSource(rootInput, eventTruth ?? emptyEventTruth()),
+    relationTruth = replay.truth;
   const warnings: ProjectionWarning[] = [];
   if (eventTruth === null)
     warnings.push(
@@ -49,26 +49,31 @@ export function runPostMergeChecks(
   warnings.push(...findTamperedBindings(source.entries));
   warnings.push(...findConflictMarkerWarnings(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries, relationTruth));
-  warnings.push(...findRelationRecordIssues(rootInput, relationTruth));
+  warnings.push(...coldReplayWarnings(replay.issues));
   warnings.push(...findParentCycles(rootDir, source.entries));
   warnings.push(...findRelationCycles(rootInput, relationTruth));
   return warnings;
 }
 
-function emptyEventTruth(): EventBackedRelationTruth {
-  return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] };
+function coldReplayWarnings(issues: readonly ColdRebuildIssue[]): readonly ProjectionWarning[] {
+  return issues.map((issue) => {
+    const code: ProjectionWarningCode =
+      issue.entityType === "relation" && issue.reason === "relation endpoint does not resolve"
+        ? "relation_endpoint_unknown"
+        : "source_malformed";
+    return hardFail(
+      "source-package",
+      code,
+      `${issue.reason} (${issue.sourcePath}).`,
+      code === "relation_endpoint_unknown"
+        ? "Restore the referenced entity before rebuilding the relation projection."
+        : "Repair the authored source before rebuilding the projection.",
+    );
+  });
 }
 
-function convergeTruth(authored: EventBackedRelationTruth, event: EventBackedRelationTruth): EventBackedRelationTruth {
-  const unique = <T>(rows: readonly T[], key: (row: T) => string): readonly T[] => [
-    ...new Map(rows.map((row) => [key(row), row])).values(),
-  ];
-  return {
-    factAnchors: unique([...authored.factAnchors, ...event.factAnchors], (row) => row.factRef),
-    decisionAnchors: unique([...authored.decisionAnchors, ...event.decisionAnchors], (row) => row.decisionRef),
-    edges: unique([...authored.edges, ...event.edges], (row) => row.relationId),
-    coverageRows: unique([...authored.coverageRows, ...event.coverageRows], (row) => row.claimRef),
-  };
+function emptyEventTruth(): EventBackedRelationTruth {
+  return { factAnchors: [], decisionAnchors: [], edges: [], coverageRows: [] };
 }
 
 export function warning(
@@ -359,42 +364,6 @@ function findParentCycles(rootDir: string, entries: ReadonlyArray<TaskSourceEntr
     ];
   }
   return [];
-}
-
-function findRelationRecordIssues(
-  rootInput: HarnessLayoutInput,
-  truth: EventBackedRelationTruth,
-): ReadonlyArray<ProjectionWarning> {
-  return validateRelationGraphRecords(rootInput, truth).map(({ entry, issue }) =>
-    hardFail(
-      "source-package",
-      issue.code,
-      `${issue.message} (${entry.sourcePath}:${entry.recordIndex + 1}).`,
-      relationRepairHint(issue.code),
-    ),
-  );
-}
-
-function relationRepairHint(code: ProjectionWarningCode): string {
-  if (code === "relation_host_source_mismatch" || code === "relation_provenance_inheritance_mismatch") {
-    return "Move the relation record into the metadata for its source entity so provenance is inherited from the correct host.";
-  }
-  if (code === "relation_id_mismatch") {
-    return "Recompute relation_id from source, target, type, and direction; relation_id is deterministic and must not be hand-assigned.";
-  }
-  if (code === "duplicate_relation_id") {
-    return "Keep one byte-identical duplicate relation record, or manually arbitrate divergent attributes for the same canonical edge before merging.";
-  }
-  if (code === "relation_rationale_missing") {
-    return "Add a non-blank rationale for strong or gate-bearing relation records.";
-  }
-  if (code === "invalid_relation_type_subset") {
-    return "Use an allowed source-kind/type/target-kind relation triple from the entity relation matrix.";
-  }
-  if (code === "relation_endpoint_unknown") {
-    return "Restore the referenced task, decision anchor, or fact before rebuilding the relation graph projection.";
-  }
-  return "Restore a valid typed relation endpoint before rebuilding the relation graph projection.";
 }
 
 export function buildCheckReport(

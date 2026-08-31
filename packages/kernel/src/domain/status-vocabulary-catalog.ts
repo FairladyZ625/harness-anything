@@ -1,4 +1,5 @@
 import type { StatusVocabulary } from "./status-vocabulary-types.ts";
+import { relationStates } from "./entity-relation.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   {
@@ -154,11 +155,11 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   },
   {
     id: "relation.state",
-    entity: "RelationEdge",
+    entity: "Relation",
     field: "state",
     module: "packages/kernel/src/domain/entity-relation.ts",
     anchor: "relationStates",
-    words: ["active", "edge_retired", "deleted"],
+    words: relationStates,
   },
   {
     id: "task-blocking.assessment",
@@ -455,7 +456,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "relationStateWords",
-    words: ["active", "edge_retired", "deleted"],
+    words: relationStates,
     mirrorOf: "relation.state",
   },
   {

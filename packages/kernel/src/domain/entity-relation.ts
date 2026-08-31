@@ -156,6 +156,11 @@ export function validateRelationRecordsForHost(
   return issues;
 }
 
+export function relationOwnerRef(sourceRef: string): string {
+  const source = parseEntityRef(sourceRef);
+  return source?.kind === "decision" ? `decision/${source.id}` : sourceRef;
+}
+
 export function isAllowedRelationKindTriple(
   sourceKind: ParsedEntityRef["kind"],
   type: RelationType,

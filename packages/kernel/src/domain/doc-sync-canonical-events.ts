@@ -20,6 +20,7 @@ import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./t
 import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-event.ts";
 import { validateCurrentSettingsEvent, validateSettingsEvent } from "./settings-event.ts";
 import { validateCurrentPeopleEvent, validatePeopleEvent } from "./people-event.ts";
+import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
 
@@ -98,6 +99,11 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "decision-event/v1",
     validate: validateDecisionEvent,
     validateCurrent: validateCurrentDecisionEvent,
+  },
+  {
+    schema: "relation-event/v1",
+    validate: validateRelationEvent,
+    validateCurrent: validateCurrentRelationEvent,
   },
   {
     schema: "migration-import-event/v1",

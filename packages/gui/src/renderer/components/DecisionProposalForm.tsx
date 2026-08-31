@@ -1,7 +1,5 @@
 import { useState } from "react";
-import type { RelationType } from "../../api/renderer-dto.ts";
 import type { DecisionMutationFeedback, DecisionProposalInput } from "../decision-actions.ts";
-import { KIND_LABEL } from "../graph/constants.ts";
 import { t } from "../i18n/index.tsx";
 import { DecisionMutationFeedback as FeedbackView } from "./DecisionMutationFeedback.tsx";
 
@@ -53,8 +51,7 @@ export function DecisionProposalForm({
     [tradeoffs, setTradeoffs] = useState(""),
     [conclusion, setConclusion] = useState(""),
     [claims, setClaims] = useState(""),
-    [fulfillments, setFulfillments] = useState(""),
-    [relations, setRelations] = useState("");
+    [fulfillments, setFulfillments] = useState("");
   const [error, setError] = useState<string | null>(null);
   const pending = feedback?.state === "pending";
   const submit = async () => {
@@ -65,10 +62,7 @@ export function DecisionProposalForm({
       const chosenRows = columns(chosen, 2, "chosen"),
         rejectedRows = columns(rejected, 3, "rejected"),
         claimRows = columns(claims, 3, "claims"),
-        fulfillmentRows = columns(fulfillments, 2, "fulfillments"),
-        relationRows = columns(relations, 4, "relations");
-      const invalidRelation = relationRows.find((row) => !Object.hasOwn(KIND_LABEL, row[1]));
-      if (invalidRelation) throw new Error(t("views.decisionPropose.unknownRelation", { type: invalidRelation[1] }));
+        fulfillmentRows = columns(fulfillments, 2, "fulfillments");
       const packet: DecisionProposalInput = {
         title: title.trim(),
         question: question.trim(),
@@ -91,12 +85,6 @@ export function DecisionProposalForm({
             throw new Error(t("views.decisionPropose.invalidFulfillment", { claimId }));
           return { claimId, mode: mode as "evidenced" | "delivered" | "standing_policy" };
         }),
-        relations: relationRows.map(([anchor, type, target, rationale]) => ({
-          anchor,
-          type: type as RelationType,
-          target,
-          rationale,
-        })),
       };
       setError(null);
       await onSubmit(packet);
@@ -181,7 +169,6 @@ export function DecisionProposalForm({
           value={fulfillments}
           onChange={setFulfillments}
         />
-        <PacketArea label={t("views.decisionPropose.relationsPacket")} value={relations} onChange={setRelations} />
       </div>
       <div className="mt-2 grid gap-2 lg:grid-cols-3">
         <PacketArea label={t("views.decisionPropose.bodyBackground")} value={background} onChange={setBackground} />

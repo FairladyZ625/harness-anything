@@ -246,7 +246,6 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       riskTier: "high",
       registerModule: { key: "kernel", title: "Kernel", prefix: "task", scope: "repo" },
       surfaces: ["ha task start"],
-      relations: [{ type: "depends-on", target: "task/task_parent", rationale: "ordered" }],
     },
     { kind: "task-start", taskId: "task_abc", executionId: "exe_abc", ttlMs: 60_000, dryRun: true },
     {

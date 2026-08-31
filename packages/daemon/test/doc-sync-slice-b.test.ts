@@ -116,7 +116,6 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
           rejected: [{ id: "RJ1", text: "Inline body", whyNot: "It duplicates content storage" }],
           claims: [],
           fulfillments: [],
-          relations: [],
         }),
       },
       binding,

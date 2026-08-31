@@ -49,8 +49,13 @@ test("EntityRef parser accepts M3 decision and fact endpoints", () => {
   assert.equal(parseEntityRef("fact/task_01JY1H4J1Y8Y9G7FZ6MZ4W0N8Q/not-a-fact"), null);
 });
 
-test("EntityRef parser rejects unregistered Relation refs until G3c registers the aggregate", () => {
-  assert.equal(parseEntityRef("relation/rel_b75516c583945a52"), null);
+test("EntityRef parser accepts registered Relation aggregate refs", () => {
+  assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
+    raw: "relation/rel_b75516c583945a52",
+    kind: "relation",
+    id: "rel_b75516c583945a52",
+    externalHarness: false,
+  });
   assert.equal(parseEntityRef("relation/not-a-relation"), null);
 });
 
