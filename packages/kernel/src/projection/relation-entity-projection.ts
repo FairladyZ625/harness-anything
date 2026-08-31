@@ -1,6 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
-import { reduceRelationEntity, type RelationEntity, type RelationEventV1 } from "../domain/index.ts";
+import { reduceRelationEntity, type RelationEntity, type RelationEventV1 } from "../domain/relation-event.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { canonicalJson, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";

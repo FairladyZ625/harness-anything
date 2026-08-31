@@ -3,18 +3,20 @@ import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
-  compileRelationCreatedEvent,
-  compileRelationRetiredEvent,
   deriveRelationId,
   getEntityKindContract,
   getExecutableEntityAction,
-  reduceRelationEntity,
   relationEventWritePlan,
-  validateCurrentRelationEvent,
-  type EntityRelationRecord,
   type MigrationImportEventV1,
-  type RelationEventV1,
 } from "../../src/index.ts";
+import { type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
+import {
+  compileRelationCreatedEvent,
+  compileRelationRetiredEvent,
+  reduceRelationEntity,
+  type RelationEventV1,
+  validateCurrentRelationEvent,
+} from "../../src/domain/relation-event.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import {
   applyRelationProjectionEvent,

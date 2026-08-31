@@ -7,17 +7,9 @@ import {
   normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
 } from "../domain/doc-sync.contract.ts";
-import {
-  deriveRelationId,
-  isFactId,
-  parseEntityRef,
-  reduceRelationEntity,
-  relationRecord,
-  validateRelationRecordsForHost,
-  type EntityRelationRecord,
-  type RelationEntity,
-  type RelationEventV1,
-} from "../domain/index.ts";
+import { deriveRelationId, isFactId, parseEntityRef, relationRecord } from "../domain/index.ts";
+import { type EntityRelationRecord, validateRelationRecordsForHost } from "../domain/entity-relation.ts";
+import { reduceRelationEntity, type RelationEntity, type RelationEventV1 } from "../domain/relation-event.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";

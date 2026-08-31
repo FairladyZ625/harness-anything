@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { EntityRelationRecord } from "../domain/index.ts";
+import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 
 export interface RelationGraphEdgeRow {

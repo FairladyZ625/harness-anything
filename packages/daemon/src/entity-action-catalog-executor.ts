@@ -208,9 +208,9 @@ export function makeEntityActionCatalogExecutor(input: {
       reject("invalid_command", "Relation actions require a non-negative integer expectedVersion.");
     const replay = input.store.readEvent(opId),
       headRevision = input.store.readHead()?.revision ?? 0,
-      compiled =
-        replay ??
-        contract.execution.compile?.({
+      draft = replay
+        ? null
+        : contract.execution.compile?.({
           action,
           actor: binding.actor,
           source: binding.source,
@@ -218,7 +218,8 @@ export function makeEntityActionCatalogExecutor(input: {
           opId,
           occurredAt,
           workspaceRevision: headRevision + 1,
-        }).event;
+        }),
+      compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
     if (!compiled || !isRelationEvent(compiled))
       reject("invalid_command", `${action.kind} did not compile a Relation event.`);
     const relationId = compiled.relationId,

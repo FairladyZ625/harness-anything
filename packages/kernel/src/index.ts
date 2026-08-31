@@ -237,8 +237,6 @@ export type {
   RelationGraphEdgeRow,
   RelationGraphProjection,
 } from "./projection/relation-graph-projection.ts";
-export { RELATION_PROJECTION_VERSION, relationProjectionRow } from "./projection/relation-entity-projection.ts";
-export type { VersionedRelationProjectionRow } from "./projection/relation-entity-projection.ts";
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
