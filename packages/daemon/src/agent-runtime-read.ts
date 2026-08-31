@@ -160,9 +160,14 @@ export function makeAgentRuntimeReadModel(input: {
         dispatchStartedAt = new Map(
           dispatchEvents.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const),
         ),
-        taskIds = [...new Set(sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)))],
-        taskLabels = runtimeTaskLabels(input.projection, taskIds),
-        dispatches = input.readDispatches?.({ sessions, events: dispatchEvents }) ?? [];
+        dispatches = input.readDispatches?.({ sessions, events: dispatchEvents }) ?? [],
+        taskIds = [
+          ...new Set([
+            ...sessions.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)),
+            ...dispatches.flatMap((dispatch) => (dispatch.taskId ? [dispatch.taskId] : [])),
+          ]),
+        ],
+        taskLabels = runtimeTaskLabels(input.projection, taskIds);
       return buildAgentRuntimeSessionGroups({
         sessions,
         dispatches,

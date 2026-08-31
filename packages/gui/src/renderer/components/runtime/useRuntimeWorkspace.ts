@@ -411,8 +411,48 @@ export function useAgentSquadWorkspace(
       await client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" });
       return saved;
     },
-    dispatch: (request: DispatchRequest) =>
-      channel.spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? [])),
+    dispatch: async (request: DispatchRequest) => {
+      const settled = await channel.spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []));
+      // The spawn receipt is emitted before the provider can bind its task. Wait for that
+      // asynchronous binding before refreshing the task/agent read facets; otherwise the first
+      // refresh permanently caches the session as "unattributed" until a later user action.
+      if (settled?.runtimeSessionId && request.taskId !== null) {
+        for (let attempt = 0; attempt < 40; attempt += 1) {
+          try {
+            const [session, groups] = await Promise.all([
+              agentRuntimeClient.session(repoId, settled.runtimeSessionId),
+              agentRuntimeClient.sessionGroups(repoId, {
+                groupBy: "task",
+                since: "1970-01-01T00:00:00.000Z",
+                limit: SESSION_GROUPS_PAGE_LIMIT,
+              }),
+            ]);
+            if (
+              session.session.associations.some((association) => association.taskId === request.taskId) &&
+              groups.groups.some((group) => group.taskId === request.taskId)
+            )
+              break;
+          } catch (error) {
+            consumeKnownError(error);
+          }
+          await new Promise((resolve) => window.setTimeout(resolve, 250));
+        }
+        await Promise.all([
+          client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
+          client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
+        ]);
+        // Navigation to the session page happens immediately after this promise resolves. A
+        // second invalidation after the new page mounts covers the narrow window where the
+        // binding event lands between the pre-navigation read and the first active query fetch.
+        window.setTimeout(() => {
+          void Promise.all([
+            client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
+            client.invalidateQueries({ queryKey: ["related-dispatches", repoId] }),
+          ]);
+        }, 1_000);
+      }
+      return settled;
+    },
   };
 }
 
