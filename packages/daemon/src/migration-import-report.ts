@@ -9,6 +9,7 @@ import type {
   ImportCounts,
   MigrationDisposition,
   MigrationFieldDerivation,
+  MigrationFormatObservation,
   MigrationKindReconciliation,
   MigrationOracleBasis,
   Skip,
@@ -62,6 +63,7 @@ export function reportTable(
   setReconciliation: Readonly<Record<MigrationOracleKind, MigrationKindReconciliation>>,
   fieldDerivations: readonly MigrationFieldDerivation[],
   dispositions: readonly MigrationDisposition[],
+  formatObservations: readonly MigrationFormatObservation[],
 ): string {
   const rows = (Object.keys(old) as EntityKind[]).map((kind) =>
       [
@@ -161,7 +163,13 @@ export function reportTable(
     `Already imported from this Git lineage: ${already || "none"}`,
     `ID remappings: ${remappings.length ? remappings.length : "none"}`,
     ...remappings.map((item) => `- REMAP ${item.entityType} ${item.sourceId} -> ${item.targetId}: ${item.reason}`),
-    `Format observations: ${skips.length ? `${skips.length} legacy parser observations` : "none"}`,
+    `Format observations: ${skips.length ? `${skips.length} legacy parser observations` : "none"}; ` +
+      (formatObservations.length
+        ? `${formatObservations.length} accepted historical variants`
+        : "no accepted historical variants"),
+    ...formatObservations.map(
+      (item) => `- ACCEPT ${item.code} (${item.sourcePath}): ${item.detail}; treatment=${item.treatment}`,
+    ),
     [
       "Attribution: principal restored from source records for ",
       `${attribution.restored}`,

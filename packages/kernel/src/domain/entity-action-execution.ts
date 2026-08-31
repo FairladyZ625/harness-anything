@@ -13,13 +13,15 @@ import {
 } from "./fact-event.ts";
 import { timestamp } from "./timestamp.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
+import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
   readonly compile: EntityActionCompileHook | null;
   readonly read: boolean;
-  readonly implementation: "compiled-event" | "declared-only" | "task-lifecycle" | "task-completion";
+  readonly implementation: "compiled-event" | "declared-only" | "schedule-event" | "task-lifecycle" | "task-completion";
   readonly topology?: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly targetIdField?: string;
   readonly lifecycle?: {
     readonly transitionId: string;
     readonly commandType: string;
@@ -36,6 +38,9 @@ export interface EntityActionCompileInput {
   readonly opId: string;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
+  readonly currentEntity?: unknown;
+  readonly entityRevision?: number;
+  readonly currentDocumentBlobSha256?: string | null;
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -50,7 +55,8 @@ export interface EntityActionCompileInput {
 
 export type EntityActionDraft =
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
-  | { readonly kind: "fact"; readonly event: FactEventDraftV1 };
+  | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
+  | { readonly kind: "schedule"; readonly result: ScheduleActionDraft };
 export type EntityActionCompileHook = (input: EntityActionCompileInput) => EntityActionDraft;
 
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {

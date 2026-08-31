@@ -511,7 +511,7 @@ export function taskTitleFromPackage(
   return indexTitle ? { value: indexTitle, source: path.relative(authoredRoot, indexPath) } : null;
 }
 
-function markdownH1(body: string | null): string | null {
+export function markdownH1(body: string | null): string | null {
   const value = body?.match(/^#\s+(.+?)\s*$/mu)?.[1]?.trim() ?? "";
   return value || null;
 }

@@ -68,7 +68,21 @@ test("one named kind-contract authority explains all twelve entity kinds with on
   });
   assert.deepEqual(
     schedule?.transitions.actions.map(({ id }) => id),
-    ["create", "update", "delete", "enable", "disable", "run-now", "fire", "settle"],
+    [
+      "create",
+      "update",
+      "delete",
+      "enable",
+      "disable",
+      "run-now",
+      "claim",
+      "link",
+      "record-missed",
+      "settle",
+      "list",
+      "runs",
+      "show",
+    ],
   );
   assert.equal(
     schedule?.transitions.actions.some((action) => Object.hasOwn(action, "admission")),

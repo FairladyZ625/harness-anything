@@ -52,7 +52,6 @@ import { readCiObservatory } from "./ci-observatory-read.ts";
 import type {
   RepoCellOperationalContext,
   RepoCellPeopleActions,
-  RepoCellScheduleActions,
   RepoCellSettingsActions,
 } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
@@ -64,11 +63,6 @@ import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { waitForOptionalTaskProjection } from "./projection-readiness-wait.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
-import type {
-  ScheduleDispatchLinkInput,
-  ScheduleMissedInput,
-  ScheduleSettleInput,
-} from "./repo-cell-schedule-actions.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -116,7 +110,6 @@ export interface RepoCellApiContext {
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly scheduleActions: RepoCellScheduleActions;
   readonly settingsActions: RepoCellSettingsActions;
   readonly peopleActions: RepoCellPeopleActions;
   readonly appendRuntimeIngress: RepoCellOperationalContext["appendRuntimeIngress"];
@@ -190,13 +183,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         error,
       );
       const contract = getExecutableEntityAction(action.kind);
-      const result = contract?.target.kind === "task" ? deriveActionResult(contract, action, receipt) : receipt;
+      const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
       return authorizationDecision
         ? withAuthorizationDecision(
             result,
             authorizationDecision,
-            [],
-            error instanceof Error ? error.message : String(error),
+            result.unmetCriteria?.length ? result.unmetCriteria : [criterionForError(error)],
+            result.rejectionExplanation ?? (error instanceof Error ? error.message : String(error)),
           )
         : (result as WriteReceipt);
     };
@@ -886,84 +879,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     );
     return pending;
   };
-  const scheduleOperation = (
-    commandKind: "schedule-run-now" | "schedule-settle",
-    input: Readonly<Record<string, unknown>>,
-    binding: RepoCellBinding,
-    execute: (authorizedBinding: RepoCellBinding) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
-  ): Promise<WriteReceipt> => {
-    const command = commandDescriptorForAction(commandKind),
-      admission = admitRepoMode(context.mode, command, binding.source);
-    if (!admission.ok) return Promise.reject(context.cellCodedError(admission.code, admission.nextAction));
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(context.tail, async () => {
-      context.queueDepth -= 1;
-      if (context.state !== "attached") context.attemptRecovery();
-      const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-      if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-      if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-      assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-      const revision = context.store.readHead()?.revision ?? 0,
-        action = { ...input, kind: commandKind },
-        authorizationDecision = authorizeRepoCellAction({
-          action,
-          binding,
-          actionId: context.operationId(action, binding, context.input.repoId, revision),
-          revision,
-          now: context.now(),
-        });
-      if (authorizationDecision.outcome === "denied")
-        return withAuthorizationDecision(
-          context.rejected(
-            context.operationId(action, binding, context.input.repoId, revision),
-            "authorization_denied",
-            authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
-          ),
-          authorizationDecision,
-        );
-      context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
-      context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
-      try {
-        return withAuthorizationDecision(await execute({ ...binding, authorizationDecision }), authorizationDecision);
-      } finally {
-        context.activeWriterEpochGuard = null;
-        context.activeWriterEpochFence = null;
-      }
-    });
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    void pending.then(
-      () => context.replica.kick(),
-      () => context.replica.kick(),
-    );
-    return pending;
-  };
-  const schedulePort: RepoCell["schedule"] = {
-    claimOccurrence: (input, binding) =>
-      scheduleOperation("schedule-run-now", input, binding, (authorized) =>
-        context.scheduleActions.claimOccurrence(input, authorized),
-      ),
-    recordMissed: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleMissedInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule missed input is invalid.");
-        return context.scheduleActions.recordMissed(input, authorized);
-      }),
-    linkDispatch: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleDispatchLinkInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule dispatch link input is invalid.");
-        return context.scheduleActions.linkDispatch(input, authorized);
-      }),
-    settle: (input, binding) =>
-      scheduleOperation("schedule-settle", input, binding, (authorized) => {
-        if (!isScheduleSettleInput(input))
-          throw context.cellCodedError("invalid_command", "Schedule settlement input is invalid.");
-        return context.scheduleActions.settle(input, authorized);
-      }),
-  };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
     run,
@@ -971,7 +886,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     spawnRuntime,
     cancelRuntime,
     runtimeIngress,
-    schedule: schedulePort,
     catalog: context.catalog,
     terminal: context.terminal,
     read,
@@ -1057,41 +971,8 @@ function withAuthorizationDecision(
   };
 }
 
-function isScheduleMissedInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleMissedInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.from === "string" &&
-    typeof value.to === "string" &&
-    typeof value.count === "number" &&
-    typeof value.reason === "string" &&
-    typeof value.idempotencyKey === "string" &&
-    (value.observedDefinitionRevision === undefined || typeof value.observedDefinitionRevision === "number")
-  );
-}
-
-function isScheduleDispatchLinkInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleDispatchLinkInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.claimFence === "string" &&
-    typeof value.dispatchId === "string" &&
-    typeof value.runtimeSessionId === "string" &&
-    typeof value.idempotencyKey === "string"
-  );
-}
-
-function isScheduleSettleInput(
-  value: Readonly<Record<string, unknown>>,
-): value is Readonly<Record<string, unknown>> & ScheduleSettleInput {
-  return (
-    typeof value.scheduleId === "string" &&
-    typeof value.claimFence === "string" &&
-    ["succeeded", "failed", "cancelled", "unknown"].includes(String(value.outcome)) &&
-    typeof value.endedAt === "string" &&
-    (value.detail === undefined || typeof value.detail === "string") &&
-    typeof value.idempotencyKey === "string"
-  );
+function criterionForError(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? `criteria/${error.code}`
+    : "criteria/action-execution";
 }

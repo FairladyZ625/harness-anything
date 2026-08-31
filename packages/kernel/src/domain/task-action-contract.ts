@@ -359,6 +359,7 @@ export function createTaskActionCatalog(
               read: false,
               implementation: declaration.implementation,
               topology: declaration.topology,
+              targetIdField: "taskId",
               lifecycle: Object.freeze({
                 transitionId: declaration.transitionId,
                 commandType: declaration.commandType,

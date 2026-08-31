@@ -220,6 +220,7 @@ export function combineMigrationReceipts(
     reconciliation,
     fieldDerivations: receipts.flatMap(({ fieldDerivations }) => fieldDerivations),
     dispositions: receipts.flatMap(({ dispositions }) => dispositions),
+    formatObservations: receipts.flatMap(({ formatObservations }) => formatObservations),
     authoredCoverage,
     skippedEntities: receipts.flatMap(({ skippedEntities }) => skippedEntities),
     idMapPath: last.idMapPath,

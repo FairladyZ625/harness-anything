@@ -27,7 +27,7 @@ There are two migration inputs and exactly one command for each:
 
 | Input                                                                  | Command                               | Preconditions                                                                                          | Acceptance                                                                                                                                                |
 | ---------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source whose active projection and canonical event head are at the same cut. Run `--dry-run` first. | Active IDs satisfy source ⊆ target; each kind's difference equals derived + archived/retired; 12-kind conformance and claim coverage pass. |
+| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source. A same-cut projection is used when present; otherwise the importer rebuilds a disposable oracle from committed events and authored packages. Run `--dry-run` first. | Active IDs satisfy source ⊆ target; each kind's difference equals derived + archived/retired; current-event pre-validation and claim coverage pass. |
 | Already-canonical repository with task-local `fact/<task>/F-*` records | `ha migrate rekey-facts`              | Stop the repository daemon/writers and run against the committed canonical cut. Run `--dry-run` first. | Re-keyed facts and `produces` edges match the dry-run id-map; SQLite fact/relation counts are stable; `ha fact search` and `ha fact show <F-id>` succeed. |
 
 Run the fact-only path once at the fleet center. The marker carries a ledger
@@ -56,7 +56,7 @@ data.
 
 The order matters. Do not run the real import before the dry-run proves set
 inclusion and the explained-difference equality for all five entity kinds, plus
-12-kind conformance and claim-coverage preservation. Skip and authored-directory
+current-event pre-validation and claim-coverage preservation. Skip and authored-directory
 counts are not subtracted from the entity oracle. Destination-preimage conflicts
 remain an independent write-safety condition and require explicit resolution.
 
@@ -87,8 +87,12 @@ the daemon automatically.
 ha migrate import --source <path-to-old-repo> --dry-run
 ```
 
-The dry-run writes nothing. It reads `.harness/cache/task.sqlite` at the same
-revision as `harness/events/head.json` and reconciles five active entity kinds —
+The dry-run writes nothing. When `.harness/cache/task.sqlite` exists, it reads
+that projection at the same revision as `harness/events/head.json`. When it is
+absent, the same command automatically builds a disposable projection from the
+committed flat or sharded event ledger and overlays older authored packages.
+It never writes the source or its Git refs. The report identifies this path as
+`Oracle: rebuilt-source` and reconciles five active entity kinds —
 task / decision / fact / relation / execution. Each row reports source active,
 target included, difference, derived, archived, and retired. Passing means
 source ⊆ target and difference = derived + archived/retired. Load-bearing
@@ -141,6 +145,14 @@ disposition is recorded in the receipt, with up to 20 samples per kind in the
 report. A non-zero class with no usable witness follows this archival rule; it
 does not disappear or pause for another decision.
 
+One known historical schedule writer stored a declaration claim whose blob
+contains the full schedule while the event contract claims the definition
+facet. The importer accepts that exact claim/definition mismatch only for its
+disposable oracle, reports `ACCEPT schedule_definition_facet_mismatch` with
+`treatment=accepted_truth_gap`, and keeps the archived source bytes unchanged.
+Other unsupported event shapes fail with `unsupported_legacy_event`; preserve
+the source and report the named event before retrying.
+
 ### 5. Run the real import
 
 ```bash
@@ -149,7 +161,7 @@ ha migrate import --source <path-to-old-repo>
 
 Acceptance: source active IDs are a subset of target IDs for all five kinds;
 each difference equals its derived plus archived/retired count; coverage and
-12-kind conformance pass. The command exits 1 if any of those checks fails and
+current-event pre-validation pass. The command exits 1 if any of those checks fails and
 0 when all pass. Skip and authored-audit rows neither change the expected count
 nor produce exit code 3.
 
@@ -191,6 +203,17 @@ The failure model is simple because the old repository is read-only throughout:
 This is the main advantage of genesis replay over an in-place upgrade: there is
 no half-migrated state that can corrupt source data.
 
+Use the report code and row as the repair instruction:
+
+| Report | Action |
+| --- | --- |
+| `required` authored row | Supply the exact printed `--resolve path=destination|source` choice, then dry-run again. |
+| `migration_projection_oracle_cut_mismatch` | Stop source writers and regenerate or remove the stale local projection; do not alter committed events. |
+| `unsupported_legacy_event` | Preserve the source, capture the named event and schema, and report it as a missing compatibility fixture. |
+| `migration_projection_rebuild_failed` | Preserve the source and use the nested cause to repair a missing/corrupt committed blob or report an unsupported invariant. |
+| `ACCEPT schedule_definition_facet_mismatch` | No source repair is required. Confirm the warning is the known schedule facet variant and retain the forensic archive. |
+| reconciliation `FAIL` or `invalid_write_plan` | Do not apply. Keep the full dry-run receipt and report the failing kind/event; a successful dry-run must not defer a write-plan failure to apply. |
+
 ## Fact-only rekey procedure
 
 For an already-canonical repository, do not use genesis import. Stop its daemon
@@ -223,7 +246,7 @@ The old repository is the reference copy. Day-to-day work moves to the new
 repository; the old one no longer participates in reads or writes.
 
 **Can I skip the dry-run?**
-No. The dry-run fixes a same-cut projection/event-head oracle and proves set
+No. The dry-run fixes a same-cut or disposable rebuilt oracle and proves set
 inclusion plus the per-kind explained-difference equality. Review the derived,
 archived, and retired samples before applying the import.
 
