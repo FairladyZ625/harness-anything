@@ -18,6 +18,7 @@ import {
   type FactMemoryTag,
   type FactProvenanceRuntime,
 } from "./fact-event.ts";
+import { validateSessionProvenance } from "./agent-runtime.ts";
 import { validateTaskV2, type TaskV2 } from "./task.ts";
 import {
   freezeDeclaredWritePlan,
@@ -268,6 +269,28 @@ function validDecisionEntity(value: Readonly<Record<string, unknown>>, allowUnkn
     Array.isArray(decision.judgmentConsents)
   );
 }
+export function canonicalMigrationProvenance(entries: readonly unknown[]): readonly {
+  readonly runtime: string;
+  readonly sessionId: string | null;
+  readonly transcriptReachability: "by_session_id" | "dispatch_stream_only" | "unavailable";
+  readonly boundAt: string;
+}[] {
+  return entries.map((entry) => {
+    if (!isRecord(entry)) return entry as never;
+    const sessionId = isNonEmptyString(entry.sessionId) ? entry.sessionId : null;
+    return {
+      runtime: String(entry.runtime),
+      sessionId,
+      transcriptReachability:
+        sessionId === null
+          ? ("unavailable" as const)
+          : entry.transcriptReachability === "dispatch_stream_only"
+            ? ("dispatch_stream_only" as const)
+            : ("by_session_id" as const),
+      boundAt: String(entry.boundAt),
+    };
+  });
+}
 function validFactEntity(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
   if (
     !matchesMigrationFields(value, ["kind", "fact", "documentClaim"], allowUnknownFields) ||
@@ -290,11 +313,12 @@ function validFactEntity(value: Readonly<Record<string, unknown>>, allowUnknownF
     fact.provenance.length > 0 &&
     fact.provenance.every(
       (entry) =>
-        isRecord(entry) &&
-        matchesMigrationFields(entry, ["runtime", "sessionId", "boundAt"], allowUnknownFields) &&
-        (factProvenanceRuntimes as readonly unknown[]).includes(entry.runtime) &&
-        isNonEmptyString(entry.sessionId) &&
-        timestamp(entry.boundAt),
+        validateSessionProvenance(entry) ||
+        (allowUnknownFields &&
+          isRecord(entry) &&
+          (factProvenanceRuntimes as readonly unknown[]).includes(entry.runtime) &&
+          isNonEmptyString(entry.sessionId) &&
+          timestamp(entry.boundAt)),
     )
   );
 }

@@ -1,4 +1,9 @@
-import { renderFactsDocument, sha256Text, type RelationFactRow } from "../../kernel/src/index.ts";
+import {
+  canonicalMigrationProvenance,
+  renderFactsDocument,
+  sha256Text,
+  type RelationFactRow,
+} from "../../kernel/src/index.ts";
 import {
   runSingleMigrationImport,
   type MigrationImportContext,
@@ -105,7 +110,7 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
           confidence: row.confidence,
           memoryClass: row.memoryClass,
           memoryTags: row.memoryTags as never,
-          provenance: row.provenance as never,
+          provenance: canonicalMigrationProvenance(row.provenance) as never,
         },
         record = {
           factId: targetFactId,

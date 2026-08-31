@@ -54,7 +54,7 @@ export function reduceBatch(
         `sha256:${sha256Text(serializePersistedCanonicalEvent(last))}`,
       );
     }
-    refreshStateDigestAtSourceCut(db, sourceRevision);
+    runSql(db, "UPDATE projection_meta SET state_digest = NULL WHERE singleton = 1");
     return { metrics: { sqliteTransactions: 1, reducedItems } };
   });
 }
@@ -130,7 +130,7 @@ export function catchUpRound(
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
     const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
-    refreshStateDigestAtSourceCut(db, sourceRevision);
+    runSql(db, "UPDATE projection_meta SET state_digest = NULL WHERE singleton = 1");
     return reduced;
   });
   return {
