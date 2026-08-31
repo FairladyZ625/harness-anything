@@ -149,6 +149,10 @@ export type SettingsUpdateInput = RepoScope &
     locale: "en-US" | "zh-CN";
     taskScaffold: string;
     repositoryScaffold: string;
+    walFlushAdaptive: boolean;
+    walFlushEvents: number;
+    walFlushBytes: number;
+    walFlushMilliseconds: number;
   }> & { readonly idempotencyKey: string };
 
 export interface DecisionControlListSuccess {
@@ -540,6 +544,11 @@ function isSettingsSuccess(value: unknown): value is SettingsSuccess {
     isRendererRecord(settings.scaffolds) &&
     [settings.scaffolds.task, settings.scaffolds.repository].every(
       (field) => typeof field === "string" && field.length > 0,
+    ) &&
+    isRendererRecord(settings.walFlush) &&
+    typeof settings.walFlush.adaptive === "boolean" &&
+    [settings.walFlush.events, settings.walFlush.bytes, settings.walFlush.milliseconds].every(
+      (field) => Number.isSafeInteger(field) && Number(field) > 0,
     )
   );
 }

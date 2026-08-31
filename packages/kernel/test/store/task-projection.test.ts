@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import {
   makeTaskEventStore,
   type CanonicalEventStore,
@@ -346,6 +347,47 @@ test("cold rebuild replaces the projection database and accepts a larger bounded
       undefined,
     );
     replacement.close();
+  });
+});
+
+test("migration-sized catch-up reduces 5k events in bounded projection transactions", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const template = lifecycleFixture().events[0]!;
+    if (template.type !== "task_created") throw new Error("lifecycle fixture must begin with task_created");
+    const count = 5_000,
+      events = Array.from({ length: count }, (_, index) => {
+        const revision = index + 1,
+          taskId = `catch-up-${revision}`;
+        return {
+          ...template,
+          eventId: `catch-up-event-${revision}`,
+          opId: `catch-up-op-${revision}`,
+          taskId,
+          workspaceRevision: revision,
+          payload: { ...template.payload, task: { ...template.payload.task, taskId } },
+        };
+      }),
+      eventStore: EventStreamPort = {
+        readHead: () => ({ revision: count, eventDigest: `sha256:${"a".repeat(64)}` }),
+        readBatch: (cursor, maxItems) => {
+          const start = cursor === null ? 0 : events.findIndex((event) => event.opId === cursor) + 1,
+            batch = events.slice(start, start + maxItems);
+          return {
+            sourceRevision: count,
+            events: batch,
+            cursor: batch.at(-1)?.opId ?? cursor,
+            done: start + batch.length >= events.length,
+            accessedItems: batch.length,
+            prefetchContent: () => new Map(),
+          };
+        },
+        readContentBlob: () => null,
+      },
+      projection = makeTaskProjection({ rootDir, eventStore });
+    const receipt = projection.catchUp!();
+    assert.equal(receipt.watermark, count);
+    assert.deepEqual(receipt.metrics, { sqliteTransactions: 3, reducedItems: count, maxBatchItems: 4_096 });
+    projection.close();
   });
 });
 

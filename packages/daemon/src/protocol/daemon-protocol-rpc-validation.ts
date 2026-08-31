@@ -279,12 +279,22 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         "locale",
         "taskScaffold",
         "repositoryScaffold",
+        "walFlushAdaptive",
+        "walFlushEvents",
+        "walFlushBytes",
+        "walFlushMilliseconds",
       ],
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
     if (
       changed.length === 0 ||
-      changed.some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
+      changed
+        .filter((field) => !field.startsWith("walFlush"))
+        .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
+      (value.walFlushAdaptive !== undefined && typeof value.walFlushAdaptive !== "boolean") ||
+      [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
+        (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
+      ) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale)))
     )
       errors.push("settings update is invalid");

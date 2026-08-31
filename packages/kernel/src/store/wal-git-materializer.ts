@@ -25,6 +25,8 @@ export interface WalGitMaterializerOptions {
   readonly authoredBranch?: string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
+  /** Keep immutable event/content objects in Git while excluding them from the active worktree. */
+  readonly compactWorktree?: boolean;
 }
 
 /** The authored branch moved independently of the canonical daemon cut. */
@@ -74,10 +76,18 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
     ]),
   );
   const documentFiles = files.filter((file) => documentTargets.has("delete" in file ? file.delete : file.target));
-  const durableFiles = files.filter((file) => !documentTargets.has("delete" in file ? file.delete : file.target));
+  const immutableFiles = options.compactWorktree
+      ? files.filter((file) => immutableLedgerObject(ledger, "delete" in file ? file.delete : file.target))
+      : [],
+    immutableTargets = new Set(immutableFiles.map((file) => ("delete" in file ? file.delete : file.target))),
+    durableFiles = files.filter((file) => {
+      const target = "delete" in file ? file.delete : file.target;
+      return !documentTargets.has(target) && !immutableTargets.has(target);
+    });
   if (pending.length === 0) {
     localGitWorktreeSettlement.settle(ledger.rootDir, durableFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, documentFiles);
+    localGitWorktreeSettlement.index(ledger.rootDir, immutableFiles, true);
     wal.checkpoint(records.at(-1)!.revision);
     return;
   }
@@ -142,10 +152,17 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
     options.killpoint?.("after_git_ref_update");
     localGitWorktreeSettlement.settle(ledger.rootDir, durableFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, documentFiles);
+    localGitWorktreeSettlement.index(ledger.rootDir, immutableFiles, true);
   } finally {
     localGitObjectRefStore.deleteRef(ledger.rootDir, flushRef);
   }
   wal.checkpoint(last.revision);
+}
+
+function immutableLedgerObject(ledger: ReturnType<typeof resolveLedgerGitLayout>, target: string): boolean {
+  const events = ledgerGitPath(ledger, "events/"),
+    objects = ledgerGitPath(ledger, "objects/sha256/");
+  return (target.startsWith(events) && target !== `${events}head.json`) || target.startsWith(objects);
 }
 
 function batchFiles(

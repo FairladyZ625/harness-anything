@@ -37,6 +37,14 @@ const settingsWriteTopology = {
       },
       { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
     ),
+  positiveSettingInput = (name: string) =>
+    cliInput(
+      name,
+      "single",
+      false,
+      { code: "invalid_field", nextAction: `Use ${name} with a positive integer.` },
+      { regex: "^[1-9][0-9]*$" },
+    ),
   settingsProtocolCommands = Object.freeze([
     defineRepoReadCommand({
       id: "settings-read",
@@ -70,6 +78,16 @@ const settingsWriteTopology = {
         ),
         settingValueInput("--task-scaffold"),
         settingValueInput("--repository-scaffold"),
+        cliInput(
+          "--wal-flush-adaptive",
+          "single",
+          false,
+          { code: "invalid_field", nextAction: "Use --wal-flush-adaptive true or false." },
+          { enum: ["true", "false"] },
+        ),
+        positiveSettingInput("--wal-flush-events"),
+        positiveSettingInput("--wal-flush-bytes"),
+        positiveSettingInput("--wal-flush-milliseconds"),
         cliInput("--idempotency-key", "single", false, {
           code: "invalid_field",
           nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",

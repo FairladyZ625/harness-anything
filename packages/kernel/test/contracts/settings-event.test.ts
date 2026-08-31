@@ -61,6 +61,20 @@ test("Settings facet codec changes owned fields and preserves every unowned byte
   assert.equal(candidate.replace("strict-task", "standard-task"), original.replace("  locale: en-US\n", ""));
 });
 
+test("Settings facet persists all adaptive WAL flush controls", () => {
+  const settings: SettingsV1 = {
+      ...readSettingsFacet(original),
+      walFlush: { adaptive: false, events: 4096, bytes: 16_777_216, milliseconds: 30_000 },
+    },
+    candidate = writeRepositorySettingsFacet(original, settings);
+  assert.deepEqual(readSettingsFacet(candidate).walFlush, settings.walFlush);
+  assert.match(
+    candidate,
+    /  walFlush:\n    adaptive: false\n    events: 4096\n    bytes: 16777216\n    milliseconds: 30000/u,
+  );
+  assert.equal(candidate.includes("    wipLimit: 60"), true);
+});
+
 test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, and exact write plan", () => {
   const settings = { ...readSettingsFacet(original), locale: "zh-CN" } as SettingsV1,
     candidate = writeRepositorySettingsFacet(original, settings),

@@ -2,6 +2,7 @@ import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts
 import { normalizeContentAddressedInputs, type ActorIdentity, type EventHead } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
+import { DEFAULT_WAL_FLUSH_SETTINGS } from "../domain/settings.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { eventObjectRelativePath } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
@@ -31,14 +32,22 @@ import { flushWalToGit, WalMaterializerDivergedError } from "./wal-git-materiali
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
-const DEFAULT_FLUSH_EVENTS = 64;
-const DEFAULT_FLUSH_MS = 2_000;
 const DEFAULT_RETRY_LIMIT = 4;
 const DEFAULT_RETRY_BASE_MS = 50;
 
+export interface WalFlushPolicy {
+  readonly adaptive: boolean;
+  readonly events: number;
+  readonly bytes: number;
+  readonly milliseconds: number;
+}
+
 type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walFlushEvents?: number;
+  readonly walFlushBytes?: number;
   readonly walFlushMs?: number;
+  readonly walFlushAdaptive?: boolean;
+  readonly walFlushPolicy?: () => Partial<WalFlushPolicy>;
   readonly walRetryLimit?: number;
   readonly walRetryBaseMs?: number;
   /** Runs after a WAL cut is durable and Git state has been reloaded. */
@@ -60,9 +69,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let gitLayout = git.layout();
   let gitBaseline = readGitBaseline(ledger, git.currentCommit().sha);
   let gitStream: CanonicalEventStreamV1 | null = null;
+  let mergedStream: CanonicalEventStreamV1 | null = null;
   const wal = openWalEventLog(rootDir);
-  const flushEvents = positive(options.walFlushEvents, "HARNESS_WAL_FLUSH_EVENTS", DEFAULT_FLUSH_EVENTS);
-  const flushMs = positive(options.walFlushMs, "HARNESS_WAL_FLUSH_MS", DEFAULT_FLUSH_MS);
   const retryLimit = positive(options.walRetryLimit, "HARNESS_WAL_RETRY_LIMIT", DEFAULT_RETRY_LIMIT);
   const retryBaseMs = positive(options.walRetryBaseMs, "HARNESS_WAL_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -71,20 +79,58 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let lastFlushError: string | null = null;
   let divergedError: WalMaterializerDivergedError | null = null;
   let lastSettlementFingerprint: string | null = null;
+  let pendingWalRecords = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
+  let walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
+  let latestPendingClaims = latestDocumentClaims(pendingWalRecords.map((record) => record.event));
+  let bulkWriteActive = false;
+  let appendRatePerSecond = 0;
+  let lastAppendAt = 0;
+  let lastFlushDurationMs = 0;
+  let configuredFlushPolicy = options.walFlushPolicy?.() ?? {};
   let closed = false;
 
-  const reloadGit = (): void => {
+  const reloadGit = (advancedBaseline?: GitBaseline): void => {
     git = makeGitEventStore(gitOptions);
     gitHead = git.readHead();
     gitLayout = git.layout();
-    gitBaseline = readGitBaseline(ledger, git.currentCommit().sha);
+    gitBaseline = advancedBaseline ?? readGitBaseline(ledger, git.currentCommit().sha);
     gitStream = null;
+    mergedStream = null;
+    pendingWalRecords = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
+    walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
+    latestPendingClaims = latestDocumentClaims(pendingWalRecords.map((record) => record.event));
   };
   const readGitStream = (): CanonicalEventStreamV1 => (gitStream ??= git.read());
-  const stream = (): CanonicalEventStreamV1 => mergeStream(readGitStream(), wal.records());
-  const pendingCount = (): number =>
-    wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0)).length;
+  const stream = (): CanonicalEventStreamV1 => (mergedStream ??= mergeStream(readGitStream(), wal.records()));
+  const pendingCount = (): number => pendingWalRecords.length;
   const hasWalRecords = (): boolean => wal.records().length > 0;
+  const flushPolicy = (): WalFlushPolicy => {
+    const configured = configuredFlushPolicy;
+    return {
+      adaptive: booleanOverride(
+        "HARNESS_WAL_FLUSH_ADAPTIVE",
+        options.walFlushAdaptive ?? configured.adaptive ?? DEFAULT_WAL_FLUSH_SETTINGS.adaptive,
+      ),
+      events: positiveOverride(
+        "HARNESS_WAL_FLUSH_EVENTS",
+        options.walFlushEvents ?? configured.events ?? DEFAULT_WAL_FLUSH_SETTINGS.events,
+      ),
+      bytes: positiveOverride(
+        "HARNESS_WAL_FLUSH_BYTES",
+        options.walFlushBytes ?? configured.bytes ?? DEFAULT_WAL_FLUSH_SETTINGS.bytes,
+      ),
+      milliseconds: positiveOverride(
+        "HARNESS_WAL_FLUSH_MS",
+        options.walFlushMs ?? configured.milliseconds ?? DEFAULT_WAL_FLUSH_SETTINGS.milliseconds,
+      ),
+    };
+  };
+  const effectiveEventThreshold = (policy: WalFlushPolicy): number => {
+    if (!policy.adaptive || appendRatePerSecond <= 0) return policy.events;
+    const amortizationWindow = Math.max(policy.milliseconds, lastFlushDurationMs * 4);
+    const loadBatch = Math.ceil((appendRatePerSecond * amortizationWindow) / 1_000);
+    return Math.min(Math.max(policy.events, loadBatch), policy.events * 16);
+  };
   const clearSchedule = (): void => {
     if (timer !== null) clearTimeout(timer);
     if (immediate !== null) clearImmediate(immediate);
@@ -129,16 +175,19 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     lastFlushError = null;
     return true;
   };
-  const runFlush = (context: string): boolean => {
+  const runFlush = (context: string, compactWorktree = false): boolean => {
     clearSchedule();
     if (divergedError !== null) return false;
     if (!hasWalRecords()) return true;
     const pendingRecords = wal.records();
     const first = pendingRecords[0]!.revision;
     const last = pendingRecords.at(-1)!.revision;
+    const started = performance.now();
     try {
-      flushWalToGit(wal, git, options);
-      reloadGit();
+      const advancedBaseline = advanceGitBaseline(gitBaseline, ledger, wal, pendingRecords);
+      flushWalToGit(wal, git, { ...options, compactWorktree });
+      reloadGit(advancedBaseline);
+      lastFlushDurationMs = performance.now() - started;
       // Authored settlement observes the durable cut. It is intentionally outside the
       // materialization transaction: an ineligible edit must remain visible for doc status,
       // but can never make an already durable WAL cut fail.
@@ -216,12 +265,15 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     timer.unref?.();
   };
   const scheduleFlush = (): void => {
-    if (closed || divergedError !== null || !hasWalRecords()) return;
+    if (closed || bulkWriteActive || divergedError !== null || !hasWalRecords()) return;
+    const policy = flushPolicy(),
+      threshold = effectiveEventThreshold(policy),
+      thresholdReached = pendingCount() >= threshold || wal.head().lastOffset >= policy.bytes;
     if (timer !== null || immediate !== null) {
-      if (pendingCount() < flushEvents || immediate !== null) return;
+      if (!thresholdReached || immediate !== null) return;
       clearSchedule();
     }
-    if (pendingCount() >= flushEvents) {
+    if (thresholdReached) {
       immediate = setImmediate(() => {
         immediate = null;
         if (!runFlush("batch threshold")) scheduleRetry();
@@ -232,7 +284,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     timer = setTimeout(() => {
       timer = null;
       if (!runFlush("batch age")) scheduleRetry();
-    }, flushMs);
+    }, policy.milliseconds);
     timer.unref?.();
   };
   const readHead = (): EventHead | null => {
@@ -294,9 +346,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       return receipt;
     }
     validateCanonicalWriteBundle(bundle);
-    const records = wal.records();
-    const pendingEvents = records.map((record) => record.event);
-    const existingWal = pendingEvents.find((event) => event.opId === bundle.event.opId) ?? null;
+    const existingWal = walByOpId.get(bundle.event.opId) ?? null;
     const existingGitOid = gitBaseline.eventOids.get(bundle.event.opId);
     if (existingWal !== null || existingGitOid !== undefined) {
       const existing = existingWal ?? bundle.event;
@@ -306,27 +356,39 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           existingGitOid !== localGitObjectRefStore.blobOid(walShadowCanonicalBytes(bundle.event)))
       )
         throw new TaskEventStoreError("op_conflict", `opId ${bundle.event.opId} already names different event bytes`);
-      const priorPending = pendingEvents.filter((event) => event.workspaceRevision < existing.workspaceRevision);
-      makeVisible(ledger, wal, priorPending, gitBaseline.files, bundle, options);
+      const priorPending = pendingWalRecords
+        .map((record) => record.event)
+        .filter((event) => event.workspaceRevision < existing.workspaceRevision);
+      makeVisible(ledger, wal, latestDocumentClaims(priorPending), gitBaseline.files, bundle, options);
       return pendingReceipt(existing, gitHead?.revision ?? 0, git.currentCommit(), []);
     }
-    const beforeRevision = records.at(-1)?.revision ?? gitHead?.revision ?? 0;
+    const beforeRevision = pendingWalRecords.at(-1)?.revision ?? gitHead?.revision ?? 0;
     if (bundle.event.workspaceRevision !== beforeRevision + 1)
       throw new TaskEventStoreError(
         "revision_conflict",
         `workspace revision ${bundle.event.workspaceRevision} must follow ${beforeRevision}`,
       );
     const started = localGitObjectRefStore.processCount();
+    const priorClaims = latestPendingClaims;
     const publish = (): void => {
       options.beforeAppend?.();
       options.killpoint?.("before_event_write");
       // The killpoint models the gap in which a successor writer epoch can be
       // allocated. Recheck immediately before the WAL becomes authoritative.
       options.beforeAppend?.();
-      wal.append({ event: bundle.event, blobs: normalizeContentAddressedInputs(bundle.blobs) });
+      const appendedRecord = wal.append({ event: bundle.event, blobs: normalizeContentAddressedInputs(bundle.blobs) });
+      pendingWalRecords.push(appendedRecord);
+      walByOpId.set(bundle.event.opId, bundle.event);
+      latestPendingClaims = applyDocumentClaims(new Map(latestPendingClaims), bundle.event);
+      if (mergedStream !== null) {
+        if (mergedStream === gitStream)
+          mergedStream = { ...mergedStream, events: [...mergedStream.events, bundle.event] };
+        else (mergedStream.events as CanonicalWriteBundle["event"][]).push(bundle.event);
+        mergedStream = { ...mergedStream, revision: bundle.event.workspaceRevision };
+      }
       options.killpoint?.("after_event_write");
       options.killpoint?.("after_head_write");
-      makeVisible(ledger, wal, pendingEvents, gitBaseline.files, bundle, options);
+      if (!bulkWriteActive) makeVisible(ledger, wal, priorClaims, gitBaseline.files, bundle, options);
     };
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
@@ -342,6 +404,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       localGitObjectRefStore.processCount() - started,
     );
     scheduleFlush();
+    const appendedAt = performance.now();
+    if (lastAppendAt > 0) {
+      const instantRate = 1_000 / Math.max(0.01, appendedAt - lastAppendAt);
+      appendRatePerSecond = appendRatePerSecond === 0 ? instantRate : appendRatePerSecond * 0.8 + instantRate * 0.2;
+    }
+    lastAppendAt = appendedAt;
     return receipt;
   };
   const recover = (): EventRecoveryReceipt => {
@@ -437,6 +505,49 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         `WAL drain exhausted ${retryLimit} attempts with ${wal.records().length} record(s) still pending checkpoint`,
       );
   };
+  const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
+    clearSchedule();
+    if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
+    consecutiveFailures = 0;
+    for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
+      if (runFlush(context, compactWorktree) && !hasWalRecords()) return;
+      if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
+    }
+    if (hasWalRecords())
+      throw new TaskEventStoreError(
+        "publication_indeterminate",
+        `WAL ${context} exhausted ${retryLimit} attempts with ${wal.records().length} record(s) still pending checkpoint`,
+      );
+  };
+  const beginBulkWrite = (): { readonly finish: () => Promise<void> } => {
+    if (closed || bulkWriteActive) throw new TaskEventStoreError("invalid_store", "a WAL bulk write is already active");
+    bulkWriteActive = true;
+    clearSchedule();
+    const baseline = new Map(gitBaseline.files),
+      firstRevision = (gitHead?.revision ?? 0) + 1;
+    let finished = false;
+    return {
+      finish: async () => {
+        if (finished) return;
+        finished = true;
+        const batch = wal.records().filter((record) => record.revision >= firstRevision);
+        try {
+          await flushPending("bulk write", true);
+        } finally {
+          bulkWriteActive = false;
+        }
+        if (batch.length > 0)
+          materializeVisible(
+            ledger,
+            wal,
+            batch.map((record) => record.event),
+            baseline,
+            git.currentCommit(),
+            (sha256) => git.readContentBlob(sha256),
+          );
+      },
+    };
+  };
   return {
     canonicalRef: git.canonicalRef,
     currentCommit: () => git.currentCommit(),
@@ -449,13 +560,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     layout: () => gitLayout,
     read: stream,
     readHead,
-    readEvent: (opId) =>
-      wal.records().find((record) => record.opId === opId)?.event ??
-      (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),
+    readEvent: (opId) => walByOpId.get(opId) ?? (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null),
     readTaskEvent: (opId) => {
-      const event =
-        wal.records().find((record) => record.opId === opId)?.event ??
-        (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null);
+      const event = walByOpId.get(opId) ?? (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null);
       return event?.schema === "task-event/v1" ? event : null;
     },
     readBatch,
@@ -473,6 +580,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       materializeVisible(ledger, wal, stream().events, gitBaseline.files, git.currentCommit(), (sha256) =>
         git.readContentBlob(sha256),
       ),
+    beginBulkWrite,
+    configureWalFlushPolicy: (policy) => {
+      configuredFlushPolicy = policy;
+      clearSchedule();
+      scheduleFlush();
+    },
     drain,
   };
 }
@@ -480,12 +593,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
 function makeVisible(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   wal: WalEventLog,
-  previous: CanonicalEventStreamV1["events"],
+  priorClaims: ReadonlyMap<string, { sha256: string; mode: "100644" | "120000" }>,
   committed: ReadonlyMap<string, GitBaselineNode>,
   bundle: CanonicalWriteBundle,
   options: StoreOptions,
 ): void {
-  const priorClaims = latestDocumentClaims(previous);
   const writes = canonicalDocumentClaims(bundle.event).map((claim) => {
     const blob = bundle.blobs.find((candidate) => candidate.sha256 === claim.sha256);
     if (!blob) throw new TaskEventStoreError("invalid_write_plan", `authored file ${claim.path} has no content input`);
@@ -585,7 +697,18 @@ function latestDocumentClaims(
   return latest;
 }
 
+function applyDocumentClaims(
+  latest: Map<string, { sha256: string; mode: "100644" | "120000" }>,
+  event: CanonicalWriteBundle["event"],
+): Map<string, { sha256: string; mode: "100644" | "120000" }> {
+  for (const retirement of canonicalDocumentRetirements(event)) latest.delete(retirement.path);
+  for (const claim of canonicalDocumentClaims(event))
+    latest.set(claim.path, { sha256: claim.sha256, mode: canonicalDocumentMode(event, claim.path) });
+  return latest;
+}
+
 function mergeStream(git: CanonicalEventStreamV1, records: readonly WalEventRecord[]): CanonicalEventStreamV1 {
+  if (records.length === 0) return git;
   const events = git.events.slice();
   for (const record of records) {
     const index = record.revision - 1;
@@ -623,6 +746,31 @@ interface GitBaselineNode {
 interface GitBaseline {
   readonly eventOids: ReadonlyMap<string, string>;
   readonly files: ReadonlyMap<string, GitBaselineNode>;
+}
+
+function advanceGitBaseline(
+  baseline: GitBaseline,
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  wal: WalEventLog,
+  records: readonly WalEventRecord[],
+): GitBaseline {
+  const eventOids = baseline.eventOids as Map<string, string>,
+    files = baseline.files as Map<string, GitBaselineNode>;
+  for (const record of records) {
+    eventOids.set(record.opId, localGitObjectRefStore.blobOid(walShadowCanonicalBytes(record.event)));
+    for (const retirement of canonicalDocumentRetirements(record.event))
+      files.delete(ledgerGitPath(ledger, retirement.path));
+    for (const claim of canonicalDocumentClaims(record.event)) {
+      const bytes = wal.readContentBlob(claim.sha256);
+      if (bytes === null)
+        throw new TaskEventStoreError("invalid_store", `WAL content object ${claim.sha256} is missing`);
+      files.set(ledgerGitPath(ledger, claim.path), {
+        mode: canonicalDocumentMode(record.event, claim.path),
+        oid: localGitObjectRefStore.blobOid(bytes),
+      });
+    }
+  }
+  return baseline;
 }
 
 function readGitBaseline(ledger: ReturnType<typeof resolveLedgerGitLayout>, commit: string): GitBaseline {
@@ -666,6 +814,16 @@ function walShadowCanonicalBytes(event: CanonicalWriteBundle["event"]): string {
 function positive(explicit: number | undefined, envName: string, fallback: number): number {
   const value = explicit ?? Number.parseInt(process.env[envName] ?? "", 10);
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function positiveOverride(envName: string, fallback: number): number {
+  const value = Number.parseInt(process.env[envName] ?? "", 10);
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
+}
+
+function booleanOverride(envName: string, fallback: boolean): boolean {
+  const value = process.env[envName];
+  return value === "true" ? true : value === "false" ? false : fallback;
 }
 
 function wait(delayMs: number): Promise<void> {

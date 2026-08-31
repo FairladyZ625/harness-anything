@@ -78,6 +78,7 @@ export function makeRepoCellSettingsActions(cell: RepoCellActionContext): RepoCe
         occurredAt: cell.now(),
       }),
       appended = cell.store.append(bundle);
+    cell.store.configureWalFlushPolicy?.(settings.walFlush);
     cell.projection.apply(bundle.event, bundle.plan);
     return appended;
   };
@@ -156,6 +157,12 @@ export function makeRepoCellSettingsActions(cell: RepoCellActionContext): RepoCe
           task: settingsText(action.taskScaffold) ?? current.scaffolds.task,
           repository: settingsText(action.repositoryScaffold) ?? current.scaffolds.repository,
         },
+        walFlush: {
+          adaptive: settingsBoolean(action.walFlushAdaptive) ?? current.walFlush.adaptive,
+          events: settingsPositiveInteger(action.walFlushEvents) ?? current.walFlush.events,
+          bytes: settingsPositiveInteger(action.walFlushBytes) ?? current.walFlush.bytes,
+          milliseconds: settingsPositiveInteger(action.walFlushMilliseconds) ?? current.walFlush.milliseconds,
+        },
       },
       locale = (settingsText(action.locale) ?? current.locale) as SettingsLocale,
       settings: SettingsV1 = { ...repository, locale },
@@ -224,4 +231,17 @@ interface SettingsCatalogPreset {
 
 function settingsText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function settingsPositiveInteger(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function settingsBoolean(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
 }
