@@ -1,5 +1,4 @@
 import type { CredentialKind, DaemonRepoMode, PeopleCommandClass } from "../../../kernel/src/index.ts";
-import { relationStates } from "../../../kernel/src/index.ts";
 
 export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
 
@@ -9,8 +8,33 @@ export const executionStateWords = ["active", "submitted", "changes_requested", 
 
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
-/** Wire consumers read Relation state vocabulary from the Relation contract authority. */
-export const relationStateWords = relationStates;
+/** Wire copies of the Relation contract vocabulary; check-status-vocabulary ratchets them against the kernel authority. */
+export const relationStateWords = ["active", "edge_retired", "deleted"] as const;
+export const relationTypeWords = [
+  "supports",
+  "supersedes",
+  "refines",
+  "narrows",
+  "derives",
+  "blocks",
+  "relates",
+  "implements",
+  "depends-on",
+  "produces",
+  "evidences",
+  "evidenced-by",
+  "refuted-by",
+  "invalidated-by",
+  "supersedes-fact",
+  "executes",
+  "reviews",
+  "owns",
+  "dispatches",
+  "authorizes",
+] as const;
+export const relationStrengthWords = ["strong", "weak"] as const;
+export const relationDirectionWords = ["directed", "undirected"] as const;
+export const relationOriginWords = ["declared", "imported_snapshot", "generated", "inferred"] as const;
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
 

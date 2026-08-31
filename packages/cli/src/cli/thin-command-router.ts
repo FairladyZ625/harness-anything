@@ -90,29 +90,7 @@ export function parseRouted(
       {},
       route.id === "distill-promote" ? { confidence: "medium", memoryClass: "semantic" } : {},
     );
-  if (route.id === "relation-list") return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
-  if (route.id === "relation-relate")
-    return parseProjected(
-      route.id,
-      args.slice(2),
-      rootDir,
-      repoId,
-      json,
-      inputs,
-      {},
-      { strength: "strong", direction: "directed", origin: "declared" },
-      route.method,
-    );
-  if (route.id === "relation-unrelate") {
-    const relationId = args[2];
-    return typeof relationId === "string" && /^rel_[0-9a-f]{16}$/u.test(relationId)
-      ? parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { relationId }, {}, route.method)
-      : rejected(
-          "invalid_field",
-          "Use ha relation unrelate rel_<16-hex> --reason <text> --expected-version <n>.",
-          json,
-        );
-  }
+  if (route.id.startsWith("relation-")) return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (route.id.startsWith("entity-")) {
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
@@ -173,4 +151,38 @@ function parsePeople(
         json,
       )
     : projected;
+}
+
+function parseRelationRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult | undefined {
+  if (route.id === "relation-list") return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
+  if (route.id === "relation-relate")
+    return parseProjected(
+      route.id,
+      args.slice(2),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      {},
+      { strength: "strong", direction: "directed", origin: "declared" },
+      route.method,
+    );
+  if (route.id === "relation-unrelate") {
+    const relationId = args[2];
+    return typeof relationId === "string" && /^rel_[0-9a-f]{16}$/u.test(relationId)
+      ? parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { relationId }, {}, route.method)
+      : rejected(
+          "invalid_field",
+          "Use ha relation unrelate rel_<16-hex> --reason <text> --expected-version <n>.",
+          json,
+        );
+  }
+  return undefined;
 }

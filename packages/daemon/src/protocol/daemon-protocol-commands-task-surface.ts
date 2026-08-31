@@ -1,10 +1,10 @@
+import { relationStateWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
 } from "../../../preset/src/preset-command-contract.ts";
-import { relationStates } from "../../../kernel/src/index.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
   defineRepoReadCommand({
@@ -421,7 +421,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
           code: "invalid_field",
           nextAction: "Use active, edge_retired, or deleted.",
         },
-        { enum: relationStates },
+        { enum: relationStateWords },
       ),
       cliInput(
         "--updated-after",

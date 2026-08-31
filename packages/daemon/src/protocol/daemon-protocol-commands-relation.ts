@@ -1,4 +1,9 @@
-import { relationDirections, relationOrigins, relationStrengths, relationTypes } from "../../../kernel/src/index.ts";
+import {
+  relationDirectionWords as relationDirections,
+  relationOriginWords as relationOrigins,
+  relationStrengthWords as relationStrengths,
+  relationTypeWords as relationTypes,
+} from "./daemon-protocol-vocabulary.ts";
 import { cliInput, defineCenterForwardWriteCommand } from "../../../preset/src/preset-command-contract.ts";
 
 const invalid = (nextAction: string) => ({ code: "invalid_field", nextAction });
