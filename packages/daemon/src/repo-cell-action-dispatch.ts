@@ -21,6 +21,7 @@ import { readTaskDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
+import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -424,8 +425,8 @@ export function declareExecutionExecutor(
         (candidate: string) =>
           `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
       ),
-    executor = dispatchedExecutor(cell, action, taskId, executionId),
-    canonicalAction = { ...action, agent: executor.id },
+    dispatchProof = dispatchedExecutor(cell, action, taskId, executionId),
+    canonicalAction = { ...action, agent: dispatchProof.executor.id },
     opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
@@ -434,7 +435,8 @@ export function declareExecutionExecutor(
       taskId,
       executionId,
       actor: binding.actor,
-      executor,
+      executor: dispatchProof.executor,
+      dispatchTaskId: dispatchProof.dispatchTaskId,
       source: binding.source,
       reason,
       opId,
@@ -468,9 +470,12 @@ function dispatchedExecutor(
   action: RepoTaskAction,
   taskId: string,
   executionId: string,
-): { readonly kind: "agent"; readonly id: string } {
+): {
+  readonly executor: { readonly kind: "agent"; readonly id: string };
+  readonly dispatchTaskId: string;
+} {
   const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
-    rows = readTaskDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).dispatches,
+    rows = taskLineageDispatches(cell, taskId),
     exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),
     eligibleRows = exactRows.length ? exactRows : rows,
     candidates = [
@@ -481,6 +486,7 @@ function dispatchedExecutor(
             runtimeSessionId: dispatch.runtimeSessionId,
             executorId: `runtime-session:${dispatch.runtimeSessionId}`,
             agentId: dispatch.agentId,
+            dispatchTaskId: dispatch.taskId,
           },
         ]),
       ).values(),
@@ -493,12 +499,17 @@ function dispatchedExecutor(
             requested === candidate.agentId,
         )
       : candidates;
-  if (matches.length === 1) return { kind: "agent", id: matches[0]!.executorId };
+  if (matches.length === 1)
+    return {
+      executor: { kind: "agent", id: matches[0]!.executorId },
+      dispatchTaskId: matches[0]!.dispatchTaskId,
+    };
   const choices = candidates.map((candidate) => candidate.executorId);
   if (candidates.length === 0)
     throw cell.cellCodedError(
       "invalid_proof",
-      `Task ${taskId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; ` +
+      `Task ${taskId} has no recorded runtime dispatch on itself or its parent chain. ` +
+        `Run ha task dispatches ${taskId}; ` +
         "executor declaration remains unavailable until a real dispatch record exists.",
     );
   if (requested)
@@ -516,4 +527,25 @@ function dispatchedExecutor(
       )
       .join(" or ")}.`,
   );
+}
+
+function taskLineageDispatches(cell: RepoCellOperationalContext, taskId: string): readonly TaskDispatchRow[] {
+  const taskIds: string[] = [],
+    visited = new Set<string>();
+  let candidate: string | null = taskId;
+  while (candidate !== null && !visited.has(candidate)) {
+    taskIds.push(candidate);
+    visited.add(candidate);
+    candidate = cell.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null;
+  }
+  const rows: TaskDispatchRow[] = [];
+  for (let offset = 0; offset < taskIds.length; offset += 500)
+    rows.push(
+      ...readTaskDispatches({
+        rootDir: cell.rootDir,
+        projection: cell.projection,
+        taskIds: taskIds.slice(offset, offset + 500),
+      }).dispatches,
+    );
+  return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
