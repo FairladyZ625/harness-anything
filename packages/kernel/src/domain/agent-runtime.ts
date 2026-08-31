@@ -8,6 +8,7 @@ import {
   type EventEnvelope,
 } from "./write-chain.contract.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
 
 export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
@@ -26,6 +27,23 @@ export const agentRuntimeEventTypes = [
   "runtime_session_outcome_observed",
   "runtime_dispatch_outcome_unknown",
 ] as const;
+
+export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
+  const identity = {
+    source: `runtime-session/${runtimeSessionId}`,
+    target: `task/${taskId}`,
+    type: "executes" as const,
+    direction: "directed" as const,
+  };
+  return {
+    relation_id: deriveRelationId(identity),
+    ...identity,
+    strength: "strong",
+    origin: "generated",
+    state: "active",
+    rationale: "Runtime session is bound to the task execution.",
+  };
+}
 export type RuntimeProtocolFamily = (typeof runtimeProtocolFamilies)[number];
 export type RuntimeCapability = (typeof runtimeCapabilities)[number];
 export type RuntimeLiveness = (typeof runtimeLivenessStates)[number];

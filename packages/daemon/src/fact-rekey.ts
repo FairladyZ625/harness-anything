@@ -52,6 +52,11 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DocEventChange } from "../../kernel/src/index.ts";
+import {
+  planEmbeddedRelationRestatements,
+  type EmbeddedRelationRestatementDifference,
+} from "./embedded-relation-restatement.ts";
+import { factRekeyEvidence, factRekeyIdMapBody } from "./fact-rekey-evidence.ts";
 import { isJsonObject, type JsonValue } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -106,6 +111,7 @@ interface FactRekeyPlan {
   readonly rewrittenEntityDocuments: readonly { readonly path: string; readonly body: string }[];
   readonly rewrittenAgentEvents: number;
   readonly rewrittenSettingsEvents: number;
+  readonly embeddedRelationRestatements: readonly EmbeddedRelationRestatementDifference[];
   readonly docsOnly: readonly MappedLegacyFact[];
 }
 
@@ -118,7 +124,7 @@ export function runFactRekey(input: {
   readonly now: () => string;
 }): WriteReceipt {
   const plan = buildPlan(input.rootDir, input.store);
-  const mapBody = idMapBody(plan);
+  const mapBody = factRekeyIdMapBody(plan);
   const digest = sha256Text(mapBody);
   const markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
   const existingMarker = migrationEvents(input.rootDir, input.store).find(
@@ -134,7 +140,7 @@ export function runFactRekey(input: {
       revision: input.store.readHead()?.revision ?? 0,
       code: "no_changes",
       origin: "fact-rekey",
-      evidence: JSON.stringify({ schema: "fact-rekey-id-map/v1", maps: Object.fromEntries(plan.map) }),
+      evidence: JSON.stringify(factRekeyEvidence(plan)),
       visibility: "center",
       proof: {
         committedRevision: input.store.readHead()?.revision ?? 0,
@@ -151,9 +157,7 @@ export function runFactRekey(input: {
       opId: `preview:${markerOpId}`,
       revision: input.store.readHead()?.revision ?? 0,
       evidence: JSON.stringify({
-        schema: "fact-rekey-id-map/v1",
-        maps: Object.fromEntries(plan.map),
-        counts: counts(plan),
+        ...factRekeyEvidence(plan),
         markerOpId,
       }),
       visibility: "center",
@@ -247,11 +251,7 @@ export function runFactRekey(input: {
       outcome: "applied",
       opId: marker.opId,
       revision: appended.revision,
-      evidence: JSON.stringify({
-        schema: "fact-rekey-id-map/v1",
-        maps: Object.fromEntries(plan.map),
-        counts: counts(plan),
-      }),
+      evidence: JSON.stringify(factRekeyEvidence(plan)),
       visibility: "center",
       proof: {
         committedRevision: appended.revision,
@@ -332,6 +332,14 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     const normalized = normalizeLegacyRelationMigrationEvent(event, cold.legacyFactRefs, relationMap);
     if (normalized !== event) normalizedRelationEvents.set(event.opId, normalized as PersistedCanonicalEventV1);
   }
+  const normalizedEvents = events.map((event) => normalizedRelationEvents.get(event.opId) ?? event),
+    embeddedRelationPlan = planEmbeddedRelationRestatements(normalizedEvents);
+  for (const difference of embeddedRelationPlan.differences) {
+    const current = relationMap.get(difference.relationId);
+    if (current !== undefined && current !== difference.relationId)
+      throw new Error(`Embedded relation ${difference.relationId} conflicts with an existing relation rekey`);
+    relationMap.set(difference.relationId, difference.relationId);
+  }
   const currentSquadClaims = new Map<string, EntityDeclarationClaimSnapshot>();
   for (const event of events)
     if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
@@ -341,6 +349,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     rewrittenEntityPaths = new Set<string>(),
     decisionStates = new Map<string, DecisionDocumentState>(),
     decisionRelations = new Map<string, DecisionDocumentState["relations"]>(),
+    identityRefsChanged = map.size > 0 || [...relationMap].some(([from, to]) => from !== to),
     rewriteCounts = { agent: 0, settings: 0 },
     legacyEvents = new Set(
       events
@@ -352,6 +361,8 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     );
   for (const event of events) {
     const agentRewrite = rewriteRetiredAgentEntity(event, store);
+    const restatedEvent =
+      embeddedRelationPlan.rewrites.get(event.opId) ?? normalizedRelationEvents.get(event.opId) ?? event;
     let next: PersistedCanonicalEventV1;
     if (agentRewrite !== null) {
       next = transformCanonicalEvent(agentRewrite.event, mapRef, relationMap);
@@ -404,8 +415,8 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
           mapRef,
           relationMap,
         );
-      } else next = transformCanonicalEvent(normalizedRelationEvents.get(event.opId) ?? event, mapRef, relationMap);
-    } else next = transformCanonicalEvent(normalizedRelationEvents.get(event.opId) ?? event, mapRef, relationMap);
+      } else next = transformCanonicalEvent(restatedEvent, mapRef, relationMap);
+    } else next = transformCanonicalEvent(restatedEvent, mapRef, relationMap);
     if (next.schema === "settings-event/v1" && isJsonObject(next.payload.settings)) {
       const settings = repositorySettings(next.payload.settings);
       if (stableStringify(settings) !== stableStringify(next.payload.settings)) {
@@ -442,14 +453,14 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     }
     if (next.schema === "decision-event/v1") {
       const current = decisionStates.get(next.decisionId) ?? null;
-      next = rekeyDecisionProofs(next, current);
+      if (identityRefsChanged) next = rekeyDecisionProofs(next, current);
       try {
         decisionStates.set(next.decisionId, reduceDecisionDocument(current, next));
       } catch (error) {
         consumeKnownError(error);
       }
     }
-    if (next.schema === "task-event/v1" && next.type === "review_consent_recorded")
+    if (identityRefsChanged && next.schema === "task-event/v1" && next.type === "review_consent_recorded")
       next = rekeyReviewConsentProof(next);
     if (stableStringify(next) !== stableStringify(event))
       eventRewrites.push({ event: next, body: serializePersistedCanonicalEvent(next) });
@@ -521,6 +532,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     rewrittenEntityDocuments,
     rewrittenAgentEvents: rewriteCounts.agent,
     rewrittenSettingsEvents: rewriteCounts.settings,
+    embeddedRelationRestatements: embeddedRelationPlan.differences,
     docsOnly,
   };
 }
@@ -1060,29 +1072,4 @@ function authoredFiles(root: string): readonly { readonly relativePath: string; 
   };
   visit(root);
   return output;
-}
-
-function idMapBody(plan: FactRekeyPlan): string {
-  return `${stableStringify({
-    schema: "fact-rekey-id-map/v1",
-    maps: {
-      fact: Object.fromEntries(plan.map),
-      relation: Object.fromEntries(plan.relationMap),
-    },
-    counts: counts(plan),
-  })}\n`;
-}
-
-function counts(plan: FactRekeyPlan): Record<string, number> {
-  return {
-    rekeyedFacts: plan.facts.length,
-    factEvents: plan.eventRewrites.filter(({ event }) => isFactEvent(event)).length + plan.docsOnly.length,
-    producesEdges: plan.facts.filter((fact) => fact.row.taskId).length,
-    retargetedRelations: [...plan.relationMap].filter(([from, to]) => from !== to).length,
-    rewrittenRelationEvents: plan.eventRewrites.filter(
-      ({ event }) => isMigrationImportEvent(event) && event.payload.entity.kind === "relation",
-    ).length,
-    rewrittenAgentEvents: plan.rewrittenAgentEvents,
-    rewrittenSettingsEvents: plan.rewrittenSettingsEvents,
-  };
 }
