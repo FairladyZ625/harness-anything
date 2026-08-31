@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
   blockingOf,
@@ -132,7 +132,7 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
       withAppendFence: (operation) =>
         context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
       rejectPreparedRecovery: context.mode === "remote-center",
-      walFlushPolicy: () => readSettingsFacet(readFileSync(configPath, "utf8")).walFlush,
+      walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
     }),
     recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
