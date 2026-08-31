@@ -137,6 +137,11 @@ const personIdentity = Object.freeze({
   pattern: "^[A-Za-z][A-Za-z0-9_-]{0,62}$",
   refTemplate: "person/{id}" as const,
 });
+const relationIdentity = Object.freeze({
+  field: "id",
+  pattern: "^rel_[0-9a-f]{16}$",
+  refTemplate: "relation/{id}" as const,
+});
 
 export const entityTypeContracts = Object.freeze([
   { kind: "task", ...baseEntityTypeContract(taskIdentity, authoredResidency) },
@@ -157,6 +162,13 @@ export const entityTypeContracts = Object.freeze([
     ),
   },
   { kind: "person", ...baseEntityTypeContract(personIdentity, authoredResidency) },
+  {
+    kind: "relation",
+    ...baseEntityTypeContract(
+      relationIdentity,
+      Object.freeze({ history: "ledger" as const, graph: "projection" as const }),
+    ),
+  },
 ] as const satisfies readonly EntityTypeContract[]);
 
 export type RegisteredEntity = EntityFromTypeContract<(typeof entityTypeContracts)[number]>;
@@ -256,13 +268,15 @@ export function validateBaseEntity<E extends BaseEntity>(
   if (!entityDispositions.includes(value.disposition as EntityDisposition))
     issues.push("BaseEntity projection disposition is invalid");
   if (typeof value.pinned !== "boolean") issues.push("BaseEntity projection pinned must be a boolean");
-  if (
-    value.relationEndpoint !== contract.relationEndpoint ||
-    !isRecord(value.relationEndpoint) ||
-    value.relationEndpoint.eligible !== true
-  )
+  if (!isRecord(value.relationEndpoint) || value.relationEndpoint.eligible !== true)
     issues.push("BaseEntity projection relation endpoint eligibility is invalid");
-  if (value.residency !== contract.residency) issues.push("BaseEntity projection residency does not match its kind");
+  const residency = isRecord(value.residency) ? value.residency : null;
+  if (
+    residency === null ||
+    Object.keys(residency).length !== Object.keys(contract.residency).length ||
+    Object.entries(contract.residency).some(([facet, expected]) => residency[facet] !== expected)
+  )
+    issues.push("BaseEntity projection residency does not match its kind");
   if (!isRecord(value.provenance)) issues.push("BaseEntity projection provenance is invalid");
   else {
     if (validateActorIdentity(value.provenance.actor).length)

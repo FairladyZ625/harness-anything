@@ -54,7 +54,7 @@ test("standalone facts use canonical identity and a per-fact document", () => {
   assert.equal(parseEntityRef("fact/task-legacy/F-ABCDEFGH"), null);
 });
 
-test("a task-owned fact projection emits exactly one active produces edge", () => {
+test("a Fact event does not author parallel Relation truth", () => {
   const db = new DatabaseSync(":memory:");
   createFactProjectionTables(db);
   createRelationGraphProjectionTables(db);
@@ -68,7 +68,7 @@ test("a task-owned fact projection emits exactly one active produces edge", () =
         edge.targetRef === "fact/F-BCDEFGHJ" &&
         edge.state === "active",
     );
-  assert.equal(owned.length, 1);
+  assert.equal(owned.length, 0);
   assert.equal(graph.facts[0]?.ref, "fact/F-BCDEFGHJ");
   db.close();
 });

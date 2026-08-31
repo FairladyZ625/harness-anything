@@ -17,14 +17,6 @@ const UPSERT_ENTITY_SQL = [
   "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
   "WHERE entity_projection.workspace_revision <= excluded.workspace_revision",
 ].join(" ");
-const UPSERT_RELATION_SQL = [
-  "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref,",
-  "workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  "ON CONFLICT(relation_id) DO UPDATE SET source_ref=excluded.source_ref, target_ref=excluded.target_ref,",
-  "relation_type=excluded.relation_type, state=excluded.state, owner_ref=excluded.owner_ref,",
-  "workspace_revision=excluded.workspace_revision, row_json=excluded.row_json",
-  "WHERE relation_edge.workspace_revision <= excluded.workspace_revision",
-].join(" ");
 const LIST_ENTITY_SQL = [
   "SELECT entity_kind, entity_id, task_id, workspace_revision, value_json FROM entity_projection",
   "WHERE entity_kind = ? ORDER BY entity_id",
@@ -61,19 +53,6 @@ function writeEntityProjection(db: DatabaseSync, projection: InterpretedEntityPr
     projection.workspaceRevision,
     canonicalJson(projection.value),
   );
-  for (const relation of projection.relations)
-    runSql(
-      db,
-      UPSERT_RELATION_SQL,
-      relation.relationId,
-      relation.sourceRef,
-      relation.targetRef,
-      relation.relationType,
-      relation.state,
-      relation.ownerRef,
-      projection.workspaceRevision,
-      canonicalJson(relation),
-    );
 }
 
 export function listEntityProjectionRows(db: DatabaseSync, entityKind: string): readonly EntityProjectionRow[] {

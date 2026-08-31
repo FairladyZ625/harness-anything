@@ -206,6 +206,12 @@ export async function executeAction(
       },
     );
   }
+  if (taskActionContract?.target.kind === "relation" && taskActionContract.execution)
+    return cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
+    );
   if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action);

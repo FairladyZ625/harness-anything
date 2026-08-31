@@ -314,8 +314,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       chosen = value.chosen,
       rejected = value.rejected,
       claims = value.claims,
-      fulfillments = value.fulfillments,
-      relations = value.relations;
+      fulfillments = value.fulfillments;
     if (
       ![value.riskTier, value.urgency].every((field) => ["low", "medium", "high"].includes(String(field))) ||
       !["ordinary", "standing_policy"].includes(String(value.decisionClass)) ||
@@ -346,9 +345,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         (item) =>
           !exactItem(item, ["claimId", "mode"]) ||
           (isJsonObject(item) && !["evidenced", "delivered", "standing_policy"].includes(String(item.mode))),
-      ) ||
-      !Array.isArray(relations) ||
-      relations.some((item) => !exactItem(item, ["anchor", "type", "target", "rationale"]))
+      )
     )
       errors.push("decision proposal is invalid");
   }

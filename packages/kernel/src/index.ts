@@ -229,20 +229,16 @@ export type {
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/index.ts";
 export * from "./projection/post-merge-checks.ts";
-export {
-  detectRelationGraphCycles,
-  readRelationGraphAuthoredSourceKinds,
-  validateRelationGraphRecords,
-} from "./projection/relation-graph-projection.ts";
+export { detectRelationGraphCycles } from "./projection/relation-graph-projection.ts";
 export type {
   FactAnchorRow,
   RelationCoverageRow,
   RelationFactRow,
   RelationGraphEdgeRow,
   RelationGraphProjection,
-  RelationRecordEntry,
-  RelationRecordValidationIssue,
 } from "./projection/relation-graph-projection.ts";
+export { RELATION_PROJECTION_VERSION, relationProjectionRow } from "./projection/relation-entity-projection.ts";
+export type { VersionedRelationProjectionRow } from "./projection/relation-entity-projection.ts";
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
 export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";

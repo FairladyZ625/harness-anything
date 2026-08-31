@@ -1,4 +1,5 @@
 import type { CredentialKind, DaemonRepoMode, PeopleCommandClass } from "../../../kernel/src/index.ts";
+import { relationStates } from "../../../kernel/src/index.ts";
 
 export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
 
@@ -8,7 +9,8 @@ export const executionStateWords = ["active", "submitted", "changes_requested", 
 
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
-export const relationStateWords = ["active", "edge_retired", "deleted"] as const;
+/** Wire consumers read Relation state vocabulary from the Relation contract authority. */
+export const relationStateWords = relationStates;
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
 

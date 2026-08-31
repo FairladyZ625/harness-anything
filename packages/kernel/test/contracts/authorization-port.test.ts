@@ -40,10 +40,10 @@ function roleContext(role: string, roleActor = actor): AuthorizationContext {
 }
 
 test("the default Policy covers the frozen durable inventory exactly once", () => {
-  assert.equal(durablePolicyActions.length, 105);
-  assert.equal(new Set(durablePolicyActions).size, 105);
+  assert.equal(durablePolicyActions.length, 107);
+  assert.equal(new Set(durablePolicyActions).size, 107);
   assert.deepEqual(new Set(DEFAULT_POLICY.actions), new Set(durablePolicyActions));
-  assert.equal(DEFAULT_POLICY.rules?.length, 105);
+  assert.equal(DEFAULT_POLICY.rules?.length, 107);
 });
 
 test("RoleBinding qualification is actor, target, and role scoped", () => {

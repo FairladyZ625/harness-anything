@@ -1,16 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  readFlags,
-  rejectInput,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ProtocolCommand,
-  ThinCliInput,
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseTaskCreate(
   route: ProtocolCommand,
@@ -25,18 +15,9 @@ export function parseTaskCreate(
   const title = f.one.get("--title"),
     id = f.one.get("--id"),
     fromLegacy = f.one.get("--from-legacy"),
-    modes = ["migration", "import", "admin"].filter((mode) =>
-      f.booleans.has(`--${mode}`),
-    ),
-    structured = [f.one.get("--from-file"), f.one.get("--json-input")].filter(
-      Boolean,
-    ),
-    moduleNames = [
-      "--register-module",
-      "--module-title",
-      "--module-prefix",
-      "--module-scope",
-    ],
+    modes = ["migration", "import", "admin"].filter((mode) => f.booleans.has(`--${mode}`)),
+    structured = [f.one.get("--from-file"), f.one.get("--json-input")].filter(Boolean),
+    moduleNames = ["--register-module", "--module-title", "--module-prefix", "--module-scope"],
     moduleFields = moduleNames.map((name) => f.one.get(name)),
     moduleCount = moduleFields.filter(Boolean).length;
   if (
@@ -45,9 +26,7 @@ export function parseTaskCreate(
     (!id && modes.length > 0) ||
     structured.length > 1 ||
     (moduleCount !== 0 && moduleCount !== moduleFields.length) ||
-    (moduleCount === moduleFields.length &&
-      f.one.get("--module") &&
-      f.one.get("--module") !== moduleFields[0])
+    (moduleCount === moduleFields.length && f.one.get("--module") && f.one.get("--module") !== moduleFields[0])
   )
     return rejectInput(
       inputs,
@@ -61,23 +40,9 @@ export function parseTaskCreate(
             : "--register-module",
       json,
     );
-  const relation = (f.many.get("--relation") ?? []).map((value) => {
-      const first = value.indexOf(":"),
-        second = value.indexOf(":", first + 1);
-      return {
-        type: value.slice(0, first),
-        target: value.slice(first + 1, second),
-        rationale: value.slice(second + 1),
-      };
-    }),
-    declared = Object.fromEntries(
-      (
-        route.inputs as readonly (ThinCliInput & { readonly field?: string })[]
-      ).flatMap((input) => {
-        const value =
-          input.kind === "single" && input.field
-            ? f.one.get(input.name)
-            : undefined;
+  const declared = Object.fromEntries(
+      (route.inputs as readonly (ThinCliInput & { readonly field?: string })[]).flatMap((input) => {
+        const value = input.kind === "single" && input.field ? f.one.get(input.name) : undefined;
         return value ? [[input.field!, value]] : [];
       }),
     ),
@@ -111,10 +76,7 @@ export function parseTaskCreate(
             moduleKey: moduleFields[0],
           }
         : {}),
-      ...(f.many.get("--surface")?.length
-        ? { surfaces: f.many.get("--surface") }
-        : {}),
-      ...(relation.length ? { relations: relation } : {}),
+      ...(f.many.get("--surface")?.length ? { surfaces: f.many.get("--surface") } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
     },
     route.method,

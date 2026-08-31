@@ -7,6 +7,7 @@ import {
   isDocEvent,
   isFactEvent,
   isMigrationImportEvent,
+  isRelationEvent,
   verifyDocEventChange,
   type CanonicalEventV1,
   type DocumentState,
@@ -51,7 +52,7 @@ import {
   refreshRuntimeSessionAssociations,
 } from "./rebuildable-task-projection-runtime.ts";
 import { canonicalJson, runSql } from "./rebuildable-task-projection-sql.ts";
-import { deriveRelationId } from "../domain/entity-relation.ts";
+import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -115,6 +116,17 @@ export function applyEvent(
   }
   if (isMigrationImportEvent(event)) {
     projectMigration(db, event, eventJson, readBlob);
+    return;
+  }
+  if (isRelationEvent(event)) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    applyRelationProjectionEvent(db, event);
     return;
   }
   if (isEntityEvent(event)) {
@@ -323,37 +335,6 @@ export function applyEvent(
         );
         refreshRuntimeSessionAssociations(db, session);
       }
-    }
-    if (event.type === "runtime_session_task_bound") {
-      const source = `runtime-session/${event.payload.runtimeSessionId}`,
-        target = `task/${event.payload.taskId}`,
-        relationId = deriveRelationId({ source, target, type: "executes", direction: "directed" }),
-        row = {
-          relationId,
-          sourceRef: source,
-          targetRef: target,
-          relationType: "executes",
-          direction: "directed",
-          strength: "strong",
-          origin: "generated",
-          state: "active",
-          rationale: "Authenticated runtime handoff.",
-          ownerRef: source,
-          sourcePath: `event:${event.opId}`,
-          recordIndex: 0,
-        };
-      runSql(
-        db,
-        "INSERT OR REPLACE INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        relationId,
-        source,
-        target,
-        "executes",
-        "active",
-        source,
-        event.workspaceRevision,
-        JSON.stringify(row),
-      );
     }
     return;
   }

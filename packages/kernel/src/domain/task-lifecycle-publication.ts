@@ -12,7 +12,6 @@ import {
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { formatRelationFlowRecord } from "./entity-relation.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateRequiresWitness } from "./closeout-readiness.ts";
@@ -327,12 +326,12 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
       `preset: ${metadata.presetId}\n`,
       `profile: ${metadata.profileId}\n`,
       `packagePath: ${packagePath}\n`,
-      "owner: machine\nrelations:\n",
-      (task.relations ?? []).map(formatRelationFlowRecord).join("\n"),
-      `\n---\n${body}`,
+      "owner: machine\n",
+      `---\n${body}`,
     ].join("");
   }
   return initial
+    .replace(/^relations:\n(?:- .*\n)*/mu, "")
     .replace(/^status:.*$/mu, `status: ${task.status}`)
     .replace(/^  status:.*$/mu, `  status: ${task.status}`)
     .replace(/## Next\n[\s\S]*$/u, `## Next\n\n${next}\n\n## Gate Checks\n\n${gates}\n`);
@@ -340,11 +339,11 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
 function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): string {
   const task = snapshot.task!,
     current = base ? (JSON.parse(base) as Record<string, unknown>) : {},
-    metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown,
-    relations = JSON.parse(stableStringify(task.relations ?? [])) as unknown;
+    { relations: _legacyRelations, ...withoutHostedRelations } = current,
+    metadata = JSON.parse(stableStringify(task.metadata ?? null)) as unknown;
   return `${JSON.stringify(
     {
-      ...current,
+      ...withoutHostedRelations,
       schema: "task-contract/v1",
       contractVersion: task.contractVersion ?? 1,
       taskId: task.taskId,
@@ -352,7 +351,6 @@ function renderContract(snapshot: TaskLifecycleSnapshot, base: string | null): s
       taskClass: task.taskClass,
       pinned: task.pinned,
       metadata,
-      relations,
     },
     null,
     2,

@@ -3,6 +3,7 @@ import { consumeKnownError } from "../error-consumption.ts";
 import {
   isFactEvent,
   isMigrationImportEvent,
+  isRelationEvent,
   normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
 } from "../domain/doc-sync.contract.ts";
@@ -10,9 +11,14 @@ import {
   deriveRelationId,
   isFactId,
   parseEntityRef,
+  reduceRelationEntity,
+  relationRecord,
   validateRelationRecordsForHost,
   type EntityRelationRecord,
+  type RelationEntity,
+  type RelationEventV1,
 } from "../domain/index.ts";
+import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import {
@@ -191,20 +197,22 @@ function readColdRebuildSourceInternal(rootInput: HarnessLayoutInput, migrationM
         }
       }
     }
-    const hosted = [
-      ...(indexFrontmatter
-        ? frontmatterRelations(indexFrontmatter).map((record) => ({
-            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
-            from: indexPath,
-          }))
-        : []),
-      ...(body === null
-        ? []
-        : parseRelationFlowRecords(body).map((record) => ({
-            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
-            from: factsPath,
-          }))),
-    ];
+    const hosted = migrationMode
+      ? [
+          ...(indexFrontmatter
+            ? frontmatterRelations(indexFrontmatter).map((record) => ({
+                record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+                from: indexPath,
+              }))
+            : []),
+          ...(body === null
+            ? []
+            : parseRelationFlowRecords(body).map((record) => ({
+                record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+                from: factsPath,
+              }))),
+        ]
+      : [];
     for (const [recordIndex, { record, from }] of hosted.entries())
       entries.push(relationEntry(record, `task/${taskId}`, sourcePath(layout.rootDir, from), recordIndex));
     if (body === null) continue;
@@ -240,7 +248,10 @@ function readColdRebuildSourceInternal(rootInput: HarnessLayoutInput, migrationM
       anchorRefs,
       sourcePath: sourcePath(layout.rootDir, decision.filePath),
     });
-    for (const [recordIndex, rawRecord] of frontmatterRelations(decision.frontmatter).entries()) {
+    for (const [recordIndex, rawRecord] of (migrationMode
+      ? frontmatterRelations(decision.frontmatter)
+      : []
+    ).entries()) {
       const record = normalizeLegacyRelationRecord(rawRecord, legacyFactRefs, legacyRelationIds);
       entries.push(
         relationEntry(record, decision.decisionRef, sourcePath(layout.rootDir, decision.filePath), recordIndex),
@@ -254,10 +265,9 @@ function readColdRebuildSourceInternal(rootInput: HarnessLayoutInput, migrationM
         : relationEntry(record, entry.ownerRef, entry.sourcePath, entry.recordIndex);
     }),
     eventRelationIds = new Set(normalizedEventRelations.map(({ record }) => record.relation_id)),
-    materializedEntries = [
-      ...entries.filter(({ record }) => !eventRelationIds.has(record.relation_id)),
-      ...normalizedEventRelations,
-    ];
+    materializedEntries = migrationMode
+      ? [...entries.filter(({ record }) => !eventRelationIds.has(record.relation_id)), ...normalizedEventRelations]
+      : normalizedEventRelations;
   const knownDecisions = new Set(decisionAnchors.flatMap(({ anchorRefs }) => anchorRefs)),
     relationRead = relationEdges(materializedEntries, taskIds, knownDecisions, knownFactRefs);
   complete &&= relationRead.issues.length === 0;
@@ -605,6 +615,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
   const eventsRoot = path.join(authoredRoot, "events"),
     rows = new Map<string, EventFactSource>(),
     relations: RelationEntry[] = [],
+    relationHistory: Array<RelationEventV1 | MigrationImportEventV1> = [],
     legacyFactRefs = new Map<string, string>(),
     issues: ColdRebuildIssue[] = [];
   for (const file of listColdRebuildFiles(eventsRoot).filter(
@@ -654,7 +665,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
         };
       addEventFactSource(rows, issues, identityRef, row, `event:${event.opId}`);
       if (allowLegacyFactRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
-      if (event.taskId) {
+      if (allowLegacyFactRefs && event.taskId) {
         const identity = {
           source: `task/${event.taskId}`,
           target: ref,
@@ -677,7 +688,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           ),
         );
       }
-      if (event.payload.supersedes) {
+      if (allowLegacyFactRefs && event.payload.supersedes) {
         const superseded = allowLegacyFactRefs
             ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.supersedes.factRef)
             : null,
@@ -700,6 +711,10 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
       }
       continue;
     }
+    if (isRelationEvent(event)) {
+      relationHistory.push(event);
+      continue;
+    }
     if (!isMigrationImportEvent(event)) continue;
     const entity = event.payload.entity;
     if (entity.kind === "fact") {
@@ -719,7 +734,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           liveness: "standing",
         };
       addEventFactSource(rows, issues, ref, row, `event:${event.opId}`);
-      if (entity.fact.taskId) {
+      if (allowLegacyFactRefs && entity.fact.taskId) {
         if (allowLegacyFactRefs) legacyFactRefs.set(`fact/${entity.fact.taskId}/${entity.fact.factId}`, ref);
         const identity = {
           source: `task/${entity.fact.taskId}`,
@@ -743,9 +758,18 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           ),
         );
       }
-    } else if (entity.kind === "relation")
-      relations.push(relationEntry(entity.relation, entity.ownerRef, `event:${event.opId}`, 0));
+    } else if (entity.kind === "relation") relationHistory.push(event);
   }
+  const projected = new Map<string, { readonly entity: RelationEntity; readonly sourcePath: string }>();
+  for (const event of relationHistory.sort((a, b) => a.workspaceRevision - b.workspaceRevision)) {
+    const migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
+      relationId =
+        migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId,
+      entity = reduceRelationEntity(projected.get(relationId)?.entity ?? null, event);
+    projected.set(relationId, { entity, sourcePath: `event:${event.opId}` });
+  }
+  for (const { entity, sourcePath: eventPath } of projected.values())
+    relations.push(relationEntry(relationRecord(entity), entity.ref, eventPath, 0));
   return { rows: [...rows.values()], relations, legacyFactRefs, issues };
 }
 
@@ -847,6 +871,7 @@ function relationEdges(
   const seen = new Set<string>(),
     issues: ColdRebuildIssue[] = [],
     rows: RelationGraphEdgeRow[] = [],
+    relationRefs = new Set(entries.map(({ record }) => `relation/${record.relation_id}`)),
     known = (ref: string): boolean => {
       const parsed = parseEntityRef(ref);
       return Boolean(
@@ -856,7 +881,9 @@ function relationEdges(
             ? taskIds.has(parsed.id)
             : parsed.kind === "decision"
               ? decisionRefs.has(ref)
-              : factRefs.has(ref)),
+              : parsed.kind === "fact"
+                ? factRefs.has(ref)
+                : parsed.kind === "relation" && relationRefs.has(ref)),
       );
     };
   for (const entry of [...entries].sort((a, b) =>

@@ -5,6 +5,8 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
+  relationDirections,
+  relationStates,
   timestamp,
   type AuthorizationDecision,
   type CanonicalEventStore,
@@ -603,8 +605,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           facet === "edges" ? !["facet", "relationType", "state", "direction"].includes(field) : field !== "facet",
         ) ||
         (payload.relationType !== undefined && (typeof payload.relationType !== "string" || !payload.relationType)) ||
-        (payload.state !== undefined && !["active", "edge_retired", "deleted"].includes(String(payload.state))) ||
-        (payload.direction !== undefined && !["directed", "undirected"].includes(String(payload.direction)))
+        (payload.state !== undefined &&
+          !relationStates.includes(String(payload.state) as (typeof relationStates)[number])) ||
+        (payload.direction !== undefined &&
+          !relationDirections.includes(String(payload.direction) as (typeof relationDirections)[number]))
       )
         throw context.cellCodedError("invalid_command", "Relation graph facet selectors are invalid.");
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
@@ -646,9 +650,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     const stateInvalid =
       status !== undefined &&
       !(
-        method === "repo.tasks.list"
+        (method === "repo.tasks.list"
           ? ["planned", "active", "blocked", "in_review", "done", "cancelled"]
-          : ["active", "edge_retired", "deleted"]
+          : relationStates) as readonly string[]
       ).includes(status);
     if (stateInvalid) throw context.cellCodedError("invalid_command", "Query status is invalid for this read.");
     return {

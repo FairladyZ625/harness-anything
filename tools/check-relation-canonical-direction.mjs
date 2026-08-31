@@ -22,7 +22,6 @@ import { pathToFileURL } from "node:url";
 const KERNEL_ALLOWLIST = "../packages/kernel/src/domain/entity-relation.ts";
 const KERNEL_DIRECTION = "../packages/kernel/src/domain/relation-direction.ts";
 const GUI_MIRROR = "../packages/gui/src/renderer/model/relation-direction.ts";
-const ENDPOINT_KINDS = ["task", "decision", "fact", "execution", "review", "agent", "runtime-session", "policy"];
 const RETIRED_REVERSE_TRIPLES = [
   { sourceKind: "fact", type: "supports", targetKind: "decision", mirrorOf: "decision --evidenced-by--> fact" },
   { sourceKind: "fact", type: "invalidated-by", targetKind: "decision", mirrorOf: "decision --refuted-by--> fact" },
@@ -31,7 +30,7 @@ const RETIRED_REVERSE_TRIPLES = [
 const RETIRED_ALIAS_COMPARISON = /(?:===|!==|==|!=)\s*["']invalidated-by["']|\bcase\s+["']invalidated-by["']/u;
 const SOURCE_FILE = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 
-export function checkRegistryShape({ canonicalRelationDirections }, findings = []) {
+export function checkRegistryShape({ canonicalRelationDirections, relationEndpointKinds }, findings = []) {
   const seen = new Set();
   for (const [index, direction] of canonicalRelationDirections.entries()) {
     const cell = `${direction.sourceKind} --${direction.type}--> ${direction.targetKind}`;
@@ -47,8 +46,11 @@ export function checkRegistryShape({ canonicalRelationDirections }, findings = [
         `${cell}: registration must be "ratified", "unregistered", or "derived", got ${JSON.stringify(direction.registration)}`,
       );
     }
-    if (!ENDPOINT_KINDS.includes(direction.sourceKind) || !ENDPOINT_KINDS.includes(direction.targetKind)) {
-      findings.push(`${cell}: endpoint kinds must be one of the closed Phase 1 relation kinds`);
+    if (
+      !relationEndpointKinds.includes(direction.sourceKind) ||
+      !relationEndpointKinds.includes(direction.targetKind)
+    ) {
+      findings.push(`${cell}: endpoint kinds must come from the canonical BaseEntity Relation endpoint authority`);
     }
   }
   if (canonicalRelationDirections.length === 0) findings.push("canonicalRelationDirections: registry is empty");
@@ -56,7 +58,7 @@ export function checkRegistryShape({ canonicalRelationDirections }, findings = [
 }
 
 export function checkDirectionBijection(
-  { canonicalRelationDirections, isAllowedRelationKindTriple, relationTypes },
+  { canonicalRelationDirections, isAllowedRelationKindTriple, relationEndpointKinds, relationTypes },
   findings = [],
 ) {
   const registered = new Set(
@@ -64,9 +66,9 @@ export function checkDirectionBijection(
       .filter((direction) => direction.registration !== "derived")
       .map((direction) => `${direction.sourceKind}|${direction.type}|${direction.targetKind}`),
   );
-  for (const sourceKind of ENDPOINT_KINDS) {
+  for (const sourceKind of relationEndpointKinds) {
     for (const type of relationTypes) {
-      for (const targetKind of ENDPOINT_KINDS) {
+      for (const targetKind of relationEndpointKinds) {
         const cell = `${sourceKind}|${type}|${targetKind}`;
         const allowed = isAllowedRelationKindTriple(sourceKind, type, targetKind);
         if (allowed !== registered.has(cell)) {

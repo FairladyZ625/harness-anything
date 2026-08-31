@@ -6,24 +6,15 @@ import {
   canonicalRelationDirections,
   incomingRelations,
   type CanonicalRelationDirection,
-  type RelationEndpointKind,
 } from "../../src/domain/relation-direction.ts";
+import { entityKindContracts, type EntityKind } from "../../src/domain/entity-kind-registry.ts";
 
-const kinds: readonly RelationEndpointKind[] = [
-  "task",
-  "decision",
-  "fact",
-  "execution",
-  "review",
-  "agent",
-  "runtime-session",
-  "policy",
-];
+const kinds: readonly EntityKind[] = entityKindContracts.map(({ kind }) => kind);
 
 function row(
-  sourceKind: RelationEndpointKind,
+  sourceKind: EntityKind,
   type: (typeof relationTypes)[number],
-  targetKind: RelationEndpointKind,
+  targetKind: EntityKind,
 ): CanonicalRelationDirection | undefined {
   return canonicalRelationDirections.find(
     (direction) =>
@@ -117,4 +108,13 @@ test("Phase 1 relation directions are registered and owns remains derived-only",
   assert.equal(isAllowedRelationKindTriple("agent", "dispatches", "runtime-session"), true);
   assert.equal(isAllowedRelationKindTriple("policy", "authorizes", "execution"), true);
   assert.equal(canonicalRelationDirections.find((row) => row.type === "owns")?.registration, "derived");
+});
+
+test("Relation is a first-class endpoint without changing existing verb meanings", () => {
+  for (const kind of kinds) {
+    assert.equal(isAllowedRelationKindTriple("relation", "relates", kind), true);
+    assert.equal(isAllowedRelationKindTriple(kind, "relates", "relation"), true);
+  }
+  assert.equal(isAllowedRelationKindTriple("relation", "depends-on", "task"), false);
+  assert.equal(isAllowedRelationKindTriple("fact", "supersedes-fact", "relation"), false);
 });

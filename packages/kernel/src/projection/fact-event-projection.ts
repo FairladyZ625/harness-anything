@@ -1,10 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import {
-  deriveRelationId,
-  type RelationType,
-  type RelationOrigin,
-  type RelationState,
-} from "../domain/entity-relation.ts";
+import { type RelationType, type RelationOrigin, type RelationState } from "../domain/entity-relation.ts";
 import { factRef, type FactEventV1, type FactMemoryClass, type FactConfidence } from "../domain/fact-event.ts";
 import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.ts";
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
@@ -110,8 +105,7 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   assertFactAdmission(db, event);
-  const ref = factRef(event.factId),
-    sourcePath = `event:${event.opId}`;
+  const ref = factRef(event.factId);
   const row: Omit<FactProjectionRow, "state"> = {
     schema: "fact-row/v1",
     ref,
@@ -149,76 +143,6 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     row.statement,
     row.evidenceSource,
   );
-  if (event.payload.supersedes) {
-    const identity = {
-      source: ref,
-      target: event.payload.supersedes.factRef,
-      type: "supersedes-fact" as const,
-      direction: "directed" as const,
-    };
-    const edge: FactRelationEdgeRow = {
-      relationId: deriveRelationId(identity),
-      sourceRef: identity.source,
-      targetRef: identity.target,
-      relationType: identity.type,
-      direction: identity.direction,
-      strength: "strong",
-      origin: "declared",
-      state: "active",
-      rationale: event.payload.supersedes.rationale,
-      ownerRef: ref,
-      sourcePath,
-      recordIndex: 0,
-    };
-    db.prepare(
-      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-      edge.relationId,
-      edge.sourceRef,
-      edge.targetRef,
-      edge.relationType,
-      edge.state,
-      edge.ownerRef,
-      event.workspaceRevision,
-      JSON.stringify(edge),
-    );
-  }
-  if (event.taskId) {
-    const identity = {
-        source: `task/${event.taskId}`,
-        target: ref,
-        type: "produces" as const,
-        direction: "directed" as const,
-      },
-      edge = {
-        relationId: deriveRelationId(identity),
-        sourceRef: identity.source,
-        targetRef: identity.target,
-        relationType: identity.type,
-        direction: identity.direction,
-        strength: "strong" as const,
-        origin: "generated" as const,
-        state: "active" as const,
-        rationale: "Fact recorded with an explicit task owner.",
-        ownerRef: identity.source,
-        sourcePath,
-        recordIndex: 1,
-      };
-    db.prepare(
-      "INSERT OR IGNORE INTO relation_edge" +
-        "(relation_id, source_ref, target_ref, relation_type, state, owner_ref, workspace_revision, row_json)" +
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-      edge.relationId,
-      edge.sourceRef,
-      edge.targetRef,
-      edge.relationType,
-      edge.state,
-      edge.ownerRef,
-      event.workspaceRevision,
-      JSON.stringify(edge),
-    );
-  }
 }
 
 const factRowSelect = "SELECT row_json FROM fact";

@@ -13,7 +13,8 @@ import type {
   ProjectionWarning,
   RelationCoverageRow,
   RelationGraphEdgeRow,
-  RelationType,
+  RelationDirection,
+  RelationState,
   TaskDocumentListProjectionRead,
   TaskDocumentProjectionRead,
   TaskDispatchesRead,
@@ -85,8 +86,8 @@ export interface RelationPageQuery {
 export interface RelationEdgeFacetQuery {
   readonly facet: "edges";
   readonly relationType?: string;
-  readonly state?: "active" | "edge_retired" | "deleted";
-  readonly direction?: "directed" | "undirected";
+  readonly state?: RelationState;
+  readonly direction?: RelationDirection;
 }
 export interface RelationFactFacetQuery {
   readonly facet: "facts";
@@ -339,12 +340,6 @@ export interface DecisionProposalInput {
   readonly fulfillments: ReadonlyArray<{
     readonly claimId: string;
     readonly mode: "evidenced" | "delivered" | "standing_policy";
-  }>;
-  readonly relations: ReadonlyArray<{
-    readonly anchor: string;
-    readonly type: RelationType;
-    readonly target: string;
-    readonly rationale: string;
   }>;
 }
 

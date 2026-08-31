@@ -66,6 +66,55 @@ test("thin parser derives builtin vertical, template, and script discovery actio
   assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
 });
 
+test("Relation commands replace hosted Task and Decision relation ingress", () => {
+  const relate = parseThinCommand([
+      "relation",
+      "relate",
+      "--source-ref",
+      "task/task-a",
+      "--target-ref",
+      "task/task-b",
+      "--type",
+      "depends-on",
+      "--rationale",
+      "A waits for B.",
+      "--expected-version",
+      "0",
+    ]),
+    unrelate = parseThinCommand([
+      "relation",
+      "unrelate",
+      "rel_0123456789abcdef",
+      "--reason",
+      "No longer required.",
+      "--expected-version",
+      "17",
+    ]);
+  assert.equal(relate.ok, true);
+  assert.equal(unrelate.ok, true);
+  if (relate.ok)
+    assert.deepEqual(relate.command.action, {
+      kind: "relation-relate",
+      sourceRef: "task/task-a",
+      targetRef: "task/task-b",
+      relationType: "depends-on",
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: "A waits for B.",
+      expectedVersion: 0,
+    });
+  if (unrelate.ok)
+    assert.deepEqual(unrelate.command.action, {
+      kind: "relation-unrelate",
+      relationId: "rel_0123456789abcdef",
+      reason: "No longer required.",
+      expectedVersion: 17,
+    });
+  assert.equal(parseThinCommand(["task", "relate", "task-a", "depends-on", "task-b"]).ok, false);
+  assert.equal(parseThinCommand(["decision", "relate", "dec_a"]).ok, false);
+});
+
 test("Fact CLI exposes only record/search/show and covers all five local parse errors", () => {
   const record = parseThinCommand([
     "fact",
@@ -212,7 +261,6 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       rejected: [{ id: "RJ1", text: "Use files", whyNot: "Not canonical" }],
       claims: [],
       fulfillments: [],
-      relations: [],
     }),
     propose = parseThinCommand([
       "decision",
@@ -234,29 +282,6 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     ]),
     claim = parseThinCommand(["decision", "claim", "add", "dec_1", "--id", "C1", "--text", "Coverage is replayable"]),
     fulfill = parseThinCommand(["decision", "claim", "fulfill", "dec_1", "--id", "C1", "--mode", "evidenced"]),
-    relate = parseThinCommand([
-      "decision",
-      "relate",
-      "dec_1",
-      "--anchor",
-      "C1",
-      "--type",
-      "evidenced-by",
-      "--target",
-      "fact/F-ABCDEFGH",
-      "--rationale",
-      "Observed",
-    ]),
-    retireRelation = parseThinCommand([
-      "decision",
-      "relation",
-      "retire",
-      "dec_1",
-      "--relation",
-      "rel_0123456789abcdef",
-      "--reason",
-      "Stale",
-    ]),
     reckon = parseThinCommand(["decision", "reckon", "dec_1", "--task", "task-1"]),
     list = parseThinCommand([
       "decision",
@@ -276,7 +301,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
     ]),
     show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
   assert.equal(
-    [propose, stdin, accept, claim, fulfill, relate, retireRelation, reckon, list, show].every((result) => result.ok),
+    [propose, stdin, accept, claim, fulfill, reckon, list, show].every((result) => result.ok),
     true,
   );
   if (propose.ok)
@@ -381,22 +406,6 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "--body-file",
       "body.md",
     ]),
-    replace = parseThinCommand([
-      "decision",
-      "relation",
-      "replace",
-      "dec_1",
-      "--relation",
-      "rel_0123456789abcdef",
-      "--anchor",
-      "C1",
-      "--type",
-      "relates",
-      "--target",
-      "task/task-1",
-      "--rationale",
-      "Corrected edge",
-    ]),
     candidate = parseThinCommand(["distill", "candidate", "--task", "task-1", "--input", "notes.md"]),
     promote = parseThinCommand([
       "distill",
@@ -413,9 +422,7 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "pattern",
     ]);
   assert.equal(
-    [validate, verifyAll, repin, active, superseded, alias, amend, replace, candidate, promote].every(
-      (result) => result.ok,
-    ),
+    [validate, verifyAll, repin, active, superseded, alias, amend, candidate, promote].every((result) => result.ok),
     true,
   );
   if (validate.ok)
@@ -457,18 +464,6 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       appends: ['claims:{"id":"C2","text":"Stable","loadBearing":false}'],
       bodyFile: "body.md",
       dryRun: false,
-    });
-  if (replace.ok)
-    assert.deepEqual(replace.command.action, {
-      kind: "decision-relation-replace",
-      decisionId: "dec_1",
-      relationId: "rel_0123456789abcdef",
-      body: null,
-      dryRun: false,
-      anchor: "C1",
-      relationType: "relates",
-      target: "task/task-1",
-      rationale: "Corrected edge",
     });
   const preview = parseThinCommand(["decision", "amend", "dec_1", "--title", "Preview", "--dry-run"]);
   assert.equal(preview.ok, true);

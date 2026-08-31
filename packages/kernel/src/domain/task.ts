@@ -1,5 +1,4 @@
 import type { LifecycleBinding } from "./lifecycle-binding.js";
-import { validateRelationRecordsForHost, type EntityRelationRecord } from "./entity-relation.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
 import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
@@ -71,7 +70,6 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly presetSnapshotDigest: `sha256:${string}` | null;
   readonly provenance?: readonly SessionProvenanceV1[];
   readonly metadata?: TaskMetadataV1;
-  readonly relations?: readonly EntityRelationRecord[];
   readonly packageDisposition?: TaskPackageDisposition;
   readonly supersededBy?: string | null;
   readonly contractVersion?: number;
@@ -104,15 +102,7 @@ export function validateActorAxes(value: unknown, allowUnknownFields = false): r
 }
 export function validateTaskV2(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   const fields = TASK_V2_SCHEMA.required,
-    allowed = [
-      ...fields,
-      "provenance",
-      "metadata",
-      "relations",
-      "packageDisposition",
-      "supersededBy",
-      "contractVersion",
-    ];
+    allowed = [...fields, "provenance", "metadata", "packageDisposition", "supersededBy", "contractVersion"];
   if (
     !isRecord(value) ||
     fields.some((field) => !(field in value)) ||
@@ -150,29 +140,6 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     const issue = metadataIssue(value.metadata, allowUnknownFields);
     if (issue) issues.push(issue);
   }
-  const relationFields = [
-    "relation_id",
-    "source",
-    "target",
-    "type",
-    "strength",
-    "direction",
-    "origin",
-    "rationale",
-    "state",
-  ];
-  if (
-    value.relations !== undefined &&
-    (!Array.isArray(value.relations) ||
-      value.relations.some(
-        (relation) =>
-          !isRecord(relation) ||
-          !(allowUnknownFields || Object.keys(relation).every((field) => relationFields.includes(field))) ||
-          relationFields.some((field) => !Object.hasOwn(relation, field)),
-      ) ||
-      validateRelationRecordsForHost(`task/${String(value.taskId)}`, value.relations as EntityRelationRecord[]).length)
-  )
-    issues.push({ code: "invalid_task", message: "task relations are invalid" });
   if (
     value.packageDisposition !== undefined &&
     !["active", "archived", "tombstoned"].includes(String(value.packageDisposition))
@@ -243,10 +210,11 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
 }
 
 export function currentTaskForWrite(task: TaskV2): TaskV2 {
-  if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return task;
+  const { relations: _legacyRelations, ...withoutHostedRelations } = task as TaskV2 & { readonly relations?: unknown };
+  if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return withoutHostedRelations;
   const { longRunning, ...metadata } = task.metadata as TaskMetadataV1 & { readonly longRunning: unknown };
   void longRunning;
-  return { ...task, metadata };
+  return { ...withoutHostedRelations, metadata };
 }
 
 const taskNodeIdsForValidation = ["implementation", "review"] as const;

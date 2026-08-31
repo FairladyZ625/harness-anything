@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, nonEmpty, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseAmend(
@@ -48,32 +48,5 @@ export function parseSupersede(
     reason: f.one.get("--reason"),
     ...(f.one.get("--deleted-by") ? { deletedBy: f.one.get("--deleted-by") } : {}),
     allowOpenFindings: f.booleans.has("--allow-open-findings"),
-  });
-}
-
-export function parseRelate(
-  args: readonly string[],
-  taskId: string,
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const target = args[4];
-  if (args[3] !== "depends-on" || !nonEmpty(target))
-    return rejected(
-      "invalid_field",
-      `Run ha task relate ${taskId} depends-on <target-task-id> --rationale <text>.`,
-      json,
-    );
-  const f = readFlags("task-relate", args.slice(5), inputs);
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
-  return accepted(rootDir, repoId, json, {
-    kind: "task-relate",
-    taskId,
-    target: `task/${target}`,
-    relationType: "depends-on",
-    rationale: f.one.get("--rationale"),
-    ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
   });
 }

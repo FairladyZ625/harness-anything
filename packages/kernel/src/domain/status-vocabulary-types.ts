@@ -6,7 +6,7 @@ export type StatusEntity =
   | "Schedule"
   | "Policy"
   | "Lease"
-  | "RelationEdge"
+  | "Relation"
   | "Package"
   | "FactRecord"
   | "Review"

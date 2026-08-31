@@ -24,10 +24,19 @@ import {
   compileDecisionReckonAction,
   compileFactRecordAction,
   decisionActionCompiler,
+  relationActionCompiler,
   type EntityActionCompileHook,
   type EntityActionExecutionContract,
 } from "./entity-action-execution.ts";
-import type { RelationDirection, RelationType } from "./entity-relation.ts";
+import {
+  relationDirections,
+  relationOrigins,
+  relationStates,
+  relationStrengths,
+  relationTypes,
+  type RelationDirection,
+  type RelationType,
+} from "./entity-relation.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA } from "./policy.ts";
@@ -107,7 +116,8 @@ export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> =
       | "agent-runtime-event"
       | "schedule-event"
       | "settings-event"
-      | "people-event";
+      | "people-event"
+      | "relation-event";
     readonly contractRef: string;
   } | null;
   readonly sdkExposure: EntitySdkExposure;
@@ -329,6 +339,7 @@ const runtimeSessionIdentity = requireEntityTypeContract("runtime-session").id;
 const scheduleIdentity = requireEntityTypeContract("schedule").id;
 const settingsIdentity = requireEntityTypeContract("settings").id;
 const personIdentity = requireEntityTypeContract("person").id;
+const relationIdentity = requireEntityTypeContract("relation").id;
 const executionIdPattern = executionIdentity.pattern;
 const reviewIdPattern = reviewIdentity.pattern;
 const lifecycleTaskIdPattern = taskIdentity.pattern;
@@ -386,6 +397,56 @@ function explainableNode(value: unknown): EntityJsonSchemaNode {
 const taskSchema = explainableSchema("task-frontmatter", taskFrontmatterJsonSchema);
 const factSchema = explainableSchema("fact-event", factEventJsonSchema);
 const decisionSchema = explainableSchema("decision-package", decisionPackageJsonSchema);
+const relationSchema: EntityDocumentJsonSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "Relation/v1",
+  type: "object",
+  properties: {
+    id: { type: "string", pattern: relationIdentity.pattern },
+    kind: { type: "string", const: "relation" },
+    ref: { type: "string", pattern: "^relation/rel_[0-9a-f]{16}$" },
+    revision: { type: "integer" },
+    createdAt: { type: "string", minLength: 1 },
+    updatedAt: { type: "string", minLength: 1 },
+    disposition: { type: "string", enum: ["active", "archived", "tombstoned"] },
+    provenance: opaqueObject(),
+    pinned: { type: "boolean" },
+    relationEndpoint: opaqueObject(),
+    residency: opaqueObject(),
+    source: { type: "string", minLength: 1 },
+    target: { type: "string", minLength: 1 },
+    type: { type: "string", enum: relationTypes },
+    strength: { type: "string", enum: relationStrengths },
+    direction: { type: "string", enum: relationDirections },
+    origin: { type: "string", enum: relationOrigins },
+    state: { type: "string", enum: relationStates },
+    rationale: { type: "string", minLength: 1 },
+    replacedBy: { type: "string", pattern: relationIdentity.pattern },
+    retirementReason: { type: "string", minLength: 1 },
+  },
+  required: [
+    "id",
+    "kind",
+    "ref",
+    "revision",
+    "createdAt",
+    "updatedAt",
+    "disposition",
+    "provenance",
+    "pinned",
+    "relationEndpoint",
+    "residency",
+    "source",
+    "target",
+    "type",
+    "strength",
+    "direction",
+    "origin",
+    "state",
+    "rationale",
+  ],
+  additionalProperties: false,
+};
 
 const decisionFramework = Object.freeze({
   schemaId: "decision-package",
@@ -555,19 +616,14 @@ const decisionActionByEvent = {
   decision_repinned: ["repin", "decision-repin"],
   decision_claim_declared: ["declare-claim", "decision-claim-add"],
   decision_claim_fulfillment_declared: ["fulfill-claim", "decision-claim-fulfill"],
-  decision_related: ["relate", "decision-relate"],
-  decision_relation_retired: ["retire-relation", "decision-relation-retire"],
-  decision_relation_replaced: ["replace-relation", "decision-relation-replace"],
-} as const satisfies Record<
-  (typeof decisionEventTypes)[number],
-  readonly [Parameters<typeof decisionActionCompiler>[0], string]
+} as const satisfies Partial<
+  Record<(typeof decisionEventTypes)[number], readonly [Parameters<typeof decisionActionCompiler>[0], string]>
 >;
 
 const decisionActionCatalog = Object.freeze({
   ref: "kernel/decision-event/v1",
   actions: Object.freeze([
-    ...decisionEventTypes.map((type) => {
-      const [id, ingress] = decisionActionByEvent[type];
+    ...Object.values(decisionActionByEvent).map(([id, ingress]) => {
       return decisionWriteAction(id, ingress);
     }),
     decisionWriteAction("transition", "decision-transition"),
@@ -582,6 +638,73 @@ const decisionActionCatalog = Object.freeze({
     executableAction("decision", decisionIdentity, "validate", "decision-validate", null, decisionExposure, true),
     executableAction("decision", decisionIdentity, "list", "decision-list", null, decisionExposure, true),
     executableAction("decision", decisionIdentity, "show", "decision-show", null, decisionExposure, true),
+  ]),
+});
+
+const relationActionInput = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
+  Object.freeze({ schema: "entity-action-input/v1", fields, exactlyOneOf: [] });
+const relationExecutableAction = (
+  id: "relate" | "unrelate",
+  input: EntityActionInputContract,
+): EntityActionContract => {
+  const declared = executableAction(
+    "relation",
+    relationIdentity,
+    id,
+    `relation-${id}`,
+    relationActionCompiler(id),
+    noSdkExposure,
+  );
+  return Object.freeze({
+    ...declared,
+    input,
+    criteria: Object.freeze([
+      {
+        ref: "relation/aggregate-revision",
+        failureCode: "revision_conflict",
+        explain: "The expected Relation aggregate revision must equal the projected revision at the canonical cut.",
+      },
+      {
+        ref: "relation/acyclic-dependency",
+        failureCode: "relation_cycle",
+        explain: "A depends-on Relation must not introduce a cycle in the canonical Relation projection.",
+      },
+    ]),
+    concurrency: Object.freeze({
+      expectedVersion: Object.freeze({ authority: "relation-aggregate-revision", required: true }),
+      leasePolicy: Object.freeze({ authority: "none" }),
+      occurrenceClaim: Object.freeze({ authority: "not-applicable" }),
+      idempotency: Object.freeze({ authority: "operation-id" }),
+      artifactOwnership: Object.freeze({ owner: "initiating-execution", refTemplate: "execution/{executionId}" }),
+    }),
+    effects: Object.freeze([{ ref: `relation/${id}`, projection: "relation/v1" }]),
+    explain: `relation.${id} appends a relation-event/v1 transition under the relation/<relationId> revision fence.`,
+  });
+};
+const relationActionCatalog = Object.freeze({
+  ref: "kernel/relation-event/v1",
+  actions: Object.freeze([
+    relationExecutableAction(
+      "relate",
+      relationActionInput([
+        { field: "sourceRef", type: "string", required: true },
+        { field: "targetRef", type: "string", required: true },
+        { field: "relationType", type: "string", required: true, enum: relationTypes },
+        { field: "strength", type: "string", required: false, enum: relationStrengths },
+        { field: "direction", type: "string", required: false, enum: relationDirections },
+        { field: "origin", type: "string", required: false, enum: relationOrigins },
+        { field: "rationale", type: "string", required: true },
+        { field: "expectedVersion", type: "number", required: true },
+      ]),
+    ),
+    relationExecutableAction(
+      "unrelate",
+      relationActionInput([
+        { field: "relationId", type: "string", required: true, regex: relationIdentity.pattern },
+        { field: "reason", type: "string", required: true },
+        { field: "expectedVersion", type: "number", required: true },
+      ]),
+    ),
   ]),
 });
 
@@ -624,6 +747,21 @@ export const entityKindContracts = Object.freeze([
     authoring: { kind: "decision-event", contractRef: "decision-event/v1" },
     sdkExposure: decisionExposure,
     framework: decisionFramework,
+  },
+  {
+    kind: "relation",
+    ...entityTypeContractFields("relation"),
+    schema: relationSchema,
+    relations: relationsFor("relation"),
+    canonicalProjection: {
+      embeddedEvents: [],
+      row: { idField: "id", ownerField: null },
+    },
+    statusVocabulary: [{ field: "state", words: relationStates }],
+    actionCatalog: relationActionCatalog,
+    entityStore: null,
+    authoring: { kind: "relation-event", contractRef: "relation-event/v1" },
+    sdkExposure: noSdkExposure,
   },
   {
     kind: "agent",

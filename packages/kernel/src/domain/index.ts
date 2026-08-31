@@ -150,6 +150,7 @@ export type {
   EntityActionDraft,
   EntityActionExecutionContract,
 } from "./entity-action-execution.ts";
+export { relationActionCompiler } from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,
@@ -163,6 +164,19 @@ export {
   relationTypes,
   validateRelationRecordsForHost,
 } from "./entity-relation.ts";
+export {
+  assertRelationRecord,
+  compileRelationCreatedEvent,
+  compileRelationRetiredEvent,
+  isRelationEvent,
+  reduceRelationEntity,
+  relationEventTypes,
+  relationEventWritePlan,
+  relationRecord,
+  validateCurrentRelationEvent,
+  validateRelationEvent,
+} from "./relation-event.ts";
+export type { RelationEntity, RelationEventType, RelationEventV1 } from "./relation-event.ts";
 export type {
   EntityRelationRecord,
   EntityRelationValidationIssue,

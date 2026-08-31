@@ -106,12 +106,6 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "decision-reject":
       return authorizeRepoCellAction(input);
-    case "decision-relate":
-      return authorizeRepoCellAction(input);
-    case "decision-relation-replace":
-      return authorizeRepoCellAction(input);
-    case "decision-relation-retire":
-      return authorizeRepoCellAction(input);
     case "decision-repin":
       return authorizeRepoCellAction(input);
     case "decision-retire":
@@ -159,6 +153,10 @@ export function authorizeDurableRepoCellAction(
     case "preset-install":
       return authorizeRepoCellAction(input);
     case "preset-run-start":
+      return authorizeRepoCellAction(input);
+    case "relation-relate":
+      return authorizeRepoCellAction(input);
+    case "relation-unrelate":
       return authorizeRepoCellAction(input);
     case "preset-seed":
       return authorizeRepoCellAction(input);
@@ -251,8 +249,6 @@ export function authorizeDurableRepoCellAction(
     case "task-pin":
       return authorizeRepoCellAction(input);
     case "task-progress-append":
-      return authorizeRepoCellAction(input);
-    case "task-relate":
       return authorizeRepoCellAction(input);
     case "task-release":
       return authorizeRepoCellAction(input);

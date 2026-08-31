@@ -171,10 +171,7 @@ export function decisionProposalAction(rootDir: string, action: RepoTaskAction):
     };
   }
   if (action.kind !== "decision-propose") {
-    if (
-      Object.hasOwn(action, "bodyFile") ||
-      (Object.hasOwn(action, "body") && action.kind !== "decision-relation-replace")
-    )
+    if (Object.hasOwn(action, "bodyFile") || Object.hasOwn(action, "body"))
       throw cellCodedError(
         "invalid_command",
         "Only decision amend and relation replace may change existing Decision prose.",

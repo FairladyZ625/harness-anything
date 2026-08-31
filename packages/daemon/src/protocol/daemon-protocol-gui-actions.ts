@@ -138,7 +138,6 @@ export const daemonGuiActionMethods = Object.freeze([
       body: "string",
       claims: "array",
       fulfillments: "array",
-      relations: "array",
     }),
     "proposeDecision",
     "/api/decision-control/propose",
