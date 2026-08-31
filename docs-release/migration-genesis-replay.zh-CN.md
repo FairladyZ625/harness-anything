@@ -23,7 +23,7 @@ ha migrate import --source <source> [--resolve <仓库相对路径>=destination|
 
 | 输入                                | 命令                                  | 前置                                                                     | 验收                                                                                                                   |
 | ----------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot，且现役 projection 与 canonical event head 在同一 cut；先跑 `--dry-run`。 | 五类现役 ID 集合满足 source ⊆ target；每类差异恰等于 derived + archived/retired；12-kind conformance 与 coverage 保全均通过。 |
+| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot。有同 cut projection 时直接使用；没有时导入器从已提交事件和 authored package 自动重建一个临时 oracle。先跑 `--dry-run`。 | 五类现役 ID 集合满足 source ⊆ target；每类差异恰等于 derived + archived/retired；当前事件预校验与 coverage 保全均通过。 |
 | 已 canonical 但有 `fact/<task>/F-*` | `ha migrate rekey-facts`              | 停止该仓 daemon/写入者，在 committed canonical cut 上先跑 `--dry-run`。  | id-map 中 fact 与 `produces` 数量一致；SQLite fact/relation 计数稳定；`ha fact search` 与 `ha fact show <F-id>` 成功。 |
 
 fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；边缘节点
@@ -42,7 +42,7 @@ fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；
 ## 五步流程
 
 顺序承重。在 dry-run 对全部五类实体报出集合包含、差异解释等式成立，且
-12-kind conformance 与 coverage 保全通过之前，不要跑正式导入。`skipped` 与
+当前事件预校验与 coverage 保全通过之前，不要跑正式导入。`skipped` 与
 authored 目录数量不参与实体集合的通过计算；目标 preimage 冲突仍是独立的写入
 安全条件，必须显式 resolve。
 
@@ -69,8 +69,10 @@ ha init --repo-id <id> --person-id <id> --display-name <name>
 ha migrate import --source <老仓路径> --dry-run
 ```
 
-dry-run 不写任何东西。它从源仓 `.harness/cache/task.sqlite` 读取与
-`harness/events/head.json` 同 revision 的现役 projection，输出五类实体——
+dry-run 不写任何东西。源仓有 `.harness/cache/task.sqlite` 时，它读取与
+`harness/events/head.json` 同 revision 的 projection；没有时，同一条命令从已提交的
+flat 或 sharded 事件台账重建一个临时 projection，并叠加更早的 authored package。
+它不修改源仓或其 Git ref，报告会标记 `Oracle: rebuilt-source`。随后输出五类实体——
 task / decision / fact / relation / execution——的 ID 集合对账。每类给出
 source active、target included、difference、derived、archived、retired；通过条件是
 source ⊆ target 且 difference = derived + archived/retired。decision 的承重 claim
@@ -120,6 +122,12 @@ ha migrate import --source <老仓副本路径> \
 回执，报告每类最多展示 20 条样本；没有任何见证但数量非零时也走这条规则，
 不会静默丢失或停下来等待额外裁决。
 
+某个已知历史 schedule writer 曾让 declaration claim 的 blob 包含整个
+schedule，而 event contract 声明的是 definition facet。导入器只在临时 oracle 中容忍这一
+claim/definition 不一致，报告 `ACCEPT schedule_definition_facet_mismatch` 和
+`treatment=accepted_truth_gap`，且不修改归档源字节。其他不支持的事件形态会以
+`unsupported_legacy_event` 失败；保留源仓，记录报错事件后再报告。
+
 ### 5. 正式导入
 
 ```bash
@@ -127,7 +135,7 @@ ha migrate import --source <老仓路径>
 ```
 
 验收条件：五类现役 ID 集合 source ⊆ target；每类 difference 恰等于
-derived + archived/retired；coverage 保全；12-kind conformance 通过。任一项不满足
+derived + archived/retired；coverage 保全；当前事件预校验通过。任一项不满足
 命令退出 1；全部满足退出 0。`skipped` 和 authored audit 不再改变预期总数，
 也不再产生退出码 3。
 
@@ -158,6 +166,17 @@ derived + archived/retired；coverage 保全；12-kind conformance 通过。任�
 
 这是创世重放相对原地升级的主要优势：不存在能把源数据改坏的半迁移状态。
 
+按报告 code 或行处置：
+
+| 报告 | 动作 |
+| --- | --- |
+| authored 行为 `required` | 按报告原样传入 `--resolve path=destination|source`，再跑 dry-run。 |
+| `migration_projection_oracle_cut_mismatch` | 停止源写入者，重建或删除过期的本地 projection；不改已提交事件。 |
+| `unsupported_legacy_event` | 保留源仓，收集命名的 event 和 schema，作为缺失的兼容 fixture 报告。 |
+| `migration_projection_rebuild_failed` | 保留源仓，根据内层原因修复缺失/损坏的已提交 blob，或报告不支持的 invariant。 |
+| `ACCEPT schedule_definition_facet_mismatch` | 无需修复源。确认这是已知 schedule facet 变体，保留法证归档。 |
+| reconciliation `FAIL` 或 `invalid_write_plan` | 不要 apply。保留完整 dry-run 回执并报告失败 kind/event；成功 dry-run 不应把 write-plan 错误拖到 apply。 |
+
 ## 仅 fact 原地 rekey
 
 已 canonical 的仓库不要使用 genesis import。停止 daemon 和所有写入者，确认
@@ -187,7 +206,7 @@ no-op。无法确定 owner 的 fact 不伪造归属，会无 task 边 rekey 并�
 老仓是参考副本。日常工作转移到新仓；老仓不再参与读写。
 
 **可以跳过 dry-run 吗？**
-不行。dry-run 固定 source projection 与 canonical event head 的同一 cut，并证明
+不行。dry-run 固定同 cut projection 或临时重建 oracle，并证明
 集合包含和逐类差异解释。先审阅所有 derived/archived/retired 样本，再决定是否
 正式导入。
 

@@ -508,8 +508,11 @@ export async function runSingleMigrationImport(
   }
   const reconciliation = reconcileProjectionOracle(extracted),
     oracleBasis = {
-      kind: "same-cut-projection" as const,
-      databasePath: portableMigrationPath(path.relative(sourceRoot, oracle.databasePath)),
+      kind: oracle.basis,
+      databasePath:
+        oracle.basis === "same-cut-projection"
+          ? portableMigrationPath(path.relative(sourceRoot, oracle.databasePath))
+          : oracle.databasePath,
       watermark: oracle.watermark,
       eventHeadRevision: oracle.eventHeadRevision,
     },
@@ -556,6 +559,7 @@ export async function runSingleMigrationImport(
       reconciliation,
       fieldDerivations,
       dispositions,
+      formatObservations: oracle.formatObservations,
     },
     mapBody = `${stableStringify(idMap)}\n`,
     mapPrepared = prepare(
@@ -622,6 +626,7 @@ export async function runSingleMigrationImport(
       reconciliation,
       fieldDerivations,
       dispositions,
+      oracle.formatObservations,
     ),
     publishedMap = dryRun ? null : input.store.readEvent(mapPrepared.event.opId),
     publication = publishedMap ? input.store.publication(publishedMap) : null,
@@ -645,6 +650,7 @@ export async function runSingleMigrationImport(
       reconciliation,
       fieldDerivations,
       dispositions,
+      formatObservations: oracle.formatObservations,
     }),
     visibility: "center",
     proof: {
@@ -663,6 +669,7 @@ export async function runSingleMigrationImport(
     reconciliation,
     fieldDerivations: [...fieldDerivations],
     dispositions: [...dispositions],
+    formatObservations: [...oracle.formatObservations],
     authoredCoverage,
     skippedEntities: [...skips].sort(bySkip),
     idMapPath: writesAllowed ? idMapPath : null,
