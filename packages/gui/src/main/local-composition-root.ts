@@ -170,6 +170,22 @@ async function request(
 }
 // The registry has no transport timeouts; keep the existing provider-tooling deadlines here.
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
+  // Entity declarations publish through the repository write coordinator (SQLite/WAL plus
+  // authored-file materialization). On Windows this routinely exceeds the short read deadline;
+  // timing out the transport here leaves the daemon write ambiguous while the renderer can only
+  // report a misleading generic failure.
+  if (
+    [
+      "saveAgent",
+      "saveSquad",
+      "spawnAgentRuntime",
+      "spawnTerminal",
+      "showReceipt",
+      "getAgentRuntimeOverview",
+      "getAgentRuntimeSessionGroups",
+    ].includes(route.guiBridgeMethod)
+  )
+    return 20_000;
   if (
     route.guiBridgeMethod === "createRuntimeInstance" ||
     route.guiBridgeMethod === "listRuntimeInstances" ||

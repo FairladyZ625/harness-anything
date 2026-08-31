@@ -7,10 +7,14 @@ import { pathToFileURL } from "node:url";
 const repoRoot = resolve(import.meta.dirname, "..");
 
 export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
+  // Windows exposes npm through a .cmd shim, which spawnSync cannot resolve
+  // without the extension when shell execution is disabled.
+  const npmCommand = platform === "win32" ? "npm.cmd" : "npm";
   const baseCommand = {
-    command: "npm",
+    command: npmCommand,
     args: ["run", "test:e2e", "-w", "@harness-anything/gui"],
-    requiresXvfb: false
+    requiresXvfb: false,
+    shell: platform === "win32",
   };
 
   if (platform !== "linux" || display) {
@@ -28,11 +32,13 @@ export function selectGuiE2eCommand({ platform, display, hasXvfbRun }) {
   return {
     command: "xvfb-run",
     args: ["--auto-servernum", "npm", ...baseCommand.args],
-    requiresXvfb: true
+    requiresXvfb: true,
+    shell: false
   };
 }
 
-function binaryExists(name) {
+function binaryExists(name, platform = process.platform) {
+  if (platform !== "linux") return false;
   const result = spawnSync(`command -v ${name}`, { shell: "/bin/sh", stdio: "ignore" });
   return result.status === 0;
 }
@@ -41,7 +47,7 @@ function main() {
   const selected = selectGuiE2eCommand({
     platform: process.platform,
     display: process.env.DISPLAY,
-    hasXvfbRun: binaryExists("xvfb-run")
+    hasXvfbRun: binaryExists("xvfb-run", process.platform)
   });
 
   if (selected.missingXvfb) {
@@ -52,7 +58,8 @@ function main() {
   const result = spawnSync(selected.command, selected.args, {
     cwd: repoRoot,
     env: process.env,
-    stdio: "inherit"
+    stdio: "inherit",
+    shell: selected.shell
   });
 
   if (result.error) {

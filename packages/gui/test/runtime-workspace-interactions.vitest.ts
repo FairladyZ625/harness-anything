@@ -7,7 +7,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
+import { agentEntityClient } from "../src/renderer/agent-entity-client.ts";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
+import { waitForEntityCatalogRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
@@ -265,6 +267,18 @@ afterEach(async () => {
 });
 
 describe("runtime entry split (W6 IA)", () => {
+  it("waits for a newly saved entity to become visible in the canonical catalog", async () => {
+    const client = new QueryClient(),
+      reads = [[], [{ id: "new-agent" }]] as const;
+    let readIndex = 0;
+    const read = vi.fn(async () => reads[Math.min(readIndex++, reads.length - 1)]!),
+      rows = await waitForEntityCatalogRow(client, ["agents", "repo-a"], read, "new-agent", async () => undefined);
+
+    expect(rows).toEqual([{ id: "new-agent" }]);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData(["agents", "repo-a"])).toEqual([{ id: "new-agent" }]);
+  });
+
   it("exposes the runtime nav entries with Schedules and no aggregate agents entry", () => {
     const runtime = NAV_GROUPS.find((group) => group.id === "runtime");
     expect(runtime?.items.map((item) => item.id)).toEqual([
@@ -453,6 +467,28 @@ describe("runtime entry split (W6 IA)", () => {
     expect(create.disabled).toBe(true);
     await input("new-squad-leader-turn-budget", "8");
     expect(create.disabled).toBe(false);
+  });
+
+  it("surfaces a rejected blank-agent write without reporting it as saved", async () => {
+    const save = vi.spyOn(agentEntityClient, "saveAgent").mockResolvedValue({
+      outcome: "op_rejected",
+      opId: "op_rejected_blank-agent",
+      error: { code: "instructions_placeholder", hint: "Replace the starter instructions before installing." },
+    });
+    await mountAgentSquad("agent/terra");
+    await click("runtime-new-agents");
+    const blank = [...document.querySelectorAll("button")].find((button) => button.textContent?.includes("＋ Blank"));
+    expect(blank).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      (blank as HTMLButtonElement).click();
+    });
+    await input("new-agent-id", "rejected-agent");
+    await input("new-agent-name", "Rejected Agent");
+    await click("new-agent-create");
+
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Replace the starter instructions");
+    expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Agent declaration saved");
   });
 
   it("lists every round of the selected agent in the inspector, not only the latest (G12 §4a)", async () => {

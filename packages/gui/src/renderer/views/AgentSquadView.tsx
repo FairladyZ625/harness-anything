@@ -132,7 +132,8 @@ export function AgentSquadView({
             instructions: t("agentRuntime.blankInstructions"),
             prompts: [],
           };
-      await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
+      const saved = await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
+      if (saved === null) return;
     } else {
       let draft;
       if (request.templateId !== null)
@@ -147,7 +148,8 @@ export function AgentSquadView({
           roster: t("agentRuntime.blankRoster"),
         };
       }
-      await workspace.saveSquad(squadDeclarationFrom(request.id, { ...draft, name: request.name }));
+      const saved = await workspace.saveSquad(squadDeclarationFrom(request.id, { ...draft, name: request.name }));
+      if (saved === null) return;
     }
     onSelectEntity(`${request.kind}/${request.id}`);
     setDialog(null);
