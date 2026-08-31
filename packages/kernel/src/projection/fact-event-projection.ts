@@ -95,9 +95,7 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
   const target = db.prepare("SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as
     | { readonly ref: string }
     | undefined;
-  if (!target)
-    throw new FactProjectionError("entity_not_found", `Superseded endpoint ${supersedes.factRef} does not exist.`);
-  if (factLiveness(target, livenessRelations(db, [target.ref])) === "superseded_fact")
+  if (target && factLiveness(target, livenessRelations(db, [target.ref])) === "superseded_fact")
     throw new FactProjectionError(
       "relation_invalid",
       `Superseded endpoint ${supersedes.factRef} is already superseded.`,

@@ -2,7 +2,6 @@ import { type TaskLifecycleServiceProof } from "../../application/src/task-lifec
 import {
   canonicalGateReceipts,
   codeDocRecordId,
-  completionGateRequiresWitness,
   consentedApprovedReview,
   currentCodeDocWitness,
   heldLeaseForExecutionActor,
@@ -317,10 +316,9 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
                 value.iteration === execution?.iteration,
             )
           : undefined;
-    const notApplicable = !completionGateRequiresWitness(gate, execution?.submission);
     return {
       gate,
-      status: codeDoc || witness || notApplicable ? "pass" : "blocked",
+      status: codeDoc || witness ? "pass" : "blocked",
       witnessRef: codeDoc ? `event:${codeDocRecordId(codeDoc)}` : witness ? `event:${witness.receiptId}` : null,
     };
   });

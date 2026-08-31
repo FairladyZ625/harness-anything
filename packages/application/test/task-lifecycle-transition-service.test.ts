@@ -101,31 +101,43 @@ test("completion blocker matrix returns one canonical next for every substantive
           : null,
       })),
     };
-    assert.deepEqual(completionBlockers(reportOnly, "execution-1", ready), []);
-    const reportExecution = reportOnly.executions.find((execution) => execution.executionId === "execution-1")!;
     assert.deepEqual(
-      canonicalGateReceipts(
+      completionBlockers(reportOnly, "execution-1", ready).map((blocker) => blocker.code),
+      ["code_doc_missing"],
+      "report-only deliverables no longer waive the explicit code-doc witness",
+    );
+    const reportExecution = reportOnly.executions.find((execution) => execution.executionId === "execution-1")!;
+    const witnessedReportOnly = {
+      ...reportOnly,
+      codeDocWitnesses: [
         {
-          ...reportOnly,
-          codeDocWitnesses: [
-            {
-              schema: "code-doc-witness/v1",
-              witnessId: "fabricated-before-fix",
-              taskId: "task-1",
-              executionId: "execution-1",
-              commitSha: reportExecution.submission!.commitSha,
-              iteration: 0,
-              paths: ["README.md"],
-              actor,
-              source: "local",
-              reconciledAt: "2026-08-11T00:00:00.000Z",
-            },
-          ],
+          schema: "code-doc-witness/v1" as const,
+          witnessId: "explicit-report-only-witness",
+          taskId: "task-1",
+          executionId: "execution-1",
+          commitSha: reportExecution.submission!.commitSha,
+          iteration: 0 as const,
+          paths: [],
+          actor,
+          source: "local" as const,
+          reconciledAt: "2026-08-11T00:00:00.000Z",
         },
-        reportExecution,
-      ),
-      [],
-      "an obsolete fabricated witness is not required proof for a report-only cut",
+      ],
+    };
+    assert.deepEqual(completionBlockers(witnessedReportOnly, "execution-1", ready), []);
+    assert.deepEqual(
+      canonicalGateReceipts(witnessedReportOnly, reportExecution),
+      [
+        {
+          gateId: "code-doc-reconciliation",
+          receiptRef: "event:explicit-report-only-witness",
+          result: "pass",
+          executionId: "execution-1",
+          commitSha: reportExecution.submission!.commitSha,
+          iteration: 0,
+        },
+      ],
+      "the explicit empty-path witness is canonical proof for a report-only cut",
     );
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
   } finally {

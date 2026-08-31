@@ -478,12 +478,12 @@ function dispatchedExecutor(
   executionId: string,
 ): { readonly kind: "agent"; readonly id: string } {
   const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
-    rows = readTaskDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).dispatches.filter(
-      (dispatch) => dispatch.executionId === executionId,
-    ),
+    rows = readTaskDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).dispatches,
+    exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),
+    eligibleRows = exactRows.length ? exactRows : rows,
     candidates = [
       ...new Map(
-        rows.map((dispatch) => [
+        eligibleRows.map((dispatch) => [
           dispatch.runtimeSessionId,
           {
             runtimeSessionId: dispatch.runtimeSessionId,
@@ -506,8 +506,8 @@ function dispatchedExecutor(
   if (candidates.length === 0)
     throw cell.cellCodedError(
       "invalid_proof",
-      `Execution ${executionId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; ` +
-        `executor declaration remains unavailable until a real dispatch record exists.`,
+      `Task ${taskId} has no recorded runtime dispatch. Run ha task dispatches ${taskId}; ` +
+        "executor declaration remains unavailable until a real dispatch record exists.",
     );
   if (requested)
     throw cell.cellCodedError(

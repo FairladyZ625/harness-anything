@@ -52,11 +52,16 @@ export function parseCodeDoc(
 ): ThinParseResult {
   const f = readFlags("task-code-doc-reconcile", args.slice(4), inputs);
   return f.ok
-    ? accepted(rootDir, repoId, json, { kind: "task-code-doc-reconcile", taskId })
+    ? accepted(rootDir, repoId, json, {
+        kind: "task-code-doc-reconcile",
+        taskId,
+        paths: f.many.get("--path") ?? [],
+      })
     : rejected(
         f.code,
-        `Run ha task code-doc reconcile ${taskId}; the submitted execution supplies ` +
-          "execution id, commit, iteration, and paths. See ha task code-doc reconcile --help.",
+        `Run ha task code-doc reconcile ${taskId} --path <completion-code-doc-path>; ` +
+          "the submitted execution supplies execution id, commit, and iteration. " +
+          "See ha task code-doc reconcile --help.",
         json,
       );
 }

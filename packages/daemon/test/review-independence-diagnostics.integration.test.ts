@@ -174,13 +174,17 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       "arbiter",
     );
     const taskId = "task-bare-axis",
-      executionId = "exec-bare";
+      priorExecutionId = "exec-bare-prior",
+      executionId = "exec-bare-recovery";
     const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis" }, bare);
     assert.equal(created.outcome, "applied");
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
-    const started = (await cell.run({ kind: "task-start", taskId, executionId }, bare)) as Record<string, unknown>;
+    const started = (await cell.run({ kind: "task-start", taskId, executionId: priorExecutionId }, bare)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(started.outcome, "applied");
     assert.match(String(started.summary), /declared no executor/u);
     const worker = await cell.spawnRuntime(
@@ -222,6 +226,49 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
         commitSha,
       }),
     );
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-submit", taskId, executionId: priorExecutionId, fromFile: "submission.json" },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "changes-requested.json"),
+      JSON.stringify({
+        verdict: "changes_requested",
+        reason: "Exercise the audited recovery round.",
+        evidenceChecked: ["historical dispatch"],
+      }),
+    );
+    const priorReviewer = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-prior-reviewer" },
+          executor: { kind: "agent" as const, id: "prior-reviewer-agent" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-review-execution",
+            taskId,
+            executionId: priorExecutionId,
+            reviewId: "review-prior-changes",
+            fromFile: "changes-requested.json",
+          },
+          priorReviewer,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, bare)).outcome,
       "applied",
@@ -299,8 +346,8 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       { kind: "task-review-execution", taskId, executionId, reviewId: "r2", fromFile: "review.json" },
       agent,
     );
-    assert.equal(selfReview.code, "runtime_task_self_review_forbidden");
-    assert.match(String(selfReview.nextAction), /cannot review its own work/u);
+    assert.equal(selfReview.code, "actor_unauthorized");
+    assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
 
     const reviewed = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" },

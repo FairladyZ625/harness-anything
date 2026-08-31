@@ -262,7 +262,7 @@ export const reconcile: Transition = {
       proof.capability !== "code-doc-reconcile@v1" ||
       !isNonEmptyString(proof.capabilityRef) ||
       proof.commitPaths?.commitSha !== command.commitSha ||
-      !sameCodeDocPaths(proof.commitPaths?.paths, command.paths)
+      !sameCodeDocPaths(proof.commitPaths?.paths, command.paths, true)
     )
       issues.push(
         lifecycleContractIssue("invalid_proof", "code-doc witness must bind verified paths from the submitted commit"),

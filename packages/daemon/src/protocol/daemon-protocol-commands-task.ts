@@ -617,7 +617,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
     path: ["task", "code-doc", "reconcile", "<task-id>"],
     summary: "Publish a typed code-doc witness.",
     method: "repo.task.run",
-    inputs: [],
+    inputs: [
+      cliInput("--path", "repeated", true, {
+        code: "missing_field",
+        nextAction: "Provide each canonical path declared by completion.codeDocPaths.",
+      }),
+    ],
   }),
   defineLedgerWriteCommand({
     id: "task-code-doc-repoint",

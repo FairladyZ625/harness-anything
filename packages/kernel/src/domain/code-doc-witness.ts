@@ -52,7 +52,7 @@ export function validateCodeDocWitnessV1(
     ])
   )
     return [{ code: "invalid_witness", message: "CodeDocWitness/v1 fields are incomplete or unknown" }];
-  const canonical = canonicalCodeDocPaths(value.paths);
+  const canonical = canonicalCodeDocPaths(value.paths, true);
   return value.schema === "code-doc-witness/v1" &&
     [value.witnessId, value.taskId, value.executionId, value.reconciledAt].every(isNonEmptyString) &&
     isNativeCommitSha(value.commitSha) &&
@@ -86,9 +86,10 @@ export function validateCodeDocRepointV1(
     ])
   )
     return [{ code: "invalid_witness", message: "CodeDocWitness repoint/v1 fields are incomplete or unknown" }];
-  const paths = value.disposition === "repointed"
-    ? canonicalCodeDocPaths(value.paths)
-    : canonicalCodeDocPaths(value.paths, true) && value.paths.length === 0;
+  const paths =
+    value.disposition === "repointed"
+      ? canonicalCodeDocPaths(value.paths)
+      : canonicalCodeDocPaths(value.paths, true) && value.paths.length === 0;
   return value.schema === "code-doc-witness-repoint/v1" &&
     [value.recordId, value.supersedes, value.taskId, value.executionId, value.reason, value.repointedAt].every(
       isNonEmptyString,
@@ -101,18 +102,14 @@ export function validateCodeDocRepointV1(
     validateWriteSource(value.source, allowUnknownFields).length === 0
     ? []
     : [
-      {
-        code: "invalid_witness",
-        message: "code-doc repoint must state a valid replacement or known-invalid disposition",
-      },
-    ];
+        {
+          code: "invalid_witness",
+          message: "code-doc repoint must state a valid replacement or known-invalid disposition",
+        },
+      ];
 }
 export function canonicalCodeDocPaths(value: unknown, allowEmpty = false): value is readonly string[] {
-  if (
-    !Array.isArray(value) ||
-    (!allowEmpty && value.length === 0) ||
-    new Set(value).size !== value.length
-  )
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || new Set(value).size !== value.length)
     return false;
   try {
     return value.every((path) => typeof path === "string" && normalizeRelativeDocumentPath(path) === path);
@@ -121,14 +118,12 @@ export function canonicalCodeDocPaths(value: unknown, allowEmpty = false): value
     return false;
   }
 }
-export function sameCodeDocPaths(
-  left: unknown,
-  right: readonly string[],
-  allowEmpty = false,
-): boolean {
-  return canonicalCodeDocPaths(left, allowEmpty) &&
+export function sameCodeDocPaths(left: unknown, right: readonly string[], allowEmpty = false): boolean {
+  return (
+    canonicalCodeDocPaths(left, allowEmpty) &&
     canonicalCodeDocPaths(right, allowEmpty) &&
-    JSON.stringify([...left].sort()) === JSON.stringify([...right].sort());
+    JSON.stringify([...left].sort()) === JSON.stringify([...right].sort())
+  );
 }
 export function codeDocRecordId(value: CodeDocWitnessRecord): string {
   return value.schema === "code-doc-witness/v1" ? value.witnessId : value.recordId;
@@ -139,7 +134,7 @@ export function currentCodeDocRecord(
 ): CodeDocWitnessRecord | undefined {
   const executionRecords = records.filter((value) => value.executionId === executionId),
     superseded = new Set(
-      executionRecords.flatMap((value) => value.schema === "code-doc-witness-repoint/v1" ? [value.supersedes] : []),
+      executionRecords.flatMap((value) => (value.schema === "code-doc-witness-repoint/v1" ? [value.supersedes] : [])),
     ),
     active = executionRecords.filter((value) => !superseded.has(codeDocRecordId(value)));
   return active.length === 1 ? active[0] : undefined;

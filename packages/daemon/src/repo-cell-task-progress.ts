@@ -224,7 +224,7 @@ export async function completeTask(
       steps.push(step);
       continue;
     }
-    if (blocker.code === "code_doc_missing" && paths.length) {
+    if (blocker.code === "code_doc_missing" && action.paths !== undefined) {
       const submitted = current.snapshot.executions.find(
         (candidate) =>
           candidate.executionId === executionId && candidate.iteration === current.snapshot.task?.iteration,
@@ -238,6 +238,7 @@ export async function completeTask(
         {
           kind: "task-code-doc-reconcile",
           taskId,
+          paths,
         },
         binding,
       );

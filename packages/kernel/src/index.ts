@@ -24,6 +24,7 @@ export type {
 export {
   allowsTaskStatusMove,
   applyTransition,
+  canonicalCodeDocPaths,
   canonicalGateReceipts,
   canStartExecution,
   compileExecutionExecutorDeclaration,

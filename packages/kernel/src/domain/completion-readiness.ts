@@ -110,8 +110,8 @@ export function completionBlockers(
       ? one(
           "code_doc_missing",
           gate.gateId,
-          `ha task code-doc reconcile ${task.taskId}`,
-          "Publish a typed code-doc witness for this execution cut.",
+          `ha task closeout ${task.taskId} --from-file <packet.json>`,
+          "Resume closeout with explicit completion.codeDocPaths for this execution cut.",
         )
       : one(
           gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
