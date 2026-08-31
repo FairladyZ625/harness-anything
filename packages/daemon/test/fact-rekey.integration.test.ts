@@ -9,12 +9,12 @@ import {
   compileFactWrite,
   contentObjectRelativePath,
   decisionMachineDigest,
-  DEFAULT_WAL_FLUSH_SETTINGS,
   deriveRelationId,
   eventObjectRelativePath,
   makeTaskEventStore,
   makeTaskProjection,
   renderDecisionDocument,
+  repositorySettings,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
@@ -768,7 +768,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
       assert.equal(Object.hasOwn(rewrittenSettingsEvent.payload.settings, "locale"), false);
       assert.deepEqual(
         (rewrittenSettingsEvent.payload.settings as { readonly walFlush?: unknown }).walFlush,
-        DEFAULT_WAL_FLUSH_SETTINGS,
+        repositorySettings(legacySettingsEvent.payload.settings).walFlush,
       );
     }
 
