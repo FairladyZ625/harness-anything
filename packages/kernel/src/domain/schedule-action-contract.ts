@@ -1,3 +1,4 @@
+import { record } from "./actor-identity.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -740,10 +741,6 @@ function scheduleMode(value: unknown): ScheduleMode {
 function text(value: unknown, name: string): string {
   if (typeof value === "string" && value.trim()) return value.trim();
   reject("invalid_command", `${name} must be a non-empty string.`);
-}
-
-function record(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function reject(code: string, message: string): never {

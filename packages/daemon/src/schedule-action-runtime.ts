@@ -234,7 +234,7 @@ function readScheduleAction(
           };
         }),
       opId = cell.operationId(action, binding, cell.input.repoId, revision);
-    return readReceipt(opId, revision, JSON.stringify({ schema: "schedule-list/v1", schedules }), {
+    return scheduleReadReceipt(opId, revision, JSON.stringify({ schema: "schedule-list/v1", schedules }), {
       schedules,
       summary: schedules.length ? `${schedules.length} schedule(s)` : "No schedules.",
     });
@@ -243,7 +243,7 @@ function readScheduleAction(
     scheduleId = cell.requiredCellText(resolved.scheduleId, "scheduleId");
   if (resolved.kind === "schedule-runs") {
     const result = readScheduleRuns(cell, scheduleId, resolved.limit === undefined ? 50 : Number(resolved.limit));
-    return readReceipt(
+    return scheduleReadReceipt(
       cell.operationId(resolved, binding, cell.input.repoId, result.watermark),
       result.watermark,
       JSON.stringify({ schema: "schedule-runs/v1", ...result }),
@@ -280,7 +280,7 @@ function readScheduleAction(
   } as WriteReceipt;
 }
 
-function readReceipt(
+function scheduleReadReceipt(
   opId: string,
   revision: number,
   evidence: string,
