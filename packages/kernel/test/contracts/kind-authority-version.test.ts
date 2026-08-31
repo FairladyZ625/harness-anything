@@ -2,9 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { contractVersion } from "../../src/domain/contract-version.ts";
-import { entityKindContracts } from "../../src/domain/entity-kind-registry.ts";
+import { entityKindContracts, explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import {
-  explainEntityKind,
   getEntityKindContract,
   isContractVersionCompatible,
   requireEntityStoreKindContract,

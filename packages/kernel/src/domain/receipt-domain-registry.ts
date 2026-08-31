@@ -1,9 +1,14 @@
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
-import { isEntityActionUnmetCriterion, type EntityActionUnmetCriterionV1 } from "./entity-action-explanation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
+
+export interface EntityActionUnmetCriterionV1 {
+  readonly ref: string;
+  readonly failureCode: string;
+  readonly explain: string;
+}
 
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
 export interface ReceiptProof {
@@ -269,6 +274,16 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if (!isNonEmptyString(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
     errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
+}
+
+export function isEntityActionUnmetCriterion(value: unknown): value is EntityActionUnmetCriterionV1 {
+  return (
+    isReceiptDomainRecord(value) &&
+    exact(value, ["ref", "failureCode", "explain"]) &&
+    isNonEmptyString(value.ref) &&
+    isNonEmptyString(value.failureCode) &&
+    isNonEmptyString(value.explain)
+  );
 }
 function validAuthorizationDecision(value: unknown): value is AuthorizationDecision {
   if (

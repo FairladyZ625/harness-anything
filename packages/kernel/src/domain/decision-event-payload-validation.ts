@@ -1,8 +1,5 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import {
-  validateSessionIdentity,
-  validateSessionProvenance,
-} from "./agent-runtime.ts";
+import { validateSessionIdentity, validateSessionProvenance } from "./agent-runtime.ts";
 import { outcomeState } from "./decision-event-document.ts";
 import {
   DECISION_DOCUMENT_POLICY_ID,
@@ -14,12 +11,7 @@ import {
   type DecisionJudgmentConsentV1,
   type DecisionOutcomeType,
 } from "./decision-event-types.ts";
-import {
-  claimId,
-  includes,
-  optionId,
-  uniqueFactStrings,
-} from "./decision-event-validation-shared.ts";
+import { claimId, includes, optionId, uniqueFactStrings } from "./decision-event-validation-shared.ts";
 import {
   deriveRelationId,
   relationDirections,
@@ -65,63 +57,39 @@ export function proposalIssues(
     ],
     fields = [...legacyFields, "provenance"],
     shapeValid = allowUnknownFields
-      ? requiredWithOptional(
-          value,
-          [...legacyFields, ...common],
-          ["provenance"],
-          true,
-        )
-      : matchesFields(value, [...fields, ...common], false),
-    issues: string[] = shapeValid
-      ? []
-      : [`decision proposal requires exactly: ${fields.join(", ")}`],
+      ? requiredWithOptional(value, [...legacyFields, ...common], ["provenance"], true)
+      : matchesFields(value, [...fields, ...common], false);
+  if (!shapeValid) return [`decision proposal requires exactly: ${fields.join(", ")}`];
+  const issues: string[] = [],
     check = (ok: boolean, message: string): void => {
       if (!ok) issues.push(message);
     };
-  check(
-    codePoints(value.question, 1, 499),
-    "question must be 1..499 code points",
-  );
+  check(codePoints(value.question, 1, 499), "question must be 1..499 code points");
   for (const field of ["riskTier", "urgency"] as const)
-    check(
-      includes(["low", "medium", "high"] as const, value[field]),
-      `${field} must be low, medium, or high`,
-    );
+    check(includes(["low", "medium", "high"] as const, value[field]), `${field} must be low, medium, or high`);
   for (const field of ["title", "vertical", "preset"] as const)
-    check(
-      isNonEmptyString(value[field]),
-      `${field} must be a non-empty string`,
-    );
+    check(isNonEmptyString(value[field]), `${field} must be a non-empty string`);
   check(
     includes(["ordinary", "standing_policy"] as const, value.decisionClass),
     "decisionClass must be ordinary or standing_policy",
   );
   check(
     isRecord(value.appliesTo) &&
-      matchesFields(
-        value.appliesTo,
-        ["modules", "productLines"],
-        allowUnknownFields,
-      ) &&
+      matchesFields(value.appliesTo, ["modules", "productLines"], allowUnknownFields) &&
       uniqueFactStrings(value.appliesTo.modules) &&
       uniqueFactStrings(value.appliesTo.productLines),
     "appliesTo must carry exactly modules and productLines as arrays of unique non-empty strings",
   );
   check(typeof value.body === "string", "body must be a string");
   for (const field of ["chosen", "rejected"] as const)
-    check(
-      Array.isArray(value[field]) && value[field].length > 0,
-      `${field} must be a non-empty array`,
-    );
+    check(Array.isArray(value[field]) && value[field].length > 0, `${field} must be a non-empty array`);
   for (const field of ["claims", "fulfillments", "relations"] as const)
     check(Array.isArray(value[field]), `${field} must be an array`);
   check(
     (allowUnknownFields && value.provenance === undefined) ||
       (Array.isArray(value.provenance) &&
         value.provenance.length === 1 &&
-        value.provenance.every((entry) =>
-          sessionProvenanceValue(entry, allowUnknownFields),
-        )),
+        value.provenance.every((entry) => sessionProvenanceValue(entry, allowUnknownFields))),
     "provenance must contain exactly one session identity",
   );
   const chosen = Array.isArray(value.chosen) ? value.chosen : [],
@@ -135,16 +103,10 @@ export function proposalIssues(
       chosen.every(
         (entry) =>
           isRecord(entry) &&
-          requiredWithOptional(
-            entry,
-            ["id", "text"],
-            ["rationale"],
-            allowUnknownFields,
-          ) &&
+          requiredWithOptional(entry, ["id", "text"], ["rationale"], allowUnknownFields) &&
           optionId(entry.id, "CH") &&
           isNonEmptyString(entry.text) &&
-          (entry.rationale === undefined ||
-            codePoints(entry.rationale, 1, 199)),
+          (entry.rationale === undefined || codePoints(entry.rationale, 1, 199)),
       ),
     rejectedValid =
       Array.isArray(value.rejected) &&
@@ -162,11 +124,7 @@ export function proposalIssues(
       claims.every(
         (entry) =>
           isRecord(entry) &&
-          matchesFields(
-            entry,
-            ["id", "text", "loadBearing"],
-            allowUnknownFields,
-          ) &&
+          matchesFields(entry, ["id", "text", "loadBearing"], allowUnknownFields) &&
           claimId(entry.id) &&
           isNonEmptyString(entry.text) &&
           typeof entry.loadBearing === "boolean",
@@ -181,50 +139,26 @@ export function proposalIssues(
           includes(decisionFulfillmentModes, entry.mode),
       );
   if (Array.isArray(value.chosen) && value.chosen.length > 0)
-    check(
-      chosenValid,
-      "every chosen entry needs a CH id, non-empty text, and an optional 1..199 rationale",
-    );
+    check(chosenValid, "every chosen entry needs a CH id, non-empty text, and an optional 1..199 rationale");
   if (Array.isArray(value.rejected) && value.rejected.length > 0)
-    check(
-      rejectedValid,
-      "every rejected entry needs an RJ id, non-empty text, and a 1..199 whyNot",
-    );
+    check(rejectedValid, "every rejected entry needs an RJ id, non-empty text, and a 1..199 whyNot");
   if (Array.isArray(value.claims))
-    check(
-      claimsValid,
-      "every claim needs a C id, non-empty text, and a boolean loadBearing",
-    );
+    check(claimsValid, "every claim needs a C id, non-empty text, and a boolean loadBearing");
   if (Array.isArray(value.fulfillments))
-    check(
-      fulfillmentsValid,
-      `every fulfillment needs a claimId and a mode of ${decisionFulfillmentModes.join(", ")}`,
-    );
-  const ids = [...chosen, ...rejected, ...claims].map((entry) =>
-      isRecord(entry) ? String(entry.id) : "",
-    ),
-    claimIds = new Set(
-      claims.map((entry) => (isRecord(entry) ? entry.id : null)),
-    ),
-    fulfillmentIds = fulfilled.map((entry) =>
-      isRecord(entry) ? entry.claimId : null,
-    ),
-    relationIds = relations.map((entry) =>
-      isRecord(entry) ? entry.relation_id : null,
-    ),
+    check(fulfillmentsValid, `every fulfillment needs a claimId and a mode of ${decisionFulfillmentModes.join(", ")}`);
+  const ids = [...chosen, ...rejected, ...claims].map((entry) => (isRecord(entry) ? String(entry.id) : "")),
+    claimIds = new Set(claims.map((entry) => (isRecord(entry) ? entry.id : null))),
+    fulfillmentIds = fulfilled.map((entry) => (isRecord(entry) ? entry.claimId : null)),
+    relationIds = relations.map((entry) => (isRecord(entry) ? entry.relation_id : null)),
     anchored = new Set(ids);
   if (chosenValid && rejectedValid && claimsValid)
-    check(
-      new Set(ids).size === ids.length,
-      "chosen, rejected, and claim ids must be unique across the packet",
-    );
+    check(new Set(ids).size === ids.length, "chosen, rejected, and claim ids must be unique across the packet");
   if (claimsValid && fulfillmentsValid)
     check(
-      new Set(fulfillmentIds).size === fulfillmentIds.length &&
-        fulfillmentIds.every((entry) => claimIds.has(entry)),
+      new Set(fulfillmentIds).size === fulfillmentIds.length && fulfillmentIds.every((entry) => claimIds.has(entry)),
       "every fulfillment must name a distinct claim declared in this packet",
     );
-  if (Array.isArray(value.relations))
+  if (Array.isArray(value.relations) && chosenValid && rejectedValid && claimsValid)
     check(
       relations.every(
         (entry) =>
@@ -236,10 +170,7 @@ export function proposalIssues(
       "every relation must derive its own relation_id and anchor on a chosen, rejected, or claim id of this decision",
     );
   if (Array.isArray(value.relations))
-    check(
-      new Set(relationIds).size === relationIds.length,
-      "relation ids must be unique",
-    );
+    check(new Set(relationIds).size === relationIds.length, "relation ids must be unique");
   return issues;
 }
 
@@ -250,20 +181,11 @@ export function validDecisionMutation(
   allowUnknownFields: boolean,
 ): boolean {
   const base = value.baseDocumentSha256;
-  if (
-    proposed
-      ? base !== null
-      : typeof base !== "string" || !/^[0-9a-f]{64}$/u.test(base)
-  )
-    return false;
+  if (proposed ? base !== null : typeof base !== "string" || !/^[0-9a-f]{64}$/u.test(base)) return false;
   const claim = value.decisionDocumentClaim;
   if (
     !isRecord(claim) ||
-    !matchesFields(
-      claim,
-      ["path", "sha256", "size", "mediaType", "policyId"],
-      allowUnknownFields,
-    ) ||
+    !matchesFields(claim, ["path", "sha256", "size", "mediaType", "policyId"], allowUnknownFields) ||
     claim.path !== `decisions/decision-${String(id)}/decision.md` ||
     !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) ||
     !Number.isSafeInteger(claim.size) ||
@@ -279,10 +201,7 @@ export function validDecisionMutation(
   }
 }
 
-export function sessionProvenanceValue(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+export function sessionProvenanceValue(value: unknown, allowUnknownFields: boolean): boolean {
   if (validateSessionProvenance(value)) return timestamp(value.boundAt);
   if (!allowUnknownFields || !isRecord(value)) return false;
   return (
@@ -304,17 +223,7 @@ export function judgmentConsent(
     !isRecord(value) ||
     !matchesFields(
       value,
-      [
-        "schema",
-        "consentId",
-        "decisionId",
-        "action",
-        "targetState",
-        "machineDigest",
-        "actor",
-        "source",
-        "consentedAt",
-      ],
+      ["schema", "consentId", "decisionId", "action", "targetState", "machineDigest", "actor", "source", "consentedAt"],
       allowUnknownFields,
     )
   )
@@ -345,32 +254,12 @@ export function contentPin(
     isRecord(value) &&
     matchesFields(
       value,
-      [
-        "schema",
-        "pinId",
-        "action",
-        "state",
-        "pinnedAt",
-        "evidence",
-        "actor",
-        "digest",
-      ],
+      ["schema", "pinId", "action", "state", "pinnedAt", "evidence", "actor", "digest"],
       allowUnknownFields,
     ) &&
     value.schema === "decision-content-pin/v1" &&
     /^dcp_[0-9a-f]{26}$/u.test(String(value.pinId)) &&
-    includes(
-      [
-        "accept",
-        "reject",
-        "defer",
-        "supersede",
-        "retire",
-        "amend",
-        "repin",
-      ] as const,
-      value.action,
-    ) &&
+    includes(["accept", "reject", "defer", "supersede", "retire", "amend", "repin"] as const, value.action) &&
     includes(decisionStates, value.state) &&
     value.pinnedAt === event.occurredAt &&
     codePoints(value.evidence, 1, 199) &&
@@ -387,11 +276,7 @@ export function amendment(
 ): value is DecisionAmendmentV1 {
   return (
     isRecord(value) &&
-    matchesFields(
-      value,
-      ["schema", "amendmentId", "fields", "actor", "amendedAt"],
-      allowUnknownFields,
-    ) &&
+    matchesFields(value, ["schema", "amendmentId", "fields", "actor", "amendedAt"], allowUnknownFields) &&
     value.schema === "decision-amendment/v1" &&
     /^dam_[0-9a-f]{26}$/u.test(String(value.amendmentId)) &&
     uniqueFactStrings(value.fields) &&
@@ -402,17 +287,10 @@ export function amendment(
   );
 }
 
-export function amendableSnapshot(
-  value: unknown,
-  allowUnknownFields: boolean,
-): value is DecisionAmendableSnapshot {
+export function amendableSnapshot(value: unknown, allowUnknownFields: boolean): value is DecisionAmendableSnapshot {
   if (
     !isRecord(value) ||
-    !matchesFields(
-      value,
-      ["title", "decisionClass", "chosen", "rejected", "claims"],
-      allowUnknownFields,
-    ) ||
+    !matchesFields(value, ["title", "decisionClass", "chosen", "rejected", "claims"], allowUnknownFields) ||
     !isNonEmptyString(value.title) ||
     !includes(["ordinary", "standing_policy"] as const, value.decisionClass) ||
     !Array.isArray(value.chosen) ||
@@ -423,12 +301,7 @@ export function amendableSnapshot(
   const chosen = value.chosen.every(
       (entry) =>
         isRecord(entry) &&
-        requiredWithOptional(
-          entry,
-          ["id", "text"],
-          ["rationale"],
-          allowUnknownFields,
-        ) &&
+        requiredWithOptional(entry, ["id", "text"], ["rationale"], allowUnknownFields) &&
         optionId(entry.id, "CH") &&
         isNonEmptyString(entry.text),
     ),
@@ -443,27 +316,17 @@ export function amendableSnapshot(
     claims = value.claims.every(
       (entry) =>
         isRecord(entry) &&
-        matchesFields(
-          entry,
-          ["id", "text", "loadBearing", "fulfillment"],
-          allowUnknownFields,
-        ) &&
+        matchesFields(entry, ["id", "text", "loadBearing", "fulfillment"], allowUnknownFields) &&
         claimId(entry.id) &&
         isNonEmptyString(entry.text) &&
         typeof entry.loadBearing === "boolean" &&
-        (entry.fulfillment === null ||
-          includes(decisionFulfillmentModes, entry.fulfillment)),
+        (entry.fulfillment === null || includes(decisionFulfillmentModes, entry.fulfillment)),
     ),
-    ids = [...value.chosen, ...value.rejected, ...value.claims].map((entry) =>
-      isRecord(entry) ? entry.id : null,
-    );
+    ids = [...value.chosen, ...value.rejected, ...value.claims].map((entry) => (isRecord(entry) ? entry.id : null));
   return chosen && rejected && claims && new Set(ids).size === ids.length;
 }
 
-export function fulfillments(
-  value: unknown,
-  allowUnknownFields: boolean,
-): boolean {
+export function fulfillments(value: unknown, allowUnknownFields: boolean): boolean {
   return (
     Array.isArray(value) &&
     value.every(
@@ -473,8 +336,7 @@ export function fulfillments(
         claimId(entry.claimId) &&
         includes(decisionFulfillmentModes, entry.mode),
     ) &&
-    new Set(value.map((entry) => (isRecord(entry) ? entry.claimId : null)))
-      .size === value.length
+    new Set(value.map((entry) => (isRecord(entry) ? entry.claimId : null))).size === value.length
   );
 }
 
@@ -482,25 +344,12 @@ export function relationId(value: unknown): value is string {
   return typeof value === "string" && /^rel_[0-9a-f]{16}$/u.test(value);
 }
 
-export function relation(
-  value: unknown,
-  allowUnknownFields: boolean,
-): value is EntityRelationRecord {
+export function relation(value: unknown, allowUnknownFields: boolean): value is EntityRelationRecord {
   return (
     isRecord(value) &&
     matchesFields(
       value,
-      [
-        "relation_id",
-        "source",
-        "target",
-        "type",
-        "strength",
-        "direction",
-        "origin",
-        "rationale",
-        "state",
-      ],
+      ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"],
       allowUnknownFields,
     ) &&
     typeof value.relation_id === "string" &&

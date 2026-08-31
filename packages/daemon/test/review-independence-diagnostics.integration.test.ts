@@ -61,6 +61,10 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       human,
     );
     assert.equal(beforeSubmission.outcome, "op_rejected");
+    assert.deepEqual(
+      beforeSubmission.unmetCriteria?.map(({ ref }) => ref),
+      ["task-lifecycle-review-transitions/review.validate"],
+    );
     assert.match(String(beforeSubmission.nextAction), /requires a submitted execution/u);
 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
@@ -283,6 +287,10 @@ test("a bare-invocation execution has a visible warning and an audited recovery 
       bare,
     );
     assert.equal(refused.code, "actor_unauthorized");
+    assert.deepEqual(
+      refused.unmetCriteria?.map(({ ref }) => ref),
+      ["repo-cell-proof/proofFor.RecordReview"],
+    );
     assert.match(String(refused.nextAction), /declared no executor/u);
     assert.match(String(refused.nextAction), /original start/u);
 
