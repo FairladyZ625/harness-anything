@@ -163,7 +163,10 @@ export function reportTable(
     `Already imported from this Git lineage: ${already || "none"}`,
     `ID remappings: ${remappings.length ? remappings.length : "none"}`,
     ...remappings.map((item) => `- REMAP ${item.entityType} ${item.sourceId} -> ${item.targetId}: ${item.reason}`),
-    `Format observations: ${skips.length ? `${skips.length} legacy parser observations` : "none"}; ${formatObservations.length ? `${formatObservations.length} accepted historical variants` : "no accepted historical variants"}`,
+    `Format observations: ${skips.length ? `${skips.length} legacy parser observations` : "none"}; ` +
+      (formatObservations.length
+        ? `${formatObservations.length} accepted historical variants`
+        : "no accepted historical variants"),
     ...formatObservations.map(
       (item) => `- ACCEPT ${item.code} (${item.sourcePath}): ${item.detail}; treatment=${item.treatment}`,
     ),

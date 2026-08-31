@@ -1,4 +1,5 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { markdownH1 } from "./migration-import-tasks.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -68,7 +69,8 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
         consumeKnownError(error);
         throw migrationImportError(
           "unsupported_legacy_event",
-          `${sourcePath}: ${error instanceof Error ? error.message : String(error)}. Preserve the source and report this event schema before retrying.`,
+          `${sourcePath}: ${error instanceof Error ? error.message : String(error)}. ` +
+            `Preserve the source and report this event schema before retrying.`,
         );
       }
       event = normalized;
@@ -147,7 +149,8 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
     consumeKnownError(error);
     throw migrationImportError(
       "migration_projection_rebuild_failed",
-      `Could not rebuild the source oracle without modifying the source: ${error instanceof Error ? error.message : String(error)}.`,
+      `Could not rebuild the source oracle without modifying the source: ` +
+        `${error instanceof Error ? error.message : String(error)}.`,
     );
   } finally {
     projection?.close();
@@ -428,7 +431,9 @@ function normalizeScheduleFacet(
   observations.push({
     code: "schedule_definition_facet_mismatch",
     sourcePath,
-    detail: `accepted historical schedule ${event.entity.id}: declaration blob ${claim.sha256} contains the full schedule instead of only the definition facet`,
+    detail:
+      `accepted historical schedule ${event.entity.id}: ` +
+      `declaration blob ${claim.sha256} contains the full schedule instead of only the definition facet`,
     treatment: "accepted_truth_gap",
   });
   return next;
@@ -539,10 +544,6 @@ function containsSchema(value: unknown, schema: string): boolean {
   return isMigrationImportRecord(value)
     ? value.schema === schema || Object.values(value).some((entry) => containsSchema(entry, schema))
     : false;
-}
-
-function markdownH1(body: string): string | null {
-  return /^#\s+(.+?)\s*$/mu.exec(body)?.[1]?.trim() || null;
 }
 
 function cleanScalar(value: string): string {
