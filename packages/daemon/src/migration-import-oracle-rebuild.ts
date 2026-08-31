@@ -22,6 +22,7 @@ import {
   stableStringify,
   taskEntryToRow,
   type CanonicalEventV1,
+  type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
 } from "../../kernel/src/index.ts";
 import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } from "./migration-import-oracle.ts";
@@ -34,6 +35,7 @@ export interface MigrationEventInspection {
   readonly eventHeadRevision: number | null;
   readonly observations: readonly MigrationFormatObservation[];
   readonly syntheticBlobs: ReadonlyMap<string, Uint8Array>;
+  readonly normalizedRelationMigrationEntities: ReadonlyMap<string, MigrationImportEventV1["payload"]["entity"]>;
 }
 
 const migrationOracleActor = {
@@ -42,10 +44,15 @@ const migrationOracleActor = {
 } as const;
 
 /** Rebuilds only a disposable migration oracle. The source repository and its Git refs remain untouched. */
-export function rebuildMigrationProjectionOracle(sourceRoot: string): MigrationProjectionOracle {
-  const inspection = inspectMigrationSourceEvents(sourceRoot),
-    rebuilt = inspection.events.length === 0 ? emptyOracle(inspection) : rebuildEventOracle(sourceRoot, inspection);
-  return overlayAuthoredOracle(sourceRoot, rebuilt, inspection);
+export function rebuildMigrationProjectionOracle(
+  sourceRoot: string,
+  inspection = inspectMigrationSourceEvents(sourceRoot),
+): MigrationProjectionOracle {
+  const rebuilt = inspection.events.length === 0 ? emptyOracle(inspection) : rebuildEventOracle(sourceRoot, inspection);
+  return {
+    ...overlayAuthoredOracle(sourceRoot, rebuilt, inspection),
+    normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
+  };
 }
 
 export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEventInspection {
@@ -54,6 +61,8 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
     observations: MigrationFormatObservation[] = [],
     syntheticBlobs = new Map<string, Uint8Array>(),
     events: CanonicalEventV1[] = [],
+    normalizedRelationMigrationEntities = new Map<string, MigrationImportEventV1["payload"]["entity"]>(),
+    ambiguousNormalizedRelations = new Set<string>(),
     normalizedRelationAliases = new Set<string>(),
     legacyRelationIds = new Map<string, string>(),
     legacyFactRefs = new Map<string, string>();
@@ -97,6 +106,8 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
       });
     event = normalizeScheduleFacet(sourceRoot, event, sourcePath, observations, syntheticBlobs);
     if (isMigrationImportEvent(event) && event.payload.entity.kind === "relation") {
+      const migratedFrom = event.payload.migratedFrom,
+        originalEntity = event.payload.entity;
       const legacyRelationId = event.payload.entity.relation.relation_id;
       for (const endpoint of [event.payload.entity.relation.source, event.payload.entity.relation.target]) {
         const match = /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(endpoint);
@@ -105,6 +116,15 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
       event = normalizeLegacyRelationMigrationEvent(event, legacyFactRefs, legacyRelationIds);
       const entity = event.payload.entity;
       if (entity.kind !== "relation") throw new Error("Legacy relation normalization changed entity kind");
+      if (stableStringify(originalEntity) !== stableStringify(entity))
+        for (const key of new Set([migratedFrom, legacyRelationId])) {
+          const held = normalizedRelationMigrationEntities.get(key);
+          if (ambiguousNormalizedRelations.has(key)) continue;
+          if (held !== undefined && stableStringify(held) !== stableStringify(entity)) {
+            normalizedRelationMigrationEntities.delete(key);
+            ambiguousNormalizedRelations.add(key);
+          } else normalizedRelationMigrationEntities.set(key, entity);
+        }
       if (legacyRelationId !== entity.relation.relation_id) normalizedRelationAliases.add(event.opId);
       if (legacyRelationManualReason(entity.relation) !== null) continue;
     }
@@ -136,7 +156,13 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
       "migration_projection_oracle_cut_mismatch",
       `Canonical event revision exceeds source head ${eventHeadRevision}.`,
     );
-  return { events: replayEvents, eventHeadRevision, observations, syntheticBlobs };
+  return {
+    events: replayEvents,
+    eventHeadRevision,
+    observations,
+    syntheticBlobs,
+    normalizedRelationMigrationEntities,
+  };
 }
 
 function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspection): MigrationProjectionOracle {
@@ -358,6 +384,7 @@ function emptyOracle(inspection: MigrationEventInspection): MigrationProjectionO
     decisions: new Map(),
     facts: new Map(),
     relations: new Map(),
+    normalizedRelationMigrationEntities: new Map(),
     executions: new Map(),
     agents: new Map(),
     schedules: new Map(),

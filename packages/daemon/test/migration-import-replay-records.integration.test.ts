@@ -8,8 +8,10 @@ import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
   canonicalizeContractValue,
+  eventObjectRelativePath,
   makeTaskEventStore,
   readSettingsFacet,
+  serializePersistedCanonicalEvent,
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
@@ -22,6 +24,7 @@ import {
   actor,
   coverageCompleteFixture,
   decisionContentFixture,
+  git,
   initRepo,
   referencedDocumentFixture,
   sources,
@@ -321,6 +324,111 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     )) as Record<string, unknown>;
     assert.equal(dry.exitCode, 0);
     assert.match(String(dry.summary), /Already imported from this Git lineage: task=1/u);
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("re-importing after fact rekey accepts only the id-map-proven restatement", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-after-fact-rekey-")),
+    source = path.join(scratch, "legacy"),
+    destination = path.join(scratch, "new"),
+    conflict = path.join(scratch, "conflict");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    coverageCompleteFixture(source);
+    writeFileSync(
+      path.join(source, "harness/tasks/task_coverage-old/facts.md"),
+      [
+        "# Facts",
+        "",
+        "- {fact_id: F-ABCDEFGH, statement: Restatement remains source-bound, " +
+          "source: migration-rekey-test, observedAt: 2026-01-02T00:00:00.000Z, " +
+          "confidence: high, memoryClass: semantic, memoryTags: [pattern], " +
+          "provenance: [{runtime: codex, sessionId: legacy-session, " +
+          "boundAt: 2026-01-02T00:00:00.000Z}]}",
+        "",
+      ].join("\n"),
+    );
+    const sourceRoots = sources(source);
+    initRepo(destination);
+    cell = await openRepoCell({
+      repoId: workspaceId("migration-after-fact-rekey-target"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "migration-daemon",
+      now: () => "2026-06-01T00:00:00.000Z",
+    });
+    const first = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(first.exitCode, 0, JSON.stringify(first));
+    const firstStore = makeTaskEventStore({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
+      imported = firstStore
+        .read()
+        .events.find((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "fact");
+    assert.equal(imported?.schema, "migration-import-event/v1");
+    if (imported?.schema !== "migration-import-event/v1" || imported.payload.entity.kind !== "fact")
+      throw new Error("fixture fact migration event is missing");
+    assert.equal(imported.payload.migratedFrom, "fact/task_coverage/F-ABCDEFGH");
+
+    const rekey = await cell.run({ kind: "fact-rekey" }, { actor, source: "local" });
+    assert.equal(rekey.outcome, "applied", JSON.stringify(rekey));
+    const restatedStore = makeTaskEventStore({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
+      restated = restatedStore.readEvent(imported.opId);
+    assert.equal(restated?.schema, "migration-import-event/v1");
+    if (restated?.schema !== "migration-import-event/v1" || restated.payload.entity.kind !== "fact")
+      throw new Error("fixture fact migration event was not restated");
+    assert.equal(restated.payload.migratedFrom, "fact/F-ABCDEFGH");
+
+    const dry = (await cell.run(
+      { kind: "migrate-import", sourceRoots, dryRun: true },
+      { actor, source: "local" },
+    )) as Record<string, unknown>;
+    assert.equal(dry.exitCode, 0, JSON.stringify(dry));
+    assert.match(String(dry.summary), /Already imported from this Git lineage: task=1, fact=1/u);
+    const reconciliation = dry.reconciliation as {
+      readonly fact: { readonly source: number; readonly target: number; readonly missingIds: readonly string[] };
+    };
+    assert.deepEqual(reconciliation.fact, {
+      source: 1,
+      target: 1,
+      difference: 0,
+      derived: 0,
+      archived: 0,
+      retired: 0,
+      missingIds: [],
+      passed: true,
+    });
+
+    await cell.close();
+    cell = undefined;
+    git(scratch, "clone", "-q", destination, conflict);
+    git(conflict, "config", "user.name", "Migration Test");
+    git(conflict, "config", "user.email", "migration@example.invalid");
+    const eventPath = path.join(conflict, "harness", eventObjectRelativePath(restated.opId, restatedStore.layout())),
+      tampered = {
+        ...restated,
+        payload: {
+          ...restated.payload,
+          entity: {
+            ...restated.payload.entity,
+            fact: { ...restated.payload.entity.fact, statement: "Different bytes under the same operation." },
+          },
+        },
+      };
+    writeFileSync(eventPath, serializePersistedCanonicalEvent(tampered));
+    git(conflict, "add", path.relative(conflict, eventPath));
+    git(conflict, "commit", "-qm", "mutate migration operation fixture");
+    cell = await openRepoCell({
+      repoId: workspaceId("migration-after-fact-rekey-conflict"),
+      rootDir: canonicalRoot(conflict),
+      ownerId: "migration-daemon",
+      now: () => "2026-06-01T00:00:00.000Z",
+    });
+    const rejected = await cell.run({ kind: "migrate-import", sourceRoots, dryRun: true }, { actor, source: "local" });
+    assert.match(JSON.stringify(rejected), /migration_source_operation_conflict/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
