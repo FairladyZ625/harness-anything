@@ -22,6 +22,7 @@ import {
   migrationImportWritePlan,
   parseCanonicalEvent,
   readLegacyMigrationSource,
+  repositorySettings,
   factMemoryTags,
   relationTypes,
   reduceDecisionDocument,
@@ -394,14 +395,12 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
         );
       } else next = transformCanonicalEvent(event, mapRef, relationMap);
     } else next = transformCanonicalEvent(event, mapRef, relationMap);
-    if (
-      next.schema === "settings-event/v1" &&
-      isJsonObject(next.payload.settings) &&
-      Object.hasOwn(next.payload.settings, "locale")
-    ) {
-      const { locale: _locale, ...settings } = next.payload.settings;
-      next = parseCanonicalEvent(`${stableStringify({ ...next, payload: { ...next.payload, settings } })}\n`);
-      rewriteCounts.settings += 1;
+    if (next.schema === "settings-event/v1" && isJsonObject(next.payload.settings)) {
+      const settings = repositorySettings(next.payload.settings);
+      if (stableStringify(settings) !== stableStringify(next.payload.settings)) {
+        next = parseCanonicalEvent(`${stableStringify({ ...next, payload: { ...next.payload, settings } })}\n`);
+        rewriteCounts.settings += 1;
+      }
     }
     if (next.schema === "migration-import-event/v1" && next.payload.entity.kind === "decision") {
       const decision = next.payload.entity.decision,

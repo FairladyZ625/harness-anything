@@ -179,12 +179,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     clearSchedule();
     if (divergedError !== null) return false;
     if (!hasWalRecords()) return true;
-    const pendingRecords = wal.records();
-    const first = pendingRecords[0]!.revision;
-    const last = pendingRecords.at(-1)!.revision;
+    const records = wal.records();
+    const pendingRecords = records.filter((record) => record.revision > (gitHead?.revision ?? 0));
+    const first = records[0]!.revision;
+    const last = records.at(-1)!.revision;
     const started = performance.now();
     try {
-      const advancedBaseline = advanceGitBaseline(gitBaseline, ledger, wal, pendingRecords);
+      const advancedBaseline =
+        pendingRecords.length > 0 ? advanceGitBaseline(gitBaseline, ledger, wal, pendingRecords) : undefined;
       flushWalToGit(wal, git, { ...options, compactWorktree });
       reloadGit(advancedBaseline);
       lastFlushDurationMs = performance.now() - started;
@@ -193,12 +195,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       // but can never make an already durable WAL cut fail.
       notifyAfterFlush(
         new Set(
-          pendingRecords.flatMap((record) => [
+          records.flatMap((record) => [
             ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
             ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
           ]),
         ),
-        pendingRecords.at(-1)!.event.actor,
+        records.at(-1)!.event.actor,
       );
       console.info(
         `[wal-materializer] materialized revisions ${first}-${last} (${context}, attempt ${consecutiveFailures + 1})`,
@@ -534,19 +536,20 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         finished = true;
         const batch = wal.records().filter((record) => record.revision >= firstRevision);
         try {
+          if (batch.length > 0)
+            materializeVisible(
+              ledger,
+              wal,
+              batch.map((record) => record.event),
+              baseline,
+              git.currentCommit(),
+              (sha256) => git.readContentBlob(sha256),
+            );
+          await yieldToEventLoop();
           await flushPending("bulk write", true);
         } finally {
           bulkWriteActive = false;
         }
-        if (batch.length > 0)
-          materializeVisible(
-            ledger,
-            wal,
-            batch.map((record) => record.event),
-            baseline,
-            git.currentCommit(),
-            (sha256) => git.readContentBlob(sha256),
-          );
       },
     };
   };
@@ -830,6 +833,10 @@ function booleanOverride(envName: string, fallback: boolean): boolean {
 
 function wait(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 function walShadowErrorMessage(error: unknown): string {

@@ -587,22 +587,25 @@ export async function runSingleMigrationImport(
   // materialization and projection reduction, then settles each surface once.
   const unexplained = migrationOracleKinds.filter((kind) => !reconciliation[kind].passed),
     coveragePassed = actual.coverage === expected.coverage,
-    writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed;
+    writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed,
+    throwIfShutdownRequested = (): void => {
+      if (!input.shouldStop?.()) return;
+      throw migrationImportError(
+        "daemon_shutdown",
+        [
+          "Daemon shutdown interrupted this migration after revision ",
+          `${input.store.readHead()?.revision ?? 0}`,
+          "; every committed event is durable. Rerun the same --source set to ",
+          "resume; source-scoped operation ids make already imported entities ",
+          "no-ops.",
+        ].join(""),
+      );
+    };
   if (writesAllowed) {
     const bulk = input.store.beginBulkWrite?.();
     try {
       for (const [index, item] of prepared.entries()) {
-        if (input.shouldStop?.())
-          throw migrationImportError(
-            "daemon_shutdown",
-            [
-              "Daemon shutdown interrupted this migration after revision ",
-              `${input.store.readHead()?.revision ?? 0}`,
-              "; every committed event is durable. Rerun the same --source set to ",
-              "resume; source-scoped operation ids make already imported entities ",
-              "no-ops.",
-            ].join(""),
-          );
+        throwIfShutdownRequested();
         input.store.append(item);
         if (!bulk) input.projection.apply(item.event, item.plan);
         if ((index + 1) % 256 === 0) await yieldToEventLoop();
@@ -611,6 +614,8 @@ export async function runSingleMigrationImport(
       await bulk?.finish();
       if (bulk) input.projection.catchUp?.();
     }
+    await yieldToEventLoop();
+    throwIfShutdownRequested();
   }
   const exitCode: 0 | 1 | 3 = !authoredCoverage.passed || unexplained.length || !coveragePassed ? 1 : 0,
     summary = reportTable(
