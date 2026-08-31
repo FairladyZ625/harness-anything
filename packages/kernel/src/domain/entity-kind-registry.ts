@@ -3,6 +3,7 @@ import taskFrontmatterJsonSchema from "../../schemas/json/task-frontmatter.schem
 import decisionPackageJsonSchema from "../../schemas/json/decision-package.schema.json" with { type: "json" };
 import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
+import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { agentRuntimeEventTypes, runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
 import { decisionEventTypes, decisionStates } from "./decision-event-types.ts";
 import {
@@ -184,7 +185,7 @@ export interface EntityActionContract {
 
 export interface EntityActionInputField {
   readonly field: string;
-  readonly type: "string" | "number" | "boolean" | "string-array" | "fact-hold-array";
+  readonly type: "string" | "number" | "boolean" | "string-array" | "fact-hold-array" | "json-object";
   readonly required: boolean;
   readonly enum?: readonly string[];
   readonly regex?: string;
@@ -543,6 +544,11 @@ const scheduleActionCatalog = createScheduleActionCatalog(
   actionResultContract,
 );
 
+const agentActionCatalog = createAgentActionCatalog(
+  (id) => entityAction("agent", agentIdentity, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -719,11 +725,7 @@ export const entityKindContracts = Object.freeze([
     schema: AGENT_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
-    actionCatalog: actionCatalog("kernel/agent-declaration/v1", "agent", agentIdentity, [
-      "configure",
-      "activate",
-      "retire",
-    ]),
+    actionCatalog: agentActionCatalog,
     entityStore: genericEntityStore("agents/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,

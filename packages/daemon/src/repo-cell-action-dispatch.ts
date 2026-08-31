@@ -231,7 +231,7 @@ export async function executeAction(
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
       cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
@@ -259,7 +259,7 @@ export async function executeAction(
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
   }
-  if (/^(?:agent|squad)-install$/u.test(action.kind)) {
+  if (action.kind === "squad-install") {
     const prepared = prepareAgentEntityInstall({
       rootDir: cell.rootDir,
       action,

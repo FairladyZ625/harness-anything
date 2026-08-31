@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto";
 import { makeDecisionService, makeFactService } from "../../application/src/index.ts";
 import {
+  compileEntityUpsert,
   compileDecisionWrite,
   compileFactWrite,
   decisionWritePlan,
+  entityUpsertWritePlan,
   factWritePlan,
   getExecutableEntityAction,
   isRelationEvent,
   isSameExecution,
   relationEventWritePlan,
+  requireEntityStoreKindContract,
   timestamp,
   type AuthorizationDecision,
   type CanonicalEventCut,
@@ -17,6 +20,8 @@ import {
   type EntityActionContract,
   type EntityActionDraft,
   type EntityActionExecutionContract,
+  type EntityEventV1,
+  type EntityUpsertBundle,
   type EventPublicationKillpoint,
   type FactConfidence,
   type FactEventV1,
@@ -33,15 +38,22 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
-type CatalogBundle = FactBundle | DecisionBundle;
+type CatalogBundle = FactBundle | DecisionBundle | EntityUpsertBundle;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ) => Promise<WriteReceipt>;
+export type EntityActionCatalogPreparer = (
+  contract: ExecutableAction,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  opId: string,
+) => RepoTaskAction;
 export interface EntityActionCatalogRuntimes {
   readonly schedule?: EntityActionCatalogRunner;
   readonly task?: EntityActionCatalogRunner;
+  readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
 }
 
 export function makeEntityActionCatalogExecutor(input: {
@@ -87,7 +99,9 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
     runtimes: EntityActionCatalogRuntimes = {},
   ): WriteReceipt | Promise<WriteReceipt> => {
-    const contract = executableAction(action.kind);
+    const contract = executableAction(action.kind),
+      prepare = runtimes.prepare?.[contract.target.kind],
+      preparedAction = prepare?.(contract, action, binding, opId) ?? action;
     if (contract.execution.implementation === "schedule-event") {
       if (!runtimes.schedule)
         throw Object.assign(new Error(`Action ${action.kind} requires the Schedule Action runtime.`), {
@@ -101,7 +115,7 @@ export function makeEntityActionCatalogExecutor(input: {
       contract.execution.implementation !== "task-lifecycle" &&
       contract.execution.implementation !== "task-completion"
     )
-      return runCompiled(action, binding, opId);
+      return runCompiled(preparedAction, binding, opId);
     if (!runtimes.task)
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
@@ -158,13 +172,14 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
   ): WriteReceipt => {
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
-      action =
+      action = (
         contract.id === "amend"
           ? prepareDecisionAmend(
               rawAction,
               decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
             )
-          : rawAction,
+          : rawAction
+      ) as RepoTaskAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
@@ -182,6 +197,15 @@ export function makeEntityActionCatalogExecutor(input: {
     const bundle =
       matchingReplayBundle(input.store, contract, existing) ??
       compileAction(contract, action, binding, opId, occurredAt);
+    if (isEntityBundle(bundle)) {
+      if (dryRun)
+        return entityPreview(contract, action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
+      return deriveActionResult(
+        contract,
+        action,
+        runEntityWrite(bundle, action, existing !== null, authorizationDecision),
+      );
+    }
     if (dryRun) {
       if (bundle.event.schema !== "decision-event/v1")
         reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
@@ -195,6 +219,61 @@ export function makeEntityActionCatalogExecutor(input: {
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
     return decisionReceipt(result, bundle.event, authorizationDecision);
+  };
+
+  const runEntityWrite = (
+    bundle: EntityUpsertBundle,
+    action: RepoTaskAction,
+    replay: boolean,
+    authorizationDecision: AuthorizationDecision,
+  ): WriteReceipt => {
+    const appended = input.store.append(bundle);
+    if (!replay) input.projection.apply(bundle.event, bundle.plan);
+    publicationKillpoints(input.killpoint);
+    const applied = input.projection.readOperation(bundle.event.opId),
+      visible = !!applied && applied.watermark >= bundle.event.workspaceRevision,
+      claim = bundle.event.payload.declarationDocumentClaim,
+      receipt = {
+        opId: bundle.event.opId,
+        revision: appended.revision,
+        evidence: JSON.stringify({
+          report: preparedEntityReport(action),
+          event: {
+            schema: bundle.event.schema,
+            eventId: bundle.event.eventId,
+            opId: bundle.event.opId,
+            path: claim.path,
+          },
+          commitSha: appended.commitSha?.sha ?? null,
+          cut: appended.cut,
+        }),
+        visibility: "center" as const,
+        proof: {
+          committedRevision: appended.revision,
+          appliedCut: applied?.watermark ?? 0,
+          durable: true,
+          canonicalVisible: visible,
+          worktreeVisible: true,
+        },
+        detail: {
+          kind: "entity_upsert" as const,
+          entityKind: bundle.event.payload.entityKind,
+          entityId: bundle.event.payload.entityId,
+          schemaId: requireEntityStoreKindContract(bundle.event.payload.entityKind).schema.$id,
+          path: claim.path,
+        },
+        commitSha: appended.commitSha?.sha ?? null,
+        cut: appended.cut,
+        authorizationDecision,
+        entityId: bundle.event.payload.entityId,
+      };
+    return visible
+      ? { outcome: "applied", ...receipt }
+      : {
+          outcome: "pending",
+          ...receipt,
+          nextAction: `Retry after the projection records declaration event ${bundle.event.opId}.`,
+        };
   };
 
   const runRelationWrite = (
@@ -213,14 +292,14 @@ export function makeEntityActionCatalogExecutor(input: {
       draft = replay
         ? null
         : contract.execution.compile?.({
-          action,
-          actor: binding.actor,
-          source: binding.source,
-          session: input.sessionIdentity(binding),
-          opId,
-          occurredAt,
-          workspaceRevision: headRevision + 1,
-        }),
+            action,
+            actor: binding.actor,
+            source: binding.source,
+            session: input.sessionIdentity(binding),
+            opId,
+            occurredAt,
+            workspaceRevision: headRevision + 1,
+          }),
       compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
     if (!compiled || !isRelationEvent(compiled))
       reject("invalid_command", `${action.kind} did not compile a Relation event.`);
@@ -332,7 +411,14 @@ export function makeEntityActionCatalogExecutor(input: {
         workspaceRevision: headRevision + 1,
         ...(coverage ? { coverage } : {}),
       });
-    return compileDraft(input.projection, draft);
+    return compileDraft(input.projection, draft, {
+      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+      opId,
+      workspaceRevision: headRevision + 1,
+      actor: binding.actor,
+      source: binding.source,
+      occurredAt,
+    });
   };
 
   return Object.freeze({ run });
@@ -392,8 +478,18 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
   return bundle.event.schema === "fact-event/v1";
 }
 
-function compileDraft(projection: TaskProjection, draft: EntityActionDraft): CatalogBundle {
+function isEntityBundle(bundle: CatalogBundle): bundle is EntityUpsertBundle {
+  return bundle.event.schema === "entity-event/v1";
+}
+
+function compileDraft(
+  projection: TaskProjection,
+  draft: EntityActionDraft,
+  event: Omit<Parameters<typeof compileEntityUpsert>[0], "entityKind" | "entity">,
+): CatalogBundle {
   if (draft.kind === "fact") return compileFactWrite({ event: draft.event });
+  if (draft.kind === "entity")
+    return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "relation")
     reject("invalid_command", "Relation drafts are committed directly through the Relation aggregate executor.");
@@ -432,6 +528,23 @@ function matchingReplayBundle(
   existing: ReturnType<CanonicalEventStore["readEvent"]>,
 ): CatalogBundle | null {
   const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
+  if (existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind) {
+    const claim = existing.payload.declarationDocumentClaim,
+      bytes = store.readContentBlob(claim.sha256);
+    if (!bytes) reject("content_not_ready", `Entity content for ${claim.path} is unavailable.`);
+    return {
+      event: existing,
+      plan: entityUpsertWritePlan(existing as EntityEventV1),
+      blobs: [
+        {
+          sha256: claim.sha256,
+          size: claim.size,
+          mediaType: claim.mediaType,
+          body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+        },
+      ],
+    };
+  }
   if (existing?.schema === "fact-event/v1" && writesFact) {
     const claim = existing.payload.factsDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
@@ -641,6 +754,53 @@ function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt
     },
     nextAction: "Remove --dry-run to publish this validated Decision write plan.",
   };
+}
+
+function entityPreview(
+  contract: ExecutableAction,
+  action: RepoTaskAction,
+  bundle: EntityUpsertBundle,
+  revision: number,
+  authorizationDecision: AuthorizationDecision,
+): WriteReceipt {
+  const claim = bundle.event.payload.declarationDocumentClaim;
+  return {
+    outcome: "pending",
+    opId: `preview:${createHash("sha256").update(bundle.event.opId).digest("hex")}`,
+    revision,
+    evidence: JSON.stringify({
+      report: preparedEntityReport(action),
+      eventType: bundle.event.type,
+      targetRevision: bundle.event.workspaceRevision,
+      declaration: claim,
+      writePlan: bundle.plan,
+      dryRun: true,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: revision,
+      appliedCut: revision,
+      durable: false,
+      canonicalVisible: false,
+      worktreeVisible: false,
+    },
+    authorizationDecision,
+    unmetCriteria: [],
+    effects: [],
+    updatedProjection: null,
+    rejectionExplanation: null,
+    nextActions: ["Remove --dry-run to publish this Agent declaration through the canonical event stream."],
+    nextAction: `Remove --dry-run to run ${contract.execution.ingress}.`,
+  };
+}
+
+function preparedEntityReport(action: RepoTaskAction): Readonly<Record<string, unknown>> {
+  const prepared = action.preparedEntityAction;
+  if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) return {};
+  const report = (prepared as Readonly<Record<string, unknown>>).report;
+  return report && typeof report === "object" && !Array.isArray(report)
+    ? (report as Readonly<Record<string, unknown>>)
+    : {};
 }
 
 function missingProposalFactEvidenceHint(event: DecisionEventV1): string | null {
