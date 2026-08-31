@@ -23,6 +23,7 @@ const SETTINGS = {
   defaultProfile: "baseline",
   locale: "zh-CN" as const,
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
 };
 const SNAPSHOT = {
   schema: "gui-catalog-snapshot/v1" as const,
@@ -243,6 +244,9 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(optionValues(select(container, "settings-repository-scaffold-select"))).toEqual([
       "governance/repository-scaffold.json",
     ]);
+    expect((container.querySelector('[data-testid="settings-wal-flush-events"]') as HTMLInputElement).value).toBe(
+      "256",
+    );
   });
 
   it("当前值不在目录里时并入选项并保留可提交,不静默丢值", async () => {
@@ -273,6 +277,10 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       defaultPreset: "standard-task",
       taskScaffold: "governance/task-scaffold.json",
       repositoryScaffold: "governance/repository-scaffold.json",
+      walFlushAdaptive: true,
+      walFlushEvents: 256,
+      walFlushBytes: 8_388_608,
+      walFlushMilliseconds: 2_000,
     });
   });
 

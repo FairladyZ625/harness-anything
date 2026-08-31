@@ -1,6 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
+  DEFAULT_WAL_FLUSH_SETTINGS,
   SETTINGS_ID,
   readSettingsFacet,
   repositorySettings,
@@ -141,12 +142,24 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
         task: value.scaffolds.task,
         repository: value.scaffolds.repository,
       },
+      walFlush: value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
     },
     current = validateRepositorySettings(normalized).length === 0;
   if (!current) return false;
   if (!allowUnknownFields)
-    return Object.keys(value).every((field) =>
-      ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds"].includes(field),
+    return (
+      value.walFlush !== undefined &&
+      Object.keys(value).every((field) =>
+        [
+          "schema",
+          "settingsId",
+          "defaultVertical",
+          "defaultPreset",
+          "defaultProfile",
+          "scaffolds",
+          "walFlush",
+        ].includes(field),
+      )
     );
   return (
     validateRepositorySettings({

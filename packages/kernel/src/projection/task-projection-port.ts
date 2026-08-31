@@ -62,6 +62,7 @@ export interface TaskProjection {
   readonly close: () => void;
   readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt;
   readonly rebuild: () => ProjectionRebuildReceipt;
+  readonly catchUp?: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;

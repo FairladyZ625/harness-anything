@@ -22,6 +22,7 @@ import type {
   SettingsRead,
 } from "../api/renderer-dto.ts";
 import { isRendererRecord } from "./result-validation.ts";
+import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 
 export interface TaskListSuccess {
@@ -149,6 +150,10 @@ export type SettingsUpdateInput = RepoScope &
     locale: "en-US" | "zh-CN";
     taskScaffold: string;
     repositoryScaffold: string;
+    walFlushAdaptive: boolean;
+    walFlushEvents: number;
+    walFlushBytes: number;
+    walFlushMilliseconds: number;
   }> & { readonly idempotencyKey: string };
 
 export interface DecisionControlListSuccess {
@@ -523,25 +528,6 @@ function readTaskDocumentListResult(value: unknown): TaskDocumentListProjectionR
 function readSettingsResult(value: unknown): SettingsSuccess {
   if (!isSettingsSuccess(value)) throw new Error(localErrorHint(value, "Settings bridge returned an invalid result."));
   return value;
-}
-
-function isSettingsSuccess(value: unknown): value is SettingsSuccess {
-  if (!isRendererRecord(value) || !isRendererRecord(value.settings)) return false;
-  const settings = value.settings;
-  return (
-    value.schema === "daemon.settings-read/v1" &&
-    value.ok === true &&
-    settings.schema === "settings/v1" &&
-    settings.settingsId === "repository" &&
-    [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].every(
-      (field) => typeof field === "string" && field.length > 0,
-    ) &&
-    ["en-US", "zh-CN"].includes(String(settings.locale)) &&
-    isRendererRecord(settings.scaffolds) &&
-    [settings.scaffolds.task, settings.scaffolds.repository].every(
-      (field) => typeof field === "string" && field.length > 0,
-    )
-  );
 }
 
 function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {

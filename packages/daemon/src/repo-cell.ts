@@ -1,10 +1,14 @@
 import path from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
   blockingOf,
   closeoutReadiness,
+  configureLedgerMaintenance,
   makeTaskEventStore,
   makeTaskProjection,
+  readSettingsFacet,
+  resolveHarnessLayout,
   type ActorIdentity,
   type DaemonRepoMode,
   type DocSyncReceiptDetail,
@@ -116,6 +120,8 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
         );
       });
   };
+  const configPath = path.join(resolveHarnessLayout(context.rootDir).authoredRoot, "harness.yaml");
+  configureLedgerMaintenance(context.rootDir);
   const store = makeTaskEventStore({
       repoId: context.input.repoId,
       rootDir: context.rootDir,
@@ -126,6 +132,7 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
       withAppendFence: (operation) =>
         context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
       rejectPreparedRecovery: context.mode === "remote-center",
+      walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
     }),
     recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });

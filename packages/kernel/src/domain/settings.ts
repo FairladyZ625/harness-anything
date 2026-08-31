@@ -7,12 +7,27 @@ export const SETTINGS_LOCAL_PATH = ".harness/settings.local.json";
 export const settingsLocales = ["en-US", "zh-CN"] as const;
 export type SettingsLocale = (typeof settingsLocales)[number];
 
+export interface WalFlushSettingsV1 {
+  readonly adaptive: boolean;
+  readonly events: number;
+  readonly bytes: number;
+  readonly milliseconds: number;
+}
+
+export const DEFAULT_WAL_FLUSH_SETTINGS: WalFlushSettingsV1 = Object.freeze({
+  adaptive: true,
+  events: 256,
+  bytes: 8 * 1024 * 1024,
+  milliseconds: 2_000,
+});
+
 export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   defaultVertical: "repository",
   defaultPreset: "repository",
   defaultProfile: "repository",
   locale: "local",
   scaffolds: "repository",
+  walFlush: "repository",
 } as const);
 
 type SettingsOwnedField = keyof typeof SETTINGS_FIELD_OWNERSHIP;
@@ -34,6 +49,7 @@ export interface RepositorySettingsV1 {
     readonly task: string;
     readonly repository: string;
   };
+  readonly walFlush: WalFlushSettingsV1;
 }
 
 export interface LocalSettingsV1 {
@@ -52,6 +68,7 @@ export interface SettingsV1 {
     readonly task: string;
     readonly repository: string;
   };
+  readonly walFlush: WalFlushSettingsV1;
 }
 
 export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1> = {
@@ -77,6 +94,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
     task: "governance/task-scaffold.json",
     repository: "governance/repository-scaffold.json",
   }),
+  walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
 });
 
 const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
@@ -127,8 +145,18 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       required: ["task", "repository"],
       additionalProperties: false,
     },
+    walFlush: walFlushSchema(),
   },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "locale", "scaffolds"],
+  required: [
+    "schema",
+    "settingsId",
+    "defaultVertical",
+    "defaultPreset",
+    "defaultProfile",
+    "locale",
+    "scaffolds",
+    "walFlush",
+  ],
   additionalProperties: false,
 };
 
@@ -168,8 +196,9 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       required: ["task", "repository"],
       additionalProperties: false,
     },
+    walFlush: walFlushSchema(),
   },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds"],
+  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
   additionalProperties: false,
 };
 
@@ -185,6 +214,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
+    walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
   };
 }
 
@@ -215,6 +245,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
       task: settingBlockValue(body, "scaffolds", "task") ?? INITIAL_SETTINGS_V1.scaffolds.task,
       repository: settingBlockValue(body, "scaffolds", "repository") ?? INITIAL_SETTINGS_V1.scaffolds.repository,
     },
+    walFlush: readWalFlushSettings(body),
   };
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
@@ -255,6 +286,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     repository.scaffolds.task,
     INITIAL_SETTINGS_V1.scaffolds.task,
   );
+  next = writeWalFlushFacet(next, repository.walFlush);
   next = replaceDefaultedBlockScalar(
     next,
     "scaffolds",
@@ -266,6 +298,58 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   if (JSON.stringify(repositorySettings(readSettingsFacet(next))) !== JSON.stringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
   return next;
+}
+
+function walFlushSchema() {
+  return {
+    ...ownedSchema("walFlush", {}),
+    type: "object" as const,
+    properties: {
+      adaptive: ownedSchema("walFlush", { type: "boolean" as const }),
+      events: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 1_000_000 }),
+      bytes: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 1_073_741_824 }),
+      milliseconds: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 3_600_000 }),
+    },
+    required: ["adaptive", "events", "bytes", "milliseconds"],
+    additionalProperties: false,
+  };
+}
+
+function readWalFlushSettings(body: string): WalFlushSettingsV1 {
+  const readPositive = (key: keyof Omit<WalFlushSettingsV1, "adaptive">): number => {
+      const raw = settingBlockValue(body, "walFlush", key);
+      if (raw === undefined) return DEFAULT_WAL_FLUSH_SETTINGS[key];
+      const value = Number(raw);
+      if (!Number.isSafeInteger(value) || value < 1) throw new Error(`settings.walFlush.${key} must be positive`);
+      return value;
+    },
+    adaptiveRaw = settingBlockValue(body, "walFlush", "adaptive");
+  if (adaptiveRaw !== undefined && adaptiveRaw !== "true" && adaptiveRaw !== "false")
+    throw new Error("settings.walFlush.adaptive must be true or false");
+  return {
+    adaptive: adaptiveRaw === undefined ? DEFAULT_WAL_FLUSH_SETTINGS.adaptive : adaptiveRaw === "true",
+    events: readPositive("events"),
+    bytes: readPositive("bytes"),
+    milliseconds: readPositive("milliseconds"),
+  };
+}
+
+function writeWalFlushFacet(body: string, settings: WalFlushSettingsV1): string {
+  const section = /^  walFlush:[^\S\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
+    isDefault = JSON.stringify(settings) === JSON.stringify(DEFAULT_WAL_FLUSH_SETTINGS);
+  if (!section.test(body) && isDefault) return body;
+  const rendered = [
+    "  walFlush:",
+    `    adaptive: ${settings.adaptive}`,
+    `    events: ${settings.events}`,
+    `    bytes: ${settings.bytes}`,
+    `    milliseconds: ${settings.milliseconds}`,
+    "",
+  ].join("\n");
+  if (section.test(body)) return body.replace(section, rendered);
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${rendered}`);
 }
 
 function removeLegacyLocale(body: string): string {

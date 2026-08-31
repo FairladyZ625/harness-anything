@@ -47,6 +47,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
         { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
         { actor, source: "local" },
       )) as Record<string, unknown>;
+    const commitsBeforeApply = Number(git(destination, "rev-list", "--count", "HEAD"));
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.equal(
       makeTaskEventStore({
@@ -65,6 +66,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    assert.equal(Number(git(destination, "rev-list", "--count", "HEAD")), commitsBeforeApply + 1);
     assert.match(String(applied.idMapPath), /^migrations\//u);
     assert.match(String(applied.summary), /Authored directory audit \(informational\): complete/u);
     assert.deepEqual(snapshot(source), sourceBefore);

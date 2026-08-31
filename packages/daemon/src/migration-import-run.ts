@@ -587,29 +587,40 @@ export async function runSingleMigrationImport(
     prepared.push(mapPrepared);
     revision += 1;
   }
-  // Replay yields one event-loop turn per committed event and stops at the next
-  // safe point (between single-event publications) when the daemon is draining;
-  // the events already appended stay durable and complete.
+  // The WAL is authoritative for each append. Migration defers worktree/Git
+  // materialization and projection reduction, then settles each surface once.
   const unexplained = migrationOracleKinds.filter((kind) => !reconciliation[kind].passed),
     coveragePassed = actual.coverage === expected.coverage,
-    writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed;
-  if (writesAllowed)
-    for (const item of prepared) {
-      if (input.shouldStop?.())
-        throw migrationImportError(
-          "daemon_shutdown",
-          [
-            "Daemon shutdown interrupted this migration after revision ",
-            `${input.store.readHead()?.revision ?? 0}`,
-            "; every committed event is durable. Rerun the same --source set to ",
-            "resume; source-scoped operation ids make already imported entities ",
-            "no-ops.",
-          ].join(""),
-        );
-      input.store.append(item);
-      input.projection.apply(item.event, item.plan);
-      await yieldToEventLoop();
+    writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed,
+    throwIfShutdownRequested = (): void => {
+      if (!input.shouldStop?.()) return;
+      throw migrationImportError(
+        "daemon_shutdown",
+        [
+          "Daemon shutdown interrupted this migration after revision ",
+          `${input.store.readHead()?.revision ?? 0}`,
+          "; every committed event is durable. Rerun the same --source set to ",
+          "resume; source-scoped operation ids make already imported entities ",
+          "no-ops.",
+        ].join(""),
+      );
+    };
+  if (writesAllowed) {
+    const bulk = input.store.beginBulkWrite?.();
+    try {
+      for (const [index, item] of prepared.entries()) {
+        throwIfShutdownRequested();
+        input.store.append(item);
+        if (!bulk) input.projection.apply(item.event, item.plan);
+        if ((index + 1) % 256 === 0) await yieldToEventLoop();
+      }
+    } finally {
+      await bulk?.finish();
+      if (bulk) input.projection.catchUp?.();
     }
+    await yieldToEventLoop();
+    throwIfShutdownRequested();
+  }
   const exitCode: 0 | 1 | 3 = !authoredCoverage.passed || unexplained.length || !coveragePassed ? 1 : 0,
     summary = reportTable(
       dryRun,
