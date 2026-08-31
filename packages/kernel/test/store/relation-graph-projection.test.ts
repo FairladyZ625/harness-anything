@@ -4,11 +4,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import {
-  checkTaskProjection,
-  readLegacyMigrationSource,
-  rebuildTaskProjection,
-} from "../../src/index.ts";
+import { checkTaskProjection, readLegacyMigrationSource, rebuildTaskProjection } from "../../src/index.ts";
+import { readColdRebuildSource } from "../../src/projection/cold-rebuild-source.ts";
 import { readRelationGraphProjection } from "../../src/projection/sqlite-task-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
@@ -256,6 +253,39 @@ test("equal legacy Fact ids in documents and events both reach deterministic mig
         .map(({ taskId }) => taskId)
         .sort(),
       ["task-cold", "task-second"],
+    );
+  });
+});
+
+test("legacy relation type normalization stays confined to the migration reader", () => {
+  withTempStore((rootDir) => {
+    const legacyEvidence = relation({
+      source: "decision/dec_COLD/C1",
+      target: "fact/F-DEADBEEF",
+      type: "supports",
+    });
+    writeColdHistory(
+      rootDir,
+      legacyEvidence,
+      relation({ source: "decision/dec_COLD/CH1", target: "task/task-cold", type: "derives" }),
+      relation({ source: "fact/F-DEADBEEF", target: "fact/F-ABCDEFGH", type: "supersedes-fact" }),
+    );
+    const ordinary = readColdRebuildSource(rootDir),
+      migration = readLegacyMigrationSource(rootDir);
+    assert.equal(
+      ordinary.truth.edges.some(({ relationId }) => relationId === legacyEvidence.relation_id),
+      false,
+    );
+    assert.equal(
+      ordinary.issues.some(({ reason }) => reason.includes("type supports is not allowed for decision->fact")),
+      true,
+    );
+    assert.equal(
+      migration.truth.edges.some(
+        ({ sourceRef, targetRef, relationType }) =>
+          sourceRef === legacyEvidence.source && targetRef === legacyEvidence.target && relationType === "evidenced-by",
+      ),
+      true,
     );
   });
 });

@@ -135,7 +135,14 @@ export function reportTable(
     backfillDifferenceRows = backfillRows.map(
       ({ entityType, entityId, action, sourceAnchor }) =>
         `| ${entityType} | ${entityId} | ${action} | ${sourceAnchor} |`,
-    );
+    ),
+    manualRows = skips
+      .filter(({ reason }) => reason.startsWith("manual adjudication required:"))
+      .sort(bySkip)
+      .map(
+        ({ entityType, migratedFrom, sourcePath, reason }) =>
+          `| ${entityType} | ${migratedFrom} | FAIL | ${sourcePath} | ${reason} |`,
+      );
   return [
     `Migration import ${dryRun ? "dry-run" : "apply"}`,
     `Source Git: root=${sourceGit.rootCommit}, head=${sourceGit.head}, tree=${sourceGit.tree}, clean=true`,
@@ -180,6 +187,11 @@ export function reportTable(
     ...formatObservations.map(
       (item) => `- ACCEPT ${item.code} (${item.sourcePath}): ${item.detail}; treatment=${item.treatment}`,
     ),
+    "",
+    "| Manual family | Entity ID | Result | Source anchor | Reason |",
+    "| --- | --- | --- | --- | --- |",
+    ...manualRows,
+    ...(manualRows.length ? [] : ["| none | none | PASS | none | no manual adjudication required |"]),
     "",
     "| Backfill family | Entity ID | Difference | Source anchor |",
     "| --- | --- | --- | --- |",

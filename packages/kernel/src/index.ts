@@ -247,6 +247,10 @@ export type {
   ColdRebuildIssue,
   ColdRebuildSource,
 } from "./projection/cold-rebuild-source.ts";
+export {
+  legacyRelationManualReason,
+  normalizeLegacyRelationMigrationEvent,
+} from "./projection/relation-migration-normalization.ts";
 export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";

@@ -282,6 +282,15 @@ export function multiSourceFixture(root: string, label: string, personId: string
   );
 }
 export function sources(root: string): readonly string[] {
+  commitSource(root);
+  buildProjectionOracle(root);
+  return [root];
+}
+export function sourcesWithoutProjection(root: string): readonly string[] {
+  commitSource(root);
+  return [root];
+}
+function commitSource(root: string): void {
   if (!statOrNull(path.join(root, ".git"))) {
     git(root, "init", "-q");
     git(root, "config", "user.name", "Migration Source");
@@ -292,8 +301,6 @@ export function sources(root: string): readonly string[] {
   const exclude = path.join(root, ".git/info/exclude"),
     currentExclude = readFileSync(exclude, "utf8");
   if (!currentExclude.split("\n").includes(".harness/")) writeFileSync(exclude, `${currentExclude}\n.harness/\n`);
-  buildProjectionOracle(root);
-  return [root];
 }
 export function snapshot(root: string): readonly string[] {
   const walk = (dir: string): string[] =>
@@ -541,6 +548,194 @@ export function hierarchyFixture(root: string): void {
   );
 }
 
+export function legacyRelationTypeFixture(root: string): void {
+  const authored = path.join(root, "harness"),
+    eventsRoot = path.join(authored, "events"),
+    factTaskRoot = path.join(authored, "tasks/task_relation-fixture");
+  mkdirSync(eventsRoot, { recursive: true });
+  writeFileSync(
+    path.join(authored, "harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  const task = (taskId: string, title: string): void => {
+    const taskRoot = path.join(authored, `tasks/${taskId}-fixture`);
+    mkdirSync(taskRoot, { recursive: true });
+    writeFileSync(
+      path.join(taskRoot, "INDEX.md"),
+      `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\nlifecycle:\n  status: done\n  engine: local\n  bindingCreatedAt: 2026-07-05T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`,
+    );
+  };
+  task("task_relation", "Relation evidence");
+  task("task_01KWPY434ZHW6ADS2TBC1N8TX6", "Two-gate resolution");
+  task("task_01KWMC7H04ZRY0VZ5MRR6M4XVQ", "M5 exit");
+  writeFileSync(
+    path.join(factTaskRoot, "facts.md"),
+    [
+      "# Facts",
+      "",
+      "- {fact_id: F-HKPMAP7K, statement: The current-state gap is observed, source: legacy-test, observedAt: 2026-07-05T00:00:01.000Z, confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: codex, sessionId: legacy-session, boundAt: 2026-07-05T00:00:01.000Z}]}",
+      "- {fact_id: F-96WCR25Q, statement: The usability gate failed, source: legacy-test, observedAt: 2026-07-05T00:00:02.000Z, confidence: high, memoryClass: semantic, memoryTags: [pattern], provenance: [{runtime: codex, sessionId: legacy-session, boundAt: 2026-07-05T00:00:02.000Z}]}",
+      "",
+    ].join("\n"),
+  );
+  const decision = (decisionId: string, title: string): void => {
+    const decisionRoot = path.join(authored, `decisions/decision-${decisionId}`);
+    mkdirSync(decisionRoot, { recursive: true });
+    writeFileSync(
+      path.join(decisionRoot, "decision.md"),
+      `---\nschema: decision-package/v1\ndecision_id: ${decisionId}\nworkspaceRevision: 1\ntitle: "${title}"\nstate: active\nriskTier: medium\nurgency: medium\nvertical: "software/coding"\npreset: "standard-task"\ndecisionClass: ordinary\napplies_to: {"modules":["kernel"],"productLines":["harness"]}\nproposedAt: "2026-07-05T00:00:00.000Z"\ndecidedAt: "2026-07-05T00:00:03.000Z"\nquestion: "How should the legacy relation read?"\nchosen: [{"id":"CH1","text":"Use the canonical sentence"}]\nrejected: [{"id":"RJ1","text":"Keep the legacy verb","whyNot":"The sentence reads incorrectly"}]\nclaims: [{"id":"C1","text":"The canonical sentence is deterministic","loadBearing":false,"fulfillment":null}]\nrelations: []\n---\n\n# ${title}\n`,
+    );
+  };
+  decision("dec_F2_ACCEPT_RECKON", "Accept and reckon");
+  decision("dec_M5_E76_CLI_AGENT_ERGONOMICS", "CLI ergonomics");
+  decision("dec_VERT_DECISION_CONFORMANCE_PRESET", "Decision conformance preset");
+  const samples = legacyRelationTypeSamples();
+  for (const sample of samples) {
+    const relation = {
+        direction: "directed",
+        origin: "imported_snapshot",
+        ...sample.relation,
+        state: "edge_retired",
+        strength: "strong",
+      },
+      event = {
+        actor: { executor: null, principal: { personId: "person_zeyu" } },
+        eventId: sample.eventId,
+        occurredAt: sample.occurredAt,
+        opId: sample.opId,
+        payload: {
+          entity: { kind: "relation", ownerRef: sample.ownerRef, relation },
+          generation: "v0",
+          migratedFrom: relation.relation_id,
+        },
+        schema: "migration-import-event/v1",
+        source: "migration-import/v1",
+        type: "entity_migrated",
+        workspaceRevision: sample.workspaceRevision,
+      },
+      shardRoot = path.join(eventsRoot, sample.eventId.slice(6, 8));
+    mkdirSync(shardRoot, { recursive: true });
+    writeFileSync(path.join(shardRoot, `${sample.opId}.json`), `${JSON.stringify(event)}\n`);
+  }
+}
+
+export function legacyRelationCanonicalCollisionFixture(root: string): void {
+  legacyRelationTypeFixture(root);
+  const event = {
+      actor: { executor: null, principal: { personId: "person_zeyu" } },
+      eventId: "event-381f1232974e15959102c494713c5a962a1be4dc13a8dc7cea127c0395ae512b",
+      occurredAt: "2026-08-15T18:13:55.397Z",
+      opId: "migration-089bbfd780c1f15cf2460e3aaf",
+      payload: {
+        entity: {
+          kind: "relation",
+          ownerRef: "decision/dec_VERT_DECISION_CONFORMANCE_PRESET",
+          relation: {
+            direction: "directed",
+            origin: "imported_snapshot",
+            rationale:
+              "M5 exit 实证驱动: F5 shipped-unused/docmap 手写漂移/模板旧名回归全靠人工 ledger-walk 抓到, " +
+              "该 SOP 应产品化为可调用 preset",
+            relation_id: "rel_6f93a31e553e4620",
+            source: "decision/dec_VERT_DECISION_CONFORMANCE_PRESET/CH1",
+            state: "active",
+            strength: "strong",
+            target: "task/task_01KWMC7H04ZRY0VZ5MRR6M4XVQ",
+            type: "relates",
+          },
+        },
+        generation: "v0",
+        migratedFrom: "rel_6f93a31e553e4620",
+      },
+      schema: "migration-import-event/v1",
+      source: "migration-import/v1",
+      type: "entity_migrated",
+      workspaceRevision: 3455,
+    },
+    eventsRoot = path.join(root, "harness/events/38");
+  mkdirSync(eventsRoot, { recursive: true });
+  writeFileSync(path.join(eventsRoot, `${event.opId}.json`), `${JSON.stringify(event)}\n`);
+}
+
+function legacyRelationTypeSamples(): readonly {
+  readonly eventId: string;
+  readonly occurredAt: string;
+  readonly opId: string;
+  readonly workspaceRevision: number;
+  readonly ownerRef: string;
+  readonly relation: {
+    readonly relation_id: string;
+    readonly source: string;
+    readonly type: string;
+    readonly target: string;
+    readonly rationale: string;
+  };
+}[] {
+  return [
+    {
+      eventId: "event-de2b5ef743854252cdcac0069219d470f769330ebcd16edca4f753aee56a0d4f",
+      occurredAt: "2026-08-15T18:13:55.390Z",
+      opId: "migration-af95353e79118ac44f53c3b9a9",
+      workspaceRevision: 2826,
+      ownerRef: "decision/dec_F2_ACCEPT_RECKON",
+      relation: {
+        relation_id: "rel_636599ba3973f841",
+        source: "decision/dec_F2_ACCEPT_RECKON/C1",
+        type: "supports",
+        target: "fact/F-HKPMAP7K",
+        rationale:
+          "The investigation fact establishes the current-state gap and the open F2 fork this decision closes.",
+      },
+    },
+    {
+      eventId: "event-66a3f6cf1e9cb936fa957ea3a1fddd37988265b9359a6a8bbca242f485d204da",
+      occurredAt: "2026-08-15T18:13:55.390Z",
+      opId: "migration-d446b4d07704f3677679c9174e",
+      workspaceRevision: 2827,
+      ownerRef: "decision/dec_F2_ACCEPT_RECKON",
+      relation: {
+        relation_id: "rel_095e276c89f4d1bb",
+        source: "decision/dec_F2_ACCEPT_RECKON/CH1",
+        type: "implements",
+        target: "task/task_01KWPY434ZHW6ADS2TBC1N8TX6",
+        rationale:
+          "This task implements the two-gate resolution: accept evidence floor + reckon coverage verdict + " +
+          "load_bearing claim field + docs correction.",
+      },
+    },
+    {
+      eventId: "event-9e02f1e659d7786aa909ed0f0a37d2750d13c330702c09557db9c5379a9d706d",
+      occurredAt: "2026-08-15T18:13:55.391Z",
+      opId: "migration-796488fd3411f144d1fe6f09b8",
+      workspaceRevision: 2927,
+      ownerRef: "decision/dec_M5_E76_CLI_AGENT_ERGONOMICS",
+      relation: {
+        relation_id: "rel_2668a668af28a0eb",
+        source: "decision/dec_M5_E76_CLI_AGENT_ERGONOMICS/C1",
+        type: "refines",
+        target: "fact/F-96WCR25Q",
+        rationale: "使用性门 FAIL:E76 人体工学基线未达(seeded 旧名/graph 未 provision/closeout 不可发现)",
+      },
+    },
+    {
+      eventId: "event-76af3a443c01443c2c6685ca201624ed530a2ba60a71f8b90fbcdcf23c80f333",
+      occurredAt: "2026-08-15T18:13:55.397Z",
+      opId: "migration-40082fe475ee27f0817cfeb348",
+      workspaceRevision: 3456,
+      ownerRef: "decision/dec_VERT_DECISION_CONFORMANCE_PRESET",
+      relation: {
+        relation_id: "rel_cf7cc37fa3d2fa51",
+        source: "decision/dec_VERT_DECISION_CONFORMANCE_PRESET/CH1",
+        type: "supports",
+        target: "task/task_01KWMC7H04ZRY0VZ5MRR6M4XVQ",
+        rationale:
+          "M5 exit 实证驱动: F5 shipped-unused/docmap 手写漂移/模板旧名回归全靠人工 ledger-walk 抓到, " +
+          "该 SOP 应产品化为可调用 preset",
+      },
+    },
+  ];
+}
+
 export function illegalRelationFixture(root: string): void {
   const taskRoot = path.join(root, "harness/tasks/task_evidence-holder"),
     decisionRoot = path.join(root, "harness/decisions/decision-dec_MATRIX");
@@ -574,10 +769,10 @@ export function illegalRelationFixture(root: string): void {
     rationale,
     state: "active",
   });
-  // `supports` was the pre-2026-07-05 spelling of this edge; the current matrix only accepts evidenced-by.
+  // There is no historical decision that maps decision --blocks--> fact.
   const relations = [
     edge("evidenced-by", "The observation evidences the claim."),
-    edge("supports", "Legacy spelling of the same evidence edge."),
+    edge("blocks", "This malformed historical edge needs a human decision."),
   ];
   writeFileSync(
     path.join(decisionRoot, "decision.md"),

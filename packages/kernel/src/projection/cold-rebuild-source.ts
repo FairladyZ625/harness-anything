@@ -9,11 +9,7 @@ import {
   parseCanonicalEvent,
 } from "../domain/doc-sync.contract.ts";
 import { deriveRelationId, isFactId, parseEntityRef, relationRecord } from "../domain/index.ts";
-import {
-  relationOwnerRef,
-  type EntityRelationRecord,
-  validateRelationRecordsForHost,
-} from "../domain/entity-relation.ts";
+import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
 import {
   embeddedRelationEventsForReplay,
   reduceRelationEntity,
@@ -41,6 +37,7 @@ import type {
   RelationGraphEdgeRow,
 } from "./relation-graph-projection.ts";
 import {
+  legacyRelationManualReason,
   normalizeLegacyRelationMigrationEvent,
   normalizeLegacyRelationRecord,
 } from "./relation-migration-normalization.ts";
@@ -50,6 +47,7 @@ import { coverageOf } from "../domain/decision-coverage.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
+import { readMigrationRelationEdges } from "./relation-migration-edges.ts";
 
 export interface ColdDecisionProjectionRow {
   readonly decisionId: string;
@@ -171,7 +169,9 @@ function readColdRebuildSourceInternal(
     knownFactRefs = new Set([...factRows.keys(), ...seedTruth.factAnchors.map(({ factRef }) => factRef)]),
     legacyFactRefs = new Map<string, string>(eventRead.legacyFactRefs),
     legacyRelationIds = new Map<string, string>(eventRead.legacyRelationIds),
-    factAnchors = new Map<string, FactAnchorRow>(seedTruth.factAnchors.map((row) => [row.factRef, row]));
+    factAnchors = new Map<string, FactAnchorRow>(seedTruth.factAnchors.map((row) => [row.factRef, row])),
+    normalizeRelation = (record: EntityRelationRecord): EntityRelationRecord =>
+      migrationMode ? normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds) : record;
   const entries: RelationEntry[] = [],
     decisionAnchors: DecisionAnchorTruth[] = [];
   const issues: ColdRebuildIssue[] = [...decisionRead.issues, ...eventRead.issues];
@@ -227,14 +227,14 @@ function readColdRebuildSourceInternal(
     const hosted = [
       ...(indexFrontmatter
         ? frontmatterRelations(indexFrontmatter).map((record) => ({
-            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+            record: normalizeRelation(record),
             from: indexPath,
           }))
         : []),
       ...(body === null
         ? []
         : parseRelationFlowRecords(body).map((record) => ({
-            record: normalizeLegacyRelationRecord(record, legacyFactRefs, legacyRelationIds),
+            record: normalizeRelation(record),
             from: factsPath,
           }))),
     ];
@@ -274,14 +274,14 @@ function readColdRebuildSourceInternal(
       sourcePath: sourcePath(layout.rootDir, decision.filePath),
     });
     for (const [recordIndex, rawRecord] of frontmatterRelations(decision.frontmatter).entries()) {
-      const record = normalizeLegacyRelationRecord(rawRecord, legacyFactRefs, legacyRelationIds);
+      const record = normalizeRelation(rawRecord);
       entries.push(
         relationEntry(record, decision.decisionRef, sourcePath(layout.rootDir, decision.filePath), recordIndex),
       );
     }
   }
   const normalizedEventRelations = eventRead.relations.map((entry) => {
-      const record = normalizeLegacyRelationRecord(entry.record, legacyFactRefs, legacyRelationIds);
+      const record = normalizeRelation(entry.record);
       return record === entry.record
         ? entry
         : relationEntry(record, entry.ownerRef, entry.sourcePath, entry.recordIndex);
@@ -301,7 +301,14 @@ function readColdRebuildSourceInternal(
       ...new Map([...decisionAnchors, ...seedTruth.decisionAnchors].map((row) => [row.decisionRef, row])).values(),
     ];
   const knownDecisions = new Set(allDecisionAnchors.flatMap(({ anchorRefs }) => anchorRefs)),
-    relationRead = relationEdges(materializedEntries, taskIds, knownDecisions, knownFactRefs, seedKnownRefs);
+    relationRead = readMigrationRelationEdges(
+      materializedEntries,
+      taskIds,
+      knownDecisions,
+      knownFactRefs,
+      seedKnownRefs,
+      migrationMode,
+    );
   complete &&= relationRead.issues.length === 0;
   issues.push(...relationRead.issues);
   const facts = [...factRows.values()]
@@ -775,18 +782,45 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
       relationHistory.push(event);
     }
   }
-  const projected = new Map<string, { readonly entity: RelationEntity; readonly sourcePath: string }>();
-  for (const sourceEvent of relationHistory.sort((a, b) => a.workspaceRevision - b.workspaceRevision)) {
-    const event =
-        allowLegacyFactRefs &&
-        sourceEvent.schema === "migration-import-event/v1" &&
-        sourceEvent.payload.entity.kind === "relation"
-          ? normalizeLegacyRelationMigrationEvent(sourceEvent, legacyFactRefs, legacyRelationIds)
-          : sourceEvent,
-      migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
-      relationId =
-        migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId,
-      entity = reduceRelationEntity(projected.get(relationId)?.entity ?? null, event);
+  const normalizedHistory = relationHistory
+      .sort((a, b) => a.workspaceRevision - b.workspaceRevision)
+      .map((sourceEvent) => {
+        const event =
+            allowLegacyFactRefs &&
+            sourceEvent.schema === "migration-import-event/v1" &&
+            sourceEvent.payload.entity.kind === "relation"
+              ? normalizeLegacyRelationMigrationEvent(sourceEvent, legacyFactRefs, legacyRelationIds)
+              : sourceEvent,
+          migrated = event.schema === "migration-import-event/v1" ? event.payload.entity : null,
+          sourceMigrated = sourceEvent.schema === "migration-import-event/v1" ? sourceEvent.payload.entity : null,
+          relationId =
+            migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId,
+          normalizedAlias = sourceMigrated?.kind === "relation" && sourceMigrated.relation.relation_id !== relationId,
+          hasCanonicalFacet =
+            !normalizedAlias &&
+            (migrated?.kind === "relation" ||
+              (event.schema === "relation-event/v1" && event.type !== "relation_retired"));
+        return { event, sourceEvent, migrated, relationId, normalizedAlias, hasCanonicalFacet };
+      }),
+    canonicalRelationIds = new Set(
+      normalizedHistory.filter(({ hasCanonicalFacet }) => hasCanonicalFacet).map(({ relationId }) => relationId),
+    ),
+    projected = new Map<string, { readonly entity: RelationEntity; readonly sourcePath: string }>();
+  for (const { event, sourceEvent, migrated, relationId, normalizedAlias } of normalizedHistory) {
+    const manualReason =
+      allowLegacyFactRefs && migrated?.kind === "relation" ? legacyRelationManualReason(migrated.relation) : null;
+    if (manualReason !== null) {
+      const sourceRelation = sourceEvent.schema === "migration-import-event/v1" ? sourceEvent.payload.entity : null;
+      issues.push({
+        entityType: "relation",
+        migratedFrom: sourceRelation?.kind === "relation" ? sourceRelation.relation.relation_id : relationId,
+        sourcePath: `event:${event.opId}`,
+        reason: manualReason,
+      });
+      continue;
+    }
+    if (normalizedAlias && canonicalRelationIds.has(relationId)) continue;
+    const entity = reduceRelationEntity(projected.get(relationId)?.entity ?? null, event);
     projected.set(relationId, { entity, sourcePath: `event:${event.opId}` });
   }
   for (const { entity, sourcePath: eventPath } of projected.values())
@@ -888,74 +922,6 @@ function relationEntryFromEdge(edge: RelationGraphEdgeRow): RelationEntry {
     },
     sourcePath: edge.sourcePath,
     recordIndex: edge.recordIndex,
-  };
-}
-function relationEdges(
-  entries: readonly RelationEntry[],
-  taskIds: ReadonlySet<string>,
-  decisionRefs: ReadonlySet<string>,
-  factRefs: ReadonlySet<string>,
-  seedKnownRefs: ReadonlySet<string> = new Set(),
-): { readonly rows: readonly RelationGraphEdgeRow[]; readonly issues: readonly ColdRebuildIssue[] } {
-  const seen = new Set<string>(),
-    issues: ColdRebuildIssue[] = [],
-    rows: RelationGraphEdgeRow[] = [],
-    relationRefs = new Set(entries.map(({ record }) => `relation/${record.relation_id}`)),
-    known = (ref: string): boolean => {
-      if (seedKnownRefs.has(ref)) return true;
-      const parsed = parseEntityRef(ref);
-      return Boolean(
-        parsed &&
-          !parsed.externalHarness &&
-          (parsed.kind === "task"
-            ? taskIds.has(parsed.id)
-            : parsed.kind === "decision"
-              ? decisionRefs.has(ref)
-              : parsed.kind === "fact"
-                ? factRefs.has(ref)
-                : parsed.kind === "relation" && relationRefs.has(ref)),
-      );
-    };
-  for (const entry of [...entries].sort((a, b) =>
-    `${a.sourcePath}\0${a.recordIndex}`.localeCompare(`${b.sourcePath}\0${b.recordIndex}`),
-  )) {
-    const validation = validateRelationRecordsForHost(entry.hostRef, [entry.record]),
-      reason = seen.has(entry.record.relation_id)
-        ? "duplicate relation_id"
-        : (validation[0]?.message ??
-          (!known(entry.record.source) || !known(entry.record.target) ? "relation endpoint does not resolve" : ""));
-    if (reason) {
-      issues.push({
-        entityType: "relation",
-        migratedFrom: entry.record.relation_id,
-        sourcePath: entry.sourcePath,
-        reason,
-      });
-      continue;
-    }
-    seen.add(entry.record.relation_id);
-    rows.push({
-      relationId: entry.record.relation_id,
-      sourceRef: entry.record.source,
-      targetRef: entry.record.target,
-      relationType: entry.record.type,
-      direction: entry.record.direction,
-      strength: entry.record.strength,
-      origin: entry.record.origin,
-      state: entry.record.state,
-      rationale: entry.record.rationale,
-      ownerRef: entry.ownerRef,
-      sourcePath: entry.sourcePath,
-      recordIndex: entry.recordIndex,
-    });
-  }
-  return {
-    rows: rows.sort((a, b) =>
-      `${a.sourceRef}\0${a.targetRef}\0${a.relationId}`.localeCompare(
-        `${b.sourceRef}\0${b.targetRef}\0${b.relationId}`,
-      ),
-    ),
-    issues,
   };
 }
 
