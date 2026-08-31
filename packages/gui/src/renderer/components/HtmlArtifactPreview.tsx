@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { buildHtmlArtifactDataUrl, HTML_ARTIFACT_PARTITION } from "../../api/html-artifact-policy.ts";
 
+const ISOLATION_BADGE = "隔离本地预览 · 脚本 / 外联已禁用";
+
 export function HtmlArtifactPreview({
   content,
   path,
@@ -48,9 +50,14 @@ export function HtmlArtifactPreview({
       ].join(" ")}
       data-testid="html-artifact-preview"
     >
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-surface-raised px-3 py-2">
+      <header
+        className={[
+          "flex shrink-0 items-center justify-between gap-3",
+          "border-b border-border bg-surface-raised px-3 py-2",
+        ].join(" ")}
+      >
         <span className="min-w-0 truncate font-mono text-[11px] text-text-muted">{path}</span>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">隔离本地预览 · 脚本 / 外联已禁用</span>
+        <span className="shrink-0 font-mono text-[10px] text-text-faint">{ISOLATION_BADGE}</span>
       </header>
       <div
         ref={hostRef}
