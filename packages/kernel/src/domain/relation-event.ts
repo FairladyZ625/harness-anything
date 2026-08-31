@@ -10,7 +10,10 @@ import {
   type EntityRelationRecord,
 } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
+import type { DecisionEventV1 } from "./decision-event.ts";
+import { factRef, type FactEventV1 } from "./fact-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
+import type { TaskEventV1 } from "./task-lifecycle-event.ts";
 import { timestamp } from "./timestamp.ts";
 import {
   freezeDeclaredWritePlan,
@@ -279,6 +282,122 @@ export function compileRelationRetiredEvent(input: {
   const issues = validateCurrentRelationEvent(event);
   if (issues.length) throw new Error(issues.join("; "));
   return event;
+}
+
+/** Historical Decision and Fact envelopes embedded relation mutations before
+ * Relation became its own aggregate. They remain replay inputs only: callers
+ * project these derived events but never persist or expose them as writes. */
+export function embeddedRelationEventsForReplay(
+  event: DecisionEventV1 | FactEventV1 | TaskEventV1,
+): readonly RelationEventV1[] {
+  if (event.schema === "fact-event/v1") return factRelationEventsForReplay(event);
+  if (event.schema === "task-event/v1") return taskRelationEventsForReplay(event);
+  if (event.type === "decision_proposed")
+    return event.payload.relations.map((record) => replayCreatedEvent(event, record));
+  if (event.type === "decision_related") return [replayCreatedEvent(event, event.payload.relation)];
+  if (event.type === "decision_relation_retired")
+    return [
+      compileRelationRetiredEvent({
+        relationId: event.payload.relationId,
+        reason: event.payload.reason,
+        actor: event.actor,
+        source: event.source,
+        opId: event.opId,
+        occurredAt: event.occurredAt,
+        workspaceRevision: event.workspaceRevision,
+      }),
+    ];
+  if (event.type !== "decision_relation_replaced") return [];
+  return [
+    compileRelationRetiredEvent({
+      relationId: event.payload.relationId,
+      reason: event.payload.reason,
+      actor: event.actor,
+      source: event.source,
+      opId: event.opId,
+      occurredAt: event.occurredAt,
+      workspaceRevision: event.workspaceRevision,
+    }),
+    {
+      schema: "relation-event/v1",
+      eventId: event.eventId,
+      workspaceRevision: event.workspaceRevision,
+      opId: event.opId,
+      relationId: event.payload.replacement.relation_id,
+      type: "relation_replaced",
+      actor: event.actor,
+      source: event.source,
+      occurredAt: event.occurredAt,
+      payload: {
+        previousRelationId: event.payload.relationId,
+        relation: event.payload.replacement,
+        reason: event.payload.reason,
+      },
+    },
+  ];
+}
+
+function taskRelationEventsForReplay(event: TaskEventV1): readonly RelationEventV1[] {
+  if (event.type !== "task_created" && event.type !== "task_relation_added") return [];
+  const task = event.payload.task as typeof event.payload.task & {
+      readonly relations?: readonly EntityRelationRecord[];
+    },
+    relationIds = event.type === "task_relation_added" ? new Set(event.payload.mutation.fields) : null;
+  return (task.relations ?? [])
+    .filter((record) => relationIds === null || relationIds.has(record.relation_id))
+    .map((record) => replayCreatedEvent(event, record));
+}
+
+function factRelationEventsForReplay(event: FactEventV1): readonly RelationEventV1[] {
+  const ownRef = factRef(event.factId),
+    records: EntityRelationRecord[] = [];
+  if (event.payload.supersedes) {
+    const identity = {
+      source: ownRef,
+      target: event.payload.supersedes.factRef,
+      type: "supersedes-fact" as const,
+      direction: "directed" as const,
+    };
+    records.push({
+      relation_id: deriveRelationId(identity),
+      ...identity,
+      strength: "strong",
+      origin: "declared",
+      state: "active",
+      rationale: event.payload.supersedes.rationale,
+    });
+  }
+  if (event.taskId) {
+    const identity = {
+      source: `task/${event.taskId}`,
+      target: ownRef,
+      type: "produces" as const,
+      direction: "directed" as const,
+    };
+    records.push({
+      relation_id: deriveRelationId(identity),
+      ...identity,
+      strength: "strong",
+      origin: "generated",
+      state: "active",
+      rationale: "Fact recorded with an explicit task owner.",
+    });
+  }
+  return records.map((record) => replayCreatedEvent(event, record));
+}
+
+function replayCreatedEvent(
+  event: DecisionEventV1 | FactEventV1 | TaskEventV1,
+  record: EntityRelationRecord,
+): RelationEventV1 {
+  return compileRelationCreatedEvent({
+    record,
+    actor: event.actor,
+    source: event.source,
+    opId: event.opId,
+    occurredAt: event.occurredAt,
+    workspaceRevision: event.workspaceRevision,
+  });
 }
 
 export function assertRelationRecord(record: EntityRelationRecord): void {

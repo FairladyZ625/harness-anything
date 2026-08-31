@@ -257,7 +257,7 @@ test("task runtime batch reads up to 500 ids without a variable SQLite IN list",
   });
 });
 
-test("task relation projection rows equal the snapshot-derived edges and survive a cold rebuild", async () => {
+test("historical task relation events replay into the Relation projection and survive a cold rebuild", async () => {
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
@@ -274,7 +274,7 @@ test("task relation projection rows equal the snapshot-derived edges and survive
           state: relation.state,
           rationale: relation.rationale,
           ownerRef: `task/${row.taskId}`,
-          sourcePath: `${row.packagePath}/INDEX.md`,
+          sourcePath: `event:op-task_relation_added-${row.snapshot.revision}`,
           recordIndex,
         })),
       );

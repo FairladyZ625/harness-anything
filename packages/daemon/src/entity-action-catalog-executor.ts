@@ -169,6 +169,8 @@ export function makeEntityActionCatalogExecutor(input: {
       existing = dryRun ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
+    if (contract.target.kind === "relation" && dryRun)
+      reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
     if (contract.target.kind === "relation")
       return deriveActionResult(
         contract,

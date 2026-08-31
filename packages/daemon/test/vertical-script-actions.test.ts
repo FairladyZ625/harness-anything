@@ -1,21 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  parseVerticalScriptResult,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, parseVerticalScriptResult } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
   canonicalRoot,
@@ -73,46 +63,33 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
       before = store().readHead()?.revision ?? 0;
     const preview = await cell.run(action, binding);
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
-    const previewResult = parseVerticalScriptResult(
-      JSON.parse(String(preview.evidence)),
-    );
+    const previewResult = parseVerticalScriptResult(JSON.parse(String(preview.evidence)));
     assert.equal(preview.proof?.canonicalVisible, false);
     assert.equal(preview.proof?.worktreeVisible, false);
     assert.equal(previewResult.documents.length, 2);
     assert.equal(store().readHead()?.revision ?? 0, before);
-    assert.equal(
-      existsSync(path.join(rootDir, "harness/decisions/adrs/README.md")),
-      false,
-    );
+    assert.equal(existsSync(path.join(rootDir, "harness/decisions/adrs/README.md")), false);
     const applied = await cell.run({ ...action, dryRun: false }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
-    const appliedResult = parseVerticalScriptResult(
-      JSON.parse(String(applied.evidence)),
-    );
+    const appliedResult = parseVerticalScriptResult(JSON.parse(String(applied.evidence)));
     assert.equal(appliedResult.mode, "apply");
     assert.equal(appliedResult.planDigest, previewResult.planDigest);
     assert.deepEqual(appliedResult.documents, previewResult.documents);
     assert.equal(
-      readFileSync(
-        path.join(rootDir, "harness/decisions/adrs/README.md"),
-        "utf8",
-      ).includes("Decision Projection Boundary"),
+      readFileSync(path.join(rootDir, "harness/decisions/adrs/README.md"), "utf8").includes(
+        "Decision Projection Boundary",
+      ),
       true,
     );
     assert.equal(store().read().events.at(-1)?.schema, "doc-event/v1");
     const revision = store().readHead()!.revision,
       unchangedReceipt = await cell.run({ ...action, dryRun: false }, binding),
-      unchanged = parseVerticalScriptResult(
-        JSON.parse(String(unchangedReceipt.evidence)),
-      );
+      unchanged = parseVerticalScriptResult(JSON.parse(String(unchangedReceipt.evidence)));
     assert.equal(unchangedReceipt.outcome, "pending");
     assert.equal(unchangedReceipt.proof?.canonicalVisible, false);
     assert.equal(unchanged.status, "unchanged");
     assert.equal(store().readHead()!.revision, revision);
-    const undeclared = await cell.run(
-      { ...action, scriptId: "vertical:software-coding:not-declared" },
-      binding,
-    );
+    const undeclared = await cell.run({ ...action, scriptId: "vertical:software-coding:not-declared" }, binding);
     assert.deepEqual(
       { outcome: undeclared.outcome, code: undeclared.code },
       { outcome: "op_rejected", code: "script_not_found" },
@@ -144,7 +121,6 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
         ],
         claims: [],
         fulfillments: [],
-        relations: [],
         body: "\n# Script decision\n",
       },
       binding,
@@ -160,15 +136,11 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     );
     assert.equal(conformance.outcome, "pending", JSON.stringify(conformance));
     assert.equal(conformance.proof?.canonicalVisible, false);
-    const conformanceResult = parseVerticalScriptResult(
-      JSON.parse(String(conformance.evidence)),
-    );
+    const conformanceResult = parseVerticalScriptResult(JSON.parse(String(conformance.evidence)));
     assert.equal(conformanceResult.status, "attention-required");
     assert.equal(conformanceResult.report.decisionCount, 1);
     assert.deepEqual(conformanceResult.documents, []);
-    const catalog = JSON.parse(
-      String((await cell.run({ kind: "preset-list" }, binding)).evidence),
-    ) as Array<{
+    const catalog = JSON.parse(String((await cell.run({ kind: "preset-list" }, binding)).evidence)) as Array<{
       id: string;
       validity: string;
     }>;
@@ -188,9 +160,7 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
 });
 
 test("same-repo writes advance while a vertical script is running", async (context) => {
-  const rootDir = mkdtempSync(
-      path.join(tmpdir(), "ha-vertical-write-progress-"),
-    ),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-write-progress-")),
     blocker = path.join(rootDir, "vertical-script.block"),
     started = `${blocker}.started`,
     previousBlocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
@@ -208,8 +178,7 @@ test("same-repo writes advance while a vertical script is running", async (conte
       inputs: { locale: "en-US" },
       dryRun: true,
     } as const,
-    store = () =>
-      makeTaskEventStore({ repoId: "vertical-write-progress", rootDir });
+    store = () => makeTaskEventStore({ repoId: "vertical-write-progress", rootDir });
   const writes: Promise<unknown>[] = [];
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
@@ -235,26 +204,14 @@ test("same-repo writes advance while a vertical script is running", async (conte
     context.diagnostic(
       `same-repo write while vertical child is blocked: ${JSON.stringify({ state: beforeRelease.state, elapsedMs: Date.now() - startedAt, revision: store().readHead()?.revision ?? 0 })}`,
     );
-    assert.equal(
-      beforeRelease.state,
-      "settled",
-      "the write must return before the vertical child is released",
-    );
-    assert.equal(
-      beforeRelease.receipt?.outcome,
-      "applied",
-      JSON.stringify(beforeRelease.receipt),
-    );
+    assert.equal(beforeRelease.state, "settled", "the write must return before the vertical child is released");
+    assert.equal(beforeRelease.receipt?.outcome, "applied", JSON.stringify(beforeRelease.receipt));
     assert.equal(
       store().readHead()?.revision,
       beforeRevision + 1,
       "canonical revision must advance while the vertical child is still running",
     );
-    assert.equal(
-      existsSync(blocker),
-      true,
-      "the write assertion must run before releasing the child",
-    );
+    assert.equal(existsSync(blocker), true, "the write assertion must run before releasing the child");
     assert.deepEqual(
       (await cell.read("repo.tasks.list")).rows.map(({ taskId }) => taskId),
       ["task_during_vertical"],
@@ -262,11 +219,7 @@ test("same-repo writes advance while a vertical script is running", async (conte
 
     rmSync(blocker, { force: true });
     const scriptReceipt = await head;
-    assert.equal(
-      scriptReceipt.outcome,
-      "pending",
-      JSON.stringify(scriptReceipt),
-    );
+    assert.equal(scriptReceipt.outcome, "pending", JSON.stringify(scriptReceipt));
     assert.equal(
       scriptReceipt.revision,
       beforeRevision + 1,
@@ -275,11 +228,7 @@ test("same-repo writes advance while a vertical script is running", async (conte
   } finally {
     rmSync(blocker, { force: true });
     await Promise.allSettled(writes);
-    if (previousBlocker === undefined)
-      Reflect.deleteProperty(
-        process.env,
-        "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE",
-      );
+    if (previousBlocker === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE");
     else process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = previousBlocker;
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -291,10 +240,7 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.name", "Vertical Script Test");
   git(rootDir, "config", "user.email", "vertical-script@example.invalid");
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    "layout:\n  adrRoot: harness/decisions/adrs\n",
-  );
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
   git(rootDir, "add", ".");
   git(rootDir, "commit", "-qm", "base");
 }
@@ -306,13 +252,10 @@ function git(rootDir: string, ...args: string[]): string {
 async function waitForPath(target: string): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (!existsSync(target)) {
-    if (Date.now() >= deadline)
-      throw new Error(`timed out waiting for ${target}`);
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`);
     await delay(10, undefined);
   }
 }
 function delay<T>(milliseconds: number, value: T): Promise<T> {
-  return new Promise((resolve) =>
-    setTimeout(() => resolve(value), milliseconds),
-  );
+  return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds));
 }

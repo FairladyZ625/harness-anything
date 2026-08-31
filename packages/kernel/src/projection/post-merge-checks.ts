@@ -9,6 +9,7 @@ import { stablePayloadHash } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { readScalar } from "../markdown/frontmatter.ts";
+import { readColdRebuildSource, type ColdRebuildIssue } from "./cold-rebuild-source.ts";
 import {
   buildRelationGraphProjection,
   detectRelationGraphCycles,
@@ -30,7 +31,8 @@ export function runPostMergeChecks(
 ): ReadonlyArray<ProjectionWarning> {
   const rootDir = resolveHarnessLayout(rootInput).rootDir;
   const source = readMarkdownSource(rootInput),
-    relationTruth = eventTruth ?? emptyEventTruth();
+    replay = readColdRebuildSource(rootInput, eventTruth ?? emptyEventTruth()),
+    relationTruth = replay.truth;
   const warnings: ProjectionWarning[] = [];
   if (eventTruth === null)
     warnings.push(
@@ -47,9 +49,27 @@ export function runPostMergeChecks(
   warnings.push(...findTamperedBindings(source.entries));
   warnings.push(...findConflictMarkerWarnings(rootInput));
   warnings.push(...findDanglingEntityRefs(rootInput, source.entries, relationTruth));
+  warnings.push(...coldReplayWarnings(replay.issues));
   warnings.push(...findParentCycles(rootDir, source.entries));
   warnings.push(...findRelationCycles(rootInput, relationTruth));
   return warnings;
+}
+
+function coldReplayWarnings(issues: readonly ColdRebuildIssue[]): readonly ProjectionWarning[] {
+  return issues.map((issue) => {
+    const code: ProjectionWarningCode =
+      issue.entityType === "relation" && issue.reason === "relation endpoint does not resolve"
+        ? "relation_endpoint_unknown"
+        : "source_malformed";
+    return hardFail(
+      "source-package",
+      code,
+      `${issue.reason} (${issue.sourcePath}).`,
+      code === "relation_endpoint_unknown"
+        ? "Restore the referenced entity before rebuilding the relation projection."
+        : "Repair the authored source before rebuilding the projection.",
+    );
+  });
 }
 
 function emptyEventTruth(): EventBackedRelationTruth {

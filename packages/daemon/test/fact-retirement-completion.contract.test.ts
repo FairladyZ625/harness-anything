@@ -170,22 +170,7 @@ async function reachGreenInReview(
     },
     binding,
   );
-  assert.equal(
-    (
-      await cell.run(
-        {
-          kind: "relation-relate",
-          sourceRef: `task/${taskId}`,
-          targetRef: `fact/${String(completionFact.factId)}`,
-          relationType: "produces",
-          rationale: "The task completion evidence was observed during this execution.",
-          expectedVersion: 0,
-        },
-        binding,
-      )
-    ).outcome,
-    "applied",
-  );
+  assert.equal(completionFact.outcome, "applied", JSON.stringify(completionFact));
   await cell.run({ kind: "task-start", taskId, executionId }, binding);
   const packagePath = "tasks/task_fact_retirement-fact-retirement-contract",
     closeoutPath = `${packagePath}/closeout.md`;

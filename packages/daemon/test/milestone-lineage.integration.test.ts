@@ -176,7 +176,6 @@ test("an orphan milestone task stops at completion until the prescribed decision
           rejected: [{ id: "RJ1", text: "Skip the edge", whyNot: "The lineage rule requires it" }],
           claims: [],
           fulfillments: [],
-          relations: [],
         }),
       },
       binding,
@@ -184,12 +183,12 @@ test("an orphan milestone task stops at completion until the prescribed decision
     const decisionId = (JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId;
     const related = await cell.run(
       {
-        kind: "decision-relate",
-        decisionId,
-        anchor: "CH1",
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}/CH1`,
         relationType: "derives",
-        target: `task/${taskId}`,
+        targetRef: `task/${taskId}`,
         rationale: "This decision authorises the milestone task.",
+        expectedVersion: 0,
       },
       binding,
     );

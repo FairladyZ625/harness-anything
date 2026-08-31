@@ -3,6 +3,7 @@ import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import { readDecisionBody } from "./decision-projection-documents.ts";
+import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): void {
@@ -44,6 +45,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
         fulfillment ? revision : null,
       );
     }
+    applyEmbeddedRelationProjectionEvents(db, event);
     refreshDecisionFts(db, event.decisionId);
     return;
   }
@@ -154,8 +156,10 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     event.type === "decision_related" ||
     event.type === "decision_relation_retired" ||
     event.type === "decision_relation_replaced"
-  )
+  ) {
+    applyEmbeddedRelationProjectionEvents(db, event);
     return;
+  }
   fail("invalid_transition", "Unsupported Decision event.");
 }
 

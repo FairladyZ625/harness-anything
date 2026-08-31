@@ -52,9 +52,21 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       },
       oldRelationId = deriveRelationId(oldIdentity);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const related = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: oldIdentity.source,
+        targetRef: oldIdentity.target,
+        relationType: oldIdentity.type,
+        rationale: "The Decision owns the evidence delivery.",
+        expectedVersion: 0,
+      },
+      proposer,
+    );
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
     assert.match(
       proposed.nextAction ?? "",
-      /First run `ha fact record`, then `ha decision relate --type evidenced-by`/u,
+      /First run `ha fact record`, then `ha relation relate .* --type evidenced-by/u,
       JSON.stringify(proposed),
     );
     const amended = await cell.run(
@@ -156,27 +168,29 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     const replacementIdentity = { ...oldIdentity, type: "relates" as const },
       replacementId = deriveRelationId(replacementIdentity),
-      replaced = await cell.run(
+      retired = await cell.run(
         {
-          kind: "decision-relation-replace",
-          decisionId,
+          kind: "relation-unrelate",
           relationId: oldRelationId,
-          anchor: "C1",
-          relationType: "relates",
-          target: "task/task-evidence",
-          rationale: "The delivery now records a durable association.",
-          body: null,
+          reason: "The delivery now records a durable association.",
+          expectedVersion: related.revision,
         },
         proposer,
       );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    const replaced = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: replacementIdentity.source,
+        targetRef: replacementIdentity.target,
+        relationType: replacementIdentity.type,
+        rationale: "The delivery now records a durable association.",
+        expectedVersion: 0,
+      },
+      proposer,
+    );
     assert.equal(replaced.outcome, "applied", JSON.stringify(replaced));
-    const replacedEvidence = receiptJson(replaced) as {
-      relationReplacement: { readonly retiredRelationId: string; readonly replacementRelationId: string };
-    };
-    assert.deepEqual(replacedEvidence.relationReplacement, {
-      retiredRelationId: oldRelationId,
-      replacementRelationId: replacementId,
-    });
+    assert.equal((receiptJson(replaced) as { relationId: string }).relationId, replacementId);
     const superseded = await cell.run(
       {
         kind: "decision-transition",
@@ -241,15 +255,15 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(promoted.outcome, "applied", JSON.stringify(promoted));
     assert.equal((promoted as Record<string, unknown>).factId, "F-DEADBEEF");
     assert.match(readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8"), /### F-DEADBEEF/u);
-    const events = makeTaskEventStore({ repoId: "decision-surface", rootDir })
-      .read()
-      .events.filter((event) => event.schema === "decision-event/v1");
-    assert.equal(events.filter((event) => event.type === "decision_amended").length, 2);
-    assert.equal(
-      events.some((event) => event.type === "decision_relation_replaced"),
-      true,
+    const events = makeTaskEventStore({ repoId: "decision-surface", rootDir }).read().events,
+      decisionEvents = events.filter((event) => event.schema === "decision-event/v1"),
+      relationEvents = events.filter((event) => event.schema === "relation-event/v1");
+    assert.equal(decisionEvents.filter((event) => event.type === "decision_amended").length, 2);
+    assert.deepEqual(
+      relationEvents.map((event) => event.type),
+      ["relation_created", "relation_retired", "relation_created"],
     );
-    assert.equal(events.filter((event) => event.type === "decision_repinned").length, 2);
+    assert.equal(decisionEvents.filter((event) => event.type === "decision_repinned").length, 2);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -307,14 +321,6 @@ function proposal(title: string) {
       rejected: [{ id: "RJ1", text: "Rewrite files", whyNot: "It loses event history" }],
       claims: [{ id: "C1", text: "The task provides evidence.", loadBearing: true }],
       fulfillments: [],
-      relations: [
-        {
-          anchor: "C1",
-          type: "derives",
-          target: "task/task-evidence",
-          rationale: "The Decision owns the evidence delivery.",
-        },
-      ],
     }),
   } as const;
 }

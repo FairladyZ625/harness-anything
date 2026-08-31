@@ -5,6 +5,7 @@ import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
 import { ftsQuery } from "./fts-query.ts";
+import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
 export interface FactProjectionRow {
@@ -143,6 +144,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     row.statement,
     row.evidenceSource,
   );
+  applyEmbeddedRelationProjectionEvents(db, event);
 }
 
 const factRowSelect = "SELECT row_json FROM fact";

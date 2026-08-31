@@ -1,6 +1,19 @@
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
-import { reduceRelationEntity, type RelationEntity, type RelationEventV1 } from "../domain/relation-event.ts";
+import type { DecisionEventV1 } from "../domain/decision-event.ts";
+import type { FactEventV1 } from "../domain/fact-event.ts";
+import { entityKindContracts } from "../domain/entity-kind-registry.ts";
+import { interpretEmbeddedEntityProjections } from "../domain/entity-kind-projection.ts";
+import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
+import type { TaskEventV1 } from "../domain/task-lifecycle-event.ts";
+import {
+  assertRelationRecord,
+  embeddedRelationEventsForReplay,
+  reduceRelationEntity,
+  relationRecord,
+  type RelationEntity,
+  type RelationEventV1,
+} from "../domain/relation-event.ts";
 import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { canonicalJson, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
@@ -46,8 +59,52 @@ export function applyRelationProjectionEvent(
     canonicalJson(row),
   );
   const taskId = row.sourceRef.match(/^task\/([^/]+)$/u)?.[1];
-  if (taskId) refreshTaskRelationProjection(db, taskId, null, row.workspaceRevision, entity.updatedAt);
+  const taskRelationReady = queryRow(
+    db,
+    "SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='task_relation'",
+  );
+  if (taskId && taskRelationReady)
+    refreshTaskRelationProjection(db, taskId, null, row.workspaceRevision, entity.updatedAt);
   return row;
+}
+
+export function applyEmbeddedRelationProjectionEvents(
+  db: DatabaseSync,
+  event: DecisionEventV1 | FactEventV1 | TaskEventV1,
+): void {
+  for (const relationEvent of embeddedRelationEventsForReplay(event)) applyRelationProjectionEvent(db, relationEvent);
+  for (const contract of entityKindContracts)
+    for (const projection of interpretEmbeddedEntityProjections(contract, event))
+      for (const relation of projection.relations) {
+        const record = {
+          relation_id: relation.relationId,
+          source: relation.sourceRef,
+          target: relation.targetRef,
+          type: relation.relationType,
+          direction: relation.direction,
+          strength: relation.strength,
+          origin: relation.origin,
+          state: relation.state,
+          rationale: relation.rationale,
+        } as EntityRelationRecord;
+        assertRelationRecord(record);
+        const current = readRelationProjectionRow(db, record.relation_id);
+        if (current === null)
+          applyRelationProjectionEvent(db, {
+            schema: "relation-event/v1",
+            eventId: event.eventId,
+            workspaceRevision: event.workspaceRevision,
+            opId: event.opId,
+            relationId: record.relation_id,
+            type: "relation_created",
+            actor: event.actor,
+            source: event.source,
+            occurredAt: event.occurredAt,
+            payload: { relation: record },
+          });
+        else if (canonicalJson(relationRecord(current.entity)) !== canonicalJson(record))
+          throw new Error(`Embedded relation ${record.relation_id} changed identity`);
+      }
 }
 
 export function readRelationProjectionRow(db: DatabaseSync, relationId: string): VersionedRelationProjectionRow | null {
@@ -86,7 +143,7 @@ export function relationProjectionRow(entity: RelationEntity, sourcePath: string
     origin: entity.origin,
     state: entity.state,
     rationale: entity.rationale,
-    ownerRef: entity.ref,
+    ownerRef: relationOwnerRef(entity.source),
     sourcePath,
     recordIndex: 0,
   });

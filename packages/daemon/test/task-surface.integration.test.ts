@@ -10,15 +10,12 @@ import {
   readTaskProjection,
   rebuildTaskProjection,
 } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo } from "./task-surface.fixtures.ts";
-test("task create publishes complete metadata and initial relations that survive cold rebuild", async () => {
+test("task create publishes complete metadata and first-class relations survive cold rebuild", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -65,13 +62,6 @@ test("task create publishes complete metadata and initial relations that survive
         },
         slug: "surface",
         surfaces: ["ha task create", "packages/kernel"],
-        relations: [
-          {
-            type: "depends-on",
-            target: "task/task_dependency",
-            rationale: "Dependency must land first",
-          },
-        ],
         locale: "zh-CN",
       },
       binding,
@@ -81,9 +71,7 @@ test("task create publishes complete metadata and initial relations that survive
     const event = makeTaskEventStore({ repoId: "task-surface", rootDir })
       .read()
       .events.find(
-        (candidate) =>
-          candidate.schema === "task-bootstrap-event/v1" &&
-          candidate.taskId === "task_surface",
+        (candidate) => candidate.schema === "task-bootstrap-event/v1" && candidate.taskId === "task_surface",
       );
     assert.ok(event && event.schema === "task-bootstrap-event/v1");
     assert.deepEqual(event.payload.task.metadata, {
@@ -100,32 +88,27 @@ test("task create publishes complete metadata and initial relations that survive
       surfaces: ["ha task create", "packages/kernel"],
       fromLegacyId: null,
     });
-    assert.equal(event.payload.task.relations?.[0]?.type, "depends-on");
-    const index = readFileSync(
-        path.join(rootDir, "harness/tasks/task_surface-surface/INDEX.md"),
-        "utf8",
-      ),
+    assert.equal("relations" in event.payload.task, false);
+    const related = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task_surface",
+        targetRef: "task/task_dependency",
+        relationType: "depends-on",
+        rationale: "Dependency must land first",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
+    const index = readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/INDEX.md"), "utf8"),
       contract = JSON.parse(
-        readFileSync(
-          path.join(
-            rootDir,
-            "harness/tasks/task_surface-surface/task-contract.json",
-          ),
-          "utf8",
-        ),
+        readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/task-contract.json"), "utf8"),
       ) as Record<string, unknown>;
-    assert.match(
-      index,
-      /schema: task-package\/v2[\s\S]*task_id: task_surface[\s\S]*parent: task_dependency[\s\S]*packageDisposition: active[\s\S]*relations:[\s\S]*depends-on/u,
-    );
-    assert.equal(
-      (contract.metadata as { moduleKey: string }).moduleKey,
-      "kernel",
-    );
+    assert.doesNotMatch(index, /relations:/u);
+    assert.equal((contract.metadata as { moduleKey: string }).moduleKey, "kernel");
     rebuildTaskProjection({ rootDir });
-    const row = readTaskProjection({ rootDir }).rows.find(
-        (candidate) => candidate.taskId === "task_surface",
-      ),
+    const row = readTaskProjection({ rootDir }).rows.find((candidate) => candidate.taskId === "task_surface"),
       replay = makeTaskProjection({
         rootDir,
         eventStore: makeTaskEventStore({ repoId: "task-surface", rootDir }),
@@ -143,9 +126,7 @@ test("task create publishes complete metadata and initial relations that survive
 });
 
 test("task lifecycle mutations publish L1 events, exact documents, and replayable dispositions", async () => {
-  const rootDir = mkdtempSync(
-    path.join(tmpdir(), "ha-task-lifecycle-surface-"),
-  );
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lifecycle-surface-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -208,10 +189,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
-    const unblocked = await cell.run(
-      { kind: "task-transition", taskId: "task_lifecycle", status: "active" },
-      binding,
-    );
+    const unblocked = await cell.run({ kind: "task-transition", taskId: "task_lifecycle", status: "active" }, binding);
     assert.equal(unblocked.outcome, "applied");
     const plannedActivation = await cell.run(
       {
@@ -270,10 +248,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     );
     assert.equal(submittedProgress.outcome, "op_rejected");
     assert.equal(submittedProgress.code, "progress_lease_required");
-    assert.match(
-      String(submittedProgress.nextAction),
-      /progress append has no recovery in this state/u,
-    );
+    assert.match(String(submittedProgress.nextAction), /progress append has no recovery in this state/u);
     assert.doesNotMatch(String(submittedProgress.nextAction), /ha task start/u);
     const submittedRestart = await cell.run(
       {
@@ -343,11 +318,12 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     );
     const related = await cell.run(
       {
-        kind: "task-relate",
-        taskId: "task_lifecycle",
-        target: "task/task_replacement",
+        kind: "relation-relate",
+        sourceRef: "task/task_lifecycle",
+        targetRef: "task/task_replacement",
         relationType: "depends-on",
         rationale: "Replacement establishes the new contract",
+        expectedVersion: 0,
       },
       binding,
     );
@@ -435,24 +411,18 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
-    const taskRead = (await cell.run(
-        { kind: "task-show", taskId: "task_lifecycle" },
-        binding,
-      )) as Record<string, unknown>,
-      replacementRead = (await cell.run(
-        { kind: "task-show", taskId: "task_replacement" },
-        binding,
-      )) as Record<string, unknown>;
+    const taskRead = (await cell.run({ kind: "task-show", taskId: "task_lifecycle" }, binding)) as Record<
+        string,
+        unknown
+      >,
+      replacementRead = (await cell.run({ kind: "task-show", taskId: "task_replacement" }, binding)) as Record<
+        string,
+        unknown
+      >;
     assert.match(String(taskRead.evidence), /"taskClass":"milestone"/u);
     assert.match(String(taskRead.evidence), /"packageDisposition":"archived"/u);
-    assert.match(
-      String(taskRead.evidence),
-      /"supersededBy":"task_replacement"/u,
-    );
-    assert.match(
-      String(replacementRead.evidence),
-      /"packageDisposition":"active"/u,
-    );
+    assert.match(String(taskRead.evidence), /"supersededBy":"task_replacement"/u);
+    assert.match(String(replacementRead.evidence), /"packageDisposition":"active"/u);
     const events = makeTaskEventStore({
       repoId: "task-lifecycle-surface",
       rootDir,
@@ -464,16 +434,18 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       "lease_released",
       "task_transitioned",
       "task_amended",
-      "task_relation_added",
       "task_archived",
       "task_reopened",
       "task_superseded",
       "task_deleted",
     ])
-      assert.ok(
-        events.includes(type as never),
-        `${type} missing from ${events.join(",")}`,
-      );
+      assert.ok(events.includes(type as never), `${type} missing from ${events.join(",")}`);
+    assert.equal(
+      makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir })
+        .read()
+        .events.some((event) => event.schema === "relation-event/v1" && event.type === "relation_created"),
+      true,
+    );
     rebuildTaskProjection({ rootDir });
     const rows = readTaskProjection({ rootDir }).rows,
       lifecycle = rows.find((row) => row.taskId === "task_lifecycle"),
@@ -482,11 +454,9 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         rootDir,
         eventStore: makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir }),
       }),
-      edge = replay.readRelationQuery({}).rows.find(
-        (row) =>
-          row.sourceRef === "task/task_lifecycle" &&
-          row.targetRef === "task/task_replacement",
-      );
+      edge = replay
+        .readRelationQuery({})
+        .rows.find((row) => row.sourceRef === "task/task_lifecycle" && row.targetRef === "task/task_replacement");
     replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
     assert.equal(lifecycle?.riskTier, "high");
