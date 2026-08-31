@@ -201,7 +201,6 @@ export function ArtifactsWorkspace({
                       row={row}
                       active={current !== null && sameArtifact(row, current)}
                       onSelect={() => setSelected(row)}
-                      onNavigateTask={onNavigateTask}
                     />
                   ))}
                 </ul>
@@ -230,26 +229,25 @@ function ArtifactRow({
   row,
   active,
   onSelect,
-  onNavigateTask,
 }: {
   readonly row: ArtifactGuiRowDto;
   readonly active: boolean;
   readonly onSelect: () => void;
-  readonly onNavigateTask: (taskId: string) => void;
 }) {
   return (
     <li>
-      <div
+      {/* 整卡只有一种点击:打开预览(泽宇 2026-08-31 亲裁,一个组件不承载两种点击)。
+          跳所属 task 的唯一出口在预览头按钮;所属 task 标题在卡内只作信息展示。 */}
+      <button
+        type="button"
         data-testid={`artifact-row-${row.taskId ?? "taskless"}-${row.path}`}
+        onClick={onSelect}
         className={`${ROW_CLASS} ${active ? "border-accent/60 bg-surface" : ""}`}
         title={repoPathOf(row)}
       >
-        <button
-          type="button"
+        <span
           data-testid={`artifact-focus-${row.taskId ?? "taskless"}-${row.path}`}
-          onClick={onSelect}
-          title={t("artifacts.list.open")}
-          className="flex w-full items-center gap-1.5 text-left text-[12px] font-medium hover:text-accent"
+          className="flex w-full items-center gap-1.5 text-[12px] font-medium"
         >
           {row.kind === "html" ? (
             <FileHtml weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
@@ -267,13 +265,13 @@ function ArtifactRow({
             {row.timeSource === "mtime" ? ` · ${t("artifacts.timeSource.mtime")}` : ""}
           </span>
           <Badge tip={t(TIME_SOURCE_LABEL[row.timeSource])}>{t(KIND_LABEL[row.kind])}</Badge>
-        </button>
+        </span>
         {row.taskId === null ? (
           <Hint>{t("artifacts.taskUnknown")}</Hint>
         ) : (
-          <TaskLinkCell taskId={row.taskId} title={row.taskTitle} onNavigateTask={onNavigateTask} />
+          <span className="block max-w-full truncate text-[11px] text-text-muted">{row.taskTitle ?? row.taskId}</span>
         )}
-      </div>
+      </button>
     </li>
   );
 }
@@ -303,29 +301,6 @@ function KindToggle({
     >
       {t(KIND_LABEL[kind])}
       {count === undefined ? "" : ` · ${count}`}
-    </button>
-  );
-}
-
-function TaskLinkCell({
-  taskId,
-  title,
-  onNavigateTask,
-}: {
-  readonly taskId: string;
-  readonly title: string | null;
-  readonly onNavigateTask: (taskId: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={`artifact-task-${taskId}`}
-      onClick={() => onNavigateTask(taskId)}
-      title={t("artifacts.openTask")}
-      className="flex max-w-full items-center gap-1 truncate text-left text-[11px] text-text-muted hover:text-accent"
-    >
-      <span className="min-w-0 truncate">{title ?? taskId}</span>
-      <ArrowRight className="size-3 shrink-0 text-text-faint" />
     </button>
   );
 }

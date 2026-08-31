@@ -338,7 +338,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(container.textContent).toContain("Markdown report");
   });
 
-  it("jumps to the owning task from the task, path, and preview header links", async () => {
+  it("the whole card opens the preview; the task jump lives only in the preview header", async () => {
     stubDocumentBridge("<h1>Weathering</h1>");
     const onNavigateTask = vi.fn();
     const container = await renderSurface(
@@ -351,14 +351,15 @@ describe("artifacts timeline — list, preview, and task jump", () => {
         onNavigateTask,
       }),
     );
-    // 左抽屉的行不再带独立的路径链接(路径进 title,预览头仍显示全路径):
-    // 跳任务的两条出口是抽屉行与预览头。
-    await click(container, "artifact-task-task_weathering");
+    // 整卡单一点击语义:点卡任意处(含所属 task 标题行)只打开预览,不跳 task。
     await click(container, "artifact-focus-task_weathering-artifacts/reports/weathering.html");
+    await click(container, "artifact-row-task_weathering-artifacts/reports/weathering.html");
     await settle();
+    expect(onNavigateTask).not.toHaveBeenCalled();
+    // 跳所属 task 的唯一出口:预览头按钮。
     await click(container, "artifact-open-task");
     expect(onNavigateTask).toHaveBeenCalledWith("task_weathering");
-    expect(onNavigateTask).toHaveBeenCalledTimes(2);
+    expect(onNavigateTask).toHaveBeenCalledTimes(1);
   });
 
   it("switches the kind facet through the filter, and an unmapped row keeps no task link", async () => {
