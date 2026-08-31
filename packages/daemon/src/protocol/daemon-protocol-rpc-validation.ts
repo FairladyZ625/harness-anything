@@ -427,13 +427,13 @@ export function serializeDaemonRpcCall(value: unknown): string {
 }
 
 export function validateEntityActionExplainRequest(value: unknown): readonly string[] {
-  const record =
-    typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  const record = isJsonObject(value) ? (value as Record<string, unknown>) : null;
   if (!record || Object.keys(record).sort().join(",") !== "mode,refs,schema")
     return ["Entity Action explain request fields are incomplete or unknown"];
-  const errors: string[] = [];
-  if (record.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id)
-    errors.push("Entity Action explain request schema is invalid");
+  const errors: string[] =
+    record.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id
+      ? ["Entity Action explain request schema is invalid"]
+      : [];
   if (record.mode !== "object" && record.mode !== "catalog")
     errors.push("Entity Action explain request mode is invalid");
   if (!Array.isArray(record.refs) || record.refs.some((ref) => typeof ref !== "string" || ref.length === 0))
