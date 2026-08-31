@@ -38,6 +38,7 @@ import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleSt
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
+import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -526,6 +527,11 @@ const taskActionCatalog = createTaskActionCatalog(
   actionResultContract,
 );
 
+const scheduleActionCatalog = createScheduleActionCatalog(
+  (id) => entityAction("schedule", scheduleIdentity, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -801,16 +807,7 @@ export const entityKindContracts = Object.freeze([
       { field: "state", words: scheduleStates },
       { field: "status.lastRun.outcome", words: scheduleRunOutcomes },
     ],
-    actionCatalog: actionCatalog("kernel/schedule-event/v1", "schedule", scheduleIdentity, [
-      "create",
-      "update",
-      "delete",
-      "enable",
-      "disable",
-      "run-now",
-      "fire",
-      "settle",
-    ]),
+    actionCatalog: scheduleActionCatalog,
     entityStore: null,
     authoring: { kind: "schedule-event", contractRef: "schedule-event/v1" },
     sdkExposure: noSdkExposure,

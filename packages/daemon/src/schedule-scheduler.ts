@@ -326,8 +326,7 @@ function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number)
 
 async function recordMissed(input: MissedOccurrences): Promise<void> {
   await input.target.execute({
-    kind: "schedule-settle",
-    phase: "missed",
+    kind: "schedule-missed",
     scheduleId: input.scheduleId,
     from: input.from,
     to: input.to,

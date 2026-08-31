@@ -94,16 +94,10 @@ import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import { runtimeIngressEventTypes, type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
-import type { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
+import type { EntityActionCatalogRuntimes, makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import type {
-  ScheduleClaimInput,
-  ScheduleDispatchLinkInput,
-  ScheduleMissedInput,
-  ScheduleSettleInput,
-} from "./repo-cell-schedule-actions.ts";
 
 type Bound<Implementation> = Implementation extends (context: infer Context, ...args: infer Args) => infer Result
   ? Context extends object
@@ -129,14 +123,6 @@ export interface RepoCellSettingsActions {
   readonly update: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
 }
 
-export interface RepoCellScheduleActions {
-  readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
-  readonly claimOccurrence: (input: ScheduleClaimInput, binding: RepoCellBinding) => WriteReceipt;
-  readonly recordMissed: (input: ScheduleMissedInput, binding: RepoCellBinding) => WriteReceipt;
-  readonly linkDispatch: (input: ScheduleDispatchLinkInput, binding: RepoCellBinding) => WriteReceipt;
-  readonly settle: (input: ScheduleSettleInput, binding: RepoCellBinding) => WriteReceipt;
-}
-
 export interface RepoCellActionContext extends TaskQueryCell {
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
@@ -159,6 +145,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
+  readonly entityActionRuntimes: EntityActionCatalogRuntimes;
   readonly decisionProposalAction: typeof decisionProposalAction;
   readonly upgradePresetSnapshot: Bound<typeof upgradePresetSnapshotImpl>;
   readonly upsertEntity: Bound<typeof upsertEntityImpl>;
@@ -237,7 +224,6 @@ export interface RepoCellRuntimeContext extends RepoCellActionContext {
 
 export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
   readonly peopleActions: RepoCellPeopleActions;
-  readonly scheduleActions: RepoCellScheduleActions;
   readonly settingsActions: RepoCellSettingsActions;
 }
 
@@ -254,6 +240,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getProjection: () => TaskProjection;
   readonly getStore: () => CanonicalEventStore;
   readonly getEntityActionExecutor: () => ReturnType<typeof makeEntityActionCatalogExecutor>;
+  readonly getEntityActionRuntimes: () => EntityActionCatalogRuntimes;
   readonly getService: () => ReturnType<typeof makeTaskLifecycleService>;
   readonly getRecovery: () => ReturnType<CanonicalEventStore["recover"]>;
   readonly getRecoveryUncertain: () => boolean;
@@ -302,6 +289,9 @@ export function createRepoCellActionContext(bindings: {
     rootDir: bindings.rootDir,
     get entityActionExecutor() {
       return bindings.getEntityActionExecutor();
+    },
+    get entityActionRuntimes() {
+      return bindings.getEntityActionRuntimes();
     },
     decisionProposalAction,
     upgradePresetSnapshot: bind(upgradePresetSnapshotImpl),

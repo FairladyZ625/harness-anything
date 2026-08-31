@@ -158,6 +158,12 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         actor,
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
+      assert.deepEqual(created.effects, ["schedule-event/schedule_created"]);
+      assert.deepEqual(created.updatedProjection, {
+        kind: "schedule",
+        ref: "schedule/e2e-probe",
+        revision: created.revision,
+      });
       const replayedCreate = await cell.run(
         {
           kind: "schedule-create",
@@ -216,6 +222,25 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           code: "schedule_single_flight_active",
         },
       );
+      const wrongFence = await cell.run(
+        {
+          kind: "schedule-settle",
+          scheduleId: "e2e-probe",
+          claimFence: "claim_wrong_fence",
+          outcome: "failed",
+          endedAt: "2026-08-27T00:01:00.000Z",
+          idempotencyKey: "manual-e2e-probe-wrong-fence",
+        },
+        actor,
+      );
+      assert.deepEqual(
+        { outcome: wrongFence.outcome, code: wrongFence.code, unmetCriteria: wrongFence.unmetCriteria },
+        {
+          outcome: "op_rejected",
+          code: "schedule_claim_stale",
+          unmetCriteria: ["schedule/active-claim-fence"],
+        },
+      );
       output?.(
         `${JSON.stringify({ type: "thread.started", thread_id: "provider-schedule-first" })}\n` +
           `${JSON.stringify({ type: "turn.failed", error: { http_status: 429, message: "rate limited" } })}\n`,
@@ -261,8 +286,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         (
           await cell.run(
             {
-              kind: "schedule-settle",
-              phase: "missed",
+              kind: "schedule-missed",
               scheduleId: "e2e-probe",
               from: missedAt,
               to: missedAt,
@@ -286,6 +310,20 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       assert.deepEqual(
         { automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough, missedCount: missedStatus?.missedCount },
         { automaticEvaluatedThrough: missedAt, missedCount: 1 },
+      );
+      const staleClaim = await cell.run(
+        {
+          kind: "schedule-run-now",
+          scheduleId: "e2e-probe",
+          scheduledFor: "2026-08-27T00:10:00.000Z",
+          observedDefinitionRevision: observedRevision,
+          idempotencyKey: "e2e-probe-stale-definition",
+        },
+        actor,
+      );
+      assert.deepEqual(
+        { outcome: staleClaim.outcome, code: staleClaim.code },
+        { outcome: "op_rejected", code: "schedule_definition_stale" },
       );
       const runHistoryReceipt = (await cell.run(
           { kind: "schedule-runs", scheduleId: "e2e-probe", limit: 10 },
@@ -408,13 +446,11 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         "applied",
       );
       const scheduledFor = "2026-08-27T00:05:00.000Z",
-        claimedBeforeDispatch = await cell.schedule.claimOccurrence(
+        claimedBeforeDispatch = await cell.run(
           {
+            kind: "schedule-claim",
             scheduleId: "restart-heartbeat",
-            kind: "scheduled",
             scheduledFor,
-            nodeId: "local",
-            assignmentId: null,
             idempotencyKey: "restart-heartbeat-fire",
           },
           actor,

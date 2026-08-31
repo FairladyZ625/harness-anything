@@ -145,7 +145,11 @@ export type {
   EntityResidencyFacets,
   EntityRepositoryRootScaffold,
 } from "./entity-kind-registry.ts";
-export type { EntityActionDraft, EntityActionExecutionContract } from "./entity-action-execution.ts";
+export type {
+  EntityActionCompileInput,
+  EntityActionDraft,
+  EntityActionExecutionContract,
+} from "./entity-action-execution.ts";
 
 export {
   canonicalRelationIdentityInput,
@@ -201,6 +205,7 @@ export {
   compileScheduleRunEvent,
   isScheduleEvent,
 } from "./schedule-event.ts";
+export { createScheduleActionCatalog, type ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
   INITIAL_SETTINGS_V1,
