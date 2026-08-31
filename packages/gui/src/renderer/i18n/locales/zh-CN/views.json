@@ -681,7 +681,6 @@
   "artifacts.timeSource.ledger": "台账",
   "artifacts.timeSource.mtime": "文件",
   "artifacts.list.count": "{count} 个",
-  "artifacts.list.open": "就地预览",
   "artifacts.list.col.file": "文件",
   "artifacts.list.col.task": "所属 task",
   "artifacts.list.col.path": "仓内路径",
