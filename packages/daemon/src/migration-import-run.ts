@@ -51,6 +51,7 @@ import {
   existingSourceEntity as existingSourceEntityImpl,
   mappedIdentifier as mappedIdentifierImpl,
   prepareRelation as prepareRelationImpl,
+  readMigrationOperationRestatements,
   reboundRef as reboundRefImpl,
   reboundRelation as reboundRelationImpl,
   type MigrationRelationsContext,
@@ -132,6 +133,7 @@ export interface MigrationImportContext extends MigrationRelationsContext {
   readonly existingSourceEntity: (
     kind: MigrationImportEventV1["payload"]["entity"]["kind"],
     migratedFrom: string,
+    verifyRestatement?: (event: MigrationImportEventV1) => boolean,
   ) => MigrationImportEventV1["payload"]["entity"] | null;
   readonly taskPackages: Map<string, string>;
   readonly taskOccurredAt: Map<string, string>;
@@ -281,6 +283,7 @@ export async function runSingleMigrationImport(
     existingRuntimeSessions = new Map(
       input.projection.readRuntimeSessions().map((value) => [value.runtimeSessionId, value]),
     ),
+    operationRestatements = readMigrationOperationRestatements(input.store),
     existingRelations = new Set(
       [...decisionGraph.edges, ...input.projection.readFactGraph().edges].map(({ relationId }) => relationId),
     );
@@ -395,6 +398,7 @@ export async function runSingleMigrationImport(
     PEOPLE_ROSTER_PATH,
     readFileSync,
     migrationImportError,
+    operationRestatements,
     taskRead,
     legacyTaskRestatements: legacyTaskRead.tasks,
     taskContracts,
@@ -487,7 +491,18 @@ export async function runSingleMigrationImport(
         derived_from: `projection:relation_edge@${oracle.watermark}`,
       });
     }
-    const held = existingSourceEntity("relation", rebound.oldId);
+    const held = existingSourceEntity("relation", rebound.oldId, (event) => {
+      const normalized = oracle.normalizedRelationMigrationEntities.get(rebound.oldId);
+      if (event.payload.entity.kind !== "relation" || normalized?.kind !== "relation") return false;
+      const expected = rebound.retirementReason
+        ? {
+            ...normalized,
+            relation: { ...normalized.relation, state: "edge_retired" as const },
+            retirementReason: rebound.retirementReason,
+          }
+        : normalized;
+      return stableStringify(event.payload.entity) === stableStringify(expected);
+    });
     if (held?.kind === "relation") {
       relationMap.set(row.relationId, held.relation.relation_id);
       if (rebound.oldId !== row.relationId) relationMap.set(rebound.oldId, held.relation.relation_id);
@@ -835,8 +850,9 @@ export async function runSingleMigrationImport(
   function existingSourceEntity(
     kind: MigrationImportEventV1["payload"]["entity"]["kind"],
     migratedFrom: string,
+    verifyRestatement?: (event: MigrationImportEventV1) => boolean,
   ): MigrationImportEventV1["payload"]["entity"] | null {
-    return existingSourceEntityImpl(extracted, kind, migratedFrom);
+    return existingSourceEntityImpl(extracted, kind, migratedFrom, verifyRestatement);
   }
   function mappedIdentifier(
     kind: "task" | "decision",

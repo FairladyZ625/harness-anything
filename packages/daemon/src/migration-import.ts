@@ -2,6 +2,8 @@ import {
   canonicalMigrationProvenance,
   renderFactsDocument,
   sha256Text,
+  stableStringify,
+  type MigrationImportEventV1,
   type RelationFactRow,
 } from "../../kernel/src/index.ts";
 import {
@@ -65,7 +67,9 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
     });
     return;
   }
-  const held = context.existingSourceEntity("fact", factRef);
+  const held = context.existingSourceEntity("fact", factRef, (event) =>
+    matchesRestatedFact(context, row, mappedTaskId, occurredAt, event),
+  );
   if (held?.kind === "fact") {
     const targetRef = `fact/${held.fact.factId}`;
     context.factMap.set(factRef, targetRef);
@@ -137,4 +141,58 @@ function addFact(context: MigrationImportContext, row: RelationFactRow): void {
       );
     },
   });
+}
+
+function matchesRestatedFact(
+  context: MigrationImportContext,
+  row: RelationFactRow,
+  mappedTaskId: string | undefined,
+  occurredAt: string,
+  event: MigrationImportEventV1,
+): boolean {
+  const target = /^fact\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(event.payload.migratedFrom);
+  if (!target || event.payload.entity.kind !== "fact" || event.occurredAt !== occurredAt) return false;
+  const factId = target[1]!,
+    fact = {
+      ...(mappedTaskId ? { taskId: mappedTaskId } : {}),
+      factId,
+      statement: row.statement,
+      evidenceSource: row.source,
+      observedAt: row.observedAt,
+      confidence: row.confidence,
+      memoryClass: row.memoryClass,
+      memoryTags: row.memoryTags,
+      provenance: canonicalMigrationProvenance(row.provenance),
+    },
+    record = {
+      factId,
+      statement: row.statement,
+      evidenceSource: row.source,
+      observedAt: row.observedAt,
+      confidence: row.confidence,
+      state: "standing" as const,
+      workspaceRevision: event.workspaceRevision,
+    },
+    body = renderFactsDocument([record]),
+    expected = {
+      kind: "fact" as const,
+      fact: comparableFact(fact),
+      documentClaim: context.claim(`facts/${factId}.md`, body, "text/markdown"),
+    },
+    actual = {
+      ...event.payload.entity,
+      fact: comparableFact(event.payload.entity.fact),
+    };
+  return stableStringify(actual) === stableStringify(expected);
+}
+
+function comparableFact<T extends { readonly provenance: readonly Readonly<Record<string, unknown>>[] }>(
+  fact: T,
+): Omit<T, "provenance"> & {
+  readonly provenance: readonly Readonly<Record<string, unknown>>[];
+} {
+  return {
+    ...fact,
+    provenance: fact.provenance.map(({ transcriptReachability: _reachability, ...entry }) => entry),
+  };
 }

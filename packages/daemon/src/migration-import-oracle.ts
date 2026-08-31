@@ -5,6 +5,7 @@ import {
   consumeKnownError,
   resolveHarnessLayout,
   type RelationGraphEdgeRow,
+  type MigrationImportEventV1,
   type RuntimeResultClaim,
   type RuntimeSession,
   type ScheduleV1,
@@ -106,6 +107,7 @@ export interface MigrationProjectionOracle {
   readonly decisions: ReadonlyMap<string, ProjectionOracleDecision>;
   readonly facts: ReadonlyMap<string, ProjectionOracleFact>;
   readonly relations: ReadonlyMap<string, ProjectionOracleRelation>;
+  readonly normalizedRelationMigrationEntities: ReadonlyMap<string, MigrationImportEventV1["payload"]["entity"]>;
   readonly executions: ReadonlyMap<string, ProjectionOracleExecution>;
   readonly agents: ReadonlyMap<string, ProjectionOracleAgent>;
   readonly schedules: ReadonlyMap<string, ProjectionOracleSchedule>;
@@ -120,15 +122,19 @@ interface SqlRow {
 
 export function readMigrationProjectionOracle(sourceRoot: string): MigrationProjectionOracle {
   const layout = resolveHarnessLayout(sourceRoot),
-    databasePath = path.join(layout.localRoot, "cache", "task.sqlite");
+    databasePath = path.join(layout.localRoot, "cache", "task.sqlite"),
+    inspection = inspectMigrationSourceEvents(sourceRoot);
   const oracle = !existsSync(databasePath)
-    ? rebuildMigrationProjectionOracle(sourceRoot)
-    : readMigrationProjectionOracleAtPath(
-        sourceRoot,
-        databasePath,
-        "same-cut-projection",
-        inspectMigrationSourceEvents(sourceRoot).observations,
-      );
+    ? rebuildMigrationProjectionOracle(sourceRoot, inspection)
+    : {
+        ...readMigrationProjectionOracleAtPath(
+          sourceRoot,
+          databasePath,
+          "same-cut-projection",
+          inspection.observations,
+        ),
+        normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
+      };
   return overlayAgentDeclarations(sourceRoot, oracle);
 }
 
@@ -305,6 +311,7 @@ export function readMigrationProjectionOracleAtPath(
       decisions,
       facts,
       relations,
+      normalizedRelationMigrationEntities: new Map(),
       executions,
       agents,
       schedules,
