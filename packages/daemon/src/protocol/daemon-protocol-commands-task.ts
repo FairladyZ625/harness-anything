@@ -122,6 +122,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
       read: false,
       implementation: "task-lifecycle",
       topology: "center-forward-write",
+      targetIdField: "taskId",
       lifecycle: {
         transitionId: "start_execution",
         commandType: "StartExecution",
@@ -228,6 +229,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
       read: false,
       implementation: "task-lifecycle",
       topology: "ledger-write",
+      targetIdField: "taskId",
       lifecycle: {
         transitionId: "submit_execution",
         commandType: "SubmitExecution",
@@ -307,6 +309,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
       read: false,
       implementation: "task-lifecycle",
       topology: "local-arbiter",
+      targetIdField: "taskId",
       lifecycle: {
         transitionId: "record_execution_review",
         commandType: "RecordReview",
@@ -409,6 +412,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
       read: false,
       implementation: "task-completion",
       topology: "ledger-write",
+      targetIdField: "taskId",
       lifecycle: {
         transitionId: "complete_task",
         commandType: "CompleteTask",
