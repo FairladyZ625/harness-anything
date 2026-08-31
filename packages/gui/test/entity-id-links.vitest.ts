@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
@@ -480,11 +481,15 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
   return container;
 }
 
-const SYSTEM_HEALTH = {
-  daemon: { ok: true, observedAt: AT },
-  repo: { repoId: REPO_ID, registrationState: "enabled" } as never,
-  projection: { watermark: 1, sourceRevision: 1, status: "ready" } as never,
-};
+// 运行健康已随 2026-08-31 收纳搬进侧栏系统运行区;总览只保留底部统计条的异常口径,
+// 所以这里直接喂派生后的 RuntimeHealth 而不是派生前的查询输入。
+const SYSTEM_HEALTH = deriveRuntimeHealth({
+  daemon: { ok: true, observedAt: AT, uptimeMs: null },
+  repo: { cellState: "attached", queueDepth: 0, lastError: null, unavailableReason: null },
+  projection: { watermark: 1, sourceRevision: 1, status: "ready" },
+  lastSnapshotAt: AT,
+  now: AT,
+});
 
 const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
@@ -555,12 +560,12 @@ const VIEW_RENDERERS = {
       decisions: FIXTURE_DECISIONS,
       workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
       relations: FIXTURE_RELATIONS,
-      systemHealth: SYSTEM_HEALTH,
+      health: SYSTEM_HEALTH,
+      daemonReadFailed: false,
       onSelect: noop,
       onDrill: noop,
       onOpenInbox: noop,
       onOpenDecision: noop,
-      onOpenSystem: noop,
     }),
   board: () =>
     createElement(BoardView, {

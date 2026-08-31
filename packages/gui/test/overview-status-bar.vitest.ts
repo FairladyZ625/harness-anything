@@ -3,15 +3,16 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { LedgerStatusBar } from "../src/renderer/components/shell-chrome.tsx";
+import { LedgerStatusBar } from "../src/renderer/components/sidebar/SystemStatusPanel.tsx";
 import { OverviewStatsBar } from "../src/renderer/components/overview/OverviewStatsBar.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { WorkspaceSummaryRead } from "../src/renderer/../api/renderer-dto.ts";
 
 /**
- * task_b2fb4bc7:左上角一行状态栏取代侧栏统计块,统计数字搬到总览底部折叠条。
- * `real-task-summary` 这个 testid 是读基线工具与两条 e2e 的就绪探针,必须继续由
- * 状态栏承载 —— 这里专门锁住这条契约。
+ * task_b2fb4bc7:一行实时状态栏取代侧栏统计块,统计数字搬到总览底部折叠条。
+ * 2026-08-31 收纳后状态栏随系统运行区住在侧栏左下角(components/sidebar/
+ * SystemStatusPanel.tsx)。`real-task-summary` 这个 testid 是读基线工具与两条 e2e
+ * 的就绪探针,必须继续由状态栏承载 —— 这里专门锁住这条契约。
  */
 
 beforeAll(() => {
@@ -34,8 +35,8 @@ async function mount(element: ReturnType<typeof createElement>) {
   return { div, root: root as Root };
 }
 
-describe("LedgerStatusBar(左上角一行状态栏)", () => {
-  it("单行 ≤40px,带事件总数、相对刷新时间、刷新按钮与绿点,并承载 real-task-summary", async () => {
+describe("LedgerStatusBar(侧栏系统运行区第三行)", () => {
+  it("单行,带事件总数、相对刷新时间、刷新按钮与绿点,并承载 real-task-summary", async () => {
     const onRefresh = vi.fn();
     const { div, root } = await mount(
       createElement(LedgerStatusBar, {

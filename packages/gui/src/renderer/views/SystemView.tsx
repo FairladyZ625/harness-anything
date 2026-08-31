@@ -2,7 +2,7 @@ import { ArrowClockwise, Power } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { formatTime } from "../model/time.ts";
+import { formatTime, formatUptimeMs } from "../model/time.ts";
 
 /**
  * System 面板:面向使用者的守护进程状态 + 本地仓库表。
@@ -14,19 +14,7 @@ import { formatTime } from "../model/time.ts";
  */
 const dash = () => t("views.settingsView.systemUnknownDash");
 const dateTime = (iso: string) => formatTime(iso, { style: "date-time-seconds" }) ?? dash();
-
-export function formatUptimeMs(uptimeMs: number | undefined): string {
-  if (typeof uptimeMs !== "number" || !Number.isFinite(uptimeMs) || uptimeMs < 0) return dash();
-  const totalSec = Math.floor(uptimeMs / 1000),
-    days = Math.floor(totalSec / 86_400),
-    hours = Math.floor((totalSec % 86_400) / 3_600),
-    minutes = Math.floor((totalSec % 3_600) / 60),
-    seconds = totalSec % 60;
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
+const uptime = (uptimeMs: number | undefined): string => formatUptimeMs(uptimeMs, dash());
 
 function Field({ name, value, title }: { readonly name: string; readonly value: string; readonly title?: string }) {
   return (
@@ -245,7 +233,7 @@ export function SystemView({
             />
             <Field
               name={t("views.settingsView.systemUptime")}
-              value={formatUptimeMs(daemon.uptimeMs)}
+              value={uptime(daemon.uptimeMs)}
               title={`${daemon.uptimeMs} ms`}
             />
             <Field name={t("views.settingsView.systemPid")} value={String(daemon.pid)} />

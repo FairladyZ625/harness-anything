@@ -1,8 +1,9 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import { formatUptimeMs, totalQueueDepth } from "../src/renderer/views/SystemView.tsx";
+import { totalQueueDepth } from "../src/renderer/views/SystemView.tsx";
 import {
   formatTime,
+  formatUptimeMs,
   readTimeZoneOverride,
   TIME_ZONE_STORAGE_KEY,
   writeTimeZoneOverride,
