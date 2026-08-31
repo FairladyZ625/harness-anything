@@ -141,3 +141,28 @@ test("public WriteReceipt rejects a missing or null AuthorizationDecision", () =
   assert.match(validateWriteReceipt(missing).join("\n"), /AuthorizationDecision/u);
   assert.match(validateWriteReceipt({ ...receipt, authorizationDecision: null }).join("\n"), /AuthorizationDecision/u);
 });
+
+test("public WriteReceipt accepts only structured unmet criteria", () => {
+  const decision = port.authorize(action("task-submit"), roleContext("repo-write")),
+    receipt = {
+      outcome: "op_rejected",
+      opId: "op-unmet-criterion",
+      code: "invalid_transition",
+      origin: "test",
+      evidence: "criteria:revision",
+      nextAction: "Refresh and retry.",
+      authorizationDecision: decision,
+      unmetCriteria: [
+        {
+          ref: "task-lifecycle-contract-support/revisionIssues",
+          failureCode: "invalid_transition",
+          explain: "The expected revision must match the current Task revision.",
+        },
+      ],
+    } as const;
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+  assert.match(
+    validateWriteReceipt({ ...receipt, unmetCriteria: ["task-lifecycle-contract-support/revisionIssues"] }).join("\n"),
+    /structured criterion explanations/u,
+  );
+});

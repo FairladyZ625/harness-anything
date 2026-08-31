@@ -7,38 +7,62 @@ import path from "node:path";
 import test from "node:test";
 
 const cli = path.resolve("packages/cli/src/index.ts");
-const kinds = ["task", "fact", "decision", "agent", "squad", "policy", "execution", "review", "runtime-session"];
 
-test("ha entity explain returns the uniform contract for all nine kinds", (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-kind-authority-")),
+test("ha explain exposes the Task catalog and typed object failures through the read-only RPC", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-action-explain-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
   try {
     setupRepository(root);
     assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
     assert.equal(
-      run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "kind-authority", "--root", root, "--no-link"])
+      run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "action-explain", "--root", root, "--no-link"])
         .ok,
       true,
     );
-    for (const kind of kinds) {
-      const receipt = run(root, userRoot, ["entity", "explain", kind]);
-      assert.equal(receipt.outcome, "applied", kind);
-      const explanation = JSON.parse(String(receipt.evidence)) as { schema: string; kind: string };
-      assert.deepEqual(
-        { schema: explanation.schema, kind: explanation.kind },
-        {
-          schema: "entity-kind-explanation/v1",
-          kind,
-        },
-      );
-      context.diagnostic(`ha entity explain ${kind}: ${JSON.stringify(explanation)}`);
-    }
+    const catalog = run(root, userRoot, ["explain", "task"]),
+      object = run(root, userRoot, ["explain", "task/task_missing"]);
+    assert.deepEqual(
+      {
+        schema: catalog.schema,
+        mode: catalog.mode,
+        ids: actionIds(catalog),
+      },
+      {
+        schema: "entity-action-explanation/v1",
+        mode: "catalog",
+        ids: ["start", "submit", "review", "complete"],
+      },
+    );
+    assert.deepEqual(
+      {
+        schema: object.schema,
+        mode: object.mode,
+        failure: failureCode(object),
+      },
+      {
+        schema: "entity-action-explanation/v1",
+        mode: "failure",
+        failure: "entity_not_found",
+      },
+    );
   } finally {
     runBestEffort(root, userRoot, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+function actionIds(value: Record<string, unknown>): unknown {
+  const subjects = value.subjects as readonly {
+    readonly actions: readonly { readonly action: { readonly id: string } }[];
+  }[];
+  return subjects[0]?.actions.map(({ action }) => action.id);
+}
+
+function failureCode(value: Record<string, unknown>): unknown {
+  const subjects = value.subjects as readonly { readonly failure: { readonly code: string } | null }[];
+  return subjects[0]?.failure?.code;
+}
 
 function setupRepository(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -63,8 +87,8 @@ roles:
     "utf8",
   );
   git(root, "init", "--quiet");
-  git(root, "config", "user.name", "Kind Authority Test");
-  git(root, "config", "user.email", "kind-authority@example.test");
+  git(root, "config", "user.name", "Explain Test");
+  git(root, "config", "user.email", "explain@example.test");
   git(root, "add", "README.md", "harness/harness.yaml", "harness/people.yaml");
   git(root, "commit", "--quiet", "-m", "fixture");
 }

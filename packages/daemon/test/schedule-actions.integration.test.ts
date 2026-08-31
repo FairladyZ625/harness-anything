@@ -238,7 +238,13 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         {
           outcome: "op_rejected",
           code: "schedule_claim_stale",
-          unmetCriteria: ["schedule/active-claim-fence"],
+          unmetCriteria: [
+            {
+              ref: "schedule/active-claim-fence",
+              failureCode: "schedule_claim_stale",
+              explain: "The active occurrence still owns the supplied claim fence.",
+            },
+          ],
         },
       );
       output?.(

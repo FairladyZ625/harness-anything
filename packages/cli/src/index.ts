@@ -20,6 +20,10 @@ import {
 } from "./cli/thin-command.ts";
 import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./cli/thin-command-schedule.ts";
 import {
+  renderEntityActionExplanation,
+  type EntityActionExplanationRenderInput,
+} from "./cli/entity-action-explain-render.ts";
+import {
   daemonAutostartFailureCode,
   daemonBuildStaleCode,
   daemonResponseTimeoutCode,
@@ -79,7 +83,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       ? await runRuntimeFacadeCommand(typedCommand)
       : await runCommandThroughDaemon(typedCommand, (phase) => emit(phase, typedCommand.json));
     emit(receipt, typedCommand.json);
-    return Number.isInteger(receipt.exitCode) ? Number(receipt.exitCode) : receipt.ok === true ? 0 : 1;
+    return Number.isInteger(receipt.exitCode)
+      ? Number(receipt.exitCode)
+      : receipt.ok === true || receipt.schema === "entity-action-explanation/v1"
+        ? 0
+        : 1;
   } catch (error) {
     const autostartCode = daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),
@@ -105,6 +113,8 @@ export function materializeDecisionStdin(
 
 export function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
+  else if (receipt.schema === "entity-action-explanation/v1")
+    console.log(renderEntityActionExplanation(receipt as unknown as EntityActionExplanationRenderInput));
   else if (receipt.command === "runtime-batch" && Array.isArray(receipt.dispatches))
     console.log(
       receipt.dispatches.length ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.",

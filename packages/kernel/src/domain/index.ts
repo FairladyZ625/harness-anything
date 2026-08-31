@@ -6,6 +6,7 @@ export type { AuthorizationDecision } from "./receipt-frame.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   taskLifecycleActionIds,
+  isEntityActionUnmetCriterion,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
 } from "./entity-action-explanation.ts";
@@ -16,6 +17,7 @@ export type {
   EntityActionExplanationSetV1,
   EntityActionExplanationSubjectV1,
   EntityActionExplanationV1,
+  EntityActionUnmetCriterionV1,
   TaskLifecycleActionId,
 } from "./entity-action-explanation.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";

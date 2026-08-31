@@ -191,12 +191,12 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineRepoReadCommand({
-    id: "entity-explain",
-    phase: "Runtime-B",
-    path: ["entity", "explain", "<kind>"],
-    summary: "Explain one registered Entity kind contract.",
-    method: "repo.task.run",
-    positional: "entityKind",
+    id: "explain",
+    actionKind: "entity-action-explain",
+    phase: "Ontology-Explain-A",
+    path: ["explain", "<task|task/ref>..."],
+    summary: "Explain the Task Action catalog or evaluate one or more Task refs at the current canonical cut.",
+    method: "repo.entity.actions.explain",
     inputs: [],
   }),
   defineRepoReadCommand({

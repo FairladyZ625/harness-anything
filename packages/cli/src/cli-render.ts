@@ -21,7 +21,7 @@ export function humanError(receipt: Record<string, unknown>): {
 } {
   const outer = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : {},
     code = typeof outer.code === "string" ? outer.code : typeof receipt.code === "string" ? receipt.code : "unknown",
-    hint =
+    baseHint =
       typeof outer.hint === "string"
         ? outer.hint
         : typeof receipt.nextAction === "string"
@@ -29,6 +29,21 @@ export function humanError(receipt: Record<string, unknown>): {
           : typeof receipt.next === "string"
             ? receipt.next
             : "Command failed.",
+    criteria = Array.isArray(receipt.unmetCriteria)
+      ? receipt.unmetCriteria.flatMap((entry) =>
+          entry &&
+          typeof entry === "object" &&
+          typeof (entry as Record<string, unknown>).ref === "string" &&
+          typeof (entry as Record<string, unknown>).explain === "string"
+            ? [
+                `${String((entry as Record<string, unknown>).ref)} — ${String(
+                  (entry as Record<string, unknown>).explain,
+                )}`,
+              ]
+            : [],
+        )
+      : [],
+    hint = criteria.length > 0 ? `${baseHint} Unmet criteria: ${criteria.join("; ")}` : baseHint,
     leader = receipt.leader && typeof receipt.leader === "object" ? (receipt.leader as Record<string, unknown>) : null,
     nested = leader ? humanError(leader) : null,
     failure: ReceiptFailure =

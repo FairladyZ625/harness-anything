@@ -231,7 +231,10 @@ function validateAction(
     JSON.stringify(value.criteria.map(staticCriterion)) !== JSON.stringify(canonicalAction.criteria)
   )
     errors.push("criteria must preserve the canonical Action contract identity and order");
-  if (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((criterion) => !validUnmetCriterion(criterion)))
+  if (
+    !Array.isArray(value.unmetCriteria) ||
+    value.unmetCriteria.some((criterion) => !isEntityActionUnmetCriterion(criterion))
+  )
     errors.push("unmetCriteria is invalid");
   else if (Array.isArray(value.criteria)) {
     const projected = value.criteria
@@ -372,7 +375,7 @@ function validateCriterion(value: unknown): readonly string[] {
     : ["criterion values are invalid"];
 }
 
-function validUnmetCriterion(value: unknown): boolean {
+export function isEntityActionUnmetCriterion(value: unknown): value is EntityActionUnmetCriterionV1 {
   return (
     explanationRecord(value) &&
     explanationExact(value, ["ref", "failureCode", "explain"]) &&

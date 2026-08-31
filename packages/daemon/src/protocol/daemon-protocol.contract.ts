@@ -638,6 +638,7 @@ export {
   resolveThinCliCommand,
   thinCliCommands,
 } from "./daemon-protocol-commands.ts";
+export { taskActionHelpRows } from "./daemon-protocol-commands-task.ts";
 export { daemonGuiActionMethods, daemonGuiStreamFacets, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";

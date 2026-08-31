@@ -3,7 +3,6 @@ import {
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   createEntityStore,
-  explainEntityKind,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
@@ -235,17 +234,10 @@ export async function executeAction(
       cell.entityActionRuntimes,
     );
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
-  if (/^entity-(?:explain|get|list)$/u.test(action.kind)) {
+  if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       kind = cell.requiredCellText(action.entityKind, "entityKind"),
       entities = createEntityStore(cell.store);
-    if (action.kind === "entity-explain")
-      return cell.readResult(
-        cell.operationId(action, binding, cell.input.repoId, revision),
-        explainEntityKind(kind),
-        revision,
-        null,
-      );
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),

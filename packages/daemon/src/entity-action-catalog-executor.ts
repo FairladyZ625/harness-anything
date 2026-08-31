@@ -20,6 +20,7 @@ import {
   type EntityActionContract,
   type EntityActionDraft,
   type EntityActionExecutionContract,
+  type EntityActionUnmetCriterionV1,
   type EntityEventV1,
   type EntityUpsertBundle,
   type EventPublicationKillpoint,
@@ -437,13 +438,12 @@ export function deriveActionResult(
         : targetIdField && typeof receiptFields[targetIdField] === "string"
           ? receiptFields[targetIdField]
           : null,
-    unmetCriteria = rejected
-      ? contract.criteria
-          .filter((criterion) => criterion.failureCode === receipt.code)
-          .map((criterion) => criterion.ref)
+    inferredCriteria = contract.criteria.filter((criterion) => criterion.failureCode === receipt.code),
+    unmetCriteria: readonly EntityActionUnmetCriterionV1[] = rejected
+      ? (receipt.unmetCriteria ?? (inferredCriteria.length === 1 ? inferredCriteria : []))
       : [],
     explanation = rejected
-      ? (contract.criteria.find((criterion) => criterion.failureCode === receipt.code)?.explain ??
+      ? (unmetCriteria[0]?.explain ??
         receipt.nextAction ??
         `Action ${contract.target.kind}.${contract.id} was rejected.`)
       : null;
@@ -460,7 +460,9 @@ export function deriveActionResult(
             revision: receipt.revision ?? null,
           },
     rejectionExplanation: explanation,
-    nextActions: receipt.nextAction ? [receipt.nextAction] : [],
+    nextActions: Object.freeze([
+      ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
+    ]),
   };
 }
 

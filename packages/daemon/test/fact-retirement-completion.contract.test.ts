@@ -171,7 +171,8 @@ async function reachGreenInReview(
     binding,
   );
   assert.equal(completionFact.outcome, "applied", JSON.stringify(completionFact));
-  await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  const started = await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
   const packagePath = "tasks/task_fact_retirement-fact-retirement-contract",
     closeoutPath = `${packagePath}/closeout.md`;
   writeFileSync(
@@ -191,7 +192,8 @@ async function reachGreenInReview(
       commitSha: git(rootDir, "rev-parse", "HEAD"),
     }),
   );
-  await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
@@ -200,11 +202,12 @@ async function reachGreenInReview(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-retirement", fromFile: "review.json" },
     reviewerBinding,
   )) as unknown as Record<string, unknown>;
+  assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
   writeFileSync(
     path.join(rootDir, "consent.json"),
     JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }),
   );
-  await cell.run(
+  const consented = await cell.run(
     {
       kind: "task-review-consent",
       taskId,
@@ -215,6 +218,7 @@ async function reachGreenInReview(
     },
     binding,
   );
+  assert.equal(consented.outcome, "applied", JSON.stringify(consented));
 }
 
 function git(rootDir: string, ...args: readonly string[]): string {

@@ -63,19 +63,18 @@ export function proposalIssues(
       "fulfillments",
       "relations",
     ],
-    fields = [...legacyFields, "provenance"];
-  if (
-    !(allowUnknownFields
+    fields = [...legacyFields, "provenance"],
+    shapeValid = allowUnknownFields
       ? requiredWithOptional(
           value,
           [...legacyFields, ...common],
           ["provenance"],
           true,
         )
-      : matchesFields(value, [...fields, ...common], false))
-  )
-    return [`decision proposal requires exactly: ${fields.join(", ")}`];
-  const issues: string[] = [],
+      : matchesFields(value, [...fields, ...common], false),
+    issues: string[] = shapeValid
+      ? []
+      : [`decision proposal requires exactly: ${fields.join(", ")}`],
     check = (ok: boolean, message: string): void => {
       if (!ok) issues.push(message);
     };
@@ -125,64 +124,82 @@ export function proposalIssues(
         )),
     "provenance must contain exactly one session identity",
   );
-  if (issues.length) return issues;
-  const chosen = value.chosen as readonly unknown[],
-    rejected = value.rejected as readonly unknown[],
-    claims = value.claims as readonly unknown[],
-    fulfilled = value.fulfillments as readonly unknown[],
-    relations = value.relations as readonly unknown[];
-  check(
-    chosen.every(
-      (entry) =>
-        isRecord(entry) &&
-        requiredWithOptional(
-          entry,
-          ["id", "text"],
-          ["rationale"],
-          allowUnknownFields,
-        ) &&
-        optionId(entry.id, "CH") &&
-        isNonEmptyString(entry.text) &&
-        (entry.rationale === undefined || codePoints(entry.rationale, 1, 199)),
-    ),
-    "every chosen entry needs a CH id, non-empty text, and an optional 1..199 rationale",
-  );
-  check(
-    rejected.every(
-      (entry) =>
-        isRecord(entry) &&
-        matchesFields(entry, ["id", "text", "whyNot"], allowUnknownFields) &&
-        optionId(entry.id, "RJ") &&
-        isNonEmptyString(entry.text) &&
-        codePoints(entry.whyNot, 1, 199),
-    ),
-    "every rejected entry needs an RJ id, non-empty text, and a 1..199 whyNot",
-  );
-  check(
-    claims.every(
-      (entry) =>
-        isRecord(entry) &&
-        matchesFields(
-          entry,
-          ["id", "text", "loadBearing"],
-          allowUnknownFields,
-        ) &&
-        claimId(entry.id) &&
-        isNonEmptyString(entry.text) &&
-        typeof entry.loadBearing === "boolean",
-    ),
-    "every claim needs a C id, non-empty text, and a boolean loadBearing",
-  );
-  check(
-    fulfilled.every(
-      (entry) =>
-        isRecord(entry) &&
-        matchesFields(entry, ["claimId", "mode"], allowUnknownFields) &&
-        claimId(entry.claimId) &&
-        includes(decisionFulfillmentModes, entry.mode),
-    ),
-    `every fulfillment needs a claimId and a mode of ${decisionFulfillmentModes.join(", ")}`,
-  );
+  const chosen = Array.isArray(value.chosen) ? value.chosen : [],
+    rejected = Array.isArray(value.rejected) ? value.rejected : [],
+    claims = Array.isArray(value.claims) ? value.claims : [],
+    fulfilled = Array.isArray(value.fulfillments) ? value.fulfillments : [],
+    relations = Array.isArray(value.relations) ? value.relations : [],
+    chosenValid =
+      Array.isArray(value.chosen) &&
+      value.chosen.length > 0 &&
+      chosen.every(
+        (entry) =>
+          isRecord(entry) &&
+          requiredWithOptional(
+            entry,
+            ["id", "text"],
+            ["rationale"],
+            allowUnknownFields,
+          ) &&
+          optionId(entry.id, "CH") &&
+          isNonEmptyString(entry.text) &&
+          (entry.rationale === undefined ||
+            codePoints(entry.rationale, 1, 199)),
+      ),
+    rejectedValid =
+      Array.isArray(value.rejected) &&
+      value.rejected.length > 0 &&
+      rejected.every(
+        (entry) =>
+          isRecord(entry) &&
+          matchesFields(entry, ["id", "text", "whyNot"], allowUnknownFields) &&
+          optionId(entry.id, "RJ") &&
+          isNonEmptyString(entry.text) &&
+          codePoints(entry.whyNot, 1, 199),
+      ),
+    claimsValid =
+      Array.isArray(value.claims) &&
+      claims.every(
+        (entry) =>
+          isRecord(entry) &&
+          matchesFields(
+            entry,
+            ["id", "text", "loadBearing"],
+            allowUnknownFields,
+          ) &&
+          claimId(entry.id) &&
+          isNonEmptyString(entry.text) &&
+          typeof entry.loadBearing === "boolean",
+      ),
+    fulfillmentsValid =
+      Array.isArray(value.fulfillments) &&
+      fulfilled.every(
+        (entry) =>
+          isRecord(entry) &&
+          matchesFields(entry, ["claimId", "mode"], allowUnknownFields) &&
+          claimId(entry.claimId) &&
+          includes(decisionFulfillmentModes, entry.mode),
+      );
+  if (Array.isArray(value.chosen) && value.chosen.length > 0)
+    check(
+      chosenValid,
+      "every chosen entry needs a CH id, non-empty text, and an optional 1..199 rationale",
+    );
+  if (Array.isArray(value.rejected) && value.rejected.length > 0)
+    check(
+      rejectedValid,
+      "every rejected entry needs an RJ id, non-empty text, and a 1..199 whyNot",
+    );
+  if (Array.isArray(value.claims))
+    check(
+      claimsValid,
+      "every claim needs a C id, non-empty text, and a boolean loadBearing",
+    );
+  if (Array.isArray(value.fulfillments))
+    check(
+      fulfillmentsValid,
+      `every fulfillment needs a claimId and a mode of ${decisionFulfillmentModes.join(", ")}`,
+    );
   const ids = [...chosen, ...rejected, ...claims].map((entry) =>
       isRecord(entry) ? String(entry.id) : "",
     ),
@@ -196,29 +213,33 @@ export function proposalIssues(
       isRecord(entry) ? entry.relation_id : null,
     ),
     anchored = new Set(ids);
-  check(
-    new Set(ids).size === ids.length,
-    "chosen, rejected, and claim ids must be unique across the packet",
-  );
-  check(
-    new Set(fulfillmentIds).size === fulfillmentIds.length &&
-      fulfillmentIds.every((entry) => claimIds.has(entry)),
-    "every fulfillment must name a distinct claim declared in this packet",
-  );
-  check(
-    relations.every(
-      (entry) =>
-        relation(entry, allowUnknownFields) &&
-        entry.relation_id === deriveRelationId(entry) &&
-        entry.source.startsWith(`decision/${String(id)}/`) &&
-        anchored.has(entry.source.slice(entry.source.lastIndexOf("/") + 1)),
-    ),
-    "every relation must derive its own relation_id and anchor on a chosen, rejected, or claim id of this decision",
-  );
-  check(
-    new Set(relationIds).size === relationIds.length,
-    "relation ids must be unique",
-  );
+  if (chosenValid && rejectedValid && claimsValid)
+    check(
+      new Set(ids).size === ids.length,
+      "chosen, rejected, and claim ids must be unique across the packet",
+    );
+  if (claimsValid && fulfillmentsValid)
+    check(
+      new Set(fulfillmentIds).size === fulfillmentIds.length &&
+        fulfillmentIds.every((entry) => claimIds.has(entry)),
+      "every fulfillment must name a distinct claim declared in this packet",
+    );
+  if (Array.isArray(value.relations))
+    check(
+      relations.every(
+        (entry) =>
+          relation(entry, allowUnknownFields) &&
+          entry.relation_id === deriveRelationId(entry) &&
+          entry.source.startsWith(`decision/${String(id)}/`) &&
+          anchored.has(entry.source.slice(entry.source.lastIndexOf("/") + 1)),
+      ),
+      "every relation must derive its own relation_id and anchor on a chosen, rejected, or claim id of this decision",
+    );
+  if (Array.isArray(value.relations))
+    check(
+      new Set(relationIds).size === relationIds.length,
+      "relation ids must be unique",
+    );
   return issues;
 }
 

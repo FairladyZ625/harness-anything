@@ -39,6 +39,7 @@ export {
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
 export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
+export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
 export {
   isTaskBoundRuntimeWriter,
   resolveTaskBoundRuntimeBinding,

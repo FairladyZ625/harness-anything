@@ -1,5 +1,6 @@
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
+import { isEntityActionUnmetCriterion, type EntityActionUnmetCriterionV1 } from "./entity-action-explanation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
@@ -97,7 +98,7 @@ export interface WriteReceiptDraft {
   readonly detail?: WriteReceiptDetail;
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision;
-  readonly unmetCriteria?: readonly string[];
+  readonly unmetCriteria?: readonly EntityActionUnmetCriterionV1[];
   readonly effects?: readonly string[];
   readonly updatedProjection?: {
     readonly kind: string;
@@ -152,9 +153,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
   if (
     "unmetCriteria" in value &&
-    (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isNonEmptyString(entry)))
+    (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isEntityActionUnmetCriterion(entry)))
   )
-    errors.push("unmetCriteria must be an array of criterion references");
+    errors.push("unmetCriteria must be an array of structured criterion explanations");
   if (
     "nextActions" in value &&
     (!Array.isArray(value.nextActions) || value.nextActions.some((entry) => !isNonEmptyString(entry)))
