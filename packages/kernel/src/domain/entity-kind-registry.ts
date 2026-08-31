@@ -37,6 +37,7 @@ import {
   type RelationDirection,
   type RelationType,
 } from "./entity-relation.ts";
+import { relationSchema } from "./entity-kind-relation-schema.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA } from "./policy.ts";
@@ -397,57 +398,6 @@ function explainableNode(value: unknown): EntityJsonSchemaNode {
 const taskSchema = explainableSchema("task-frontmatter", taskFrontmatterJsonSchema);
 const factSchema = explainableSchema("fact-event", factEventJsonSchema);
 const decisionSchema = explainableSchema("decision-package", decisionPackageJsonSchema);
-const relationSchema: EntityDocumentJsonSchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "Relation/v1",
-  type: "object",
-  properties: {
-    id: { type: "string", pattern: relationIdentity.pattern },
-    kind: { type: "string", const: "relation" },
-    ref: { type: "string", pattern: "^relation/rel_[0-9a-f]{16}$" },
-    revision: { type: "integer" },
-    createdAt: { type: "string", minLength: 1 },
-    updatedAt: { type: "string", minLength: 1 },
-    disposition: { type: "string", enum: ["active", "archived", "tombstoned"] },
-    provenance: opaqueObject(),
-    pinned: { type: "boolean" },
-    relationEndpoint: opaqueObject(),
-    residency: opaqueObject(),
-    source: { type: "string", minLength: 1 },
-    target: { type: "string", minLength: 1 },
-    type: { type: "string", enum: relationTypes },
-    strength: { type: "string", enum: relationStrengths },
-    direction: { type: "string", enum: relationDirections },
-    origin: { type: "string", enum: relationOrigins },
-    state: { type: "string", enum: relationStates },
-    rationale: { type: "string", minLength: 1 },
-    replacedBy: { type: "string", pattern: relationIdentity.pattern },
-    retirementReason: { type: "string", minLength: 1 },
-  },
-  required: [
-    "id",
-    "kind",
-    "ref",
-    "revision",
-    "createdAt",
-    "updatedAt",
-    "disposition",
-    "provenance",
-    "pinned",
-    "relationEndpoint",
-    "residency",
-    "source",
-    "target",
-    "type",
-    "strength",
-    "direction",
-    "origin",
-    "state",
-    "rationale",
-  ],
-  additionalProperties: false,
-};
-
 const decisionFramework = Object.freeze({
   schemaId: "decision-package",
   mutabilityContract: "entityFieldContracts" as const,
