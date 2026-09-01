@@ -40,5 +40,8 @@
   "terminal.view.closePane": "Close pane",
   "terminal.view.closePaneAria": "Close pane {name}",
   "terminal.view.paneSessionGone": "This pane's session is gone from the daemon; the layout was restored, close the pane to drop it.",
-  "terminal.view.groupPaneCount": "{count} panes"
+  "terminal.view.groupPaneCount": "{count} panes",
+  "terminal.view.findInTerminal": "Find in terminal",
+  "terminal.view.noSearchMatch": "No match",
+  "terminal.view.closeSearch": "Close terminal search"
 }

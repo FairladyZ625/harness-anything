@@ -14,6 +14,7 @@ import {
   readTerminalPreferences,
   writeTerminalPreferences,
 } from "../src/renderer/terminal-preferences.ts";
+import { terminalTheme, terminalWebglEnabled, terminalWebglStorageKey } from "../src/renderer/terminal-renderer.ts";
 
 const tab: TerminalTab = {
   sessionId: "terminal-a",
@@ -173,5 +174,17 @@ describe("terminal renderer control", () => {
     ];
     expect(mostRecentAttachableTerminal(rows)?.sessionId).toBe("restored");
     expect(mostRecentAttachableTerminal(rows.map((row) => ({ ...row, attachable: false })))).toBeNull();
+  });
+});
+
+describe("terminal renderer configuration (W4a)", () => {
+  it("keeps WebGL opt-in until the performance task writes the centralized preference", () => {
+    expect(terminalWebglEnabled({ getItem: (key) => (key === terminalWebglStorageKey ? "enabled" : null) })).toBe(true);
+    expect(terminalWebglEnabled({ getItem: () => null })).toBe(false);
+  });
+
+  it("provides aligned xterm palettes for both application themes", () => {
+    expect(terminalTheme("dark").background).toBe("#1d1d20");
+    expect(terminalTheme("light").background).toBe("#fcfcfd");
   });
 });
