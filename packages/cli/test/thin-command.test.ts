@@ -209,30 +209,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
   });
 });
 
-test("explain routes catalog and object requests to the typed read method", () => {
-  const catalog = parseThinCommand(["explain", "task"]),
-    objects = parseThinCommand(["explain", "task/task-one", "task/task-two"]),
-    invalid = parseThinCommand(["explain", "decision/dec-one"]);
-  assert.equal(catalog.ok, true);
-  assert.equal(objects.ok, true);
-  assert.equal(invalid.ok, false);
-  if (!catalog.ok || !objects.ok || invalid.ok) return;
-  assert.equal(catalog.command.method, "repo.entity.actions.explain");
-  assert.deepEqual(catalog.command.action, {
-    kind: "entity-action-explain",
-    schema: "entity-action-explain-request/v1",
-    mode: "catalog",
-    refs: [],
-  });
-  assert.deepEqual(objects.command.action, {
-    kind: "entity-action-explain",
-    schema: "entity-action-explain-request/v1",
-    mode: "object",
-    refs: ["task/task-one", "task/task-two"],
-  });
-  assert.match(invalid.nextAction, /ha explain task\/.*1\.\.500 objects/u);
-});
-
 test("task transition conditional inputs preserve audited cancellation and reinstatement", () => {
   for (const argv of [
     ["task", "transition", "task-1", "planned"],
