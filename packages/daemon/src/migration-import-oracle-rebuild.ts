@@ -58,7 +58,8 @@ export function rebuildMigrationProjectionOracle(
     if (inspection.eventHeadRevision !== null && oracle.watermark !== inspection.eventHeadRevision)
       throw migrationImportError(
         "migration_projection_oracle_cut_mismatch",
-        `Rebuilt projection watermark ${oracle.watermark} does not match canonical event head ${inspection.eventHeadRevision}.`,
+        `Rebuilt projection watermark ${oracle.watermark} ` +
+          `does not match canonical event head ${inspection.eventHeadRevision}.`,
       );
     return oracle;
   } catch (error) {
