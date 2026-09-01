@@ -825,12 +825,16 @@ function materializeVisible(
   const conflicts: string[] = [];
   const writes: { target: string; body: string; mode: "100644" | "120000" }[] = [];
   for (const [logical, claim] of [...latest].sort(([left], [right]) => left.localeCompare(right))) {
-    const bytes = wal.readContentBlob(claim.sha256) ?? readGitContent(claim.sha256);
-    if (bytes === null) continue;
     const target = ledgerGitPath(ledger, logical);
     const physical = pathFor(ledger.rootDir, target);
     const local = localGitWorktreeSettlement.readNode(physical);
+    // Decide divergence from the worktree hash and the in-memory claim alone; an already-materialized
+    // document is skipped before any canonical blob is read. This keeps materialize proportional to the
+    // number of divergent files, not the size of the whole corpus: a current worktree reads zero blobs
+    // (previously every document forced a `git show`, which wedged the daemon event loop at scale).
     if (local?.sha256 === claim.sha256 && local.mode === claim.mode) continue;
+    const bytes = wal.readContentBlob(claim.sha256) ?? readGitContent(claim.sha256);
+    if (bytes === null) continue;
     const base = committed.get(target);
     if (local !== null && (base === undefined || local.gitOid !== base.oid || local.mode !== base.mode))
       conflicts.push(

@@ -550,3 +550,42 @@ function git(rootDir: string, ...args: readonly string[]): string {
     encoding: "utf8",
   }).trim();
 }
+
+test("materialize reads canonical blobs only for divergent files, not once per document", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const docCount = 8,
+      store = makeWalShadowEventStore({ repoId: "materialize-scale", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
+    for (let revision = 1; revision <= docCount; revision += 1)
+      store.append(taskBundle(revision, `# doc ${revision}\n`));
+    await store.drain();
+
+    // A fresh process view holds no WAL content in memory, so every canonical blob read must fall through
+    // to a Git subprocess — exactly what processCount observes. The first materialize settles the worktree
+    // and any one-off content validation; steady-state cost is then measured on the second call.
+    const fresh = makeWalShadowEventStore({ repoId: "materialize-scale", rootDir, walFlushMs: 60_000 });
+    assert.deepEqual(fresh.materialize().changed, []);
+    const cleanStarted = localGitObjectRefStore.processCount(),
+      clean = fresh.materialize(),
+      cleanProcesses = localGitObjectRefStore.processCount() - cleanStarted;
+    assert.deepEqual(clean.changed, []);
+    assert.ok(
+      cleanProcesses < docCount,
+      `a current worktree must not start one Git read per document (started ${cleanProcesses} for ${docCount} docs)`,
+    );
+
+    // Deleting a subset makes materialize restore exactly those files and read strictly more than the clean
+    // pass — proving the blob reads are proportional to divergence, not to the size of the corpus.
+    const removed = [2, 5, 7].map((revision) => `tasks/task-${revision}/task.md`);
+    for (const target of removed) rmSync(path.join(rootDir, "harness", target));
+    const restoreStarted = localGitObjectRefStore.processCount(),
+      restored = fresh.materialize(),
+      restoreProcesses = localGitObjectRefStore.processCount() - restoreStarted;
+    assert.deepEqual([...restored.changed].sort(), [...removed].sort());
+    assert.ok(
+      restoreProcesses > cleanProcesses,
+      `restoring ${removed.length} divergent files must read their blobs (${restoreProcesses}) — a clean pass reads ${cleanProcesses}`,
+    );
+    await fresh.drain();
+  });
+});
