@@ -12,6 +12,40 @@ test("closeout packet templates are derived from the authoritative schema", () =
   assert.equal(resumed.completion.ci, "not_applicable");
 });
 
+test("closeout review accepts the optional qualification fields but omits them from the template", () => {
+  const template = createTaskCloseoutPacketTemplate({ includeSubmission: false, ci: "not_applicable" });
+  // The default scaffold stays the standard shape; the optional qualifiers are documented, not seeded.
+  assert.deepEqual(Object.keys(template.review).sort(), ["evidenceChecked", "reason", "verdict"]);
+
+  const base = {
+    consent: { approved: true } as const,
+    completion: { ci: "not_applicable" as const, codeDocPaths: [] },
+  };
+  const anchored = validateTaskCloseoutPacket({
+    ...base,
+    review: {
+      verdict: "approved",
+      reason: "Delivered and merged.",
+      evidenceChecked: ["origin/main ancestry"],
+      externalCompletionAnchor: "e63a871c71520ae75a6854c20204aebccb726ef4",
+      noDispatchReason: "Delivered through a retired external channel.",
+    },
+  });
+  assert.equal(anchored.ok, true, JSON.stringify(anchored));
+
+  const weaklyMarked = validateTaskCloseoutPacket({
+    ...base,
+    review: {
+      verdict: "approved",
+      reason: "Documentation-only delivery.",
+      evidenceChecked: ["authored documentation"],
+      noIndependentReview: true,
+      noIndependentReviewReason: "No independent reviewer was available.",
+    },
+  });
+  assert.equal(weaklyMarked.ok, true, JSON.stringify(weaklyMarked));
+});
+
 test("closeout packet validation reports every independent field error at once", () => {
   const invalid = validateTaskCloseoutPacket({
     unexpected: true,
