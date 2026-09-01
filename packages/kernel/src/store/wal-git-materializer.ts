@@ -28,6 +28,8 @@ export interface WalGitMaterializerOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   /** Keep immutable event/content objects in Git while excluding them from the active worktree. */
   readonly compactWorktree?: boolean;
+  /** Layout already verified for the expected Git cut by the materialization host. */
+  readonly layout: LedgerLayoutState;
 }
 
 export interface WalGitMaterializationReceipt {
@@ -60,7 +62,12 @@ export function flushWalToGit(
   options: WalGitMaterializerOptions,
 ): WalGitMaterializationReceipt {
   const records = wal.records();
-  if (records.length === 0) return { commitSha: git.currentCommit().sha, head: git.readHead(), layout: git.layout() };
+  if (records.length === 0)
+    return {
+      commitSha: git.currentCommit().sha,
+      head: git.readHead(),
+      layout: options.layout,
+    };
   const input = options.rootInput ?? options.rootDir;
   if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
   const ledger = resolveLedgerGitLayout(input);
@@ -76,7 +83,7 @@ export function flushWalToGit(
   }
   const pending = records.filter((record) => record.revision > through);
   const settlementRecords = pending.length === 0 ? records : pending;
-  const layoutState = git.layout();
+  const layoutState = options.layout;
   if (layoutState === "mixed")
     throw new TaskEventStoreError("invalid_store", "cannot flush WAL into a mixed Git layout");
   const files = batchFiles(wal, ledger, settlementRecords, layoutState);
