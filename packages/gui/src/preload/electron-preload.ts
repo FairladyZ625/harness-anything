@@ -10,6 +10,7 @@ import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
 import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
+import { LOCAL_DOC_READ_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";
 const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ guiBridgeMethod }) => guiBridgeMethod));
 const exposedApi = Object.fromEntries(
   preloadAllowlist
@@ -32,6 +33,10 @@ const exposedHarnessApi = {
   artifacts: {
     openExternal: (input) => ipcRenderer.invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
   } satisfies ArtifactOpenApi,
+  // GUI 内读本机文档(task_89d324b5):只读通道,主进程收窄见 main/local-doc-ipc.ts。
+  localDoc: {
+    read: (input) => ipcRenderer.invoke(LOCAL_DOC_READ_CHANNEL, input),
+  } satisfies LocalDocApi,
   capabilities: preloadApiCapabilities,
 };
 

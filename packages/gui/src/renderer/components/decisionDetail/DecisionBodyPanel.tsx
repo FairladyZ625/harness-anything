@@ -1,16 +1,23 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
+import { MarkdownAnchor } from "../../local-doc/MarkdownAnchor.tsx";
+import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
 
 /**
  * 正文块渲染:完整渲染、永不截断(2026-08-25 泽宇裁决——性能顾虑不许转嫁成用户点击)。
  * 每块带 content-visibility:auto:离屏块的布局与绘制由渲染器跳过,DOM 仍是全量,
  * 长正文的滚动成本只与视口内块数相关。
+ *
+ * 链接拦截(task_89d324b5)与 DocReader 同一份 MarkdownAnchor:锚点永远不做文档
+ * 导航,本机文件链接转本机文档浮层 —— 决策正文里的项目外链接不再把窗口带离应用。
  */
 const BLOCK_CLASS = "[contain-intrinsic-size:auto_5rem] [content-visibility:auto]";
+const components: Components = { a: MarkdownAnchor };
 
 export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; decisionId: string }) {
   const query = useQuery({
@@ -70,7 +77,9 @@ function DecisionBodyDocument({ source }: { source: string }) {
       <div className="prose-harness">
         {blocks.map((block, index) => (
           <div key={index} data-testid="decision-body-block" className={BLOCK_CLASS}>
-            <Markdown remarkPlugins={[remarkGfm]}>{block}</Markdown>
+            <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={markdownUrlTransform}>
+              {block}
+            </Markdown>
           </div>
         ))}
       </div>

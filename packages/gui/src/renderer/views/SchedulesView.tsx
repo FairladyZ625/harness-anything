@@ -65,6 +65,7 @@ export function SchedulesView({
   focusedEntityRef,
   onSelectEntity,
   onFocusSchedule,
+  onFocusGraph,
 }: {
   readonly repoId: string;
   readonly focusedEntityRef: string | null;
@@ -72,6 +73,8 @@ export function SchedulesView({
   readonly onSelectEntity: (ref: string) => void;
   /** In-page schedule location (schedule/<id> and back to null), patched in place. */
   readonly onFocusSchedule: (ref: string | null) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
+  readonly onFocusGraph?: (ref: string) => void;
 }) {
   const query = useQuery({
     queryKey: ["schedules", repoId],
@@ -108,6 +111,7 @@ export function SchedulesView({
         focusedEntityRef={focusedEntityRef}
         onSelectEntity={onSelectEntity}
         onFocusSchedule={onFocusSchedule}
+        onFocusGraph={onFocusGraph}
       />
     </section>
   );
@@ -120,6 +124,7 @@ export function ScheduleWorkspace({
   focusedEntityRef,
   onSelectEntity,
   onFocusSchedule,
+  onFocusGraph,
   onMutated,
 }: {
   readonly repoId: string;
@@ -128,6 +133,8 @@ export function ScheduleWorkspace({
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
   readonly onFocusSchedule: (ref: string | null) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);透传给详情 hub。 */
+  readonly onFocusGraph?: (ref: string) => void;
   readonly onMutated?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -225,6 +232,7 @@ export function ScheduleWorkspace({
           onSave={(input) => void saveDefinition(input)}
           onDelete={() => void deleteSchedule(selected)}
           onSelectEntity={onSelectEntity}
+          onFocusGraph={onFocusGraph}
           onExitRun={() => onFocusSchedule(scheduleRef(selected.scheduleId))}
           onExit={() => onFocusSchedule(null)}
         />

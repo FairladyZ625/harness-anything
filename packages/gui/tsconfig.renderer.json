@@ -29,6 +29,7 @@
     "src/api/artifact-open-contract.ts",
     "src/api/first-run-contract.ts",
     "src/api/html-artifact-policy.ts",
+    "src/api/local-doc-contract.ts",
     "src/api/renderer-dto.ts"
   ],
   "exclude": [

@@ -59,7 +59,6 @@
   "components.factInspector.confidenceValue": "置信度 {confidence}",
   "components.factInspector.dangerousLiaisons": "危险关系",
   "components.factInspector.danglingFactReference": "悬空 fact 引用",
-  "components.factInspector.focusFactDiagram": "在关系图中聚焦此 fact",
   "components.factInspector.hostTaskNotProjectedByCurrentTask": "宿主 task 不在当前 task 投影",
   "components.factInspector.inv6WillDetectAnchorNotPresent": "INV-6 会在真实投影中检出该锚不存在。GUI 只渲染告警，不创建或修复 fact。",
   "components.factInspector.jumpDecision": "跳转到该 decision",
@@ -217,5 +216,19 @@
   "components.appSidebar.healthLedgerChange": "最新台账变化",
   "components.appSidebar.healthNever": "本会话未观察到台账变化",
   "components.appSidebar.goSystem": "系统页",
-  "components.appSidebar.goSystemTitle": "打开系统面板（守护进程状态与仓库表）；悬浮可见运行健康四路信号"
+  "components.appSidebar.goSystemTitle": "打开系统面板（守护进程状态与仓库表）；悬浮可见运行健康四路信号",
+  "components.viewInGraph.view": "在关系图中查看",
+  "components.localDoc.title": "本机文档",
+  "components.localDoc.loading": "正在读取本机文档…",
+  "components.localDoc.close": "关闭",
+  "components.localDoc.sizeBytes": "{count} 字节",
+  "components.localDoc.webLinkTitle": "外部网页链接在 GUI 内不打开",
+  "components.localDoc.inertLinkTitle": "此链接形式在 GUI 内不支持打开",
+  "components.localDoc.errorNotFound": "文件不存在:{path}",
+  "components.localDoc.errorNotARegularFile": "不是常规文件(目录或特殊文件):{path}",
+  "components.localDoc.errorNotReadable": "没有读取权限或读取失败:{path}",
+  "components.localDoc.errorBinaryFile": "文件不是文本,无法在 GUI 内阅读:{path}",
+  "components.localDoc.errorTooLarge": "文件超过 GUI 内阅读上限(2 MiB):{path}",
+  "components.localDoc.errorRequestRejected": "请求被拒绝:{message}",
+  "components.localDoc.errorBridgeUnavailable": "本机文档读取通道不可用(需要 Electron 壳)。"
 }

@@ -10,7 +10,6 @@
   "views.decisionDetailView.consents": "裁决 consent",
   "views.decisionDetailView.consentsEmpty": "尚无裁决 consent(proposed 状态没有)。",
   "views.decisionDetailView.derivedTasks": "派生 task",
-  "views.decisionDetailView.focusGraph": "在关系图聚焦",
   "views.decisionDetailView.fulfillment": "履约",
   "views.decisionDetailView.identity": "身份信息",
   "views.decisionDetailView.identityActors": "提议 / 裁决",

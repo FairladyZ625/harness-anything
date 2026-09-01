@@ -43,28 +43,25 @@ export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicy
     connectSrc,
     "object-src 'none'",
     "base-uri 'none'",
-    "frame-ancestors 'none'"
+    "frame-ancestors 'none'",
   ].join("; ");
 }
 
 export const guiContentSecurityPolicy = createGuiContentSecurityPolicy();
 
-export const allowedRendererOrigins = Object.freeze([
-  "file://",
-  "http://127.0.0.1:5173"
-] as const);
+export const allowedRendererOrigins = Object.freeze(["file://", "http://127.0.0.1:5173"] as const);
 
 export function createGuiIndexContentSecurityPolicy(): string {
   return [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "connect-src 'self'",
-  "object-src 'none'",
-  "base-uri 'none'",
-  "frame-ancestors 'none'"
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self' data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
   ].join("; ");
 }
 
@@ -82,8 +79,8 @@ export function createGuiWindowOptions(preloadPath: string): GuiWindowOptions {
       sandbox: true,
       webSecurity: true,
       webviewTag: true,
-      preload: preloadPath
-    }
+      preload: preloadPath,
+    },
   };
 }
 
@@ -106,6 +103,34 @@ export function isTrustedRendererUrl(url: string, options: TrustedRendererUrlOpt
     if (parsed.protocol !== "file:") return false;
     const packagedRendererUrl = options.packagedRendererUrl ?? createPackagedRendererUrl();
     return parsed.href === new URL(packagedRendererUrl).href;
+  } catch {
+    return false;
+  }
+}
+
+export interface AppDocumentUrlOptions {
+  readonly packagedRendererUrl?: string;
+  /** dev 启动时加载的 renderer 入口(ELECTRON_RENDERER_URL);打包态缺省。 */
+  readonly devRendererUrl?: string | undefined;
+}
+
+/**
+ * 渲染层是单文档应用:窗口可导航的 URL 只有入口文档本身 —— 打包态的 index file URL,
+ * 或 dev server 的根路径。dev 态此前允许同源任意路径(如 Markdown 里 `/Users/…`
+ * 绝对路径链接解析到 `http://127.0.0.1:5173/Users/…`),点击后窗口离开应用文档、
+ * 落在 dev server 的 404 上 —— 这就是详情面外链白屏的壳侧成因(task_89d324b5)。
+ * 渲染层的链接拦截是根修;本判定把同一类逃逸在壳边界也关掉(纵深防御)。
+ */
+export function isNavigableAppDocumentUrl(url: string, options: AppDocumentUrlOptions = {}): boolean {
+  try {
+    const parsed = new URL(url);
+    if (options.devRendererUrl !== undefined && options.devRendererUrl !== "") {
+      const devUrl = new URL(options.devRendererUrl);
+      if (parsed.origin === devUrl.origin) return parsed.pathname === devUrl.pathname;
+    }
+    if (parsed.protocol !== "file:") return false;
+    const packagedRendererUrl = new URL(options.packagedRendererUrl ?? createPackagedRendererUrl());
+    return parsed.href === packagedRendererUrl.href;
   } catch {
     return false;
   }

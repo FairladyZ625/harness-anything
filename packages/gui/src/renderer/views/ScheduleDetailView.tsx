@@ -27,6 +27,7 @@ import {
 } from "../components/runtime/parts.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { SessionTranscript } from "../components/sessions/SessionTranscript.tsx";
+import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import {
@@ -200,6 +201,7 @@ export function ScheduleDetailView({
   onSave,
   onDelete,
   onSelectEntity,
+  onFocusGraph,
   onExitRun,
   onExit,
 }: {
@@ -216,6 +218,8 @@ export function ScheduleDetailView({
   readonly onDelete: () => void;
   /** Entity routing for non-session refs (agent/provider). Run sessions stay embedded. */
   readonly onSelectEntity: (ref: string) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
+  readonly onFocusGraph?: (ref: string) => void;
   /** Leave the embedded run detail back to the hub's Runs tab (location patch, no push). */
   readonly onExitRun: () => void;
   /** Back to the schedules list. */
@@ -311,6 +315,8 @@ export function ScheduleDetailView({
               <PencilSimple weight="bold" />
               {t("schedules.action.edit")}
             </Btn>
+            {/* 统一「在关系图中查看」入口(task_89d324b5):schedule 是图节点 kind。 */}
+            <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} />
           </div>
         )}
       </div>

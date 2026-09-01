@@ -59,7 +59,6 @@
   "components.factInspector.confidenceValue": "confidence {confidence}",
   "components.factInspector.dangerousLiaisons": "Hazardous relations",
   "components.factInspector.danglingFactReference": "dangling fact reference",
-  "components.factInspector.focusFactDiagram": "Focus this fact in the graph",
   "components.factInspector.hostTaskNotProjectedByCurrentTask": "The host task is not projected by the current task",
   "components.factInspector.inv6WillDetectAnchorNotPresent": "INV-6 will detect that this anchor is not present in the real projection. The GUI only renders alerts and does not create or repair facts.",
   "components.factInspector.jumpDecision": "Jump to this decision",
@@ -217,5 +216,19 @@
   "components.appSidebar.healthLedgerChange": "last ledger change",
   "components.appSidebar.healthNever": "no ledger change observed this session",
   "components.appSidebar.goSystem": "System",
-  "components.appSidebar.goSystemTitle": "Open the system panel (daemon status and repo table); hover for the four runtime-health signals"
+  "components.appSidebar.goSystemTitle": "Open the system panel (daemon status and repo table); hover for the four runtime-health signals",
+  "components.viewInGraph.view": "View in relation graph",
+  "components.localDoc.title": "Local document",
+  "components.localDoc.loading": "Reading the local document…",
+  "components.localDoc.close": "Close",
+  "components.localDoc.sizeBytes": "{count} bytes",
+  "components.localDoc.webLinkTitle": "External web links do not open inside the GUI",
+  "components.localDoc.inertLinkTitle": "This link form cannot be opened in the GUI",
+  "components.localDoc.errorNotFound": "File not found: {path}",
+  "components.localDoc.errorNotARegularFile": "Not a regular file (directory or special file): {path}",
+  "components.localDoc.errorNotReadable": "Not readable (permission denied or read failed): {path}",
+  "components.localDoc.errorBinaryFile": "The file is not text and cannot be read in the GUI: {path}",
+  "components.localDoc.errorTooLarge": "The file exceeds the in-app reader limit (2 MiB): {path}",
+  "components.localDoc.errorRequestRejected": "Request rejected: {message}",
+  "components.localDoc.errorBridgeUnavailable": "The local document bridge is unavailable (requires the Electron shell)."
 }

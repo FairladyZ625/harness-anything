@@ -4,29 +4,13 @@ import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { MagnifyingGlass } from "@phosphor-icons/react";
+import { MarkdownAnchor } from "../local-doc/MarkdownAnchor.tsx";
+import { markdownUrlTransform } from "../local-doc/markdown-links.ts";
 
 // mermaid diagram rendering is intentionally omitted in the Electron shell:
 // its runtime injects inline <style>/<script>, which the production CSP
 // (style-src 'self'; script-src 'self') blocks, and the bundle is heavy.
 // mermaid code fences fall back to a readable source block.
-const components: Components = {
-  pre({ node: _node, children }) {
-    if (isValidElement(children)) {
-      const childProps = children.props as {
-        className?: string;
-        children?: ReactNode;
-      };
-      if (childProps.className?.includes("language-mermaid")) {
-        return (
-          <pre className="my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 font-mono text-[12px] text-text-muted">
-            <code>{String(childProps.children ?? "").trim()}</code>
-          </pre>
-        );
-      }
-    }
-    return <pre>{children}</pre>;
-  },
-};
 
 type ReaderLayout = "auto" | "single" | "double";
 type ReaderFont = "sans" | "serif" | "mono";
@@ -43,11 +27,52 @@ const readerFonts: Record<ReaderFont, string> = {
   mono: "var(--font-mono)",
 };
 
-export function DocReader({ content }: { content: string }) {
+export function DocReader({
+  content,
+  packageBasePath = null,
+  onOpenPackageDoc,
+}: {
+  content: string;
+  /** 当前文档在任务包内的 repo 相对路径(如 `tasks/<pkg>/task_plan.md`);相对链接据此归一化。 */
+  packageBasePath?: string | null;
+  /** 包内文档导航出口:收到归一化后的 repo 相对路径。缺省时相对链接保持 inert。 */
+  onOpenPackageDoc?: (repoRelativePath: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState<ReaderLayout>("auto");
   const [font, setFont] = useState<ReaderFont>("sans");
   const [fontSize, setFontSize] = useState(15);
+
+  // 链接拦截(task_89d324b5):锚点永远不做文档导航。本机文件链接转本机文档浮层,
+  // 包内相对链接走宿主提供的导航出口;components 随 props 重建以捕获最新闭包。
+  const components = useMemo<Components>(() => {
+    const base: Components = {
+      pre({ node: _node, children }) {
+        if (isValidElement(children)) {
+          const childProps = children.props as {
+            className?: string;
+            children?: ReactNode;
+          };
+          if (childProps.className?.includes("language-mermaid")) {
+            return (
+              <pre className="my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 font-mono text-[12px] text-text-muted">
+                <code>{String(childProps.children ?? "").trim()}</code>
+              </pre>
+            );
+          }
+        }
+        return <pre>{children}</pre>;
+      },
+    };
+    if (packageBasePath !== null || onOpenPackageDoc !== undefined) {
+      base.a = (props) => (
+        <MarkdownAnchor {...props} packageBasePath={packageBasePath} onOpenPackageDoc={onOpenPackageDoc} />
+      );
+    } else {
+      base.a = MarkdownAnchor;
+    }
+    return base;
+  }, [packageBasePath, onOpenPackageDoc]);
 
   const matchCount = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -148,7 +173,7 @@ export function DocReader({ content }: { content: string }) {
       </div>
       <div className="doc-flow px-5 pb-6 pt-16 sm:px-6">
         <div className="prose-harness" data-layout={layout} data-font={font}>
-          <Markdown remarkPlugins={[remarkGfm]} components={components}>
+          <Markdown remarkPlugins={[remarkGfm]} components={components} urlTransform={markdownUrlTransform}>
             {content}
           </Markdown>
         </div>

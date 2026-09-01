@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
+import { registerLocalDocIpc } from "./local-doc-ipc.ts";
 import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
@@ -11,13 +13,12 @@ import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
-  evaluateNavigationRequest,
   evaluatePermissionRequest,
   evaluateWindowOpenRequest,
   HTML_ARTIFACT_PARTITION,
   type IpcWebContentsTrustPolicy,
 } from "./security-policy.ts";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy } from "./window-config.ts";
+import { assertDevRendererUrl, createGuiContentSecurityPolicy, isNavigableAppDocumentUrl } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,6 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 export function createMainWindow(): BrowserWindow {
   const preloadPath = path.join(guiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  const allowDevRenderer = Boolean(rendererUrl);
   const packagedRendererUrl = createLocalPackagedRendererUrl();
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
@@ -46,8 +46,11 @@ export function createMainWindow(): BrowserWindow {
 
   mainWindow.once("ready-to-show", () => mainWindow.show());
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
+  // 单文档应用:窗口只可停在入口文档上。dev 态同源任意路径(Markdown 外链的绝对
+  // 路径会解析到 dev origin 之下)同样拒绝 —— 那会把窗口带离应用,落在 dev server
+  // 的 404 白屏上(task_89d324b5 详情面外链白屏的壳侧成因;渲染层拦截是根修)。
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (evaluateNavigationRequest(url, { packagedRendererUrl, allowDevRenderer }).action === "deny") {
+    if (!isNavigableAppDocumentUrl(url, { packagedRendererUrl, devRendererUrl: rendererUrl })) {
       event.preventDefault();
     }
   });
@@ -164,6 +167,8 @@ export async function startGuiApp(): Promise<void> {
     },
     trustPolicy,
   );
+  // GUI 内读本机文档(task_89d324b5):节点本地只读查询,主进程收窄见 local-doc-ipc.ts。
+  registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
   createTrustedMainWindow(trustedWebContentsIds);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createTrustedMainWindow(trustedWebContentsIds);

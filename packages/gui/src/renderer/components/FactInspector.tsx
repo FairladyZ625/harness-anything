@@ -1,4 +1,4 @@
-import { ArrowSquareOut, Graph, GitBranch, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowSquareOut, GitBranch, WarningCircle, X } from "@phosphor-icons/react";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
 import { normalizeDecisionId } from "../model/triadic";
 import { activeIncomingRelations, incomingRelations } from "../model/relation-direction.ts";
@@ -7,6 +7,7 @@ import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
+import { ViewInGraphButton } from "./ViewInGraphButton.tsx";
 import { formatTime } from "../model/time.ts";
 
 function shortEndpoint(raw: string): string {
@@ -141,20 +142,19 @@ export function FactInspector({
             }
           />
         )}
-        {onFocusGraph && (
-          <button
-            onClick={() => onFocusGraph(fullRef)}
-            title={t("components.factInspector.focusFactDiagram")}
-            className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-accent"
-          >
-            <Graph weight="bold" />
-          </button>
-        )}
+        {/* 统一「在关系图中查看」入口(task_89d324b5):fact 是图节点 kind,详情栏
+            头部右侧带标签按钮(替换原纯图标跳转,语义同一条路)。 */}
+        <ViewInGraphButton
+          entityRef={fullRef}
+          onFocusGraph={onFocusGraph}
+          testId="fact-view-in-graph"
+          className="flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px] text-text-faint hover:border-border-strong hover:bg-surface-raised hover:text-text"
+        />
         {onClose && (
           <button
             onClick={onClose}
             title={t("components.factInspector.closeFactInspector")}
-            className="ml-auto grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+            className="ml-auto grid size-6 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" />
           </button>
