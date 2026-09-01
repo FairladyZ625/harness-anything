@@ -869,6 +869,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
             outcome: "succeeded",
             exitCode: 0,
             resultRef: (read.result as Record<string, unknown>).ref,
+            missingEvidence: null,
           });
           assert.deepEqual(read.result, {
             ref: (read.result as Record<string, unknown>).ref,
