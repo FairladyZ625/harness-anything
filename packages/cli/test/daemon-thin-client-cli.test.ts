@@ -16,13 +16,8 @@ test("daemon process port hides detached startup windows", () => {
 test("daemon-missing write rejects without autostart or local fallback", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-no-daemon-"));
   try {
-    // Runner-speed control: a bare Node spawn on the same host. The invariant under test is
-    // "rejects without any hidden wait or autostart", proven structurally by the pid/dir
-    // assertions below; the time bound only guards against added sleeps, so it is expressed
-    // relative to this control instead of as an absolute wall-clock number.
-    const controlStarted = performance.now();
-    spawnSync(process.execPath, ["-e", ""], { encoding: "utf8" });
-    const controlMs = performance.now() - controlStarted;
+    // The pid/dir assertions prove that rejection does not autostart. The one-second bound
+    // catches the connect/hello backoff family without coupling the test to concurrent CI load.
     const started = performance.now(),
       result = spawnSync(
         process.execPath,
@@ -44,15 +39,10 @@ test("daemon-missing write rejects without autostart or local fallback", () => {
       false,
       "an unregistered workspace must not launch a daemon",
     );
-    // The constant term absorbs TS source-graph loading, which scales worse than bare Node
-    // startup on loaded CI runners (observed: control 33ms, CLI 296ms). A real autostart
-    // stall is the connect/hello backoff family (>=1s); the sibling preset test bounds the
-    // identical rejection path at an absolute 1_000ms, and this stays strictly inside that.
-    const budgetMs = controlMs * 5 + 500;
     assert.equal(
-      elapsedMs < budgetMs,
+      elapsedMs < 1_000,
       true,
-      `source-mode diagnostic ${elapsedMs.toFixed(3)}ms exceeds ${budgetMs.toFixed(3)}ms (control ${controlMs.toFixed(3)}ms)`,
+      `source-mode diagnostic ${elapsedMs.toFixed(3)}ms reached the connect/hello backoff family`,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

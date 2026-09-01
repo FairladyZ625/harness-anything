@@ -9,6 +9,7 @@ import {
   type EntityActionCompileHook,
   type EntityActionCompileInput,
 } from "./entity-action-execution.ts";
+import type { EntityActionCriterionStatus } from "./entity-action-explanation.ts";
 import { compilePeopleRosterActionEvent, type CompiledPeopleRosterAction } from "./people-event.ts";
 import {
   applyPeopleRosterAction,
@@ -36,7 +37,7 @@ export interface PersonActionDraft {
 
 export interface PersonActionCapabilityEvaluation {
   readonly criterionRef: string;
-  readonly status: "met" | "unmet" | "invocation-required";
+  readonly status: Exclude<EntityActionCriterionStatus, "not-evaluated">;
   readonly nextActions: readonly string[];
 }
 
