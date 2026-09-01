@@ -234,21 +234,26 @@ export { settingsActionLocale } from "./settings-action-contract.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
 export {
   applyPeopleRosterAction,
-  credentialKinds,
   mergePeopleRosterDocuments,
   parsePeopleRosterDocument,
   PEOPLE_ROSTER_PATH,
-  peopleCommandClasses,
 } from "./people-roster.ts";
 export type {
   CredentialKind,
   CredentialRef,
   PeopleCommandClass,
-  PeopleRosterAction,
+  PeopleRosterDocumentV1,
   PersonProfile,
   RolePolicy,
 } from "./people-roster.ts";
-export { compilePeopleRosterActionEvent } from "./people-event.ts";
+export { compilePeopleRosterActionEvent, isPeopleEvent, type CompiledPeopleRosterAction } from "./people-event.ts";
+export {
+  evaluatePersonActionCapability,
+  personActionCriterionRef,
+  personActionIds,
+  personActionUsage,
+  type PersonActionId,
+} from "./person-action-contract.ts";
 
 export {
   entityNonEmpty,

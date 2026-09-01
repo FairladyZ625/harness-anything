@@ -52,7 +52,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       cliFailure(
         "entity explain",
         "unsupported_command",
-        "Use ha explain task for the Task catalog, or ha explain task/<task-id> for an object evaluation.",
+        "Use ha explain task|person for a catalog, or ha explain " +
+          "task/<task-id>|person/<person-id> for an object evaluation.",
       ),
       argv.includes("--json"),
     );

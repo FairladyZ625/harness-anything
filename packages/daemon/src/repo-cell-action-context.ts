@@ -7,7 +7,6 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
-  WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import {
   declareExecutionExecutor as declareExecutionExecutorImpl,
@@ -99,10 +98,6 @@ type Bound<Implementation> = Implementation extends (context: infer Context, ...
     ? (...args: Args) => Result
     : never
   : never;
-
-export interface RepoCellPeopleActions {
-  readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => WriteReceipt;
-}
 
 export interface RepoCellSettingsState {
   readonly initialize: (
@@ -214,7 +209,6 @@ export interface RepoCellRuntimeContext extends RepoCellActionContext {
 }
 
 export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
-  readonly peopleActions: RepoCellPeopleActions;
   readonly settings: RepoCellSettingsState;
 }
 

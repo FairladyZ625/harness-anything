@@ -52,8 +52,8 @@ export interface EntityActionCriterionExplanationV1 {
 
 export interface EntityActionExplanationV1 {
   readonly action: {
-    readonly kind: "task";
-    readonly id: TaskLifecycleActionId;
+    readonly kind: string;
+    readonly id: string;
     readonly catalogRef: string;
     readonly contractVersion: string;
     readonly explain: string;
@@ -106,8 +106,11 @@ export function validateEntityActionExplainRequest(value: unknown): readonly str
     errors.push("Entity Action explain request refs must be non-empty strings");
   else if (value.mode === "object" && (value.refs.length < 1 || value.refs.length > 500))
     errors.push("Entity Action object explain requires 1..500 refs");
-  else if (value.mode === "catalog" && value.refs.length !== 0)
-    errors.push("Entity Action catalog explain does not accept object refs");
+  else if (value.mode === "catalog") {
+    const selector = value.refs[0];
+    if (value.refs.length > 1 || (selector !== undefined && selector !== "task" && selector !== "person"))
+      errors.push("Entity Action catalog explain accepts at most one supported Task or Person kind selector");
+  }
   return errors;
 }
 
@@ -126,7 +129,7 @@ export function validateEntityActionExplanationSet(value: unknown): readonly str
         ...validateSubject(subject, value.mode, value.evaluatedAtCut).map((issue) => `subjects[${index}]: ${issue}`),
       );
   if (value.mode === "catalog" && Array.isArray(value.subjects) && value.subjects.length !== 1)
-    errors.push("Catalog explanation requires exactly one Task subject");
+    errors.push("Catalog explanation requires exactly one Entity subject");
   if (
     value.mode !== "catalog" &&
     Array.isArray(value.subjects) &&
@@ -170,10 +173,14 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
       errors.push(...validateAction(action, mode, cut, value).map((issue) => `actions[${index}]: ${issue}`));
     if (value.failure === null) {
       const ids = value.actions.map((action) =>
-        explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
-      );
-      if (JSON.stringify(ids) !== JSON.stringify(taskLifecycleActionIds))
-        errors.push("successful Task subject actions must follow the canonical lifecycle catalog order");
+          explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
+        ),
+        canonicalIds =
+          typeof value.kind === "string"
+            ? (getEntityKindContract(value.kind)?.actionCatalog?.actions.map(({ id }) => id) ?? null)
+            : null;
+      if (canonicalIds === null || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
+        errors.push("successful Entity subject actions must follow its canonical catalog order");
     }
   }
   if (value.failure !== null) errors.push(...validateFailure(value.failure));
@@ -183,15 +190,25 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
   )
     errors.push("only an invalid EntityRef failure may have no kind");
   if (mode === "catalog") {
-    if (value.kind !== "task" || value.ref !== null || value.revision !== null || value.failure !== null)
-      errors.push("catalog subject must be the static Task catalog");
-    if (!Array.isArray(value.actions) || value.actions.length !== taskLifecycleActionIds.length)
-      errors.push("catalog subject must contain the four Task lifecycle actions");
+    const catalog = typeof value.kind === "string" ? getEntityKindContract(value.kind)?.actionCatalog : null;
+    if (
+      catalog === null ||
+      catalog === undefined ||
+      value.ref !== null ||
+      value.revision !== null ||
+      value.failure !== null
+    )
+      errors.push("catalog subject must be one static registered Entity Action catalog");
+    if (!Array.isArray(value.actions) || value.actions.length !== catalog?.actions.length)
+      errors.push("catalog subject must contain every canonical Entity Action");
   } else if (
     value.failure === null &&
-    (value.kind !== "task" || value.ref === null || !positiveInteger(value.revision))
+    (typeof value.kind !== "string" ||
+      !getEntityKindContract(value.kind)?.actionCatalog ||
+      value.ref === null ||
+      !positiveInteger(value.revision))
   )
-    errors.push("successful object subject requires a Task ref and revision");
+    errors.push("successful object subject requires a registered executable Entity ref and revision");
   if (value.failure !== null && Array.isArray(value.actions) && value.actions.length !== 0)
     errors.push("failed subject cannot contain evaluated actions");
   return errors;
@@ -305,8 +322,8 @@ function validActionDescriptor(value: unknown): boolean {
   return (
     explanationRecord(value) &&
     explanationExact(value, ["kind", "id", "catalogRef", "contractVersion", "explain", "syntax"]) &&
-    value.kind === "task" &&
-    (taskLifecycleActionIds as readonly unknown[]).includes(value.id) &&
+    explanationNonEmpty(value.kind) &&
+    explanationNonEmpty(value.id) &&
     explanationNonEmpty(value.catalogRef) &&
     /^\d+\.\d+$/u.test(String(value.contractVersion)) &&
     explanationNonEmpty(value.explain) &&
@@ -316,7 +333,7 @@ function validActionDescriptor(value: unknown): boolean {
     Array.isArray(value.syntax.inputs) &&
     value.syntax.inputs.every(validInputField) &&
     canonical !== null &&
-    value.catalogRef === "kernel/task-action/v1" &&
+    value.catalogRef === getEntityKindContract(String(value.kind))?.actionCatalog?.ref &&
     value.contractVersion === `${canonical.version.major}.${canonical.version.minor}` &&
     value.explain === canonical.explain &&
     JSON.stringify(value.syntax.inputs) === JSON.stringify(canonical.input.fields)
@@ -324,8 +341,8 @@ function validActionDescriptor(value: unknown): boolean {
 }
 
 function actionContract(value: unknown): EntityActionContract | null {
-  if (!explanationRecord(value) || typeof value.id !== "string") return null;
-  return getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === value.id) ?? null;
+  if (!explanationRecord(value) || typeof value.kind !== "string" || typeof value.id !== "string") return null;
+  return getEntityKindContract(value.kind)?.actionCatalog?.actions.find(({ id }) => id === value.id) ?? null;
 }
 
 function staticCriterion(value: unknown): unknown {
@@ -338,7 +355,7 @@ function validInputField(value: unknown): boolean {
   if (!Object.keys(value).every((field) => allowed.includes(field))) return false;
   if (
     !explanationNonEmpty(value.field) ||
-    !["string", "number", "boolean", "string-array", "fact-hold-array"].includes(String(value.type)) ||
+    !["string", "number", "boolean", "string-array", "fact-hold-array", "json-object"].includes(String(value.type)) ||
     typeof value.required !== "boolean" ||
     (value.enum !== undefined && !explanationStringList(value.enum)) ||
     (value.regex !== undefined && typeof value.regex !== "string")

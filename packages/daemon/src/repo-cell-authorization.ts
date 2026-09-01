@@ -21,8 +21,9 @@ export function authorizeRepoCellAction(input: {
   readonly actionId: string;
   readonly revision: number;
   readonly now: string;
+  readonly targetOverride?: EntityRef;
 }): AuthorizationDecision {
-  const target = actionTarget(input.action),
+  const target = input.targetOverride ?? actionTarget(input.action),
     assignment = input.binding.assignmentScope,
     assignmentSource =
       typeof input.binding.source === "object" && input.binding.source.kind === "assignment"

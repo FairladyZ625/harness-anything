@@ -31,6 +31,17 @@ test("explain parser selects catalog/object mode without duplicating EntityRef v
     mode: "catalog",
     refs: [],
   });
+  const personCatalog = parseThinCommand(["explain", "person"]);
+  assert.equal(personCatalog.ok, true);
+  if (personCatalog.ok) {
+    assert.equal(personCatalog.command.method, "repo.entity.actions.explain");
+    assert.deepEqual(personCatalog.command.action, {
+      kind: "entity-action-explain",
+      schema: "entity-action-explain-request/v1",
+      mode: "catalog",
+      refs: ["person"],
+    });
+  }
   assert.deepEqual(objects.command.action, {
     kind: "entity-action-explain",
     schema: "entity-action-explain-request/v1",

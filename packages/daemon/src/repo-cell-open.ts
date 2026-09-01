@@ -43,7 +43,7 @@ import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
-import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
+import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
@@ -564,15 +564,19 @@ async function openLockedRepoCell(
         preparedEntityAction: { report: prepared.report },
       };
     };
+  const personActionRuntime = makePersonActionRuntime(runtimeContext);
   entityActionRuntimes = Object.freeze({
-    entity: Object.freeze({ schedule: scheduleActionRuntime, settings: settingsActionRuntime }),
+    entity: Object.freeze({
+      schedule: scheduleActionRuntime,
+      settings: settingsActionRuntime,
+      person: personActionRuntime,
+    }),
     prepare: Object.freeze({
       agent: prepareAgentAction,
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     }),
   });
-  const peopleActions = makeRepoCellPeopleActions(extracted);
-  const operationalContext = Object.assign(runtimeContext, { settings, peopleActions });
+  const operationalContext = Object.assign(runtimeContext, { settings });
   operationalContext satisfies RepoCellOperationalContext;
   handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding }) => {
     const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
@@ -807,7 +811,6 @@ async function openLockedRepoCell(
     },
     runtimeSpawner,
     settings,
-    peopleActions,
     appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,
     get bootstrapReceipt() {
       return bootstrapReceipt;

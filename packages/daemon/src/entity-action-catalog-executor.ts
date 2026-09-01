@@ -584,6 +584,7 @@ function compileDraft(
   if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
   if (draft.kind === "settings") reject("invalid_command", "Settings drafts require the Settings Action runtime.");
+  if (draft.kind === "person") reject("invalid_command", "Person drafts require the Person Action runtime.");
   if (draft.kind === "relation")
     reject("invalid_command", "Relation drafts are committed directly through the Relation aggregate executor.");
   const read = projection.readDecision(draft.event.decisionId);

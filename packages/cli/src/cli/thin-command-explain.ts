@@ -2,8 +2,7 @@ import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.cont
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
 import type { ThinHelpOverlayRoute, ThinParseResult } from "./thin-command-types.ts";
 
-const explainUsage =
-  "Use ha explain task for the catalog, or ha explain task/<task-id> [task/<task-id>...] for 1..500 objects.";
+const explainUsage = "Use ha explain task|person for a catalog, or pass 1..500 task/<id> or person/<id> object refs.";
 
 export function taskExplainHelpOverlay(argv: readonly string[]): ThinHelpOverlayRoute | undefined {
   const args = stripGlobals(argv);
@@ -43,12 +42,17 @@ export function parseExplain(
   method: string,
 ): ThinParseResult {
   const targets = args.slice(1);
-  if (targets.length === 1 && targets[0] === "task")
+  if (targets.length === 1 && (targets[0] === "task" || targets[0] === "person"))
     return accepted(
       rootDir,
       repoId,
       json,
-      { kind: "entity-action-explain", schema: "entity-action-explain-request/v1", mode: "catalog", refs: [] },
+      {
+        kind: "entity-action-explain",
+        schema: "entity-action-explain-request/v1",
+        mode: "catalog",
+        refs: targets[0] === "task" ? [] : [targets[0]],
+      },
       method,
     );
   if (

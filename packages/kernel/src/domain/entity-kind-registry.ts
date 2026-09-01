@@ -46,6 +46,7 @@ import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
+import { createPersonActionCatalog } from "./person-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -430,6 +431,11 @@ const settingsActionCatalog = createSettingsActionCatalog(
   actionResultContract,
 );
 
+const personActionCatalog = createPersonActionCatalog(
+  (id) => entityAction("person", personIdentity, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -811,12 +817,7 @@ export const entityKindContracts = Object.freeze([
     schema: PERSON_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
-    actionCatalog: actionCatalog("kernel/people-event/v1", "person", personIdentity, [
-      "add",
-      "set-role",
-      "bind",
-      "remove",
-    ]),
+    actionCatalog: personActionCatalog,
     entityStore: null,
     authoring: { kind: "people-event", contractRef: "people-event/v1" },
     sdkExposure: noSdkExposure,
