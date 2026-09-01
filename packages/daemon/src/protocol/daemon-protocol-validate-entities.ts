@@ -323,7 +323,6 @@ export function codeDoc(value: unknown): boolean {
     sha(value.commitSha) &&
     iteration(value.iteration) &&
     stringArray(value.paths) &&
-    value.paths.length > 0 &&
     actor(value.actor) &&
     source(value.source)
   );

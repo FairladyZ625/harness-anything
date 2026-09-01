@@ -217,10 +217,12 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
   if (["showRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance"].includes(route.guiBridgeMethod))
     return 2_000;
   if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
-  // Reads share the daemon with the single-writer queue; a long ledger write can hold the
-  // workspace past 200ms, which turned every such window into a visible GUI error. 2s keeps
-  // the read honest without failing on ordinary write contention (泽宇 2026-09-01 亲裁调高).
-  return 2_000;
+  // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
+  // workspace for seconds at a time, so any deadline that undercuts a normal write window
+  // turns ordinary contention into a visible GUI error (200ms and 2s both did, live).
+  // 10s bounds "the daemon is actually wedged"; connection-level failures still surface
+  // fast through the socket connect path (泽宇 2026-09-01 两次亲裁调高).
+  return 10_000;
 }
 function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
   if (!value || typeof value !== "object" || Array.isArray(value))

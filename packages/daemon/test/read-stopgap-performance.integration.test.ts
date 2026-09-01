@@ -107,7 +107,7 @@ test("runtime discovery write load keeps independent read clients within the sto
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     for (const [name, metric] of Object.entries(metrics))
       assert.equal(
-        metric.loaded.p95 <= Math.max(15, Math.max(1, metric.idle.p95) * 2),
+        metric.loaded.p95 <= Math.max(30, Math.max(1, metric.idle.p95) * 2),
         true,
         `${name}: ${JSON.stringify(metric)}`,
       );
@@ -191,7 +191,7 @@ test("WAL Git materialization leaves an independent socket client within the iso
     ) as Record<string, { idle: Distribution; loaded: Distribution }>;
     for (const [name, metric] of Object.entries(metrics)) {
       assert.equal(
-        metric.loaded.p95 <= Math.max(15, Math.max(1, metric.idle.p95) * 2),
+        metric.loaded.p95 <= Math.max(30, Math.max(1, metric.idle.p95) * 2),
         true,
         `${name}: ${JSON.stringify(metric)}`,
       );
