@@ -3,6 +3,7 @@ import {
   daemonProtocolError,
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
+  type DaemonTaskSnapshotListResult,
   type DaemonStreamPayloadMap,
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import {
@@ -150,14 +151,18 @@ async function request(
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
-    const parse = (result: JsonObject) =>
-      (isDaemonGuiActionMethod(route.rpcMethod)
+    const parse = (result: JsonObject) => {
+      const parsed = (isDaemonGuiActionMethod(route.rpcMethod)
         ? parseDaemonGuiActionResponse(route.rpcMethod, result)
         : route.rpcMethod === "daemon.gui.control.receipt"
           ? parseDaemonGuiReadResult(route.rpcMethod, result)
           : isDaemonGuiReadMethod(route.rpcMethod)
             ? parseDaemonGuiReadResponse(route.rpcMethod, result)
             : result) as unknown as JsonObject;
+      if (route.rpcMethod === "repo.tasks.list")
+        reportInvalidTaskSnapshotRows(parsed as unknown as DaemonTaskSnapshotListResult);
+      return parsed;
+    };
     const invoke = () =>
       daemon.requestLocalDaemonJsonRpcForTarget(
         target,
@@ -202,6 +207,22 @@ async function request(
       `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
     ) as unknown as JsonObject;
   }
+}
+
+export function reportInvalidTaskSnapshotRows(
+  result: Pick<DaemonTaskSnapshotListResult, "invalidRows">,
+  warn: (message: string) => void = (message) => console.warn(message),
+): void {
+  for (const invalid of result.invalidRows)
+    warn(
+      [
+        "[repo.tasks.list] isolated invalid task snapshot row",
+        `rowIndex=${invalid.rowIndex}`,
+        `taskId=${invalid.taskId}`,
+        `field=${invalid.field}:`,
+        invalid.message,
+      ].join(" "),
+    );
 }
 // The registry has no transport timeouts; keep the existing provider-tooling deadlines here.
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {

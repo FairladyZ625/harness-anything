@@ -28,6 +28,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
+import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-gui-types.ts";
 
 export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesses"] as const,
   snapshotBaseFields = [
@@ -216,21 +217,6 @@ export function queryPageRow(value: unknown): boolean {
 }
 
 export function validateDaemonTaskSnapshotList(value: unknown): readonly string[] {
-  const rowFields = [
-    "taskId",
-    "packagePath",
-    "generation",
-    "workspaceRevision",
-    "createdAt",
-    "updatedAt",
-    "snapshot",
-    "coordinationStatus",
-    "snapshotAvailability",
-    "closeoutAssessment",
-    "blockingAssessment",
-    "placement",
-    "executionEvidence",
-  ];
   if (!recordWith(value, DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required)) return ["daemon task snapshot list is invalid"];
   if (
     Object.keys(value).some((field) => ![...DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required, "page"].includes(field)) ||
@@ -240,18 +226,56 @@ export function validateDaemonTaskSnapshotList(value: unknown): readonly string[
     !integer(value.sourceRevision) ||
     !warningArray(value.warnings) ||
     (value.page !== undefined && !queryPageRow(value.page)) ||
-    !Array.isArray(value.rows)
+    !Array.isArray(value.rows) ||
+    !Array.isArray(value.invalidRows) ||
+    !value.invalidRows.every(invalidTaskSnapshotRow)
   )
     return ["daemon task snapshot list is invalid"];
-  return value.rows.flatMap((row, index) => taskSnapshotRowErrors(row, index, rowFields));
+  return isolateDaemonTaskSnapshotRows(value.rows).invalidRows.length === 0
+    ? []
+    : ["daemon task snapshot list contains an unisolated invalid row"];
 }
 
-function taskSnapshotRowErrors(value: unknown, index: number, rowFields: readonly string[]): readonly string[] {
+export function isolateDaemonTaskSnapshotRows<T>(values: readonly T[]): {
+  readonly rows: readonly T[];
+  readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
+} {
+  const rows: T[] = [],
+    invalidRows: DaemonTaskSnapshotInvalidRow[] = [];
+  values.forEach((row, index) => {
+    const errors = taskSnapshotRowErrors(row, index);
+    if (errors.length === 0) rows.push(row);
+    else invalidRows.push(...errors);
+  });
+  return { rows, invalidRows };
+}
+
+const taskSnapshotListRowFields = [
+  "taskId",
+  "packagePath",
+  "generation",
+  "workspaceRevision",
+  "createdAt",
+  "updatedAt",
+  "snapshot",
+  "coordinationStatus",
+  "snapshotAvailability",
+  "closeoutAssessment",
+  "blockingAssessment",
+  "placement",
+  "executionEvidence",
+] as const;
+
+function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
   const taskId = isJsonObject(value) && nonEmpty(value.taskId) ? value.taskId : "<unknown>",
-    error = (field: string) =>
-      `daemon task snapshot taskId=${taskId} field=rows[${index}]${field ? `.${field}` : ""} is invalid`;
-  if (!exactRecord(value, rowFields)) return [error("")];
-  const errors: string[] = [];
+    error = (field: string): DaemonTaskSnapshotInvalidRow => ({
+      rowIndex: index,
+      taskId,
+      field: `rows[${index}]${field ? `.${field}` : ""}`,
+      message: "Task snapshot field is invalid.",
+    });
+  if (!exactRecord(value, taskSnapshotListRowFields)) return [error("")];
+  const errors: DaemonTaskSnapshotInvalidRow[] = [];
   if (!nonEmpty(value.taskId)) errors.push(error("taskId"));
   if (value.packagePath !== null && !nonEmpty(value.packagePath)) errors.push(error("packagePath"));
   if (value.generation !== "v0" && value.generation !== "v1") errors.push(error("generation"));
@@ -270,6 +294,20 @@ function taskSnapshotRowErrors(value: unknown, index: number, rowFields: readonl
       if (!executionEvidence(item)) errors.push(error(`executionEvidence[${evidenceIndex}]`));
     });
   return errors;
+}
+
+function invalidTaskSnapshotRow(value: unknown): boolean {
+  if (
+    !exactRecord(value, ["rowIndex", "taskId", "field", "message"]) ||
+    !integer(value.rowIndex) ||
+    Number(value.rowIndex) < 0 ||
+    !nonEmpty(value.taskId) ||
+    !nonEmpty(value.field) ||
+    !nonEmpty(value.message)
+  )
+    return false;
+  const rowPath = `rows[${value.rowIndex}]`;
+  return value.field === rowPath || value.field.startsWith(`${rowPath}.`);
 }
 
 function snapshotFailurePaths(value: unknown, availability: unknown): readonly string[] {

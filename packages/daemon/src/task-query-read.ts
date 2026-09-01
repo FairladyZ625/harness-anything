@@ -17,17 +17,18 @@ import {
   type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
-import type { CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
-import type {
-  AgendaAwaitingRow,
-  AgendaTaskRow,
-  DaemonAgendaResult,
-  DaemonRelationGraphFacetPayload,
-  DaemonRelationGraphFacetResult,
-  DaemonRelationGraphFullResult,
-  DaemonTaskSnapshotListResult,
-  ExecutionEvidenceProjection,
-  TaskPlacementSupplement,
+import {
+  isolateDaemonTaskSnapshotRows,
+  type AgendaAwaitingRow,
+  type AgendaTaskRow,
+  type CanonicalRoot,
+  type DaemonAgendaResult,
+  type DaemonRelationGraphFacetPayload,
+  type DaemonRelationGraphFacetResult,
+  type DaemonRelationGraphFullResult,
+  type DaemonTaskSnapshotListResult,
+  type ExecutionEvidenceProjection,
+  type TaskPlacementSupplement,
 } from "./protocol/daemon-protocol.contract.ts";
 
 /**
@@ -173,20 +174,16 @@ export function makeTaskQueryReadModel(input: {
       derives = projection.readTaskRelationsByTargets(taskRefs, "derives"),
       edges = [...dependencies.rows, ...derives.rows],
       relatedTaskIds = [
-        ...new Set(
-          [
-            ...lifecycle.rows.map(({ taskId }) => taskId),
-            ...dependencies.rows.flatMap(({ sourceRef, targetRef }) =>
-              [sourceRef, targetRef].flatMap((ref) => /^task\/([^/]+)$/u.exec(ref)?.[1] ?? []),
-            ),
-          ],
-        ),
+        ...new Set([
+          ...lifecycle.rows.map(({ taskId }) => taskId),
+          ...dependencies.rows.flatMap(({ sourceRef, targetRef }) =>
+            [sourceRef, targetRef].flatMap((ref) => /^task\/([^/]+)$/u.exec(ref)?.[1] ?? []),
+          ),
+        ]),
       ],
       taskStatuses = projection.readTaskStatuses(relatedTaskIds),
       decisionIds = [
-        ...new Set(
-          derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? []),
-        ),
+        ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
       ],
       decisionRead = projection.readDecisions(decisionIds),
       cut = requireSameProjectionCut("task control surface", [
@@ -212,7 +209,7 @@ export function makeTaskQueryReadModel(input: {
       }).map((row) => [row.taskId, row]),
     );
     const decisions = new Map(decisionRead.decisions.map((row) => [row.decisionId, row]));
-    return {
+    const result: Omit<DaemonTaskSnapshotListResult, "invalidRows"> = {
       ok: true,
       ...lifecycle,
       rows: lifecycle.rows.map((row) => {
@@ -281,6 +278,7 @@ export function makeTaskQueryReadModel(input: {
       }),
       ...cut,
     };
+    return { ...result, ...isolateDaemonTaskSnapshotRows(result.rows) };
   }
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
     const sourceLimit = query.limit ?? 100,

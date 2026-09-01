@@ -19,6 +19,7 @@ import type {
   TaskDocumentProjectionRead,
   TaskDispatchesRead,
   TaskSnapshotProjectionRow,
+  TaskSnapshotInvalidRow,
   WorkspaceSummaryRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
@@ -30,6 +31,7 @@ export interface TaskListSuccess {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: ReadonlyArray<TaskSnapshotProjectionRow>;
+  readonly invalidRows: ReadonlyArray<TaskSnapshotInvalidRow>;
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly warnings: ReadonlyArray<string>;
@@ -586,6 +588,8 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     result.ok !== true ||
     !Array.isArray(result.rows) ||
     !result.rows.every(isTaskSnapshotProjectionRow) ||
+    !Array.isArray(result.invalidRows) ||
+    !result.invalidRows.every(isTaskSnapshotInvalidRow) ||
     (result.status !== "ready" && result.status !== "pending") ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision) ||
@@ -597,6 +601,7 @@ function readTaskListResult(value: unknown): TaskListSuccess {
     ok: true,
     status: result.status as "ready" | "pending",
     rows: result.rows,
+    invalidRows: result.invalidRows,
     watermark: result.watermark as number,
     sourceRevision: result.sourceRevision as number,
     warnings: Array.isArray(result.warnings)
@@ -1017,6 +1022,17 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
     task.schema === "task/v2" &&
     task.taskId === value.taskId &&
     typeof task.title === "string"
+  );
+}
+
+function isTaskSnapshotInvalidRow(value: unknown): value is TaskSnapshotInvalidRow {
+  return (
+    isRendererRecord(value) &&
+    Number.isInteger(value.rowIndex) &&
+    Number(value.rowIndex) >= 0 &&
+    typeof value.taskId === "string" &&
+    typeof value.field === "string" &&
+    typeof value.message === "string"
   );
 }
 

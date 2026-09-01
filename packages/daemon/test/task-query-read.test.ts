@@ -135,10 +135,49 @@ test("task control narrows graph, status, and decision reads to the selected lif
   const result = queryRead(process.cwd(), projection).guiTasks({ limit: 1 });
 
   assert.equal(result.rows.length, 1);
+  assert.deepEqual(result.invalidRows, []);
   assert.deepEqual(dependencyCalls, [["task/task_event"]]);
   assert.deepEqual(targetCalls, [{ targetRefs: ["task/task_event"], relationType: "derives" }]);
   assert.deepEqual(statusCalls, [["task_event", "task_blocker"]]);
   assert.deepEqual(decisionCalls, [["dec_event"]]);
+});
+
+test("task snapshot list isolates an invalid row and continues serving valid rows", () => {
+  const invalidWitness = {
+      schema: "code-doc-witness/v1",
+      witnessId: "",
+      taskId: "task_invalid",
+      executionId: "execution-invalid",
+      commitSha: "a".repeat(40),
+      iteration: 0,
+      paths: ["packages/daemon/src/task-query-read.ts"],
+      actor: { principal: { personId: "person-owner" }, executor: null },
+      source: "local",
+      reconciledAt: "2026-09-01T00:00:00.000Z",
+    },
+    result = queryRead(
+      process.cwd(),
+      projectionStub({
+        taskRows: [protocolTaskRow("task_valid"), protocolTaskRow("task_invalid", [invalidWitness])],
+      }),
+    ).guiTasks();
+
+  process.stdout.write(
+    `[ROW-ISOLATION] inputRows=2 validRows=${result.rows.length} invalidRows=${result.invalidRows.length} ` +
+      `field=${result.invalidRows[0]?.field ?? "missing"}\n`,
+  );
+  assert.deepEqual(
+    result.rows.map(({ taskId }) => taskId),
+    ["task_valid"],
+  );
+  assert.deepEqual(result.invalidRows, [
+    {
+      rowIndex: 1,
+      taskId: "task_invalid",
+      field: "rows[1].snapshot.codeDocWitnesses[0]",
+      message: "Task snapshot field is invalid.",
+    },
+  ]);
 });
 
 test("a surface fails closed instead of stitching mismatched projection cuts", () => {
@@ -295,6 +334,10 @@ function projectionStub(
 }
 
 function activeTaskRow(taskId: string) {
+  return protocolTaskRow(taskId);
+}
+
+function protocolTaskRow(taskId: string, codeDocWitnesses: readonly unknown[] = []) {
   return {
     taskId,
     packagePath: null,
@@ -304,12 +347,29 @@ function activeTaskRow(taskId: string) {
     updatedAt: "2026-08-30T00:00:00.000Z",
     snapshot: {
       revision: 7,
-      task: { taskId, status: "planned", packageDisposition: "active", metadata: {} },
+      task: {
+        schema: "task/v2",
+        taskId,
+        title: taskId,
+        taskClass: "standard",
+        status: "planned",
+        graph: {},
+        currentNode: "implementation",
+        iteration: 0,
+        createdBy: { principal: { personId: "person-owner" }, executor: null },
+        completionGateIds: [],
+        presetSnapshotDigest: null,
+        pinned: false,
+        packageDisposition: "active",
+      },
       executions: [],
       reviews: [],
       edgesTaken: [],
       lease: null,
       decisionRelations: [],
+      consents: [],
+      codeDocWitnesses,
+      gateWitnesses: [],
     },
   };
 }

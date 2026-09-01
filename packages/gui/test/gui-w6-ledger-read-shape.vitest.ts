@@ -62,6 +62,7 @@ function installFakeLedger(size = LEDGER_ROWS) {
         ok: true,
         status: state.status,
         rows: visible,
+        invalidRows: [],
         watermark: state.watermark,
         sourceRevision: state.sourceRevision,
         warnings: [],
