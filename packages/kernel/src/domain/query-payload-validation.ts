@@ -1,6 +1,7 @@
 /** @slice-activation G4 registers the authority before the C phase-2 query
  * cutover removes the two in-flight consumers. */
 import { relationStates } from "./entity-relation.ts";
+import { isRecord } from "./write-chain.contract.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { timestamp } from "./timestamp.ts";
 
@@ -42,8 +43,4 @@ export function queryPayloadValidation(kind: QueryPayloadKind, value: unknown): 
     issues.push("limit_invalid");
   if (cursor !== undefined && (typeof cursor !== "string" || cursor.length === 0)) issues.push("cursor_invalid");
   return issues;
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
