@@ -96,6 +96,34 @@ export function reviewPacket(
   };
 }
 
+/**
+ * The optional review-qualification fields a RecordReview command carries when a same-person
+ * review is justified without a dispatch: an external completion anchor, or an explicit
+ * no-independent-review weak mark. Kept beside the packet field-set validation so the two field
+ * families stay described in one place.
+ */
+export function reviewQualificationFields(value: Record<string, unknown>): {
+  readonly externalCompletionAnchor?: string;
+  readonly noDispatchReason?: string;
+  readonly noIndependentReview?: boolean;
+  readonly noIndependentReviewReason?: string;
+} {
+  return {
+    ...(value.externalCompletionAnchor === undefined
+      ? {}
+      : {
+          externalCompletionAnchor: requiredCellText(value.externalCompletionAnchor, "externalCompletionAnchor"),
+          noDispatchReason: requiredCellText(value.noDispatchReason, "noDispatchReason"),
+        }),
+    ...(value.noIndependentReview === undefined
+      ? {}
+      : {
+          noIndependentReview: value.noIndependentReview === true,
+          noIndependentReviewReason: requiredCellText(value.noIndependentReviewReason, "noIndependentReviewReason"),
+        }),
+  };
+}
+
 export function submissionPacket(action: RepoTaskAction, rootDir: string): GuiSubmissionV1 {
   const fromFile = action.fromFile !== undefined,
     jsonInput = action.jsonInput !== undefined;

@@ -19,7 +19,7 @@ import {
   reviewConsentSelection,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
-import { packetFile, reviewPacket, submissionPacket } from "./repo-cell-packets.ts";
+import { packetFile, reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
@@ -185,24 +185,7 @@ export function buildCommand(
       verdict: reviewVerdict(packet.value.verdict),
       reason: requiredCellText(packet.value.reason, "reason"),
       evidenceChecked: cellStringList(packet.value.evidenceChecked),
-      ...(packet.value.externalCompletionAnchor === undefined
-        ? {}
-        : {
-            externalCompletionAnchor: requiredCellText(
-              packet.value.externalCompletionAnchor,
-              "externalCompletionAnchor",
-            ),
-            noDispatchReason: requiredCellText(packet.value.noDispatchReason, "noDispatchReason"),
-          }),
-      ...(packet.value.noIndependentReview === undefined
-        ? {}
-        : {
-            noIndependentReview: packet.value.noIndependentReview === true,
-            noIndependentReviewReason: requiredCellText(
-              packet.value.noIndependentReviewReason,
-              "noIndependentReviewReason",
-            ),
-          }),
+      ...reviewQualificationFields(packet.value),
       commitSha: submitted.submission.commitSha,
       iteration: submitted.iteration,
       contentDigest: packet.digest,
