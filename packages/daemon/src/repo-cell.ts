@@ -5,6 +5,7 @@ import {
   blockingOf,
   closeoutReadiness,
   configureLedgerMaintenance,
+  consumeKnownError,
   makeTaskEventStore,
   makeTaskProjection,
   readSettingsFacet,
@@ -19,6 +20,7 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
@@ -123,22 +125,32 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
   const configPath = path.join(resolveHarnessLayout(context.rootDir).authoredRoot, "harness.yaml");
   configureLedgerMaintenance(context.rootDir);
   const store = makeTaskEventStore({
-      repoId: context.input.repoId,
-      rootDir: context.rootDir,
-      authoredBranch: context.authoredBranch,
-      killpoint: context.input.killpoint,
-      afterFlush: settleAuthoredCandidates,
-      beforeAppend: () => context.activeWriterEpochGuard?.(),
-      withAppendFence: (operation) =>
-        context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
-      rejectPreparedRecovery: context.mode === "remote-center",
-      walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
-    }),
-    recovery = store.recover();
+    repoId: context.input.repoId,
+    rootDir: context.rootDir,
+    authoredBranch: context.authoredBranch,
+    killpoint: context.input.killpoint,
+    afterFlush: settleAuthoredCandidates,
+    beforeAppend: () => context.activeWriterEpochGuard?.(),
+    withAppendFence: (operation) =>
+      context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
+    rejectPreparedRecovery: context.mode === "remote-center",
+    walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
+  });
+  let recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
   // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
   // writer events remain the authority and apply through the normal single-writer path.
-  projection.catchUp?.();
+  try {
+    projection.catchUp?.();
+  } catch (error) {
+    consumeKnownError(error);
+    recovery = {
+      ...recovery,
+      status: "indeterminate",
+      error: cellErrorMessage(error),
+      errorCode: cellErrorCode(error),
+    };
+  }
   if (pendingSettlementActor) settleAuthoredCandidates(pendingSettlementActor);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const entityActionExecutor = makeEntityActionCatalogExecutor({

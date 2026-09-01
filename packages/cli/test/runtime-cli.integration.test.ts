@@ -957,7 +957,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         rootDir: safePath(root),
         repoId: "runtime-cli",
         json: true,
-        method: "repo.task.run",
+        method: "repo.task.read",
         action: { kind: "fact-search", taskId, permissionMode: "read-only" } as never,
       },
       undefined,
