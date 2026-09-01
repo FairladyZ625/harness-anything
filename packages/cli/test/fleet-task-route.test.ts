@@ -50,11 +50,11 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const routed = await fleetTaskRoute(command("repo.task.run", { kind: "task-start", taskId: "task_one" }), env);
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
   assert.deepEqual(
-    (await fleetTaskRoute(command("repo.task.run", { kind: "task-show", taskId: "task_one" }), env))?.action,
+    (await fleetTaskRoute(command("repo.task.read", { kind: "task-show", taskId: "task_one" }), env))?.action,
     { kind: "task-show", taskId: "task_one" },
   );
   const docStatus = await fleetDocRoute(
-    command("repo.task.run", { kind: "doc-status", paths: ["context/notes.md"] }),
+    command("repo.task.read", { kind: "doc-status", paths: ["context/notes.md"] }),
     env,
   );
   assert.equal(docStatus?.method, "daemon.fleet.doc.sync");

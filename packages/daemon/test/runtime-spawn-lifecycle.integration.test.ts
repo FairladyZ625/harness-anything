@@ -616,7 +616,7 @@ test("attached task runtime settlement releases its execution lease before publi
           projectionPath: path.join(root, ".harness/cache/runtime-attached-tail-observer.sqlite"),
           eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
         });
-      projection.list();
+      projection.catchUp();
       const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
         taskSnapshot = projection.read(taskId).snapshot;
       projection.close();
@@ -1026,7 +1026,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
       eventStore: makeTaskEventStore({ repoId, rootDir: root }),
     });
-    liveProjection.list();
+    liveProjection.catchUp();
     const adopted = liveProjection.readRuntimeSession(String(receipt.runtimeSessionId))!;
     liveProjection.close();
     assert.deepEqual({ liveness: adopted.liveness, outcome: adopted.outcome }, { liveness: "live", outcome: null });
@@ -1046,7 +1046,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       projectionPath: path.join(parent, "runtime-re-adopt-live-observer.sqlite"),
       eventStore: makeTaskEventStore({ repoId, rootDir: root }),
     });
-    projection.list();
+    projection.catchUp();
     const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
     projection.close();
     assert.deepEqual(
@@ -1121,7 +1121,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       projectionPath: path.join(parent, "runtime-re-adopt-dead-observer.sqlite"),
       eventStore: makeTaskEventStore({ repoId, rootDir: root }),
     });
-    reopenedProjection.list();
+    reopenedProjection.catchUp();
     const daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
     reopenedProjection.close();
     assert.deepEqual(
@@ -1211,8 +1211,9 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       lostProjection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventStore({ repoId, rootDir: root }),
-      }),
-      lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
+      });
+    lostProjection.catchUp();
+    const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;
     lostProjection.close();
     assert.ok(lostRow, "lost dispatch row missing after daemon restart");
     assert.equal(

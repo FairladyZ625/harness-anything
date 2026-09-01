@@ -86,10 +86,14 @@ test("Decision list derives E selectors, orders them numerically, filters ranges
   });
 });
 
-test("Decision read catches up an L1-only authored proposal without a body-null crash window", () => {
+test("Decision read serves its cut until explicit catch-up projects an L1-only proposal", () => {
   withDecisionFixture(({ store, projection, service }) => {
     const proposed = compileDecision(projection, decisionEvent(1, "decision_proposed"));
     store.append(proposed);
+    const pending = service.list({ search: "Canonical" });
+    assert.equal(pending.status, "pending");
+    assert.deepEqual(pending.decisions, []);
+    projection.catchUp();
     const listed = service.list({ search: "Canonical" });
     assert.equal(listed.status, "ready");
     assert.equal(listed.watermark, 1);

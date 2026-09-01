@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, type TaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection, type TaskProjection } from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
@@ -405,6 +405,12 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
       ),
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
+    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
+    try {
+      projection.catchUp();
+    } finally {
+      projection.close();
+    }
     const rejected = (await cell.run({ kind: "doc-submit", paths: [report] }, worker)) as {
       outcome?: string;
       code?: string;

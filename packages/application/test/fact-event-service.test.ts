@@ -252,7 +252,7 @@ test("a superseding Fact can audit a dangling canonical Fact ref", () => {
   });
 });
 
-test("search catches up a Fact committed to L1 before the projection transaction", () => {
+test("Fact search serves its cut until explicit catch-up projects an L1-only correction", () => {
   withFixture(({ store, projection, service }) => {
     const original = compile(projection, factEvent(1, "task-fact", "F-ABCDEFGH"));
     store.append(original);
@@ -265,6 +265,10 @@ test("search catches up a Fact committed to L1 before the projection transaction
       }),
     );
     store.append(correction);
+    const pending = service.search({ query: "Fact", taskId: "task-fact" });
+    assert.equal(pending.status, "pending");
+    assert.equal(pending.watermark, 1);
+    projection.catchUp();
     const search = service.search({ query: "Fact", taskId: "task-fact" });
     assert.equal(search.status, "ready");
     assert.equal(search.watermark, 2);
@@ -291,7 +295,15 @@ test("Fact admission never appends against a projection more than one catch-up r
       first = projection.searchFacts({ taskId: "task-backlog" });
     assert.equal(first.status, "pending");
     assert.equal(store.readHead()?.revision, 4097, "pending admission must not append");
-    assert.equal(service.show("F-00000065").fact.factId, "F-00000065");
+    assert.throws(
+      () => service.show("F-00000065"),
+      (error: unknown) => code(error) === "entity_not_found",
+    );
+    assert.throws(
+      () => service.record(compile(projection, collision)),
+      (error: unknown) => code(error) === "content_not_ready",
+    );
+    assert.equal(store.readHead()?.revision, 4097, "one bounded admission round must not append");
     assert.throws(
       () => service.record(compile(projection, collision)),
       (error: unknown) => code(error) === "invalid_transition",

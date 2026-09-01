@@ -218,13 +218,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           )
         : (result as WriteReceipt);
     };
+    if (action.kind === "squad-status")
+      return Promise.resolve(
+        context.squadCoordinator.status(
+          context.requiredCellText(action.squadRunId, "squadRunId"),
+        ) as unknown as WriteReceipt,
+      );
     if (command.commandClass === "repo-read")
       return Promise.resolve()
         .then(async () => {
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
-          if (context.state !== "attached")
-            throw context.cellCodedError("repo_unavailable", context.latched());
+          if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
           return context.withLayoutAdvisory(context.withHumanSummary(await context.executeAction(action, binding)));
         })
         .then((receipt) => receipt as WriteReceipt)
@@ -321,12 +326,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
             context.requiredCellText(action.squadRunId, "squadRunId"),
             binding,
           ) as unknown as WriteReceipt,
-      );
-    if (action.kind === "squad-status")
-      return Promise.resolve(
-        context.squadCoordinator.status(
-          context.requiredCellText(action.squadRunId, "squadRunId"),
-        ) as unknown as WriteReceipt,
       );
     if (action.kind === "script-run")
       return Promise.resolve()

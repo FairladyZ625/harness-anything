@@ -6,10 +6,7 @@ import type { ThinCommand } from "./cli/thin-command.ts";
 import { consumeKnownError, runCommandThroughDaemon } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
 
-export async function runAgentCreate(
-  command: ThinCommand,
-  writeActivity: (text: string) => void,
-): Promise<JsonObject> {
+export async function runAgentCreate(command: ThinCommand, writeActivity: (text: string) => void): Promise<JsonObject> {
   const action = command.action as AgentCreateAction,
     designerPrompt = agentDesignerPrompt(action.prompt),
     spawned = await runCommandThroughDaemon({
@@ -27,15 +24,8 @@ export async function runAgentCreate(
         idempotencyKey: `agent-create-${randomUUID()}`,
       },
     });
-  if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string")
-    return spawned;
-  const settled = await waitForRuntime(
-    command,
-    spawned.runtimeSessionId,
-    !command.json,
-    writeActivity,
-    spawned,
-  );
+  if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned;
+  const settled = await waitForRuntime(command, spawned.runtimeSessionId, !command.json, writeActivity, spawned);
   if (
     settled.outcome !== "succeeded" ||
     !settled.result ||
@@ -50,9 +40,7 @@ export async function runAgentCreate(
     );
   let declaration: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(
-      String((settled.result as Record<string, unknown>).text),
-    );
+    const parsed = JSON.parse(String((settled.result as Record<string, unknown>).text));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       throw new Error("declaration must be a JSON object");
     declaration = parsed as Record<string, unknown>;
@@ -67,7 +55,7 @@ export async function runAgentCreate(
   }
   const validation = await runCommandThroughDaemon({
     ...command,
-    method: "repo.task.run",
+    method: "repo.task.read",
     action: {
       kind: "agent-validate",
       declaration,
@@ -80,10 +68,7 @@ export async function runAgentCreate(
       "agent_validation_failed",
       "ha agent validate could not produce a validation report; rerun ha agent create after checking the daemon.",
     );
-  const validationReport = JSON.parse(validation.evidence) as Record<
-    string,
-    unknown
-  >;
+  const validationReport = JSON.parse(validation.evidence) as Record<string, unknown>;
   if (validationReport.valid !== true)
     return runtimeRejected(
       "agent-create",

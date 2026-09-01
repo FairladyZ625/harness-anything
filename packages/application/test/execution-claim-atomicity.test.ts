@@ -12,6 +12,7 @@ test("claim releases its CAS reservation after response loss and converges from 
     assert.equal(harness.projection.currentLease("task-1")?.phase, "released");
     assert.equal(harness.eventStore.read().events.length, 2);
     assert.equal(harness.eventStore.recover().status, "committed");
+    harness.projection.catchUp();
     const converged = await harness.service.read("task-1");
     assert.equal(converged.status, "ready");
     assert.equal(converged.snapshot.executions[0]?.state, "active");
@@ -26,6 +27,7 @@ test("a claim the lifecycle contract rejects leaves the previous lease untouched
   try {
     await harness.create();
     await harness.start("execution-1", "op-start-1", "2026-08-11T00:02:00.000Z");
+    harness.projection.catchUp();
     // The lease has lapsed by the time the second claim occurs (00:03), so the reservation CAS admits it,
     // but the round still owns an active execution, so the transition rejects the command.
     await assert.rejects(harness.start("execution-2", "op-start-2"), /StartExecution requires a new execution/u);

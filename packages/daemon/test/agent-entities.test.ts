@@ -533,6 +533,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       },
     };
     projection = makeTaskProjection({ rootDir, eventStore: guardedEventStore });
+    projection.catchUp();
     const agentRows = readAgentEntityGuiProjection({ kind: "agent-list", projection }),
       squadRows = readAgentEntityGuiProjection({ kind: "squad-list", projection });
     assert.equal(agentRows.schema, "agent-entity-catalog/v1");
