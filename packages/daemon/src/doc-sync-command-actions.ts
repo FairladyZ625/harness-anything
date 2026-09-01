@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import {
@@ -22,7 +22,7 @@ import {
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
-import { claimBytes, directPaths } from "./doc-sync-details.ts";
+import { claimBytes, directPaths, settleConflictScratch } from "./doc-sync-details.ts";
 import {
   artifactSource,
   docSyncError,
@@ -81,13 +81,17 @@ export function isDocAction(kind: string): boolean {
     kind === "doc-submit" ||
     kind === "doc-materialize" ||
     kind === "doc-show" ||
-    kind === "doc-retire"
+    kind === "doc-retire" ||
+    kind === "doc-conflict-resolve" ||
+    kind === "doc-conflict-discard-local" ||
+    kind === "doc-conflict-overwrite-center"
   );
 }
 
 export async function runDocAction(input: Input): Promise<WriteReceipt> {
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
+  if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
   if (input.action.kind === "doc-materialize") {
     if (!hasExactDocSyncActionFields(input.action, ["kind"]))
       throw docSyncError("invalid_command", "doc materialize takes no options");
@@ -134,6 +138,87 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
   return scan && (receipt.outcome === "applied" || receipt.outcome === "pending")
     ? scannerSettlement(input, scan, receipt)
     : receipt;
+}
+
+async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
+  if (!hasExactDocSyncActionFields(input.action, ["kind", "conflictId"]))
+    throw docSyncError("invalid_command", "doc conflict exit requires one conflictId");
+  const conflictId = requiredDocSyncText(input.action.conflictId, "conflictId");
+  if (!/^[0-9a-f]{8}$/u.test(conflictId))
+    throw docSyncError("invalid_command", "local doc conflictId must be eight lowercase hexadecimal characters");
+  const conflict = localDocConflict(input.rootDir, conflictId);
+  if (input.action.kind === "doc-conflict-discard-local") {
+    settleConflictScratch(conflict.scratch);
+    const revision = input.store.readHead()?.revision ?? 0;
+    return {
+      outcome: "applied",
+      opId: `doc-conflict:discard-local:${conflictId}:${revision}`,
+      revision,
+      origin: "doc-sync",
+      evidence: stableStringify({ conflictId, path: conflict.logical, resolvedVia: "discard-local" }),
+      visibility: "center",
+      proof: proof(revision, revision, true, true),
+      nextAction: `Local conflict scratch was discarded; ${conflict.logical} retains the canonical bytes.`,
+    };
+  }
+  const source = input.action.kind === "doc-conflict-overwrite-center" ? conflict.scratch : conflict.target;
+  if (!existsSync(source) || !lstatSync(source).isFile())
+    throw docSyncError(
+      "conflict_source_missing",
+      input.action.kind === "doc-conflict-overwrite-center"
+        ? "local conflict scratch is not a direct regular file"
+        : "merge the conflict into its canonical document before resolving it",
+    );
+  const submitted = await runDocAction({
+    ...input,
+    action: { kind: "doc-submit", paths: [conflict.logical] },
+    authoredCandidateInventory: {
+      schema: "harness-authored-candidate-inventory/v1",
+      baseLedgerSha: input.store.currentCut(),
+      rows: [
+        {
+          path: conflict.logical,
+          safe: true,
+          bytes: readFileSync(source),
+          conflicts: [],
+          legacyDocument: null,
+        },
+      ],
+    },
+  });
+  if (["applied", "pending", "no_changes"].includes(submitted.outcome)) settleConflictScratch(conflict.scratch);
+  return submitted;
+}
+
+function localDocConflict(
+  rootDir: string,
+  conflictId: string,
+): { readonly logical: string; readonly scratch: string; readonly target: string } {
+  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
+    marker = `.conflict-${conflictId}`,
+    matches: { readonly logical: string; readonly scratch: string; readonly target: string }[] = [];
+  const visit = (directory: string): void => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const extension = path.extname(entry.name),
+        stem = entry.name.slice(0, -extension.length);
+      if (![".md", ".txt"].includes(extension) || !stem.endsWith(marker)) continue;
+      const target = path.join(directory, `${stem.slice(0, -marker.length)}${extension}`),
+        logical = path.relative(authoredRoot, target).split(path.sep).join("/");
+      if (directPaths(rootDir, [logical])) matches.push({ logical, scratch: absolute, target });
+    }
+  };
+  visit(authoredRoot);
+  if (matches.length === 0) throw docSyncError("conflict_not_found", `local doc conflict ${conflictId} was not found`);
+  if (matches.length > 1)
+    throw docSyncError("conflict_ambiguous", `local doc conflict ${conflictId} matches more than one scratch file`);
+  return matches[0]!;
 }
 
 export function runDocRetire(input: Input): DocSettlementReceipt {
