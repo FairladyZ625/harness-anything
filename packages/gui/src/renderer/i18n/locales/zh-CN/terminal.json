@@ -33,5 +33,12 @@
   "terminal.view.confirmTerminatePrompt": "终止后台会话？",
   "terminal.view.cancel": "取消",
   "terminal.view.confirmTerminate": "确认终止",
-  "terminal.view.terminate": "终止…"
+  "terminal.view.terminate": "终止…",
+  "terminal.view.splitShortcut": "Ctrl+Shift+5/6 分屏 · Ctrl+Shift+W 关 pane · Ctrl+Alt+方向键 切焦点",
+  "terminal.view.splitRight": "向右分屏",
+  "terminal.view.splitDown": "向下分屏",
+  "terminal.view.closePane": "关闭 pane",
+  "terminal.view.closePaneAria": "关闭 pane {name}",
+  "terminal.view.paneSessionGone": "这个 pane 的会话已不在 daemon 侧;布局已恢复，关闭它即可。",
+  "terminal.view.groupPaneCount": "{count} pane"
 }

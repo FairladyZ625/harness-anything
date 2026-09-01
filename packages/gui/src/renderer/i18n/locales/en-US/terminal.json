@@ -33,5 +33,12 @@
   "terminal.view.confirmTerminatePrompt": "Terminate the background session?",
   "terminal.view.cancel": "Cancel",
   "terminal.view.confirmTerminate": "Confirm terminate",
-  "terminal.view.terminate": "Terminate…"
+  "terminal.view.terminate": "Terminate…",
+  "terminal.view.splitShortcut": "Ctrl+Shift+5/6 split · Ctrl+Shift+W close pane · Ctrl+Alt+Arrows focus",
+  "terminal.view.splitRight": "Split right",
+  "terminal.view.splitDown": "Split down",
+  "terminal.view.closePane": "Close pane",
+  "terminal.view.closePaneAria": "Close pane {name}",
+  "terminal.view.paneSessionGone": "This pane's session is gone from the daemon; the layout was restored, close the pane to drop it.",
+  "terminal.view.groupPaneCount": "{count} panes"
 }

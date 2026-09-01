@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { DockviewApi } from "dockview-react";
 import type { TerminalSessionRow } from "../../../../daemon/src/gui-s3-control.ts";
 import {
   closeTerminalTab,
@@ -20,15 +21,40 @@ import {
   writeTerminalPreferences,
   type TerminalPreferences,
 } from "../terminal-preferences.ts";
-import { TerminalPane } from "../components/terminal/TerminalPane.tsx";
+import {
+  groupPaneRefs,
+  gridPaneRefs,
+  layoutSessionIds,
+  readTerminalLayout,
+  writeTerminalLayout,
+  type TerminalGridSnapshot,
+  type TerminalGroupLayout,
+} from "../terminal-layout.ts";
+import { directionalPane, type PaneBox, type PaneDirection } from "../terminal-pane-focus.ts";
+import {
+  TerminalChrome,
+  type TerminalSpawnDraft,
+  type TerminalTabChip,
+} from "../components/terminal/TerminalChrome.tsx";
+import { TerminalSplitGrid, terminalPaneComponent } from "../components/terminal/TerminalSplitGrid.tsx";
+import {
+  TerminalPaneContext,
+  type TerminalPaneActions,
+  type TerminalSplitDirection,
+} from "../components/terminal/terminal-pane-context.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
- * 终端一等页面(PLT-TerminalWorkspace W0):承接原底部终端 dock 的全部能力——
- * 多 tab、快速新建、attach 已有会话、断线重连(generation 对账)、gap 提示、
- * exit 只读、tmux/direct-pty 双后端。状态机复用 terminal-model,渲染复用 TerminalPane,
- * 本组件只搬 UI 壳。页面语义:进入页面 = 打开终端面;离开页面(或切仓)= 停止全部
- * 流并 detach 全部附件(与 dock 关闭路径同一条 closeTerminalTab/terminalClient.detach 通路)。
+ * 终端一等页面(PLT-TerminalWorkspace W0 + W1)。
+ *
+ * W0 语义不变:多 tab、快速新建、attach 已有会话、断线重连(generation 对账)、gap 提示、
+ * exit 只读、tmux/direct-pty 双后端;进入页面 = 打开终端面,离开页面(或切仓)= 停止全部流
+ * 并 detach 全部附件。会话状态机仍是 terminal-model,传输仍是 terminal-client。
+ *
+ * W1 在其上加二级模型(抄 VS Code):**tab = group**,group 内才是 split pane 树。
+ * pane 树由 dockview 承载(见 TerminalSplitGrid),布局快照按仓存 localStorage,重启后
+ * 按 pane 载荷里的 sessionId 逐个 re-attach,会话已消失的 pane 渲染可关闭占位。每个 pane
+ * 自带 ResizeObserver + fit,cols/rows 各自走既有 resize 通道上报,互不干扰。
  */
 interface Props {
   readonly repoId: string;
@@ -48,31 +74,36 @@ type AttachRow = Pick<
   | "warning"
   | "attachable"
 >;
-const shellOptions = ["default", "zsh", "bash", "sh", "fish"] as const;
-const warningClassName = [
-  "border-b border-status-blocked/30 bg-status-blocked/10",
-  "px-2 py-1 text-[11px] text-status-blocked",
-].join(" ");
+/** 新会话的落位:开新 tab(group),还是在当前 group 里从某个 pane 分割出来。 */
+type Placement =
+  | { readonly kind: "group" }
+  | { readonly kind: "split"; readonly referencePanelId: string; readonly direction: TerminalSplitDirection };
 
 export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
   const queryClient = useQueryClient(),
-    [tabs, setTabs] = useState<readonly TerminalTab[]>([]);
+    [tabs, setTabs] = useState<readonly TerminalTab[]>([]),
+    [groups, setGroups] = useState<readonly TerminalGroupLayout[]>([]),
+    [activeGroupId, setActiveGroupId] = useState<string | null>(null),
+    [focusedPanelId, setFocusedPanelId] = useState<string | null>(null);
   const tabsRef = useRef(tabs),
+    groupsRef = useRef(groups),
+    focusedPanelIdRef = useRef(focusedPanelId),
+    gridApi = useRef<DockviewApi | null>(null),
+    regionRef = useRef<HTMLDivElement>(null),
     stops = useRef(new Map<string, () => void>()),
     repoIdRef = useRef(repoId),
     mountedRef = useRef(true);
   const ackSeq = useRef(new Map<string, number>()),
     inflight = useRef(new Map<string, Promise<void>>());
-  const autoStarted = useRef(new Set<string>());
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const initialised = useRef(new Set<string>());
   const [error, setError] = useState<string | null>(null),
     [confirmId, setConfirmId] = useState<string | null>(null);
   const [preferences, setPreferences] = useState<TerminalPreferences>(() =>
     readTerminalPreferences(window.localStorage),
   );
-  const [spawn, setSpawn] = useState({
+  const [spawn, setSpawn] = useState<TerminalSpawnDraft>({
     name: t("terminal.view.title"),
-    cwdScope: "repo-root" as "repo-root" | "repo-relative",
+    cwdScope: "repo-root",
     path: "",
     shellProfileId: "default",
     taskId: "",
@@ -85,17 +116,26 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
   });
   const generation = daemonGeneration ?? sessions.data?.daemonGeneration;
   tabsRef.current = tabs;
+  groupsRef.current = groups;
+  focusedPanelIdRef.current = focusedPanelId;
   useEffect(() => {
     writeTerminalPreferences(window.localStorage, preferences);
   }, [preferences]);
+  // 布局只在该仓已完成一次恢复之后才回写,否则切仓瞬间的空布局会覆盖新仓的存档。
+  useEffect(() => {
+    if (repoId === "unselected" || !initialised.current.has(repoId)) return;
+    writeTerminalLayout(window.localStorage, repoId, { activeGroupId, groups });
+  }, [activeGroupId, groups, repoId]);
 
-  /** 离开页面/切仓:停止全部流并 detach 全部附件;tab 列表随页面状态一并清空。 */
+  /** 离开页面/切仓:停止全部流并 detach 全部附件;tab/pane 布局随页面状态一并清空。 */
   const releaseTabs = useCallback(async (detachRepoId: string): Promise<void> => {
     const current = [...tabsRef.current];
     for (const stop of stops.current.values()) stop();
     stops.current.clear();
     setTabs([]);
-    setActiveId(null);
+    setGroups([]);
+    setActiveGroupId(null);
+    setFocusedPanelId(null);
     await Promise.all(
       current.flatMap((tab) =>
         tab.attachmentId
@@ -117,23 +157,19 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
     if (repoIdRef.current === repoId) return;
     const previous = repoIdRef.current;
     repoIdRef.current = repoId;
-    autoStarted.current.delete(previous);
+    initialised.current.delete(previous);
     void releaseTabs(previous);
   }, [repoId, releaseTabs]);
 
-  const attach = useCallback(
-    (row: AttachRow, afterSeq = 0) => {
-      if (!row.attachable || row.status !== "running") {
-        setError(t("terminal.view.sessionNotAttachable"));
-        return;
-      }
+  /** 只接会话流,不管落位;布局恢复走这条,不会给已有 pane 再造一个。 */
+  const attachStream = useCallback(
+    (row: AttachRow, afterSeq: number) => {
       stops.current.get(row.sessionId)?.();
       setTabs((current) => {
         const found = current.find((tab) => tab.sessionId === row.sessionId);
         const next = tabFromRow(row, generation ?? 0, found, afterSeq);
         return found ? current.map((tab) => (tab.sessionId === row.sessionId ? next : tab)) : [...current, next];
       });
-      setActiveId(row.sessionId);
       setError(null);
       try {
         const stop = terminalClient.attach(repoId, row.sessionId, afterSeq, (value) =>
@@ -159,8 +195,48 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
     [generation, repoId],
   );
 
+  /** 把会话放进布局:开新 group,或在当前 group 内从 referencePanel 分割。 */
+  const placeSession = useCallback((sessionId: string, placement: Placement) => {
+    const existing = paneOfSession(groupsRef.current, sessionId);
+    if (existing) {
+      setActiveGroupId(existing.groupId);
+      setFocusedPanelId(existing.panelId);
+      return;
+    }
+    const panelId = `pane-${crypto.randomUUID()}`;
+    const api = gridApi.current;
+    if (placement.kind === "split" && api?.getPanel(placement.referencePanelId)) {
+      api.addPanel({
+        id: panelId,
+        component: terminalPaneComponent,
+        params: { sessionId },
+        position: { referencePanel: placement.referencePanelId, direction: placement.direction },
+      });
+      setFocusedPanelId(panelId);
+      return;
+    }
+    const groupId = `group-${crypto.randomUUID()}`;
+    const next = [...groupsRef.current, { groupId, seeds: [{ panelId, sessionId }], grid: null }];
+    groupsRef.current = next;
+    setGroups(next);
+    setActiveGroupId(groupId);
+    setFocusedPanelId(panelId);
+  }, []);
+
+  const attach = useCallback(
+    (row: AttachRow, afterSeq = 0, placement: Placement = { kind: "group" }) => {
+      if (!row.attachable || row.status !== "running") {
+        setError(t("terminal.view.sessionNotAttachable"));
+        return;
+      }
+      attachStream(row, afterSeq);
+      placeSession(row.sessionId, placement);
+    },
+    [attachStream, placeSession],
+  );
+
   const start = useCallback(
-    async (custom: boolean) => {
+    async (custom: boolean, placement: Placement = { kind: "group" }) => {
       setError(null);
       const cwd: TerminalSpawnInput["cwd"] =
         custom && spawn.cwdScope === "repo-relative"
@@ -189,7 +265,7 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
         queryClient.setQueryData(terminalQueryKeys.sessions(repoId), listed);
         const row = listed.sessions.find((item) => item.sessionId === receipt.sessionId);
         if (!row) throw new Error(t("terminal.view.spawnMissing"));
-        attach(row, 0);
+        attach(row, 0, placement);
       } catch (cause) {
         consumeKnownError(cause);
         setError(message(cause));
@@ -202,72 +278,200 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
     if (generation !== null && generation !== undefined)
       setTabs((current) => reconcileTerminalGeneration(current, generation));
   }, [generation]);
+  // 进页(或换仓后首次拿到会话表)的恢复入口:优先按存档的 pane 树恢复,
+  // 存档里的会话逐个 re-attach;没有存档时退回 W0 的「附加最近会话 / 新建」。
   useEffect(() => {
     const shouldSkip =
-      repoId === "unselected" || !sessions.isSuccess || tabsRef.current.length > 0 || autoStarted.current.has(repoId);
+      repoId === "unselected" || !sessions.isSuccess || groupsRef.current.length > 0 || initialised.current.has(repoId);
     if (shouldSkip) return;
-    autoStarted.current.add(repoId);
+    initialised.current.add(repoId);
+    const stored = readTerminalLayout(window.localStorage, repoId);
+    if (stored.groups.length > 0) {
+      setGroups(stored.groups);
+      groupsRef.current = stored.groups;
+      setActiveGroupId(stored.activeGroupId);
+      for (const sessionId of layoutSessionIds(stored)) {
+        const row = sessions.data.sessions.find((item) => item.sessionId === sessionId);
+        if (row?.attachable && row.status === "running") attachStream(row, 0);
+      }
+      return;
+    }
     const restored = mostRecentAttachableTerminal(sessions.data.sessions);
     if (restored) attach(restored, 0);
     else void start(false);
-  }, [attach, repoId, sessions.data, sessions.isSuccess, start]);
+  }, [attach, attachStream, repoId, sessions.data, sessions.isSuccess, start]);
 
   const create = (event: FormEvent) => {
     event.preventDefault();
     void start(true);
   };
-  const close = async (tab: TerminalTab) => {
-    try {
-      await closeTerminalTab(repoId, tab, {
-        stopStream: stops.current.get(tab.sessionId) ?? (() => undefined),
-        detach: terminalClient.detach,
-      });
-    } catch (cause) {
-      consumeKnownError(cause);
-      setError(message(cause));
-    }
-    stops.current.delete(tab.sessionId);
-    setTabs((current) => current.filter((item) => item.sessionId !== tab.sessionId));
-    setActiveId((current) => (current === tab.sessionId ? null : current));
-  };
-  const send = (sessionId: string, utf8: string) => {
-    const tail = inflight.current.get(sessionId) ?? Promise.resolve();
-    const next = tail
-      .then(async () => {
-        const seq = (ackSeq.current.get(sessionId) ?? 0) + 1;
-        ackSeq.current.set(sessionId, await terminalClient.input(repoId, sessionId, seq, utf8));
-      })
-      .catch((cause: unknown) => {
+  /** 只关会话(停流 + detach + 移出 tab 表),不动布局。 */
+  const closeSession = useCallback(
+    async (tab: TerminalTab) => {
+      try {
+        await closeTerminalTab(repoId, tab, {
+          stopStream: stops.current.get(tab.sessionId) ?? (() => undefined),
+          detach: terminalClient.detach,
+        });
+      } catch (cause) {
+        consumeKnownError(cause);
+        setError(message(cause));
+      }
+      stops.current.delete(tab.sessionId);
+      setTabs((current) => current.filter((item) => item.sessionId !== tab.sessionId));
+    },
+    [repoId],
+  );
+  const dropGroup = useCallback((groupId: string) => {
+    const remaining = groupsRef.current.filter((group) => group.groupId !== groupId);
+    groupsRef.current = remaining;
+    setGroups(remaining);
+    setActiveGroupId((current) => (current === groupId ? (remaining[remaining.length - 1]?.groupId ?? null) : current));
+  }, []);
+  const closeGroup = useCallback(
+    async (groupId: string) => {
+      const group = groupsRef.current.find(({ groupId: id }) => id === groupId);
+      const refs = group ? groupPaneRefs(group) : [];
+      dropGroup(groupId);
+      for (const ref of refs) {
+        const tab = tabsRef.current.find((item) => item.sessionId === ref.sessionId);
+        if (tab) await closeSession(tab);
+      }
+    },
+    [closeSession, dropGroup],
+  );
+  const closePane = useCallback(
+    async (panelId: string, sessionId: string) => {
+      // 最后一个 pane 关掉后 dockview 会给出空布局,group 由 onLayoutChange 一并回收。
+      // 只有当前 group 是挂载着的,所以拿不到 panel 时不动布局,只把会话收掉。
+      gridApi.current?.getPanel(panelId)?.api.close();
+      const tab = tabsRef.current.find((item) => item.sessionId === sessionId);
+      if (tab) await closeSession(tab);
+    },
+    [closeSession],
+  );
+  const send = useCallback(
+    (sessionId: string, utf8: string) => {
+      const tail = inflight.current.get(sessionId) ?? Promise.resolve();
+      const next = tail
+        .then(async () => {
+          const seq = (ackSeq.current.get(sessionId) ?? 0) + 1;
+          ackSeq.current.set(sessionId, await terminalClient.input(repoId, sessionId, seq, utf8));
+        })
+        .catch((cause: unknown) => {
+          consumeKnownError(cause);
+          setError(message(cause));
+        });
+      inflight.current.set(sessionId, next);
+    },
+    [repoId],
+  );
+  const refit = useCallback(
+    (sessionId: string, cols: number, rows: number) => {
+      void terminalClient.resize(repoId, sessionId, cols, rows).catch((cause: unknown) => {
         consumeKnownError(cause);
         setError(message(cause));
       });
-    inflight.current.set(sessionId, next);
-  };
-  const refit = (sessionId: string, cols: number, rows: number) => {
-    void terminalClient.resize(repoId, sessionId, cols, rows).catch((cause: unknown) => {
-      consumeKnownError(cause);
-      setError(message(cause));
-    });
-  };
-  const terminate = async (tab: TerminalTab) => {
-    try {
-      await requestTerminalTermination(repoId, tab, true, { terminate: terminalClient.terminate });
-      setTabs((current) =>
-        current.map((item) =>
-          item.sessionId === tab.sessionId
-            ? { ...item, state: "exited", attachable: false, notice: t("terminal.view.terminationConfirmed") }
-            : item,
-        ),
-      );
-      setConfirmId(null);
-    } catch (cause) {
-      consumeKnownError(cause);
-      setError(message(cause));
-    }
-  };
-  const active = tabs.find((tab) => tab.sessionId === activeId) ?? null;
-  const setPreference = (update: Partial<TerminalPreferences>) =>
-    setPreferences((current) => ({ ...current, ...update }));
+    },
+    [repoId],
+  );
+  const terminate = useCallback(
+    async (sessionId: string) => {
+      const tab = tabsRef.current.find((item) => item.sessionId === sessionId);
+      if (!tab) return;
+      try {
+        await requestTerminalTermination(repoId, tab, true, { terminate: terminalClient.terminate });
+        setTabs((current) =>
+          current.map((item) =>
+            item.sessionId === sessionId
+              ? { ...item, state: "exited", attachable: false, notice: t("terminal.view.terminationConfirmed") }
+              : item,
+          ),
+        );
+        setConfirmId(null);
+      } catch (cause) {
+        consumeKnownError(cause);
+        setError(message(cause));
+      }
+    },
+    [repoId],
+  );
+
+  /** dockview 报告布局变化:快照回流到 group;空 group 直接回收。 */
+  const applyGrid = useCallback(
+    (groupId: string, grid: TerminalGridSnapshot) => {
+      if (gridPaneRefs(grid).length === 0) {
+        dropGroup(groupId);
+        return;
+      }
+      const next = groupsRef.current.map((group) => (group.groupId === groupId ? { ...group, grid } : group));
+      groupsRef.current = next;
+      setGroups(next);
+    },
+    [dropGroup],
+  );
+  const splitPane = useCallback(
+    (panelId: string, direction: TerminalSplitDirection) => {
+      void start(false, { kind: "split", referencePanelId: panelId, direction });
+    },
+    [start],
+  );
+  const focusPane = useCallback((panelId: string) => {
+    setFocusedPanelId((current) => (current === panelId ? current : panelId));
+  }, []);
+  const moveFocus = useCallback((direction: PaneDirection) => {
+    const target = directionalPane(paneBoxes(regionRef.current), focusedPanelIdRef.current, direction);
+    if (!target) return;
+    gridApi.current?.getPanel(target)?.api.setActive();
+    setFocusedPanelId(target);
+    focusPaneInput(regionRef.current, target);
+  }, []);
+
+  // 分屏快捷键(与 useAppShortcuts 同一惯例:window keydown + preventDefault)。
+  // Ctrl+Shift+5/6 分割,Ctrl+Shift+W 关 pane,Ctrl+Alt+方向键 移动焦点。
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!event.ctrlKey) return;
+      const arrow = arrowDirection(event.key);
+      if (event.shiftKey && ["5", "%"].includes(event.key)) run(event, () => splitFocused("right"));
+      else if (event.shiftKey && ["6", "^"].includes(event.key)) run(event, () => splitFocused("below"));
+      else if (event.shiftKey && event.key.toLowerCase() === "w") run(event, closeFocused);
+      else if (event.altKey && arrow) run(event, () => moveFocus(arrow));
+    };
+    const run = (event: KeyboardEvent, action: () => void) => {
+      event.preventDefault();
+      action();
+    };
+    const splitFocused = (direction: TerminalSplitDirection) => {
+      const panelId = focusedPanelIdRef.current;
+      if (panelId) splitPane(panelId, direction);
+      else void start(false);
+    };
+    const closeFocused = () => {
+      const panelId = focusedPanelIdRef.current;
+      const sessionId = panelId ? sessionOfPane(groupsRef.current, panelId) : null;
+      if (panelId && sessionId) void closePane(panelId, sessionId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [closePane, moveFocus, splitPane, start]);
+
+  const activeGroup = groups.find((group) => group.groupId === activeGroupId) ?? null;
+  const paneActions = useMemo<TerminalPaneActions>(
+    () => ({
+      session: (sessionId) => tabs.find((tab) => tab.sessionId === sessionId) ?? null,
+      focusedPanelId,
+      confirmSessionId: confirmId,
+      setConfirmSessionId: setConfirmId,
+      onInput: send,
+      onFit: refit,
+      onFocusPane: focusPane,
+      onClosePane: (panelId, sessionId) => void closePane(panelId, sessionId),
+      onSplitPane: splitPane,
+      onTerminate: (sessionId) => void terminate(sessionId),
+    }),
+    [closePane, confirmId, focusPane, focusedPanelId, refit, send, splitPane, tabs, terminate],
+  );
 
   return (
     <section
@@ -275,224 +479,44 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
       data-testid="terminal-view"
       className="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <header className="flex items-center gap-2 border-b border-border px-3 py-1.5">
-        <strong className="text-[13px]">{t("terminal.view.localTerminal")}</strong>
-        <span className="font-mono text-[11px] text-text-faint">
-          {t("terminal.view.repoGeneration", {
-            repoId,
-            generation: generation ?? t("views.settingsView.systemUnknownDash"),
-          })}
-        </span>
-        <span
-          className="inline-flex overflow-hidden rounded border border-border-strong"
-          aria-label={t("terminal.view.backendForNew")}
-        >
-          <button
-            aria-pressed={preferences.backend === "direct-pty"}
-            onClick={() => setPreference({ backend: "direct-pty" })}
-            className={toggleClassName(preferences.backend === "direct-pty")}
-          >
-            {t("terminal.view.backendDirect")}
-          </button>
-          <button
-            aria-pressed={preferences.backend === "tmux"}
-            onClick={() => setPreference({ backend: "tmux" })}
-            className={toggleClassName(preferences.backend === "tmux")}
-          >
-            {t("terminal.view.backendTmux")}
-          </button>
-        </span>
-        <span className="ml-auto font-mono text-[11px] text-text-faint" title={t("terminal.view.shortcut")}>
-          {t("terminal.view.shortcut")}
-        </span>
-      </header>
-      <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1">
-        {tabs.map((tab) => (
-          <span key={tab.sessionId} className={tabClassName(activeId === tab.sessionId)}>
-            <button
-              onClick={() => setActiveId(tab.sessionId)}
-              className="max-w-44 truncate px-2 py-1 text-[11px] text-text"
-            >
-              {tab.name} <span className="font-mono text-text-faint">· {tab.backend}</span>
-            </button>
-            <button
-              onClick={() => {
-                void close(tab);
+      <TerminalChrome
+        repoId={repoId}
+        generation={generation}
+        preferences={preferences}
+        onPreferenceChange={(update) => setPreferences((current) => ({ ...current, ...update }))}
+        chips={tabChips(groups, tabs)}
+        activeGroupId={activeGroupId}
+        onSelectGroup={setActiveGroupId}
+        onCloseGroup={(groupId) => void closeGroup(groupId)}
+        onNewTab={() => void start(false)}
+        sessions={sessions.data?.sessions ?? []}
+        openSessionIds={groups.flatMap((group) => groupPaneRefs(group).map((pane) => pane.sessionId))}
+        onAttachSession={(sessionId) => {
+          const row = sessions.data?.sessions.find((item) => item.sessionId === sessionId);
+          if (row) attach(row, 0);
+        }}
+        spawn={spawn}
+        onSpawnChange={(update) => setSpawn((current) => ({ ...current, ...update }))}
+        onCreate={create}
+        tasks={tasks}
+      />
+      {/* pane 区:一个 tab(group)一棵 pane 树,切 tab 即换 dockview 实例。 */}
+      <div ref={regionRef} data-testid="terminal-pane-region" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {activeGroup ? (
+          <TerminalPaneContext.Provider value={paneActions}>
+            <TerminalSplitGrid
+              key={activeGroup.groupId}
+              seeds={activeGroup.seeds}
+              grid={activeGroup.grid}
+              onApiReady={(api) => {
+                gridApi.current = api;
               }}
-              aria-label={t("terminal.view.closeTabAria", { name: tab.name })}
-              title={t("terminal.view.closeDetachTitle")}
-              className="border-l border-border px-1.5 text-text-faint hover:bg-surface-overlay"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <button
-          onClick={() => {
-            void start(false);
-          }}
-          title={t("terminal.view.quickStartTitle")}
-          aria-label={t("terminal.view.newTab")}
-          className="shrink-0 rounded border border-accent/60 bg-accent/10 px-2 py-1 text-[13px] text-text"
-        >
-          +
-        </button>
-        <select
-          aria-label={t("terminal.view.attachExisting")}
-          defaultValue=""
-          onChange={(event) => {
-            const row = sessions.data?.sessions.find((item) => item.sessionId === event.target.value);
-            if (row) attach(row, 0);
-            event.target.value = "";
-          }}
-          className="control ml-auto shrink-0"
-        >
-          <option value="">{t("terminal.view.attachSession")}</option>
-          {sessions.data?.sessions.map((row) => (
-            <option key={row.sessionId} value={row.sessionId} disabled={!row.attachable}>
-              {row.name} · {row.backend} · {row.status}
-            </option>
-          ))}
-        </select>
-      </div>
-      <details className="border-b border-border px-3 py-1 text-[11px]">
-        <summary className="cursor-pointer text-text-muted">{t("terminal.view.advanced")}</summary>
-        <form onSubmit={create} className="flex flex-wrap items-end gap-2 py-2">
-          <Field label={t("terminal.view.name")}>
-            <input
-              value={spawn.name}
-              onChange={(event) => setSpawn({ ...spawn, name: event.target.value })}
-              className="control w-28"
+              onLayoutChange={(grid) => applyGrid(activeGroup.groupId, grid)}
+              onActivePaneChange={(panelId) => {
+                if (panelId) focusPane(panelId);
+              }}
             />
-          </Field>
-          <Field label={t("terminal.view.cwd")}>
-            <select
-              value={spawn.cwdScope}
-              onChange={(event) =>
-                setSpawn({
-                  ...spawn,
-                  cwdScope: event.target.value as typeof spawn.cwdScope,
-                })
-              }
-              className="control"
-            >
-              <option value="repo-root">repo-root</option>
-              <option value="repo-relative">repo-relative</option>
-            </select>
-          </Field>
-          {spawn.cwdScope === "repo-relative" && (
-            <Field label={t("terminal.view.path")}>
-              <input
-                required
-                value={spawn.path}
-                onChange={(event) => setSpawn({ ...spawn, path: event.target.value })}
-                className="control w-36"
-              />
-            </Field>
-          )}
-          <Field label={t("terminal.view.shell")}>
-            <select
-              value={spawn.shellProfileId}
-              onChange={(event) => setSpawn({ ...spawn, shellProfileId: event.target.value })}
-              className="control"
-            >
-              {shellOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label={t("terminal.view.task")}>
-            <select
-              value={spawn.taskId}
-              onChange={(event) => setSpawn({ ...spawn, taskId: event.target.value })}
-              className="control max-w-44"
-            >
-              <option value="">{t("terminal.view.unbound")}</option>
-              {tasks.map((task) => (
-                // G10:实体 ID 不落在不可激活文本里;taskId 走机器值/tooltip,文本用标题。
-                <option key={task.taskId} value={task.taskId} title={task.taskId}>
-                  {task.title}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <button className="rounded border border-accent/60 bg-accent/10 px-3 py-1 text-[12px] text-text">
-            {t("terminal.view.startCustom")}
-          </button>
-        </form>
-      </details>
-      {/* pane 区:中性容器,占满剩余高度;W1 分屏(pane 树)在此容器内落地。 */}
-      <div data-testid="terminal-pane-region" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {active ? (
-          <>
-            <div className="flex flex-wrap items-center gap-2 border-b border-border px-2 py-1 text-[11px]">
-              <span className="font-mono text-text-faint">
-                {active.cwd} · {active.backend} · {active.durability} · {active.state}
-              </span>
-              <span className="font-mono text-[10px] text-text-faint">{active.sessionId}</span>
-              <button
-                onClick={() => {
-                  void close(active);
-                }}
-                className="ml-auto rounded px-2 py-1 text-text-muted hover:bg-surface-raised"
-                title={t("terminal.view.closeDetachTitle")}
-              >
-                {t("terminal.view.closeDetach")}
-              </button>
-              {confirmId === active.sessionId ? (
-                <>
-                  <span className="text-status-blocked">{t("terminal.view.confirmTerminatePrompt")}</span>
-                  <button
-                    onClick={() => setConfirmId(null)}
-                    className="rounded px-2 py-1 text-text-muted hover:bg-surface-raised"
-                  >
-                    {t("terminal.view.cancel")}
-                  </button>
-                  <button
-                    onClick={() => {
-                      void terminate(active);
-                    }}
-                    className="rounded px-2 py-1 text-status-blocked hover:bg-surface-raised"
-                  >
-                    {t("terminal.view.confirmTerminate")}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => setConfirmId(active.sessionId)}
-                  className="rounded px-2 py-1 text-status-blocked hover:bg-surface-raised"
-                >
-                  {t("terminal.view.terminate")}
-                </button>
-              )}
-            </div>
-            {active.warning && (
-              <p role="status" className={warningClassName}>
-                {active.backend === "direct-pty"
-                  ? t("terminal.view.tmuxFallbackWarning")
-                  : t("terminal.view.tmuxUnavailableWarning")}
-              </p>
-            )}
-            {active.notice && (
-              <p role="status" className={warningClassName}>
-                {active.notice}
-              </p>
-            )}
-            {active.state === "running" || active.output ? (
-              <TerminalPane
-                output={active.output}
-                interactive={active.state === "running" && active.attachable}
-                onInput={(utf8) => send(active.sessionId, utf8)}
-                onFit={(cols, rows) => refit(active.sessionId, cols, rows)}
-              />
-            ) : (
-              <div className="grid flex-1 place-items-center px-4 text-center text-[12px] text-text-faint">
-                {active.notice ?? t("terminal.view.sessionNotInteractive")}
-              </div>
-            )}
-          </>
+          </TerminalPaneContext.Provider>
         ) : (
           <div className="grid h-full place-items-center px-4 text-center text-[12px] text-text-faint">
             {t("terminal.view.startHint")}
@@ -508,6 +532,53 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
   );
 }
 
+function tabChips(groups: readonly TerminalGroupLayout[], tabs: readonly TerminalTab[]): readonly TerminalTabChip[] {
+  return groups.map((group) => {
+    const refs = groupPaneRefs(group);
+    const live = refs.flatMap((ref) => tabs.filter((tab) => tab.sessionId === ref.sessionId));
+    return {
+      groupId: group.groupId,
+      title: live[0]?.name ?? t("terminal.view.title"),
+      backend: live[0]?.backend ?? t("views.settingsView.systemUnknownDash"),
+      paneCount: refs.length,
+    };
+  });
+}
+function paneOfSession(
+  groups: readonly TerminalGroupLayout[],
+  sessionId: string,
+): { readonly groupId: string; readonly panelId: string } | null {
+  for (const group of groups)
+    for (const pane of groupPaneRefs(group))
+      if (pane.sessionId === sessionId) return { groupId: group.groupId, panelId: pane.panelId };
+  return null;
+}
+function sessionOfPane(groups: readonly TerminalGroupLayout[], panelId: string): string | null {
+  for (const group of groups)
+    for (const pane of groupPaneRefs(group)) if (pane.panelId === panelId) return pane.sessionId;
+  return null;
+}
+function paneBoxes(region: HTMLElement | null): readonly PaneBox[] {
+  return [...(region?.querySelectorAll<HTMLElement>("[data-pane-id]") ?? [])].flatMap((element) => {
+    const panelId = element.dataset.paneId;
+    if (!panelId) return [];
+    const rect = element.getBoundingClientRect();
+    return [{ panelId, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }];
+  });
+}
+function focusPaneInput(region: HTMLElement | null, panelId: string): void {
+  const host = region?.querySelector<HTMLElement>(`[data-pane-id="${panelId}"]`);
+  host?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+}
+function arrowDirection(key: string): PaneDirection | null {
+  const map: Record<string, PaneDirection> = {
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+  };
+  return map[key] ?? null;
+}
 function tabFromRow(
   row: AttachRow,
   daemonGeneration: number,
@@ -530,26 +601,6 @@ function tabFromRow(
     warning: row.warning,
     attachable: row.attachable,
   };
-}
-function toggleClassName(selected: boolean): string {
-  return [
-    "px-2 py-1 text-[11px]",
-    selected ? "bg-accent text-accent-fg" : "text-text-muted hover:bg-surface-raised",
-  ].join(" ");
-}
-function tabClassName(selected: boolean): string {
-  return [
-    "inline-flex shrink-0 overflow-hidden rounded border",
-    selected ? "border-accent/60 bg-surface-raised" : "border-border",
-  ].join(" ");
-}
-function Field({ label, children }: { readonly label: string; readonly children: React.ReactNode }) {
-  return (
-    <label className="grid gap-0.5 font-mono text-[10px] uppercase tracking-wide text-text-faint">
-      {label}
-      {children}
-    </label>
-  );
 }
 function isInitial(
   value: TerminalAttachInitial | import("../terminal-model.ts").TerminalStreamFrame,
