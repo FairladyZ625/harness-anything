@@ -24,6 +24,9 @@ test("projection cache identity mismatch is explicit and rebuild remains availab
       const storeA = seedLedger(rootA, "ledger-a", bodyA),
         storeB = seedLedger(rootB, "ledger-b", bodyB);
       const projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+      // Serving reads answer at the persisted cut and never write; the owner warms explicitly
+      // (production does this at repo-cell open) before the first read is expected ready.
+      projectionA.rebuild();
       const warmed = projectionA.readDocument("context/notes.md");
       assert.equal(warmed.status, "ready");
       assert.equal(warmed.document?.body, bodyA);
@@ -72,6 +75,7 @@ test("event relation truth cannot cross a same-revision ledger identity", async 
       const storeA = seedFactLedger(rootA),
         storeB = seedLedger(rootB, "relation-empty", "# Notes\n\nEmpty ledger.\n"),
         projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+      projectionA.rebuild();
       projectionA.readFactGraph();
       assert.deepEqual(
         projectionA.readRelationTruth().factAnchors.map(({ factRef }) => factRef),
@@ -97,6 +101,7 @@ test("a cache ahead of a replacement source history is discarded before staged e
       const storeA = seedTaskLedger(rootA, "history-a", 6),
         storeB = seedTaskLedger(rootB, "history-b", 2),
         projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
+      projectionA.rebuild();
       assert.equal(projectionA.read("task-1").watermark, 6);
 
       const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
