@@ -112,7 +112,7 @@ export function buildCommand(
       force: action.force === true,
     });
   }
-  if (action.kind === "task-submit") {
+  if (lifecycleAction?.commandType === "SubmitExecution") {
     const held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
       executionId =
         explicitExecutionId(action) ??
@@ -139,7 +139,7 @@ export function buildCommand(
       submission: submissionPacket(action, rootDir),
     });
   }
-  if (action.kind === "task-review-execution") {
+  if (lifecycleAction?.commandType === "RecordReview") {
     const packet = reviewPacket(rootDir, action),
       executionId =
         explicitExecutionId(action) ??
@@ -268,7 +268,7 @@ export function buildCommand(
       reason: requiredCellText(action.reason, "reason"),
     });
   }
-  if (action.kind === "task-complete")
+  if (lifecycleAction?.commandType === "CompleteTask")
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",
       taskId,

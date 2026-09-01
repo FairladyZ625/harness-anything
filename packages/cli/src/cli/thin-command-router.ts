@@ -20,6 +20,7 @@ export function parseRouted(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
   if (!route) return undefined;
+  const rootCommand = route.path[0];
   if (route.id === "repo-bootstrap") {
     const f = readFlags(route.id, args.slice(1), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
@@ -65,22 +66,21 @@ export function parseRouted(
       ? accepted(rootDir, repoId, json, { kind: "ledger-migrate" })
       : rejected("unknown_field", "ha ledger migrate takes no options.", json);
   if (route.id === "explain") return parseExplain(args, rootDir, repoId, json, route.method);
-  if (route.id.startsWith("runtime-instance-")) return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("runtime-")) return parseRuntime(route, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("schedule-")) return parseSchedule(route, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("settings-"))
-    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
-  if (route.id.startsWith("people-")) return parsePeople(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "ci-observe-pull")
-    return parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (rootCommand === "runtime" && route.path[1] === "instance")
+    return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "settings" || rootCommand === "ci")
+    return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",
       opId: args[2],
     });
-  if (route.id.startsWith("doc-")) return parseDoc(route.id, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("fact-")) return parseFact(route.id, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("decision-")) return parseDecision(route.id, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "doc") return parseDoc(route.id, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
   if (route.id === "distill-candidate" || route.id === "distill-promote")
     return parseProjected(
       route.id,
@@ -92,8 +92,8 @@ export function parseRouted(
       {},
       route.id === "distill-promote" ? { confidence: "medium", memoryClass: "semantic" } : {},
     );
-  if (route.id.startsWith("relation-")) return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
-  if (route.id.startsWith("entity-")) {
+  if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "entity") {
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
     if (!nonEmpty(entityKind))
@@ -105,7 +105,7 @@ export function parseRouted(
       ...(route.id === "entity-get" ? { entityId: f.one.get("--id") } : {}),
     });
   }
-  if (route.phase.startsWith("Preset-") || /^(?:agent|squad)-/u.test(route.id))
+  if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
 }

@@ -5,6 +5,8 @@ import {
   isSameExecution,
   isSamePerson,
   makeTaskEventStore,
+  runtimeSessionActionIds,
+  type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
   type CanonicalEventStore,
   type DaemonRepoMode,
@@ -20,6 +22,7 @@ import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import {
@@ -43,7 +46,7 @@ import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./re
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
-import { runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
+import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
@@ -425,6 +428,19 @@ async function openLockedRepoCell(
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
+    commitRuntimeEvent: async (draft, binding) => {
+      const action = { kind: "event" as const, ...draft },
+        receipt = runtimeSessionActionIds.includes(draft.type as never)
+          ? await commitRuntimeSessionAction(extracted, action, binding)
+          : extracted.appendAuxiliaryRuntimeIngress(action, binding),
+        event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event,
+        runtimeReceipt = { ...(receipt as unknown as JsonObject) };
+      delete runtimeReceipt.event;
+      return {
+        ...(event ? { event } : {}),
+        receipt: runtimeReceipt,
+      };
+    },
     authorizeRuntimeEvent: ({ type, payload, opId, binding }) =>
       authorizeRuntimeAction(
         {

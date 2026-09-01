@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   attributeEntityActionCriterion,
   consumeKnownError,
+  getExecutableEntityAction,
   openEntityStore,
   type EntityStore,
   type TaskProjection,
@@ -568,9 +569,10 @@ function readStoredDeclaration(rootDir: string, kind: AgentEntityKind, id: strin
   return stored.value;
 }
 function entityKind(actionKind: string): AgentEntityKind {
-  if (!/^(?:agent|squad)-(?:list|inspect|validate|install)$/u.test(actionKind))
+  const kind = getExecutableEntityAction(actionKind)?.target.kind;
+  if (kind !== "agent" && kind !== "squad")
     throw entityError("unsupported_command", `No entity lifecycle contract exists for ${actionKind}.`);
-  return actionKind.startsWith("agent-") ? "agent" : "squad";
+  return kind;
 }
 function requiredEntityText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw entityError("invalid_command", `${field} is required.`);

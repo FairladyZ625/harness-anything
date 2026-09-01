@@ -116,6 +116,16 @@ export interface RuntimeSpawnerInput {
   readonly projection?: () => TaskProjection;
   readonly readSettings?: () => SettingsV1;
   readonly remote?: RemoteRuntimePersistence;
+  /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
+  readonly commitRuntimeEvent?: (
+    draft: {
+      readonly type: AgentRuntimeEventV1["type"];
+      readonly payload: Readonly<Record<string, unknown>>;
+      readonly opId: string;
+      readonly resultBody?: string;
+    },
+    binding: RuntimeBinding,
+  ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
@@ -151,7 +161,7 @@ export interface RuntimeSpawnerInput {
     readonly fromRuntimeSessionId: string | null;
     readonly binding: RuntimeBinding;
   }) => Promise<RuntimeBinding>;
-  /** Re-authorizes each local canonical Runtime event at the cut where it is appended. */
+  /** Re-authorizes each local RuntimeSession catalog Action at its commit cut. */
   readonly authorizeRuntimeEvent?: (input: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: AgentRuntimeEventV1["payload"];

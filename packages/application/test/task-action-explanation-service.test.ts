@@ -23,7 +23,19 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       plannedStart = row(plannedOwner, "start");
     assert.deepEqual(
       plannedOwner.subjects[0]!.actions.map(({ action }) => action.id),
-      ["start", "submit", "review", "complete"],
+      [
+        "start",
+        "submit",
+        "review",
+        "complete",
+        "release",
+        "amend",
+        "archive",
+        "supersede",
+        "delete",
+        "reopen",
+        "contract-migrate",
+      ],
     );
     assert.equal(plannedStart.available, true);
     assert.deepEqual(
@@ -102,7 +114,9 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       terminalOwner = explain(harness, terminal, owner);
     assert.equal(terminal.task?.status, "done");
     assert.equal(
-      terminalOwner.subjects[0]!.actions.every(({ available }) => available === false),
+      terminalOwner.subjects[0]!.actions.filter(({ action }) =>
+        ["start", "submit", "review", "complete"].includes(action.id),
+      ).every(({ available }) => available === false),
       true,
     );
 

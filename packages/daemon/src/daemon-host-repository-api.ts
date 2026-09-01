@@ -1,6 +1,7 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import {
   readDaemonRegistry,
+  getExecutableEntityAction,
   registerDaemonRepo,
   resolveHarnessLayout,
   unregisterDaemonRepo,
@@ -274,7 +275,8 @@ export function createDaemonHostRepositoryApi(
       try {
         const serverBinding = await context.binding(cell.status().rootDir, auth);
         const receipt = await cell.run(action as RepoTaskAction, serverBinding, auth.connectionSignal);
-        if (action.kind.startsWith("schedule-")) await context.scheduleScheduler.refresh();
+        if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
+          await context.scheduleScheduler.refresh();
         return receipt;
       } catch (error) {
         return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));

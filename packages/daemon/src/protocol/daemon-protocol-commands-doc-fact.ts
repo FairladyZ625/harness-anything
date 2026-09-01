@@ -12,7 +12,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DocSync-B",
     path: ["doc", "status"],
     summary: "Scan the authored root for document candidates.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -30,7 +30,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DocSync-B",
     path: ["doc", "sync", "--dry-run"],
     summary: "Preview the scanner selection without writing.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -73,7 +73,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DocSync-B",
     path: ["doc", "show"],
     summary: "Show a canonical projected document.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
@@ -169,7 +169,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DecisionFact-A",
     path: ["fact", "type", "list"],
     summary: "List registered Fact domain types and the Fact that registered each value.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
   defineLedgerWriteCommand({
@@ -279,7 +279,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DecisionFact-A",
     path: ["fact", "search", "[query]"],
     summary: "Search the Fact FTS projection.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
@@ -354,7 +354,7 @@ export const docFactProtocolCommands = Object.freeze([
     phase: "DecisionFact-A",
     path: ["fact", "show"],
     summary: "Show one projected Fact.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput(
         "--id",

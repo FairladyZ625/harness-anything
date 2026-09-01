@@ -11,9 +11,7 @@ export async function fleetScheduleRoute(
     (command.method !== "repo.task.run" && command.method !== "repo.task.read") ||
     !daemonProtocolCommands.some(
       (candidate) =>
-        candidate.method === command.method &&
-        candidate.id === command.action.kind &&
-        candidate.id.startsWith("schedule-"),
+        candidate.method === command.method && candidate.id === command.action.kind && candidate.path[0] === "schedule",
     )
   )
     return null;

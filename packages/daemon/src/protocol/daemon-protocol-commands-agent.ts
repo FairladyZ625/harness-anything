@@ -169,7 +169,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["squad", "status", "<squad-run-id>"],
     summary: "Read a durable Squad run and its leader and worker dispatches.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "squadRunId",
     inputs: [],
   }),
@@ -204,7 +204,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["entity", "get", "<kind>"],
     summary: "Read one canonical Entity declaration.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "entityKind",
     inputs: [
       cliInput("--id", "single", true, {
@@ -218,7 +218,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["entity", "list", "<kind>"],
     summary: "List canonical declarations for one registered Entity kind.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "entityKind",
     inputs: [],
   }),
@@ -227,7 +227,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["agent", "list"],
     summary: "List installed Agent identity declarations.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -235,7 +235,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["agent", "inspect", "<id>"],
     summary: "Inspect one Agent identity including its instructions and runtime type.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "agentId",
     inputs: [],
   }),
@@ -244,7 +244,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["agent", "validate"],
     summary: "Validate one Agent declaration package before installing it.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput(
         "--source",
@@ -283,7 +283,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["squad", "list"],
     summary: "List installed Squad identity declarations.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -291,7 +291,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["squad", "inspect", "<id>"],
     summary: "Inspect one Squad and its human-editable roster text.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "squadId",
     inputs: [],
   }),
@@ -351,7 +351,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Runtime-B",
     path: ["squad", "validate"],
     summary: "Validate one Squad declaration package before installing it.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput(
         "--source",

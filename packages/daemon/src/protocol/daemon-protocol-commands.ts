@@ -53,7 +53,7 @@ const settingsWriteTopology = {
       phase: "Settings-Kind",
       path: ["settings", "read"],
       summary: "Read the repository Settings entity from the canonical projection.",
-      method: "repo.task.run",
+      method: "repo.task.read",
       inputs: [],
     }),
     defineCliCommand({

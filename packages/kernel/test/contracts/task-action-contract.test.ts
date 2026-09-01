@@ -11,30 +11,54 @@ const concurrencyFields = [
   "artifactOwnership",
 ] as const;
 
-test("Task start submit review complete are complete executable Action contracts", () => {
+test("all public Task writes are complete executable Action contracts", () => {
   const task = getEntityKindContract("task"),
     actions = task?.actionCatalog?.actions ?? [];
   assert.deepEqual(
     actions.map(({ id }) => id),
-    ["start", "submit", "review", "complete"],
+    [
+      "start",
+      "submit",
+      "review",
+      "complete",
+      "release",
+      "amend",
+      "archive",
+      "supersede",
+      "delete",
+      "reopen",
+      "contract-migrate",
+    ],
   );
   for (const action of actions) {
     assert.ok(action.execution, action.id);
     assert.equal(action.actor.source, "authenticated-binding");
     assert.equal(action.target.kind, "task");
     assert.equal(action.input.schema, "entity-action-input/v1");
-    assert.ok(action.criteria.length >= 3, action.id);
+    assert.ok(action.criteria.length >= 1, action.id);
     assert.deepEqual(Object.keys(action.concurrency), concurrencyFields);
-    assert.equal(action.concurrency.artifactOwnership.owner, "execution");
+    assert.ok(["execution", "task"].includes(String(action.concurrency.artifactOwnership.owner)), action.id);
     assert.ok(
-      action.effects.every(({ ref }) => ref.includes("task-lifecycle")),
+      action.effects.every(({ ref }) => ref.includes("task-lifecycle") || ref.includes("task-mutation")),
       action.id,
     );
     assert.equal(action.returns.schema, "action-result/v1");
     assert.ok(action.explain.length > 0);
   }
-  assert.deepEqual(explainEntityKind("task").transitions.available, ["start", "submit", "review", "complete"]);
-  assert.deepEqual(explainEntityKind("agent").transitions.available, ["install"]);
+  assert.deepEqual(explainEntityKind("task").transitions.available, [
+    "start",
+    "submit",
+    "review",
+    "complete",
+    "release",
+    "amend",
+    "archive",
+    "supersede",
+    "delete",
+    "reopen",
+    "contract-migrate",
+  ]);
+  assert.deepEqual(explainEntityKind("agent").transitions.available, ["install", "validate", "list", "inspect"]);
 });
 
 test("Agent-readable input and CLI facets share the same field declarations", () => {

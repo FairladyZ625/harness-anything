@@ -260,7 +260,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "review", "<task-id>"],
     summary: "Lint the legacy review contract without approving completion.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--reviewer", "single", false, {
         code: "invalid_field",
@@ -273,7 +273,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "list"],
     summary: "List Task projection rows or a recursive parent subtree with canonical filters.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput(
         "--status",
@@ -378,7 +378,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["relation", "list"],
     summary: "Query first-class Relation aggregates from the canonical versioned projection.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--entity", "single", false, {
         code: "invalid_field",

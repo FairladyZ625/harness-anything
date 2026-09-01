@@ -657,7 +657,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "show", "<task-id>"],
     summary: "Read the task projection.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
   defineRepoReadCommand({
@@ -665,7 +665,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],
     summary: "Read a write receipt.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
 ] as const);

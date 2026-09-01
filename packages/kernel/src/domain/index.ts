@@ -5,7 +5,6 @@ export type { ReceiptJsonValue } from "./receipt-frame.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
-  taskLifecycleActionIds,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,
 } from "./entity-action-explanation.ts";
@@ -16,7 +15,6 @@ export type {
   EntityActionExplanationSetV1,
   EntityActionExplanationSubjectV1,
   EntityActionExplanationV1,
-  TaskLifecycleActionId,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";

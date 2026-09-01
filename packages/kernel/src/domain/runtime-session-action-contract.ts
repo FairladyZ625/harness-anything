@@ -11,7 +11,11 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import type { EntityActionCompileHook, EntityActionCompileInput } from "./entity-action-execution.ts";
+import {
+  attributeEntityActionCriterion,
+  type EntityActionCompileHook,
+  type EntityActionCompileInput,
+} from "./entity-action-execution.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
@@ -219,11 +223,12 @@ function compileRuntimeSessionAction(
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);
+    const adoptionFailure = error instanceof RuntimeSessionAdoptionStaleError;
     invalidRuntimeSessionAction(
-      error instanceof RuntimeSessionAdoptionStaleError
-        ? "runtime_session_adoption_stale"
-        : "runtime_session_transition_invalid",
+      adoptionFailure ? "runtime_session_adoption_stale" : "runtime_session_transition_invalid",
       message,
+      id,
+      adoptionFailure ? "runtime-session/adoption-fence" : "runtime-session/current-state",
     );
   }
   const resultBody = input.action.resultBody;
@@ -248,6 +253,12 @@ function compileRuntimeSessionAction(
   };
 }
 
-function invalidRuntimeSessionAction(code: string, message: string): never {
-  throw Object.assign(new Error(message), { code });
+function invalidRuntimeSessionAction(
+  code: string,
+  message: string,
+  actionId?: RuntimeSessionActionId,
+  criterionRef?: string,
+): never {
+  const error = Object.assign(new Error(message), { code });
+  throw actionId && criterionRef ? attributeEntityActionCriterion(error, actionId, criterionRef) : error;
 }

@@ -182,15 +182,8 @@ type CliCommandDeclaration = {
 };
 const defineTopologyCommand =
   (topology: CommandTopology) =>
-  <const Command extends CliCommandDeclaration>(declaration: Command) => {
-    const routed =
-      topology.commandClass === "repo-read" &&
-      "method" in declaration &&
-      declaration.method === "repo.task.run"
-        ? { ...declaration, method: "repo.task.read" as const }
-        : declaration;
-    return defineCliCommand({ ...routed, ...topology });
-  };
+  <const Command extends CliCommandDeclaration>(declaration: Command) =>
+    defineCliCommand({ ...declaration, ...topology });
 export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),

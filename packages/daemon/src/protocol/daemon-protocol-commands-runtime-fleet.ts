@@ -456,7 +456,7 @@ export const scheduleProtocolCommands = Object.freeze([
     phase: "Schedule-S3",
     path: ["schedule", "list"],
     summary: "List canonical Schedules and their projected run state.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [],
   }),
   defineCenterForwardReadCommand({
@@ -464,7 +464,7 @@ export const scheduleProtocolCommands = Object.freeze([
     phase: "Schedule-S5",
     path: ["schedule", "runs", "<schedule-id>"],
     summary: "List occurrence history, including active, settled, and missed runs.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "scheduleId",
     inputs: [
       cliInput(
@@ -481,7 +481,7 @@ export const scheduleProtocolCommands = Object.freeze([
     phase: "Schedule-S3",
     path: ["schedule", "show", "<schedule-id>"],
     summary: "Show one canonical Schedule definition and projected run state.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     positional: "scheduleId",
     inputs: [scheduleFromFileInput(scheduleShowJsonFields, scheduleShowJsonAllowedFields)],
   }),

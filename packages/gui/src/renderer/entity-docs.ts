@@ -90,7 +90,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: ["install"],
+    actions: ["install", "validate", "list", "inspect"],
   },
   decision: {
     schemaId: "decision-package",
@@ -252,7 +252,19 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
       },
     ],
-    actions: ["start", "submit", "review", "complete"],
+    actions: [
+      "start",
+      "submit",
+      "review",
+      "complete",
+      "release",
+      "amend",
+      "archive",
+      "supersede",
+      "delete",
+      "reopen",
+      "contract-migrate",
+    ],
   },
 } as const satisfies Readonly<Record<string, EntityKernelContract>>);
 

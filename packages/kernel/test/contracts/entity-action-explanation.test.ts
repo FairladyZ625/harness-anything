@@ -11,7 +11,6 @@ import {
   type EntityActionContract,
   type EntityActionExplanationSetV1,
   type EntityActionExplanationV1,
-  type TaskLifecycleActionId,
 } from "../../src/index.ts";
 import { serializeEntityActionExplanationSet } from "../../src/domain/entity-action-explanation.ts";
 
@@ -140,7 +139,7 @@ test("catalog and object modes share one strict schema with four honest criterio
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    12,
+    19,
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {
@@ -166,7 +165,7 @@ function taskCatalog(): { readonly ref: string; readonly actions: readonly Entit
 function descriptor(catalogRef: string, action: EntityActionContract): EntityActionExplanationV1["action"] {
   return {
     kind: "task",
-    id: action.id as TaskLifecycleActionId,
+    id: action.id,
     catalogRef,
     contractVersion: `${action.version.major}.${action.version.minor}`,
     explain: action.explain,

@@ -219,19 +219,45 @@ test("bulk writes defer visibility and settle one Git cut", async () => {
 test("byte threshold flushes a durable WAL batch independently of the event threshold", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
+    const byteThreshold = 1;
+    let resolveCheckpoint!: () => void;
+    const checkpointed = new Promise<void>((resolve) => {
+      resolveCheckpoint = resolve;
+    });
     const store = makeWalShadowEventStore({
       repoId: "wal-bytes",
       rootDir,
       walFlushEvents: 10_000,
-      walFlushBytes: 1,
+      walFlushBytes: byteThreshold,
       walFlushMs: 60_000,
       walFlushAdaptive: false,
+      walMaterializationSpan: (span) => {
+        if (span.name === "checkpoint") resolveCheckpoint();
+      },
     });
-    store.append(taskBundle(1));
-    for (let attempt = 0; attempt < 100 && openWalEventLog(rootDir).records().length > 0; attempt += 1)
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
-    await store.drain();
+    let checkpointDeadline: ReturnType<typeof setTimeout> | null = null;
+    try {
+      store.append(taskBundle(1));
+      const durableBytes = openWalEventLog(rootDir).head().lastOffset;
+      assert.ok(
+        durableBytes >= byteThreshold,
+        `the fixture must cross its ${byteThreshold}-byte threshold (wrote ${durableBytes} bytes)`,
+      );
+      await Promise.race([
+        checkpointed,
+        new Promise<never>((_, reject) => {
+          checkpointDeadline = setTimeout(
+            () => reject(new Error("byte-threshold WAL materialization did not checkpoint within 30 seconds")),
+            30_000,
+          );
+          checkpointDeadline.unref?.();
+        }),
+      ]);
+      assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    } finally {
+      if (checkpointDeadline !== null) clearTimeout(checkpointDeadline);
+      await store.drain();
+    }
   });
 });
 

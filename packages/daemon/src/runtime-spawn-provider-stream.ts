@@ -1,20 +1,14 @@
-import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import type {
-  AgentRuntimeEventV1,
-  CanonicalContentBlob,
-  CanonicalEventStore,
-  SessionIdentity,
-} from "../../kernel/src/index.ts";
-import { canonicalEventWritePlan, consumeKnownError, runtimeEventContentClaims } from "../../kernel/src/index.ts";
+import type { SessionIdentity } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "../../kernel/src/index.ts";
 import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
-import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
 import {
   runtimeEventHasType,
   type RuntimeEventOf,
+  type RuntimeEventPublication,
   type RuntimeEventType,
   type RuntimeSpawnerContext,
 } from "./runtime-spawn-context.ts";
@@ -26,55 +20,41 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
   opId: string,
   binding: RuntimeBinding,
   resultBody?: string,
-): Promise<{
-  readonly event: RuntimeEventOf<T>;
-  readonly publication?: ReturnType<CanonicalEventStore["append"]>;
-  readonly receipt?: JsonObject;
-}> {
-  if (context.input.remote) {
-    const published = await context.input.remote.publish({
-      type,
-      payload,
-      opId,
-      ...(resultBody === undefined ? {} : { resultBody }),
-    });
-    if (!runtimeEventHasType(published.event, type))
-      throw context.runtimeSpawnError("invalid_runtime_event", "Remote runtime publication changed the event type.");
-    return { ...published, event: published.event };
-  }
+): Promise<RuntimeEventPublication<T>> {
   const authorizedBinding = context.input.authorizeRuntimeEvent?.({ type, payload, opId, binding }) ?? binding,
-    store = context.requiredRuntimeStore(context.input),
-    projection = context.requiredRuntimeProjection(context.input),
-    value = {
-      schema: "agent-runtime-event/v1",
-      eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-      workspaceRevision: (store.readHead()?.revision ?? 0) + 1,
-      opId,
-      type,
-      actor: authorizedBinding.actor,
-      source: authorizedBinding.source,
-      occurredAt: context.input.now(),
-      payload,
-    } as AgentRuntimeEventV1;
-  if (!runtimeEventHasType(value, type))
-    throw context.runtimeSpawnError("invalid_runtime_event", "Runtime event construction changed the event type.");
-  const claims = runtimeEventContentClaims(value);
-  let blobs: readonly CanonicalContentBlob[] = [];
-  if (resultBody !== undefined) {
-    if (claims.length !== 1)
-      throw context.runtimeSpawnError(
-        "invalid_runtime_event",
-        "Only a content-bearing runtime event can carry content bytes.",
-      );
-    blobs = [{ ...claims[0]!, body: resultBody }];
+    published = context.input.remote
+      ? await context.input.remote.publish({
+          type,
+          payload,
+          opId,
+          ...(resultBody === undefined ? {} : { resultBody }),
+        })
+      : context.input.commitRuntimeEvent
+        ? await context.input.commitRuntimeEvent(
+            {
+              type,
+              payload,
+              opId,
+              ...(resultBody === undefined ? {} : { resultBody }),
+            },
+            authorizedBinding,
+          )
+        : (() => {
+            throw context.runtimeSpawnError(
+              "runtime_preconditions_unavailable",
+              "Local runtime event commit is unavailable.",
+            );
+          })();
+  if (!published.event) {
+    const nextAction = typeof published.receipt.nextAction === "string" ? published.receipt.nextAction : null;
+    throw context.runtimeSpawnError(
+      typeof published.receipt.code === "string" ? published.receipt.code : "runtime_event_rejected",
+      nextAction ?? `RuntimeSession Action ${type} was ${String(published.receipt.outcome ?? "rejected")}.`,
+    );
   }
-  const appended = store.append({
-    event: value,
-    plan: canonicalEventWritePlan(value, "agent-runtime/v1", value.opId),
-    blobs,
-  });
-  projection.apply(value);
-  return { event: value, publication: appended };
+  if (!runtimeEventHasType(published.event, type))
+    throw context.runtimeSpawnError("invalid_runtime_event", "Runtime publication changed the event type.");
+  return { ...published, event: published.event };
 }
 
 export async function consumeProviderChunk(

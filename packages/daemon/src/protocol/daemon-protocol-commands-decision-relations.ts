@@ -79,7 +79,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
     phase: "DecisionFact-B",
     path: ["decision", "list"],
     summary: "List the canonical Decision projection without authored prose.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--search", "single", false, {
         code: "invalid_field",
@@ -129,7 +129,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
     phase: "DecisionFact-B",
     path: ["decision", "show", "<id>"],
     summary: "Show one canonical Decision by id or E-number.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--include-body", "boolean", false, {
         code: "invalid_field",

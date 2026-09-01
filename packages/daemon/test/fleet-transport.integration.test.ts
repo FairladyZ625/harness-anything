@@ -796,19 +796,15 @@ test(
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
           );
       assert.equal(events.length, 2);
-      for (const event of events)
-        await assert.rejects(
-          fixture.host.runtimeIngress(
-            fixture.assignment.repoId,
-            { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
-            { transportKind: "fleet-tls", assignmentBinding: foreignAssignment },
-          ),
-          (error: unknown) =>
-            typeof error === "object" &&
-            error !== null &&
-            "code" in error &&
-            error.code === "assignment_scope_mismatch",
+      for (const event of events) {
+        const rejected = await fixture.host.runtimeIngress(
+          fixture.assignment.repoId,
+          { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
+          { transportKind: "fleet-tls", assignmentBinding: foreignAssignment },
         );
+        assert.equal(rejected.outcome, "op_rejected");
+        assert.equal(rejected.code, "assignment_scope_mismatch");
+      }
     });
     await runFleetReplicaPullClient({
       port: center.port,

@@ -122,6 +122,8 @@ test("criterion-bearing failures resolve descriptors by action plus ref even whe
         cellCriterionError("invalid_transition", "Retry from the validator result.", "start", criterionRef, [
           "Retry from the validator result.",
         ]),
+        contract,
+        { kind: "task-start", taskId: "task_contract" },
       ),
     );
     assert.deepEqual(receipt.unmetCriteria, [descriptor]);

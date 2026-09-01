@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,14 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import type { RepoCellBinding } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+
+test("runtime spawn production helpers cannot append canonical events outside the catalog commit", () => {
+  const source = new URL("../src/", import.meta.url),
+    offenders = readdirSync(source)
+      .filter((name) => name.startsWith("runtime-spawn-") && name.endsWith(".ts"))
+      .filter((name) => /store\.append/u.test(readFileSync(new URL(name, source), "utf8")));
+  assert.deepEqual(offenders, []);
+});
 
 test("the center queue admits one RuntimeSession adoption generation and rejects its concurrent sibling", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-session-action-")),
@@ -95,15 +103,28 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
         start("runtime-start-edge-a", binding),
         start("runtime-start-edge-b", foreignBinding),
       ]);
-    assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 1);
-    const rejected = attempts.find(({ status }) => status === "rejected");
-    assert.equal(rejected?.status, "rejected");
-    if (rejected?.status === "rejected")
-      assert.equal((rejected.reason as { readonly code?: unknown }).code, "assignment_scope_mismatch");
-    await assert.rejects(
-      start("runtime-start-stale-generation", binding),
-      (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_session_adoption_stale",
-    );
+    assert.equal(attempts.filter(({ status }) => status === "fulfilled").length, 2);
+    const receipts = attempts.flatMap((attempt) => (attempt.status === "fulfilled" ? [attempt.value] : [])),
+      rejected = receipts.find(({ outcome }) => outcome === "op_rejected");
+    assert.equal(receipts.filter(({ outcome }) => outcome === "applied").length, 1);
+    assert.equal(rejected?.code, "assignment_scope_mismatch");
+    assert.deepEqual(rejected?.unmetCriteria, [
+      {
+        ref: "runtime-session/assignment-fence",
+        failureCode: "assignment_scope_mismatch",
+        explain: "The authenticated assignment owns the dispatch that created this RuntimeSession.",
+      },
+    ]);
+    const stale = await start("runtime-start-stale-generation", binding);
+    assert.equal(stale.outcome, "op_rejected");
+    assert.equal(stale.code, "runtime_session_adoption_stale");
+    assert.deepEqual(stale.unmetCriteria, [
+      {
+        ref: "runtime-session/adoption-fence",
+        failureCode: "runtime_session_adoption_stale",
+        explain: "A RuntimeSession start must advance its center-projected launchGeneration.",
+      },
+    ]);
     await cell.close();
     cell = undefined;
     const store = makeTaskEventStore({ repoId, rootDir });

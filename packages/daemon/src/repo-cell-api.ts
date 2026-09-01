@@ -61,6 +61,7 @@ import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { waitForOptionalTaskProjection } from "./projection-readiness-wait.ts";
 import { explainAuthenticationRequired, readTaskActionExplanation } from "./task-action-explanation-read.ts";
+import { commitRuntimeSessionAction } from "./runtime-session-action-runtime.ts";
 
 export interface RepoCellApiContext {
   readonly extracted: RepoCellOperationalContext;
@@ -199,11 +200,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     if (claimsRecovery) settlingRecovery = action.kind;
     const failAction = (error: unknown, authorizationDecision?: AuthorizationDecision): WriteReceipt => {
       if (context.fatalCellError(error)) context.latchWith(error);
-      const receipt = context.failed(
-        context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
-        error,
-      );
-      const contract = getExecutableEntityAction(action.kind);
+      const contract = getExecutableEntityAction(action.kind),
+        receipt = context.failed(
+          context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
+          error,
+          contract,
+          contract ? action : undefined,
+        );
       const result = contract ? deriveActionResult(contract, action, receipt) : receipt;
       return authorizationDecision
         ? withAuthorizationDecision(
@@ -814,18 +817,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     const policyAction = { ...action, kind: "runtime-run" };
     return enqueueRuntimePublication("runtime-run", policyAction, binding, async (authorizedBinding) => {
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
-        const catalogAction = {
-            kind: action.type,
-            ...action.payload,
-            ...(action.resultBody === undefined ? {} : { resultBody: action.resultBody }),
-            idempotencyKey: action.opId,
-          },
-          receipt = await context.extracted.entityActionExecutor.run(
-            catalogAction,
-            authorizedBinding,
-            action.opId,
-            context.extracted.entityActionRuntimes,
-          );
+        const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);
         return {
           schema: "command-receipt/v2",
           ok: receipt.outcome === "applied" || receipt.outcome === "no_changes",
