@@ -59,10 +59,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
   const rootDir = resolveHarnessLayout(input).rootDir;
   const ledger = resolveLedgerGitLayout(input);
+  // Git content through this revision was validated in this process. Materialization
+  // rechecks WAL object bytes before this watermark can advance across a flushed suffix.
+  let contentValidatedThrough = 0;
   const gitOptions = {
     ...options,
     beforeAppend: undefined,
     withAppendFence: undefined,
+    contentValidationFloor: () => contentValidatedThrough,
   };
   let git = makeGitEventStore(gitOptions);
   let gitHead = git.readHead();
@@ -100,7 +104,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
     latestPendingClaims = latestDocumentClaims(pendingWalRecords.map((record) => record.event));
   };
-  const readGitStream = (): CanonicalEventStreamV1 => (gitStream ??= git.read());
+  const readGitStream = (): CanonicalEventStreamV1 => {
+    gitStream ??= git.read();
+    contentValidatedThrough = Math.max(contentValidatedThrough, gitHead?.revision ?? 0);
+    return gitStream;
+  };
   const stream = (): CanonicalEventStreamV1 => (mergedStream ??= mergeStream(readGitStream(), wal.records()));
   const pendingCount = (): number => pendingWalRecords.length;
   const hasWalRecords = (): boolean => wal.records().length > 0;
@@ -184,11 +192,17 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     const first = records[0]!.revision;
     const last = records.at(-1)!.revision;
     const started = performance.now();
+    const gitRevisionBeforeFlush = gitHead?.revision ?? 0;
     try {
       const advancedBaseline =
         pendingRecords.length > 0 ? advanceGitBaseline(gitBaseline, ledger, wal, pendingRecords) : undefined;
       flushWalToGit(wal, git, { ...options, compactWorktree });
       reloadGit(advancedBaseline);
+      // Advance only when the old Git prefix was already checked in this process. The
+      // materializer rechecks every WAL content object before writing the new suffix.
+      const gitRevisionAfterFlush = gitHead?.revision ?? 0;
+      if (contentValidatedThrough >= gitRevisionBeforeFlush)
+        contentValidatedThrough = Math.max(contentValidatedThrough, gitRevisionAfterFlush);
       lastFlushDurationMs = performance.now() - started;
       // Authored settlement observes the durable cut. It is intentionally outside the
       // materialization transaction: an ineligible edit must remain visible for doc status,
@@ -341,6 +355,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before an atomic ledger rewrite");
       const receipt = git.append(bundle, additionalFiles);
       reloadGit();
+      // An atomic ledger rewrite rebuilds history through the validating Git publication
+      // path; drop the floor so subsequent reads reverify the rewritten ledger.
+      contentValidatedThrough = 0;
       notifyAfterFlush(
         new Set(additionalFiles.flatMap((file) => ("target" in file ? [file.target] : []))),
         bundle.event.actor,
@@ -416,6 +433,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   };
   const recover = (): EventRecoveryReceipt => {
     const started = performance.now();
+    // Recovery is the full audit entry point: forget any in-process validation floor so the
+    // next read revalidates every content claim in the ledger from scratch.
+    contentValidatedThrough = 0;
     if (!resumeAfterRepair())
       return {
         status: "indeterminate",
@@ -578,6 +598,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before a ledger layout migration");
       const receipt = git.migrateLayout(migration);
       reloadGit();
+      contentValidatedThrough = 0;
       return receipt;
     },
     recover,

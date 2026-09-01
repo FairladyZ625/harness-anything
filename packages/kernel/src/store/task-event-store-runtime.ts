@@ -18,6 +18,8 @@ export function createStoreRuntime(options: {
   readonly beforeAppend?: () => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly rejectPreparedRecovery?: boolean;
+  /** Reports the highest revision whose content this process already validated exactly. */
+  readonly contentValidationFloor?: () => number;
 }) {
   const input = options.rootInput ?? options.rootDir;
   if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");

@@ -70,12 +70,22 @@ export function receipt(
     },
   };
 }
-export function readStream(ledger: LedgerGitLayout, commit: string, head: EventHead | null): CanonicalEventStreamV1 {
+export interface ReadStreamOptions {
+  /** Events at or below this revision are content-validation exempt in this process. */
+  readonly validateContentFrom?: number;
+}
+export function readStream(
+  ledger: LedgerGitLayout,
+  commit: string,
+  head: EventHead | null,
+  options: ReadStreamOptions = {},
+): CanonicalEventStreamV1 {
   if (head === null) return { schema: "canonical-event-stream/v1", revision: 0, events: [] };
   const events = readEventsAt(ledger, commit, eventEntries(ledger, commit)).sort(
     (a, b) => a.workspaceRevision - b.workspaceRevision,
   );
-  validateStreamContent(ledger, commit, events);
+  const floor = options.validateContentFrom ?? 0;
+  validateStreamContent(ledger, commit, floor > 0 ? events.filter((event) => event.workspaceRevision > floor) : events);
   const opIds = new Set<string>();
   for (const [index, event] of events.entries()) {
     if (event.workspaceRevision !== index + 1)

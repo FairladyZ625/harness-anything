@@ -53,7 +53,13 @@ function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPu
       return canonicalRevisionAt(runtime.ledger, runtime.canonicalCommit, commit.sha);
     },
     read: () => {
-      const stream = readStream(runtime.ledger, runtime.canonicalCommit, runtime.readHead());
+      const floor = runtime.options.contentValidationFloor?.() ?? 0;
+      const stream = readStream(
+        runtime.ledger,
+        runtime.canonicalCommit,
+        runtime.readHead(),
+        floor > 0 ? { validateContentFrom: floor } : undefined,
+      );
       runtime.knownOpIds = new Set(stream.events.map((event) => event.opId));
       runtime.rememberEvents(stream.events);
       return stream;
