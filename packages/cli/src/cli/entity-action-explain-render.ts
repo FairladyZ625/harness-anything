@@ -30,7 +30,8 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
               .map((criterion) => `    invocation input: ${criterion.ref} — ${criterion.explain}`),
             ...(row.authorizationDecision?.outcome === "denied"
               ? [
-                  `    authorization: denied by ${row.authorizationDecision.policyRef} (${row.authorizationDecision.reasonCodes.join(", ")})`,
+                  `    authorization: denied by ${row.authorizationDecision.policyRef} ` +
+                    `(${row.authorizationDecision.reasonCodes.join(", ")})`,
                 ]
               : []),
             ...row.nextActions.map((next) => `    next: ${next}`),
