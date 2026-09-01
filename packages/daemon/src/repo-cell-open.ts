@@ -5,6 +5,7 @@ import {
   isSameExecution,
   isSamePerson,
   type CanonicalEventAppendReceipt,
+  type CanonicalEventStore,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
   type SettingsV1,
@@ -138,6 +139,8 @@ export async function openRepoCell(input: {
     >,
   ) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
+  /** Test seam for controlling WAL materialization without wall-clock scheduling. */
+  readonly onStoreOpened?: (store: CanonicalEventStore) => void;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;

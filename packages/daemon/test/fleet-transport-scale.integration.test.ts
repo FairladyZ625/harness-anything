@@ -7,12 +7,9 @@ import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { openRepoCell } from "../src/repo-cell.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-
-// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
-// wait for materialized commits, so pin the test-local idle timer to a fast interval.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
 
 const replicaQuota = 64 * 1024 * 1024;
 function reclaimer() {
@@ -34,76 +31,71 @@ function reclaimer() {
   };
 }
 
-test(
-  "production Fleet TLS entry sustains 3/10/32 Git-less edge processes across eight repos without duplicate writes",
-  { timeout: 240_000 },
-  async (t) => {
-    const fixture = await scaleFixture();
-    t.after(() => fixture.close());
-    const center = await fixture.center();
-    for (const count of [3, 10, 32]) {
-      const clients = fixture.clients.splice(0, count),
-        before = fixture.commitCounts(),
-        children = await startChildrenAtWriteBarrier(fixture, center.port, clients);
-      for (const child of children) child.release();
-      const results = await Promise.all(children.map((child) => child.result));
-      assert.equal(results.length, count);
-      assert.equal(
-        results.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"),
-        true,
-      );
-      await Promise.all(
-        results.map((result, index) =>
-          waitForReceiptCommit(fixture.host, result.repoId, result.center.opId, clients[index]!.assignment),
-        ),
-      );
-      const repoCuts = fixture
-          .commitCounts()
-          .map((row, index) => ({ repoId: row.repoId, commits: row.commits - before[index]!.commits })),
-        materializedCommits = repoCuts.reduce((sum, row) => sum + row.commits, 0),
-        touchedRepos = new Set(results.map((result) => result.repoId)).size,
-        childWindows = results.map((result, index) => ({
-          label: clients[index]!.label,
-          repoId: result.repoId,
-          startedAt: result.startedAt,
-          endedAt: result.endedAt,
-        })),
-        evidence = `Fleet coalescing evidence: ${JSON.stringify({ count, materializedCommits, touchedRepos, repoCuts, childWindows })}`;
-      t.diagnostic(evidence);
-      assert.equal(materializedCommits >= touchedRepos, true, evidence);
-      assert.equal(materializedCommits <= count, true, evidence);
-      if (count > touchedRepos)
-        assert.equal(
-          materializedCommits < count,
-          true,
-          `${count} writes must coalesce into fewer Git cuts; ${evidence}`,
-        );
-      const intervalsOverlap = results.some((left, index) =>
-        results
-          .slice(index + 1)
-          .some(
-            (right) =>
-              left.repoId !== right.repoId &&
-              Math.max(left.startedAt, right.startedAt) < Math.min(left.endedAt, right.endedAt),
-          ),
-      );
-      assert.equal(intervalsOverlap, true, "at least two repo transport/write windows must overlap");
-      const readMs: number[] = [];
-      for (const client of clients) {
-        const started = performance.now(),
-          shown = await fixture.host.run(
-            client.assignment.repoId,
-            { kind: "doc-show", path: client.path },
-            { transportKind: "fleet-tls", assignmentBinding: client.assignment },
-          );
-        readMs.push(performance.now() - started);
-        assert.equal(shown.evidence, client.body);
-      }
-      readMs.sort((a, b) => a - b);
-      assert.ok(readMs[Math.ceil(readMs.length * 0.95) - 1]! < 2_000);
+test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across eight repos without duplicate writes", async (t) => {
+  const fixture = await scaleFixture();
+  t.after(() => fixture.close());
+  const center = await fixture.center();
+  for (const count of [3, 10, 32]) {
+    const clients = fixture.clients.splice(0, count),
+      before = fixture.commitCounts(),
+      children = await startChildrenAtWriteBarrier(fixture, center.port, clients),
+      batch = fixture.beginBatch(clients.map((client) => client.assignment.repoId));
+    for (const child of children) child.release();
+    let results: ChildResult[];
+    try {
+      results = await Promise.all(children.map((child) => child.result));
+    } finally {
+      await batch.finish();
     }
-  },
-);
+    assert.equal(results.length, count);
+    assert.equal(
+      results.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"),
+      true,
+    );
+    await Promise.all(
+      results.map((result, index) =>
+        waitForReceiptCommit(fixture.host, result.repoId, result.center.opId, clients[index]!.assignment),
+      ),
+    );
+    const repoCuts = fixture
+        .commitCounts()
+        .map((row, index) => ({ repoId: row.repoId, commits: row.commits - before[index]!.commits })),
+      materializedCommits = repoCuts.reduce((sum, row) => sum + row.commits, 0),
+      touchedRepos = new Set(results.map((result) => result.repoId)).size,
+      childWindows = results.map((result, index) => ({
+        label: clients[index]!.label,
+        repoId: result.repoId,
+        startedAt: result.startedAt,
+        endedAt: result.endedAt,
+      })),
+      evidence = `Fleet coalescing evidence: ${JSON.stringify({ count, materializedCommits, touchedRepos, repoCuts, childWindows })}`;
+    t.diagnostic(evidence);
+    assert.equal(materializedCommits, touchedRepos, evidence);
+    const intervalsOverlap = results.some((left, index) =>
+      results
+        .slice(index + 1)
+        .some(
+          (right) =>
+            left.repoId !== right.repoId &&
+            Math.max(left.startedAt, right.startedAt) < Math.min(left.endedAt, right.endedAt),
+        ),
+    );
+    assert.equal(intervalsOverlap, true, "at least two repo transport/write windows must overlap");
+    const readMs: number[] = [];
+    for (const client of clients) {
+      const started = performance.now(),
+        shown = await fixture.host.run(
+          client.assignment.repoId,
+          { kind: "doc-show", path: client.path },
+          { transportKind: "fleet-tls", assignmentBinding: client.assignment },
+        );
+      readMs.push(performance.now() - started);
+      assert.equal(shown.evidence, client.body);
+    }
+    readMs.sort((a, b) => a - b);
+    assert.ok(readMs[Math.ceil(readMs.length * 0.95) - 1]! < 2_000);
+  }
+});
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");
@@ -206,12 +198,20 @@ async function scaleFixture() {
     ],
     { stdio: "ignore" },
   );
-  const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot }),
+  const stores = new Map<string, Parameters<NonNullable<Parameters<typeof openRepoCell>[0]["onStoreOpened"]>>[0]>(),
+    host = await openDaemonHost({
+      daemonId: "fleet-scale",
+      userRoot,
+      openCell: (input) =>
+        openRepoCell({
+          ...input,
+          onStoreOpened: (store) => stores.set(input.repoId, store),
+        }),
+    }),
     clients: ScaleClient[] = [],
     assignments = new Map<string, FleetAssignmentRecord>();
   await host.attachmentsSettled();
-  const prepared = await Promise.all(
-    Array.from({ length: 45 }, async (_, index) => {
+  const drafts = Array.from({ length: 45 }, (_, index) => {
       const repo = repos[index % repos.length]!,
         taskId = `task-f${index}`,
         assignment: FleetAssignmentRecord = {
@@ -224,34 +224,61 @@ async function scaleFixture() {
           viewId: `view-${index}`,
           expiresAt: "2099-01-01T00:00:00.000Z",
           actor: { principal: { personId: "fleet-owner" }, executor: { kind: "agent", id: `edge-${index}` } },
-        },
-        auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
-        created = await host.run(repo.repoId, { kind: "task-create", taskId, title: taskId }, auth);
-      assert.equal(created.outcome, "applied");
-      await realizeTaskPlanFixture(
-        repo.rootDir,
-        String((created as Record<string, unknown>).packagePath),
-        (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
-        taskId,
-      );
-      const started = await host.run(
-        repo.repoId,
-        { kind: "task-start", taskId, executionId: assignment.executionId },
-        auth,
-      );
-      assert.equal(started.outcome, "applied", JSON.stringify(started));
-      return {
-        assignment,
-        opId: started.opId,
-        client: {
-          assignment,
-          path: assignment.paths[0]!,
-          body: `# ${taskId}\n\nbody-${index}\n`,
-          label: `client-${index}`,
-        },
-      };
+        };
+      return { index, repo, taskId, assignment };
     }),
-  );
+    repoIds = repos.map((repo) => repo.repoId),
+    creationBatch = beginStoreBatch(stores, repoIds);
+  let created: Array<(typeof drafts)[number] & { packagePath: string }>;
+  try {
+    created = await Promise.all(
+      drafts.map(async (draft) => {
+        const auth = { transportKind: "fleet-tls" as const, assignmentBinding: draft.assignment },
+          receipt = await host.run(
+            draft.repo.repoId,
+            { kind: "task-create", taskId: draft.taskId, title: draft.taskId },
+            auth,
+          );
+        assert.equal(receipt.outcome, "applied");
+        return { ...draft, packagePath: String((receipt as Record<string, unknown>).packagePath) };
+      }),
+    );
+  } finally {
+    await creationBatch.finish();
+  }
+  const preparationBatch = beginStoreBatch(stores, repoIds);
+  let prepared: Array<{ assignment: FleetAssignmentRecord; opId: string; client: ScaleClient }>;
+  try {
+    prepared = await Promise.all(
+      created.map(async ({ assignment, index, packagePath, repo, taskId }) => {
+        await realizeTaskPlanFixture(
+          repo.rootDir,
+          packagePath,
+          (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+          taskId,
+        );
+        const auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
+          started = await host.run(
+            repo.repoId,
+            { kind: "task-start", taskId, executionId: assignment.executionId },
+            auth,
+          );
+        assert.equal(started.outcome, "applied", JSON.stringify(started));
+        return {
+          assignment,
+          opId: started.opId,
+          client: {
+            assignment,
+            path: assignment.paths[0]!,
+            body: `# ${taskId}\n\nbody-${index}\n`,
+            label: `client-${index}`,
+          },
+        };
+      }),
+    );
+  } finally {
+    await preparationBatch.finish();
+  }
   for (const value of prepared) {
     assignments.set(value.assignment.assignmentId, value.assignment);
     clients.push(value.client);
@@ -285,12 +312,28 @@ async function scaleFixture() {
         repoId: repo.repoId,
         commits: Number(git(repo.rootDir, "rev-list", "--count", "refs/ha/canonical")),
       })),
+    beginBatch: (repoIds: readonly string[]) => {
+      return beginStoreBatch(stores, repoIds);
+    },
     close: async () => {
       await owned.reclaim();
       await host.close();
       rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+function beginStoreBatch(
+  stores: ReadonlyMap<string, Parameters<NonNullable<Parameters<typeof openRepoCell>[0]["onStoreOpened"]>>[0]>,
+  repoIds: readonly string[],
+) {
+  const batches = [...new Set(repoIds)].map((repoId) => {
+    const store = stores.get(repoId),
+      batch = store?.beginBulkWrite?.();
+    assert.ok(batch, `repo ${repoId} must expose deterministic WAL batching`);
+    return batch;
+  });
+  return { finish: () => Promise.all(batches.map((batch) => batch.finish())) };
 }
 // Edge children report their result on stdout, so both runners settle on `close`, not `exit`:
 // `exit` fires when the process ends and can precede the last stdout chunk, which under a
