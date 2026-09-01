@@ -2,8 +2,8 @@ import { createContext, useContext } from "react";
 import type { TerminalTab } from "../../terminal-model.ts";
 import type { TerminalLinkMatch } from "./terminal-links.ts";
 
-/** 分割方向:right = 竖直分隔条(左右并排),below = 水平分隔条(上下叠放)。 */
-export type TerminalSplitDirection = "right" | "below";
+/** 分割/落位方向:新 pane(或被拖来的 pane)放到参照 pane 的哪一侧;与 dockview 的 Direction 同名。 */
+export type TerminalSplitDirection = "left" | "right" | "above" | "below";
 
 /**
  * pane 载荷与动作的注入面(PLT-TerminalWorkspace W1)。
@@ -22,6 +22,8 @@ export interface TerminalPaneActions {
   readonly onFocusPane: (panelId: string) => void;
   readonly onClosePane: (panelId: string, sessionId: string) => void;
   readonly onSplitPane: (panelId: string, direction: TerminalSplitDirection) => void;
+  /** 拖拽换位:把 panelId 挪到 targetPanelId 的 position 一侧(只在同一 tab 的 pane 树内)。 */
+  readonly onMovePane: (panelId: string, targetPanelId: string, position: TerminalSplitDirection) => void;
   readonly onTerminate: (sessionId: string) => void;
   /** W2 链接分发:match/text 来自 provider,cwd 是本 pane 会话的 daemon 侧工作目录。 */
   readonly openLink: (match: TerminalLinkMatch, text: string, cwd: string | null) => void;
