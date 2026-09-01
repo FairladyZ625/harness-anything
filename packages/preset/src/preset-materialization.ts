@@ -1,27 +1,15 @@
-import { planTemplateMaterialization } from "../../kernel/src/index.ts";
-import {
-  isWithinPresetAssetRoot,
-  presetFailure,
-} from "./preset-resolver-common.ts";
-import type {
-  CatalogSource,
-  ResolverScaffoldSelection,
-} from "./preset-resolver-types.ts";
+import { planTemplateMaterialization } from "./preset-extension-model.ts";
+import { isWithinPresetAssetRoot, presetFailure } from "./preset-resolver-common.ts";
+import type { CatalogSource, ResolverScaffoldSelection } from "./preset-resolver-types.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const reservedMaterializedPath =
   /^(?:(?:index|facts|progress)\.md|(?:task-contract|code-doc-anchors)\.json|(?:executions|reviews)(?:\/|$))$/iu;
 
-export function materializeSelections(
-  entries: readonly ResolverScaffoldSelection[],
-  locale: "zh-CN" | "en-US",
-) {
+export function materializeSelections(entries: readonly ResolverScaffoldSelection[], locale: "zh-CN" | "en-US") {
   const groups = new Map<CatalogSource, ResolverScaffoldSelection[]>(),
-    plannedBySlot = new Map<
-      string,
-      ReturnType<typeof planTemplateMaterialization>["documents"][number]
-    >();
+    plannedBySlot = new Map<string, ReturnType<typeof planTemplateMaterialization>["documents"][number]>();
   for (const item of entries)
     if (!item.project) {
       if (!item.source)
@@ -40,11 +28,7 @@ export function materializeSelections(
       locale,
       resolveBody: ({ locale: variant }) =>
         requiredRegularFile(
-          safeTemplatePath(
-            source.root,
-            variant.bodyPath,
-            source.catalog.package.id,
-          ),
+          safeTemplatePath(source.root, variant.bodyPath, source.catalog.package.id),
           "missing_template",
         ),
     });
@@ -55,8 +39,7 @@ export function materializeSelections(
           : "invalid_template_catalog",
         result.issues.map((item) => item.message).join("; "),
       );
-    for (const document of result.documents)
-      plannedBySlot.set(document.slot, document);
+    for (const document of result.documents) plannedBySlot.set(document.slot, document);
   }
   const usedPaths = new Set<string>();
   return entries.map((item) => {
@@ -79,42 +62,24 @@ export function materializeSelections(
     }
     const planned = plannedBySlot.get(item.selection.slot);
     if (!planned)
-      throw presetFailure(
-        "missing_template",
-        `Template ${item.selection.templateRef} was not materialized.`,
-      );
+      throw presetFailure("missing_template", `Template ${item.selection.templateRef} was not materialized.`);
     return {
       ...item,
       body: planned.body,
-      mediaType: catalogMediaType(
-        item.source!,
-        item.selection.templateRef,
-        planned.locale,
-      ),
+      mediaType: catalogMediaType(item.source!, item.selection.templateRef, planned.locale),
       locale: planned.locale,
       requiredAnchors: planned.requiredAnchors,
     };
   });
 }
 
-export function catalogMediaType(
-  source: CatalogSource,
-  ref: string,
-  locale: string,
-): "text/markdown" | "text/plain" {
-  const document = source.catalog.documents.find(
-      (item) => `template://${item.id}@${item.version}` === ref,
-    ),
+export function catalogMediaType(source: CatalogSource, ref: string, locale: string): "text/markdown" | "text/plain" {
+  const document = source.catalog.documents.find((item) => `template://${item.id}@${item.version}` === ref),
     variant = document?.locales.find((item) => item.locale === locale),
     bodyPath = variant?.bodyPath;
   if (!bodyPath || !/\.(?:md|txt)$/u.test(bodyPath))
-    throw presetFailure(
-      "missing_template",
-      `Template ${ref} is not task prose.`,
-    );
-  return document?.documentKind === "keep-file" || bodyPath.endsWith(".txt")
-    ? "text/plain"
-    : "text/markdown";
+    throw presetFailure("missing_template", `Template ${ref} is not task prose.`);
+  return document?.documentKind === "keep-file" || bodyPath.endsWith(".txt") ? "text/plain" : "text/markdown";
 }
 
 export function catalogAnchors(
@@ -125,8 +90,7 @@ export function catalogAnchors(
   const anchors = source?.catalog.documents.find(
     (item) => `template://${item.id}@${item.version}` === ref,
   )?.requiredAnchors;
-  if (!anchors)
-    throw presetFailure(code, `Base anchors for ${ref} are unavailable.`);
+  if (!anchors) throw presetFailure(code, `Base anchors for ${ref} are unavailable.`);
   return anchors;
 }
 
@@ -147,36 +111,19 @@ export function safeMaterializedPath(value: string, used: Set<string>): void {
     reservedMaterializedPath.test(value) ||
     used.has(folded)
   )
-    throw presetFailure(
-      "reserved_path",
-      `Template path ${value} is unsafe or duplicated.`,
-    );
+    throw presetFailure("reserved_path", `Template path ${value} is unsafe or duplicated.`);
   used.add(folded);
 }
 
-export function safeTemplatePath(
-  root: string,
-  value: string,
-  ref: string,
-): string {
+export function safeTemplatePath(root: string, value: string, ref: string): string {
   const target = path.resolve(root, value);
   if (!isWithinPresetAssetRoot(root, target))
-    throw presetFailure(
-      "missing_template",
-      `Template ${ref} escapes the asset root.`,
-    );
+    throw presetFailure("missing_template", `Template ${ref} escapes the asset root.`);
   return target;
 }
 
 export function requiredRegularFile(target: string, code: string): string {
-  if (
-    !existsSync(target) ||
-    !lstatSync(target).isFile() ||
-    lstatSync(target).isSymbolicLink()
-  )
-    throw presetFailure(
-      code,
-      `Required regular file ${target} is unavailable.`,
-    );
+  if (!existsSync(target) || !lstatSync(target).isFile() || lstatSync(target).isSymbolicLink())
+    throw presetFailure(code, `Required regular file ${target} is unavailable.`);
   return readFileSync(target, "utf8");
 }

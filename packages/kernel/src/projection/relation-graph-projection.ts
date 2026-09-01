@@ -1,6 +1,20 @@
-import type { DatabaseSync } from "node:sqlite";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
+import { consumeKnownError } from "../error-consumption.ts";
+import { createHarnessRuntimeContext, resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
+import {
+  decodeRebuildableRelationRecords,
+  rebuildableRelationRequiredColumns,
+  type CoverageRecord,
+  type EdgeRecord,
+  type FactAnchorRecord,
+  type FactRecord,
+  type RebuildableRelationRead,
+  type RebuildableRelationUnavailable,
+  type TaskRecord,
+} from "./rebuildable-relation-read.ts";
+import type { ProjectionReadResult, ProjectionWarning, TaskProjectionOptions } from "./types.ts";
 
 export interface RelationGraphEdgeRow {
   readonly relationId: string;
@@ -85,6 +99,94 @@ export function buildRelationGraphProjection(
     factAnchors: [...truth.factAnchors].sort((a, b) => a.factRef.localeCompare(b.factRef)),
   };
 }
+
+export function readRelationGraphProjection(options: TaskProjectionOptions): {
+  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly facts: ReadonlyArray<RelationFactRow>;
+  readonly taskRows: ProjectionReadResult["rows"];
+  readonly warnings: ProjectionReadResult["warnings"];
+} {
+  const rootDir = path.resolve(options.rootDir);
+  const runtimeContext = createHarnessRuntimeContext(rootDir, options.layoutOverrides);
+  const projectionPath = options.projectionPath
+    ? path.resolve(options.projectionPath)
+    : resolveHarnessLayout(runtimeContext).projectionPath;
+  const projection = readRebuildableRelationProjection(projectionPath);
+  if (!projection.ok)
+    return {
+      edges: [],
+      coverageRows: [],
+      factAnchors: [],
+      facts: [],
+      taskRows: [],
+      warnings: [relationTruthUnavailable(projection.reason)],
+    };
+  return {
+    edges: projection.edges,
+    coverageRows: projection.coverageRows,
+    factAnchors: projection.factAnchors,
+    facts: projection.facts,
+    taskRows: projection.taskRows,
+    warnings: [],
+  };
+}
+
+function relationTruthUnavailable(message: string): ProjectionWarning {
+  return {
+    code: "relation_truth_unavailable",
+    source: "generated-cache",
+    severity: "hard-fail",
+    message,
+    repairHint:
+      "Materialize the rebuild relation projection before serving graph reads; " +
+      "never rebuild the canonical cache from a read request.",
+  };
+}
+
+function readRebuildableRelationProjection(
+  projectionPath: string,
+): RebuildableRelationRead | RebuildableRelationUnavailable {
+  let database: DatabaseSync | undefined;
+  try {
+    database = new DatabaseSync(projectionPath, { readOnly: true });
+    const marker = database.prepare("SELECT value FROM projection_meta WHERE key = 'relationTruthSource'").get() as
+      | { readonly value?: string }
+      | undefined;
+    if (marker?.value !== "authored-l1/v1") {
+      throw new Error("Relation truth source is unavailable or incomplete");
+    }
+    for (const [table, columns] of Object.entries(rebuildableRelationRequiredColumns)) {
+      const actual = new Set(
+        (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ readonly name: string }>).map(
+          ({ name }) => name,
+        ),
+      );
+      const missing = columns.filter((column) => !actual.has(column));
+      if (missing.length) {
+        throw new Error(`Relation truth table ${table} is unavailable or missing columns: ${missing.join(", ")}`);
+      }
+    }
+    return decodeRebuildableRelationRecords({
+      edges: database.prepare("SELECT * FROM relation_edges ORDER BY relation_id").all() as unknown as EdgeRecord[],
+      coverageRows: database
+        .prepare("SELECT * FROM relation_coverage ORDER BY claim_ref")
+        .all() as unknown as CoverageRecord[],
+      factAnchors: database
+        .prepare("SELECT * FROM task_fact_anchors ORDER BY fact_ref")
+        .all() as unknown as FactAnchorRecord[],
+      facts: database.prepare("SELECT * FROM task_fact_projection ORDER BY fact_ref").all() as unknown as FactRecord[],
+      taskRows: database.prepare("SELECT * FROM task_projection ORDER BY task_id").all() as unknown as TaskRecord[],
+    });
+  } catch (error) {
+    consumeKnownError(error);
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  } finally {
+    database?.close();
+  }
+}
+
 export function detectRelationGraphCycles(edges: readonly RelationGraphEdgeRow[]): readonly (readonly string[])[] {
   const graph = new Map<string, string[]>();
   for (const edge of edges)

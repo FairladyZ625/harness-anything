@@ -12,7 +12,6 @@ import {
 } from "./ontology-gate-lib.mjs";
 
 const registryPath = "packages/kernel/src/domain/entity-kind-registry.ts";
-const legacyRegistryPath = "packages/kernel/src/entity/registry-contract.ts";
 const entityRefPath = "packages/kernel/src/domain/entity-ref.ts";
 
 export function auditKindAuthority(rootDir = process.cwd()) {
@@ -22,17 +21,6 @@ export function auditKindAuthority(rootDir = process.cwd()) {
   const canonicalRows = directObjectStringProperties(canonicalDeclaration.initializer, "kind");
   const canonicalKinds = [...new Set(canonicalRows.map(({ value }) => value))].sort();
   const tables = [];
-
-  const legacySource = parseTypeScript(rootDir, legacyRegistryPath);
-  const legacy = findTypeAlias(legacySource, "KernelEntityKind");
-  if (legacy) {
-    tables.push({
-      file: legacyRegistryPath,
-      line: lineNumber(legacySource, legacy.getStart(legacySource)),
-      name: "KernelEntityKind",
-      kinds: [...new Set(stringLiterals(legacy.type))].sort(),
-    });
-  }
 
   const refSource = parseTypeScript(rootDir, entityRefPath);
   const authorities = findVariable(refSource, "entityKindRefAuthorities");

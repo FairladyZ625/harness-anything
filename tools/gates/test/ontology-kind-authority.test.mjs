@@ -17,7 +17,6 @@ test("G0-1 reports the base advisory and names an injected registry-external kin
     "packages/kernel/src/domain/entity-kind-registry.ts",
     'export const entityKindContracts = Object.freeze([{ kind: "task" }]) as const;\n',
   );
-  writeRepoFile(rootDir, "packages/kernel/src/entity/registry-contract.ts", 'export type KernelEntityKind = "task";\n');
   writeRepoFile(
     rootDir,
     "packages/kernel/src/domain/entity-ref.ts",

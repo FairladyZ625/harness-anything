@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
-// The derived-contracts gate imports kernel modules; once packages/kernel/src/entity/session.ts
-// pulled `effect` onto that chain (#1957) the job failed with ERR_MODULE_NOT_FOUND on main
+// The derived-contracts gate imports kernel modules; after `effect` joined that chain (#1957),
+// the job failed with ERR_MODULE_NOT_FOUND on main
 // (run 33112386830) because it never installed dependencies. The install step must precede the gate.
 test("derived-contracts job installs dependencies before running the gate", () => {
   const workflow = readFileSync(path.join(rootDir, ".github/workflows/rebuild-gates.yml"), "utf8");

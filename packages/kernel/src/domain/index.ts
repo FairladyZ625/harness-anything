@@ -144,22 +144,13 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
-  createEntityKindRegistry,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type {
-  EntityActionContract,
-  EntityKindDeclaration,
-  EntityKindRegistration,
-  EntityKindRegistry,
-  EntityPackageScaffold,
-  EntityResidencyFacets,
-  EntityRepositoryRootScaffold,
-} from "./entity-kind-registry.ts";
+export type { EntityActionContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
@@ -278,20 +269,3 @@ export { compileEntityUpsert, entityUpsertWritePlan, isEntityEvent } from "./ent
 export type { EntityEventV1, EntityUpsertBundle } from "./entity-event.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
-
-export {
-  validateExtensionInputShape,
-  validateTemplateCatalog,
-  validateVerticalDefinition,
-  planTemplateMaterialization,
-  formatTemplateRef,
-} from "./extension-model.ts";
-export type {
-  ExtensionValidationIssue,
-  ExtensionValidationResult,
-  MaterializationRequest,
-  MaterializedTemplatePlan,
-  MaterializationResult,
-  ExtensionInputKind,
-  TemplateBodyResolver,
-} from "./extension-model.ts";

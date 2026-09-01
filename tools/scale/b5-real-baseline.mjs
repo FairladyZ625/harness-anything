@@ -6,9 +6,9 @@ import { createHash } from "node:crypto";
  * the same reducer/projection operations with the exact pre-change materializer
  * body. The post-change path imports daemon/task-query-read.ts directly above.
  */
-export function makeBaselineReadModel({ rootDir, projection, kernel, sqliteTaskProjection }) {
+export function makeBaselineReadModel({ rootDir, projection, kernel, relationGraphProjection }) {
   function relationGraph() {
-    const { taskRows: _taskRows, ...materialized } = sqliteTaskProjection.readRelationGraphProjection({ rootDir });
+    const { taskRows: _taskRows, ...materialized } = relationGraphProjection.readRelationGraphProjection({ rootDir });
     const decisions = projection.readDecisionGraph(),
       facts = projection.readFactGraph(),
       tasks = projection.list();
@@ -76,7 +76,7 @@ export function makeBaselineReadModel({ rootDir, projection, kernel, sqliteTaskP
   }
   function guiTasks() {
     const lifecycle = projection.list(),
-      { taskRows } = sqliteTaskProjection.readRelationGraphProjection({ rootDir }),
+      { taskRows } = relationGraphProjection.readRelationGraphProjection({ rootDir }),
       l2 = new Map(taskRows.map((row) => [row.taskId, row])),
       decisions = new Map(projection.listDecisions({}).decisions.map((row) => [row.decisionId, row])),
       edges = projection.readDecisionGraph().edges,

@@ -123,7 +123,7 @@ Local-consistency gate sample:
   "category": "local-consistency",
   "tier": "pr-required",
   "authoritySource": [
-    "packages/kernel/src/entity/field-contracts.ts",
+    "packages/kernel/src/domain/entity-field-contracts.ts",
     "tools/check-schema-field-coverage.mjs"
   ],
   "consumerScope": ["entity schema field contract coverage"],

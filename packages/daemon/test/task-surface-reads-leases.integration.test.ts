@@ -4,24 +4,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  readTaskProjection,
-  rebuildTaskProjection,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 test("task read surfaces, dry-runs, idempotency, structured input, and supersede facade stay closed", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-read-surface-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-read-surface-")),
+    repoId = workspaceId("task-read-surface");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
     cell = await openRepoCell({
-      repoId: workspaceId("task-read-surface"),
+      repoId,
       rootDir: canonicalRoot(rootDir),
       ownerId: "task-read-surface",
       now: () => "2026-08-15T03:00:00.000Z",
@@ -280,11 +276,9 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     )) as Record<string, unknown>;
     assert.equal(superseded.outcome, "applied", JSON.stringify(superseded));
     assert.equal(typeof superseded.replacementTaskId, "string");
-    rebuildTaskProjection({ rootDir });
-    assert.equal(
-      readTaskProjection({ rootDir }).rows.find((row) => row.taskId === "task_source")?.packageDisposition,
-      "archived",
-    );
+    const replay = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
+    assert.equal(replay.read("task_source").snapshot.task?.packageDisposition, "archived");
+    replay.close();
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

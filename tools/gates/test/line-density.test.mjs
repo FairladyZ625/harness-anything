@@ -110,8 +110,8 @@ test("a many-to-one compression is rejected when the longest line grows even as 
   });
 });
 
-// Measured on the real restoration of packages/kernel/src/entity/disposition.ts:
-// overlong total 1405 -> 280 (a large reduction, exactly what restoration should
+// Measured on the real cleanup that established this behavior: overlong total
+// 1405 -> 280 (a large reduction, exactly what restoration should
 // do) while the longest line went 279 -> 280. The whole one-character delta was a
 // trailing comma prettier.config.mjs's `trailingComma: "all"` appends to a string
 // literal whose contents are byte-identical. Nothing was compressed, and there is

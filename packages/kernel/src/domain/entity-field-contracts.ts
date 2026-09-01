@@ -1,7 +1,7 @@
 import type { TaskFrontmatter } from "../schemas/registry.ts";
-import type { EntityRelationRecord } from "../domain/entity-relation.ts";
-import type { DecisionProposalPayload } from "../domain/decision-event.ts";
-import type { FactEventPayload } from "../domain/fact-event.ts";
+import type { EntityRelationRecord } from "./entity-relation.ts";
+import type { DecisionProposalPayload } from "./decision-event.ts";
+import type { FactEventPayload } from "./fact-event.ts";
 
 export type EntityKindWithFieldCoverage = "decision" | "task" | "fact" | "relation";
 export type EntityFieldMutability = "immutable" | "lifecycle" | "amendable" | "derived";
