@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan, type DocEventV1 } from "../../src/domain/doc-sync.contract.ts";

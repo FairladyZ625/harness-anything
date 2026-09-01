@@ -11,7 +11,7 @@ import {
   writeRepositorySettingsFacet,
   type SettingsV1,
 } from "../../src/domain/settings.ts";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 

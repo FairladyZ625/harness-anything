@@ -9,7 +9,7 @@ import { DOC_CODEC_ID, DOC_POLICY_ID, docSyncWritePlan } from "../../../packages
 import { freezeDeclaredWritePlan } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
 import { contentObjectRelativePath, eventObjectTarget } from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
-import { makeTaskProjection } from "../../../packages/kernel/src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
 import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
 import { addWriteTarget } from "../../../packages/kernel/src/domain/task-write-decision.ts";

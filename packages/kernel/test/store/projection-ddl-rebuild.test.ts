@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { compileFactWrite, type FactEventDraftV1 } from "../../src/domain/fact-event.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 

@@ -317,17 +317,6 @@ export function resolveSquadDispatch(input: {
     );
   return matches[0]!;
 }
-export function validateEntityPackage(input: {
-  readonly source: string;
-  readonly kind: AgentEntityKind;
-}): EntityValidationReport {
-  const source = path.resolve(input.source),
-    decoded = decodeSourcePackage(source, input.kind);
-  return validateEntityDeclarationSource({
-    source: "issues" in decoded ? { ...decoded, source } : { ...decoded, source },
-    kind: input.kind,
-  });
-}
 function validateEntityDeclarationSource(input: {
   readonly source:
     | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 }

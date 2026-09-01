@@ -8,7 +8,7 @@ import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agen
 import { reduceRuntimeSession, runtimeEventContentClaims, runtimeSessionSemanticState, runtimeTaskExecutionRelation, validateCurrentAgentRuntimeEvent, type AgentRuntimeEventType, type AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { eventObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { CANONICAL_EVENT_REF, canonicalEventWritePlan, makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 

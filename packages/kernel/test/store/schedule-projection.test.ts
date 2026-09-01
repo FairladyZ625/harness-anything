@@ -9,7 +9,7 @@ import {
 } from "../../src/domain/schedule-event.ts";
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
