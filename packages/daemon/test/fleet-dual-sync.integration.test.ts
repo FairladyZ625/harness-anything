@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha256Bytes } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
@@ -26,6 +26,13 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
 // wait for materialized commits, so pin the test-local idle timer to a fast interval.
 process.env.HARNESS_WAL_FLUSH_MS = "250";
+
+// "The ledger must not move" is a statement about the merged WAL+Git event stream, not about
+// Git commit counts: a background idle flush may materialize earlier events between two
+// measurements without any new append. Read the flush-timing-invariant revision instead.
+function ledgerRevision(fixture: Fixture): number {
+  return makeTaskEventStore({ repoId: "dual-repo", rootDir: path.join(fixture.root, "repo") }).read().revision;
+}
 
 const replicaQuota = 64 * 1024 * 1024,
   nodes = ["node-one", "node-two"] as const;
@@ -511,7 +518,7 @@ test(
     assert.equal(started.ok, true);
     const planPath = `${created.packagePath}/task_plan.md`,
       original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
-    const before = Number(fixture.git("rev-list", "--count", "refs/ha/canonical"));
+    const before = ledgerRevision(fixture);
     // node-two names the holder's execution but is a different principal: the
     // domain lease rejects the push, bypassing the automatic entry changes
     // nothing.
@@ -528,11 +535,7 @@ test(
     );
     assert.equal(attempt.center.outcome, "op_rejected");
     assert.equal(attempt.center.code, "lease_conflict");
-    assert.equal(
-      Number(fixture.git("rev-list", "--count", "refs/ha/canonical")),
-      before,
-      "the ledger must not move for a non-holder push",
-    );
+    assert.equal(ledgerRevision(fixture), before, "the ledger must not move for a non-holder push");
   },
 );
 
@@ -748,7 +751,7 @@ test("F4: an unresolved conflict gates this task's later commands at the edge", 
   assert.equal((diverged as { readonly syncState?: string }).syncState, "CONFLICT_STAGED");
   // The unresolved record gates this task's commands BEFORE any upload: no
   // center round-trip, no ledger movement.
-  const beforeGate = Number(fixture.git("rev-list", "--count", "refs/ha/canonical"));
+  const beforeGate = ledgerRevision(fixture);
   const gated = await fixture.edgeTask("node-one", {
     kind: "task-start",
     taskId: created.taskId,
@@ -756,11 +759,7 @@ test("F4: an unresolved conflict gates this task's later commands at the edge", 
   });
   assert.equal(gated.ok, false);
   assert.equal((gated as { readonly code?: string }).code, "conflict_open");
-  assert.equal(
-    Number(fixture.git("rev-list", "--count", "refs/ha/canonical")),
-    beforeGate,
-    "the gate must refuse without touching the center",
-  );
+  assert.equal(ledgerRevision(fixture), beforeGate, "the gate must refuse without touching the center");
   // Another task is unaffected: its commands stay canonically admissible even
   // while this task's conflict is open (the mirror may still report the other
   // task's divergence on the dual axis — that is the honest outcome).
@@ -874,7 +873,7 @@ test(
       { path: shared, body: stagedLocal, baseBlobSha256: sha256Bytes(Buffer.from(`${baseline}\nCenter moved.\n`)) },
     ]);
     assert.equal(manual.center.outcome, "applied", JSON.stringify(manual.center));
-    const commitsAfterAppend = Number(fixture.git("rev-list", "--count", "refs/ha/canonical"));
+    const revisionAfterAppend = ledgerRevision(fixture);
     const idempotent = await fixture.conflictExit("node-one", "overwrite-center", settledRecord.conflictId);
     assert.equal(idempotent.ok, true, JSON.stringify(idempotent).slice(0, 400));
     assert.equal((idempotent as { readonly idempotent?: boolean }).idempotent, true);
@@ -893,8 +892,8 @@ test(
     ) as { readonly state: string };
     assert.equal(after.state, "resolved");
     assert.equal(
-      Number(fixture.git("rev-list", "--count", "refs/ha/canonical")),
-      commitsAfterAppend,
+      ledgerRevision(fixture),
+      revisionAfterAppend,
       "the idempotent retry must not append a second doc event",
     );
   },
