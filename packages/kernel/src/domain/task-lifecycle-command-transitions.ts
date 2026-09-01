@@ -86,23 +86,25 @@ export const create: Transition = {
   },
 };
 /**
- * The state-side admissibility of StartExecution: a new execution, or the
- * unleased active execution of the current round.
+ * The state-side admissibility of StartExecution: a new execution, the
+ * unleased active execution of the current round, or a review node stranded
+ * without the submitted execution needed to proceed.
  * Exported so the daemon preview and this transition answer with one rule instead of two. */
 export function canStartExecution(snapshot: TaskLifecycleSnapshot, executionId: string): boolean {
   const task = snapshot.task,
     rejoin = snapshot.executions.find((value) => value.executionId === executionId),
     round = snapshot.executions.find(
       (value) => isNativeExecution(value) && value.iteration === task?.iteration && value.state === "active",
-    );
-  return (
-    Boolean(task) &&
-    ["planned", "active"].includes(task!.status) &&
-    task!.currentNode === "implementation" &&
-    !snapshot.lease &&
-    isNonEmptyString(executionId) &&
-    rejoin === round
-  );
+    ),
+    recoverableReview =
+      task?.currentNode === "review" &&
+      !snapshot.executions.some(
+        (value) => isNativeExecution(value) && value.iteration === task.iteration && value.state === "submitted",
+      ),
+    startablePhase =
+      (["planned", "active"].includes(task?.status ?? "") && task?.currentNode === "implementation") ||
+      (["planned", "active", "in_review"].includes(task?.status ?? "") && recoverableReview);
+  return Boolean(task) && startablePhase && !snapshot.lease && isNonEmptyString(executionId) && rejoin === round;
 }
 /** The state-side admissibility shared by the block/unblock/cancel catalog entries. */
 export function allowsTaskStatusMove(
@@ -117,7 +119,7 @@ export function allowsTaskStatusMove(
 export const start: Transition = {
   id: "start_execution",
   commandType: "StartExecution",
-  from: "planned|active/implementation",
+  from: "planned|active/implementation|planned|active|in_review/recoverable-review",
   proof: ["actorBinding", "reservation"],
   eventType: "execution_started",
   matches: (command) => command.type === "StartExecution",
@@ -131,7 +133,7 @@ export const start: Transition = {
         lifecycleContractIssue(
           "invalid_transition",
           "StartExecution requires a new execution, or the unleased active execution of the current round, " +
-            "in planned or returned implementation",
+            "in planned or returned implementation, or a review node with no current submitted execution",
         ),
       );
     if (
@@ -152,7 +154,7 @@ export const start: Transition = {
   reduce: (snapshot, raw, rawProof) => {
     const command = raw as StartExecutionCommand,
       reservation = (rawProof as StartExecutionProof).reservation,
-      task = { ...(snapshot.task as TaskV2), status: "active" as const },
+      task = { ...(snapshot.task as TaskV2), status: "active" as const, currentNode: "implementation" as const },
       rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as
         | ExecutionV1
         | undefined,
