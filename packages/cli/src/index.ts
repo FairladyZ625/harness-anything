@@ -65,7 +65,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     );
     return 2;
   }
-  if (argv.length === 0 || (argv.includes("--help") && explainHelpOverlay === undefined)) {
+  if (explainHelpOverlay === undefined && (argv.length === 0 || argv.includes("--help"))) {
     const domain = helpDomain(argv);
     if (domain !== undefined && !cliCommandDomains().includes(domain)) {
       emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json"));
