@@ -877,8 +877,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`);
     assert.equal(readOnly.receipt.outcome, "succeeded");
     const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]);
-    assert.equal(noAction.status, 1, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
-    assert.equal(noAction.receipt.outcome, "unknown");
+    assert.equal(noAction.status, 0, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
+    assert.equal(noAction.receipt.outcome, "succeeded");
     writeFileSync(
       path.join(root, "batch-unknown-declaration.json"),
       JSON.stringify({

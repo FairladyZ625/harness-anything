@@ -10,6 +10,7 @@ import {
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.ts";
 import { timestamp } from "./timestamp.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 export class RuntimeSessionAdoptionStaleError extends Error {}
 
@@ -90,6 +91,11 @@ export interface RuntimeResultClaim {
   readonly sha256: string;
   readonly size: number;
   readonly mediaType: "text/plain; charset=utf-8";
+}
+interface RuntimeDefinitionSnapshotClaim {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: "application/vnd.harness.agent-definition-snapshot+json";
 }
 export interface RuntimeInstallation {
   readonly installationId: string;
@@ -191,13 +197,36 @@ export const runtimeSessionEntityV1Schema = Object.freeze({
     },
   },
 }) as EntityDocumentJsonSchema;
-/** A domain judgment over independent liveness and outcome facts. */
-export function runtimeSessionSemanticState(
-  session: Pick<RuntimeSession, "liveness" | "outcome">,
-): RuntimeSessionSemanticState {
+/** The terminal verdict evidenced by the canonical outcome declaration, or by
+ * the exit/result pair written by settlement when an older declaration said
+ * only `unknown`. An absent exit or result remains genuinely indeterminate. */
+export function runtimeSessionOutcomeFromEvidence(
+  session: Pick<RuntimeSession, "outcome"> & Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
+): RuntimeSession["outcome"] {
   if (session.outcome === "succeeded" || session.outcome === "failed" || session.outcome === "cancelled")
     return session.outcome;
-  if (session.outcome === "unknown") return "ended-indeterminate";
+  if (session.reasonCode) return "failed";
+  if (session.exitCode === undefined || session.exitCode === null || !session.resultRef) return session.outcome;
+  return session.exitCode === 0 ? "succeeded" : "failed";
+}
+
+export function runtimeSessionMissingOutcomeEvidence(
+  session: Pick<RuntimeSession, "outcome"> & Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
+): "exit-code-and-result" | "exit-code" | "result" | null {
+  if (runtimeSessionOutcomeFromEvidence(session) !== "unknown") return null;
+  if (session.exitCode === undefined || session.exitCode === null)
+    return session.resultRef ? "exit-code" : "exit-code-and-result";
+  return "result";
+}
+
+/** A domain judgment over independent liveness and outcome evidence. */
+export function runtimeSessionSemanticState(
+  session: Pick<RuntimeSession, "liveness" | "outcome"> &
+    Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
+): RuntimeSessionSemanticState {
+  const outcome = runtimeSessionOutcomeFromEvidence(session);
+  if (outcome === "succeeded" || outcome === "failed" || outcome === "cancelled") return outcome;
+  if (outcome === "unknown") return "ended-indeterminate";
   return session.liveness === "live" ? "running" : "unavailable";
 }
 
@@ -214,7 +243,10 @@ export function runtimeSessionEntityV1(session: RuntimeSession): Readonly<Record
   });
 }
 
-export function runtimeSessionIsRunning(session: Pick<RuntimeSession, "liveness" | "outcome">): boolean {
+export function runtimeSessionIsRunning(
+  session: Pick<RuntimeSession, "liveness" | "outcome"> &
+    Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
+): boolean {
   return runtimeSessionSemanticState(session) === "running";
 }
 
@@ -371,7 +403,9 @@ function validateAgentRuntimePayloadFields(
       !validDefinitionSnapshot(value.definitionSnapshot, allowUnknownFields) ||
       value.instanceId !== value.definitionSnapshot.instanceId ||
       value.installationId !== value.definitionSnapshot.installationId ||
-      value.kindId !== value.definitionSnapshot.kindId)
+      value.kindId !== value.definitionSnapshot.kindId ||
+      (/^artifact:runtime-definition\/sha256\/[0-9a-f]{64}$/u.test(String(value.definitionSnapshotRef)) &&
+        value.definitionSnapshotRef !== runtimeDefinitionSnapshotArtifact(value.definitionSnapshot).ref))
   )
     return ["runtime definition snapshot is invalid"];
   if (
@@ -426,8 +460,31 @@ function validateAgentRuntimeEventFields(value: unknown, allowUnknownFields: boo
 export function isAgentRuntimeEvent(event: { readonly schema: string }): event is AgentRuntimeEventV1 {
   return event.schema === "agent-runtime-event/v1";
 }
-export function runtimeEventContentClaims(event: AgentRuntimeEventV1): readonly RuntimeResultClaim[] {
-  return event.type === "runtime_session_outcome_observed" ? [event.payload.result] : [];
+export function runtimeEventContentClaims(
+  event: AgentRuntimeEventV1,
+): readonly (RuntimeResultClaim | RuntimeDefinitionSnapshotClaim)[] {
+  if (event.type === "runtime_session_outcome_observed") return [event.payload.result];
+  if (
+    event.type === "runtime_dispatch_requested" &&
+    /^artifact:runtime-definition\/sha256\/[0-9a-f]{64}$/u.test(event.payload.definitionSnapshotRef)
+  )
+    return [runtimeDefinitionSnapshotArtifact(event.payload.definitionSnapshot).claim];
+  return [];
+}
+
+export function runtimeDefinitionSnapshotArtifact(definition: AgentDefinitionSnapshot): {
+  readonly ref: string;
+  readonly body: string;
+  readonly claim: RuntimeDefinitionSnapshotClaim;
+} {
+  const body = stableStringify(definition),
+    sha256 = sha256Text(body),
+    claim = {
+      sha256,
+      size: Buffer.byteLength(body),
+      mediaType: "application/vnd.harness.agent-definition-snapshot+json" as const,
+    };
+  return { ref: `artifact:runtime-definition/sha256/${sha256}`, body, claim };
 }
 export function runtimeSessionId(event: AgentRuntimeEventV1): string | null {
   return "runtimeSessionId" in event.payload ? event.payload.runtimeSessionId : null;

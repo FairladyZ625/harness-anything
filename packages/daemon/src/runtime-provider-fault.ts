@@ -1,7 +1,6 @@
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { ActiveRuntime, ProviderFrame } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
-import { isSquadDecisionResult } from "./squad-leader-decision.ts";
 
 const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
@@ -96,29 +95,14 @@ export type RuntimeExitOutcome = "succeeded" | "failed" | "unknown" | "cancelled
 
 function runtimeExitOutcome(active: ActiveRuntime, exitCode: number | null): RuntimeExitOutcome {
   if (active.cancelRequested) return "cancelled";
-  if (exitCode === null || active.protocolError) return "unknown";
+  if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
-  const writeEvidenceRequired = active.kindId !== "agy" && active.permissionMode !== "read-only",
-    squadControlEvidence =
-      active.squadId !== null &&
-      active.delegatedBy === null &&
-      active.finalText !== null &&
-      isSquadDecisionResult(active.finalText);
-  if (
-    active.providerOutcome === "succeeded" &&
-    (active.planIncomplete ||
-      (writeEvidenceRequired && !active.writeItemObserved && !active.planObserved && !squadControlEvidence))
-  )
-    return "unknown";
-  return active.providerOutcome ?? "unknown";
+  return active.providerOutcome === "failed" ? "failed" : "succeeded";
 }
 
 function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): string {
   if (outcome === "succeeded") return "Worker completed the attempt successfully.";
   if (active.protocolError) return "Worker exited with incomplete provider protocol evidence; outcome is unknown.";
-  if (active.planIncomplete) return "Worker exited before completing its declared plan; outcome is unknown.";
-  if (active.providerOutcome === "succeeded" && !active.writeItemObserved && !active.planObserved)
-    return "Worker exited without required write or plan evidence; outcome is unknown.";
   return "Worker exited without a structured provider outcome; outcome is unknown.";
 }
 

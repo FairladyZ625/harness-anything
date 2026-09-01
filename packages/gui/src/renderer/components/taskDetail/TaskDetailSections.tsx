@@ -21,6 +21,7 @@ import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, triadicQueryKeys } from "../../triadic-data.ts";
 import { formatTime } from "../../model/time.ts";
 import type { RelationEdge, TaskRow } from "../../model/types.ts";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * 关系页签实际读取的决策字段:身份 + 标题 + 状态。刻意窄于 `DecisionRow`,
@@ -600,7 +601,12 @@ export function TaskRelationsTab({
                 <span className="font-mono text-[11px] text-text-muted group-hover:text-accent">
                   {session.runtimeSessionId}
                 </span>
-                <span className="min-w-0 truncate text-[12px] text-text-faint">{session.definitionSnapshot.model}</span>
+                <span className="min-w-0 truncate text-[12px] text-text-faint">
+                  {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
+                  {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
+                    ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
+                    : ""}
+                </span>
                 <span className="ml-auto font-mono text-[10px] text-text-faint">{session.liveness}</span>
                 <ArrowSquareOut weight="bold" className="text-[12px] text-text-faint group-hover:text-accent" />
               </button>

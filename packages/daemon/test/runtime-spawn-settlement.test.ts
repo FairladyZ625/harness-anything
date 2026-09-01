@@ -4,22 +4,21 @@ import test from "node:test";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
-test("an exit-zero protocol error settles as unknown", () => {
+test("exit zero is success evidence even when provider protocol evidence is incomplete", () => {
   const result = classifyRuntimeExit(active({ protocolError: true }), 0);
-  assert.equal(result.outcome, "unknown");
-  assert.match(result.reason, /protocol evidence/u);
+  assert.equal(result.outcome, "succeeded");
+  assert.match(result.reason, /successfully/u);
 });
 
-test("an exit-zero write-capable attempt without write or plan evidence settles as unknown", () => {
+test("exit zero does not require a separate write or plan declaration", () => {
   const result = classifyRuntimeExit(active({ writeItemObserved: false, planObserved: false }), 0);
-  assert.equal(result.outcome, "unknown");
-  assert.match(result.reason, /write or plan evidence/u);
+  assert.equal(result.outcome, "succeeded");
 });
 
-test("an exit-zero attempt with an incomplete plan settles as unknown", () => {
+test("exit zero does not turn an internal plan heuristic into an unknown outcome", () => {
   assert.equal(
     classifyRuntimeExit(active({ writeItemObserved: true, planObserved: true, planIncomplete: true }), 0).outcome,
-    "unknown",
+    "succeeded",
   );
 });
 

@@ -12,7 +12,11 @@ const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
   taskId = "task-1";
 
-function session(liveness: RuntimeSession["liveness"], outcome: RuntimeSession["outcome"]): RuntimeSession {
+function session(
+  liveness: RuntimeSession["liveness"],
+  outcome: RuntimeSession["outcome"],
+  evidence: Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">> = {},
+): RuntimeSession {
   return {
     runtimeSessionId,
     instanceId: "instance-1",
@@ -26,8 +30,9 @@ function session(liveness: RuntimeSession["liveness"], outcome: RuntimeSession["
     attachable: false,
     taskBindings: [],
     outcome,
-    exitCode: null,
-    resultRef: null,
+    exitCode: evidence.exitCode ?? null,
+    resultRef: evidence.resultRef ?? null,
+    ...(evidence.reasonCode ? { reasonCode: evidence.reasonCode } : {}),
     lastObservedAt: "2026-08-23T00:00:00.000Z",
   };
 }
@@ -104,6 +109,20 @@ test("a dispatch whose session is live still reports running", () => {
 test("an observed outcome outranks liveness", () => {
   assert.equal(statusFor(session("exited", "succeeded")), "succeeded");
   assert.equal(statusFor(session("live", "cancelled")), "cancelled");
+});
+
+test("an old unknown outcome is restated from its exit and result evidence", () => {
+  const resultRef = "artifact:runtime-result/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  assert.equal(statusFor(session("exited", "unknown", { exitCode: 0, resultRef })), "succeeded");
+  assert.equal(statusFor(session("exited", "unknown", { exitCode: 1, resultRef })), "failed");
+  assert.equal(
+    statusFor(session("exited", "unknown", { exitCode: 0, resultRef, reasonCode: "lease_conflict" })),
+    "failed",
+  );
+});
+
+test("an exited session without an exit/result pair remains unknown", () => {
+  assert.equal(statusFor(session("exited", "unknown", { resultRef: null, exitCode: null })), "unknown");
 });
 
 test("an unbound detached dispatch is read from the live index", () => {

@@ -172,7 +172,7 @@ export async function publishExit(
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
         reasonCode = settlementCode;
-        outcome = "unknown";
+        outcome = "failed";
         body = `Runtime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };

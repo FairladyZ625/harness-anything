@@ -102,11 +102,18 @@ const sessionBase = {
   kindId: "codex",
   definitionSnapshotRef: "artifact:runtime-definition/test",
   definitionSnapshot: definition,
+  definitionSnapshotPersisted: true,
   liveness: "exited",
   attachCapability: "supported",
   streamCursor: "stream:4",
   associations: [],
-  activity: { lastObservedAt: "2026-08-20T00:00:00.000Z", outcome: null, exitCode: 0, resultRef: null },
+  activity: {
+    lastObservedAt: "2026-08-20T00:00:00.000Z",
+    outcome: null,
+    exitCode: 0,
+    resultRef: null,
+    missingEvidence: null,
+  },
 } as const;
 
 describe("agent dispatch flow", () => {

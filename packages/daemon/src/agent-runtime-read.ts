@@ -1,5 +1,8 @@
 import {
+  runtimeDefinitionSnapshotArtifact,
   runtimeSessionInActivityWindow,
+  runtimeSessionMissingOutcomeEvidence,
+  runtimeSessionOutcomeFromEvidence,
   runtimeSessionSemanticState,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
@@ -17,6 +20,7 @@ import {
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupsResult,
   type AgentRuntimeSessionResult,
+  isAgentDefinitionSnapshot,
 } from "./agent-runtime-contract.ts";
 import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
@@ -49,7 +53,7 @@ export function makeAgentRuntimeReadModel(input: {
   const sessionDto = (
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
-    definitionSnapshot: AgentDefinitionSnapshot,
+    definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
     if (!installation) {
@@ -63,7 +67,8 @@ export function makeAgentRuntimeReadModel(input: {
       installationId: session.installationId,
       kindId: runtimeKindForInstallation(installation).kindId,
       definitionSnapshotRef: session.definitionSnapshotRef,
-      definitionSnapshot,
+      definitionSnapshot: definition.snapshot,
+      definitionSnapshotPersisted: definition.persisted,
       liveness: session.liveness,
       semanticState: runtimeSessionSemanticState(session),
       attachCapability:
@@ -82,22 +87,53 @@ export function makeAgentRuntimeReadModel(input: {
       ...(attemptChain ? { attemptChain } : {}),
       activity: {
         lastObservedAt: session.lastObservedAt,
-        outcome: session.outcome,
+        outcome: runtimeSessionOutcomeFromEvidence(session),
         exitCode: session.exitCode,
         resultRef: session.resultRef,
+        missingEvidence: runtimeSessionMissingOutcomeEvidence(session),
         ...(session.reasonCode ? { reasonCode: session.reasonCode } : {}),
       },
     };
   };
-  const definitionFor = (session: RuntimeSession): AgentDefinitionSnapshot => {
-    const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    if (!dispatch) {
-      throw coded(
-        "runtime_definition_snapshot_not_found",
-        `Runtime definition snapshot ${session.definitionSnapshotRef} was not found.`,
-      );
+  const definitionFor = (
+    session: RuntimeSession,
+  ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => {
+    const match = /^artifact:runtime-definition\/sha256\/([0-9a-f]{64})$/u.exec(session.definitionSnapshotRef);
+    if (match) {
+      const bytes = input.store.readContentBlob(match[1]!);
+      if (bytes) {
+        let text: string, decoded: unknown;
+        try {
+          text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+          decoded = JSON.parse(text);
+        } catch {
+          throw coded(
+            "runtime_definition_snapshot_invalid",
+            `Runtime definition snapshot ${session.definitionSnapshotRef} is not canonical UTF-8 JSON.`,
+          );
+        }
+        const snapshot = isAgentDefinitionSnapshot(decoded) ? decoded : null;
+        if (snapshot === null)
+          throw coded(
+            "runtime_definition_snapshot_invalid",
+            `Runtime definition snapshot ${session.definitionSnapshotRef} does not match its session.`,
+          );
+        const artifact = runtimeDefinitionSnapshotArtifact(snapshot);
+        if (
+          snapshot.instanceId !== session.instanceId ||
+          snapshot.installationId !== session.installationId ||
+          artifact.ref !== session.definitionSnapshotRef ||
+          artifact.body !== text
+        )
+          throw coded(
+            "runtime_definition_snapshot_invalid",
+            `Runtime definition snapshot ${session.definitionSnapshotRef} does not match its session.`,
+          );
+        return { snapshot, persisted: true };
+      }
     }
-    return dispatch.payload.definitionSnapshot;
+    const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+    return { snapshot: dispatch?.payload.definitionSnapshot ?? null, persisted: false };
   };
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {

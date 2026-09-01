@@ -31,6 +31,11 @@ import {
 // badge tone and the cancel affordance through table lookups alone.
 const LIVENESS_BADGE: Record<string, string> = { live: "active", exited: "done" };
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
+const MISSING_EVIDENCE_KEY = {
+  "exit-code-and-result": "agentRuntime.outcomeMissingExitAndResult",
+  "exit-code": "agentRuntime.outcomeMissingExit",
+  result: "agentRuntime.outcomeMissingResult",
+} as const;
 
 // The first-class Sessions view: the main area behind the group list's selected session, at
 // the same rank as the runtime / agent / squad cards. Every fact comes from the daemon
@@ -244,7 +249,10 @@ export function SessionDetailView({
                 title={session.instanceId}
                 className="text-text-faint hover:text-accent hover:underline"
               />{" "}
-              · {session.definitionSnapshot.model}
+              · {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
+              {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
+                ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
+                : ""}
             </span>
           </div>
           <h3 className="mb-1 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
@@ -342,8 +350,21 @@ export function SessionDetailView({
                 className="text-accent hover:underline"
               />
             </KVRow>
-            <KVRow name="model">{session.definitionSnapshot.model}</KVRow>
-            <KVRow name="auth">{session.definitionSnapshot.authMode}</KVRow>
+            <KVRow name="model">
+              {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
+            </KVRow>
+            <KVRow name="auth">{session.definitionSnapshot?.authMode ?? "—"}</KVRow>
+            <KVRow name="snapshot">
+              {session.definitionSnapshotPersisted
+                ? session.definitionSnapshotRef
+                : t("agentRuntime.definitionSnapshotNotPersisted")}
+            </KVRow>
+            <KVRow name="outcome">{session.activity.outcome ?? "—"}</KVRow>
+            {session.activity.missingEvidence !== null && (
+              <KVRow name="missing evidence">{t(MISSING_EVIDENCE_KEY[session.activity.missingEvidence])}</KVRow>
+            )}
+            <KVRow name="exit code">{session.activity.exitCode ?? "—"}</KVRow>
+            <KVRow name="result">{session.activity.resultRef ?? "—"}</KVRow>
             <KVRow name="task">
               {target !== null ? (
                 <EntityRefLink

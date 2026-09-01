@@ -46,6 +46,7 @@ const sessionDto = {
   kindId: "codex",
   definitionSnapshotRef: "artifact:runtime-definition/test",
   definitionSnapshot: definition,
+  definitionSnapshotPersisted: true,
   liveness: "live",
   attachCapability: "supported",
   streamCursor: "stream:4",
@@ -57,13 +58,25 @@ const sessionDto = {
       lease: { phase: "held", expiresAt: "2026-08-23T01:00:00.000Z" },
     },
   ],
-  activity: { lastObservedAt: "2026-08-23T00:00:00.000Z", outcome: null, exitCode: null, resultRef: null },
+  activity: {
+    lastObservedAt: "2026-08-23T00:00:00.000Z",
+    outcome: null,
+    exitCode: null,
+    resultRef: null,
+    missingEvidence: null,
+  },
 } as const;
 const orphanSession: AgentRuntimeSessionDto = {
   ...sessionDto,
   runtimeSessionId: "runtime-orphan",
   associations: [{ taskId: "task_1994d52c", executionId: "execution-orphan", holder: null, lease: null }],
-  activity: { lastObservedAt: "2026-08-23T03:00:00.000Z", outcome: "unknown", exitCode: null, resultRef: null },
+  activity: {
+    lastObservedAt: "2026-08-23T03:00:00.000Z",
+    outcome: "unknown",
+    exitCode: null,
+    resultRef: null,
+    missingEvidence: "exit-code-and-result",
+  },
   semanticState: "ended-indeterminate",
 };
 

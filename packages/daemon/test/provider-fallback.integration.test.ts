@@ -219,13 +219,13 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       },
       binding,
     );
-    const emptyUnknown = await eventually(async () => {
+    const emptySuccess = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_empty_success" })).dispatches;
-      return rows.length === 1 && rows[0]?.outcome === "unknown" ? rows[0] : null;
+      return rows.length === 1 && rows[0]?.outcome === "succeeded" ? rows[0] : null;
     });
-    assert.equal(emptyUnknown.outcome, "unknown");
-    assert.equal(emptyUnknown.exitCode, 0);
-    assert.match(emptyUnknown.reason ?? "", /protocol evidence/u);
+    assert.equal(emptySuccess.outcome, "succeeded");
+    assert.equal(emptySuccess.exitCode, 0);
+    assert.match(emptySuccess.reason ?? "", /successfully/u);
 
     await installAgent(
       cell,
