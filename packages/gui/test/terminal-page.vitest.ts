@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, createElement } from "react";
+import { act, createElement, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAppShortcuts } from "../src/renderer/navigation/useAppShortcuts.ts";
@@ -163,6 +163,74 @@ describe("terminal first-class page (PLT-TerminalWorkspace W0)", () => {
       expect.any(Function),
     );
     expect(container!.textContent).toContain("Build");
+    expect(container!.querySelector('[data-testid="terminal-pane"]')).not.toBeNull();
+  });
+
+  // Regression: under StrictMode (dev) the page mounts, its cleanup runs, then it remounts. The
+  // release effect only reset `mounted` to false in cleanup and never back to true on (re)mount, so
+  // after the remount `mounted` was stuck false and start() spawned a session but returned before
+  // attaching it — every "new terminal" (auto-start and the + button) silently did nothing.
+  it("spawns and attaches a new terminal after a StrictMode mount/cleanup/remount", async () => {
+    const stop = vi.fn();
+    const spawnedRow = sessionRow({ sessionId: "s-new", name: "Spawned" });
+    let rows: Row[] = [];
+    const bridge = {
+      listTerminalSessions: vi.fn(async () => sessionList(rows)),
+      spawnTerminal: vi.fn(async () => {
+        rows = [spawnedRow];
+        return controlReceipt("s-new");
+      }),
+      attachTerminal: vi.fn((_payload: Row, onValue: (value: Row) => void) => {
+        onValue({
+          schema: "terminal-attach/v1",
+          ok: true,
+          sessionId: "s-new",
+          attachmentId: "attach-new",
+          daemonGeneration: 7,
+          status: "attached",
+          replayFromSeq: 0,
+          outputSeq: 0,
+        });
+        return stop;
+      }),
+      sendTerminalInput: vi.fn(async () => ({ schema: "terminal-input-ack/v1", ok: true, acceptedThrough: 1 })),
+      resizeTerminal: vi.fn(async () => controlReceipt("s-new")),
+      detachTerminal: vi.fn(async () => ({ schema: "terminal-detach-ack/v1", ok: true, state: "detached" })),
+      terminateTerminal: vi.fn(async () => controlReceipt("s-new")),
+    };
+    (window as unknown as Record<string, unknown>).harness = bridge;
+
+    container = document.createElement("div");
+    document.body.append(container);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(
+            QueryClientProvider,
+            { client },
+            createElement(TerminalView, {
+              repoId: "repo-a",
+              daemonGeneration: null,
+              tasks: [],
+              repoRoot: null,
+              onNavigateEntity: () => undefined,
+              onOpenDocument: () => undefined,
+            }),
+          ),
+        ),
+      );
+    });
+    await flush();
+
+    expect(bridge.spawnTerminal).toHaveBeenCalled();
+    expect(bridge.attachTerminal).toHaveBeenCalledWith(
+      { repoId: "repo-a", sessionId: "s-new", afterSeq: 0 },
+      expect.any(Function),
+    );
     expect(container!.querySelector('[data-testid="terminal-pane"]')).not.toBeNull();
   });
 
