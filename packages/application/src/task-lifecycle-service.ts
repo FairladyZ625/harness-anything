@@ -549,6 +549,12 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       verdict: command.verdict,
       reason: command.reason,
       evidenceChecked: command.evidenceChecked,
+      ...(command.externalCompletionAnchor === undefined
+        ? {}
+        : {
+            externalCompletionAnchor: command.externalCompletionAnchor,
+            noDispatchReason: command.noDispatchReason,
+          }),
       commitSha: command.commitSha,
       iteration: command.iteration,
       contentDigest: command.contentDigest,

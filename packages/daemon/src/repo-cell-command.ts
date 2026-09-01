@@ -185,6 +185,15 @@ export function buildCommand(
       verdict: reviewVerdict(packet.value.verdict),
       reason: requiredCellText(packet.value.reason, "reason"),
       evidenceChecked: cellStringList(packet.value.evidenceChecked),
+      ...(packet.value.externalCompletionAnchor === undefined
+        ? {}
+        : {
+            externalCompletionAnchor: requiredCellText(
+              packet.value.externalCompletionAnchor,
+              "externalCompletionAnchor",
+            ),
+            noDispatchReason: requiredCellText(packet.value.noDispatchReason, "noDispatchReason"),
+          }),
       commitSha: submitted.submission.commitSha,
       iteration: submitted.iteration,
       contentDigest: packet.digest,

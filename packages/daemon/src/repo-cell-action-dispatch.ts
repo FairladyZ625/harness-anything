@@ -17,11 +17,10 @@ import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
 import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
-import { readTaskDispatches } from "./dispatch-read.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
-import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -475,7 +474,7 @@ function dispatchedExecutor(
   readonly dispatchTaskId: string;
 } {
   const requested = action.agent === undefined ? undefined : cell.requiredCellText(action.agent, "agent"),
-    rows = taskLineageDispatches(cell, taskId),
+    rows = readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }),
     exactRows = rows.filter((dispatch) => dispatch.executionId === executionId),
     eligibleRows = exactRows.length ? exactRows : rows,
     candidates = [
@@ -527,25 +526,4 @@ function dispatchedExecutor(
       )
       .join(" or ")}.`,
   );
-}
-
-function taskLineageDispatches(cell: RepoCellOperationalContext, taskId: string): readonly TaskDispatchRow[] {
-  const taskIds: string[] = [],
-    visited = new Set<string>();
-  let candidate: string | null = taskId;
-  while (candidate !== null && !visited.has(candidate)) {
-    taskIds.push(candidate);
-    visited.add(candidate);
-    candidate = cell.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null;
-  }
-  const rows: TaskDispatchRow[] = [];
-  for (let offset = 0; offset < taskIds.length; offset += 500)
-    rows.push(
-      ...readTaskDispatches({
-        rootDir: cell.rootDir,
-        projection: cell.projection,
-        taskIds: taskIds.slice(offset, offset + 500),
-      }).dispatches,
-    );
-  return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }

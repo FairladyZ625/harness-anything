@@ -66,10 +66,28 @@ export function reviewPacket(
       "invalid_command",
       "Review accepts either the public fromFile packet or one daemon-internal JSON packet, not both.",
     );
-  if (action.jsonInput === undefined) return packetFile(rootDir, action.fromFile, reviewJsonFields);
-  const body = requiredCellText(action.jsonInput, "jsonInput");
+  const body =
+    action.jsonInput === undefined
+      ? workspaceText(rootDir, action.fromFile, "fromFile")
+      : requiredCellText(action.jsonInput, "jsonInput");
+  let value: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(body) as unknown,
+      standardFields = [...reviewJsonFields].sort().join("\0"),
+      externalFields = [...reviewJsonFields, "externalCompletionAnchor", "noDispatchReason"].sort().join("\0");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    const fields = Object.keys(parsed).sort().join("\0");
+    if (fields !== standardFields && fields !== externalFields) throw new Error("unexpected fields");
+    value = parsed as Record<string, unknown>;
+  } catch {
+    throw cellCodedError(
+      "invalid_command",
+      `Review JSON requires exactly ${reviewJsonFields.join(", ")}, or those fields plus ` +
+        "externalCompletionAnchor and noDispatchReason.",
+    );
+  }
   return {
-    value: packetJson(body, reviewJsonFields),
+    value,
     digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
   };
 }

@@ -129,6 +129,31 @@ export function readTaskDispatches(
       };
 }
 
+export function readTaskLineageDispatches(input: {
+  readonly rootDir: string;
+  readonly projection: TaskProjection;
+  readonly taskId: string;
+}): readonly TaskDispatchRow[] {
+  const taskIds: string[] = [],
+    visited = new Set<string>();
+  let candidate: string | null = input.taskId;
+  while (candidate !== null && !visited.has(candidate)) {
+    taskIds.push(candidate);
+    visited.add(candidate);
+    candidate = input.projection.read(candidate).snapshot.task?.metadata?.parentTaskId ?? null;
+  }
+  const rows: TaskDispatchRow[] = [];
+  for (let offset = 0; offset < taskIds.length; offset += 500)
+    rows.push(
+      ...readTaskDispatches({
+        rootDir: input.rootDir,
+        projection: input.projection,
+        taskIds: taskIds.slice(offset, offset + 500),
+      }).dispatches,
+    );
+  return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+}
+
 /** Header-only dispatch metadata for the grouped-session read. Unlike the task
  * detail facet this never opens archived documents or provider-event bodies. */
 export function readSessionGroupDispatches(input: {

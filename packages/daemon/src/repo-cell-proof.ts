@@ -2,6 +2,7 @@ import { type TaskLifecycleServiceProof } from "../../application/src/task-lifec
 import {
   canonicalGateReceipts,
   codeDocRecordId,
+  consumeKnownError,
   consentedApprovedReview,
   currentCodeDocWitness,
   evaluateTaskActionCapability,
@@ -9,6 +10,7 @@ import {
   getTaskActionForTransition,
   isIndependentFrom,
   isSamePerson,
+  localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
@@ -23,6 +25,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -35,7 +38,7 @@ export async function proofFor(
   command: TaskLifecycleCommand,
   snapshot: Snapshot,
   binding: RepoCellBinding,
-  projection: Pick<ReturnType<typeof makeTaskProjection>, "readRuntimeSession">,
+  projection: ReturnType<typeof makeTaskProjection>,
   rootDir: string,
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
@@ -123,7 +126,11 @@ export async function proofFor(
         REVIEW_PROOF_CRITERION,
         reviewCriterion.nextActions,
       );
-    if (execution === undefined || !isIndependentFrom(execution.actor, command.actor)) {
+    const independentActor = execution !== undefined && isIndependentFrom(execution.actor, command.actor),
+      externalCompletionEvidence = independentActor
+        ? false
+        : validExternalCompletionEvidence(command, projection, rootDir);
+    if (!independentActor && !externalCompletionEvidence) {
       throw cellCriterionError(
         "actor_unauthorized",
         "Task review actor independence proof was not satisfied.",
@@ -213,6 +220,34 @@ export async function proofFor(
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
+}
+
+function validExternalCompletionEvidence(
+  command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
+  projection: ReturnType<typeof makeTaskProjection>,
+  rootDir: string,
+): boolean {
+  if (
+    command.externalCompletionAnchor === undefined ||
+    command.noDispatchReason === undefined ||
+    command.noDispatchReason.trim().length === 0 ||
+    readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length > 0
+  )
+    return false;
+  const anchor = command.externalCompletionAnchor.trim();
+  if (/^[0-9a-f]{40}$/u.test(anchor))
+    try {
+      const originMain = localGitObjectRefStore.resolveCommit(rootDir, "refs/remotes/origin/main");
+      return localGitObjectRefStore.isAncestor(rootDir, anchor, originMain);
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  return (
+    /^PR #[1-9][0-9]*$/u.test(anchor) ||
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/[1-9][0-9]*$/u.test(anchor) ||
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/[1-9][0-9]*$/u.test(anchor)
+  );
 }
 
 export function completeProof(
