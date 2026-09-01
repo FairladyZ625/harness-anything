@@ -4,6 +4,7 @@ import {
   codeDocRecordId,
   consentedApprovedReview,
   currentCodeDocWitness,
+  evaluateTaskActionCapability,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
   isIndependentFrom,
@@ -20,11 +21,15 @@ import {
   type TaskLifecycleCommand,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { cellCodedError } from "./repo-cell-errors.ts";
+import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { submitLeaseRequiredMessage } from "./repo-cell-execution-selection.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
+
+const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
+const SUBMIT_LEASE_CRITERION = "actor-domain-services/heldLeaseForExecutionActor";
+const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
+const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
 
 export async function proofFor(
   command: TaskLifecycleCommand,
@@ -42,7 +47,12 @@ export async function proofFor(
       executionId = commandFields[lifecycleExecution.targetIdField],
       ttlMs = typeof commandFields.ttlMs === "number" ? commandFields.ttlMs : leaseTtlMs;
     if (typeof executionId !== "string")
-      throw cellCodedError("invalid_command", `${lifecycleExecution.commandType} requires a target entity id.`);
+      throw cellCriterionError(
+        "invalid_command",
+        `${lifecycleExecution.commandType} requires a target entity id.`,
+        "start",
+        START_VALIDATION_CRITERION,
+      );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     return {
       actorBinding: command.actor,
@@ -61,7 +71,13 @@ export async function proofFor(
   if (command.type === "TransitionTask") return {};
   if (command.type === "SubmitExecution") {
     const lease = heldLeaseForExecutionActor(snapshot, command.executionId, command.actor);
-    if (!lease) throw cellCodedError("lease_required", submitLeaseRequiredMessage(command, snapshot));
+    if (!lease)
+      throw cellCriterionError(
+        "lease_required",
+        "Task submit lease proof was not satisfied.",
+        "submit",
+        SUBMIT_LEASE_CRITERION,
+      );
     return {
       actorBinding: command.actor,
       leaseVersion: lease.version,
@@ -83,41 +99,37 @@ export async function proofFor(
       execution = snapshot.executions.find(
         (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
       ),
-      authorizationDecision = requiredAuthorizationDecision(binding);
+      authorizationDecision = requiredAuthorizationDecision(binding),
+      reviewCriterion = lifecycleAction
+        ? evaluateTaskActionCapability({
+            action: lifecycleAction,
+            snapshot,
+            actor: command.actor,
+            invocation: {
+              taskId: command.taskId,
+              executionId: command.executionId,
+              reviewId: command.reviewId,
+              runtimeTaskBound: runtimeBinding !== null,
+            },
+          }).find(({ criterionRef }) => criterionRef === REVIEW_PROOF_CRITERION)
+        : undefined;
+    if (!reviewCriterion)
+      throw new Error(`Task review criterion ${REVIEW_PROOF_CRITERION} has no capability evaluation.`);
     if (runtimeBinding !== null)
-      throw cellCodedError(
+      throw cellCriterionError(
         "runtime_task_self_review_forbidden",
-        [
-          "This runtime is bound to task ",
-          `${command.taskId}`,
-          " and execution ",
-          `${command.executionId}`,
-          " and cannot review its own work; have an independent human or a runtime ",
-          "with no binding to this task and execution run ha task review-execution ",
-          `${command.taskId}`,
-          " --execution-id ",
-          `${command.executionId}`,
-          " --review-id ",
-          `${command.reviewId}`,
-          " --from-file <review.json>.",
-        ].join(""),
+        "Task review runtime-binding independence proof was not satisfied.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        reviewCriterion.nextActions,
       );
     if (execution === undefined || !isIndependentFrom(execution.actor, command.actor)) {
-      const undeclared = execution?.actor.executor === null && command.actor.executor === null;
-      throw cellCodedError(
+      throw cellCriterionError(
         "actor_unauthorized",
-        undeclared
-          ? [
-              "Execution Review requires a reviewer independent of the submitter: the ",
-              "submitted execution's original start declared no executor, so only a ",
-              "different person can review it. Run ha task declare-executor with that ",
-              "principal and an agent executor to record an auditable recovery before ",
-              "same-person review.",
-            ].join("")
-          : [
-              "Execution Review requires a reviewer independent of the submitting executor; ",
-              "review without declaring that executor.",
-            ].join(""),
+        "Task review actor independence proof was not satisfied.",
+        "review",
+        REVIEW_PROOF_CRITERION,
+        reviewCriterion.nextActions,
       );
     }
     return {
@@ -209,19 +221,37 @@ export function completeProof(
   binding: RepoCellBinding,
 ): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
   if (snapshot.lease !== null)
-    throw cellCodedError("active_lease", "Complete requires the execution lease to be released.");
+    throw cellCriterionError(
+      "active_lease",
+      "Task completion lease-release proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
   const authorizationDecision = requiredAuthorizationDecision(binding);
   if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
-    throw cellCodedError("actor_unauthorized", "Complete requires the Execution owner principal.");
+    throw cellCriterionError(
+      "actor_unauthorized",
+      "Task completion owner proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
   const execution = snapshot.executions.find(
     (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
   );
-  if (!execution?.submission) throw cellCodedError("invalid_transition", "Complete requires a submitted execution.");
+  if (!execution?.submission)
+    throw cellCriterionError(
+      "invalid_transition",
+      "Task completion submitted-execution proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
+    );
   const supplied = canonicalGateReceipts(snapshot, execution);
   if (supplied.length !== requiredGateWitnessCount(snapshot, execution))
-    throw cellCodedError(
+    throw cellCriterionError(
       "gate_witness_missing",
-      "Every applicable completion gate requires a canonical typed witness; local receipt files are not authoritative.",
+      "Task completion canonical gate-witness proof was not satisfied.",
+      "complete",
+      COMPLETE_VALIDATION_CRITERION,
     );
   return {
     capability: "task-complete@v1",

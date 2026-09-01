@@ -51,8 +51,9 @@ test("submit lease refusals name the state-specific command that advances the ex
     );
     assert.equal(
       withoutLease.nextAction,
-      `Submit requires the active execution lease; run ha task start ${taskId} --execution-id ${executionId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
+      `The authenticated actor owns the active execution lease at its current version. Then retry ha task submit ${taskId} [--execution-id <execution-id>] [--from-file <from-file>] [--json-input <json-input>].`,
     );
+    assert.deepEqual(withoutLease.nextActions, [withoutLease.nextAction]);
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, holder)).outcome,
@@ -63,11 +64,16 @@ test("submit lease refusals name the state-specific command that advances the ex
       { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
       holder,
     );
-    assert.equal(alreadySubmitted.code, "lease_required", JSON.stringify(alreadySubmitted));
+    assert.equal(alreadySubmitted.code, "invalid_transition", JSON.stringify(alreadySubmitted));
+    assert.deepEqual(
+      alreadySubmitted.unmetCriteria?.map(({ ref }) => ref),
+      ["task-lifecycle-command-transitions/submit.validate"],
+    );
     assert.equal(
       alreadySubmitted.nextAction,
       `Execution ${executionId} is already submitted; run ha task review-execution ${taskId} --execution-id ${executionId} --review-id <review-id> --from-file <review.json>.`,
     );
+    assert.deepEqual(alreadySubmitted.nextActions, [alreadySubmitted.nextAction]);
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),

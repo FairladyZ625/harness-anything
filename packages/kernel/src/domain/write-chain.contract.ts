@@ -10,6 +10,7 @@ export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } fro
 export type {
   AuthorizationDecision,
   DocSyncReceiptDetail,
+  EntityActionUnmetCriterionV1,
   LedgerCutIdentity,
   ReceiptProof,
   ReceiptJsonValue,

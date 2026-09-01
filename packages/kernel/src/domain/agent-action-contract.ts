@@ -4,7 +4,7 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import type { EntityActionCompileHook } from "./entity-action-execution.ts";
+import { attributeEntityActionCriterion, type EntityActionCompileHook } from "./entity-action-execution.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 
 export interface AgentActionDraft {
@@ -122,7 +122,22 @@ export function createAgentActionCatalog(
 }
 
 export const compileAgentInstallAction: EntityActionCompileHook = (input): AgentActionDraft => {
-  const entity = parseAgentDeclarationV1(input.action.declaration);
-  assertTransitionDocumentReady(requireTransitionDocumentKind("agent.install"), entity.instructions);
+  let entity: AgentDeclarationV1;
+  try {
+    entity = parseAgentDeclarationV1(input.action.declaration);
+  } catch (error) {
+    throw agentCriterionError(error, "agent/declaration-schema", "invalid_manifest");
+  }
+  try {
+    assertTransitionDocumentReady(requireTransitionDocumentKind("agent.install"), entity.instructions);
+  } catch (error) {
+    throw agentCriterionError(error, "agent/instructions-ready", "instructions_placeholder");
+  }
   return { kind: "entity", entityKind: "agent", entity };
 };
+
+function agentCriterionError(error: unknown, criterionRef: string, fallbackCode: string): Error {
+  const attributed = error instanceof Error ? error : Object.assign(new Error(String(error)), { code: fallbackCode });
+  if (!("code" in attributed)) Object.assign(attributed, { code: fallbackCode });
+  return attributeEntityActionCriterion(attributed, "install", criterionRef);
+}

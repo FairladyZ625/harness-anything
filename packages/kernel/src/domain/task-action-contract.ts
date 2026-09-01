@@ -222,7 +222,9 @@ const taskActionDeclarations = Object.freeze([
       {
         ref: "task-lifecycle-review-transitions/review.validate",
         failureCode: "invalid_transition",
-        explain: "The review targets the current submitted execution and its pinned content cut.",
+        explain:
+          "The review targets the current submitted execution and its pinned content cut; " +
+          "append-only Review history requires a new review id.",
       },
       {
         ref: "repo-cell-proof/proofFor.RecordReview",

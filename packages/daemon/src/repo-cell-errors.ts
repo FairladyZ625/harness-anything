@@ -1,11 +1,43 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { VcsCommandError, normalizeDomainError } from "../../kernel/src/index.ts";
+import {
+  VcsCommandError,
+  attributeEntityActionCriterion,
+  entityActionCriterionFailure,
+  normalizeDomainError,
+  type EntityActionCriterionFailure,
+} from "../../kernel/src/index.ts";
+
+export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
 export function cellCodedError(code: string, text: string): Error {
   const error = new Error(text) as Error & { code: string };
   error.code = code;
   return error;
+}
+
+export function cellCriterionError(
+  code: string,
+  text: string,
+  actionId: string,
+  criterionRef: string,
+  nextActions: readonly string[] = [],
+): Error {
+  return attributeCellCriterion(cellCodedError(code, text), actionId, criterionRef, nextActions);
+}
+
+export function attributeCellCriterion(
+  error: unknown,
+  actionId: string,
+  criterionRef: string,
+  nextActions: readonly string[] = [],
+): Error {
+  const attributed = error instanceof Error ? error : cellCodedError(cellErrorCode(error), cellErrorMessage(error));
+  return attributeEntityActionCriterion(attributed, actionId, criterionRef, nextActions);
+}
+
+export function actionCriterionFailure(error: unknown): CellActionCriterionFailure | null {
+  return entityActionCriterionFailure(error);
 }
 
 export function unavailableRuntimeInstanceStore(): never {

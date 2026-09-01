@@ -4,9 +4,18 @@ import {
   type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
+import {
+  actionCriterionFailure,
+  cellCodedError,
+  cellCriterionError,
+  cellErrorCode,
+  cellErrorMessage,
+  type CellActionCriterionFailure,
+} from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
+
+const criterionFailureByReceipt = new WeakMap<object, CellActionCriterionFailure>();
 
 export function completionApplied(
   receipt: WriteReceipt,
@@ -43,8 +52,9 @@ export function completionSettlement(
           ? "Wait for canonical settlement, then query this receipt."
           : "Resolve the rejected canonical step before retrying completion.",
     state = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`;
-  return {
+  const settled = {
     ...receipt,
+    ...(receipt.outcome === "pending" || receipt.outcome === "indeterminate" ? { unmetCriteria: [] } : {}),
     taskId: snapshot.task?.taskId,
     executionId,
     reviewId: selectedReviewId(snapshot, executionId),
@@ -57,6 +67,7 @@ export function completionSettlement(
     steps,
     stoppedAt,
   } as WriteReceipt;
+  return carryActionCriterionFailure(receipt, settled);
 }
 
 export function completionStopped(
@@ -66,8 +77,14 @@ export function completionStopped(
   blocker: ReturnType<typeof completionBlockers>[number],
   steps: readonly WriteReceipt[],
 ): WriteReceipt {
-  return {
-    ...rejected(opId, blocker.code, blocker.next.command),
+  const receipt = failed(
+    opId,
+    cellCriterionError(blocker.code, blocker.next.command, "complete", "closeout-readiness/closeoutReadiness", [
+      blocker.next.command,
+    ]),
+  );
+  return carryActionCriterionFailure(receipt, {
+    ...receipt,
     taskId: snapshot.task?.taskId,
     executionId,
     reviewId: selectedReviewId(snapshot, executionId),
@@ -79,7 +96,7 @@ export function completionStopped(
     next: [blocker.next],
     steps,
     stoppedAt: blocker.code,
-  } as WriteReceipt;
+  } as WriteReceipt);
 }
 
 export function rejected(opId: string, code: string, nextAction: string): WriteReceipt {
@@ -95,19 +112,33 @@ export function rejected(opId: string, code: string, nextAction: string): WriteR
 
 export function failed(opId: string, error: unknown): WriteReceipt {
   const code = cellErrorCode(error);
-  return error instanceof VcsCommandError || code === "publication_indeterminate"
-    ? {
-        outcome: "indeterminate",
-        opId,
-        code,
-        origin: error instanceof VcsCommandError ? error.origin : "daemon",
-        evidence: error instanceof VcsCommandError ? `git-failure:${error.command}` : "publication-cut:indeterminate",
-        nextAction:
-          error instanceof VcsCommandError
-            ? `repair the Git object store and retry: ${error.message}`
-            : cellErrorMessage(error),
-      }
-    : rejected(opId, code, cellErrorMessage(error));
+  const receipt: WriteReceipt =
+    error instanceof VcsCommandError || code === "publication_indeterminate"
+      ? {
+          outcome: "indeterminate",
+          opId,
+          code,
+          origin: error instanceof VcsCommandError ? error.origin : "daemon",
+          evidence: error instanceof VcsCommandError ? `git-failure:${error.command}` : "publication-cut:indeterminate",
+          nextAction:
+            error instanceof VcsCommandError
+              ? `repair the Git object store and retry: ${error.message}`
+              : cellErrorMessage(error),
+        }
+      : rejected(opId, code, cellErrorMessage(error));
+  const criterionFailure = actionCriterionFailure(error);
+  if (criterionFailure !== null) criterionFailureByReceipt.set(receipt, criterionFailure);
+  return receipt;
+}
+
+export function actionCriterionFailureOfReceipt(receipt: WriteReceipt): CellActionCriterionFailure | null {
+  return criterionFailureByReceipt.get(receipt) ?? null;
+}
+
+function carryActionCriterionFailure(source: WriteReceipt, target: WriteReceipt): WriteReceipt {
+  const criterionFailure = criterionFailureByReceipt.get(source);
+  if (criterionFailure !== undefined) criterionFailureByReceipt.set(target, criterionFailure);
+  return target;
 }
 
 export function requiredCellText(value: unknown, name: string): string {

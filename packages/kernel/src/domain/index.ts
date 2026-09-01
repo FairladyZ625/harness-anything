@@ -164,10 +164,12 @@ export type {
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
 export type {
+  EntityActionCriterionFailure,
   EntityActionCompileInput,
   EntityActionDraft,
   EntityActionExecutionContract,
 } from "./entity-action-execution.ts";
+export { attributeEntityActionCriterion, entityActionCriterionFailure } from "./entity-action-execution.ts";
 export { runtimeSessionActionIds, runtimeSessionActionPayload } from "./runtime-session-action-contract.ts";
 export type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 
