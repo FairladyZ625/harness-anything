@@ -36,6 +36,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
+import { actionCriterionFailureOfReceipt } from "./repo-cell-settlement.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   commitRuntimeSessionBundle,
@@ -472,10 +473,17 @@ export function deriveActionResult(
         : targetIdField && typeof receiptFields[targetIdField] === "string"
           ? receiptFields[targetIdField]
           : null,
-    inferredCriteria = contract.criteria.filter((criterion) => criterion.failureCode === receipt.code),
-    unmetCriteria: readonly EntityActionUnmetCriterionV1[] = rejected
-      ? (receipt.unmetCriteria ?? (inferredCriteria.length === 1 ? inferredCriteria : []))
+    attributedFailure = actionCriterionFailureOfReceipt(receipt),
+    attributedRefs = attributedFailure
+      ? attributedFailure.actionId === contract.id
+        ? [attributedFailure.criterionRef]
+        : invalidCriterionAttribution(contract, attributedFailure.actionId, attributedFailure.criterionRef)
       : [],
+    criterionRefs = receipt.unmetCriteria?.map(({ ref }) => ref) ?? attributedRefs,
+    unmetCriteria: readonly EntityActionUnmetCriterionV1[] =
+      receipt.outcome === "op_rejected"
+        ? criterionRefs.map((criterionRef) => resolveActionCriterion(contract, criterionRef))
+        : [],
     explanation = rejected
       ? (unmetCriteria[0]?.explain ??
         receipt.nextAction ??
@@ -495,10 +503,37 @@ export function deriveActionResult(
             revision: receipt.revision ?? null,
           },
     rejectionExplanation: explanation,
-    nextActions: Object.freeze([
-      ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
-    ]),
+    nextActions: Object.freeze(
+      unmetCriteria.length > 0
+        ? [
+            ...new Set([
+              ...(receipt.nextActions ?? []),
+              ...(!attributedFailure && receipt.nextAction ? [receipt.nextAction] : []),
+              ...(attributedFailure?.nextActions ?? []),
+            ]),
+          ]
+        : [...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])])],
+    ),
   };
+}
+
+function resolveActionCriterion(contract: EntityActionContract, criterionRef: string): EntityActionUnmetCriterionV1 {
+  const criterion = contract.criteria.find(({ ref }) => ref === criterionRef);
+  if (!criterion)
+    throw Object.assign(
+      new Error(`Action ${contract.target.kind}.${contract.id} does not declare criterion ${criterionRef}.`),
+      { code: "invalid_store" },
+    );
+  return { ref: criterion.ref, failureCode: criterion.failureCode, explain: criterion.explain };
+}
+
+function invalidCriterionAttribution(contract: EntityActionContract, actionId: string, criterionRef: string): never {
+  throw Object.assign(
+    new Error(
+      `Action ${contract.target.kind}.${contract.id} received criterion ${criterionRef} attributed to ${actionId}.`,
+    ),
+    { code: "invalid_store" },
+  );
 }
 
 function reclassificationAction(

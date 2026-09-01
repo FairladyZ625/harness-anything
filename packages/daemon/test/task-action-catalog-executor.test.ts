@@ -1,7 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeEntityActionCatalogExecutor } from "../src/entity-action-catalog-executor.ts";
+import { getExecutableEntityAction } from "../../kernel/src/index.ts";
+import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/entity-action-catalog-executor.ts";
+import { cellCriterionError } from "../src/repo-cell-errors.ts";
+import { failed } from "../src/repo-cell-settlement.ts";
 
 test("the catalog executor directly invokes Task execution metadata and derives ActionResult", async () => {
   const executor = makeEntityActionCatalogExecutor({
@@ -72,7 +75,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
     {
       ref: "task-lifecycle-contract-support/revisionIssues",
       failureCode: "invalid_transition",
-      explain: "The command expectedVersion matches the current Task aggregate revision.",
+      explain: "The command expectedVersion equals the canonical Task projection revision at commit time.",
     },
   ]);
   assert.deepEqual(receipt.effects, []);
@@ -100,4 +103,27 @@ test("ambiguous failure codes do not invent a criterion", async () => {
     });
   assert.deepEqual(receipt.unmetCriteria, []);
   assert.doesNotMatch(JSON.stringify(receipt), /criteria\/invalid_transition/u);
+});
+
+test("criterion-bearing failures resolve descriptors by action plus ref even when failure codes collide", () => {
+  const contract = getExecutableEntityAction("task-start");
+  assert.ok(contract);
+  for (const criterionRef of [
+    "task-lifecycle-contract-support/revisionIssues",
+    "task-lifecycle-command-transitions/canStartExecution",
+  ]) {
+    const descriptor = contract.criteria.find(({ ref }) => ref === criterionRef);
+    assert.ok(descriptor);
+    const receipt = deriveActionResult(
+      contract,
+      { kind: "task-start", taskId: "task_contract" },
+      failed(
+        `op-${criterionRef}`,
+        cellCriterionError("invalid_transition", "Retry from the validator result.", "start", criterionRef, [
+          "Retry from the validator result.",
+        ]),
+      ),
+    );
+    assert.deepEqual(receipt.unmetCriteria, [descriptor]);
+  }
 });

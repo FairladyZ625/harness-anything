@@ -3,16 +3,19 @@ import {
   evaluateTaskActionCapability,
   getExecutableEntityAction,
   heldLeaseForExecutionActor,
-  isTerminalStatus,
   revisionIssues,
   type EntityActionContract,
   type EntityActionUnmetCriterionV1,
   type TaskLifecycleCommand,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { actorHint } from "./repo-cell-proof.ts";
+import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+
+const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
+const START_CRITERION = "task-lifecycle-command-transitions/canStartExecution";
+const SUBMIT_LEASE_CRITERION = "actor-domain-services/heldLeaseForExecutionActor";
 
 export async function runTaskActionCatalogRuntime(
   cell: RepoCellOperationalContext,
@@ -27,6 +30,10 @@ export async function runTaskActionCatalogRuntime(
     contract = getExecutableEntityAction(action.kind),
     lifecycle = contract?.execution?.lifecycle,
     preview = lifecycle?.coordination === "reserve" && action.dryRun === true,
+    evaluations =
+      contract?.target.kind === "task"
+        ? evaluateTaskActionCapability({ action: contract, snapshot: current.snapshot, actor: binding.actor })
+        : [],
     activeLease = cell.projection.currentLease(taskId, cell.now());
   if (
     lifecycle?.coordination === "reserve" &&
@@ -56,37 +63,14 @@ export async function runTaskActionCatalogRuntime(
         summary: `reused active execution ${activeLease.executionId}`,
       } as WriteReceipt;
     }
-    throw cell.cellCodedError(
-      "lease_conflict",
-      activeLease.phase === "reserving"
-        ? `Task ${taskId} is being reserved by ${actorHint(activeLease.actor)}; ` +
-            "wait for that reservation to publish " +
-            `or lapse at ${activeLease.expiresAt}, then retry ha task start ${taskId}.`
-        : `Task ${taskId} is held by ${actorHint(activeLease.actor)}; ` +
-            `that holder must run ha task release ${taskId}. ` +
-            `This caller must wait for release, then retry ha task start ${taskId}.`,
-    );
+    if (!contract) throw new Error(`Task Action ${action.kind} is not declared.`);
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+      criterionEvaluation(evaluations, START_CRITERION),
+    ]);
   }
-  if (preview && !current.snapshot.task)
-    throw cell.cellCodedError("task_not_found", "Run ha task list, choose an existing task id, then retry task start.");
-  if (preview && current.snapshot.lease)
-    throw cell.cellCodedError(
-      "lease_conflict",
-      `Run ha task release ${taskId} as the current holder before starting another execution.`,
-    );
-  if (preview && current.snapshot.task && isTerminalStatus(current.snapshot.task.status))
-    throw cell.cellCodedError(
-      "terminal_task",
-      `Run ha task supersede ${taskId} --title <follow-up-title> for new work.`,
-    );
-  const unmet =
-    contract?.target.kind === "task"
-      ? evaluateTaskActionCapability({
-          action: contract,
-          snapshot: current.snapshot,
-          actor: binding.actor,
-        }).filter(({ status }) => status === "unmet")
-      : [];
+  const submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION);
+  if (action.kind === "task-submit" && submitLeaseEvaluation?.status === "unmet" && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (lifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
       rootDir: cell.rootDir,
@@ -107,7 +91,15 @@ export async function runTaskActionCatalogRuntime(
       current.snapshot,
     );
   } catch (error) {
-    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, unmet, error);
+    const rejection = taskActionFailure(
+      cell,
+      action,
+      binding,
+      current.snapshot.revision,
+      contract,
+      evaluations,
+      contract ? attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)) : error,
+    );
     if (rejection) return rejection;
     throw error;
   }
@@ -118,7 +110,7 @@ export async function runTaskActionCatalogRuntime(
       workspaceRevision: current.snapshot.revision + 1,
     } as TaskLifecycleCommand).length > 0
   ) {
-    const criterion = contract.criteria.find(({ ref }) => ref === "task-lifecycle-contract-support/revisionIssues");
+    const criterion = contract.criteria.find(({ ref }) => ref === REVISION_CRITERION);
     if (!criterion)
       throw new Error(`Task Action ${contract.id} does not declare its existing revisionIssues predicate.`);
     return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
@@ -127,6 +119,16 @@ export async function runTaskActionCatalogRuntime(
         nextActions: [`${criterion.explain} Then retry with --expected-version ${String(current.snapshot.revision)}.`],
       },
     ]);
+  }
+  if (lifecycle?.coordination === "reserve") {
+    const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
+      executionId = commandFields[lifecycle.targetIdField];
+    if (typeof executionId !== "string")
+      throw cell.cellCodedError("invalid_command", `${lifecycle.commandType} requires a target entity id.`);
+    if (!canStartExecution(current.snapshot, executionId) && contract)
+      return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+        criterionEvaluation(evaluations, START_CRITERION),
+      ]);
   }
   if (preview && lifecycle) {
     const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,
@@ -155,13 +157,27 @@ export async function runTaskActionCatalogRuntime(
   try {
     authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection);
   } catch (error) {
-    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, unmet, error);
+    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, evaluations, error);
     if (rejection) return rejection;
     throw error;
   }
-  if (unmet.length > 0 && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, unmet);
-  const result = await cell.service.execute(command, authorityProof);
+  let result: Awaited<ReturnType<RepoCellOperationalContext["service"]["execute"]>>;
+  try {
+    result = await cell.service.execute(command, authorityProof);
+  } catch (error) {
+    if (!isTaskLifecycleContractError(error) || !contract) throw error;
+    const rejection = taskActionFailure(
+      cell,
+      action,
+      binding,
+      current.snapshot.revision,
+      contract,
+      evaluations,
+      attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)),
+    );
+    if (rejection) return rejection;
+    throw error;
+  }
   if (result.outcome === "applied" && result.event && result.proof)
     return cell.lifecycleReceipt(
       result.event,
@@ -193,19 +209,34 @@ function taskActionFailure(
   binding: RepoCellBinding,
   revision: number,
   contract: EntityActionContract | undefined,
-  unmet: readonly {
+  evaluations: readonly {
     readonly criterionRef: string;
+    readonly status: string;
     readonly nextActions: readonly string[];
   }[],
   error: unknown,
 ): WriteReceipt | null {
-  if (!contract) return null;
-  const rejected = cell.failed(
+  const failure = actionCriterionFailure(error);
+  if (!contract || failure?.actionId !== contract.id) return null;
+  const evaluation = evaluations.find(({ criterionRef }) => criterionRef === failure.criterionRef),
+    rejected = cell.failed(
       cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, revision),
       error,
-    ),
-    withCriteria = attachTaskActionCriteria(cell, action, binding, revision, contract, unmet, rejected);
-  return withCriteria.unmetCriteria?.length ? withCriteria : null;
+    );
+  return taskActionRejection(
+    cell,
+    action,
+    binding,
+    revision,
+    contract,
+    [
+      {
+        criterionRef: failure.criterionRef,
+        nextActions: failure.nextActions.length ? failure.nextActions : (evaluation?.nextActions ?? []),
+      },
+    ],
+    rejected,
+  );
 }
 
 function taskActionRejection(
@@ -225,13 +256,7 @@ function taskActionRejection(
       if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${criterionRef} is not declared.`);
       return criterion;
     }),
-    nextActions = Object.freeze([
-      ...new Set([
-        ...(rejected?.nextActions ?? []),
-        ...(rejected?.nextAction ? [rejected.nextAction] : []),
-        ...unmet.flatMap(({ nextActions: next }) => next),
-      ]),
-    ]),
+    nextActions = Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
     first = unmetCriteria[0]!;
   return {
     ...(rejected ??
@@ -240,28 +265,34 @@ function taskActionRejection(
         first.failureCode,
         nextActions[0] ?? first.explain,
       )),
+    nextAction: nextActions[0] ?? first.explain,
+    evidence: `criterion:${first.ref}`,
     unmetCriteria,
     rejectionExplanation: first.explain,
     nextActions,
   };
 }
 
-function attachTaskActionCriteria(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-  revision: number,
-  contract: EntityActionContract,
-  unmet: readonly {
+function criterionEvaluation(
+  evaluations: readonly {
     readonly criterionRef: string;
     readonly nextActions: readonly string[];
   }[],
-  rejected: WriteReceipt,
-): WriteReceipt {
-  const matching = unmet.filter(({ criterionRef }) =>
-    contract.criteria.some(({ ref, failureCode }) => ref === criterionRef && failureCode === rejected.code),
-  );
-  return matching.length > 0
-    ? taskActionRejection(cell, action, binding, revision, contract, matching, rejected)
-    : rejected;
+  criterionRef: string,
+): { readonly criterionRef: string; readonly nextActions: readonly string[] } {
+  const evaluation = evaluations.find((candidate) => candidate.criterionRef === criterionRef);
+  if (!evaluation) throw new Error(`Task Action criterion ${criterionRef} has no capability evaluation.`);
+  return evaluation;
+}
+
+function invocationCriterionRef(contract: EntityActionContract): string {
+  const suffix = `/${contract.id}.validate`,
+    criterion = contract.criteria.find(({ ref }) => ref.endsWith(suffix));
+  if (!criterion) throw new Error(`Task Action ${contract.id} does not declare its invocation validator criterion.`);
+  return criterion.ref;
+}
+
+function isTaskLifecycleContractError(error: unknown): error is Error & { readonly issues: readonly unknown[] } {
+  if (!(error instanceof Error) || error.name !== "TaskLifecycleContractError") return false;
+  return Array.isArray((error as Error & { readonly issues?: unknown }).issues);
 }

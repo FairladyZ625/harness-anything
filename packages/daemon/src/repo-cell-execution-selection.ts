@@ -1,13 +1,11 @@
 import {
   approvedReviewsForCut,
-  canStartExecution,
   closeoutReadiness,
-  currentExecutionCuts,
   currentSubmittedExecutions,
-  type TaskLifecycleCommand,
+  getExecutableEntityAction,
+  taskActionUsage,
 } from "../../kernel/src/index.ts";
-import { cellCodedError } from "./repo-cell-errors.ts";
-import { actorHint } from "./repo-cell-proof.ts";
+import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
@@ -120,30 +118,14 @@ export function completeExecutionId(action: RepoTaskAction, snapshot: Snapshot, 
   if (supplied !== undefined) return supplied;
   const assessed = closeoutReadiness(snapshot);
   if (assessed.executionId !== undefined) return assessed.executionId;
-  const suffix = [
-    "",
-    `${action.ci === "passed" ? " --ci passed" : ""}`,
-    "",
-    `${cellStringList(action.paths)
-      .map((value) => ` --path ${value}`)
-      .join("")}`,
-    `${factHoldsFlags(action.factHolds)}`,
-    "",
-  ].join("");
-  return rejectExecutionSelection(
-    currentExecutionCuts(snapshot),
-    "Closeout execution",
-    [
-      "Run ha task show ",
-      `${taskId}`,
-      "; reach one submitted current-iteration execution before retrying ha ",
-      "task complete ",
-      `${taskId}`,
-      "",
-      `${suffix}`,
-      ".",
-    ].join(""),
-    (candidate) => `ha task complete ${taskId} --execution-id ${candidate}${suffix}`,
+  const contract = getExecutableEntityAction("task-complete");
+  if (!contract) throw cellCodedError("invalid_store", "Task complete is missing from the Action catalog.");
+  throw cellCriterionError(
+    "invalid_command",
+    "Task complete could not select one current closeout execution.",
+    "complete",
+    "closeout-readiness/closeoutReadiness",
+    [taskActionUsage(contract, taskId)],
   );
 }
 
@@ -175,77 +157,4 @@ function factHoldsFlags(value: unknown): string {
       return [` --fact-holds ${factId}:${JSON.stringify(row.rationale)}`];
     })
     .join("");
-}
-
-export function submitLeaseRequiredMessage(
-  command: Extract<TaskLifecycleCommand, { readonly type: "SubmitExecution" }>,
-  snapshot: Snapshot,
-): string {
-  const execution = snapshot.executions.find((candidate) => candidate.executionId === command.executionId);
-  if (execution?.submission)
-    return [
-      "Execution ",
-      `${command.executionId}`,
-      " is already submitted; run ha task review-execution ",
-      `${command.taskId}`,
-      " --execution-id ",
-      `${command.executionId}`,
-      " --review-id <review-id> --from-file <review.json>.",
-    ].join("");
-  const lease = snapshot.lease,
-    submit = `ha task submit ${command.taskId} --json-input '<submission-json>'`;
-  if (lease?.phase === "held")
-    return [
-      "Submit requires the active execution lease; the authenticated holder (",
-      `${actorHint(lease.actor)}`,
-      ") must run ",
-      `${submit}`,
-      ", or ha task release ",
-      `${command.taskId}`,
-      ".",
-    ].join("");
-  if (lease?.phase === "orphaned")
-    return [
-      "Submit requires the active execution lease; the lease for execution ",
-      `${lease.executionId}`,
-      " lapsed at ",
-      `${lease.expiresAt}`,
-      "; run ha task release ",
-      `${command.taskId}`,
-      ", then ha task start ",
-      `${command.taskId}`,
-      " --execution-id ",
-      `${lease.executionId}`,
-      ", then retry ",
-      `${submit}`,
-      ".",
-    ].join("");
-  if (lease?.phase === "reserving")
-    return [
-      "Submit requires the active execution lease; wait for the reservation for ",
-      "execution ",
-      `${lease.executionId}`,
-      " to publish or lapse at ",
-      `${lease.expiresAt}`,
-      ", then retry ",
-      `${submit}`,
-      ".",
-    ].join("");
-  if (canStartExecution(snapshot, command.executionId))
-    return [
-      "Submit requires the active execution lease; run ha task start ",
-      `${command.taskId}`,
-      " --execution-id ",
-      `${command.executionId}`,
-      ", then retry ",
-      `${submit}`,
-      ".",
-    ].join("");
-  return [
-    "Submit requires the active execution lease; run ha task show ",
-    `${command.taskId}`,
-    ", then follow the next lifecycle command reported for execution ",
-    `${command.executionId}`,
-    ".",
-  ].join("");
 }
