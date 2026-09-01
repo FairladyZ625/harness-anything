@@ -179,15 +179,16 @@ export function canonicalDocumentPaths(value: unknown): value is readonly string
   }
 }
 export function errorCode(issues: readonly ContractValidationIssue[]): TaskLifecycleErrorCode {
-  return issues.some((value) => value.code === "manual_intervention_required")
-    ? "manual_intervention_required"
-    : issues.some(
-          (value) => value.code.includes("graph") || value.code.includes("edge") || value.code.includes("atomicity"),
-        )
-      ? "invalid_graph"
-      : issues.some((value) => value.code === "invalid_proof")
-        ? "invalid_proof"
-        : "invalid_transition";
+  if (issues.some((value) => value.code === "missing_field" || value.code === "force_reason_required"))
+    return "missing_field";
+  if (issues.some((value) => value.code === "manual_intervention_required")) return "manual_intervention_required";
+  if (
+    issues.some(
+      (value) => value.code.includes("graph") || value.code.includes("edge") || value.code.includes("atomicity"),
+    )
+  )
+    return "invalid_graph";
+  return issues.some((value) => value.code === "invalid_proof") ? "invalid_proof" : "invalid_transition";
 }
 export function lifecycleContractIssue(code: string, message: string): ContractValidationIssue {
   return { code, message };

@@ -18,6 +18,7 @@ import { codePoints, requiredWithOptional } from "./event-validation.ts";
 import { includes } from "./decision-event-validation-shared.ts";
 import { timestamp } from "./timestamp.ts";
 import { validateSessionIdentity, validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
+import type { FactLiveness } from "./fact-liveness.ts";
 
 export const factConfidenceLevels = ["low", "medium", "high"] as const;
 export const factMemoryClasses = ["semantic", "episodic", "procedural"] as const;
@@ -50,7 +51,7 @@ export interface FactDocumentRecord {
   readonly evidenceSource: string;
   readonly observedAt: string;
   readonly confidence: FactConfidence;
-  readonly state: "standing" | "superseded_fact";
+  readonly state: FactLiveness;
   readonly workspaceRevision: number;
 }
 export interface FactContentBlob {

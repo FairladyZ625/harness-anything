@@ -37,12 +37,11 @@ export {
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
-// Wire-validator mirrors of the kernel status vocabularies (register:
+// Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
 // on the CLI's eager startup path, so it must not import the kernel barrel — the p50
 // overhead gate refuses eager module growth — and deep kernel imports are restricted.
-// The mirrors stay plain data; the status-vocabulary ratchet gate locks them against
-// the kernel vocabularies so they cannot drift.
+// The status-vocabulary ratchet rejects a stale generated region.
 export const daemonProtocolMethods = Object.freeze([
   {
     id: "protocol.hello",

@@ -1,5 +1,8 @@
 import type { StatusVocabulary } from "./status-vocabulary-types.ts";
+import { decisionStates } from "./decision-event-types.ts";
 import { relationStates } from "./entity-relation.ts";
+import { factLivenessStates } from "./fact-liveness.ts";
+import { domainStatuses } from "./lifecycle-status.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   {
@@ -24,7 +27,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/kernel/src/domain/lifecycle-status.ts",
     anchor: "domainStatuses",
-    words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+    words: domainStatuses,
   },
   {
     id: "task.status.open",
@@ -82,7 +85,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/kernel/src/domain/decision-event-types.ts",
     anchor: "decisionStates",
-    words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+    words: decisionStates,
   },
   {
     id: "decision.judgment.target",
@@ -184,11 +187,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     entity: "FactRecord",
     field: "liveness",
     module: "packages/kernel/src/domain/fact-liveness.ts",
-    anchor: "FactLiveness",
-    words: ["standing", "superseded_fact"],
-    note:
-      "Single domain derivation of fact liveness (factLiveness); same two words and meanings as " +
-      "fact-record.state, now computed in one place.",
+    anchor: "factLivenessStates",
+    words: factLivenessStates,
+    note: "Single domain derivation of both projected liveness and authored Fact record state.",
   },
   {
     id: "closeout.gate-status",
@@ -235,17 +236,6 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["active", "archived", "tombstoned"],
     subsetOf: "package.disposition",
     note: "WIP snapshot entry mirror of the package disposition vocabulary.",
-  },
-  {
-    id: "fact-record.state",
-    entity: "FactRecord",
-    field: "state",
-    module: "packages/kernel/src/domain/fact-event.ts",
-    anchor: "#state",
-    words: ["standing", "superseded_fact"],
-    note:
-      "Per-fact row state in authored facts documents; the SQL projection derives the same two words from active " +
-      "supersedes-fact edges.",
   },
   {
     id: "review.verdict",
@@ -378,7 +368,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/gui/src/renderer/model/types.ts",
     anchor: "CanonicalStatus",
-    words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+    words: domainStatuses,
     mirrorOf: "task.status",
   },
   {
@@ -411,16 +401,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     mirrorOf: "package.disposition",
   },
 
-  // Daemon wire-protocol mirrors. The contract sits on the CLI's eager startup path, so
-  // it must not import the kernel barrel (the p50 overhead gate refuses eager module
-  // growth); the mirrors stay plain data and the ratchet gate locks them to the kernel.
+  // Daemon wire-protocol vocabularies are build-time projections because their eager
+  // CLI path cannot load the kernel barrel. The ratchet rejects a stale generated region.
   {
     id: "daemon.task.status",
     entity: "DaemonWire",
     field: "status",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "taskStatusWords",
-    words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+    words: domainStatuses,
     mirrorOf: "task.status",
   },
   {
@@ -483,8 +472,17 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "decisionStateWords",
-    words: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+    words: decisionStates,
     mirrorOf: "decision.state",
+  },
+  {
+    id: "daemon.fact.liveness",
+    entity: "DaemonWire",
+    field: "liveness",
+    module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+    anchor: "factLivenessWords",
+    words: factLivenessStates,
+    mirrorOf: "fact.liveness",
   },
   {
     id: "daemon.receipt.outcome",

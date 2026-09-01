@@ -108,7 +108,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       ? Number(receipt.exitCode)
       : receipt.ok === true || receipt.schema === "entity-action-explanation/v1"
         ? 0
-        : 1;
+        : receipt.code === "missing_field"
+          ? 2
+          : 1;
   } catch (error) {
     const autostartCode = daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),

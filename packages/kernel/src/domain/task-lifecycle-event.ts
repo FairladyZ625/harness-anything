@@ -232,6 +232,7 @@ export type TaskEventV1 =
   | LeaseReleasedEvent
   | TaskMutationEvent;
 export type TaskLifecycleErrorCode =
+  | "missing_field"
   | "invalid_schema"
   | "invalid_transition"
   | "invalid_proof"

@@ -1,6 +1,20 @@
 import type { CredentialKind, DaemonRepoMode, PeopleCommandClass } from "../../../kernel/src/index.ts";
 
+// daemon-status-vocabulary:generated:start
 export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
+
+export const decisionStateWords = [
+  "proposed",
+  "in_effect",
+  "rejected",
+  "deferred",
+  "superseded",
+  "outcome_retired",
+] as const;
+
+export const factLivenessWords = ["standing", "superseded_fact"] as const;
+
+// daemon-status-vocabulary:generated:end
 
 export const executionV1StateWords = ["active", "submitted", "changes_requested", "accepted"] as const;
 
@@ -39,15 +53,6 @@ export const relationOriginWords = ["declared", "imported_snapshot", "generated"
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
 
 export const reviewVerdictWords = ["approved", "changes_requested", "dismissed"] as const;
-
-export const decisionStateWords = [
-  "proposed",
-  "in_effect",
-  "rejected",
-  "deferred",
-  "superseded",
-  "outcome_retired",
-] as const;
 
 export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const;
 

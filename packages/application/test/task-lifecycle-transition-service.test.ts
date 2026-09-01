@@ -470,7 +470,11 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
     await transition("cancelled", "CH6 batch cleanup cancelled in error", true);
     await assert.rejects(
       transition("planned", ""),
-      /auditable reason/u,
+      (error) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "missing_field" &&
+        /auditable reason/u.test(error.message),
       "reinstate is audit-first: an empty reason never publishes",
     );
     const planned = await transition("planned", "Owner adjudicated rollback of the batch cancellation");

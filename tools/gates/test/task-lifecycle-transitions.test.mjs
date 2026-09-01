@@ -226,11 +226,9 @@ test("G10 block, unblock, and cancel are catalog transitions while unrelated act
     blocked.snapshot,
     "the unchanged task_transitioned event shape must replay exactly",
   );
-  assert.equal(
-    applyTransition(created.snapshot, transition(2, "blocked", "Force remains an ignored block flag", true), {})
-      .snapshot.task.status,
-    "blocked",
-  );
+  const forcedBlock = applyTransition(created.snapshot, transition(2, "blocked", "", true), {});
+  assert.equal(forcedBlock.snapshot.task.status, "blocked");
+  assert.equal(forcedBlock.event.payload.mutation.reason, "Explicit lifecycle transition to blocked");
   const unblocked = applyTransition(blocked.snapshot, transition(3, "active"), {});
   assert.equal(unblocked.snapshot.task.status, "active");
   assert.deepEqual(unblocked.event.payload.mutation, {

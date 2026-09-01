@@ -209,7 +209,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
   });
 });
 
-test("task transition conditional inputs preserve audited cancellation and reinstatement", () => {
+test("task transition leaves lifecycle eligibility to the kernel", () => {
   for (const argv of [
     ["task", "transition", "task-1", "planned"],
     ["task", "transition", "task-1", "cancelled"],
@@ -217,7 +217,7 @@ test("task transition conditional inputs preserve audited cancellation and reins
     ["task", "transition", "task-1", "cancelled", "--reason", "Scope withdrawn"],
     ["task", "transition", "task-1", "active", "--force"],
   ])
-    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
+    assert.equal(parseThinCommand(argv).ok, true, argv.join(" "));
   assert.equal(
     parseThinCommand(["task", "transition", "task-1", "planned", "--reason", "Owner adjudicated rollback"]).ok,
     true,
