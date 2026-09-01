@@ -129,8 +129,9 @@ export async function proofFor(
     const independentActor = execution !== undefined && isIndependentFrom(execution.actor, command.actor),
       externalCompletionEvidence = independentActor
         ? false
-        : validExternalCompletionEvidence(command, projection, rootDir);
-    if (!independentActor && !externalCompletionEvidence) {
+        : validExternalCompletionEvidence(command, projection, rootDir),
+      explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
+    if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
       throw cellCriterionError(
         "actor_unauthorized",
         "Task review actor independence proof was not satisfied.",
@@ -220,6 +221,19 @@ export async function proofFor(
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
+}
+
+function validNoIndependentReview(
+  command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" }>,
+  projection: ReturnType<typeof makeTaskProjection>,
+  rootDir: string,
+): boolean {
+  return (
+    command.noIndependentReview === true &&
+    command.noIndependentReviewReason !== undefined &&
+    command.noIndependentReviewReason.trim().length > 0 &&
+    readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0
+  );
 }
 
 function validExternalCompletionEvidence(

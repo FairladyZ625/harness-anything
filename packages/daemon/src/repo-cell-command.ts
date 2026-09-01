@@ -194,6 +194,15 @@ export function buildCommand(
             ),
             noDispatchReason: requiredCellText(packet.value.noDispatchReason, "noDispatchReason"),
           }),
+      ...(packet.value.noIndependentReview === undefined
+        ? {}
+        : {
+            noIndependentReview: packet.value.noIndependentReview === true,
+            noIndependentReviewReason: requiredCellText(
+              packet.value.noIndependentReviewReason,
+              "noIndependentReviewReason",
+            ),
+          }),
       commitSha: submitted.submission.commitSha,
       iteration: submitted.iteration,
       contentDigest: packet.digest,

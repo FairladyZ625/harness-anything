@@ -74,16 +74,20 @@ export function reviewPacket(
   try {
     const parsed = JSON.parse(body) as unknown,
       standardFields = [...reviewJsonFields].sort().join("\0"),
-      externalFields = [...reviewJsonFields, "externalCompletionAnchor", "noDispatchReason"].sort().join("\0");
+      externalFields = [...reviewJsonFields, "externalCompletionAnchor", "noDispatchReason"].sort().join("\0"),
+      noIndependentReviewFields = [...reviewJsonFields, "noIndependentReview", "noIndependentReviewReason"]
+        .sort()
+        .join("\0");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
     const fields = Object.keys(parsed).sort().join("\0");
-    if (fields !== standardFields && fields !== externalFields) throw new Error("unexpected fields");
+    if (fields !== standardFields && fields !== externalFields && fields !== noIndependentReviewFields)
+      throw new Error("unexpected fields");
     value = parsed as Record<string, unknown>;
   } catch {
     throw cellCodedError(
       "invalid_command",
       `Review JSON requires exactly ${reviewJsonFields.join(", ")}, or those fields plus ` +
-        "externalCompletionAnchor and noDispatchReason.",
+        "externalCompletionAnchor and noDispatchReason, or noIndependentReview and noIndependentReviewReason.",
     );
   }
   return {
