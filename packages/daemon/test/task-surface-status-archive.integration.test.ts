@@ -36,19 +36,16 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
       },
       binding,
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-transition",
-            taskId: "task_terminal",
-            status: "cancelled",
-          },
-          binding,
-        )
-      ).outcome,
-      "op_rejected",
+    const bareCancellation = await cell.run(
+      {
+        kind: "task-transition",
+        taskId: "task_terminal",
+        status: "cancelled",
+      },
+      binding,
     );
+    assert.equal(bareCancellation.outcome, "op_rejected");
+    assert.equal(bareCancellation.code, "missing_field");
     const cancelled = await cell.run(
       {
         kind: "task-transition",
@@ -65,7 +62,7 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
       binding,
     );
     assert.equal(bareReinstate.outcome, "op_rejected");
-    assert.equal(bareReinstate.code, "invalid_transition");
+    assert.equal(bareReinstate.code, "missing_field");
     assert.match(String(bareReinstate.nextAction), /auditable reason/u);
     const expectedVersion = cancelled.revision,
       [reinstated, staleReinstate] = await Promise.all([

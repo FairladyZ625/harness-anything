@@ -213,10 +213,7 @@ function transitionTask(
       status,
       ...(status === "cancelled" ? { pinned: false } : {}),
     },
-    reason =
-      status === "active" && !isNonEmptyString(command.reason)
-        ? "Explicit lifecycle transition to active"
-        : command.reason,
+    reason = isNonEmptyString(command.reason) ? command.reason : `Explicit lifecycle transition to ${status}`,
     mutation = { command: "transition" as const, reason, fields: ["status"] };
   return {
     snapshot: { ...snapshot, revision: command.workspaceRevision, task },
@@ -232,7 +229,7 @@ export const block: Transition = {
   from: "planned|active|in_review",
   proof: [],
   eventType: "task_transitioned",
-  matches: (command) => command.type === "TransitionTask" && command.status === "blocked" && !command.force,
+  matches: (command) => command.type === "TransitionTask" && command.status === "blocked",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -243,8 +240,6 @@ export const block: Transition = {
           "BlockTask requires an unleased planned, active, or in_review task",
         ),
       );
-    if (!isNonEmptyString(command.reason))
-      issues.push(lifecycleContractIssue("invalid_schema", "BlockTask requires a reason"));
     return issues;
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "blocked"),
@@ -262,8 +257,7 @@ export const reinstate: Transition = {
   matches: (command, snapshot) =>
     command.type === "TransitionTask" &&
     (reinstateTaskTargets as readonly DomainStatus[]).includes(command.status) &&
-    snapshot.task?.status === "cancelled" &&
-    !command.force,
+    snapshot.task?.status === "cancelled",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -280,7 +274,7 @@ export const reinstate: Transition = {
         ),
       );
     if (!isNonEmptyString(command.reason))
-      issues.push(lifecycleContractIssue("invalid_schema", "ReinstateTask requires an auditable reason"));
+      issues.push(lifecycleContractIssue("missing_field", "ReinstateTask requires an auditable reason"));
     return issues;
   },
   reduce: (snapshot, raw) =>
@@ -297,10 +291,7 @@ export const returnToPlanned: Transition = {
   proof: ["auditedReason"],
   eventType: "task_transitioned",
   matches: (command, snapshot) =>
-    command.type === "TransitionTask" &&
-    command.status === "planned" &&
-    snapshot.task?.status === "active" &&
-    !command.force,
+    command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -316,7 +307,7 @@ export const returnToPlanned: Transition = {
         ),
       );
     if (!isNonEmptyString(command.reason))
-      issues.push(lifecycleContractIssue("invalid_schema", "ReturnToPlanned requires an auditable reason"));
+      issues.push(lifecycleContractIssue("missing_field", "ReturnToPlanned requires an auditable reason"));
     return issues;
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "planned"),
@@ -327,7 +318,7 @@ export const unblock: Transition = {
   from: "blocked",
   proof: [],
   eventType: "task_transitioned",
-  matches: (command) => command.type === "TransitionTask" && command.status === "active" && !command.force,
+  matches: (command) => command.type === "TransitionTask" && command.status === "active",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);

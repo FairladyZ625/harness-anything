@@ -103,9 +103,7 @@ export function buildCommand(
         "invalid_transition",
         "Use planned, active, blocked, in_review, done, or cancelled as the target status.",
       );
-    const suppliedReason = typeof action.reason === "string" && action.reason.trim() ? action.reason.trim() : null,
-      requiresExplicitReason = status === "cancelled" || snapshot.task?.status === "cancelled",
-      reason = suppliedReason ?? (requiresExplicitReason ? "" : `Explicit lifecycle transition to ${status}`);
+    const reason = typeof action.reason === "string" && action.reason.trim() ? action.reason.trim() : "";
     return normalizeTaskLifecycleCommand(bound, {
       type: "TransitionTask",
       taskId,
