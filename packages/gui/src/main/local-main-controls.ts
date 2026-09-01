@@ -21,13 +21,22 @@ export function addLocalMainControls(input: {
   readonly invokingRoot?: string;
   readonly target: (repoId?: string) => Promise<Target>;
   readonly clientBuildCommit: string | null;
+  readonly canRestartDaemon?: () => boolean;
   readonly packaged?: PackagedRuntime;
   readonly credentialPort?: CredentialPort;
 }): GuiServiceBridge {
   const supervisor = createDaemonSupervisor({
     authorize: async (payload) => asRecord(await input.bridge.invoke("requestDaemonControl", payload)),
-    restart: async (repoId) =>
-      restartResidentDaemon(await input.target(repoId), input.invokingRoot ?? process.cwd(), input.packaged),
+    restart: async (repoId) => {
+      if (input.canRestartDaemon?.() === false)
+        throw new Error(
+          [
+            "This GUI attached to an existing service daemon and cannot restart it.",
+            "Restart the service daemon explicitly.",
+          ].join(" "),
+        );
+      return restartResidentDaemon(await input.target(repoId), input.invokingRoot ?? process.cwd(), input.packaged);
+    },
   });
   // API-key creation remains main-process-bound so the daemon receives only an opaque
   // credential reference; the resulting create call returns to the registry-derived bridge.
