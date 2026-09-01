@@ -10,6 +10,7 @@ import {
   validateTransition,
   type CreateReplayTaskProof,
   type StartExecutionProof,
+  type SubmitExecutionProof,
   type TaskLifecycleCommand,
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -36,7 +37,7 @@ function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
 function apply(
   snapshot: TaskLifecycleSnapshot,
   next: TaskLifecycleCommand,
-  proof: CreateReplayTaskProof | StartExecutionProof,
+  proof: CreateReplayTaskProof | StartExecutionProof | SubmitExecutionProof,
 ): TaskLifecycleSnapshot {
   return applyTransition(snapshot, next, proof as never).snapshot;
 }
@@ -78,6 +79,44 @@ function started(): TaskLifecycleSnapshot {
   );
 }
 
+function submitted(): TaskLifecycleSnapshot {
+  return apply(
+    started(),
+    command(3, {
+      type: "SubmitExecution",
+      taskId: "task-1",
+      executionId: "execution-1",
+      submission: {
+        completionClaim: "Implementation complete",
+        deliverables: ["repair"],
+        outputs: ["commit"],
+        verificationNotes: ["contract test"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha: "a".repeat(40),
+      },
+    }) as TaskLifecycleCommand,
+    { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+  );
+}
+
+/** A review-node task whose only execution relation was retired from the projection. */
+function strandedInReview(status: "planned" | "active" | "in_review" = "active"): TaskLifecycleSnapshot {
+  const snapshot = planned();
+  return {
+    ...snapshot,
+    task: { ...snapshot.task!, status, currentNode: "review" },
+    executions: [],
+    lease: null,
+  };
+}
+
+function hasTransitionIssue(snapshot: TaskLifecycleSnapshot, intent: Parameters<typeof command>[1]): boolean {
+  return validateTransition(snapshot, command(snapshot.revision + 1, intent) as TaskLifecycleCommand, {} as never).some(
+    ({ code }) => code === "invalid_transition",
+  );
+}
+
 test("a fresh task admits any execution id", () => {
   assert.equal(canStartExecution(planned(), "execution-1"), true);
   assert.equal(canStartExecution(planned(), "anything-else"), true);
@@ -89,6 +128,78 @@ test("a held lease blocks StartExecution regardless of the execution id", () => 
   assert.equal(held.lease?.phase, "held", "fixture precondition: the lease is held");
   assert.equal(canStartExecution(held, "execution-1"), false);
   assert.equal(canStartExecution(held, "execution-fresh"), false);
+});
+
+test("a submitted execution preserves review integrity and blocks StartExecution", () => {
+  const review = submitted();
+  assert.equal(review.task?.status, "in_review");
+  assert.equal(review.task?.currentNode, "review");
+  assert.equal(review.executions[0]?.state, "submitted");
+  assert.equal(canStartExecution(review, "execution-1"), false);
+  assert.equal(canStartExecution(review, "execution-fresh"), false);
+});
+
+test("a review node with no submitted execution recovers exclusively through StartExecution", () => {
+  for (const status of ["planned", "active", "in_review"] as const) {
+    const stranded = strandedInReview(status),
+      startIntent = {
+        type: "StartExecution",
+        taskId: "task-1",
+        executionId: "execution-recovery",
+      } as const,
+      submitIntent = {
+        type: "SubmitExecution",
+        taskId: "task-1",
+        executionId: "execution-recovery",
+        submission: {
+          completionClaim: "Recovered execution complete",
+          deliverables: ["repair"],
+          outputs: ["commit"],
+          verificationNotes: ["contract test"],
+          knownGaps: [],
+          residualRisks: [],
+          commitSha: "a".repeat(40),
+        },
+      } as const,
+      reviewIntent = {
+        type: "RecordReview",
+        taskId: "task-1",
+        executionId: "execution-recovery",
+        reviewId: "review-recovery",
+        verdict: "approved",
+        reason: "reviewed",
+        evidenceChecked: ["contract test"],
+        commitSha: "a".repeat(40),
+        iteration: 0,
+        contentDigest: `sha256:${"b".repeat(64)}`,
+      } as const,
+      completeIntent = {
+        type: "CompleteTask",
+        taskId: "task-1",
+        executionId: "execution-recovery",
+      } as const;
+
+    assert.equal(hasTransitionIssue(stranded, startIntent), false, `${status}/review must admit recovery start`);
+    assert.equal(hasTransitionIssue(stranded, submitIntent), true, "submit still requires the recovered execution");
+    assert.equal(hasTransitionIssue(stranded, reviewIntent), true, "review still requires a submission");
+    assert.equal(hasTransitionIssue(stranded, completeIntent), true, "complete still requires approved consent");
+
+    const recovered = apply(stranded, command(stranded.revision + 1, startIntent) as TaskLifecycleCommand, {
+      actorBinding: implementer,
+      reservation: {
+        taskId: "task-1",
+        executionId: "execution-recovery",
+        expiresAt: "2026-08-17T01:00:00.000Z",
+        ttlMs: 1_800_000,
+        previousHolder: null,
+        reason: "initial_claim",
+        version: 0,
+      },
+    });
+    assert.equal(recovered.task?.status, "active");
+    assert.equal(recovered.task?.currentNode, "implementation");
+    assert.equal(hasTransitionIssue(recovered, submitIntent), false, "the normal submit path is reachable again");
+  }
 });
 
 test("two edge commands with the same expected version cannot both commit", () => {
