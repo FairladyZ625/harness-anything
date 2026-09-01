@@ -224,7 +224,14 @@ export interface EntityActionContract {
 
 export interface EntityActionInputField {
   readonly field: string;
-  readonly type: "string" | "number" | "boolean" | "string-array" | "fact-hold-array" | "json-object";
+  readonly type:
+    | "string"
+    | "number"
+    | "boolean"
+    | "string-array"
+    | "fact-hold-array"
+    | "json-object"
+    | "json-object-array";
   readonly required: boolean;
   readonly enum?: readonly string[];
   readonly regex?: string;

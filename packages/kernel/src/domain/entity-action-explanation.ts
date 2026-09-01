@@ -363,7 +363,9 @@ function validInputField(value: unknown): boolean {
   if (!Object.keys(value).every((field) => allowed.includes(field))) return false;
   if (
     !explanationNonEmpty(value.field) ||
-    !["string", "number", "boolean", "string-array", "fact-hold-array", "json-object"].includes(String(value.type)) ||
+    !["string", "number", "boolean", "string-array", "fact-hold-array", "json-object", "json-object-array"].includes(
+      String(value.type),
+    ) ||
     typeof value.required !== "boolean" ||
     (value.enum !== undefined && !explanationStringList(value.enum)) ||
     (value.regex !== undefined && typeof value.regex !== "string")

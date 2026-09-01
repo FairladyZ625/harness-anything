@@ -1,4 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import {
   parseDecisionAmend,
   parseDecisionRepin,
@@ -8,22 +9,25 @@ import {
 import { parseDecisionRead } from "./thin-command-decision-read.ts";
 import { accepted, nonEmpty, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
-import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
+import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseDecision(
-  id: string,
+  route: ProtocolCommand,
   args: readonly string[],
   rootDir: SafePath,
   repoId: string | undefined,
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
+  const id = route.id,
+    actionKind = "actionKind" in route ? route.actionKind : id,
+    contract = getExecutableEntityAction(actionKind);
   if (id === "decision-validate" || id === "decision-verify")
     return parseDecisionValidation(id, args, rootDir, repoId, json, inputs);
   if (id === "decision-repin") return parseDecisionRepin(args, rootDir, repoId, json, inputs);
   if (id === "decision-transition") return parseDecisionTransition(args, rootDir, repoId, json, inputs);
   const noId = id === "decision-propose" || id === "decision-list",
-    nested = id.startsWith("decision-claim-"),
+    nested = contract?.id === "declare-claim" || contract?.id === "fulfill-claim",
     decisionId = noId ? undefined : args[nested ? 3 : 2];
   if (!noId && !nonEmpty(decisionId)) return rejected("missing_field", "Decision id is required.", json);
   if (id === "decision-propose") return parseProposal(args, rootDir, repoId, json, inputs);
@@ -43,7 +47,7 @@ export function parseDecision(
       decisionId,
     });
   if (id === "decision-amend") return parseDecisionAmend(decisionId!, args, rootDir, repoId, json, inputs);
-  if (id.startsWith("decision-claim-")) return parseClaim(id, decisionId!, args, rootDir, repoId, json, inputs);
+  if (nested) return parseClaim(id, decisionId!, args, rootDir, repoId, json, inputs);
   if (id === "decision-reckon")
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       decisionId,

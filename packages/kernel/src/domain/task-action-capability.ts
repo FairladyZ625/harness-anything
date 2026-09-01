@@ -1,4 +1,4 @@
-import { isIndependentFrom, isSamePerson } from "./actor-domain-services.ts";
+import { isIndependentFrom, isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { closeoutReadiness, currentSubmittedExecutions } from "./closeout-readiness.ts";
 import type { EntityActionCriterionStatus } from "./entity-action-explanation.ts";
 import type { EntityActionContract } from "./entity-kind-registry.ts";
@@ -80,6 +80,13 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
+    [key("release", "repo-cell-task-mutation/release"), releaseAvailability],
+    [key("amend", "repo-cell-task-mutation/amend"), mutationInvocation],
+    [key("archive", "repo-cell-task-mutation/archive"), activeDispositionInvocation],
+    [key("supersede", "repo-cell-task-mutation/supersede"), activeDispositionInvocation],
+    [key("delete", "repo-cell-task-mutation/delete"), activeDispositionInvocation],
+    [key("reopen", "repo-cell-task-mutation/reopen"), reopenInvocation],
+    [key("contract-migrate", "repo-cell-task-mutation/contract-migrate"), mutationInvocation],
   ]),
 );
 
@@ -106,6 +113,29 @@ export function evaluateTaskActionCapability(
       ),
     });
   });
+}
+
+function releaseAvailability({ snapshot, actor }: TaskActionCapabilityInput): "met" | "unmet" {
+  return snapshot.lease && isSameExecution(snapshot.lease.actor, actor) ? "met" : "unmet";
+}
+
+function mutationInvocation(): "invocation-required" {
+  return "invocation-required";
+}
+
+function activeDispositionInvocation({ snapshot }: TaskActionCapabilityInput): "invocation-required" | "unmet" {
+  return snapshot.lease === null && (snapshot.task?.packageDisposition ?? "active") === "active"
+    ? "invocation-required"
+    : "unmet";
+}
+
+function reopenInvocation({ snapshot }: TaskActionCapabilityInput): "invocation-required" | "unmet" {
+  return snapshot.lease === null &&
+    snapshot.task !== null &&
+    !["done", "cancelled"].includes(snapshot.task.status) &&
+    ["archived", "tombstoned"].includes(snapshot.task.packageDisposition ?? "active")
+    ? "invocation-required"
+    : "unmet";
 }
 
 function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {

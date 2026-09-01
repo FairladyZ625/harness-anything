@@ -36,7 +36,6 @@ import {
 } from "../../kernel/src/index.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
-import { actionCriterionFailureOfReceipt } from "./repo-cell-settlement.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   commitRuntimeSessionBundle,
@@ -116,7 +115,7 @@ export function makeEntityActionCatalogExecutor(input: {
       prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
     if (contract.execution.implementation === "catalog-runtime") {
-      const runtime = runtimes.entity?.[contract.target.kind];
+      const runtime = contract.target.kind === "task" ? runtimes.task : runtimes.entity?.[contract.target.kind];
       if (!runtime)
         throw Object.assign(new Error(`Action ${action.kind} requires the ${contract.target.kind} catalog runtime.`), {
           code: "unsupported_command",
@@ -473,13 +472,7 @@ export function deriveActionResult(
         : targetIdField && typeof receiptFields[targetIdField] === "string"
           ? receiptFields[targetIdField]
           : null,
-    attributedFailure = actionCriterionFailureOfReceipt(receipt),
-    attributedRefs = attributedFailure
-      ? attributedFailure.actionId === contract.id
-        ? [attributedFailure.criterionRef]
-        : invalidCriterionAttribution(contract, attributedFailure.actionId, attributedFailure.criterionRef)
-      : [],
-    criterionRefs = receipt.unmetCriteria?.map(({ ref }) => ref) ?? attributedRefs,
+    criterionRefs = receipt.unmetCriteria?.map(({ ref }) => ref) ?? [],
     unmetCriteria: readonly EntityActionUnmetCriterionV1[] =
       receipt.outcome === "op_rejected"
         ? criterionRefs.map((criterionRef) => resolveActionCriterion(contract, criterionRef))
@@ -503,17 +496,9 @@ export function deriveActionResult(
             revision: receipt.revision ?? null,
           },
     rejectionExplanation: explanation,
-    nextActions: Object.freeze(
-      unmetCriteria.length > 0
-        ? [
-            ...new Set([
-              ...(receipt.nextActions ?? []),
-              ...(!attributedFailure && receipt.nextAction ? [receipt.nextAction] : []),
-              ...(attributedFailure?.nextActions ?? []),
-            ]),
-          ]
-        : [...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])])],
-    ),
+    nextActions: Object.freeze([
+      ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
+    ]),
   };
 }
 
@@ -525,15 +510,6 @@ function resolveActionCriterion(contract: EntityActionContract, criterionRef: st
       { code: "invalid_store" },
     );
   return { ref: criterion.ref, failureCode: criterion.failureCode, explain: criterion.explain };
-}
-
-function invalidCriterionAttribution(contract: EntityActionContract, actionId: string, criterionRef: string): never {
-  throw Object.assign(
-    new Error(
-      `Action ${contract.target.kind}.${contract.id} received criterion ${criterionRef} attributed to ${actionId}.`,
-    ),
-    { code: "invalid_store" },
-  );
 }
 
 function reclassificationAction(

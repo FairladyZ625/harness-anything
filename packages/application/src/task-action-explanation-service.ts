@@ -3,7 +3,6 @@ import {
   evaluateTaskActionCapability,
   getEntityKindContract,
   taskActionUsage,
-  taskLifecycleActionIds,
   validateEntityActionExplanationSet,
   type ActorIdentity,
   type AuthorizationDecision,
@@ -13,7 +12,6 @@ import {
   type EntityActionExplanationSetV1,
   type EntityActionExplanationV1,
   type EntityRef,
-  type TaskLifecycleActionId,
   type TaskLifecycleSnapshot,
 } from "../../kernel/src/index.ts";
 
@@ -86,16 +84,13 @@ export function makeTaskActionExplanationService(
 function taskActionCatalog(): { readonly ref: string; readonly actions: readonly EntityActionContract[] } {
   const catalog = getEntityKindContract("task")?.actionCatalog;
   if (!catalog) throw new Error("The Task Entity Action catalog is unavailable.");
-  const actions = taskLifecycleActionIds.map((id) => catalog.actions.find((action) => action.id === id));
-  if (actions.some((action) => action === undefined))
-    throw new Error("The Task Entity Action catalog does not contain the four lifecycle actions.");
-  return { ref: catalog.ref, actions: actions as readonly EntityActionContract[] };
+  return catalog;
 }
 
 function descriptor(catalogRef: string, action: EntityActionContract): EntityActionExplanationV1["action"] {
   return Object.freeze({
     kind: "task" as const,
-    id: action.id as TaskLifecycleActionId,
+    id: action.id,
     catalogRef,
     contractVersion: `${action.version.major}.${action.version.minor}`,
     explain: action.explain,

@@ -13,6 +13,9 @@ export interface AgentActionDraft {
   readonly entity: AgentDeclarationV1;
 }
 
+export const agentActionIds = Object.freeze(["install", "validate", "list", "inspect"] as const);
+export type AgentActionId = (typeof agentActionIds)[number];
+
 const input = (
   fields: readonly EntityActionInputField[],
   exactlyOneOf: readonly (readonly string[])[] = [],
@@ -23,8 +26,16 @@ const input = (
     exactlyOneOf: Object.freeze(exactlyOneOf.map((group) => Object.freeze(group))),
   });
 
+const readConcurrency: EntityActionContract["concurrency"] = Object.freeze({
+  expectedVersion: Object.freeze({ authority: "canonical-projection-cut", required: false }),
+  leasePolicy: Object.freeze({ authority: "not-applicable" }),
+  occurrenceClaim: Object.freeze({ authority: "not-applicable" }),
+  idempotency: Object.freeze({ authority: "operation-id", input: "idempotencyKey" }),
+  artifactOwnership: Object.freeze({ authority: "not-applicable" }),
+});
+
 export function createAgentActionCatalog(
-  baseAction: (id: "install") => EntityActionContract,
+  baseAction: (id: AgentActionId) => EntityActionContract,
   actionResultContract: EntityActionContract["returns"],
 ) {
   const declared = baseAction("install");
@@ -115,6 +126,72 @@ export function createAgentActionCatalog(
           implementation: "compiled-event" as const,
           topology: "center-forward-write" as const,
           targetIdField: "entityId",
+        }),
+      }),
+      Object.freeze({
+        ...baseAction("validate"),
+        input: input([{ field: "packageSource", type: "string", required: true }]),
+        policy: Object.freeze({ ref: "default@5", action: null }),
+        criteria: Object.freeze([
+          {
+            ref: "agent/declaration-schema",
+            failureCode: "invalid_manifest",
+            explain: "The supplied package contains a valid agent-declaration/v1 manifest.",
+          },
+          {
+            ref: "agent/instructions-ready",
+            failureCode: "instructions_placeholder",
+            explain: "The supplied package contains authored Agent instructions.",
+          },
+        ]),
+        concurrency: readConcurrency,
+        effects: Object.freeze([]),
+        returns: actionResultContract,
+        explain: "Validate one Agent declaration package without mutation.",
+        execution: Object.freeze({
+          ingress: "agent-validate",
+          compile: null,
+          read: true,
+          implementation: "catalog-runtime" as const,
+        }),
+      }),
+      Object.freeze({
+        ...baseAction("list"),
+        input: input([]),
+        policy: Object.freeze({ ref: "default@5", action: null }),
+        criteria: Object.freeze([]),
+        concurrency: readConcurrency,
+        effects: Object.freeze([]),
+        returns: actionResultContract,
+        explain: "List installed Agent declarations from the canonical projection cut.",
+        execution: Object.freeze({
+          ingress: "agent-list",
+          compile: null,
+          read: true,
+          implementation: "catalog-runtime" as const,
+        }),
+      }),
+      Object.freeze({
+        ...baseAction("inspect"),
+        input: input([{ field: "agentId", type: "string", required: true }]),
+        policy: Object.freeze({ ref: "default@5", action: null }),
+        criteria: Object.freeze([
+          {
+            ref: "agent/entity-present",
+            failureCode: "agent_not_found",
+            explain: "The requested Agent exists at the canonical cut.",
+          },
+        ]),
+        concurrency: readConcurrency,
+        effects: Object.freeze([]),
+        returns: actionResultContract,
+        explain: "Inspect one Agent declaration and its instructions from the canonical projection cut.",
+        execution: Object.freeze({
+          ingress: "agent-inspect",
+          compile: null,
+          read: true,
+          implementation: "catalog-runtime" as const,
+          targetIdField: "agentId",
         }),
       }),
     ]),

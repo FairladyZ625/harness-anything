@@ -5,14 +5,7 @@ import type { ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin
 // The command descriptor is the single authority on which closed task-action method serves a kind;
 // parsers that pass no explicit method get the descriptor's routing instead of a hardcoded default.
 export function taskActionMethodFor(kind: string): string {
-  try {
-    // The declaration literals keep their authored "repo.task.run"; the repo-read topology
-    // rewrites the runtime value, so compare on the widened runtime string.
-    const method: string = commandDescriptorForAction(kind).method;
-    return method === "repo.task.read" ? "repo.task.read" : "repo.task.run";
-  } catch {
-    return "repo.task.run";
-  }
+  return commandDescriptorForAction(kind).method;
 }
 
 export function optionalFlags(

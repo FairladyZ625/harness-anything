@@ -183,21 +183,40 @@ export async function executeAction(
   }
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "task" && actionContract.execution) {
-    const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    const targetIdField = actionContract.execution.targetIdField ?? "taskId",
+      targetId =
+        typeof action[targetIdField] === "string" && action[targetIdField] ? String(action[targetIdField]) : null,
+      targetRevision = targetId
+        ? cell.projection.read(targetId).snapshot.revision
+        : (cell.store.readHead()?.revision ?? 0),
       lifecycle = actionContract.execution.lifecycle,
       leasedStart =
         lifecycle?.coordination === "reserve" &&
-        ["held", "reserving"].includes(cell.projection.currentLease(taskId, cell.now())?.phase ?? "");
-    if (lifecycle?.coordination === "reserve" && !leasedStart) cell.assertTaskWipCapacity(taskId, "active");
+        targetId !== null &&
+        ["held", "reserving"].includes(cell.projection.currentLease(targetId, cell.now())?.phase ?? "");
+    if (lifecycle?.coordination === "reserve" && targetId && !leasedStart)
+      cell.assertTaskWipCapacity(targetId, "active");
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, cell.projection.read(taskId).snapshot.revision),
+      cell.operationId(action, binding, cell.input.repoId, targetRevision),
       {
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
+          if (contract.execution?.implementation === "catalog-runtime") {
+            if (catalogAction.kind === "task-contract-migrate")
+              return cell.migrateTaskContracts(catalogAction, catalogBinding);
+            if (
+              catalogAction.kind === "task-archive" &&
+              (Array.isArray(catalogAction.taskIds) || typeof catalogAction.filter === "string")
+            )
+              return cell.archiveTasks(catalogAction, catalogBinding);
+            if (catalogAction.kind === "task-supersede" && typeof catalogAction.title === "string")
+              return cell.supersedeWithNewTask(catalogAction, catalogBinding);
+            return cell.taskSurfaceWrite(catalogAction, catalogBinding);
+          }
           return contract.execution?.implementation === "task-completion"
             ? cell.completeTask(catalogAction, catalogBinding)
             : cell.lifecycleAction(catalogAction, catalogBinding);
@@ -226,7 +245,7 @@ export async function executeAction(
     );
   }
   const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
-  if (actionContract?.execution)
+  if (actionContract?.execution && !actionContract.execution.read)
     return cell.entityActionExecutor.run(
       action,
       binding,
@@ -251,7 +270,11 @@ export async function executeAction(
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
   }
-  if (/^agent-(?:list|inspect|validate)$/u.test(action.kind)) {
+  if (
+    actionContract?.execution?.read &&
+    (actionContract.target.kind === "agent" || actionContract.target.kind === "squad") &&
+    ["list", "inspect", "validate"].includes(actionContract.id)
+  ) {
     const revision = cell.store.readHead()?.revision ?? 0,
       result = runAgentEntityAction({
         rootDir: cell.rootDir,
@@ -363,14 +386,8 @@ export async function executeAction(
   )
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
   if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
-  if (action.kind === "task-contract-migrate") return cell.migrateTaskContracts(action, binding);
-  if (action.kind === "task-archive" && (Array.isArray(action.taskIds) || typeof action.filter === "string"))
-    return cell.archiveTasks(action, binding);
-  if (action.kind === "task-supersede" && typeof action.title === "string")
-    return cell.supersedeWithNewTask(action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   if (action.kind === "task-closeout") return cell.closeoutTask(action, binding);
-  if (cell.taskSurfaceWriteKind(action.kind)) return cell.taskSurfaceWrite(action, binding);
   return cell.lifecycleAction(action, binding);
 }
 

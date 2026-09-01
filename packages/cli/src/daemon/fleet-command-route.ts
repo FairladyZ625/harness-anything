@@ -1,4 +1,5 @@
 import path from "node:path";
+import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import { daemonUserRoot, readRegisteredRepos } from "../../../daemon/src/client/local-daemon-target.ts";
 import { canonicalRoot, daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -13,7 +14,7 @@ export async function fleetScheduleRoute(
       (candidate) =>
         candidate.method === command.method &&
         candidate.id === command.action.kind &&
-        candidate.id.startsWith("schedule-"),
+        getExecutableEntityAction(candidate.id)?.target.kind === "schedule",
     )
   )
     return null;

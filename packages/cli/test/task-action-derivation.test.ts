@@ -11,8 +11,10 @@ import {
 import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
-test("daemon command inputs and thin CLI parameters are projections of Task Actions", () => {
-  const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [];
+test("daemon lifecycle command inputs and thin CLI parameters are projections of Task Actions", () => {
+  const actions = (getEntityKindContract("task")?.actionCatalog?.actions ?? []).filter(
+    (action) => action.execution?.lifecycle !== undefined,
+  );
   assert.deepEqual(
     generatedTaskActionProtocolDeclarations,
     actions.map(({ id, input, explain, execution }) => ({ id, input, explain, execution })),

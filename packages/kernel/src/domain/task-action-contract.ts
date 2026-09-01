@@ -57,13 +57,25 @@ const cliField = (
 };
 
 type TaskActionDeclaration = {
-  readonly id: "start" | "submit" | "review" | "complete";
-  readonly ingress: "task-start" | "task-submit" | "task-review-execution" | "task-complete";
-  readonly commandType: "StartExecution" | "SubmitExecution" | "RecordReview" | "CompleteTask";
-  readonly transitionId: "start_execution" | "submit_execution" | "record_execution_review" | "complete_task";
-  readonly implementation: "task-lifecycle" | "task-completion";
+  readonly id:
+    | "start"
+    | "submit"
+    | "review"
+    | "complete"
+    | "release"
+    | "amend"
+    | "archive"
+    | "supersede"
+    | "delete"
+    | "reopen"
+    | "contract-migrate";
+  readonly ingress: string;
+  readonly commandType: "StartExecution" | "SubmitExecution" | "RecordReview" | "CompleteTask" | null;
+  readonly transitionId: "start_execution" | "submit_execution" | "record_execution_review" | "complete_task" | null;
+  readonly implementation: "task-lifecycle" | "task-completion" | "catalog-runtime";
   readonly topology: "center-forward-write" | "ledger-write" | "local-arbiter";
-  readonly coordination: "reserve" | "execute";
+  readonly coordination: "reserve" | "execute" | null;
+  readonly targetIdField: "taskId" | "oldTaskId";
   readonly input: EntityActionInputContract;
   readonly policyAction: string | null;
   readonly criteria: EntityActionContract["criteria"];
@@ -88,6 +100,21 @@ const taskConcurrency = (
     artifactOwnership: Object.freeze({ owner: "execution", refTemplate: "execution/{executionId}" }),
   });
 
+const taskMutationConcurrency: EntityActionContract["concurrency"] = Object.freeze({
+  expectedVersion: Object.freeze({
+    authority: "task/v2 canonical projection",
+    default: "daemon-bound-projection-revision",
+    conflict: "revision_conflict",
+  }),
+  leasePolicy: Object.freeze({ authority: "task-lease/v1", mode: "mutation-specific" }),
+  occurrenceClaim: Object.freeze({ authority: "not-applicable" }),
+  idempotency: Object.freeze({ authority: "operation-id", retry: "canonical-event-replay" }),
+  artifactOwnership: Object.freeze({ owner: "task", refTemplate: "task/{taskId}" }),
+});
+
+const mutationCriterion = (id: string, failureCode: string, explain: string): EntityActionContract["criteria"] =>
+  Object.freeze([{ ref: `repo-cell-task-mutation/${id}`, failureCode, explain }]);
+
 const taskActionDeclarations = Object.freeze([
   {
     id: "start",
@@ -97,6 +124,7 @@ const taskActionDeclarations = Object.freeze([
     implementation: "task-lifecycle",
     topology: "center-forward-write",
     coordination: "reserve",
+    targetIdField: "taskId",
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
@@ -141,6 +169,7 @@ const taskActionDeclarations = Object.freeze([
     implementation: "task-lifecycle",
     topology: "ledger-write",
     coordination: "execute",
+    targetIdField: "taskId",
     input: actionInput(
       [
         taskIdInput,
@@ -201,6 +230,7 @@ const taskActionDeclarations = Object.freeze([
     implementation: "task-lifecycle",
     topology: "local-arbiter",
     coordination: "execute",
+    targetIdField: "taskId",
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
@@ -246,6 +276,7 @@ const taskActionDeclarations = Object.freeze([
     implementation: "task-completion",
     topology: "ledger-write",
     coordination: "execute",
+    targetIdField: "taskId",
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
@@ -309,6 +340,195 @@ const taskActionDeclarations = Object.freeze([
     ),
     explain: "Complete the reviewed execution after canonical closeout readiness and gate checks.",
   },
+  {
+    id: "release",
+    ingress: "task-release",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "center-forward-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput([
+      taskIdInput,
+      cliField("reason", "string", false, "--reason", "single", "Use one non-empty release reason."),
+      { field: "terminalExecutionId", type: "string", required: false },
+      { field: "terminalRuntimeSessionId", type: "string", required: false },
+    ]),
+    policyAction: "task-release",
+    criteria: mutationCriterion(
+      "release",
+      "lease_conflict",
+      "The Task has a releasable lease owned by the authenticated holder or an authorized recovery actor.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Release the current Task execution lease while preserving its audit history.",
+  },
+  {
+    id: "amend",
+    ingress: "task-amend",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput([
+      taskIdInput,
+      cliField("patches", "json-object-array", true, "--set", "repeated", "Use --set <field>:<value> at least once.", {
+        format: "<field>:<value>",
+      }),
+    ]),
+    policyAction: "task-amend",
+    criteria: mutationCriterion(
+      "amend",
+      "invalid_amend",
+      "The requested fields belong to the declared mutable Task metadata and no conflicting lease is active.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Amend declared Task prose or metadata through the canonical Task event stream.",
+  },
+  {
+    id: "archive",
+    ingress: "task-archive",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput(
+      [
+        { ...taskIdInput, required: false },
+        { field: "taskIds", type: "string-array", required: false },
+        cliField("filter", "string", false, "--filter", "single", "Use --filter state:<status>."),
+        cliField("before", "string", false, "--before", "single", "Use an ISO-compatible date with --before."),
+        cliField("reason", "string", true, "--reason", "single", "Add an auditable archive reason."),
+        cliField("archivedBy", "string", false, "--archived-by", "single", "Use one non-empty actor id."),
+        cliField("archiveField", "string", false, "--archive-field", "single", "Use one declared archive field."),
+      ],
+      [["taskId", "taskIds", "filter"]],
+    ),
+    policyAction: "task-archive",
+    criteria: mutationCriterion(
+      "archive",
+      "invalid_disposition",
+      "Each selected Task is active, unleased, and eligible for archival.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Archive one or more Task packages while retaining canonical evidence and history.",
+  },
+  {
+    id: "supersede",
+    ingress: "task-supersede",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "oldTaskId",
+    input: actionInput(
+      [
+        { field: "oldTaskId", type: "string", required: true },
+        cliField("title", "string", false, "--title", "single", "Choose --title or --by, not both."),
+        cliField("slug", "string", false, "--slug", "single", "Use lowercase kebab-case with --title."),
+        cliField("byTaskId", "string", false, "--by", "single", "Choose --title or --by, not both."),
+        cliField("confirm", "string", false, "--confirm", "single", "Confirm the old Task id when using --by."),
+        cliField("reason", "string", false, "--reason", "single", "Use one non-empty auditable reason."),
+        cliField("deletedBy", "string", false, "--deleted-by", "single", "Use one non-empty actor id."),
+        cliField(
+          "allowOpenFindings",
+          "boolean",
+          false,
+          "--allow-open-findings",
+          "boolean",
+          "Use --allow-open-findings once after reviewing unresolved findings.",
+        ),
+      ],
+      [["title", "byTaskId"]],
+    ),
+    policyAction: "task-supersede",
+    criteria: mutationCriterion(
+      "supersede",
+      "invalid_disposition",
+      "The old Task is active, unleased, and names or creates one valid replacement.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Archive old work and preserve explicit replacement lineage.",
+  },
+  {
+    id: "delete",
+    ingress: "task-delete",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput([
+      taskIdInput,
+      { field: "mode", type: "string", required: true, enum: ["soft", "hard"] },
+      cliField("confirm", "string", false, "--confirm", "single", "Confirm the selected Task for hard delete."),
+      cliField("reason", "string", false, "--reason", "single", "Soft delete requires an auditable reason."),
+      cliField("deletedBy", "string", false, "--deleted-by", "single", "Use one non-empty actor id."),
+    ]),
+    policyAction: "task-delete",
+    criteria: mutationCriterion(
+      "delete",
+      "hard_delete_forbidden",
+      "Production Task deletion is soft, auditable, and applies only without an active lease.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Soft-delete a Task through canonical disposition authority; hard delete remains forbidden.",
+  },
+  {
+    id: "reopen",
+    ingress: "task-reopen",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput([
+      taskIdInput,
+      cliField("reason", "string", true, "--reason", "single", "Add an auditable reopen reason."),
+    ]),
+    policyAction: "task-reopen",
+    criteria: mutationCriterion(
+      "reopen",
+      "invalid_disposition",
+      "The Task is nonterminal, unleased, and currently archived or tombstoned.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Reopen an archived or tombstoned nonterminal Task package.",
+  },
+  {
+    id: "contract-migrate",
+    ingress: "task-contract-migrate",
+    commandType: null,
+    transitionId: null,
+    implementation: "catalog-runtime",
+    topology: "ledger-write",
+    coordination: null,
+    targetIdField: "taskId",
+    input: actionInput([
+      { field: "taskId", type: "string", required: false },
+      { field: "mode", type: "string", required: true, enum: ["dry-run", "apply"] },
+      { field: "repairPresetSnapshotDigest", type: "string", required: false },
+      { field: "repairTaskContractBody", type: "string", required: false },
+      { field: "repairPresetId", type: "string", required: false },
+      { field: "repairTaskClass", type: "string", required: false },
+    ]),
+    policyAction: "task-contract-migrate",
+    criteria: mutationCriterion(
+      "contract-migrate",
+      "contract_current",
+      "Each selected legacy Task has one deterministic task-contract/v1 backfill or repair.",
+    ),
+    concurrency: taskMutationConcurrency,
+    explain: "Plan or apply deterministic Task contract backfills through the catalog runtime.",
+  },
 ] as const satisfies readonly TaskActionDeclaration[]);
 
 export function createTaskActionCatalog(
@@ -335,24 +555,42 @@ export function createTaskActionCatalog(
                       },
                     ]
                   : []),
-                { field: "commandType", type: "string", required: false, enum: [declaration.commandType] },
+                ...(declaration.commandType
+                  ? [
+                      {
+                        field: "commandType" as const,
+                        type: "string" as const,
+                        required: false,
+                        enum: [declaration.commandType],
+                      },
+                    ]
+                  : []),
               ],
               declaration.input.exactlyOneOf,
             ),
             policy: Object.freeze({ ref: "default@5", action: declaration.policyAction }),
             criteria: Object.freeze([
-              {
-                ref: "task-lifecycle-contract-support/revisionIssues",
-                failureCode: "invalid_transition",
-                explain: "The command expectedVersion equals the canonical Task projection revision at commit time.",
-              },
+              ...(declaration.transitionId
+                ? [
+                    {
+                      ref: "task-lifecycle-contract-support/revisionIssues",
+                      failureCode: "invalid_transition",
+                      explain:
+                        "The command expectedVersion equals the canonical Task projection revision at commit time.",
+                    },
+                  ]
+                : []),
               ...declaration.criteria,
             ]),
             concurrency: declaration.concurrency,
-            effects: Object.freeze([
-              { ref: "task-lifecycle-publication/compileTaskLifecycleWrite", projection: "TaskProjection" },
-              { ref: `task-lifecycle-transitions/${declaration.transitionId}`, projection: "TaskProjection" },
-            ]),
+            effects: Object.freeze(
+              declaration.transitionId
+                ? [
+                    { ref: "task-lifecycle-publication/compileTaskLifecycleWrite", projection: "TaskProjection" },
+                    { ref: `task-lifecycle-transitions/${declaration.transitionId}`, projection: "TaskProjection" },
+                  ]
+                : [{ ref: `repo-cell-task-mutation/${declaration.id}`, projection: "TaskProjection" }],
+            ),
             returns: actionResultContract,
             explain: declaration.explain,
             execution: Object.freeze({
@@ -361,13 +599,17 @@ export function createTaskActionCatalog(
               read: false,
               implementation: declaration.implementation,
               topology: declaration.topology,
-              targetIdField: "taskId",
-              lifecycle: Object.freeze({
-                transitionId: declaration.transitionId,
-                commandType: declaration.commandType,
-                targetIdField: "executionId",
-                coordination: declaration.coordination,
-              }),
+              targetIdField: declaration.targetIdField,
+              ...(declaration.transitionId && declaration.commandType && declaration.coordination
+                ? {
+                    lifecycle: Object.freeze({
+                      transitionId: declaration.transitionId,
+                      commandType: declaration.commandType,
+                      targetIdField: "executionId",
+                      coordination: declaration.coordination,
+                    }),
+                  }
+                : {}),
             }),
           }),
       ),

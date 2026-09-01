@@ -249,6 +249,8 @@ function taskActionFailure(
     rejected = cell.failed(
       cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, revision),
       error,
+      contract,
+      action,
     );
   return taskActionRejection(
     cell,

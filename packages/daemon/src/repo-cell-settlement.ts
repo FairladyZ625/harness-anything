@@ -1,6 +1,8 @@
 import {
   VcsCommandError,
   completionBlockers,
+  getExecutableEntityAction,
+  type EntityActionContract,
   type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -10,12 +12,9 @@ import {
   cellCriterionError,
   cellErrorCode,
   cellErrorMessage,
-  type CellActionCriterionFailure,
 } from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
-
-const criterionFailureByReceipt = new WeakMap<object, CellActionCriterionFailure>();
 
 export function completionApplied(
   receipt: WriteReceipt,
@@ -52,7 +51,7 @@ export function completionSettlement(
           ? "Wait for canonical settlement, then query this receipt."
           : "Resolve the rejected canonical step before retrying completion.",
     state = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`;
-  const settled = {
+  return {
     ...receipt,
     ...(receipt.outcome === "pending" || receipt.outcome === "indeterminate" ? { unmetCriteria: [] } : {}),
     taskId: snapshot.task?.taskId,
@@ -67,7 +66,6 @@ export function completionSettlement(
     steps,
     stoppedAt,
   } as WriteReceipt;
-  return carryActionCriterionFailure(receipt, settled);
 }
 
 export function completionStopped(
@@ -77,13 +75,18 @@ export function completionStopped(
   blocker: ReturnType<typeof completionBlockers>[number],
   steps: readonly WriteReceipt[],
 ): WriteReceipt {
+  const action = { kind: "task-complete", taskId: snapshot.task?.taskId },
+    contract = getExecutableEntityAction(action.kind);
+  if (!contract) throw cellCodedError("invalid_store", "Task complete Action contract is unavailable.");
   const receipt = failed(
     opId,
     cellCriterionError(blocker.code, blocker.next.command, "complete", "closeout-readiness/closeoutReadiness", [
       blocker.next.command,
     ]),
+    contract,
+    action,
   );
-  return carryActionCriterionFailure(receipt, {
+  return {
     ...receipt,
     taskId: snapshot.task?.taskId,
     executionId,
@@ -96,7 +99,7 @@ export function completionStopped(
     next: [blocker.next],
     steps,
     stoppedAt: blocker.code,
-  } as WriteReceipt);
+  } as WriteReceipt;
 }
 
 export function rejected(opId: string, code: string, nextAction: string): WriteReceipt {
@@ -110,7 +113,12 @@ export function rejected(opId: string, code: string, nextAction: string): WriteR
   };
 }
 
-export function failed(opId: string, error: unknown): WriteReceipt {
+export function failed(
+  opId: string,
+  error: unknown,
+  contract?: EntityActionContract,
+  action?: Readonly<Record<string, unknown>>,
+): WriteReceipt {
   const code = cellErrorCode(error);
   const receipt: WriteReceipt =
     error instanceof VcsCommandError || code === "publication_indeterminate"
@@ -127,18 +135,31 @@ export function failed(opId: string, error: unknown): WriteReceipt {
         }
       : rejected(opId, code, cellErrorMessage(error));
   const criterionFailure = actionCriterionFailure(error);
-  if (criterionFailure !== null) criterionFailureByReceipt.set(receipt, criterionFailure);
-  return receipt;
-}
-
-export function actionCriterionFailureOfReceipt(receipt: WriteReceipt): CellActionCriterionFailure | null {
-  return criterionFailureByReceipt.get(receipt) ?? null;
-}
-
-function carryActionCriterionFailure(source: WriteReceipt, target: WriteReceipt): WriteReceipt {
-  const criterionFailure = criterionFailureByReceipt.get(source);
-  if (criterionFailure !== undefined) criterionFailureByReceipt.set(target, criterionFailure);
-  return target;
+  if (criterionFailure === null) return receipt;
+  if (!contract || !action)
+    throw cellCodedError(
+      "invalid_store",
+      `Criterion-bearing ${criterionFailure.actionId} failure reached settlement without its Action contract.`,
+    );
+  if (criterionFailure.actionId !== contract.id)
+    throw cellCodedError(
+      "invalid_store",
+      `Action ${contract.target.kind}.${contract.id} received criterion ${criterionFailure.criterionRef} ` +
+        `attributed to ${criterionFailure.actionId}.`,
+    );
+  const criterion = contract.criteria.find(({ ref }) => ref === criterionFailure.criterionRef);
+  if (!criterion)
+    throw cellCodedError(
+      "invalid_store",
+      `Action ${contract.target.kind}.${contract.id} does not declare criterion ${criterionFailure.criterionRef}.`,
+    );
+  return {
+    ...receipt,
+    evidence: `criterion:${criterion.ref}`,
+    unmetCriteria: [criterion],
+    rejectionExplanation: criterion.explain,
+    nextActions: Object.freeze([...new Set(criterionFailure.nextActions)]),
+  };
 }
 
 export function requiredCellText(value: unknown, name: string): string {

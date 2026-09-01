@@ -22,7 +22,7 @@ import {
   showTask as showTaskImpl,
 } from "./repo-cell-completion.ts";
 import { cellCodedError, errorOperationId, publishGeneratedArtifact } from "./repo-cell-errors.ts";
-import { decodeEvidencePayload, renderEvidencePayload, taskSurfaceWriteKind } from "./repo-cell-evidence.ts";
+import { decodeEvidencePayload, renderEvidencePayload } from "./repo-cell-evidence.ts";
 import {
   completeExecutionId,
   completeRetryCommand,
@@ -150,7 +150,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly declareExecutionExecutor: Bound<typeof declareExecutionExecutorImpl>;
   readonly closeoutTask: Bound<typeof closeoutTaskImpl>;
   readonly completeTask: Bound<typeof completeTaskImpl>;
-  readonly taskSurfaceWriteKind: typeof taskSurfaceWriteKind;
   readonly taskSurfaceWrite: Bound<typeof taskSurfaceWriteImpl>;
   readonly rejected: typeof rejected;
   readonly lifecycleAction: Bound<typeof lifecycleActionImpl>;
@@ -293,7 +292,6 @@ export function createRepoCellActionContext(bindings: {
     declareExecutionExecutor: bind(declareExecutionExecutorImpl),
     closeoutTask: bind(closeoutTaskImpl),
     completeTask: bind(completeTaskImpl),
-    taskSurfaceWriteKind,
     taskSurfaceWrite: bind(taskSurfaceWriteImpl),
     rejected,
     lifecycleAction: bind(lifecycleActionImpl),

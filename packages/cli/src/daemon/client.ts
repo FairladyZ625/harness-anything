@@ -1,6 +1,7 @@
 import { realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import {
   canonicalRoot,
@@ -610,7 +611,10 @@ export async function fleetTaskRoute(
     }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet))
       throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-    if (command.action.kind === "task-create" || command.action.kind.startsWith("schedule-")) {
+    if (
+      command.action.kind === "task-create" ||
+      getExecutableEntityAction(command.action.kind)?.target.kind === "schedule"
+    ) {
       const fields = packet as Record<string, unknown>;
       const unsupported = Object.keys(fields).filter((field) =>
         ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field),

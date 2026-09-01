@@ -13,7 +13,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     phase: "DecisionFact-B",
     path: ["decision", "validate", "[id]"],
     summary: "Read-only validation of one or all Decision packages, pins, and amend history.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",
@@ -27,7 +27,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     phase: "DecisionFact-B",
     path: ["decision", "verify", "[id]"],
     summary: "Read-only content-pin verification alias; reports every warning without rewriting.",
-    method: "repo.task.run",
+    method: "repo.task.read",
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",

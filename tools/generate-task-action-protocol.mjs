@@ -14,7 +14,9 @@ const protocolMarkers = {
 };
 
 export function projectTaskActionProtocolDeclarations() {
-  const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [];
+  const actions = (getEntityKindContract("task")?.actionCatalog?.actions ?? []).filter(
+    (action) => action.execution?.lifecycle !== undefined,
+  );
   if (actions.length !== 4 || actions.some((action) => action.execution?.topology === undefined)) {
     throw new Error("Task start, submit, review, and complete must all have executable command topology.");
   }
