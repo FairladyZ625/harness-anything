@@ -173,10 +173,10 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     repositoryChangeRequested = repositoryFieldNames.some((name) => Object.hasOwn(input.action, name));
   settingsActionLocale(input.action.locale);
   if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0))
-    reject("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
+    rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
   if (!repositoryChangeRequested) return { kind: "no-changes", settings: current, revision };
   if (expectedVersion !== undefined && Number(expectedVersion) !== revision)
-    reject(
+    rejectSettings(
       "revision_conflict",
       `Settings expected revision ${String(expectedVersion)}, current revision is ${revision}.`,
     );
@@ -198,12 +198,12 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       },
     },
     errors = validateRepositorySettings(candidate);
-  if (errors.length) reject("invalid_command", errors.join("; "));
+  if (errors.length) rejectSettings("invalid_command", errors.join("; "));
   if (stableStringify(candidate) === stableStringify(current))
     return { kind: "no-changes", settings: current, revision };
   const baseDocumentBody = input.currentDocumentBody;
   if (typeof baseDocumentBody !== "string")
-    reject("content_not_ready", "The projected harness.yaml Settings document is unavailable.");
+    rejectSettings("content_not_ready", "The projected harness.yaml Settings document is unavailable.");
   const candidateDocumentBody = writeRepositorySettingsFacet(baseDocumentBody, candidate);
   return {
     kind: "event",
@@ -224,13 +224,13 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
 export function settingsActionLocale(value: unknown): SettingsLocale | undefined {
   if (value === undefined) return undefined;
   if (settingsLocales.includes(value as SettingsLocale)) return value as SettingsLocale;
-  reject("invalid_command", `locale must be one of ${settingsLocales.join(", ")}.`);
+  rejectSettings("invalid_command", `locale must be one of ${settingsLocales.join(", ")}.`);
 }
 
 function currentSettings(input: EntityActionCompileInput): RepositorySettingsV1 {
   const current = input.currentEntity;
   if (validateRepositorySettings(current).length)
-    reject("content_not_ready", `Settings ${SETTINGS_ID} has no valid canonical projection.`);
+    rejectSettings("content_not_ready", `Settings ${SETTINGS_ID} has no valid canonical projection.`);
   return repositorySettings(current as RepositorySettingsV1);
 }
 
@@ -238,7 +238,7 @@ function updatedText(action: Readonly<Record<string, unknown>>, name: string, cu
   if (!Object.hasOwn(action, name)) return current;
   const value = action[name];
   if (typeof value === "string" && value.trim()) return value.trim();
-  reject("invalid_command", `${name} must be a non-empty string.`);
+  rejectSettings("invalid_command", `${name} must be a non-empty string.`);
 }
 
 function updatedBoolean(action: Readonly<Record<string, unknown>>, name: string, current: boolean): boolean {
@@ -247,7 +247,7 @@ function updatedBoolean(action: Readonly<Record<string, unknown>>, name: string,
   if (typeof value === "boolean") return value;
   if (value === "true") return true;
   if (value === "false") return false;
-  reject("invalid_command", `${name} must be true or false.`);
+  rejectSettings("invalid_command", `${name} must be true or false.`);
 }
 
 function updatedPositiveInteger(action: Readonly<Record<string, unknown>>, name: string, current: number): number {
@@ -255,9 +255,9 @@ function updatedPositiveInteger(action: Readonly<Record<string, unknown>>, name:
   const value = action[name],
     parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
-  reject("invalid_command", `${name} must be a positive integer.`);
+  rejectSettings("invalid_command", `${name} must be a positive integer.`);
 }
 
-function reject(code: string, message: string): never {
+function rejectSettings(code: string, message: string): never {
   throw new SettingsActionError(code, message);
 }
