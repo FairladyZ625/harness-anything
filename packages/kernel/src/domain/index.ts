@@ -227,13 +227,7 @@ export {
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
-export {
-  SettingsActionError,
-  compileSettingsUpdate,
-  compileSettingsUpdateAction,
-  createSettingsActionCatalog,
-  settingsActionLocale,
-} from "./settings-action-contract.ts";
+export { settingsActionLocale } from "./settings-action-contract.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
 export {
   applyPeopleRosterAction,

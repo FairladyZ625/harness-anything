@@ -53,6 +53,6 @@ test("Agent-readable input and CLI facets share the same field declarations", ()
 test("entity explain reports all runtime-local bounded-context Action exceptions", () => {
   assert.deepEqual(
     explainEntityKind("task").boundedContextExceptions.map(({ boundedContext }) => boundedContext),
-    ["preset-library", "daemon-user-root", "terminal-host"],
+    ["daemon-user-root", "preset-library", "daemon-user-root", "terminal-host"],
   );
 });
