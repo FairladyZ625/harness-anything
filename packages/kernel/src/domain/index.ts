@@ -172,8 +172,7 @@ export type {
 export { attributeEntityActionCriterion, entityActionCriterionFailure } from "./entity-action-execution.ts";
 export { runtimeSessionActionIds, runtimeSessionActionPayload } from "./runtime-session-action-contract.ts";
 export type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
-export { compileSquadInstallAction, squadActionIds, squadActionUsage } from "./squad-action-contract.ts";
-export type { SquadActionDraft, SquadActionId } from "./squad-action-contract.ts";
+export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
   canonicalRelationIdentityInput,

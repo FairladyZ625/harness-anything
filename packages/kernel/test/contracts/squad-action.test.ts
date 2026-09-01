@@ -1,12 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  compileSquadInstallAction,
-  entityActionCriterionFailure,
-  getEntityKindContract,
-  type EntityActionCompileInput,
-} from "../../src/index.ts";
+import { entityActionCriterionFailure, getEntityKindContract, type EntityActionCompileInput } from "../../src/index.ts";
+import { compileSquadInstallAction } from "../../src/domain/squad-action-contract.ts";
 
 const actionInput: EntityActionCompileInput = {
   action: {},

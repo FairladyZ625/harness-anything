@@ -14,12 +14,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  compileSquadInstallAction,
-  createEntityStore,
-  makeTaskEventStore,
-  makeTaskProjection,
-} from "../../kernel/src/index.ts";
+import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { compileSquadInstallAction } from "../../kernel/src/domain/squad-action-contract.ts";
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
