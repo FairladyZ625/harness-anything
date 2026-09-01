@@ -26,7 +26,7 @@ export function makeSettingsActionRuntime(
       throw cell.cellCodedError("actor_unauthorized", "Settings Action execution requires AuthorizationPort approval.");
     const row = cell.projection.getEntity("settings", SETTINGS_ID),
       revision = row?.workspaceRevision ?? 0,
-      opId = operationId(cell, action, binding, revision, catalogOpId),
+      opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
       targetRef = contract.target.refTemplate.replace("{id}", SETTINGS_ID),
       locale = settingsActionLocale(action.locale),
       existing = cell.store.readEvent(opId);
@@ -193,7 +193,7 @@ function replayReceipt(
   } as WriteReceipt;
 }
 
-function operationId(
+function settingsOperationId(
   cell: RepoCellRuntimeContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
