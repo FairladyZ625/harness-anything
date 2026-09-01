@@ -79,6 +79,8 @@ function LivePane({ tab }: { readonly tab: TerminalTab }) {
         <TerminalPane
           output={tab.output}
           interactive={interactive}
+          openUrl={actions.openUrl}
+          onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}
           onInput={(utf8) => actions.onInput(tab.sessionId, utf8)}
           onFit={(cols, rows) => actions.onFit(tab.sessionId, cols, rows)}
         />

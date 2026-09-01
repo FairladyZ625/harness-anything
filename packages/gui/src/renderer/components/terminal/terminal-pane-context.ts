@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { TerminalTab } from "../../terminal-model.ts";
+import type { TerminalLinkMatch } from "./terminal-links.ts";
 
 /** 分割方向:right = 竖直分隔条(左右并排),below = 水平分隔条(上下叠放)。 */
 export type TerminalSplitDirection = "right" | "below";
@@ -22,6 +23,10 @@ export interface TerminalPaneActions {
   readonly onClosePane: (panelId: string, sessionId: string) => void;
   readonly onSplitPane: (panelId: string, direction: TerminalSplitDirection) => void;
   readonly onTerminate: (sessionId: string) => void;
+  /** W2 链接分发:match/text 来自 provider,cwd 是本 pane 会话的 daemon 侧工作目录。 */
+  readonly openLink: (match: TerminalLinkMatch, text: string, cwd: string | null) => void;
+  /** URL 打开接缝(W3 浏览器视图接线点);null = 面板用 web-links 默认行为(新窗口)。 */
+  readonly openUrl: ((uri: string) => void) | null;
 }
 
 export const TerminalPaneContext = createContext<TerminalPaneActions | null>(null);
