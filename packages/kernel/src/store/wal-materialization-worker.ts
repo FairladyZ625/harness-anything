@@ -180,6 +180,7 @@ export function runWalMaterializationRequest(
     const materializationStarted = performance.now(),
       result = flushWalToGit(source, git, {
         rootDir: config.rootDir,
+        layout: request.expectedGit.layout,
         ...(config.authoredBranch ? { authoredBranch: config.authoredBranch } : {}),
         compactWorktree: request.compactWorktree,
         ...(finalizeFence

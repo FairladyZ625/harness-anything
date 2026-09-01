@@ -28,6 +28,7 @@ export interface WalMaterializationRequestV1 {
   readonly expectedGit: {
     readonly revision: number;
     readonly commitSha: string;
+    readonly layout: LedgerLayoutState;
   };
   readonly context: string;
   readonly compactWorktree: boolean;

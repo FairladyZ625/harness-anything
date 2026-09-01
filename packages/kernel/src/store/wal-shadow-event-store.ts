@@ -315,7 +315,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       const response = await materializationWorker.materialize({
         schema: "harness-wal-materialization-request/v1",
         cut,
-        expectedGit: { revision: gitRevisionBeforeFlush, commitSha: git.currentCommit().sha },
+        expectedGit: {
+          revision: gitRevisionBeforeFlush,
+          commitSha: git.currentCommit().sha,
+          layout: gitLayout,
+        },
         context,
         compactWorktree,
         previousSettlementFingerprint: lastSettlementFingerprint,
