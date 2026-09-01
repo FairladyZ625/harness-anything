@@ -171,13 +171,15 @@ export function TerminalView({
       ),
     );
   }, []);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // StrictMode(dev)会 mount→cleanup→remount:必须在 body 里把 mounted 设回 true,
+    // 否则第一次 cleanup 之后它永久为 false,start() 会在 spawn 成功后静默 return、终端永远建不出来。
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
       void releaseTabs(repoIdRef.current);
-    },
-    [releaseTabs],
-  );
+    };
+  }, [releaseTabs]);
   // 仓内 session 全部按 repoId 限定:切仓而页面未卸载时,旧仓 tab 必须先释放,
   // 否则后续 input/resize 会以新 repoId 打到旧仓 session 上。
   useEffect(() => {
