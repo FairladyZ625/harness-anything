@@ -127,6 +127,14 @@ describe("TerminalPane addon lifecycle (W4a)", () => {
     expect(xterm.lastOptions?.allowProposedApi).toBe(true);
   });
 
+  // Regression: xterm's DOM renderer measures glyph width from a 32-char repeat; with ligatures on,
+  // Geist Mono shapes "----" into one rule and reports ~1/3 of the cell, so every "-"/"=" got padded.
+  it("disables font ligatures on the host so xterm's width cache measures real cell advances", () => {
+    mount();
+    const host = container.querySelector<HTMLElement>('[data-testid="terminal-pane"]');
+    expect(host?.style.fontVariantLigatures).toBe("none");
+  });
+
   it("loads WebGL only when the centralized preference opts in", () => {
     localStorage.setItem(terminalWebglStorageKey, "enabled");
     mount();

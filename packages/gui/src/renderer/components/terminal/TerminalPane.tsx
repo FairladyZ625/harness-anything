@@ -221,7 +221,14 @@ export function TerminalPane({
           </button>
         </form>
       )}
-      <div ref={hostRef} data-testid="terminal-pane" className="min-h-0 flex-1" />
+      {/* 关连字:xterm 用「同一字符重复 32 次」量字宽,Geist Mono 会把 ---/=== 连成一条线,
+          量出 2.7px 再给每个 - 补 5px letter-spacing(路径里 a- b 那种空隙)。测量容器在宿主内一并继承。 */}
+      <div
+        ref={hostRef}
+        data-testid="terminal-pane"
+        className="min-h-0 flex-1"
+        style={{ fontVariantLigatures: "none" }}
+      />
     </div>
   );
 }
