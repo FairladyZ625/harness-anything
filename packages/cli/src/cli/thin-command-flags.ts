@@ -6,7 +6,10 @@ import type { ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin
 // parsers that pass no explicit method get the descriptor's routing instead of a hardcoded default.
 export function taskActionMethodFor(kind: string): string {
   try {
-    return commandDescriptorForAction(kind).method === "repo.task.read" ? "repo.task.read" : "repo.task.run";
+    // The declaration literals keep their authored "repo.task.run"; the repo-read topology
+    // rewrites the runtime value, so compare on the widened runtime string.
+    const method: string = commandDescriptorForAction(kind).method;
+    return method === "repo.task.read" ? "repo.task.read" : "repo.task.run";
   } catch {
     return "repo.task.run";
   }
