@@ -141,7 +141,7 @@ test("completion blocker matrix returns one canonical next for every substantive
     );
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -243,7 +243,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
     );
     assert.throws(() => compileCompletionGateWitness({ ...input, commitSha: "b".repeat(40) }), /execution cut/u);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -510,7 +510,7 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
       /no lifecycle transition accepts TransitionTask/u,
     );
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -572,7 +572,7 @@ test("terminal lifecycle states clear a prior task pin", async () => {
     assert.equal(completed.snapshot.task?.status, "done");
     assert.equal(completed.snapshot.task?.pinned, false);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -962,7 +962,7 @@ test("transition service replays reject through a new Execution before completio
       ["submitted", "changes_requested", "submitted"],
     );
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -991,7 +991,7 @@ test("second lifecycle claim uses monotonic lease CAS", async () => {
     assert.equal(second.payload.reason, "same_principal_reconnect");
     assert.deepEqual(harness.projection.currentLease("task-1"), second.payload.lease);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 

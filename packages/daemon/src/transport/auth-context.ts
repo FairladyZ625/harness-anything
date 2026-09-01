@@ -1,5 +1,6 @@
 import type { FleetAssignmentBinding } from "../fleet/contract.ts";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
+import type { WriterEpochFenceDescriptor } from "../writer-epoch.ts";
 
 export type DaemonTransportKind = "unix-socket" | "fleet-tls";
 export interface DaemonFleetAssignmentBinding extends FleetAssignmentBinding {
@@ -25,4 +26,5 @@ export interface DaemonAuthenticationContext {
   readonly writerEpoch?: number;
   readonly assertWriterEpoch?: () => void;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;
+  readonly writerEpochFence?: WriterEpochFenceDescriptor;
 }

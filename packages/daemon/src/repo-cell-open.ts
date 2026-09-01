@@ -4,6 +4,7 @@ import {
   createEntityStore,
   isSameExecution,
   isSamePerson,
+  makeTaskEventStore,
   type CanonicalEventAppendReceipt,
   type CanonicalEventStore,
   type DaemonRepoMode,
@@ -152,6 +153,8 @@ export async function openRepoCell(input: {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Test seam for controlling WAL materialization without wall-clock scheduling. */
   readonly onStoreOpened?: (store: CanonicalEventStore) => void;
+  /** Test seam for injecting a failure inside the WAL materialization worker. */
+  readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -207,7 +210,10 @@ async function openLockedRepoCell(
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   let activeWriterEpochGuard: (() => void) | null = null,
-    activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null;
+    activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
+    activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
+    queueDepth = 0,
+    tail = Promise.resolve();
   const initialize = () =>
     initializeRepoCell({
       input,
@@ -219,9 +225,21 @@ async function openLockedRepoCell(
       get activeWriterEpochFence() {
         return activeWriterEpochFence;
       },
+      get activeWriterEpochFenceDescriptor() {
+        return activeWriterEpochFenceDescriptor;
+      },
       mode,
       now,
       runtimeStream,
+      enqueueAfterFlush: (work) => {
+        queueDepth += 1;
+        const pending = chainRepoCellWrite(tail, async () => {
+          queueDepth -= 1;
+          await work();
+        });
+        tail = pending.catch(() => undefined);
+        return pending;
+      },
     });
   let core: ReturnType<typeof initialize>;
   try {
@@ -244,8 +262,6 @@ async function openLockedRepoCell(
     state === "attached"
       ? null
       : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
-  let queueDepth = 0,
-    tail = Promise.resolve();
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
   const latched = (): string =>
     causeClass === "infrastructure"
@@ -791,6 +807,12 @@ async function openLockedRepoCell(
     },
     set activeWriterEpochFence(value) {
       activeWriterEpochFence = value;
+    },
+    get activeWriterEpochFenceDescriptor() {
+      return activeWriterEpochFenceDescriptor;
+    },
+    set activeWriterEpochFenceDescriptor(value) {
+      activeWriterEpochFenceDescriptor = value;
     },
     withLayoutAdvisory: extracted.withLayoutAdvisory,
     withHumanSummary: extracted.withHumanSummary,

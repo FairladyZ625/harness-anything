@@ -6,9 +6,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import {
+  compileTaskLifecycleWrite,
+  makeTaskEventStore,
+  reduceTaskEvent,
+  REPLAY_TASK_GRAPH,
+  type TaskEventV1,
+} from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch, withWriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
 
 function probeGit(repo: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -113,8 +120,36 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
     });
     const leaseB = second.acquire("repo");
     assert.equal(leaseB.epoch, 2);
+    let finalized = false;
+    withWriterEpochFenceDescriptor(
+      {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: root,
+        repoId: "repo",
+        epoch: leaseB.epoch,
+        holderId: leaseB.holderId,
+      },
+      () => {
+        finalized = true;
+      },
+    );
+    assert.equal(finalized, true);
     assert.throws(
       () => first.assert("repo", leaseA.epoch),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
+    );
+    assert.throws(
+      () =>
+        withWriterEpochFenceDescriptor(
+          {
+            schema: "harness-writer-epoch-fence/v1",
+            stateRoot: root,
+            repoId: "repo",
+            epoch: leaseA.epoch,
+            holderId: leaseA.holderId,
+          },
+          () => assert.fail("a stale worker fence must not finalize"),
+        ),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
     );
     second.close();
@@ -124,6 +159,45 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
     };
     assert.equal(persisted.repos.repo.epoch, 2);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the materialization worker verifies the writer epoch inside Git ref finalization", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-worker-fence-")),
+    repo = probeRepo(root),
+    stateRoot = path.join(root, "state"),
+    first = openPersistentWriterEpoch({ stateRoot, holderId: "center-a" }),
+    second = openPersistentWriterEpoch({ stateRoot, holderId: "center-b" }),
+    leaseA = first.acquire("probe-repo"),
+    leaseB = second.acquire("probe-repo");
+  let fence = {
+    schema: "harness-writer-epoch-fence/v1" as const,
+    stateRoot,
+    repoId: "probe-repo",
+    epoch: leaseA.epoch,
+    holderId: leaseA.holderId,
+  };
+  const store = makeTaskEventStore({
+    repoId: "probe-repo",
+    rootDir: repo,
+    walMaterializationWorkerUrl: new URL("../src/wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterializationFence: () => fence,
+  });
+  const baselineCommit = probeGit(repo, "rev-parse", "refs/ha/canonical");
+  try {
+    appendWorkerTask(store, 1);
+    await assert.rejects(store.settlePendingMaterialization!("writer epoch test"), /WAL writer epoch test exhausted/u);
+    assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), baselineCommit);
+
+    fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
+    appendWorkerTask(store, 2);
+    await store.settlePendingMaterialization!("writer epoch test");
+    assert.equal(JSON.parse(probeGit(repo, "show", "refs/ha/canonical:harness/events/head.json")).revision, 2);
+  } finally {
+    await store.drain();
+    second.close();
+    first.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -145,6 +219,56 @@ test("concurrent processes allocate unique epochs through the same critical sect
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function appendWorkerTask(store: ReturnType<typeof makeTaskEventStore>, revision: number): void {
+  const event = workerTaskCreated(revision);
+  store.append(
+    compileTaskLifecycleWrite({
+      event,
+      snapshot: reduceTaskEvent(
+        { revision: revision - 1, task: null, executions: [], reviews: [], edgesTaken: [], lease: null },
+        event,
+      ),
+      packagePath: null,
+      currentDocuments: [],
+    }),
+  );
+}
+function workerTaskCreated(revision: number): TaskEventV1 {
+  return {
+    schema: "task-event/v1",
+    eventId: `event-worker-fence-${revision}`,
+    workspaceRevision: revision,
+    opId: `op-worker-fence-${revision}`,
+    taskId: `task-worker-fence-${revision}`,
+    type: "task_created",
+    actor: {
+      principal: { personId: "writer" },
+      executor: { kind: "agent", id: "worker-fence-test" },
+    },
+    source: "local",
+    occurredAt: "2026-09-01T00:00:00.000Z",
+    payload: {
+      task: {
+        schema: "task/v2",
+        taskId: `task-worker-fence-${revision}`,
+        title: "Worker fence",
+        taskClass: "standard",
+        status: "planned",
+        graph: REPLAY_TASK_GRAPH,
+        currentNode: "implementation",
+        iteration: 0,
+        createdBy: {
+          principal: { personId: "writer" },
+          executor: { kind: "agent", id: "worker-fence-test" },
+        },
+        completionGateIds: [],
+        presetSnapshotDigest: null,
+        pinned: false,
+      },
+    },
+  };
+}
 
 test("writer epoch acquisition waits for a live lock owner", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-wait-")),

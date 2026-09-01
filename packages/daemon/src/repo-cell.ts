@@ -18,6 +18,7 @@ import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
+import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -28,6 +29,7 @@ import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export { openRepoCell } from "./repo-cell-open.ts";
@@ -49,6 +51,7 @@ export interface RepoCellCoreInput {
   readonly input: {
     readonly repoId: string;
     readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
+    readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
   };
@@ -56,9 +59,11 @@ export interface RepoCellCoreInput {
   readonly authoredBranch?: string;
   readonly activeWriterEpochGuard: (() => void) | null;
   readonly activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
+  readonly activeWriterEpochFenceDescriptor: WriterEpochFenceDescriptor | null;
   readonly mode: DaemonRepoMode;
   readonly now: () => string;
   readonly runtimeStream: AgentRuntimeStreamHub;
+  readonly enqueueAfterFlush: (work: () => Promise<void>) => Promise<void>;
 }
 
 export interface RepoCellCore {
@@ -73,55 +78,50 @@ export interface RepoCellCore {
 
 export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  let pendingSettlementActor: ActorIdentity | null = null;
-  const settleAuthoredCandidates = (actor: ActorIdentity): void => {
+  let pendingSettlement: { readonly actor: ActorIdentity; readonly inventory: unknown | null } | null = null;
+  const settleAuthoredCandidates = (actor: ActorIdentity, inventory: unknown | null): Promise<void> => {
     const currentProjection = projection;
     if (currentProjection === null) {
-      pendingSettlementActor = actor;
-      return;
+      pendingSettlement = { actor, inventory };
+      return Promise.resolve();
     }
-    const action = { kind: "doc-submit", paths: [] } as const,
-      revision = store.readHead()?.revision ?? 0,
-      roleBindings = declaredRoleBindingsForActor(context.rootDir, actor),
-      baseBinding: RepoCellBinding = {
-        actor,
-        source: "local",
-        ...(roleBindings === undefined
-          ? { authorizationBindingMode: "default" }
-          : { authorizationBindingMode: "declared", roleBindings }),
-      },
-      authorizationDecision = authorizeRepoCellAction({
+    return context.enqueueAfterFlush(async () => {
+      const action = { kind: "doc-submit", paths: [] } as const,
+        revision = store.readHead()?.revision ?? 0,
+        roleBindings = declaredRoleBindingsForActor(context.rootDir, actor),
+        baseBinding: RepoCellBinding = {
+          actor,
+          source: "local",
+          ...(roleBindings === undefined
+            ? { authorizationBindingMode: "default" }
+            : { authorizationBindingMode: "declared", roleBindings }),
+        },
+        authorizationDecision = authorizeRepoCellAction({
+          action,
+          binding: baseBinding,
+          actionId: `doc-materializer:${revision}`,
+          revision,
+          now: context.now(),
+        });
+      if (authorizationDecision.outcome === "denied") {
+        console.warn(`[wal-materializer] document effect denied: ${authorizationDecision.reasonCodes.join(", ")}`);
+        return;
+      }
+      const receipt = await runDocAction({
         action,
-        binding: baseBinding,
-        actionId: `doc-materializer:${revision}`,
-        revision,
-        now: context.now(),
+        binding: { ...baseBinding, authorizationDecision },
+        workspaceId: context.input.repoId,
+        rootDir: context.rootDir,
+        store,
+        projection: currentProjection,
+        now: context.now,
+        killpoint: context.input.killpoint,
+        ...(isAuthoredCandidateInventory(inventory) ? { authoredCandidateInventory: inventory } : {}),
       });
-    if (authorizationDecision.outcome === "denied") {
-      console.warn(`[wal-materializer] document effect denied: ${authorizationDecision.reasonCodes.join(", ")}`);
-      return;
-    }
-    const binding = { ...baseBinding, authorizationDecision };
-    void runDocAction({
-      action,
-      binding,
-      workspaceId: context.input.repoId,
-      rootDir: context.rootDir,
-      store,
-      projection: currentProjection,
-      now: context.now,
-      killpoint: context.input.killpoint,
-    })
-      .then((receipt) => {
-        const detail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
-          warning = blockedAuthoredCandidateWarning(detail);
-        if (warning) console.warn(warning);
-      })
-      .catch((error) => {
-        console.warn(
-          `[wal-materializer] authored doc scan failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
+      const detail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
+        warning = blockedAuthoredCandidateWarning(detail);
+      if (warning) console.warn(warning);
+    });
   };
   const configPath = path.join(resolveHarnessLayout(context.rootDir).authoredRoot, "harness.yaml");
   configureLedgerMaintenance(context.rootDir);
@@ -131,6 +131,9 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     authoredBranch: context.authoredBranch,
     killpoint: context.input.killpoint,
     afterFlush: settleAuthoredCandidates,
+    walMaterializationWorkerUrl: new URL("./wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterializationTestFault: context.input.walMaterializationTestFault,
+    walMaterializationFence: () => context.activeWriterEpochFenceDescriptor,
     beforeAppend: () => context.activeWriterEpochGuard?.(),
     withAppendFence: (operation) =>
       context.activeWriterEpochFence ? context.activeWriterEpochFence(operation) : operation(),
@@ -153,7 +156,11 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
       errorCode: cellErrorCode(error),
     };
   }
-  if (pendingSettlementActor) settleAuthoredCandidates(pendingSettlementActor);
+  const deferredSettlement = pendingSettlement as {
+    readonly actor: ActorIdentity;
+    readonly inventory: unknown | null;
+  } | null;
+  if (deferredSettlement) void settleAuthoredCandidates(deferredSettlement.actor, deferredSettlement.inventory);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const entityActionExecutor = makeEntityActionCatalogExecutor({
     store,
@@ -199,6 +206,16 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     service,
     replica,
   };
+}
+
+function isAuthoredCandidateInventory(value: unknown): value is AuthoredCandidateInventoryV1 {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    (value as { readonly schema?: unknown }).schema === "harness-authored-candidate-inventory/v1" &&
+    Array.isArray((value as { readonly rows?: unknown }).rows)
+  );
 }
 
 export function blockedAuthoredCandidateWarning(detail: DocSyncReceiptDetail | undefined): string | null {

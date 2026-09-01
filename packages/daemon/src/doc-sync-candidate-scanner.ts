@@ -24,6 +24,7 @@ import {
   type ActorIdentity,
   type CanonicalEventStore,
   type DocWriteIntent,
+  type DocumentState,
   type LedgerCutIdentity,
   type TaskProjection,
   type WriteSource,
@@ -57,6 +58,18 @@ export interface DocCandidateScan {
   readonly rows: readonly ScannedDocCandidate[];
 }
 
+export interface AuthoredCandidateInventoryV1 {
+  readonly schema: "harness-authored-candidate-inventory/v1";
+  readonly baseLedgerSha: LedgerCutIdentity;
+  readonly rows: readonly {
+    readonly path: string;
+    readonly safe: boolean;
+    readonly bytes: Uint8Array | null;
+    readonly conflicts: readonly string[];
+    readonly legacyDocument: DocumentState | null;
+  }[];
+}
+
 export function scanDocCandidates(input: {
   readonly rootDir: string;
   readonly workspaceId: string;
@@ -68,6 +81,7 @@ export function scanDocCandidates(input: {
   readonly selection?: readonly string[];
   readonly taskId?: string;
   readonly executionId?: string;
+  readonly inventory?: AuthoredCandidateInventoryV1;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
@@ -81,15 +95,21 @@ export function scanDocCandidates(input: {
               throw docSyncError("task_not_found", `Task ${input.taskId} has no projected package path.`);
             })(),
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
-    events = input.store.read().events,
-    pendingPaths = events
-      .filter((event) => input.store.publication(event).commitSha === null)
-      .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
+    inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
+    events = input.inventory ? [] : input.store.read().events,
+    pendingPaths = input.inventory
+      ? []
+      : events
+          .filter((event) => input.store.publication(event).commitSha === null)
+          .flatMap((event) => canonicalDocumentClaims(event).map((claim) => claim.path)),
     candidates = selected?.length
       ? [...new Set(selected)]
-      : [...new Set([...dirtyPaths(ledger.rootDir, ledger.authoredPrefix), ...pendingPaths])].filter(
-          (value) => taskPrefix === null || value.startsWith(taskPrefix),
-        ),
+      : [
+          ...new Set([
+            ...(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
+            ...pendingPaths,
+          ]),
+        ].filter((value) => taskPrefix === null || value.startsWith(taskPrefix)),
     paths = candidates
       .filter(
         (value) =>
@@ -98,7 +118,7 @@ export function scanDocCandidates(input: {
           !resolveDocRoute(documentPath(value)).allowed,
       )
       .sort(),
-    baseLedgerSha = input.store.currentCut(),
+    baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
     execution = executionBinding(paths, input.executionId, input.projection, input.actor, input.source, input.now),
     runtimeSessionId = runtimeSessionIdFromActor(input.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
@@ -115,18 +135,21 @@ export function scanDocCandidates(input: {
     rows,
   };
   function scanOne(logical: string): ScannedDocCandidate {
-    const document = documentPath(logical),
+    const inventoried = inventoryByPath.get(logical),
+      document = documentPath(logical),
       route = resolveDocRoute(document),
       target = path.join(layout.authoredRoot, ...logical.split("/")),
       projected = input.projection.readDocument(document),
-      conflicts = conflictsFor(logical),
-      safe = directFile(layout.authoredRoot, logical),
+      conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
+      safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       classification = classifyTextualArtifactPath(logical),
-      rawBytes = safe && existsSync(target) ? readFileSync(target) : null,
+      rawBytes = inventoried ? inventoried.bytes : safe && existsSync(target) ? readFileSync(target) : null,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId),
       retirementBase =
         bytes === null
-          ? resolveRetirableDocument(input.rootDir, document, projected.document, events)
+          ? (projected.document ??
+            inventoried?.legacyDocument ??
+            resolveRetirableDocument(input.rootDir, document, projected.document, events))
           : projected.document,
       base = retirementBase?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
@@ -287,22 +310,35 @@ export function scanDocCandidates(input: {
       };
     }
   }
-  function conflictsFor(logical: string): string[] {
-    const target = path.join(layout.authoredRoot, ...logical.split("/")),
-      extension = path.extname(target),
-      stem = path.basename(target, extension),
-      directory = path.dirname(target);
-    if (!existsSync(directory)) return [];
-    return readdirSync(directory)
-      .filter(
-        (name) =>
-          name.startsWith(`${stem}.conflict-`) &&
-          name.endsWith(extension) &&
-          /^[0-9a-f]{8}$/u.test(name.slice(`${stem}.conflict-`.length, -extension.length)),
-      )
-      .map((name) => relative(input.rootDir, path.join(directory, name)))
-      .sort();
-  }
+}
+
+export function scanAuthoredCandidateInventory(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+}): AuthoredCandidateInventoryV1 {
+  const layout = resolveHarnessLayout(input.rootDir),
+    ledger = resolveLedgerGitLayout(input.rootDir),
+    events = input.store.read().events,
+    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort();
+  return {
+    schema: "harness-authored-candidate-inventory/v1",
+    baseLedgerSha: input.store.currentCut(),
+    rows: paths.map((logical) => {
+      const safe = directFile(layout.authoredRoot, logical),
+        classification = classifyTextualArtifactPath(logical),
+        target = path.join(layout.authoredRoot, ...logical.split("/")),
+        rawBytes = safe && existsSync(target) ? readFileSync(target) : null,
+        bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
+      return {
+        path: logical,
+        safe,
+        bytes,
+        conflicts: candidateConflicts(input.rootDir, layout.authoredRoot, logical),
+        legacyDocument:
+          bytes === null ? resolveRetirableDocument(input.rootDir, documentPath(logical), null, events) : null,
+      };
+    }),
+  };
 }
 
 export function validateSelectedDocPaths(selected: readonly string[], scan: DocCandidateScan): void {
@@ -428,6 +464,22 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
         .concat(conflictLogicalPaths(path.join(repoRoot, authoredPrefix))),
     ),
   ];
+}
+function candidateConflicts(rootDir: string, authoredRoot: string, logical: string): string[] {
+  const target = path.join(authoredRoot, ...logical.split("/")),
+    extension = path.extname(target),
+    stem = path.basename(target, extension),
+    directory = path.dirname(target);
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter(
+      (name) =>
+        name.startsWith(`${stem}.conflict-`) &&
+        name.endsWith(extension) &&
+        /^[0-9a-f]{8}$/u.test(name.slice(`${stem}.conflict-`.length, -extension.length)),
+    )
+    .map((name) => relative(rootDir, path.join(directory, name)))
+    .sort();
 }
 function conflictLogicalPaths(authoredRoot: string): string[] {
   const found: string[] = [];

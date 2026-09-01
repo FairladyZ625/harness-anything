@@ -38,7 +38,8 @@ export async function executeAction(
       now: cell.now,
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
     });
-  if (action.kind === "fact-rekey")
+  if (action.kind === "fact-rekey") {
+    if (action.dryRun !== true) await cell.store.settlePendingMaterialization?.("fact rekey");
     return runFactRekey({
       action,
       binding,
@@ -47,6 +48,7 @@ export async function executeAction(
       projection: cell.projection,
       now: cell.now,
     });
+  }
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
@@ -90,6 +92,7 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
+    await cell.store.settlePendingMaterialization?.("layout migration");
     const appended = cell.store.migrateLayout({
       actor: binding.actor,
       source: binding.source,
@@ -139,7 +142,13 @@ export async function executeAction(
           ].join(""),
         } as WriteReceipt);
   }
-  if (action.kind === "receipt-show") return cell.receiptForOperation(String(action.opId ?? ""), binding);
+  if (action.kind === "receipt-show") {
+    const opId = String(action.opId ?? "");
+    // A provably absent operation can be answered from the durable read model.
+    // Do not let unrelated recovery WAL mask that negative receipt.
+    if (cell.store.readEvent(opId) !== null) await cell.store.settleRecoveryMaterialization?.();
+    return cell.receiptForOperation(opId, binding);
+  }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);

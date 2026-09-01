@@ -39,7 +39,7 @@ export function writeTriadicLedger(rootDir) {
   );
 }
 
-export function seedTriadicEvents(rootDir, repoId) {
+export async function seedTriadicEvents(rootDir, repoId) {
   const store = makeTaskEventStore({ rootDir, repoId }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     factService = makeFactService({ eventStore: store, projection }),
@@ -173,8 +173,7 @@ export function seedTriadicEvents(rootDir, repoId) {
       });
     }
   } finally {
-    // Event appends persist their WAL synchronously; the resident fixture restarts only after
-    // this callback resolves, so an empty drain() cannot provide additional visibility.
     projection.close();
+    await store.drain();
   }
 }

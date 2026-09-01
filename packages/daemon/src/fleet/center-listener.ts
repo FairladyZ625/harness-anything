@@ -77,6 +77,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         assertWriterEpoch: () => writerEpoch.assert(assignment.repoId, lease.epoch, lease.holderId),
         withWriterEpochFence: <T>(operation: () => T) =>
           writerEpoch.withAppendFence(assignment.repoId, lease.epoch, lease.holderId, operation),
+        writerEpochFence: {
+          schema: "harness-writer-epoch-fence/v1" as const,
+          stateRoot: options.stateRoot,
+          repoId: assignment.repoId,
+          epoch: lease.epoch,
+          holderId: lease.holderId,
+        },
       };
     };
   const extracted = {
@@ -604,8 +611,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       closed = true;
       leaseBroker.close();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      ackStore.close();
-      writerEpoch.close();
+      try {
+        for (const [repoId, owned] of ownedEpochs) {
+          const current = writerEpoch.current(repoId);
+          if (current?.epoch === owned.epoch && current.holderId === owned.holderId)
+            await options.host.settleMaterialization(repoId, "fleet center close");
+        }
+      } finally {
+        ackStore.close();
+        writerEpoch.close();
+      }
     },
     replicaReceipt: (opId, nodeId, viewId, repoId) =>
       deriveReplicaReceipt(options.host.replica(repoId), ackStore, { nodeId, viewId, repoId }, opId),

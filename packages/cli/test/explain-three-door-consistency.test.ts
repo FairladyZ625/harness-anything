@@ -77,6 +77,6 @@ test("help, object explain, and rejected ActionResult preserve one Task Action r
     assert.deepEqual(failure.nextActions, row.nextActions);
     assert.equal(failure.rejectionExplanation, firstUnmet.explain);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });

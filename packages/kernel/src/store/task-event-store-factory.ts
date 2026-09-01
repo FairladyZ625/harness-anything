@@ -1,4 +1,6 @@
 import path from "node:path";
+import type { EventHead } from "../domain/write-chain.contract.ts";
+import type { LedgerLayoutState } from "../layout/ledger-object-layout.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 import { CANONICAL_EVENT_REF, TaskEventStoreError } from "./task-event-store-types.ts";
 import { createStoreRuntime, type StoreRuntime } from "./task-event-store-runtime.ts";
@@ -14,12 +16,23 @@ import { cachedBatchEventEntries, scanEventsRoot } from "./task-event-store-layo
 import { materialize } from "./task-event-store-materialization.ts";
 
 // Public event-store factory that composes runtime state, reading, and publication roles.
-export function makeTaskEventStore(options: Parameters<typeof createStoreRuntime>[0]): CanonicalEventStore {
+export interface RefreshableGitEventStore extends CanonicalEventStore {
+  readonly acceptMaterializedCut: (input: {
+    readonly commitSha: string;
+    readonly head: EventHead | null;
+    readonly layout: LedgerLayoutState;
+  }) => void;
+}
+
+export function makeTaskEventStore(options: Parameters<typeof createStoreRuntime>[0]): RefreshableGitEventStore {
   const runtime = createStoreRuntime(options),
     publication = createPublicationApi(runtime);
   return storeApi(runtime, publication);
 }
-function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPublicationApi>): CanonicalEventStore {
+function storeApi(
+  runtime: StoreRuntime,
+  publication: ReturnType<typeof createPublicationApi>,
+): RefreshableGitEventStore {
   return {
     canonicalRef: CANONICAL_EVENT_REF,
     currentCommit: runtime.currentCommit,
@@ -80,5 +93,13 @@ function storeApi(runtime: StoreRuntime, publication: ReturnType<typeof createPu
     migrateLayout: publication.migrateLayout,
     recover: publication.recover,
     drain: async () => {},
+    acceptMaterializedCut: ({ commitSha, head, layout }) => {
+      if (!/^[0-9a-f]{40}$/u.test(commitSha)) throw new Error("materialized Git cut has an invalid commit SHA");
+      runtime.canonicalCommit = commitSha;
+      runtime.authoredCommit = commitSha;
+      runtime.canonicalHead = head;
+      runtime.layoutState = layout;
+      runtime.knownOpIds = null;
+    },
   };
 }

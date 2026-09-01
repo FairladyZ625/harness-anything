@@ -1,10 +1,11 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
-import { serializeEventHead } from "../domain/write-chain.contract.ts";
+import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import {
   contentObjectRelativePath,
   eventObjectRelativePath,
+  type LedgerLayoutState,
   type LedgerObjectLayout,
 } from "../layout/ledger-object-layout.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
@@ -17,7 +18,7 @@ import {
   type CanonicalEventStore,
   type EventPublicationKillpoint,
 } from "./task-event-store.ts";
-import type { WalEventLog, WalEventRecord } from "./wal-event-log.ts";
+import type { WalEventRecord, WalMaterializationSource } from "./wal-event-log.ts";
 
 export interface WalGitMaterializerOptions {
   readonly rootInput?: HarnessLayoutInput;
@@ -27,6 +28,12 @@ export interface WalGitMaterializerOptions {
   readonly withAppendFence?: <T>(operation: () => T) => T;
   /** Keep immutable event/content objects in Git while excluding them from the active worktree. */
   readonly compactWorktree?: boolean;
+}
+
+export interface WalGitMaterializationReceipt {
+  readonly commitSha: string;
+  readonly head: EventHead | null;
+  readonly layout: LedgerLayoutState;
 }
 
 /** The authored branch moved independently of the canonical daemon cut. */
@@ -47,9 +54,13 @@ export class WalMaterializerDivergedError extends TaskEventStoreError {
   }
 }
 
-export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, options: WalGitMaterializerOptions): void {
+export function flushWalToGit(
+  wal: WalMaterializationSource,
+  git: CanonicalEventStore,
+  options: WalGitMaterializerOptions,
+): WalGitMaterializationReceipt {
   const records = wal.records();
-  if (records.length === 0) return;
+  if (records.length === 0) return { commitSha: git.currentCommit().sha, head: git.readHead(), layout: git.layout() };
   const input = options.rootInput ?? options.rootDir;
   if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
   const ledger = resolveLedgerGitLayout(input);
@@ -88,8 +99,7 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
     localGitWorktreeSettlement.settle(ledger.rootDir, durableFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, documentFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, immutableFiles, true);
-    wal.checkpoint(records.at(-1)!.revision);
-    return;
+    return { commitSha: git.currentCommit().sha, head: git.readHead(), layout: layoutState };
   }
   for (const [index, record] of pending.entries())
     if (record.revision !== through + index + 1)
@@ -156,7 +166,15 @@ export function flushWalToGit(wal: WalEventLog, git: CanonicalEventStore, option
   } finally {
     localGitObjectRefStore.deleteRef(ledger.rootDir, flushRef);
   }
-  wal.checkpoint(last.revision);
+  return {
+    commitSha: imported,
+    head: {
+      revision: last.revision,
+      opId: last.opId,
+      eventDigest: last.eventDigest,
+    },
+    layout: layoutState,
+  };
 }
 
 function immutableLedgerObject(ledger: ReturnType<typeof resolveLedgerGitLayout>, target: string): boolean {
@@ -166,7 +184,7 @@ function immutableLedgerObject(ledger: ReturnType<typeof resolveLedgerGitLayout>
 }
 
 function batchFiles(
-  wal: WalEventLog,
+  wal: WalMaterializationSource,
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   records: readonly WalEventRecord[],
   layout: LedgerObjectLayout,
@@ -222,7 +240,7 @@ function batchFiles(
   return [...files.values()];
 }
 
-function requiredWalBlob(wal: WalEventLog, sha256: string): Uint8Array {
+function requiredWalBlob(wal: WalMaterializationSource, sha256: string): Uint8Array {
   const bytes = wal.readContentBlob(sha256);
   if (bytes === null) throw new TaskEventStoreError("invalid_store", `WAL content object ${sha256} is missing`);
   if (sha256Text(Buffer.from(bytes).toString("utf8")) !== sha256)

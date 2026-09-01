@@ -21,6 +21,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan } from "./doc-sync-candidate-scanner.ts";
+import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
   artifactSource,
@@ -58,6 +59,7 @@ export type Input = {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly authoredCandidateInventory?: AuthoredCandidateInventoryV1;
 };
 
 export type DocSettlementReceipt = WriteReceipt & {

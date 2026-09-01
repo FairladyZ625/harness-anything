@@ -50,13 +50,13 @@ export function seedSettingsEvent(input: {
       occurredAt: "2026-08-27T00:00:00.000Z",
     }),
   );
-  void store.drain();
+  store.beginBulkWrite?.();
   seededSettings.add(fixtureKey);
 }
 
 export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input) => {
   if (input.mode === "remote-edge") return openProductRepoCell(input);
-  seedSettingsEvent(input);
+  await settleSettingsEvent(input);
   const cell = await openProductRepoCell(input);
   try {
     await cell.read("repo.settings.read");
@@ -67,6 +67,48 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
   }
   return cell;
 };
+
+async function settleSettingsEvent(input: {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly authoredBranch?: string;
+}): Promise<void> {
+  const repoId = workspaceId(input.repoId),
+    rootDir = canonicalRoot(input.rootDir),
+    fixtureKey = `${rootDir}\0${repoId}`;
+  // registerBootstrappedDaemonRepo already placed a durable settings record in
+  // the WAL. Reopening and draining a second store here defeats attach budgets
+  // and masks tests that intentionally exercise an invalid Git layout.
+  if (seededSettings.has(fixtureKey)) return;
+  const store = makeTaskEventStore({
+      repoId,
+      rootDir,
+      ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
+    }),
+    stream = store.read();
+  if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
+    const settingsPath = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, "harness.yaml"),
+      documentBody = existsSync(settingsPath)
+        ? readFileSync(settingsPath, "utf8")
+        : "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+      digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
+    store.append(
+      compileSettingsChangedEvent({
+        settings: readSettingsFacet(documentBody),
+        baseDocumentBody: documentBody,
+        candidateDocumentBody: documentBody,
+        eventId: `event-settings-fixture-${digest}`,
+        opId: `settings-fixture-${digest}`,
+        workspaceRevision: stream.revision + 1,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: "2026-08-27T00:00:00.000Z",
+      }),
+    );
+  }
+  await store.drain();
+  seededSettings.add(fixtureKey);
+}
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
   if (input.mode !== "remote-edge") seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot });

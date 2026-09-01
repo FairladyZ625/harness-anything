@@ -27,8 +27,21 @@ import {
   type PublicationFile,
   validateCanonicalWriteBundle,
 } from "./task-event-store.ts";
-import { openWalEventLog, type WalEventLog, type WalEventRecord } from "./wal-event-log.ts";
-import { flushWalToGit, WalMaterializerDivergedError } from "./wal-git-materializer.ts";
+import {
+  captureWalDurableCut,
+  openWalEventLog,
+  type WalDurableCutDescriptor,
+  type WalEventLog,
+  type WalEventRecord,
+} from "./wal-event-log.ts";
+import { WalMaterializerDivergedError } from "./wal-git-materializer.ts";
+import type {
+  WalBaselineDeltaV1,
+  WalMaterializationFenceV1,
+  WalMaterializationFailureV1,
+  WalMaterializationSuccessV1,
+} from "./wal-materialization-protocol.ts";
+import { openWalMaterializationWorker } from "./wal-materialization-worker.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
@@ -51,7 +64,18 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walRetryLimit?: number;
   readonly walRetryBaseMs?: number;
   /** Runs after a WAL cut is durable and Git state has been reloaded. */
-  readonly afterFlush?: (actor: ActorIdentity) => void;
+  readonly afterFlush?: (actor: ActorIdentity, inventory: unknown | null) => void | Promise<void>;
+  readonly walMaterializationWorkerUrl?: URL;
+  readonly walMaterializationFence?: () => WalMaterializationFenceV1 | null;
+  readonly walMaterializationSpan?: (span: {
+    readonly name: "materialization" | "fingerprint" | "checkpoint";
+    readonly durationMs: number;
+    readonly throughRevision: number;
+  }) => void;
+  readonly walMaterializationTestFault?: {
+    readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
+    readonly failures: number;
+  };
 };
 
 export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventStore {
@@ -75,6 +99,15 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let gitStream: CanonicalEventStreamV1 | null = null;
   let mergedStream: CanonicalEventStreamV1 | null = null;
   const wal = openWalEventLog(rootDir);
+  const materializationWorker = openWalMaterializationWorker(
+    {
+      schema: "harness-wal-materialization-worker/v1",
+      repoId: options.repoId,
+      rootDir,
+      ...(options.authoredBranch ? { authoredBranch: options.authoredBranch } : {}),
+    },
+    options.walMaterializationWorkerUrl,
+  );
   const retryLimit = positive(options.walRetryLimit, "HARNESS_WAL_RETRY_LIMIT", DEFAULT_RETRY_LIMIT);
   const retryBaseMs = positive(options.walRetryBaseMs, "HARNESS_WAL_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -92,6 +125,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let lastFlushDurationMs = 0;
   let configuredFlushPolicy = options.walFlushPolicy?.() ?? {};
   let closed = false;
+  let inFlightFlush: Promise<boolean> | null = null;
+  let coalescedFlush: { readonly context: string; readonly compactWorktree: boolean } | null = null;
+  let remainingTestFaults = options.walMaterializationTestFault?.failures ?? 0;
+  let recoveryMaterializationPending = false;
+  let pendingMaterializationFence: WalMaterializationFenceV1 | null = null;
+  const settlementFutures = new Set<Promise<void>>();
 
   const reloadGit = (advancedBaseline?: GitBaseline): void => {
     git = makeGitEventStore(gitOptions);
@@ -183,42 +222,111 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     lastFlushError = null;
     return true;
   };
-  const runFlush = (context: string, compactWorktree = false): boolean => {
-    clearSchedule();
+  const reportSpan = (
+    name: "materialization" | "fingerprint" | "checkpoint",
+    durationMs: number,
+    throughRevision: number,
+  ): void => {
+    options.walMaterializationSpan?.({ name, durationMs, throughRevision });
+    if (name === "checkpoint")
+      console.info(`[wal-materializer] checkpoint through revision ${throughRevision} took ${durationMs.toFixed(3)}ms`);
+  };
+  const trackSettlement = (intent: WalMaterializationSuccessV1["settlementIntent"]): void => {
+    if (!intent || !options.afterFlush) return;
+    const observed = Promise.resolve()
+      .then(() => options.afterFlush!(intent.actor, intent.inventory))
+      .catch((error) => {
+        console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
+        consumeKnownError(error);
+      })
+      .finally(() => settlementFutures.delete(observed));
+    settlementFutures.add(observed);
+  };
+  const applyBaselineDelta = (delta: WalBaselineDeltaV1): void => {
+    const eventOids = gitBaseline.eventOids as Map<string, string>,
+      files = gitBaseline.files as Map<string, GitBaselineNode>;
+    for (const event of delta.events) eventOids.set(event.opId, event.oid);
+    for (const file of delta.files)
+      if ("delete" in file) files.delete(file.delete);
+      else files.set(file.target, { mode: file.mode, oid: file.oid });
+  };
+  const reconcileMaterializedCut = (
+    requestCut: WalDurableCutDescriptor,
+    response: WalMaterializationSuccessV1,
+    gitRevisionBeforeFlush: number,
+  ): void => {
+    const durableRecord = wal.records().find((record) => record.revision === requestCut.throughRevision);
+    if (
+      response.cut.throughRevision !== requestCut.throughRevision ||
+      response.cut.lastOffset !== requestCut.lastOffset ||
+      response.cut.headDigest !== requestCut.headDigest ||
+      response.git.head?.revision !== requestCut.throughRevision ||
+      response.git.head.eventDigest !== requestCut.headDigest ||
+      response.git.head.opId !== durableRecord?.opId ||
+      !/^[0-9a-f]{40}$/u.test(response.git.commitSha)
+    )
+      throw new TaskEventStoreError("invalid_store", "worker returned a materialization receipt for the wrong WAL cut");
+    const checkpointStarted = performance.now();
+    wal.checkpointCut(requestCut);
+    const checkpointMs = performance.now() - checkpointStarted;
+    git.acceptMaterializedCut(response.git);
+    gitHead = response.git.head;
+    gitLayout = response.git.layout;
+    applyBaselineDelta(response.baselineDelta);
+    gitStream = null;
+    mergedStream = null;
+    pendingWalRecords = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
+    walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
+    latestPendingClaims = latestDocumentClaims(pendingWalRecords.map((record) => record.event));
+    if (pendingWalRecords.length === 0) pendingMaterializationFence = null;
+    if (contentValidatedThrough >= gitRevisionBeforeFlush)
+      contentValidatedThrough = Math.max(contentValidatedThrough, response.git.head.revision);
+    lastFlushDurationMs = response.spans.materializationMs;
+    lastSettlementFingerprint = response.settlementFingerprint;
+    reportSpan("materialization", response.spans.materializationMs, requestCut.throughRevision);
+    reportSpan("fingerprint", response.spans.fingerprintMs, requestCut.throughRevision);
+    reportSpan("checkpoint", checkpointMs, requestCut.throughRevision);
+    trackSettlement(response.settlementIntent);
+  };
+  const materializationError = (failure: WalMaterializationFailureV1): Error => {
+    if (failure.error.diverged)
+      return new WalMaterializerDivergedError(
+        ledger.rootDir,
+        `refs/heads/${options.authoredBranch ?? "HEAD"}`,
+        failure.error.canonicalSha ?? git.currentCommit().sha,
+      );
+    return new TaskEventStoreError(
+      failure.error.code === "invalid_store" ? "invalid_store" : "publication_indeterminate",
+      failure.error.message,
+    );
+  };
+  const executeFlush = async (context: string, compactWorktree: boolean): Promise<boolean> => {
     if (divergedError !== null) return false;
-    if (!hasWalRecords()) return true;
-    const records = wal.records();
-    const pendingRecords = records.filter((record) => record.revision > (gitHead?.revision ?? 0));
-    const first = records[0]!.revision;
-    const last = records.at(-1)!.revision;
-    const started = performance.now();
-    const gitRevisionBeforeFlush = gitHead?.revision ?? 0;
+    const cut = captureWalDurableCut(wal);
+    if (cut === null) return true;
+    const first = wal.records()[0]?.revision ?? cut.throughRevision,
+      gitRevisionBeforeFlush = gitHead?.revision ?? 0,
+      fault =
+        remainingTestFaults > 0 && options.walMaterializationTestFault
+          ? { point: options.walMaterializationTestFault.point }
+          : undefined;
+    if (fault) remainingTestFaults -= 1;
     try {
-      const advancedBaseline =
-        pendingRecords.length > 0 ? advanceGitBaseline(gitBaseline, ledger, wal, pendingRecords) : undefined;
-      flushWalToGit(wal, git, { ...options, compactWorktree });
-      reloadGit(advancedBaseline);
-      // Advance only when the old Git prefix was already checked in this process. The
-      // materializer rechecks every WAL content object before writing the new suffix.
-      const gitRevisionAfterFlush = gitHead?.revision ?? 0;
-      if (contentValidatedThrough >= gitRevisionBeforeFlush)
-        contentValidatedThrough = Math.max(contentValidatedThrough, gitRevisionAfterFlush);
-      lastFlushDurationMs = performance.now() - started;
-      // Authored settlement observes the durable cut. It is intentionally outside the
-      // materialization transaction: an ineligible edit must remain visible for doc status,
-      // but can never make an already durable WAL cut fail.
-      notifyAfterFlush(
-        new Set(
-          records.flatMap((record) => [
-            ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
-            ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
-          ]),
-        ),
-        records.at(-1)!.event.actor,
-      );
-      console.info(
-        `[wal-materializer] materialized revisions ${first}-${last} (${context}, attempt ${consecutiveFailures + 1})`,
-      );
+      const response = await materializationWorker.materialize({
+        schema: "harness-wal-materialization-request/v1",
+        cut,
+        expectedGit: { revision: gitRevisionBeforeFlush, commitSha: git.currentCommit().sha },
+        context,
+        compactWorktree,
+        previousSettlementFingerprint: lastSettlementFingerprint,
+        fence: pendingMaterializationFence,
+        ...(fault ? { testFault: fault } : {}),
+      });
+      if (response.outcome === "failed") throw materializationError(response);
+      reconcileMaterializedCut(cut, response, gitRevisionBeforeFlush);
+      const range = `${first}-${cut.throughRevision}`;
+      const attempt = consecutiveFailures + 1;
+      console.info(`[wal-materializer] materialized revisions ${range} (${context}, attempt ${attempt})`);
       consecutiveFailures = 0;
       lastFlushError = null;
       return true;
@@ -233,50 +341,70 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       }
       consecutiveFailures += 1;
       lastFlushError = walShadowErrorMessage(error);
-      try {
-        reloadGit();
-      } catch (reloadError) {
-        console.warn(
-          `[wal-materializer] failed to refresh Git state after materialization error: ${walShadowErrorMessage(reloadError)}`,
-        );
-        consumeKnownError(reloadError);
-      }
+      const failedAttempt = `${consecutiveFailures}/${retryLimit}`;
       console.warn(
-        `[wal-materializer] materialization failed (${context}, attempt ${consecutiveFailures}/${retryLimit}); acknowledged WAL writes remain valid: ${lastFlushError}`,
+        `[wal-materializer] materialization failed (${context}, attempt ${failedAttempt}); ` +
+          `acknowledged WAL writes remain valid: ${lastFlushError}`,
       );
       consumeKnownError(error);
       return false;
     }
   };
-  const notifyAfterFlush = (ignored: ReadonlySet<string>, actor: ActorIdentity | undefined): void => {
-    if (!actor) return;
-    const fingerprint = localGitWorktreeSettlement.changesFingerprint(
-      ledger.rootDir,
-      ledger.authoredPrefix || ".",
-      ignored,
+  const queueFlush = (context: string, compactWorktree = false): Promise<boolean> => {
+    clearSchedule();
+    coalescedFlush = {
+      context,
+      compactWorktree: compactWorktree || (coalescedFlush?.compactWorktree ?? false),
+    };
+    if (inFlightFlush) return inFlightFlush;
+    const pump = async (): Promise<boolean> => {
+      let succeeded = true;
+      while (coalescedFlush !== null) {
+        const request = coalescedFlush;
+        coalescedFlush = null;
+        if (!hasWalRecords()) continue;
+        if (!(await executeFlush(request.context, request.compactWorktree))) {
+          succeeded = false;
+          break;
+        }
+      }
+      return succeeded;
+    };
+    inFlightFlush = pump().then(
+      (succeeded) => {
+        inFlightFlush = null;
+        // afterFlush can append while the pump is leaving its loop. In that window
+        // scheduleFlush observes the old promise and coalesces the request after the
+        // loop has already checked it, so explicitly hand the late request to a new
+        // pump before releasing this turn.
+        if (succeeded && coalescedFlush !== null)
+          void queueFlush(coalescedFlush.context, coalescedFlush.compactWorktree).then((settled) => {
+            if (!settled) scheduleRetry();
+          });
+        return succeeded;
+      },
+      (error: unknown) => {
+        inFlightFlush = null;
+        throw error;
+      },
     );
-    if (fingerprint === lastSettlementFingerprint) return;
-    lastSettlementFingerprint = fingerprint;
-    if (fingerprint === null) return;
-    try {
-      options.afterFlush?.(actor);
-    } catch (error) {
-      console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
-      consumeKnownError(error);
-    }
+    return inFlightFlush;
   };
   const scheduleRetry = (): void => {
     if (closed || divergedError !== null || !hasWalRecords() || consecutiveFailures >= retryLimit) {
       if (consecutiveFailures >= retryLimit)
         console.warn(
-          `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; the next write, recovery, or drain will retry the pending WAL cut`,
+          `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; ` +
+            "the next write, recovery, or drain will retry the pending WAL cut",
         );
       return;
     }
     const delay = retryBaseMs * 2 ** Math.max(0, consecutiveFailures - 1);
     timer = setTimeout(() => {
       timer = null;
-      if (!runFlush("retry")) scheduleRetry();
+      void queueFlush("retry").then((succeeded) => {
+        if (!succeeded) scheduleRetry();
+      });
     }, delay);
     timer.unref?.();
   };
@@ -285,6 +413,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     const policy = flushPolicy(),
       threshold = effectiveEventThreshold(policy),
       thresholdReached = pendingCount() >= threshold || wal.head().lastOffset >= policy.bytes;
+    if (inFlightFlush) {
+      coalescedFlush = { context: "coalesced", compactWorktree: false };
+      return;
+    }
     if (timer !== null || immediate !== null) {
       if (!thresholdReached || immediate !== null) return;
       clearSchedule();
@@ -292,14 +424,18 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     if (thresholdReached) {
       immediate = setImmediate(() => {
         immediate = null;
-        if (!runFlush("batch threshold")) scheduleRetry();
+        void queueFlush("batch threshold").then((succeeded) => {
+          if (!succeeded) scheduleRetry();
+        });
       });
       immediate.unref();
       return;
     }
     timer = setTimeout(() => {
       timer = null;
-      if (!runFlush("batch age")) scheduleRetry();
+      void queueFlush("batch age").then((succeeded) => {
+        if (!succeeded) scheduleRetry();
+      });
     }, policy.milliseconds);
     timer.unref?.();
   };
@@ -351,17 +487,21 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
     if (additionalFiles.length > 0 || (bundle.preceding?.length ?? 0) > 0) {
-      if (!runFlush("fact rekey"))
+      if (hasWalRecords()) {
+        scheduleFlush();
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before an atomic ledger rewrite");
+      }
       const receipt = git.append(bundle, additionalFiles);
       reloadGit();
       // An atomic ledger rewrite rebuilds history through the validating Git publication
       // path; drop the floor so subsequent reads reverify the rewritten ledger.
       contentValidatedThrough = 0;
-      notifyAfterFlush(
-        new Set(additionalFiles.flatMap((file) => ("target" in file ? [file.target] : []))),
-        bundle.event.actor,
-      );
+      trackSettlement({
+        schema: "harness-doc-settlement-intent/v1",
+        actor: bundle.event.actor,
+        fingerprint: `atomic:${bundle.event.workspaceRevision}:${bundle.event.opId}`,
+        inventory: null,
+      });
       return receipt;
     }
     validateCanonicalWriteBundle(bundle);
@@ -411,6 +551,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     };
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
+    pendingMaterializationFence = options.walMaterializationFence?.() ?? null;
     const changedPaths = [
       ...canonicalDocumentClaims(bundle.event).map((claim) => claim.path),
       ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path),
@@ -472,68 +613,52 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     const records = wal.records();
     const hadWalRecords = records.length > 0;
     const hadPendingPublication = (records.at(-1)?.revision ?? 0) > (gitHead?.revision ?? 0);
-    if (!runFlush("recovery")) {
-      scheduleRetry();
-      return {
-        status: "indeterminate",
-        publications: 0,
-        elapsedMs: performance.now() - started,
-        error: lastFlushError ?? "WAL recovery materialization failed",
-        errorCode: "publication_indeterminate",
-      };
+    if (hadWalRecords) {
+      recoveryMaterializationPending = true;
+      scheduleFlush();
     }
-    if (recovered.status !== "none" || !hadWalRecords) {
-      if (recovered.status === "committed" || recovered.status === "already_committed")
-        notifyAfterFlush(
-          new Set(
-            records.flatMap((record) => [
-              ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
-              ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
-            ]),
-          ),
-          records.at(-1)?.event.actor,
-        );
-      return recovered;
-    }
-    const result = {
+    if (recovered.status !== "none" || !hadWalRecords) return recovered;
+    return {
       status: hadPendingPublication ? "committed" : "already_committed",
       publications: hadPendingPublication ? 1 : 0,
       elapsedMs: performance.now() - started,
     } as const;
-    if (result.status === "committed" || result.status === "already_committed")
-      notifyAfterFlush(
-        new Set(
-          records.flatMap((record) => [
-            ...canonicalDocumentClaims(record.event).map((claim) => ledgerGitPath(ledger, claim.path)),
-            ...canonicalDocumentRetirements(record.event).map((retirement) => ledgerGitPath(ledger, retirement.path)),
-          ]),
-        ),
-        records.at(-1)?.event.actor,
-      );
-    return result;
   };
   const drain = async (): Promise<void> => {
     closed = true;
     clearSchedule();
-    if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
-    consecutiveFailures = 0;
-    for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
-      if (runFlush("drain") && !hasWalRecords()) break;
-      if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
+    try {
+      if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
+      consecutiveFailures = 0;
+      let attempt = 1;
+      while (hasWalRecords() || settlementFutures.size > 0) {
+        if (hasWalRecords()) {
+          const succeeded = await queueFlush("drain");
+          if (!succeeded && hasWalRecords()) {
+            if (attempt >= retryLimit)
+              throw new TaskEventStoreError(
+                "publication_indeterminate",
+                `WAL drain exhausted ${retryLimit} attempts ` +
+                  `with ${wal.records().length} record(s) still pending checkpoint`,
+              );
+            await wait(retryBaseMs * 2 ** (attempt - 1));
+            attempt += 1;
+            continue;
+          }
+          attempt = 1;
+        }
+        if (settlementFutures.size > 0) await Promise.all([...settlementFutures]);
+      }
+    } finally {
+      await materializationWorker.close();
     }
-    if (hasWalRecords())
-      throw new TaskEventStoreError(
-        "publication_indeterminate",
-        `WAL drain exhausted ${retryLimit} attempts ` +
-          `with ${wal.records().length} record(s) still pending checkpoint`,
-      );
   };
   const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
     clearSchedule();
     if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
     consecutiveFailures = 0;
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
-      if (runFlush(context, compactWorktree) && !hasWalRecords()) return;
+      if ((await queueFlush(context, compactWorktree)) && !hasWalRecords()) return;
       if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())
@@ -594,8 +719,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     readContentBlob: (sha256) => wal.readContentBlob(sha256) ?? git.readContentBlob(sha256),
     append,
     migrateLayout: (migration) => {
-      if (!runFlush("layout migration"))
+      if (hasWalRecords()) {
+        scheduleFlush();
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before a ledger layout migration");
+      }
       const receipt = git.migrateLayout(migration);
       reloadGit();
       contentValidatedThrough = 0;
@@ -607,10 +734,16 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         git.readContentBlob(sha256),
       ),
     beginBulkWrite,
+    settlePendingMaterialization: flushPending,
     configureWalFlushPolicy: (policy) => {
       configuredFlushPolicy = policy;
       clearSchedule();
       scheduleFlush();
+    },
+    settleRecoveryMaterialization: async () => {
+      if (!recoveryMaterializationPending) return;
+      await flushPending("recovery receipt");
+      recoveryMaterializationPending = false;
     },
     drain,
   };
@@ -772,31 +905,6 @@ interface GitBaselineNode {
 interface GitBaseline {
   readonly eventOids: ReadonlyMap<string, string>;
   readonly files: ReadonlyMap<string, GitBaselineNode>;
-}
-
-function advanceGitBaseline(
-  baseline: GitBaseline,
-  ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  wal: WalEventLog,
-  records: readonly WalEventRecord[],
-): GitBaseline {
-  const eventOids = baseline.eventOids as Map<string, string>,
-    files = baseline.files as Map<string, GitBaselineNode>;
-  for (const record of records) {
-    eventOids.set(record.opId, localGitObjectRefStore.blobOid(walShadowCanonicalBytes(record.event)));
-    for (const retirement of canonicalDocumentRetirements(record.event))
-      files.delete(ledgerGitPath(ledger, retirement.path));
-    for (const claim of canonicalDocumentClaims(record.event)) {
-      const bytes = wal.readContentBlob(claim.sha256);
-      if (bytes === null)
-        throw new TaskEventStoreError("invalid_store", `WAL content object ${claim.sha256} is missing`);
-      files.set(ledgerGitPath(ledger, claim.path), {
-        mode: canonicalDocumentMode(record.event, claim.path),
-        oid: localGitObjectRefStore.blobOid(bytes),
-      });
-    }
-  }
-  return baseline;
 }
 
 function readGitBaseline(ledger: ReturnType<typeof resolveLedgerGitLayout>, commit: string): GitBaseline {
