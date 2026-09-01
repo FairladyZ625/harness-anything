@@ -197,7 +197,6 @@ export function renderDecisionDocument(
       `chosen: ${stableStringify(value.chosen)}`,
       `rejected: ${stableStringify(value.rejected)}`,
       `claims: ${stableStringify(value.claims)}`,
-      `relations: ${stableStringify(value.relations)}`,
       `judgmentConsents: ${stableStringify(value.judgmentConsents)}`,
       ...history,
       "---",

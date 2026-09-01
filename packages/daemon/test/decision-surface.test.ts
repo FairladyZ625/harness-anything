@@ -64,6 +64,13 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       proposer,
     );
     assert.equal(related.outcome, "applied", JSON.stringify(related));
+    const validatedAfterRelate = await cell.run({ kind: "decision-validate", decisionId }, proposer),
+      validationAfterRelate = receiptJson(validatedAfterRelate) as {
+        rows: readonly { readonly valid: boolean; readonly errors: readonly string[] }[];
+      };
+    assert.equal(validatedAfterRelate.outcome, "applied");
+    assert.equal(validationAfterRelate.rows[0]?.valid, true);
+    assert.deepEqual(validationAfterRelate.rows[0]?.errors, []);
     assert.match(
       proposed.nextAction ?? "",
       /First run `ha fact record`, then `ha relation relate .* --type evidenced-by/u,
