@@ -13,6 +13,7 @@ import {
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
+import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import {
   TaskCloseoutTab,
   TaskDispatchTab,
@@ -56,6 +57,7 @@ export function TaskDetailView({
   onProgress,
   onSubmit,
   onSetPin,
+  onFocusGraph,
 }: {
   task: TaskRow;
   onBack: () => void;
@@ -77,6 +79,8 @@ export function TaskDetailView({
   onSubmit?: (submission: GuiSubmissionV1) => Promise<unknown>;
   /** 台账 pin 写通道(`ha task pin` 同一动作);缺省时只显示 📌 状态。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
+  onFocusGraph?: (ref: string) => void;
 }) {
   const [activeTab, setActiveTab] = useState<TaskDetailTab>("overview");
   const [activeDoc, setActiveDoc] = useState("task_plan.md");
@@ -242,6 +246,8 @@ export function TaskDetailView({
             >
               {t("views.taskDetailView.openSessions")} ↗
             </button>
+            {/* 统一「在关系图中查看」入口(task_89d324b5):task 是图节点 kind。 */}
+            <ViewInGraphButton entityRef={`task/${task.taskId}`} onFocusGraph={onFocusGraph} />
           </div>
         </div>
         <div className="flex min-h-0 items-center gap-3 px-3 pb-1.5 lg:px-4">
@@ -342,7 +348,7 @@ export function TaskDetailView({
                 onSubmit={onSubmit}
               />
             ) : (
-              <TaskFilesTab task={task} activeDoc={activeDoc} />
+              <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />
             )}
           </section>
         </div>

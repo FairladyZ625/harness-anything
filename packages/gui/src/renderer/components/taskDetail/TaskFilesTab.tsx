@@ -67,7 +67,16 @@ export function TaskDocumentSidebar(props: TaskDocumentSidebarProps) {
   );
 }
 
-export function TaskFilesTab({ task, activeDoc }: { readonly task: TaskRow; readonly activeDoc: string }) {
+export function TaskFilesTab({
+  task,
+  activeDoc,
+  onOpenDoc,
+}: {
+  readonly task: TaskRow;
+  readonly activeDoc: string;
+  /** 包内相对链接的导航出口(task_89d324b5):正文里点 `artifacts/x.md` 直接切到该文件。 */
+  readonly onOpenDoc?: (path: string) => void;
+}) {
   return (
     <section className="min-w-0" data-testid="task-files-tab">
       <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
@@ -75,7 +84,13 @@ export function TaskFilesTab({ task, activeDoc }: { readonly task: TaskRow; read
         <CaretRight weight="bold" className="text-[10px] text-text-faint" />
         <span className="font-mono text-[11px] text-text-muted">{activeDoc || "未选择文件"}</span>
       </div>
-      <TaskFileBody repoId={task.projectId} taskId={task.taskId} path={activeDoc || null} />
+      <TaskFileBody
+        repoId={task.projectId}
+        taskId={task.taskId}
+        path={activeDoc || null}
+        packagePath={task.packagePath ?? null}
+        onOpenDoc={onOpenDoc}
+      />
     </section>
   );
 }
@@ -84,9 +99,12 @@ interface TaskFileBodyProps {
   readonly repoId: string;
   readonly taskId: string;
   readonly path: string | null;
+  /** 台账上的任务包路径(`tasks/<pkg>`);相对链接据此落回包内。 */
+  readonly packagePath: string | null;
+  readonly onOpenDoc?: (path: string) => void;
 }
 
-function TaskFileBody({ repoId, taskId, path }: TaskFileBodyProps) {
+function TaskFileBody({ repoId, taskId, path, packagePath, onOpenDoc }: TaskFileBodyProps) {
   const document = useTaskDocumentQuery(repoId, taskId, path);
   if (!path) return <FileEmpty text="先从左侧选择一个任务包文件。" />;
   if (document.isPending) return <FileEmpty text="正在读取文档投影…" />;
@@ -101,7 +119,11 @@ function TaskFileBody({ repoId, taskId, path }: TaskFileBodyProps) {
   const content = isHtmlDocument(path) ? (
     <HtmlArtifactPreview content={body} path={path} />
   ) : (
-    <DocReader content={body} />
+    <DocReader
+      content={body}
+      packageBasePath={packagePath !== null && path !== null ? `${packagePath}/${path}` : null}
+      onOpenPackageDoc={onOpenDoc}
+    />
   );
   return (
     <>

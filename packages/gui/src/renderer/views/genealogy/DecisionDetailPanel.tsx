@@ -1,6 +1,7 @@
-import { X, ArrowsOutSimple, Graph } from "@phosphor-icons/react";
+import { X, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { DecisionRow } from "../../model/types";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../../components/badges";
+import { ViewInGraphButton } from "../../components/ViewInGraphButton.tsx";
 
 /**
  * 决策详情面板(REQ-GUI-05):状态、问题、已选/否决/why-not,
@@ -91,15 +92,12 @@ export function DecisionDetailPanel({
               在决策池查看
             </button>
           )}
-          {onFocusGraph && (
-            <button
-              onClick={() => onFocusGraph(`decision/${decision.decisionId}`)}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
-            >
-              <Graph weight="bold" className="text-[11px]" />
-              在关系图聚焦
-            </button>
-          )}
+          <ViewInGraphButton
+            entityRef={`decision/${decision.decisionId}`}
+            onFocusGraph={onFocusGraph}
+            testId="decision-panel-view-in-graph"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+          />
         </div>
       </div>
     </aside>

@@ -442,7 +442,7 @@ describe("DecisionDetailView", () => {
       poolBtn.click();
     });
     expect(onOpenPool).toHaveBeenCalledWith("dec_1");
-    const graphBtn = [...div.querySelectorAll("button")].find((b) => b.textContent === "在关系图聚焦")!;
+    const graphBtn = [...div.querySelectorAll("button")].find((b) => b.textContent === "在关系图中查看")!;
     await act(async () => {
       graphBtn.click();
     });

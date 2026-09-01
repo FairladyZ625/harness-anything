@@ -10,7 +10,6 @@
   "views.decisionDetailView.consents": "Judgment consents",
   "views.decisionDetailView.consentsEmpty": "No judgment consent yet (proposed decisions have none).",
   "views.decisionDetailView.derivedTasks": "Derived tasks",
-  "views.decisionDetailView.focusGraph": "Focus in relation graph",
   "views.decisionDetailView.fulfillment": "fulfillment",
   "views.decisionDetailView.identity": "Identity",
   "views.decisionDetailView.identityActors": "PROPOSED / ARBITER",

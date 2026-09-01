@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
@@ -162,18 +163,8 @@ export function DecisionDetailView({
                 {t("views.decisionDetailView.openInPool")}
               </button>
             )}
-            {onFocusGraph && (
-              <button
-                type="button"
-                onClick={() => onFocusGraph(`decision/${decision.decisionId}`)}
-                className={[
-                  "rounded-md border border-border px-2 py-1.5 font-mono text-[10px] text-text-muted",
-                  "hover:border-border-strong hover:bg-surface-raised hover:text-text",
-                ].join(" ")}
-              >
-                {t("views.decisionDetailView.focusGraph")}
-              </button>
-            )}
+            {/* 统一「在关系图中查看」入口(task_89d324b5):原特化按钮换成共享件,行为同路。 */}
+            <ViewInGraphButton entityRef={`decision/${decision.decisionId}`} onFocusGraph={onFocusGraph} />
           </div>
         </div>
         <details className="group relative z-30">

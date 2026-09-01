@@ -40,11 +40,14 @@ export function AgentSquadView({
   tasks,
   focusedEntityRef,
   onSelectEntity,
+  onFocusGraph,
 }: {
   readonly repoId: string;
   readonly tasks: readonly DispatchDialogTaskOption[];
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);透传给 Agent 详情卡。 */
+  readonly onFocusGraph?: (ref: string) => void;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   // inspector 相关会话的检索面:深链选中谁就查谁(agent/squad id 进 daemon 精确
@@ -224,6 +227,7 @@ export function AgentSquadView({
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
                 onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
                 onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                onFocusGraph={onFocusGraph}
               />
             ) : (
               <Empty>{t("agentRuntime.loading")}</Empty>

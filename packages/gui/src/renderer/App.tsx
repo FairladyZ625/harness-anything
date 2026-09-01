@@ -59,6 +59,7 @@ import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
+import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 
 /**
  * 渲染全量决策行的视图。总览不在决策抽屉关闭时预读完整图;
@@ -402,6 +403,7 @@ function AppShell() {
                 onSetPin={(task, pinned) => {
                   void taskActions.setTaskPin(task, pinned);
                 }}
+                onFocusGraph={focusEntityInGraph}
               />
             ) : view === "home" ? (
               <HomeView
@@ -590,6 +592,7 @@ function AppShell() {
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
                 onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
+                onFocusGraph={focusEntityInGraph}
               />
             ) : view === "artifacts" ? (
               <ArtifactsView repoId={projectId} onNavigateTask={navigateToTask} />
@@ -603,6 +606,7 @@ function AppShell() {
                 }))}
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
+                onFocusGraph={focusEntityInGraph}
               />
             ) : view === "providers" ? (
               <ProvidersView
@@ -674,7 +678,11 @@ function AppShell() {
 export function App() {
   return (
     <ThemeProvider>
-      <AppShell />
+      {/* 本机文档浮层(task_89d324b5):详情页 Markdown 的项目外本机文件链接在 GUI 内
+          打开阅读;context 让所有 Markdown 锚点共享同一个打开入口。 */}
+      <LocalDocLayer>
+        <AppShell />
+      </LocalDocLayer>
     </ThemeProvider>
   );
 }

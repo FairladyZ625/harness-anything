@@ -5,6 +5,7 @@ import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-
 import type { AgentEntityDetail, AgentEntityRow, AgentSkillRow, SquadEntityRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import {
   AddChip,
   Avatar,
@@ -77,6 +78,8 @@ type Props = {
   readonly onSelectSquad: (squadId: string) => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSelectAgent: (agentId: string) => void;
+  /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
+  readonly onFocusGraph?: (ref: string) => void;
 };
 export function AgentCard({
   detail,
@@ -91,6 +94,7 @@ export function AgentCard({
   onSelectSquad,
   onSelectRuntime,
   onSelectAgent,
+  onFocusGraph,
 }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)),
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
@@ -127,6 +131,16 @@ export function AgentCard({
           onNavigate={() => onSelectAgent(detail.id)}
           title={detail.id}
           className="font-mono text-text-muted hover:text-accent hover:underline"
+        />
+        {/* 统一「在关系图中查看」入口(task_89d324b5):agent 是图节点 kind。 */}
+        <ViewInGraphButton
+          entityRef={`agent/${detail.id}`}
+          onFocusGraph={onFocusGraph}
+          testId="agent-view-in-graph"
+          className={
+            "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[11px] " +
+            "text-text-muted hover:border-border-strong hover:text-text"
+          }
         />
       </Crumbs>
       <Card>
