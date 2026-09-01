@@ -1,19 +1,34 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { contentObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { localWalFileSystem } from "../../src/local/local-layout-file-system.ts";
+import { resolveLedgerGitLayout } from "../../src/store/ledger-git-layout.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { openWalEventLog } from "../../src/store/wal-event-log.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+
+test("ledger Git layout resolution reuses one normalized-root identity", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const before = localGitObjectRefStore.processCount(),
+      first = resolveLedgerGitLayout(rootDir),
+      afterFirst = localGitObjectRefStore.processCount(),
+      second = resolveLedgerGitLayout(rootDir);
+    assert.equal(first, second);
+    assert.equal(afterFirst - before, 1, "the first layout resolution probes the Git top level");
+    assert.equal(localGitObjectRefStore.processCount() - afterFirst, 0, "the cached layout starts no subprocess");
+  });
+});
 
 test("S4 acknowledges the durable WAL cut with zero Git processes and immediate worktree visibility", async () => {
   await withTempStoreAsync(async (rootDir) => {
@@ -82,6 +97,96 @@ test("S4 batches a WAL suffix into one Git commit and garbage-collects local con
       [1, 2, 3],
     );
     await reopened.drain();
+  });
+});
+
+test("a verified WAL flush reuses the process-local Git content validation prefix", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({
+      repoId: "wal-validation-prefix",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+    });
+    store.append(taskBundle(1, "validated once\n"));
+    await store.drain();
+
+    const trustedStarted = localGitObjectRefStore.processCount();
+    assert.equal(store.read().revision, 1);
+    const trustedProcesses = localGitObjectRefStore.processCount() - trustedStarted;
+
+    const fresh = makeWalShadowEventStore({ repoId: "wal-validation-prefix", rootDir, walFlushMs: 60_000 });
+    const freshStarted = localGitObjectRefStore.processCount();
+    assert.equal(fresh.read().revision, 1);
+    const freshProcesses = localGitObjectRefStore.processCount() - freshStarted;
+    assert.equal(
+      freshProcesses,
+      trustedProcesses + 1,
+      "a fresh process view performs the content batch that the validated prefix can omit",
+    );
+    await fresh.drain();
+  });
+});
+
+test("an unvalidated Git prefix is still checked after a WAL suffix flush", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const first = taskBundle(1, "valid history\n"),
+      gitStore = makeGitEventStore({ repoId: "wal-unvalidated-prefix", rootDir });
+    gitStore.append(first);
+    writeFileSync(
+      path.join(rootDir, "harness", contentObjectRelativePath(first.blobs[0]!.sha256)),
+      "corrupt history\n",
+    );
+    git(rootDir, "add", "harness/objects");
+    git(rootDir, "commit", "-qm", "corrupt historical content fixture");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+
+    const store = makeWalShadowEventStore({
+      repoId: "wal-unvalidated-prefix",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+    });
+    store.append(taskBundle(2, "verified suffix\n"));
+    await store.drain();
+    assert.throws(
+      () => store.read(),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "invalid_store");
+        return /content blob.*not reachable and exact/u.test(String(error));
+      },
+    );
+  });
+});
+
+test("WAL materialization rechecks content bytes before trusting the flushed suffix", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({
+        repoId: "wal-corrupt-object",
+        rootDir,
+        walFlushEvents: 64,
+        walFlushMs: 60_000,
+        walRetryLimit: 1,
+      }),
+      bundle = taskBundle(1, "durable bytes\n");
+    store.append(bundle);
+    writeFileSync(path.join(rootDir, ".harness", "wal", "objects", bundle.blobs[0]!.sha256), "corrupt\n");
+    const warnings: string[] = [],
+      originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      await assert.rejects(store.drain(), /WAL drain exhausted 1 attempt/u);
+    } finally {
+      console.warn = originalWarn;
+    }
+    assert.equal(
+      warnings.some((warning) => warning.includes("WAL content object") && warning.includes("corrupt")),
+      true,
+    );
+    assert.equal(makeGitEventStore({ repoId: "wal-corrupt-object", rootDir }).read().revision, 0);
   });
 });
 

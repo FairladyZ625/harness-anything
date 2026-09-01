@@ -225,6 +225,8 @@ function batchFiles(
 function requiredWalBlob(wal: WalEventLog, sha256: string): Uint8Array {
   const bytes = wal.readContentBlob(sha256);
   if (bytes === null) throw new TaskEventStoreError("invalid_store", `WAL content object ${sha256} is missing`);
+  if (sha256Text(Buffer.from(bytes).toString("utf8")) !== sha256)
+    throw new TaskEventStoreError("invalid_store", `WAL content object ${sha256} is corrupt`);
   return bytes;
 }
 
