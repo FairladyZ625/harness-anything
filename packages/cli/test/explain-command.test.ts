@@ -50,7 +50,8 @@ test("explain parser selects catalog/object mode without duplicating EntityRef v
       kind: "entity-action-explain",
       schema: "entity-action-explain-request/v1",
       mode: "catalog",
-      refs: ["person"],
+      entityKind: "person",
+      refs: [],
     });
   }
   assert.deepEqual(objects.command.action, {

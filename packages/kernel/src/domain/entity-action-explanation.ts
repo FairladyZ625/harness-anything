@@ -180,10 +180,6 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
     for (const [index, action] of value.actions.entries())
       errors.push(...validateAction(action, mode, cut, value).map((issue) => `actions[${index}]: ${issue}`));
     if (value.failure === null) {
-      const canonicalIds =
-        typeof value.kind === "string"
-          ? (getEntityKindContract(value.kind)?.actionCatalog?.actions.map(({ id }) => id) ?? [])
-          : [];
       const ids = value.actions.map((action) =>
           explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
         ),
@@ -193,10 +189,6 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
             : null;
       if (canonicalIds === null || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
         errors.push("successful Entity subject actions must follow its canonical catalog order");
-        explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
-      );
-      if (canonicalIds.length === 0 || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
-        errors.push("successful Entity subject actions must follow canonical catalog order");
     }
   }
   if (value.failure !== null) errors.push(...validateFailure(value.failure));
@@ -215,9 +207,6 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
       value.failure !== null
     )
       errors.push("catalog subject must be one static registered Entity Action catalog");
-    if (!Array.isArray(value.actions) || value.actions.length !== catalog?.actions.length)
-    if (!catalog || value.ref !== null || value.revision !== null || value.failure !== null)
-      errors.push("catalog subject must name one static Entity Action catalog");
     if (!Array.isArray(value.actions) || value.actions.length !== (catalog?.actions.length ?? -1))
       errors.push("catalog subject must contain every canonical Entity Action");
   } else if (
@@ -228,7 +217,6 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
       !positiveInteger(value.revision))
   )
     errors.push("successful object subject requires a registered executable Entity ref and revision");
-    errors.push("successful object subject requires a catalog-backed Entity ref and revision");
   if (value.failure !== null && Array.isArray(value.actions) && value.actions.length !== 0)
     errors.push("failed subject cannot contain evaluated actions");
   return errors;

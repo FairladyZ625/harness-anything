@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { makePersonActionExplanationService, makeTaskActionExplanationService } from "../../application/src/index.ts";
-import { makeSquadActionExplanationService, makeTaskActionExplanationService } from "../../application/src/index.ts";
+import {
+  makePersonActionExplanationService,
+  makeSquadActionExplanationService,
+  makeTaskActionExplanationService,
+} from "../../application/src/index.ts";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   consumeKnownError,
@@ -18,7 +21,6 @@ import {
   type CanonicalEventStore,
   type EntityActionContract,
   type EntityActionExplainRequestV1,
-  type EntityActionContract,
   type EntityActionExplanationFailureCode,
   type EntityActionExplanationSetV1,
   type EntityActionExplanationSubjectV1,
@@ -55,19 +57,7 @@ export function readTaskActionExplanation(
     issues = validateEntityActionExplainRequest(payload);
   if (issues.length > 0) throw invalidCommand(issues.join("; "));
   const request = payload as unknown as EntityActionExplainRequestV1;
-  if (request.mode === "catalog") {
-    const kind = request.refs[0] ?? "task",
-      dependencies = {
-        actor: binding.actor,
-        authorize: () => {
-          throw new Error("Catalog explanations do not evaluate authorization.");
-        },
-      };
-    return kind === "person"
-      ? makePersonActionExplanationService(dependencies).catalog()
-      : makeTaskActionExplanationService(dependencies).catalog();
-  }
-  if (request.mode === "catalog") return catalogExplanation(request.entityKind!, binding);
+  if (request.mode === "catalog") return catalogExplanation(request.entityKind ?? request.refs[0] ?? "task", binding);
 
   const stream = dependencies.store.read(),
     cut = `canonical:${stream.revision}`,
@@ -96,9 +86,6 @@ export function readTaskActionExplanation(
         targetOverride: target,
       });
     },
-    service = makeTaskActionExplanationService({
-      actor: binding.actor,
-      authorize,
     taskService = makeTaskActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
@@ -142,8 +129,7 @@ export function readTaskActionExplanation(
       let subject: EntityActionExplanationSubjectV1;
       if (entity === null)
         subject = failure(null, null, "invalid_entity_ref", `Entity ref ${ref} is invalid.`, [
-          "Use a registered EntityRef such as task/<task-id> or person/<person-id>.",
-          "Use a registered EntityRef such as task/<task-id> or squad/<squad-id>.",
+          "Use a registered EntityRef such as task/<task-id>, person/<person-id>, or squad/<squad-id>.",
         ]);
       else if (entity.externalHarness)
         subject = failure(
@@ -153,16 +139,13 @@ export function readTaskActionExplanation(
           `External harness ref ${entity.raw} cannot be evaluated by this repository daemon.`,
           ["Route the explain request to the owning harness daemon."],
         );
-      else if (entity.kind !== "task" && entity.kind !== "person")
-      else if (entity.kind !== "task" && entity.kind !== "squad")
+      else if (entity.kind !== "task" && entity.kind !== "person" && entity.kind !== "squad")
         subject = failure(
           entity.kind,
           entity.raw as EntityRef,
           "unsupported_explain_target",
-          `Entity Action explain currently supports Task and Person targets; ${entity.raw} is ${entity.kind}.`,
+          `Entity Action explain currently supports Task, Person, and Squad targets; ${entity.raw} is ${entity.kind}.`,
           ["Use catalog mode to discover the supported Entity Action surfaces."],
-          `Entity Action explain currently supports Task and Squad targets; ${entity.raw} is ${entity.kind}.`,
-          ["Use ha explain task or ha explain squad to discover a supported Action catalog."],
         );
       else if (entity.kind === "person") {
         const person = personCut?.roster.people.find(({ personId }) => personId === entity.id);
@@ -324,6 +307,8 @@ function personRosterAtCut(
     consumeKnownError(error);
     return null;
   }
+}
+
 function catalogExplanation(kind: string, binding: RepoCellBinding): EntityActionExplanationSetV1 {
   const dependencies = {
     actor: binding.actor,
@@ -332,6 +317,7 @@ function catalogExplanation(kind: string, binding: RepoCellBinding): EntityActio
     },
   };
   if (kind === "task") return makeTaskActionExplanationService(dependencies).catalog();
+  if (kind === "person") return makePersonActionExplanationService(dependencies).catalog();
   if (kind === "squad") return makeSquadActionExplanationService(dependencies).catalog();
   throw invalidCommand(`Entity Action catalog explain does not support ${kind}.`);
 }

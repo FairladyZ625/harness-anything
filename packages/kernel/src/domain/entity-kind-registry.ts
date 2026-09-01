@@ -434,6 +434,9 @@ const settingsActionCatalog = createSettingsActionCatalog(
 
 const personActionCatalog = createPersonActionCatalog(
   (id) => entityAction("person", personIdentity, id),
+  actionResultContract,
+);
+
 const squadActionCatalog = createSquadActionCatalog(
   (id) => entityAction("squad", requireEntityTypeContract("squad").id, id),
   actionResultContract,
