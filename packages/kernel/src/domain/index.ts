@@ -245,10 +245,21 @@ export type {
   CredentialRef,
   PeopleCommandClass,
   PeopleRosterAction,
+  PeopleRosterDocumentV1,
   PersonProfile,
   RolePolicy,
 } from "./people-roster.ts";
-export { compilePeopleRosterActionEvent } from "./people-event.ts";
+export { compilePeopleRosterActionEvent, isPeopleEvent, type CompiledPeopleRosterAction } from "./people-event.ts";
+export {
+  createPersonActionCatalog,
+  evaluatePersonActionCapability,
+  personActionCriterionRef,
+  personActionIds,
+  personActionUsage,
+  type PersonActionCapabilityEvaluation,
+  type PersonActionDraft,
+  type PersonActionId,
+} from "./person-action-contract.ts";
 
 export {
   entityNonEmpty,

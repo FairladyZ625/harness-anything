@@ -51,11 +51,7 @@ import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./ve
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
-import type {
-  RepoCellOperationalContext,
-  RepoCellPeopleActions,
-  RepoCellSettingsState,
-} from "./repo-cell-action-context.ts";
+import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawn.ts";
@@ -113,7 +109,6 @@ export interface RepoCellApiContext {
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
   readonly settings: RepoCellSettingsState;
-  readonly peopleActions: RepoCellPeopleActions;
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
   readonly catalog: RepoCell["catalog"];
@@ -229,8 +224,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         .then(async () => {
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
-          if (context.state !== "attached")
-            throw context.cellCodedError("repo_unavailable", context.latched());
+          if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
           return context.withLayoutAdvisory(context.withHumanSummary(await context.executeAction(action, binding)));
         })
         .then((receipt) => receipt as WriteReceipt)
@@ -568,7 +562,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
     if (method === "repo.entity.actions.explain") {
       return readTaskActionExplanation(
-        { store: context.store, projection: context.projection, binding, now: context.now },
+        { store: context.store, projection: context.projection, binding, rootDir: context.rootDir, now: context.now },
         payload,
       ) as DaemonGuiReadResultMap[typeof method];
     }

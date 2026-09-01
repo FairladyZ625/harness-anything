@@ -20,6 +20,7 @@ import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 import type { AgentActionDraft } from "./agent-action-contract.ts";
 import type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 import type { SettingsActionDraft } from "./settings-action-contract.ts";
+import type { PersonActionDraft } from "./person-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
@@ -104,7 +105,8 @@ export type EntityActionDraft =
   | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
   | { readonly kind: "relation"; readonly event: RelationEventV1 }
   | { readonly kind: "schedule"; readonly result: ScheduleActionDraft }
-  | { readonly kind: "settings"; readonly result: SettingsActionDraft };
+  | { readonly kind: "settings"; readonly result: SettingsActionDraft }
+  | { readonly kind: "person"; readonly result: PersonActionDraft };
 export type EntityActionCompileHook = (input: EntityActionCompileInput) => EntityActionDraft;
 
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {
