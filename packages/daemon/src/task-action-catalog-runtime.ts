@@ -74,19 +74,29 @@ export async function runTaskActionCatalogRuntime(
       } as WriteReceipt;
     }
     if (!contract) throw new Error(`Task Action ${action.kind} is not declared.`);
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
-      criterionEvaluation(evaluations, START_CRITERION),
-    ]);
+    const leaseEvaluation = criterionEvaluation(evaluations, START_CRITERION);
+    return taskActionRejection(
+      cell,
+      action,
+      binding,
+      current.snapshot.revision,
+      contract,
+      [leaseEvaluation],
+      undefined,
+      "lease_conflict",
+    );
   }
   const submitValidationEvaluation = evaluations.find(
       ({ criterionRef }) => criterionRef === SUBMIT_VALIDATION_CRITERION,
     ),
-    submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION);
-  if (action.kind === "task-submit" && submitValidationEvaluation?.status === "unmet" && contract)
+    submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION),
+    submitValidationUnmet = submitValidationEvaluation?.status === "unmet",
+    submitLeaseUnmet = submitLeaseEvaluation?.status === "unmet";
+  if (action.kind === "task-submit" && submitValidationUnmet && contract)
     return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
       submitValidationEvaluation,
     ]);
-  if (action.kind === "task-submit" && submitLeaseEvaluation?.status === "unmet" && contract)
+  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
     return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (lifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
@@ -267,6 +277,7 @@ function taskActionRejection(
     readonly nextActions: readonly string[];
   }[],
   rejected?: WriteReceipt,
+  rejectionCode?: string,
 ): WriteReceipt {
   const unmetCriteria: readonly EntityActionUnmetCriterionV1[] = unmet.map(({ criterionRef }) => {
       const criterion = contract.criteria.find(({ ref }) => ref === criterionRef);
@@ -279,7 +290,7 @@ function taskActionRejection(
     ...(rejected ??
       cell.rejected(
         cell.operationId(action, binding, cell.input.repoId, revision),
-        first.failureCode,
+        rejectionCode ?? first.failureCode,
         nextActions[0] ?? first.explain,
       )),
     nextAction: nextActions[0] ?? first.explain,

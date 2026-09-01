@@ -4,7 +4,11 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import type { EntityActionCompileHook, EntityActionCompileInput } from "./entity-action-execution.ts";
+import {
+  attributeEntityActionCriterion,
+  type EntityActionCompileHook,
+  type EntityActionCompileInput,
+} from "./entity-action-execution.ts";
 import {
   compileScheduleDeletedEvent,
   compileScheduleDefinitionEvent,
@@ -381,7 +385,12 @@ function compileScheduleAction(
     };
   if (id === "create") {
     if (current !== undefined && current !== null)
-      reject("entity_exists", `Schedule ${text(action.scheduleId, "scheduleId")} already exists.`);
+      rejectCriterion(
+        "create",
+        "schedule/create-identity",
+        "entity_exists",
+        `Schedule ${text(action.scheduleId, "scheduleId")} already exists.`,
+      );
     const created = createScheduleV1({
       scheduleId: text(action.scheduleId, "scheduleId"),
       name: text(action.name, "name"),
@@ -408,7 +417,12 @@ function compileScheduleAction(
   if (id === "update") {
     const fields = definitionFields.map(({ field }) => field);
     if (!fields.some((field) => Object.hasOwn(action, field)))
-      reject("invalid_command", "Schedule update requires at least one definition field.");
+      rejectCriterion(
+        "update",
+        "schedule/update-definition",
+        "invalid_command",
+        "Schedule update requires at least one definition field.",
+      );
     if (!record(current))
       reject("entity_not_found", `Schedule ${text(action.scheduleId, "scheduleId")} does not exist.`);
     const merged = mergeScheduleUpdate(current, action, input.occurredAt);
@@ -428,7 +442,9 @@ function compileScheduleAction(
   if (!schedule) reject("entity_not_found", `Schedule ${text(action.scheduleId, "scheduleId")} does not exist.`);
   if (id === "delete") {
     if (schedule.status.activeRun)
-      reject(
+      rejectCriterion(
+        "delete",
+        "schedule/delete-single-flight",
         "schedule_single_flight_active",
         `Schedule ${schedule.scheduleId} has an active occurrence; settle it before deletion.`,
       );
@@ -456,9 +472,9 @@ function compileScheduleAction(
       }),
     );
   }
-  if (id === "run-now" || id === "claim") return claimOccurrence(schedule, revision, input, common);
+  if (id === "run-now" || id === "claim") return claimOccurrence(id, schedule, revision, input, common);
   if (id === "link") {
-    const active = matchingClaim(schedule, action.claimFence);
+    const active = matchingClaim("link", schedule, action.claimFence);
     return event(
       compileScheduleRunEvent({
         ...common,
@@ -478,7 +494,7 @@ function compileScheduleAction(
     );
   }
   if (id === "record-missed") return missedOccurrences(schedule, revision, input, common);
-  const active = matchingClaim(schedule, action.claimFence),
+  const active = matchingClaim("settle", schedule, action.claimFence),
     outcome = action.outcome as ScheduleRunOutcome;
   if (!scheduleRunOutcomes.includes(outcome) || !timestamp(action.endedAt))
     reject("invalid_command", "Schedule settlement requires one canonical outcome and UTC end time.");
@@ -506,6 +522,7 @@ function compileScheduleAction(
 }
 
 function claimOccurrence(
+  actionId: "run-now" | "claim",
   schedule: ScheduleV1,
   revision: number,
   input: EntityActionCompileInput,
@@ -515,12 +532,16 @@ function claimOccurrence(
   if (schedule.state !== "armed")
     reject("schedule_paused", `Schedule ${schedule.scheduleId} is paused; enable it before claiming.`);
   if (typeof action.observedDefinitionRevision === "number" && action.observedDefinitionRevision !== revision)
-    reject(
+    rejectCriterion(
+      actionId,
+      "schedule/definition-revision-fence",
       "schedule_definition_stale",
       `Schedule ${schedule.scheduleId} changed at revision ${revision}; refresh its definition before claiming.`,
     );
   if (schedule.status.activeRun)
-    reject(
+    rejectCriterion(
+      actionId,
+      "schedule/occurrence-single-flight",
       "schedule_single_flight_active",
       `Schedule ${schedule.scheduleId} already has active occurrence ${schedule.status.activeRun.occurrenceId}.`,
     );
@@ -568,7 +589,9 @@ function missedOccurrences(
   if (schedule.state !== "armed")
     reject("schedule_paused", `Schedule ${schedule.scheduleId} is paused; it cannot record a timer miss.`);
   if (action.observedDefinitionRevision !== revision)
-    reject(
+    rejectCriterion(
+      "record-missed",
+      "schedule/missed-definition-fence",
       "schedule_definition_stale",
       `Schedule ${schedule.scheduleId} changed at revision ${revision}; refresh it before recording a timer miss.`,
     );
@@ -612,11 +635,20 @@ function currentSchedule(input: EntityActionCompileInput): ScheduleV1 | null {
   return validateScheduleV1(input.currentEntity).length === 0 ? (input.currentEntity as ScheduleV1) : null;
 }
 
-function matchingClaim(schedule: ScheduleV1, fence: unknown): NonNullable<ScheduleV1["status"]["activeRun"]> {
+function matchingClaim(
+  actionId: "link" | "settle",
+  schedule: ScheduleV1,
+  fence: unknown,
+): NonNullable<ScheduleV1["status"]["activeRun"]> {
   const claimFence = text(fence, "claimFence"),
     active = schedule.status.activeRun;
   if (!active || active.claimFence !== claimFence)
-    reject("schedule_claim_stale", `Schedule ${schedule.scheduleId} no longer owns claim ${claimFence}.`);
+    rejectCriterion(
+      actionId,
+      "schedule/active-claim-fence",
+      "schedule_claim_stale",
+      `Schedule ${schedule.scheduleId} no longer owns claim ${claimFence}.`,
+    );
   return active;
 }
 
@@ -745,4 +777,8 @@ function text(value: unknown, name: string): string {
 
 function reject(code: string, message: string): never {
   throw Object.assign(new Error(message), { code });
+}
+
+function rejectCriterion(actionId: string, criterionRef: string, code: string, message: string): never {
+  throw attributeEntityActionCriterion(Object.assign(new Error(message), { code }), actionId, criterionRef);
 }

@@ -49,15 +49,7 @@ const revisionCurrent: Evaluation = ({ snapshot }) =>
 const taskCapabilityEvaluators = Object.freeze(
   new Map<string, Evaluation>([
     [key("start", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [
-      key("start", "task-lifecycle-command-transitions/canStartExecution"),
-      ({ snapshot }) =>
-        ["entity-action-explanation", ...snapshot.executions.map(({ executionId }) => executionId)].some(
-          (executionId) => canStartExecution(snapshot, executionId),
-        )
-          ? "met"
-          : "unmet",
-    ],
+    [key("start", "task-lifecycle-command-transitions/canStartExecution"), startAvailability],
     [
       key("start", "task-lifecycle-command-transitions/start.validate"),
       ({ snapshot }) =>
@@ -129,7 +121,36 @@ function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation
   };
 }
 
+function startAvailability(input: TaskActionCapabilityInput): PredicateEvaluation | "met" | "unmet" {
+  const executionIds = [
+      "entity-action-explanation",
+      ...input.snapshot.executions.map(({ executionId }) => executionId),
+    ],
+    startable = executionIds.some((executionId) => canStartExecution(input.snapshot, executionId));
+  if (startable) return "met";
+  const lease = input.snapshot.lease;
+  if (!lease || heldLeaseForExecutionActor(input.snapshot, lease.executionId, input.actor)) return "unmet";
+  const taskId = invocationTaskId(input),
+    executor = lease.actor.executor ? `${lease.actor.executor.kind}:${lease.actor.executor.id}` : "none",
+    holder = `personId=${lease.actor.principal.personId}, executor=${executor}`;
+  return {
+    status: "unmet",
+    nextActions: [
+      lease.phase === "reserving"
+        ? `Task ${taskId} is being reserved by ${holder}; wait for that reservation to publish ` +
+          `or lapse at ${lease.expiresAt}, then retry ha task start ${taskId}.`
+        : `Task ${taskId} is held by ${holder}; that holder must run ha task release ${taskId}. ` +
+          `This caller must wait for release, then retry ha task start ${taskId}.`,
+    ],
+  };
+}
+
 function reviewValidation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {
+  if (
+    input.invocation?.reviewId !== undefined &&
+    input.snapshot.reviews.some(({ reviewId }) => reviewId === input.invocation?.reviewId)
+  )
+    return { status: "unmet" };
   if (currentSubmittedExecutions(input.snapshot).length > 0) return "invocation-required";
   const taskId = invocationTaskId(input),
     executionId = input.invocation?.executionId ?? "<execution-id>",

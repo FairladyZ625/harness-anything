@@ -1,5 +1,6 @@
 import {
   SETTINGS_ID,
+  attributeEntityActionCriterion,
   isSettingsEvent,
   settingsActionLocale,
   type EntityActionCompileInput,
@@ -215,9 +216,13 @@ async function assertCatalogSelection(rootDir: string, settings: SettingsV1): Pr
     preset = presets.find((row) => row.id === settings.defaultPreset && row.verticalId === settings.defaultVertical),
     selection = [settings.defaultVertical, settings.defaultPreset, settings.defaultProfile].join("/");
   if (preset?.validity !== "valid" || !preset.profiles?.some((profile) => profile.id === settings.defaultProfile))
-    throw Object.assign(new Error(`Settings selection ${selection} is not a valid catalog preset profile.`), {
-      code: "invalid_settings_catalog_selection",
-    });
+    throw attributeEntityActionCriterion(
+      Object.assign(new Error(`Settings selection ${selection} is not a valid catalog preset profile.`), {
+        code: "invalid_settings_catalog_selection",
+      }),
+      "update",
+      "settings/catalog-selection",
+    );
 }
 
 interface SettingsCatalogPreset {

@@ -4,7 +4,11 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import type { EntityActionCompileHook, EntityActionCompileInput } from "./entity-action-execution.ts";
+import {
+  attributeEntityActionCriterion,
+  type EntityActionCompileHook,
+  type EntityActionCompileInput,
+} from "./entity-action-execution.ts";
 import { compileSettingsChangedEvent, type SettingsEventBundle } from "./settings-event.ts";
 import {
   SETTINGS_ID,
@@ -176,9 +180,13 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
   if (!repositoryChangeRequested) return { kind: "no-changes", settings: current, revision };
   if (expectedVersion !== undefined && Number(expectedVersion) !== revision)
-    rejectSettings(
-      "revision_conflict",
-      `Settings expected revision ${String(expectedVersion)}, current revision is ${revision}.`,
+    throw attributeEntityActionCriterion(
+      new SettingsActionError(
+        "revision_conflict",
+        `Settings expected revision ${String(expectedVersion)}, current revision is ${revision}.`,
+      ),
+      "update",
+      "settings/singleton-revision",
     );
   const candidate: RepositorySettingsV1 = {
       schema: "settings/v1",

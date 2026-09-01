@@ -79,7 +79,7 @@ export function completionStopped(
 ): WriteReceipt {
   const receipt = failed(
     opId,
-    cellCriterionError(blocker.code, blocker.next.reason, "complete", "closeout-readiness/closeoutReadiness", [
+    cellCriterionError(blocker.code, blocker.next.command, "complete", "closeout-readiness/closeoutReadiness", [
       blocker.next.command,
     ]),
   );

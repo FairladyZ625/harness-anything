@@ -1,20 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { VcsCommandError, normalizeDomainError } from "../../kernel/src/index.ts";
+import {
+  VcsCommandError,
+  attributeEntityActionCriterion,
+  entityActionCriterionFailure,
+  normalizeDomainError,
+  type EntityActionCriterionFailure,
+} from "../../kernel/src/index.ts";
 
-const ACTION_CRITERION_FAILURE = Symbol("action-criterion-failure");
-
-export interface CellActionCriterionFailure {
-  readonly actionId: string;
-  readonly criterionRef: string;
-  readonly nextActions: readonly string[];
-}
-
-type CriterionError = Error & {
-  readonly code?: string;
-  readonly opId?: string;
-  readonly [ACTION_CRITERION_FAILURE]?: CellActionCriterionFailure;
-};
+export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
 export function cellCodedError(code: string, text: string): Error {
   const error = new Error(text) as Error & { code: string };
@@ -38,21 +32,12 @@ export function attributeCellCriterion(
   criterionRef: string,
   nextActions: readonly string[] = [],
 ): Error {
-  const attributed =
-    error instanceof Error
-      ? (error as CriterionError)
-      : (cellCodedError(cellErrorCode(error), cellErrorMessage(error)) as CriterionError);
-  Object.defineProperty(attributed, ACTION_CRITERION_FAILURE, {
-    configurable: false,
-    enumerable: false,
-    value: Object.freeze({ actionId, criterionRef, nextActions: Object.freeze([...nextActions]) }),
-  });
-  return attributed;
+  const attributed = error instanceof Error ? error : cellCodedError(cellErrorCode(error), cellErrorMessage(error));
+  return attributeEntityActionCriterion(attributed, actionId, criterionRef, nextActions);
 }
 
 export function actionCriterionFailure(error: unknown): CellActionCriterionFailure | null {
-  if (!(error instanceof Error)) return null;
-  return (error as CriterionError)[ACTION_CRITERION_FAILURE] ?? null;
+  return entityActionCriterionFailure(error);
 }
 
 export function unavailableRuntimeInstanceStore(): never {

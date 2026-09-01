@@ -1,6 +1,12 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, openEntityStore, type EntityStore, type TaskProjection } from "../../kernel/src/index.ts";
+import {
+  attributeEntityActionCriterion,
+  consumeKnownError,
+  openEntityStore,
+  type EntityStore,
+  type TaskProjection,
+} from "../../kernel/src/index.ts";
 import {
   entitySlug,
   parseAgentDeclarationV1,
@@ -356,14 +362,18 @@ export function prepareAgentEntityInstall(input: {
   const decoded = declarationSource(input.action),
     source = decoded.source ?? "runtime-result";
   if ("issues" in decoded)
-    throw entityError(
+    throw agentInstallError(
+      kind,
       decoded.issues[0]?.code ?? "invalid_entity_package",
       decoded.issues[0]?.message ?? "Entity package is invalid.",
+      "agent/declaration-schema",
     );
   if (input.action.generatedOnly === true && input.action.validated !== true)
-    throw entityError(
+    throw agentInstallError(
+      kind,
       "agent_validation_required",
       "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.",
+      "agent/generated-validation",
     );
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
@@ -377,10 +387,12 @@ export function prepareAgentEntityInstall(input: {
     input.replay !== true &&
     (current.workspaceRevision ?? 0) !== Number(input.action.expectedVersion)
   )
-    throw entityError(
+    throw agentInstallError(
+      kind,
       "revision_conflict",
       `${kind} ${declaration.id} expected revision ${String(input.action.expectedVersion)}, ` +
         `current revision is ${String(current.workspaceRevision ?? 0)}.`,
+      "agent/entity-revision",
     );
   if (input.action.generatedOnly === true && current.exists && input.replay !== true)
     throw generatedAgentConflict(declaration.id);
@@ -568,9 +580,11 @@ function entityError(code: string, message: string): Error & { readonly code: st
   return Object.assign(new Error(message), { code });
 }
 function generatedAgentConflict(id: string): Error & { readonly code: string } {
-  return entityError(
+  return agentInstallError(
+    "agent",
     "agent_id_conflict",
     `Agent ${id} already exists; run ha agent inspect ${id}, choose a different id, and retry ha agent create.`,
+    "agent/generated-identity",
   );
 }
 function admitGeneratedAgent(
@@ -582,17 +596,33 @@ function admitGeneratedAgent(
   const available = (runtimeInstances ?? []).filter((instance) => instance.enabled),
     compatible = available.filter((instance) => agent.runtime_type === "any" || instance.kindId === agent.runtime_type);
   if (compatible.length === 0)
-    throw entityError(
+    throw agentInstallError(
+      "agent",
       "agent_runtime_type_unavailable",
       `Agent ${agent.id} requires runtime_type ${
         agent.runtime_type
       }, but no enabled instance provides it; run ha runtime instance list, change runtime_type to any or a listed kind, and retry ha agent create.`,
+      "agent/runtime-compatibility",
     );
   if (agent.model !== undefined && !compatible.some((instance) => instance.models.includes(agent.model!)))
-    throw entityError(
+    throw agentInstallError(
+      "agent",
       "agent_model_unavailable",
       `Agent ${agent.id} requests model ${
         agent.model
       }, but no compatible enabled instance supports it; run ha runtime instance list, remove model to use the instance default or choose a listed model, and retry ha agent create.`,
+      "agent/model-compatibility",
     );
+}
+
+function agentInstallError(
+  kind: AgentEntityKind,
+  code: string,
+  message: string,
+  criterionRef: string,
+): Error & { readonly code: string } {
+  const error = entityError(code, message);
+  return kind === "agent"
+    ? (attributeEntityActionCriterion(error, "install", criterionRef) as Error & { readonly code: string })
+    : error;
 }
