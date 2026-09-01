@@ -48,12 +48,12 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
 
     const catalog = await cell.read(
         explainMethod,
-        { schema: explainSchema, mode: "catalog", refs: ["person"] },
+        { schema: explainSchema, mode: "catalog", entityKind: "person", refs: [] },
         ownerBinding,
       ),
       object = await cell.read(
         explainMethod,
-        { schema: explainSchema, mode: "object", refs: ["person/person_zeyu"] },
+        { schema: explainSchema, mode: "object", entityKind: null, refs: ["person/person_zeyu"] },
         ownerBinding,
       );
     assert.deepEqual(
