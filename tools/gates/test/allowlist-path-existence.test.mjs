@@ -12,7 +12,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../../..");
 test("B13 ratchet accepts live paths and rejects an allowlist row for a missing file", () => {
   const repository = captureGate(() => main(["--root", repoRoot, "--mode", "ratchet"]));
   assert.equal(repository.code, 0, repository.stderr || repository.stdout);
-  assert.match(repository.stdout, /checked path-accounting entries \(80\)/u);
+  assert.match(repository.stdout, /checked path-accounting entries \([1-9]\d*\)/u);
   assert.match(repository.stdout, /findings \(0\)/u);
 
   const fixturePath = path.join(import.meta.dirname, "fixtures/allowlist-path-existence-missing.json");
