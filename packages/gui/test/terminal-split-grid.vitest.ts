@@ -232,6 +232,18 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     );
   });
 
+  // Regression: dockview's panel host (dv-react-part) is a block element, not a flex container, so a
+  // `flex-1` card collapsed to content height and left the pane half-empty (a black band below).
+  // `h-full` is what makes the card fill its host; guard against a revert to flex-1.
+  it("sizes each pane card to fill its dockview host (h-full, not flex-1)", async () => {
+    stubBridge([sessionRow()]);
+    mountView();
+    await flush();
+    const card = panes()[0];
+    expect(card.className).toContain("h-full");
+    expect(card.className).not.toMatch(/(^|\s)flex-1(\s|$)/u);
+  });
+
   it("serializes the pane tree to localStorage with each pane's session id", async () => {
     stubBridge([sessionRow()]);
     mountView();
