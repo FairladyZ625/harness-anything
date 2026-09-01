@@ -8,8 +8,8 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
   const read = parseThinCommand(["settings", "read"]);
   assert.equal(read.ok, true);
   if (read.ok) {
-    assert.equal(read.command.method, "repo.settings.read");
-    assert.equal(daemonMethodAcceptsPayload(read.command.method), false);
+    assert.equal(read.command.method, "repo.task.run");
+    assert.equal(daemonMethodAcceptsPayload(read.command.method), true);
     assert.deepEqual(read.command.action, { kind: "settings-read" });
   }
 
@@ -22,6 +22,8 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "zh-CN",
     "--task-scaffold",
     "governance/task-scaffold.json",
+    "--expected-version",
+    "42",
     "--idempotency-key",
     "settings-one",
   ]);
@@ -32,6 +34,7 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       defaultPreset: "strict-task",
       locale: "zh-CN",
       taskScaffold: "governance/task-scaffold.json",
+      expectedVersion: 42,
       idempotencyKey: "settings-one",
     });
 });

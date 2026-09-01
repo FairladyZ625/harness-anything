@@ -194,6 +194,7 @@ export const daemonGuiActionMethods = Object.freeze([
       walFlushEvents: "number?",
       walFlushBytes: "number?",
       walFlushMilliseconds: "number?",
+      expectedVersion: "number?",
       idempotencyKey: "string",
     }),
     "updateSettings",

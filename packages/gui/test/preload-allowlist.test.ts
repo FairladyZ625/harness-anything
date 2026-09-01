@@ -58,6 +58,7 @@ test("preload exposes only the approved API methods", () => {
       repoId: "repo-a",
       defaultPreset: "strict-task",
       locale: "zh-CN",
+      expectedVersion: 42,
       idempotencyKey: "settings-1",
     }),
     true,

@@ -38,8 +38,9 @@ import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
+import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
-import { makeRepoCellSettingsActions } from "./repo-cell-settings-actions.ts";
+import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { makeRepoCellPeopleActions } from "./repo-cell-people-actions.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
@@ -539,7 +540,9 @@ async function openLockedRepoCell(
   });
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
-  const scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext),
+  const settings = makeRepoCellSettingsState(extracted),
+    scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext),
+    settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
     prepareAgentAction: EntityActionCatalogPreparer = (_contract, action, _binding, opId) => {
       const existing = store.readEvent(opId),
         prepared = prepareAgentEntityInstall({
@@ -557,15 +560,14 @@ async function openLockedRepoCell(
       };
     };
   entityActionRuntimes = Object.freeze({
-    schedule: scheduleActionRuntime,
+    entity: Object.freeze({ schedule: scheduleActionRuntime, settings: settingsActionRuntime }),
     prepare: Object.freeze({
       agent: prepareAgentAction,
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     }),
   });
-  const settingsActions = makeRepoCellSettingsActions(extracted);
   const peopleActions = makeRepoCellPeopleActions(extracted);
-  const operationalContext = Object.assign(runtimeContext, { settingsActions, peopleActions });
+  const operationalContext = Object.assign(runtimeContext, { settings, peopleActions });
   operationalContext satisfies RepoCellOperationalContext;
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const roleBindings = declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
@@ -589,7 +591,7 @@ async function openLockedRepoCell(
         "authorization_denied",
         authorizationDecision.nextActions.join(" ") || "Repository bootstrap requires owner authority.",
       );
-    const appended = settingsActions.initialize(...input.bootstrap.settingsBootstrap, {
+    const appended = settings.initialize(...input.bootstrap.settingsBootstrap, {
       ...baseBinding,
       authorizationDecision,
     });
@@ -598,7 +600,7 @@ async function openLockedRepoCell(
       input.onBootstrap?.(bootstrapReceipt);
     }
   }
-  readSettings = settingsActions.read;
+  readSettings = settings.read;
   settleScheduledOutcome = async (terminal) => {
     const scheduled = terminal.schedule,
       detail = terminal.resultRef ?? terminal.reason;
@@ -745,7 +747,7 @@ async function openLockedRepoCell(
       return runtimeReads;
     },
     runtimeSpawner,
-    settingsActions,
+    settings,
     peopleActions,
     appendAuxiliaryRuntimeIngress: extracted.appendAuxiliaryRuntimeIngress,
     get bootstrapReceipt() {

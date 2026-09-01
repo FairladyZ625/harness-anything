@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
-import { makeRepoCellSettingsActions } from "../src/repo-cell-settings-actions.ts";
+import { makeRepoCellSettingsState } from "../src/repo-cell-settings-state.ts";
 
-test("locale updates stay local and do not append a settings event", async () => {
+test("locale state stays local and does not append a settings event", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settings-local-"));
   try {
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
@@ -36,14 +36,11 @@ test("locale updates stay local and do not append a settings event", async () =>
         operationId: () => "settings-local-op",
         now: () => "2026-08-27T00:00:00.000Z",
       },
-      actions = makeRepoCellSettingsActions(cell),
-      receipt = await actions.update(
-        { kind: "settings-update", locale: "zh-CN" },
-        { actor: { principal: { personId: "p" }, executor: null }, source: "local" },
-      );
-    assert.equal(receipt.outcome, "applied");
+      settings = makeRepoCellSettingsState(cell),
+      changed = settings.writeLocal("zh-CN");
+    assert.equal(changed, true);
     assert.equal(appended.count, 0);
-    assert.equal(actions.read().locale, "zh-CN");
+    assert.equal(settings.read().locale, "zh-CN");
     const localPath = path.join(rootDir, ".harness/settings.local.json");
     assert.equal(existsSync(localPath), true);
     assert.deepEqual(JSON.parse(readFileSync(localPath, "utf8")), { schema: "settings-local/v1", locale: "zh-CN" });

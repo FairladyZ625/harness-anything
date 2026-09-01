@@ -50,7 +50,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
   };
   const runInternal = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     const contract = getExecutableEntityAction(action.kind);
-    if (!contract?.execution || contract.execution.implementation !== "schedule-event")
+    if (!contract?.execution || contract.execution.implementation !== "catalog-runtime")
       throw cell.cellCodedError("unsupported_command", `No Schedule action exists for ${action.kind}.`);
     const revision = cell.store.readHead()?.revision ?? 0,
       actionId = cell.operationId(action, binding, cell.input.repoId, revision),
@@ -68,7 +68,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
         authorizationDecision.nextActions.join(" ") || `${action.kind} requires repository write authority.`,
       );
     return cell.entityActionExecutor.run(action, { ...unframed, authorizationDecision }, actionId, {
-      schedule: runtime,
+      entity: { schedule: runtime },
     }) as Promise<WriteReceipt>;
   };
   const runtime: EntityActionCatalogRunner = async (contract, rawAction, binding): Promise<WriteReceipt> => {

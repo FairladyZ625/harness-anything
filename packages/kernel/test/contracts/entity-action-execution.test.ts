@@ -45,6 +45,8 @@ const ingressKinds = [
   "schedule-settle",
   "schedule-show",
   "schedule-update",
+  "settings-read",
+  "settings-update",
 ] as const;
 const readIngressKinds = new Set([
   "decision-list",
@@ -55,9 +57,10 @@ const readIngressKinds = new Set([
   "schedule-list",
   "schedule-runs",
   "schedule-show",
+  "settings-read",
 ]);
 
-test("Agent, Decision, Fact, Relation, RuntimeSession, and Schedule ingress resolves to executable actions", () => {
+test("Agent, Decision, Fact, Relation, RuntimeSession, Schedule, and Settings ingress resolves to executable actions", () => {
   for (const ingress of ingressKinds) {
     const action = getExecutableEntityAction(ingress);
     assert.ok(action?.execution, ingress);
@@ -70,7 +73,7 @@ test("Agent, Decision, Fact, Relation, RuntimeSession, and Schedule ingress reso
 });
 
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
-  for (const kind of ["agent", "decision", "fact", "schedule"] as const) {
+  for (const kind of ["agent", "decision", "fact", "schedule", "settings"] as const) {
     const explanation = explainEntityKind(kind);
     assert.ok(explanation.transitions.actions.length > 0);
     for (const action of explanation.transitions.actions) assert.equal(Object.hasOwn(action, "execution"), false);

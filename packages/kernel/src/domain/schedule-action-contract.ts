@@ -349,7 +349,7 @@ export function createScheduleActionCatalog(
               ingress: declaration.ingress,
               compile: declaration.compile,
               read: declaration.read,
-              implementation: "schedule-event" as const,
+              implementation: "catalog-runtime" as const,
               ...(declaration.read ? {} : { topology: "center-forward-write" as const }),
               ...(declaration.id === "list" ? {} : { targetIdField: "scheduleId" }),
             }),

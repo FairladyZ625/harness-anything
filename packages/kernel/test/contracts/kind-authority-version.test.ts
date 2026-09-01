@@ -92,7 +92,7 @@ test("one named kind-contract authority explains all thirteen entity kinds with 
   const settings = explanations.find(({ kind }) => kind === "settings");
   assert.deepEqual(settings?.residency, { authored: "ledger", current: "projection" });
   assert.deepEqual(settings?.statusVocabulary, []);
-  assert.deepEqual(settings?.transitions.available, []);
+  assert.deepEqual(settings?.transitions.available, ["read", "update"]);
   assert.deepEqual(
     settings?.transitions.actions.map(({ id }) => id),
     ["read", "update"],

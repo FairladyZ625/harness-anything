@@ -215,6 +215,7 @@ export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
   INITIAL_SETTINGS_V1,
+  SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   parseLocalSettings,
   readSettingsFacet,
@@ -225,7 +226,9 @@ export {
   writeRepositorySettingsFacet,
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
-export { compileSettingsChangedEvent } from "./settings-event.ts";
+export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
+export { settingsActionLocale } from "./settings-action-contract.ts";
+export type { SettingsActionDraft } from "./settings-action-contract.ts";
 export {
   applyPeopleRosterAction,
   credentialKinds,

@@ -18,13 +18,20 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 import type { AgentActionDraft } from "./agent-action-contract.ts";
 import type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
+import type { SettingsActionDraft } from "./settings-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
   readonly compile: EntityActionCompileHook | null;
   readonly read: boolean;
-  readonly implementation: "compiled-event" | "declared-only" | "schedule-event" | "task-lifecycle" | "task-completion";
+  readonly implementation:
+    | "compiled-event"
+    | "declared-only"
+    | "catalog-runtime"
+    | "task-lifecycle"
+    | "task-completion";
   readonly topology?: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly localOnlyFields?: readonly string[];
   readonly targetIdField?: string;
   readonly lifecycle?: {
     readonly transitionId: string;
@@ -45,6 +52,7 @@ export interface EntityActionCompileInput {
   readonly currentEntity?: unknown;
   readonly entityRevision?: number;
   readonly currentDocumentBlobSha256?: string | null;
+  readonly currentDocumentBody?: string;
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -63,7 +71,8 @@ export type EntityActionDraft =
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
   | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
   | { readonly kind: "relation"; readonly event: RelationEventV1 }
-  | { readonly kind: "schedule"; readonly result: ScheduleActionDraft };
+  | { readonly kind: "schedule"; readonly result: ScheduleActionDraft }
+  | { readonly kind: "settings"; readonly result: SettingsActionDraft };
 export type EntityActionCompileHook = (input: EntityActionCompileInput) => EntityActionDraft;
 
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {

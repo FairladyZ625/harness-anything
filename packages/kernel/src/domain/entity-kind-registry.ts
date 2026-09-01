@@ -51,6 +51,7 @@ import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
+import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -555,6 +556,11 @@ const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
   actionResultContract,
 );
 
+const settingsActionCatalog = createSettingsActionCatalog(
+  (id) => entityAction("settings", settingsIdentity, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -915,7 +921,7 @@ export const entityKindContracts = Object.freeze([
       embeddedEvents: [{ schema: "settings-event/v1", types: ["settings_changed"], payloadField: "settings" }],
       row: { idField: "settingsId", ownerField: null },
     },
-    actionCatalog: actionCatalog("kernel/settings-event/v1", "settings", settingsIdentity, ["read", "update"]),
+    actionCatalog: settingsActionCatalog,
     entityStore: null,
     authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
     sdkExposure: noSdkExposure,
@@ -943,6 +949,12 @@ const entityKindContractByKind = new Map<string, EntityKindContract>(
 );
 
 export const boundedContextExceptions: readonly BoundedContextActionException[] = Object.freeze([
+  Object.freeze({
+    actions: Object.freeze(["settings-update"]),
+    boundedContext: "daemon-user-root" as const,
+    residency: "runtime-local" as const,
+    reason: "The locale field is a daemon-local preference and never appears in settings-event/v1.",
+  }),
   Object.freeze({
     actions: Object.freeze(["preset-install", "preset-seed", "preset-uninstall"]),
     boundedContext: "preset-library" as const,

@@ -21,7 +21,7 @@ import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskActi
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
-import { settingsCommandTopology } from "./repo-mode.ts";
+import { entityActionCommandTopology } from "./repo-mode.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -237,7 +237,7 @@ export function createDaemonHostRepositoryApi(
       };
     },
     run: async (repoId, action, auth) => {
-      const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
+      const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
       if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
       await context.attemptHostRecovery(repoId);
