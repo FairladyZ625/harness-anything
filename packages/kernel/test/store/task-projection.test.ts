@@ -5,7 +5,7 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjection } from "../../src/projection/task-projection.ts";
+import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import {
   makeTaskEventStore,

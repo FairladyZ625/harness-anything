@@ -75,7 +75,7 @@ async function measureProjectionRebuild(fixture) {
     const [{ makeTaskEventStore }, { makeTaskProjection }, { taskLifecycleWritePlan }, { localGitObjectRefStore }] =
       await Promise.all([
         import("../../packages/kernel/src/store/task-event-store.ts"),
-        import("../../packages/kernel/src/projection/task-projection.ts"),
+        import("../../packages/kernel/src/projection/rebuildable-task-projection.ts"),
         import("../../packages/kernel/src/domain/task-lifecycle-publication.ts"),
         import("../../packages/kernel/src/store/local-version-control-system.ts"),
       ]);

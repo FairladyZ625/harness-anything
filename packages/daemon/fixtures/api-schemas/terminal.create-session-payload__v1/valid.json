@@ -1,5 +1,0 @@
-{
-  "name": "Terminal",
-  "backend": "direct-pty",
-  "hostLabel": "local"
-}

@@ -1,20 +1,5 @@
 export const portPhysicalIoBoundaryKnownDebt = [
   {
-    file: "packages/application/src/decision-document-reader.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing application read-side local document adapter uses filesystem reads; W3 freezes this file-level exception until the read port implementation is extracted."
-  },
-  {
-    file: "packages/application/src/runtime-event-ledger-service.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing runtime event ledger append implementation owns local ledger persistence; W3 freezes this file-level exception until a dedicated adapter boundary exists."
-  },
-  {
-    file: "packages/application/src/runtime-session-logs.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing runtime session log reader owns local log filesystem access; W3 freezes this file-level exception until the read port is extracted."
-  },
-  {
     file: "packages/kernel/src/daemon/registry.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing daemon registry implementation owns local lock and socket registry persistence; W3 records the precise implementation exception."
@@ -33,11 +18,6 @@ export const portPhysicalIoBoundaryKnownDebt = [
     file: "packages/kernel/src/projection/relation-graph-projection.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing relation graph projection builder reads authored markdown from disk; W3 freezes this projection implementation exception."
-  },
-  {
-    file: "packages/kernel/src/projection/sqlite-decision-source.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing decision projection source traverses authored markdown files; W3 records the projection implementation exception."
   },
   {
     file: "packages/kernel/src/projection/sqlite-projection-store.ts",
@@ -60,50 +40,10 @@ export const portPhysicalIoBoundaryKnownDebt = [
     reason: "Existing projection helper centralizes TOCTOU-safe filesystem reads for projection builders."
   },
   {
-    file: "packages/kernel/src/store/local-lock-registry.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing local lock registry implementation owns filesystem-backed lock cleanup."
-  },
-  {
     file: "packages/kernel/src/store/local-version-control-system.ts",
     decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
     reason: "Existing local VersionControlSystem port implementation shells out to git; W3 allows only this precise git implementation file."
   },
-  {
-    file: "packages/kernel/src/store/markdown-artifact-store.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing markdown artifact store implementation owns local package document reads and writes."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-coordinator.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing write coordinator still performs local recovery/disposition filesystem checks; W3 records this implementation exception without migrating behavior."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-decision-documents.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing decision document write helper owns directory creation for authored decision documents."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-durable.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing durable journal writer owns atomic filesystem writes for the journal implementation."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-locks.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing journal lock implementation owns filesystem lock files and host metadata."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-operations.ts",
-    decision: "task_01KWXKR6YSV4J4E0H5FGPHKZYN",
-    reason: "Existing journal operation implementation owns local authored-file write operations."
-  },
-  {
-    file: "packages/kernel/src/store/write-journal-operations-internal.ts",
-    decision: "task_01KX68A7MK6HH9TM16T95M8ZZK",
-    reason: "P3-1 split of write-journal-operations.ts (already-frozen exception): read-side apply helpers relocated with the same debt; no new physical I/O surface. Dissolves with the P1-3 port extraction."
-  }
 ];
 
 for (const [index, entry] of portPhysicalIoBoundaryKnownDebt.entries()) {

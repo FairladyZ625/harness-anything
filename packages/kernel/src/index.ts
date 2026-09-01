@@ -184,19 +184,12 @@ export type {
 export * from "./entity/disposition.ts";
 export * from "./entity/field-contracts.ts";
 export type {
-  CompositeManifestBlobDeclaration,
   DispositionAction,
   DispositionLevel,
   DispositionMatrixEntry,
   EntityAnchorDeclaration,
   EntityDispositionMatrix,
-  EntityDocumentCodec,
-  EntityProjectionColumnDeclaration,
-  EntityProjectionDeclaration,
-  EntityRegistration,
-  EntityRootResolverDeclaration,
   EntityStorageForm,
-  HostedEntityDeclaration,
 } from "./entity/registry-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
