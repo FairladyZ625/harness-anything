@@ -9,7 +9,6 @@
   { "path": "packages/gui/src/index.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/App.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/components/RuntimeControlPanel.tsx", "module": "gui" },
-  { "path": "packages/gui/src/renderer/components/TerminalDock.tsx", "module": "gui" },
   { "path": "packages/gui/src/renderer/runtime-command-client.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/runtime-control.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/terminal-client.ts", "module": "gui" },

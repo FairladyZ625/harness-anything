@@ -3,7 +3,7 @@ import { useEffect } from "react";
 /**
  * 全局快捷键 + 鼠标侧键(AppShell 级,从 App.tsx 抽出):
  *   ⌘K/Ctrl+K  命令面板
- *   Ctrl+`      终端 dock
+ *   Ctrl+`      终端页进出(进入/离开,语义在 App 的 onToggleTerminal)
  *   ⌘[/⌘]      视图历史后退/前进
  *   鼠标侧键 3/4 = 后退/前进(浏览器/Electron 惯例)
  */

@@ -15,6 +15,7 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 // 事实分诊并入 Task 详情「证据」页签,执行证据并入「收口」页签。
 // W6 IA 拆分:`agents`(Agent 运行时聚合页)撤销,「运行时」组改为三个一级入口:
 // sessions(会话)/ agentSquad(Agent · 含 Squad)/ providers(Provider)。
+// PLT-TerminalWorkspace W0:terminal 升格为一等页面(原底部 dock 撤销)。
 export type ViewId =
   | "home"
   | "overview"
@@ -33,6 +34,7 @@ export type ViewId =
   | "artifacts"
   | "agentSquad"
   | "providers"
+  | "terminal"
   | "system"
   | "daemonObserve"
   | "settings";

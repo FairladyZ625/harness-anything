@@ -4,18 +4,13 @@ import { isRendererRecord } from "./result-validation.ts";
 const schema = "terminal-preferences/v1",
   storageKey = "harness:gui:terminal-preferences";
 
+/** 终端页本地偏好。dock 停靠位置/尺寸随底部 dock 一并撤销(PLT-TerminalWorkspace W0)。 */
 export interface TerminalPreferences {
   readonly backend: "direct-pty" | "tmux";
-  readonly dockPosition: "bottom" | "right";
-  readonly bottomHeight: number;
-  readonly rightWidth: number;
 }
 
 export const defaultTerminalPreferences: TerminalPreferences = {
   backend: "direct-pty",
-  dockPosition: "bottom",
-  bottomHeight: 352,
-  rightWidth: 560,
 };
 
 export interface TerminalPreferenceStorage {
@@ -29,18 +24,10 @@ export function readTerminalPreferences(storage: Pick<TerminalPreferenceStorage,
     if (
       !isRendererRecord(parsed) ||
       parsed.schema !== schema ||
-      !["direct-pty", "tmux"].includes(String(parsed.backend)) ||
-      !["bottom", "right"].includes(String(parsed.dockPosition)) ||
-      !positiveSize(parsed.bottomHeight) ||
-      !positiveSize(parsed.rightWidth)
+      !["direct-pty", "tmux"].includes(String(parsed.backend))
     )
       return { ...defaultTerminalPreferences };
-    return {
-      backend: parsed.backend as TerminalPreferences["backend"],
-      dockPosition: parsed.dockPosition as TerminalPreferences["dockPosition"],
-      bottomHeight: Number(parsed.bottomHeight),
-      rightWidth: Number(parsed.rightWidth),
-    };
+    return { backend: parsed.backend as TerminalPreferences["backend"] };
   } catch (cause) {
     consumeKnownError(cause);
     return { ...defaultTerminalPreferences };
@@ -56,8 +43,4 @@ export function writeTerminalPreferences(
   } catch (cause) {
     consumeKnownError(cause);
   }
-}
-
-function positiveSize(value: unknown): boolean {
-  return Number.isFinite(value) && Number(value) > 0;
 }

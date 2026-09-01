@@ -21,6 +21,7 @@ import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
+import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
@@ -714,6 +715,12 @@ const VIEW_RENDERERS = {
       repoId: REPO_ID,
       focusedEntityRef: `provider/${PROVIDER_ID}`,
       onSelectEntity: noop,
+    }),
+  terminal: () =>
+    createElement(TerminalView, {
+      repoId: REPO_ID,
+      daemonGeneration: 1,
+      tasks: FIXTURE_TASKS.map(({ taskId, title }) => ({ taskId, title })),
     }),
   system: () => createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: noop }),
   daemonObserve: () =>

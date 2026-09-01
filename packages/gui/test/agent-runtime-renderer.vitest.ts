@@ -669,12 +669,13 @@ describe("agent runtime renderer", () => {
       customHidden: !markup.includes('data-testid="new-runtime-model-custom"'),
     }).toEqual({ sol: true, terra: true, checked: 2, defaultHint: true, customHidden: true });
   });
-  it("offers bottom and right terminal dock positions", async () => {
+  it("keeps the terminal as a first-class page without any dock placement surface", async () => {
     const { readFile } = await import("node:fs/promises"),
-      source = await readFile(new URL("../src/renderer/components/TerminalDock.tsx", import.meta.url), "utf8");
-    expect(source).toContain('data-testid="terminal-dock-bottom"');
-    expect(source).toContain('data-testid="terminal-dock-right"');
-    expect(source).toContain("data-dock-position={dockPosition}");
+      source = await readFile(new URL("../src/renderer/views/TerminalView.tsx", import.meta.url), "utf8");
+    expect(source).toContain('data-testid="terminal-view"');
+    expect(source).toContain('data-testid="terminal-pane-region"');
+    expect(source).not.toContain("dockPosition");
+    expect(source).not.toContain("bottomDockClassName");
   });
   it("hides disabled instances by default while retaining them in all mode", () => {
     const enabled = { ...instance, instanceId: "enabled-instance", enabled: true } as const;

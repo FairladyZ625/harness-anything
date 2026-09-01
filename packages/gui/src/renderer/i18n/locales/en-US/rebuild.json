@@ -23,7 +23,9 @@
   "shell.nav.decisionDetail": "Decision Detail",
   "shell.nav.factDetail": "Fact Detail",
   "shell.nav.sessions": "Sessions",
+  "shell.nav.terminal": "Terminal",
   "shell.nav.agentSquad": "Agents · Squads",
   "shell.nav.providers": "Providers",
   "shell.nav.schedules": "Schedules",
-  "shell.nav.artifacts": "Artifacts"}
+  "shell.nav.artifacts": "Artifacts"
+}
