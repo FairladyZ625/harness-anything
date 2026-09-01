@@ -4,6 +4,7 @@ import {
   codeDocRecordId,
   consentedApprovedReview,
   currentCodeDocWitness,
+  evaluateTaskActionCapability,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
   isIndependentFrom,
@@ -98,13 +99,29 @@ export async function proofFor(
       execution = snapshot.executions.find(
         (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
       ),
-      authorizationDecision = requiredAuthorizationDecision(binding);
+      authorizationDecision = requiredAuthorizationDecision(binding),
+      reviewCriterion = lifecycleAction
+        ? evaluateTaskActionCapability({
+            action: lifecycleAction,
+            snapshot,
+            actor: command.actor,
+            invocation: {
+              taskId: command.taskId,
+              executionId: command.executionId,
+              reviewId: command.reviewId,
+              runtimeTaskBound: runtimeBinding !== null,
+            },
+          }).find(({ criterionRef }) => criterionRef === REVIEW_PROOF_CRITERION)
+        : undefined;
+    if (!reviewCriterion)
+      throw new Error(`Task review criterion ${REVIEW_PROOF_CRITERION} has no capability evaluation.`);
     if (runtimeBinding !== null)
       throw cellCriterionError(
         "runtime_task_self_review_forbidden",
         "Task review runtime-binding independence proof was not satisfied.",
         "review",
         REVIEW_PROOF_CRITERION,
+        reviewCriterion.nextActions,
       );
     if (execution === undefined || !isIndependentFrom(execution.actor, command.actor)) {
       throw cellCriterionError(
@@ -112,6 +129,7 @@ export async function proofFor(
         "Task review actor independence proof was not satisfied.",
         "review",
         REVIEW_PROOF_CRITERION,
+        reviewCriterion.nextActions,
       );
     }
     return {

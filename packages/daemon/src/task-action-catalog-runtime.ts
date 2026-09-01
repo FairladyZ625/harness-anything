@@ -15,6 +15,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
 const START_CRITERION = "task-lifecycle-command-transitions/canStartExecution";
+const SUBMIT_VALIDATION_CRITERION = "task-lifecycle-command-transitions/submit.validate";
 const SUBMIT_LEASE_CRITERION = "actor-domain-services/heldLeaseForExecutionActor";
 
 export async function runTaskActionCatalogRuntime(
@@ -32,7 +33,16 @@ export async function runTaskActionCatalogRuntime(
     preview = lifecycle?.coordination === "reserve" && action.dryRun === true,
     evaluations =
       contract?.target.kind === "task"
-        ? evaluateTaskActionCapability({ action: contract, snapshot: current.snapshot, actor: binding.actor })
+        ? evaluateTaskActionCapability({
+            action: contract,
+            snapshot: current.snapshot,
+            actor: binding.actor,
+            invocation: {
+              taskId,
+              ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
+              ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+            },
+          })
         : [],
     activeLease = cell.projection.currentLease(taskId, cell.now());
   if (
@@ -68,7 +78,14 @@ export async function runTaskActionCatalogRuntime(
       criterionEvaluation(evaluations, START_CRITERION),
     ]);
   }
-  const submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION);
+  const submitValidationEvaluation = evaluations.find(
+      ({ criterionRef }) => criterionRef === SUBMIT_VALIDATION_CRITERION,
+    ),
+    submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION);
+  if (action.kind === "task-submit" && submitValidationEvaluation?.status === "unmet" && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+      submitValidationEvaluation,
+    ]);
   if (action.kind === "task-submit" && submitLeaseEvaluation?.status === "unmet" && contract)
     return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (lifecycle?.coordination === "reserve" && !preview)
