@@ -62,6 +62,7 @@ export function TerminalPane({
     const host = hostRef.current;
     if (!host) return;
     const terminal = new Terminal({
+      allowProposedApi: true, // Unicode11Addon + terminal.unicode.activeVersion 走 xterm proposed API,缺此项 loadAddon 直接抛。
       cursorBlink: true,
       convertEol: false,
       fontFamily: '"Geist Mono Variable", ui-monospace, monospace',

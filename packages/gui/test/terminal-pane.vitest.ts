@@ -4,13 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-const xterm = vi.hoisted(() => ({ loaded: [] as string[] }));
+const xterm = vi.hoisted(() => ({ loaded: [] as string[], lastOptions: null as Record<string, unknown> | null }));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
     rows = 24;
-    unicode = { activeVersion: "6" };
-    options = {};
+    options: Record<string, unknown>;
+    #unicode = { activeVersion: "6" };
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = options;
+      xterm.lastOptions = options;
+    }
+    // Mirror xterm's real gate: reading `unicode` (what Unicode11Addon.activate does, and what
+    // TerminalPane's `terminal.unicode.activeVersion = "11"` does) throws unless allowProposedApi is on.
+    get unicode() {
+      if (this.options.allowProposedApi !== true)
+        throw new Error("You must set the allowProposedApi option to true to use proposed API");
+      return this.#unicode;
+    }
     loadAddon(addon: { readonly name: string }) {
       xterm.loaded.push(addon.name);
     }
@@ -106,6 +117,14 @@ describe("TerminalPane addon lifecycle (W4a)", () => {
   it("loads Unicode 11, serialization and search for every terminal pane", () => {
     mount();
     expect(xterm.loaded).toEqual(["fit", "unicode11", "serialize", "search", "web-links"]);
+  });
+
+  // Regression: Unicode11Addon activation and `terminal.unicode.activeVersion = "11"` are xterm
+  // proposed API. Constructing the terminal without allowProposedApi threw on mount, crashing every
+  // pane (and, with no error boundary, blanking the whole window). Pin the option on.
+  it("constructs xterm with allowProposedApi so the pane mounts without throwing", () => {
+    expect(() => mount()).not.toThrow();
+    expect(xterm.lastOptions?.allowProposedApi).toBe(true);
   });
 
   it("loads WebGL only when the centralized preference opts in", () => {
