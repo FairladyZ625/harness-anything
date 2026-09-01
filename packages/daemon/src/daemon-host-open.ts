@@ -82,7 +82,9 @@ export interface DaemonHostOpenInput {
   readonly startedAt?: string;
   readonly now?: () => string;
   readonly runtimeLaunch?: RuntimeLauncher;
-  readonly runtimeDiscover?: () => readonly RuntimeInstallationWitness[];
+  readonly runtimeDiscover?: () =>
+    | readonly RuntimeInstallationWitness[]
+    | Promise<readonly RuntimeInstallationWitness[]>;
   readonly runtimeEnv?: NodeJS.ProcessEnv;
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
@@ -106,10 +108,31 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
-    discover = input.runtimeDiscover ?? (() => discoverRuntimeInstallations()),
+    runtimeDiscovery = input.runtimeDiscover ?? (() => discoverRuntimeInstallations());
+  let discoveredInstallations: readonly RuntimeInstallationWitness[] = [],
+    discoveryInFlight: Promise<readonly RuntimeInstallationWitness[]> | null = null;
+  const refreshDiscovery = (): Promise<readonly RuntimeInstallationWitness[]> => {
+      if (discoveryInFlight) return discoveryInFlight;
+      const active = Promise.resolve(runtimeDiscovery()).then((witnessed) => {
+        discoveredInstallations = witnessed;
+        return witnessed;
+      });
+      discoveryInFlight = active;
+      void active.then(
+        () => {
+          if (discoveryInFlight === active) discoveryInFlight = null;
+        },
+        () => {
+          if (discoveryInFlight === active) discoveryInFlight = null;
+        },
+      );
+      return active;
+    },
+    discover = () => discoveredInstallations,
     instances = openRuntimeInstanceStore({
       userRoot: input.userRoot,
       discover,
+      refreshDiscovery,
       env: input.runtimeEnv,
     }),
     runtimePorts = {
@@ -122,6 +145,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
+  void refreshDiscovery().catch(consumeKnownError);
   const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
       const key = `${request.repoId}\0${request.assignmentId}\0${request.host}\0${request.port}`,
         runtime =

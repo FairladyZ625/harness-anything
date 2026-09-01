@@ -176,12 +176,14 @@ test("runtime overview batches definitions while a single-session read selects o
   withRuntime(({ store, projection, stream }) => {
     let fullTaskListReads = 0,
       taskStatusReads = 0,
+      cutReads = 0,
       singleDispatchReads = 0,
       batchDispatchReads = 0;
     const measured = new Proxy(projection, {
       get: (target, property, receiver) => {
         if (property === "list") fullTaskListReads += 1;
         if (property === "readTaskStatuses") taskStatusReads += 1;
+        if (property === "readCut") cutReads += 1;
         if (property === "readRuntimeDispatch") singleDispatchReads += 1;
         if (property === "readRuntimeDispatches") batchDispatchReads += 1;
         const value = Reflect.get(target, property, receiver);
@@ -192,21 +194,21 @@ test("runtime overview batches definitions while a single-session read selects o
     reads.overview({});
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
-      { fullTaskListReads, taskStatusReads, singleDispatchReads, batchDispatchReads },
-      { fullTaskListReads: 0, taskStatusReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 },
+      { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads, batchDispatchReads },
+      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 },
     );
   }));
 
-test("runtime session reads resolve a task dispatch after synchronizing its projection", () =>
+test("runtime session reads resolve a task dispatch after observing its projection cut", () =>
   withRuntime(({ store, projection, stream }) => {
-    let synchronized = false;
-    const original = projection.readTaskStatuses.bind(projection);
+    let cutObserved = false;
+    const original = projection.readCut.bind(projection);
     const measured = new Proxy(projection, {
       get: (target, property, receiver) => {
-        if (property === "readTaskStatuses")
-          return (...args: Parameters<typeof original>) => {
-            const result = original(...args);
-            synchronized = true;
+        if (property === "readCut")
+          return () => {
+            const result = original();
+            cutObserved = true;
             return result;
           };
         const value = Reflect.get(target, property, receiver);
@@ -215,7 +217,7 @@ test("runtime session reads resolve a task dispatch after synchronizing its proj
     });
     const synchronizedReads = makeAgentRuntimeReadModel({
       readDispatch: (taskId, dispatchId) => {
-        assert.equal(synchronized, true);
+        assert.equal(cutObserved, true);
         assert.deepEqual({ taskId, dispatchId }, { taskId: "task-runtime", dispatchId: "dispatch-runtime" });
         return { runtimeSessionId: "runtime-session" };
       },

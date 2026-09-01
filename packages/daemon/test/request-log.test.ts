@@ -38,14 +38,14 @@ function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)
 test("a repo-scoped read request is recorded in the repository local root", async () => {
   const rootDir = tempRoot(), server = openServerWithLog(rootDir);
   await handshake(server);
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.run", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
+  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
   server.close();
 
   const records = readRecords(rootDir);
   assert.equal(records.length, 1);
   const [record] = records;
   assert.equal(record.schema, "daemon-request-log/v1");
-  assert.equal(record.method, "repo.task.run");
+  assert.equal(record.method, "repo.task.read");
   // The user-facing command, not just the transport method: this is what "which commands did I run" asks for.
   assert.equal(record.command, "task-show");
   assert.equal(record.commandClass, "repo-read");
@@ -54,6 +54,8 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
   assert.equal(record.ownerUid, 501);
   assert.equal(record.opId, "op_test_0001");
   assert.equal(record.outcome, "applied");
+  assert.equal(typeof record.dispatchDelayMs, "number");
+  assert.equal(typeof record.serviceMs, "number");
   assert.equal(typeof record.durationMs, "number");
   assert.ok(Date.parse(record.at) > 0);
   // The log is local-only state, never the authored ledger.
@@ -63,9 +65,9 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async () => {
   const rootDir = tempRoot(), server = openServerWithLog(rootDir);
   await handshake(server);
-  // The CLI puts the declared executor inside payload.action for repo.task.run; that is the shape
+  // The CLI puts the declared executor inside payload.action for repo.task.read; that is the shape
   // the daemon attributes from, so it is the shape the log has to read.
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.run", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", executor: { kind: "agent", id: "codex-worker" } } } } });
+  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", executor: { kind: "agent", id: "codex-worker" } } } } });
   server.close();
 
   assert.deepEqual(readRecords(rootDir)[0].executor, { kind: "agent", id: "codex-worker" });
@@ -75,8 +77,8 @@ test("requests from one connection share a connection id", async () => {
   const rootDir = tempRoot(), server = openServerWithLog(rootDir);
   await handshake(server);
   const payload = { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } };
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.run", params: payload });
-  await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.task.run", params: payload });
+  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: payload });
+  await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.task.read", params: payload });
   server.close();
 
   const records = readRecords(rootDir);
@@ -90,7 +92,7 @@ test("a rejected request is recorded with its error code", async () => {
   const rejecting = { ...host, run: async () => ({ outcome: "op_rejected" as const, opId: "rejected:task-show", code: "repo_unavailable", nextAction: "Attach the repository." }) } as unknown as DaemonHost;
   const server = openServerWithLog(rootDir, rejecting);
   await handshake(server);
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.run", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
+  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
   server.close();
 
   const records = readRecords(rootDir);

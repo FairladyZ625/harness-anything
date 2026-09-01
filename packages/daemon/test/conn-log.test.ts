@@ -18,7 +18,7 @@ test("conn log records open/request/close with monotonic ids, active counts, and
   const userRoot = tempRoot(), log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-08-20T13:00:00Z") });
   const first = log.connectionOpened("uuid-1", "unix-socket"), second = log.connectionOpened("uuid-2", "unix-socket");
   assert.equal(first, "c-1"); assert.equal(second, "c-2");
-  log.request({ conn: first, transport: "unix-socket", method: "protocol.hello", startedAt: Date.parse("2026-08-20T13:00:01Z"), durationMs: 3, ok: true, code: null });
+  log.request({ conn: first, transport: "unix-socket", method: "protocol.hello", frameReceivedAt: Date.parse("2026-08-20T13:00:00.990Z"), handlerStartedAt: Date.parse("2026-08-20T13:00:01Z"), repliedAt: Date.parse("2026-08-20T13:00:01.003Z"), startedAt: Date.parse("2026-08-20T13:00:01Z"), dispatchDelayMs: 10, serviceMs: 3, durationMs: 3, ok: true, code: null });
   log.request({ conn: first, transport: "unix-socket", method: "daemon.status", startedAt: Date.parse("2026-08-20T13:00:02Z"), durationMs: 11, ok: true, code: null });
   log.connectionClosed("uuid-1");
   log.request({ conn: second, transport: "unix-socket", method: "repo.task.run", startedAt: Date.parse("2026-08-20T13:00:04Z"), durationMs: 40, ok: false, code: "repo_warming" });
@@ -27,8 +27,8 @@ test("conn log records open/request/close with monotonic ids, active counts, and
   const records = recordsOf(userRoot);
   assert.deepEqual(records.map((record) => record.event), ["conn_open", "conn_open", "request", "request", "conn_close", "request", "conn_close"]);
   assert.equal(records[0].conn, "c-1"); assert.equal(records[0].active, 1); assert.equal(records[1].conn, "c-2"); assert.equal(records[1].active, 2);
-  const hello = records[2] as { at: string; atEnd: string; durationMs: number; method: string; ok: boolean };
-  assert.equal(hello.method, "protocol.hello"); assert.equal(hello.at, "2026-08-20T13:00:01.000Z"); assert.equal(hello.atEnd, "2026-08-20T13:00:01.003Z"); assert.equal(hello.durationMs, 3); assert.equal(hello.ok, true);
+  const hello = records[2] as { at: string; atEnd: string; frameReceivedAt: string; handlerStartedAt: string; repliedAt: string; dispatchDelayMs: number; serviceMs: number; durationMs: number; method: string; ok: boolean };
+  assert.equal(hello.method, "protocol.hello"); assert.equal(hello.at, "2026-08-20T13:00:01.000Z"); assert.equal(hello.frameReceivedAt, "2026-08-20T13:00:00.990Z"); assert.equal(hello.handlerStartedAt, hello.at); assert.equal(hello.repliedAt, "2026-08-20T13:00:01.003Z"); assert.equal(hello.atEnd, hello.repliedAt); assert.equal(hello.dispatchDelayMs, 10); assert.equal(hello.serviceMs, 3); assert.equal(hello.durationMs, 3); assert.equal(hello.ok, true);
   const close = records[4] as { conn: string; active: number; durationMs: number; requests: number };
   assert.equal(close.conn, "c-1"); assert.equal(close.active, 1); assert.equal(close.requests, 2); assert.equal(close.durationMs, 0);
   const rejected = records[5] as { ok: boolean; code: string | null };

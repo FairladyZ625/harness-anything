@@ -107,6 +107,7 @@ export async function executeAction(
     });
     if (!isLedgerLayoutMigrationEvent(appended.event))
       throw cell.cellCodedError("invalid_store", "Ledger migration returned the wrong event type.");
+    cell.projection.catchUp?.();
     const projected = cell.projection.list(),
       visible = projected.watermark === appended.revision && projected.sourceRevision === appended.revision,
       proof = {

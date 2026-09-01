@@ -136,6 +136,9 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     }),
     recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
+  // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
+  // writer events remain the authority and apply through the normal single-writer path.
+  projection.catchUp?.();
   if (pendingSettlementActor) settleAuthoredCandidates(pendingSettlementActor);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const entityActionExecutor = makeEntityActionCatalogExecutor({

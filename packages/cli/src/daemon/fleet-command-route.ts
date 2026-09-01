@@ -8,7 +8,7 @@ export async function fleetScheduleRoute(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown> | null> {
   if (
-    command.method !== "repo.task.run" ||
+    (command.method !== "repo.task.run" && command.method !== "repo.task.read") ||
     !daemonProtocolCommands.some(
       (candidate) =>
         candidate.method === command.method &&

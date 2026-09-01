@@ -8,7 +8,7 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
   const read = parseThinCommand(["settings", "read"]);
   assert.equal(read.ok, true);
   if (read.ok) {
-    assert.equal(read.command.method, "repo.task.run");
+    assert.equal(read.command.method, "repo.task.read");
     assert.equal(daemonMethodAcceptsPayload(read.command.method), true);
     assert.deepEqual(read.command.action, { kind: "settings-read" });
   }

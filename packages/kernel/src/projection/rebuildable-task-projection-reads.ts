@@ -17,6 +17,7 @@ import { markRuntimeSessionsUnknown, readSnapshot } from "./rebuildable-task-pro
 import {
   parseEventJson,
   queryPreparedRows,
+  readProjectionCut,
   refreshStateDigestAtSourceCut,
   transaction,
   watermark,
@@ -35,8 +36,7 @@ export function listProjection(
 ): TaskProjectionListRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
-    const round = catchUpRound(db, eventStore, limit),
-      current = watermark(db),
+    const cut = readProjectionCut(db, readHead),
       at = now();
     // The unparameterized read keeps its original single statement so its result
     // stays byte-identical; only explicit query parameters take the indexed path.
@@ -72,7 +72,7 @@ export function listProjection(
         ),
       );
       return {
-        status: current === round.sourceRevision ? "ready" : "pending",
+        status: cut.status,
         rows: rows.map((row) => ({
           taskId: row.task_id,
           packagePath: row.package_path,
@@ -82,14 +82,14 @@ export function listProjection(
           updatedAt: parseEventJson(row.event_json).occurredAt,
           snapshot: readSnapshot(db, row.task_id, at),
         })),
-        watermark: current,
-        sourceRevision: round.sourceRevision,
-        warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
+        watermark: cut.watermark,
+        sourceRevision: cut.sourceRevision,
+        warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
       };
     }
     const page = listTaskRowsNarrow(db, query);
     return {
-      status: current === round.sourceRevision ? "ready" : "pending",
+      status: cut.status,
       rows: page.rows.map((row) => ({
         taskId: row.task_id,
         packagePath: row.package_path,
@@ -99,9 +99,9 @@ export function listProjection(
         updatedAt: row.updated_at,
         snapshot: readSnapshot(db, row.task_id, at),
       })),
-      watermark: current,
-      sourceRevision: round.sourceRevision,
-      warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+      warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
       ...(page.page ? { page: page.page } : {}),
     };
   });
@@ -115,18 +115,17 @@ export function readDocument(
   limit: number,
 ): DocumentProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
-    const round = catchUpRound(db, eventStore, limit),
-      current = watermark(db),
+    const cut = readProjectionCut(db, readHead),
       row =
         /* @gate-identity check-bypass-write-boundary/bypass-write-013 */
         db.prepare("SELECT value_json FROM document WHERE path = ?").get(documentPath) as
           | { readonly value_json: string }
           | undefined;
     return {
-      status: current === round.sourceRevision ? "ready" : "pending",
+      status: cut.status,
       document: row ? (JSON.parse(row.value_json) as DocumentState) : null,
-      watermark: current,
-      sourceRevision: round.sourceRevision,
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
     };
   });
 }
@@ -138,18 +137,17 @@ export function readPresetSnapshot(
   limit: number,
 ): PresetSnapshotProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
-    const round = catchUpRound(db, eventStore, limit),
-      current = watermark(db),
+    const cut = readProjectionCut(db, readHead),
       row =
         /* @gate-identity check-bypass-write-boundary/bypass-write-014 */
         db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as
           | { readonly value_json: string }
           | undefined;
     return {
-      status: current === round.sourceRevision ? "ready" : "pending",
+      status: cut.status,
       snapshot: row ? JSON.parse(row.value_json) : null,
-      watermark: current,
-      sourceRevision: round.sourceRevision,
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
     };
   });
 }
@@ -164,10 +162,9 @@ export function readProjection(
 ): TaskProjectionRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, readHead, (db) => {
-    const round = catchUpRound(db, eventStore, limit);
-    const current = watermark(db);
+    const cut = readProjectionCut(db, readHead);
     return {
-      status: current === round.sourceRevision ? "ready" : "pending",
+      status: cut.status,
       snapshot: readSnapshot(db, taskId, now()),
       packagePath:
         /* @gate-identity check-bypass-write-boundary/bypass-write-015 */
@@ -176,13 +173,13 @@ export function readProjection(
             | { readonly package_path: string }
             | undefined
         )?.package_path ?? null,
-      watermark: current,
-      sourceRevision: round.sourceRevision,
-      warnings: !existed && round.sourceRevision > 0 ? ["projection_missing"] : [],
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+      warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
       catchUp: {
         maxItems: limit,
-        reducedItems: round.reducedItems,
-        sqliteTransactions: round.sqliteTransactions,
+        reducedItems: 0,
+        sqliteTransactions: 0,
       },
     };
   });

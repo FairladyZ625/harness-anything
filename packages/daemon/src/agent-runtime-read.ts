@@ -41,7 +41,6 @@ export function makeAgentRuntimeReadModel(input: {
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly now?: () => string;
 }) {
-  const synchronize = () => input.projection.readTaskStatuses([]);
   const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
     installationId: installation.installationId,
     kindId: runtimeKindForInstallation(installation).kindId,
@@ -138,7 +137,7 @@ export function makeAgentRuntimeReadModel(input: {
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {
       const query = overviewQuery(payload),
-        cut = synchronize();
+        cut = input.projection.readCut();
       const paged =
         query.limit === null
           ? null
@@ -185,7 +184,7 @@ export function makeAgentRuntimeReadModel(input: {
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload, input.now?.() ?? new Date().toISOString()),
-        cut = synchronize(),
+        cut = input.projection.readCut(),
         sessions = input.projection
           .readRuntimeSessions()
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
@@ -218,7 +217,7 @@ export function makeAgentRuntimeReadModel(input: {
       });
     },
     session: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionResult => {
-      const cut = synchronize(),
+      const cut = input.projection.readCut(),
         target = runtimeSessionTarget(payload),
         runtimeSessionIdValue =
           target.runtimeSessionId ?? input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ?? null;
@@ -251,7 +250,6 @@ export function makeAgentRuntimeReadModel(input: {
         source = input.store.readHead()?.revision ?? 0;
       if (after > source)
         throw coded("invalid_cursor", `Lifecycle cursor lifecycle:${after} is ahead of lifecycle:${source}.`);
-      synchronize();
       const matching = input.projection.readRuntimeSessionEvents(runtimeSessionIdValue, after, 65),
         selected = matching.slice(0, 64),
         done = selected.length === matching.length,

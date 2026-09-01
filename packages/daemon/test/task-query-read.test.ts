@@ -116,6 +116,31 @@ test("task control, review queue, and decision detail expose one real cut", () =
   assert.deepEqual(projectionCut(detail), readyCut);
 });
 
+test("task control narrows graph, status, and decision reads to the selected lifecycle page", () => {
+  const dependencyCalls: string[][] = [],
+    targetCalls: { targetRefs: readonly string[]; relationType: string }[] = [],
+    statusCalls: string[][] = [],
+    decisionCalls: string[][] = [],
+    dependency = { ...secondEventEdge, sourceRef: "task/task_event", targetRef: "task/task_blocker" },
+    derives = { ...eventEdge, sourceRef: "decision/dec_event", targetRef: "task/task_event" },
+    projection = projectionStub({
+      taskRows: [activeTaskRow("task_event")],
+      edges: [dependency, derives],
+      dependencyCalls,
+      targetCalls,
+      statusCalls,
+      decisionCalls,
+    });
+
+  const result = queryRead(process.cwd(), projection).guiTasks({ limit: 1 });
+
+  assert.equal(result.rows.length, 1);
+  assert.deepEqual(dependencyCalls, [["task/task_event"]]);
+  assert.deepEqual(targetCalls, [{ targetRefs: ["task/task_event"], relationType: "derives" }]);
+  assert.deepEqual(statusCalls, [["task_event", "task_blocker"]]);
+  assert.deepEqual(decisionCalls, [["dec_event"]]);
+});
+
 test("a surface fails closed instead of stitching mismatched projection cuts", () => {
   const projection = projectionStub({ decisionCut: { ...readyCut, watermark: 8, sourceRevision: 8 } }),
     read = queryRead(process.cwd(), projection);
@@ -186,6 +211,10 @@ function projectionStub(
     readonly edges?: TaskRelationProjectionRead["rows"];
     readonly calls?: TaskRelationQuery[];
     readonly taskRows?: readonly unknown[];
+    readonly dependencyCalls?: string[][];
+    readonly targetCalls?: { targetRefs: readonly string[]; relationType: string }[];
+    readonly statusCalls?: string[][];
+    readonly decisionCalls?: string[][];
   } = {},
 ): TaskProjection {
   const cut = options.cut ?? readyCut,
@@ -202,6 +231,20 @@ function projectionStub(
         : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
     }),
     readTaskRelations: () => ({ ...cut, rows: edges }),
+    readTaskDependencyClosure: (sourceRefs: readonly string[]) => {
+      options.dependencyCalls?.push([...sourceRefs]);
+      return {
+        ...cut,
+        rows: edges.filter((edge) => edge.relationType === "depends-on" && sourceRefs.includes(edge.sourceRef)),
+      };
+    },
+    readTaskRelationsByTargets: (targetRefs: readonly string[], relationType: string) => {
+      options.targetCalls?.push({ targetRefs: [...targetRefs], relationType });
+      return {
+        ...cut,
+        rows: edges.filter((edge) => edge.relationType === relationType && targetRefs.includes(edge.targetRef)),
+      };
+    },
     readRelationQuery: (query: TaskRelationQuery = {}) => {
       options.calls?.push(query);
       let rows = edges.filter(
@@ -229,7 +272,19 @@ function projectionStub(
     readFactGraph: () => ({ ...cut, facts: [], edges: [], factAnchors: [] }),
     searchFacts: () => ({ ...cut, facts: [] }),
     readFactAnchors: () => ({ ...cut, rows: [] }),
-    readTaskStatuses: () => ({ ...cut, rows: [] }),
+    readTaskStatuses: (taskIds: readonly string[]) => {
+      options.statusCalls?.push([...taskIds]);
+      return { ...cut, rows: [] };
+    },
+    readDecisions: (decisionIds: readonly string[]) => {
+      options.decisionCalls?.push([...decisionIds]);
+      return {
+        ...decisionCut,
+        decisions: decisionIds.includes("dec_event")
+          ? [{ decisionId: "dec_event", appliesTo: { modules: [], productLines: [] } }]
+          : [],
+      };
+    },
     listDecisions: () => ({ ...decisionCut, decisions: [] }),
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
@@ -237,6 +292,26 @@ function projectionStub(
       page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null },
     }),
   } as unknown as TaskProjection;
+}
+
+function activeTaskRow(taskId: string) {
+  return {
+    taskId,
+    packagePath: null,
+    generation: "v1",
+    workspaceRevision: 7,
+    createdAt: null,
+    updatedAt: "2026-08-30T00:00:00.000Z",
+    snapshot: {
+      revision: 7,
+      task: { taskId, status: "planned", packageDisposition: "active", metadata: {} },
+      executions: [],
+      reviews: [],
+      edgesTaken: [],
+      lease: null,
+      decisionRelations: [],
+    },
+  };
 }
 
 function taskRowWithoutDisposition() {

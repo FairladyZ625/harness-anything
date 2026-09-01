@@ -53,9 +53,9 @@ test("runtime installation identity survives an upgrade behind the same PATH ent
     writeProviderExecutable(oldExecutable, "console.log(\"2.1.237 (Claude Code)\");\n");
     writeProviderExecutable(newExecutable, "console.log(\"2.1.240 (Claude Code)\");\n");
     symlinkSync(oldExecutable, entry);
-    const before = discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" })[0]!;
+    const before = (await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" }))[0]!;
     rmSync(entry); symlinkSync(newExecutable, entry);
-    const after = discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-23T00:00:00.000Z" })[0]!;
+    const after = (await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-23T00:00:00.000Z" }))[0]!;
     assert.deepEqual([before.version, after.version], ["2.1.237 (Claude Code)", "2.1.240 (Claude Code)"]);
     assert.deepEqual([before.executablePath, after.executablePath], [realpathSync(oldExecutable), realpathSync(newExecutable)]);
     assert.equal(before.executableEntryPath, path.resolve(entry)); assert.equal(after.executableEntryPath, before.executableEntryPath);
@@ -65,19 +65,38 @@ test("runtime installation identity survives an upgrade behind the same PATH ent
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("runtime installation discovery projects each provider's detected model catalog", () => {
+test("runtime installation discovery projects each provider's detected model catalog", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-discovery-")), bin = path.join(root, "bin");
   try {
     mkdirSync(bin);
     writeProviderExecutable(path.join(bin, "codex"), `const args = process.argv.slice(2); if (args[0] === "--version") console.log("codex-test"); else if (args.join(" ") === "debug models --bundled") console.log(JSON.stringify({ models: [{ slug: "gpt-sol" }, { slug: "gpt-terra" }] }));\n`);
     writeProviderExecutable(path.join(bin, "agy"), `const args = process.argv.slice(2); if (args[0] === "--version") console.log("agy-test"); else if (args[0] === "models") console.log("gemini-high\\tGemini High\\ngemini-low\\tGemini Low");\n`);
     writeProviderExecutable(path.join(bin, "claude"), `const args = process.argv.slice(2); if (args[0] === "--version") console.log("claude-test"); else if (args[0] === "--help") console.log("aliases 'fable', 'sonnet', and 'opus'");\n`);
-    const rows = discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" });
+    const rows = await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" });
     assert.deepEqual(rows.map(({ kindId, models, defaultModel }) => ({ kindId, models, defaultModel })), [
       { kindId: "agy", models: ["gemini-high", "gemini-low"], defaultModel: "gemini-high" },
       { kindId: "claude", models: ["fable", "sonnet", "opus"], defaultModel: "fable" },
       { kindId: "codex", models: ["gpt-sol", "gpt-terra"], defaultModel: "gpt-sol" }
     ]);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("runtime installation probes are asynchronous and parallel across providers", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-async-discovery-")), bin = path.join(root, "bin");
+  try {
+    mkdirSync(bin);
+    for (const kindId of ["codex", "claude", "agy"] as const)
+      writeProviderExecutable(path.join(bin, kindId), `const args = process.argv.slice(2); setTimeout(() => { if (args[0] === "--version") console.log("${kindId}-async"); else if ("${kindId}" === "codex") console.log(JSON.stringify({ models: [{ slug: "gpt-async" }] })); else if ("${kindId}" === "agy") console.log("gemini-async\\tGemini Async"); else console.log("aliases 'fable'"); }, 100);\n`);
+    let heartbeats = 0;
+    const heartbeat = setInterval(() => { heartbeats += 1; }, 5), startedAt = Date.now();
+    try {
+      const rows = await discoverRuntimeInstallations({ env: { PATH: bin } });
+      assert.deepEqual(rows.map(({ kindId }) => kindId), ["agy", "claude", "codex"]);
+    } finally { clearInterval(heartbeat); }
+    const durationMs = Date.now() - startedAt;
+    context.diagnostic(`runtime-discovery-duration-ms=${durationMs};heartbeats=${heartbeats}`);
+    assert.ok(heartbeats >= 10, `expected event-loop progress during discovery, observed ${heartbeats} heartbeats`);
+    assert.ok(durationMs < 1_600, `expected parallel provider probes, discovery took ${durationMs}ms`);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -826,7 +845,7 @@ test("win32 installation discovery probes PATHEXT suffixes and witnesses the shi
   try {
     mkdirSync(bin);
     const executablePath = writeProviderExecutable(process.platform === "win32" ? path.join(bin, "codex") : path.join(bin, "codex.exe"), "console.log(\"stub-runtime-1.0.0\");\n");
-    const installations = discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32", now: () => "2026-08-15T01:00:00.000Z" });
+    const installations = await discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32", now: () => "2026-08-15T01:00:00.000Z" });
     assert.equal(installations.length, 1);
     assert.deepEqual({ kindId: installations[0]!.kindId, version: installations[0]!.version, observedAt: installations[0]!.observedAt }, { kindId: "codex", version: "stub-runtime-1.0.0", observedAt: "2026-08-15T01:00:00.000Z" });
     assert.equal(installations[0]!.executablePath.endsWith(process.platform === "win32" ? "codex.cmd" : "codex.exe"), true);
@@ -846,7 +865,7 @@ test("the shared provider stub fixture launches with the exact argv on every pla
     const executablePath = writeProviderExecutable(script, `const fs = require("node:fs");\nconst argv = process.argv.slice(2), serialized = JSON.stringify(argv);\nfs.writeFileSync(${JSON.stringify(witness)}, serialized);\nconsole.log(serialized);\nif (serialized !== JSON.stringify(["--version"]) && serialized !== JSON.stringify(["login", "status"])) process.exit(9);\n`);
     assert.equal(readFileSync(script, "utf8").startsWith(`#!${process.execPath}\n`), true);
     if (process.platform === "win32") assert.equal(executablePath.endsWith(".cmd"), true); else assert.equal(statSync(script).mode & 0o777, 0o755);
-    const installations = discoverRuntimeInstallations({ env: { PATH: bin } });
+    const installations = await discoverRuntimeInstallations({ env: { PATH: bin } });
     assert.equal(installations.length, 1, JSON.stringify(installations));
     assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
     assert.equal(installations[0]!.version, JSON.stringify(["--version"]));

@@ -115,16 +115,17 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   };
 
   function enqueueFrames(frames: ReadonlyArray<unknown>): void {
+    const frameReceivedAt = Date.now();
     for (const frame of frames) {
       queue = queue
-        .then(() => handleFrame(frame))
+        .then(() => handleFrame(frame, frameReceivedAt))
         .catch((error: unknown) => {
           failConnection(error instanceof Error ? error : new Error(String(error)));
         });
     }
   }
 
-  async function handleFrame(frame: unknown): Promise<void> {
+  async function handleFrame(frame: unknown, frameReceivedAt: number): Promise<void> {
     if (waitingForAuthentication) {
       const result = options.authenticateFirstFrame?.(frame, authContext);
       if (!result?.ok) {
@@ -142,7 +143,7 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
-    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[]);
+    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], { frameReceivedAt });
     if (response !== undefined) writeFrame(response);
   }
 

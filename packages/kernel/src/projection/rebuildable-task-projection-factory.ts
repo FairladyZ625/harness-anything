@@ -48,6 +48,7 @@ import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
 import { markRuntimeSessionsUnknown } from "./rebuildable-task-projection-runtime.ts";
 import {
   readStateDigest,
+  readProjectionCut,
   refreshStateDigestAtSourceCut,
   transaction,
   watermark,
@@ -171,6 +172,7 @@ export function makeTaskProjection(options: {
       }
     },
     readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
+    readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
     read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
     list: (query) => listProjection(projectionPath, readHead, options.eventStore, limit, now, query),
     ...entityQueryApi(context),

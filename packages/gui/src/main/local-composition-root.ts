@@ -36,6 +36,7 @@ interface DaemonClient {
     method: string,
     params: JsonObject,
     timeoutMs?: number,
+    responseTimeoutMs?: number,
   ) => Promise<JsonObject>;
 }
 let client: Promise<DaemonClient> | undefined;
@@ -141,6 +142,7 @@ async function request(
         target,
         route.rpcMethod,
         params,
+        undefined,
         requestTimeoutMs(route, daemonPayload),
       );
     try {

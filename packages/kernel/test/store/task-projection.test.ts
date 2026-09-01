@@ -107,6 +107,7 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     assert.equal(projection.readOperation(event.opId)?.event.schema, "doc-event/v1");
     projection.close();
     rmSync(projection.path, { force: true });
+    projection.rebuild();
     const reopened = projection.readDocument("context/notes.md");
     assert.equal(reopened.status, "ready");
     assert.deepEqual(reopened.document, first.document);
@@ -201,7 +202,7 @@ test("headless direct apply is instance-local and never preserves an ahead cache
     const hot = live.read(event.taskId);
     assert.deepEqual(
       { status: hot.status, watermark: hot.watermark, sourceRevision: hot.sourceRevision },
-      { status: "pending", watermark: 1, sourceRevision: 0 },
+      { status: "ready", watermark: 1, sourceRevision: 1 },
     );
     assert.equal(hot.snapshot.task?.taskId, event.taskId);
     assert.equal(live.rebuild().watermark, 0);
@@ -252,8 +253,10 @@ test("cold projection reuses one batch tree scan and its verified blob prefetch"
       projection = makeTaskProjection({ rootDir, eventStore: reader, catchUpLimit: 64 }),
       before = localGitObjectRefStore.processCount();
     let read = projection.readDocument(batchDocumentPath(count));
-    for (let round = 1; read.status === "pending" && round < 4; round += 1)
+    for (let round = 0; read.status === "pending" && round < 4; round += 1) {
+      projection.catchUp?.();
       read = projection.readDocument(batchDocumentPath(count));
+    }
     assert.equal(read.status, "ready");
     assert.equal(read.document?.body, batchDocumentBody(count));
     const processes = localGitObjectRefStore.processCount() - before;
@@ -413,7 +416,7 @@ test("WAL-shadow cold projection preserves Git batch content prefetch", async (t
   });
 });
 
-test("a fresh projection prefetches deferred staged content in one batch before replay", async () => {
+test("a fresh projection stays query-only until explicit catch-up prefetches staged content", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const writer = makeTaskEventStore({ repoId: "deferred-prefetch", rootDir });
@@ -425,26 +428,16 @@ test("a fresh projection prefetches deferred staged content in one batch before 
       eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }),
       catchUpLimit: 1,
     });
-    assert.equal(first.readDocument(batchDocumentPath(1)).status, "pending");
-    first.close();
-
-    const second = makeTaskProjection({
-      rootDir,
-      eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }),
-      catchUpLimit: 1,
-    });
-    assert.equal(second.readDocument(batchDocumentPath(1)).watermark, 2);
-    second.close();
-
-    const third = makeTaskProjection({
-      rootDir,
-      eventStore: makeTaskEventStore({ repoId: "deferred-prefetch", rootDir }),
-      catchUpLimit: 1,
-    });
-    const resumed = third.readDocument(batchDocumentPath(2));
+    const before = first.readDocument(batchDocumentPath(1));
+    assert.deepEqual(
+      { status: before.status, watermark: before.watermark, sourceRevision: before.sourceRevision },
+      { status: "pending", watermark: 0, sourceRevision: 2 },
+    );
+    first.catchUp?.();
+    const resumed = first.readDocument(batchDocumentPath(2));
     assert.equal(resumed.status, "ready");
     assert.equal(resumed.document?.body, batchDocumentBody(2));
-    third.close();
+    first.close();
   });
 });
 
@@ -555,6 +548,7 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
       blobs: [{ sha256: legacyHash, size: Buffer.byteLength(legacy), mediaType: "text/markdown", body: legacy }],
     });
     const projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp?.();
     const imported = projection.readDocument(standard);
     assert.equal(imported.status, "ready");
     assert.equal(imported.document?.policyId, MIGRATION_DOCUMENT_POLICY_ID);
@@ -603,6 +597,7 @@ test("a migration policy upgrade replays identically in cold rebuild", async () 
     });
     eventStore.append({ event: decision.event, plan: decision.plan, blobs: decision.blobs });
 
+    projection.catchUp?.();
     const warm = projection.readDocument(standard);
     assert.equal(warm.status, "ready");
     assert.equal(warm.document?.policyId, DOC_POLICY_ID);
@@ -844,6 +839,7 @@ test("historical agent entity envelopes replay into the generic entity projectio
       },
       projection = makeTaskProjection({ rootDir, eventStore });
     try {
+      projection.catchUp?.();
       const read = projection.getEntity("agent", "historical-agent");
       assert.deepEqual(
         read === null
@@ -883,7 +879,9 @@ test("stale persistent event projection schema is discarded and replayed from th
     );
     stale.close();
 
-    const read = makeTaskProjection({ rootDir, eventStore }).read(created.taskId);
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp?.();
+    const read = projection.read(created.taskId);
     assert.equal(read.status, "ready");
     assert.equal(read.snapshot.task?.taskId, created.taskId);
     assert.equal(read.watermark, 1);
@@ -958,22 +956,21 @@ test("projection catch-up processes at most one bounded round and never reports 
       now: () => "2026-08-11T00:30:00.000Z",
     });
 
-    let previousWatermark = 0;
-    for (let round = 0; round < 6; round += 1) {
-      const read = projection.read("task-1");
-      assert.equal(read.watermark >= previousWatermark, true);
-      assert.equal(read.sourceRevision, 6);
-      // The receipt must name the limit this projection actually runs under, not a constant:
-      // it is constructed with catchUpLimit 2, so a hardcoded 64 would be a false bound.
-      assert.equal(read.catchUp.maxItems, 2);
-      assert.equal(read.catchUp.reducedItems <= read.catchUp.maxItems, true);
-      if (read.status === "ready") {
-        assert.equal(read.watermark, 6);
-        return;
-      }
-      previousWatermark = read.watermark;
-    }
-    assert.fail("bounded catch-up did not drain its persisted deferred events");
+    const before = projection.read("task-1");
+    assert.deepEqual(
+      { status: before.status, watermark: before.watermark, sourceRevision: before.sourceRevision },
+      { status: "pending", watermark: 0, sourceRevision: 6 },
+    );
+    assert.deepEqual(before.catchUp, { maxItems: 2, reducedItems: 0, sqliteTransactions: 0 });
+
+    const catchUp = projection.catchUp!(), read = projection.read("task-1");
+    assert.equal(catchUp.metrics.maxBatchItems <= 2, true);
+    assert.equal(catchUp.metrics.reducedItems, 6);
+    assert.deepEqual(
+      { status: read.status, watermark: read.watermark, sourceRevision: read.sourceRevision },
+      { status: "ready", watermark: 6, sourceRevision: 6 },
+    );
+    assert.deepEqual(read.catchUp, { maxItems: 2, reducedItems: 0, sqliteTransactions: 0 });
   });
 });
 

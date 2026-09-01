@@ -65,6 +65,11 @@ export interface TaskProjection {
   readonly rebuild: () => ProjectionRebuildReceipt;
   readonly catchUp?: () => ProjectionRebuildReceipt;
   readonly readStateDigest: () => `sha256:${string}` | null;
+  readonly readCut: () => {
+    readonly status: "ready" | "pending";
+    readonly watermark: number;
+    readonly sourceRevision: number;
+  };
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly read: (taskId: string) => TaskProjectionRead;

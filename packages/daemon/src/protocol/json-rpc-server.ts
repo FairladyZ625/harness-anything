@@ -43,6 +43,7 @@ import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
+    timing?: { readonly frameReceivedAt: number },
   ) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly close: () => void;
 }
@@ -72,29 +73,38 @@ export function createJsonRpcProtocolServer(options: {
     readonly detach: () => void;
   };
   const subscriptions = new Set<Subscription>();
-  const one = async (request: JsonRpcRequest): Promise<JsonRpcResponse | undefined> => {
+  const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
-      startedAt = Date.now();
+      startedAt = Date.now(),
+      dispatchDelayMs = Math.max(0, startedAt - frameReceivedAt);
     let observed: ObservedRequest = {
       repoId: "",
       command: typeof request.method === "string" ? request.method : "",
       executor: null,
     };
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") {
-      traffic(typeof request.method === "string" ? request.method : null, startedAt, 0, false, "-32600");
+      traffic(
+        typeof request.method === "string" ? request.method : null,
+        frameReceivedAt,
+        startedAt,
+        Date.now(),
+        false,
+        "-32600",
+      );
       return rpcError(id, -32600, "Invalid Request");
     }
     if (!isContractedDaemonRpcMethod(request.method)) {
-      traffic(request.method, startedAt, 0, false, "-32601");
+      traffic(request.method, frameReceivedAt, startedAt, Date.now(), false, "-32601");
       return rpcError(id, -32601, "Method not found");
     }
     const reply = <Method extends DaemonRpcMethod>(
       method: Method,
       result: DaemonRpcResult<Method>,
     ): JsonRpcResponse | undefined => {
-      const durationMs = Date.now() - startedAt;
-      recordRequest(method, observed, result, durationMs);
-      traffic(method, startedAt, durationMs, resultOk(result), resultErrorCode(result));
+      const repliedAt = Date.now(),
+        serviceMs = repliedAt - startedAt;
+      recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
+      traffic(method, frameReceivedAt, startedAt, repliedAt, resultOk(result), resultErrorCode(result));
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
     const parsed = parseDaemonRpcParams(request.method, request.params);
@@ -449,10 +459,12 @@ export function createJsonRpcProtocolServer(options: {
     );
   };
   return {
-    handle: async (message) =>
+    handle: async (message, timing) =>
       Array.isArray(message)
-        ? (await Promise.all(message.map(one))).filter((item): item is JsonRpcResponse => item !== undefined)
-        : one(message),
+        ? (await Promise.all(message.map((request) => one(request, timing?.frameReceivedAt)))).filter(
+            (item): item is JsonRpcResponse => item !== undefined,
+          )
+        : one(message, timing?.frameReceivedAt),
     close: () => {
       for (const subscription of subscriptions) subscription.detach();
       subscriptions.clear();
@@ -472,7 +484,13 @@ export function createJsonRpcProtocolServer(options: {
   }
   // Repo-scoped by design: the log lives in the repository's local root, so a request that binds no
   // repository (protocol.hello, daemon.status, registry admin) has nowhere to be filed and is skipped.
-  function recordRequest(method: string, observed: ObservedRequest, result: object, durationMs: number): void {
+  function recordRequest(
+    method: string,
+    observed: ObservedRequest,
+    result: object,
+    dispatchDelayMs: number,
+    serviceMs: number,
+  ): void {
     if (!options.recordRequest || !observed.repoId) return;
     options.recordRequest({
       method,
@@ -485,15 +503,18 @@ export function createJsonRpcProtocolServer(options: {
       outcome: "outcome" in result && typeof result.outcome === "string" ? result.outcome : null,
       code: resultErrorCode(result),
       opId: "opId" in result && typeof result.opId === "string" ? result.opId : null,
-      durationMs,
+      dispatchDelayMs,
+      serviceMs,
+      durationMs: serviceMs,
     });
   }
   // Daemon-scoped counterpart: every request including hello and pre-dispatch rejections gets one
   // line, so connection-level forensics never depends on repo binding.
   function traffic(
     method: string | null,
-    startedAt: number,
-    durationMs: number,
+    frameReceivedAt: number,
+    handlerStartedAt: number,
+    repliedAt: number,
     ok: boolean,
     code: string | null,
   ): void {
@@ -502,8 +523,13 @@ export function createJsonRpcProtocolServer(options: {
       conn: connectionId,
       transport: options.authContext.transportKind,
       method,
-      startedAt,
-      durationMs,
+      frameReceivedAt,
+      handlerStartedAt,
+      repliedAt,
+      startedAt: handlerStartedAt,
+      dispatchDelayMs: Math.max(0, handlerStartedAt - frameReceivedAt),
+      serviceMs: Math.max(0, repliedAt - handlerStartedAt),
+      durationMs: Math.max(0, repliedAt - handlerStartedAt),
       ok,
       code,
     });
