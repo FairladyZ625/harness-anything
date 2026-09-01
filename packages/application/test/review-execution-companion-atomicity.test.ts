@@ -10,10 +10,7 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     await harness.start("execution-1");
     await harness.submit("execution-1");
     harness.kill("after_event_write");
-    await assert.rejects(
-      harness.review("execution-1", "anti_entropy", "changes_requested"),
-      /killpoint:after_event_write/u,
-    );
+    await assert.rejects(harness.review("execution-1", "anti_entropy", "changes_requested"), /killpoint:after_event_write/u);
     assert.equal(harness.eventStore.recover().status, "committed");
     harness.projection.catchUp();
     const snapshot = (await harness.service.read("task-1")).snapshot;

@@ -229,7 +229,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         .then(async () => {
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
-          if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+          if (context.state !== "attached")
+            throw context.cellCodedError("repo_unavailable", context.latched());
           return context.withLayoutAdvisory(context.withHumanSummary(await context.executeAction(action, binding)));
         })
         .then((receipt) => receipt as WriteReceipt)
