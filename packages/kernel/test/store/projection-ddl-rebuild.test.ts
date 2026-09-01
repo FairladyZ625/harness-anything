@@ -19,6 +19,7 @@ test("a projection schema bump discards pre-first-class Fact DDL before replay",
     writeLegacyFactProjection(projectionPath, previousProjectionSchemaVersion);
 
     const projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp();
     assert.equal(projection.searchFacts({ query: "standalone" }).facts[0]?.factId, "F-ABE050B5");
     projection.close();
     assertCurrentFactSchema(projectionPath);

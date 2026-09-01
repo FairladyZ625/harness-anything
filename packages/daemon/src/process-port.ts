@@ -111,6 +111,10 @@ export function runProcessTextAsync(
   env?: NodeJS.ProcessEnv,
   input?: string,
   signal?: AbortSignal,
+  options: {
+    readonly timeoutMs?: number;
+    readonly windowsVerbatimArguments?: boolean;
+  } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
@@ -120,10 +124,24 @@ export function runProcessTextAsync(
     const child = execFile(
       command,
       [...args],
-      { cwd, ...(env ? { env } : {}), ...(signal ? { signal } : {}), encoding: "utf8", windowsHide: true },
+      {
+        cwd,
+        ...(env ? { env } : {}),
+        ...(signal ? { signal } : {}),
+        ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
+        ...(options.windowsVerbatimArguments === undefined
+          ? {}
+          : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
+        encoding: "utf8",
+        windowsHide: true,
+      },
       (error, stdout, stderr) => {
         if (error) {
-          Object.assign(error, { stdout, stderr });
+          Object.assign(error, {
+            stdout,
+            stderr,
+            ...(typeof error.code === "number" ? { status: error.code } : {}),
+          });
           if (child.exitCode === null && child.signalCode === null) {
             child.once("close", () => reject(error));
             return;

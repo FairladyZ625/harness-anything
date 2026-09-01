@@ -59,23 +59,23 @@ test("squad run derives its mission from task unless prompt overrides it", () =>
   if (taskOnly.ok) assert.deepEqual(taskOnly.command.action.cwd, { scope: "repo-root" });
 });
 
-test("Agent and Squad declaration commands route through the daemon entity lifecycle", () => {
-  const cases: ReadonlyArray<readonly [readonly string[], string]> = [
-    [["agent", "list"], "agent-list"],
-    [["agent", "inspect", "terra"], "agent-inspect"],
-    [["agent", "validate", "--source", "terra"], "agent-validate"],
-    [["agent", "install", "--source", "terra", "--dry-run"], "agent-install"],
-    [["squad", "list"], "squad-list"],
-    [["squad", "inspect", "core-squad"], "squad-inspect"],
-    [["squad", "status", "squad_0123456789abcdef01234567"], "squad-status"],
-    [["squad", "validate", "--source", "core-squad"], "squad-validate"],
-    [["squad", "install", "--source", "core-squad"], "squad-install"],
+test("Agent and Squad declaration commands route reads directly and writes through the daemon entity lifecycle", () => {
+  const cases: ReadonlyArray<readonly [readonly string[], string, string]> = [
+    [["agent", "list"], "agent-list", "repo.task.read"],
+    [["agent", "inspect", "terra"], "agent-inspect", "repo.task.read"],
+    [["agent", "validate", "--source", "terra"], "agent-validate", "repo.task.read"],
+    [["agent", "install", "--source", "terra", "--dry-run"], "agent-install", "repo.task.run"],
+    [["squad", "list"], "squad-list", "repo.task.read"],
+    [["squad", "inspect", "core-squad"], "squad-inspect", "repo.task.read"],
+    [["squad", "status", "squad_0123456789abcdef01234567"], "squad-status", "repo.task.read"],
+    [["squad", "validate", "--source", "core-squad"], "squad-validate", "repo.task.read"],
+    [["squad", "install", "--source", "core-squad"], "squad-install", "repo.task.run"],
   ];
-  for (const [argv, kind] of cases) {
+  for (const [argv, kind, method] of cases) {
     const parsed = parseThinCommand([...argv]);
     assert.equal(parsed.ok, true, JSON.stringify(argv));
     if (parsed.ok) {
-      assert.equal(parsed.command.method, "repo.task.run");
+      assert.equal(parsed.command.method, method);
       assert.equal(parsed.command.action.kind, kind);
     }
   }

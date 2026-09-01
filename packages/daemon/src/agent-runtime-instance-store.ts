@@ -53,13 +53,14 @@ import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-per
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
+  readonly refreshDiscovery?: () => Promise<readonly RuntimeInstallationWitness[]>;
   readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
   readonly resolveCredential?: (reference: string) => Promise<string>;
   readonly subscriptionReady?: (input: {
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
-  }) => RuntimeAuthReadiness;
+  }) => RuntimeAuthReadiness | Promise<RuntimeAuthReadiness>;
 }) {
   const platform = input.platform ?? process.platform,
     resolveCredential = input.resolveCredential ?? credentialPort(platform).resolve,
@@ -136,7 +137,7 @@ export function openRuntimeInstanceStore(input: {
       readonly config: RuntimeInstanceConfig;
     },
   ): Promise<RuntimeAuthReadiness> {
-    const witnessed = snapshot?.witnessed ?? input.discover(),
+    const witnessed = snapshot?.witnessed ?? (await refreshInstallations()),
       config = snapshot?.config ?? readOne(instanceId, witnessed);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
@@ -151,7 +152,10 @@ export function openRuntimeInstanceStore(input: {
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription")
-      return rememberAuthReadiness(config.instanceId, probeSubscription(installation, env, config.isolationState));
+      return rememberAuthReadiness(
+        config.instanceId,
+        await probeSubscription(installation, env, config.isolationState),
+      );
     try {
       const secret = await resolveCredential(config.auth.credentialRef);
       return rememberAuthReadiness(
@@ -230,7 +234,7 @@ export function openRuntimeInstanceStore(input: {
       effort = selectRuntimeEffort(config, request.effort),
       fast = selectRuntimeFast(config, request.fast),
       permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
-      witnessed = input.discover(),
+      witnessed = await refreshInstallations(),
       installation = witnessed.find(
         (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
       );
@@ -256,7 +260,7 @@ export function openRuntimeInstanceStore(input: {
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
-        probeSubscription(installation, env, config.isolationState),
+        await probeSubscription(installation, env, config.isolationState),
       );
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
       return {
@@ -588,8 +592,12 @@ export function openRuntimeInstanceStore(input: {
     prepareAuthCommand,
     prepareLaunch,
     prepareWorkerGitEnvironment,
+    refreshInstallations,
     command,
   };
+  async function refreshInstallations(): Promise<readonly RuntimeInstallationWitness[]> {
+    return input.refreshDiscovery ? input.refreshDiscovery() : input.discover();
+  }
   function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
     if (!existsSync(target)) return [];
     chmodSync(target, 0o600);
@@ -668,13 +676,13 @@ export function openRuntimeInstanceStore(input: {
     readiness.set(instanceId, state);
     return state;
   }
-  function probeSubscription(
+  async function probeSubscription(
     installation: RuntimeInstallationWitness,
     env: NodeJS.ProcessEnv,
     isolationState: RuntimeIsolationState,
-  ): RuntimeAuthReadiness {
+  ): Promise<RuntimeAuthReadiness> {
     try {
-      return (
+      return await (
         input.subscriptionReady ?? ((probe) => providerSubscriptionReadiness({ ...probe, isolationState }, platform))
       )({ installation, env });
     } catch (error) {

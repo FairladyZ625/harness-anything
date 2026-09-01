@@ -1,5 +1,19 @@
+import { commandDescriptorForAction } from "../../../daemon/src/protocol/daemon-protocol-commands.ts";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
+
+// The command descriptor is the single authority on which closed task-action method serves a kind;
+// parsers that pass no explicit method get the descriptor's routing instead of a hardcoded default.
+export function taskActionMethodFor(kind: string): string {
+  try {
+    // The declaration literals keep their authored "repo.task.run"; the repo-read topology
+    // rewrites the runtime value, so compare on the widened runtime string.
+    const method: string = commandDescriptorForAction(kind).method;
+    return method === "repo.task.read" ? "repo.task.read" : "repo.task.run";
+  } catch {
+    return "repo.task.run";
+  }
+}
 
 export function optionalFlags(
   values: ReadonlyMap<string, string>,
@@ -122,7 +136,7 @@ export function accepted(
   repoId: string | undefined,
   json: boolean,
   action: ThinCommand["action"],
-  method = "repo.task.run",
+  method = taskActionMethodFor(action.kind),
 ): ThinParseResult {
   const normalized =
     action.kind === "agent-create" && !Object.hasOwn(action, "cwd")

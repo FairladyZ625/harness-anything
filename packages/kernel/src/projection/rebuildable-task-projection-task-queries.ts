@@ -20,7 +20,14 @@ import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
-import { watermark, parseEventJson, queryRow, queryRows, transaction } from "./rebuildable-task-projection-sql.ts";
+import {
+  readProjectionCut,
+  watermark,
+  parseEventJson,
+  queryRow,
+  queryRows,
+  transaction,
+} from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -112,95 +119,87 @@ export function taskQueryApi(
     readTaskIndex: () => {
       const existed = localRuntimeStateFileSystem.exists(projectionPath);
       return withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
           schema: "task-index-projection/v1" as const,
-          status: current === round.sourceRevision ? ("ready" as const) : ("pending" as const),
+          status: cut.status,
           rows: readTaskIndexRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
-          warnings: !existed && round.sourceRevision > 0 ? (["projection_missing"] as const) : [],
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+          warnings: !existed && cut.sourceRevision > 0 ? (["projection_missing"] as const) : [],
         };
       });
     },
     readWorkspaceSummary: () =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           summary: readWorkspaceSummaryRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readTaskRelations: () =>
       withDatabase(projectionPath, readHead, (db: DatabaseSync) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: readTaskRelationRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readTaskDependencyClosure: (sourceRefs, maxDepth) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: readTaskDependencyClosureRows(db, sourceRefs, maxDepth),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readTaskRelationsByTargets: (targetRefs, relationType) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: readTaskRelationsByTargets(db, targetRefs, relationType),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readTaskStatuses: (taskIds) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: readTaskStatusRows(db, taskIds),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readTaskRuntimeBatch: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db),
+        const cut = readProjectionCut(db, readHead),
           page = readTaskRuntimeBatchPage(db, query);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           ...page,
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readRelationQuery: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db),
+        const cut = readProjectionCut(db, readHead),
           page = readTaskRelationPage(db, query ?? {});
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: page.rows,
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
           ...(page.page ? { page: page.page } : {}),
         };
       }),
@@ -241,6 +240,8 @@ export function taskQueryApi(
       }),
     readTaskCompletion: (taskId, executionId) =>
       withDatabase(projectionPath, readHead, (db) => {
+        // Completion lookup is write-recovery admission, not a serving read: it must observe a
+        // published completion before a retry can append a duplicate.
         catchUpRound(db, eventStore, limit);
         const row = queryRows(db, TASK_COMPLETION_SQL, taskId, executionId)[0];
         if (!row) return null;
@@ -281,30 +282,28 @@ export function taskQueryApi(
           pageLimit > 500
         )
           throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           events: queryRows(db, CANONICAL_EVENTS_SQL, afterRevision, pageLimit).map((row) =>
             parseEventJson(String(row.event_json)),
           ),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readCiRunObservations: (pageLimit) =>
       withDatabase(projectionPath, readHead, (db) => {
         if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 2_000)
           throw new Error("ci run observation page requires a limit from 1 to 2000");
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           events: queryRows(db, CI_RUN_OBSERVATIONS_SQL, pageLimit)
             .map((row) => parseEventJson(String(row.event_json)))
             .filter((event) => event.schema === "ci-run-observation/v1"),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
@@ -351,18 +350,17 @@ export function taskQueryApi(
     readPresetSnapshot: (digest) => readPresetSnapshot(projectionPath, readHead, eventStore, digest, limit),
     readProgress: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db),
+        const cut = readProjectionCut(db, readHead),
           rows = queryRows(
             db,
             "SELECT event_json FROM task_progress WHERE task_id = ? ORDER BY workspace_revision",
             taskId,
           );
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: rows.map((row) => parseEventJson(String(row.event_json)) as TaskProgressEventV1),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
   };

@@ -67,7 +67,7 @@ export async function runAgentCreate(
   }
   const validation = await runCommandThroughDaemon({
     ...command,
-    method: "repo.task.run",
+    method: "repo.task.read",
     action: {
       kind: "agent-validate",
       declaration,

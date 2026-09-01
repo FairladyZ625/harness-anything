@@ -168,15 +168,38 @@ export function makeTaskQueryReadModel(input: {
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list(query),
-      relations = projection.readRelationQuery({}),
-      taskStatuses = projection.readTaskStatuses(),
-      decisionRead = projection.listDecisions({}),
-      cut = requireSameProjectionCut("task control surface", [lifecycle, relations, taskStatuses, decisionRead]),
-      graphWarnings = relationFacetWarnings(relations.status),
+      taskRefs = lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
+      dependencies = projection.readTaskDependencyClosure(taskRefs),
+      derives = projection.readTaskRelationsByTargets(taskRefs, "derives"),
+      edges = [...dependencies.rows, ...derives.rows],
+      relatedTaskIds = [
+        ...new Set(
+          [
+            ...lifecycle.rows.map(({ taskId }) => taskId),
+            ...dependencies.rows.flatMap(({ sourceRef, targetRef }) =>
+              [sourceRef, targetRef].flatMap((ref) => /^task\/([^/]+)$/u.exec(ref)?.[1] ?? []),
+            ),
+          ],
+        ),
+      ],
+      taskStatuses = projection.readTaskStatuses(relatedTaskIds),
+      decisionIds = [
+        ...new Set(
+          derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? []),
+        ),
+      ],
+      decisionRead = projection.readDecisions(decisionIds),
+      cut = requireSameProjectionCut("task control surface", [
+        lifecycle,
+        dependencies,
+        derives,
+        taskStatuses,
+        decisionRead,
+      ]),
+      graphWarnings = [...relationFacetWarnings(dependencies.status), ...relationFacetWarnings(derives.status)],
       hardWarnings = graphWarnings.filter(({ severity }) => severity === "hard-fail").map(({ message }) => message),
-      edges = relations.rows,
       activeDerives = new Map<string, typeof edges>();
-    for (const edge of edges)
+    for (const edge of derives.rows)
       if (edge.state === "active" && edge.direction === "directed" && edge.relationType === "derives")
         activeDerives.set(edge.targetRef, [...(activeDerives.get(edge.targetRef) ?? []), edge]);
     const blockingTasks = taskStatuses.rows.flatMap((row) =>

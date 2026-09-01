@@ -32,6 +32,11 @@ export interface DaemonTrafficLogEntry {
   readonly transport: string;
   readonly method: string | null;
   readonly startedAt: number;
+  readonly frameReceivedAt?: number;
+  readonly handlerStartedAt?: number;
+  readonly repliedAt?: number;
+  readonly dispatchDelayMs?: number;
+  readonly serviceMs?: number;
   readonly durationMs: number;
   readonly ok: boolean;
   readonly code: string | null;
@@ -122,13 +127,23 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     request: (entry) => {
       const seq = seqOf(entry.conn);
       if (seq !== null) requestsByConn.set(seq, (requestsByConn.get(seq) ?? 0) + 1);
+      const frameReceivedAt = entry.frameReceivedAt ?? entry.startedAt,
+        handlerStartedAt = entry.handlerStartedAt ?? entry.startedAt,
+        repliedAt = entry.repliedAt ?? entry.startedAt + entry.durationMs,
+        dispatchDelayMs = entry.dispatchDelayMs ?? Math.max(0, handlerStartedAt - frameReceivedAt),
+        serviceMs = entry.serviceMs ?? entry.durationMs;
       append({
         event: "request",
         conn: entry.conn,
         transport: entry.transport,
         method: entry.method,
         at: new Date(entry.startedAt).toISOString(),
-        atEnd: new Date(entry.startedAt + entry.durationMs).toISOString(),
+        frameReceivedAt: new Date(frameReceivedAt).toISOString(),
+        handlerStartedAt: new Date(handlerStartedAt).toISOString(),
+        repliedAt: new Date(repliedAt).toISOString(),
+        atEnd: new Date(repliedAt).toISOString(),
+        dispatchDelayMs,
+        serviceMs,
         durationMs: entry.durationMs,
         ok: entry.ok,
         code: entry.code,

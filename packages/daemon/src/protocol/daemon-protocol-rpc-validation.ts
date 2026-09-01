@@ -48,7 +48,7 @@ export function isDaemonStreamMethod(method: string): method is DaemonStreamMeth
   return daemonStreamFacets.some((entry) => entry.method === method);
 }
 // The executor declaration surface, derived from the same shapes validateDaemonRpcCall enforces — never
-// a hand-copied method list. repo.task.run accepts the executor inside its open action envelope; every
+// a hand-copied method list. The task action methods accept the executor inside their open action envelope; every
 // other method accepts payload.executor exactly when its payload shape declares the field (the preset
 // methods and repo.agentRuntime.spawn do). The CLI injects on this predicate, so a newly contracted
 // command that does not declare executor is simply never injected into.
@@ -90,7 +90,7 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "observe.tail")
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
-  if (!errors.length && value.method === "repo.task.run")
+  if (!errors.length && (value.method === "repo.task.run" || value.method === "repo.task.read"))
     errors.push(...validateCatalogActionPayload(value.params as JsonObject));
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));

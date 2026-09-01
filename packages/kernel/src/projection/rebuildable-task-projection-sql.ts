@@ -9,6 +9,7 @@ import {
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { canonicalizeContractValue } from "../domain/task.ts";
+import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 
 // SQL execution, projection watermark, canonical serialization, and state digest primitives.
 const stateDigestTables = [
@@ -44,6 +45,20 @@ export function watermark(db: DatabaseSync): number {
       readonly watermark: number;
     };
   return Number(row.watermark);
+}
+
+export function readProjectionCut(db: DatabaseSync, readHead: EventStreamPort["readHead"]): {
+  readonly status: "ready" | "pending";
+  readonly watermark: number;
+  readonly sourceRevision: number;
+} {
+  const current = watermark(db),
+    sourceRevision = readHead()?.revision ?? 0;
+  return {
+    status: current === sourceRevision ? "ready" : "pending",
+    watermark: current,
+    sourceRevision,
+  };
 }
 
 export function readStateDigest(db: DatabaseSync): `sha256:${string}` | null {

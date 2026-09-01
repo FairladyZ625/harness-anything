@@ -53,7 +53,7 @@ export function repoIdFromParams(params: JsonObject): string {
   return isJsonObject(repo) && typeof repo.repoId === "string" ? repo.repoId : "";
 }
 // The executor rides on the resolved action, which is where the daemon reads it for attribution:
-// repo.task.run carries it inside payload.action, every other method merges payload into the action.
+// Task action methods carry it inside payload.action; every other method merges payload into the action.
 export function declaredExecutorOrNull(action: JsonObject): DaemonRequestLogEntry["executor"] {
   const executor = action.executor;
   return isJsonObject(executor) && executor.kind === "agent" && typeof executor.id === "string"

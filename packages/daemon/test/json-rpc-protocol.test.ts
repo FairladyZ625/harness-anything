@@ -107,6 +107,11 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "distill-promote": "repo-write"
   } as const;
   assert.deepEqual(Object.fromEntries(Object.keys(expected).map((kind) => [kind, commandClassForAction(kind)])), expected);
+  for (const command of daemonProtocolCommands)
+    if (command.commandClass === "repo-read") assert.notEqual(command.method, "repo.task.run", command.id);
+  const legacyRead = { action: { kind: "task-show", taskId: "task-direct" } };
+  assert.deepEqual(actionForDaemonMethod("repo.task.read", legacyRead), legacyRead.action);
+  assert.throws(() => actionForDaemonMethod("repo.task.run", legacyRead), /closed method descriptor/u);
 });
 
 // prettier-ignore

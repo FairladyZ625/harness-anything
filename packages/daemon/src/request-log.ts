@@ -29,6 +29,8 @@ export interface DaemonRequestLogEntry {
   readonly outcome: string | null;
   readonly code: string | null;
   readonly opId: string | null;
+  readonly dispatchDelayMs?: number;
+  readonly serviceMs?: number;
   readonly durationMs: number;
 }
 
@@ -48,6 +50,8 @@ export interface DaemonRequestLogRecord {
   readonly outcome: string | null;
   readonly code: string | null;
   readonly opId: string | null;
+  readonly dispatchDelayMs: number;
+  readonly serviceMs: number;
   readonly durationMs: number;
 }
 
@@ -127,6 +131,8 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     outcome: entry.outcome,
     code: entry.code,
     opId: entry.opId,
+    dispatchDelayMs: entry.dispatchDelayMs ?? 0,
+    serviceMs: entry.serviceMs ?? entry.durationMs,
     durationMs: entry.durationMs,
   };
 }

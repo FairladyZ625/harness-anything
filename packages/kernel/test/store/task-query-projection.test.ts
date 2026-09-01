@@ -158,6 +158,7 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
+    projection.catchUp();
     const full = projection.list();
     assert.equal(full.rows.length, 6);
     assert.equal(full.page, undefined);
@@ -237,6 +238,7 @@ test("task runtime batch reads up to 500 ids without a variable SQLite IN list",
         ...fixture.tasks.map(({ taskId }) => taskId),
         ...Array.from({ length: 494 }, (_, index) => `task_missing_${String(index).padStart(3, "0")}`),
       ];
+    projection.catchUp();
     const batch = projection.readTaskRuntimeBatch({ taskIds: requested });
     assert.equal(batch.status, "ready");
     assert.equal(batch.taskIds.length, 500);
@@ -261,7 +263,7 @@ test("historical task relation events replay into the Relation projection and su
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
-    projection.list();
+    projection.catchUp();
     // The stored snapshot no longer hosts legacy task.relations (normalized via
     // currentTaskForWrite), so the expectation derives from the event payloads —
     // the same replay input the Relation projection consumes.
@@ -319,7 +321,7 @@ test("unparameterized list stays byte-identical across reopen after the schema b
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
     const first = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });
-    first.list(); // cold catch-up; the first read may carry the one-shot projection_missing warning
+    first.catchUp();
     const bytes = JSON.stringify(first.list());
     first.close();
     const reopened = makeTaskProjection({ rootDir, eventStore: memoryEventStore(fixture.events) });

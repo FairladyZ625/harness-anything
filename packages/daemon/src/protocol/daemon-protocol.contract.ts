@@ -108,6 +108,16 @@ export const daemonProtocolMethods = Object.freeze([
       payload: shape({ action: shape({ kind: "string" }, true) }),
     }),
   },
+  {
+    id: "repo.task.read",
+    phase: "W3",
+    method: "repo.task.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ action: shape({ kind: "string" }, true) }),
+    }),
+  },
 ] as const);
 
 export const runtimeInstanceMethods = Object.freeze([

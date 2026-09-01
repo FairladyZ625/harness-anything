@@ -363,9 +363,9 @@ function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Rea
           )
         : actionPayload,
     executor = declaredExecutor(env);
-  // repo.task.run carries the executor inside its open action envelope; every other method takes
+  // Task action methods carry the executor inside their open action envelope; every other method takes
   // payload.executor exactly where the daemon contract declares the field.
-  return command.method === "repo.task.run"
+  return command.method === "repo.task.run" || command.method === "repo.task.read"
     ? { action: executor ? { ...command.action, executor } : command.action }
     : executor && daemonMethodAcceptsPayloadExecutor(command.method)
       ? { ...payload, executor }
@@ -501,8 +501,8 @@ const readResponseDeadlineMs = (kind: string): number | undefined => {
 // commands route through the fleet channel instead of a local cell. The
 // operator never runs a lease command — acquisition, queueing, and renewal are
 // the center's job (dec_9E7AC30E/CH2).
-// task-create rides its own preset method; the lifecycle commands ride repo.task.run.
-const fleetTaskMethods = ["repo.task.run", "repo.task.create"];
+// task-create rides its own preset method; legacy reads and lifecycle commands ride task action methods.
+const fleetTaskMethods = ["repo.task.run", "repo.task.read", "repo.task.create"];
 const fleetRuntimeMethods = [
   "repo.agentRuntime.spawn",
   "repo.agentRuntime.cancel",
@@ -641,7 +641,7 @@ export async function fleetDocRoute(
 ): Promise<{ readonly method: string; readonly payload: Record<string, unknown> } | null> {
   const kind = command.action.kind,
     route = fleetDocSyncKinds.get(kind);
-  if (route === undefined || command.method !== "repo.task.run") return null;
+  if (route === undefined || (command.method !== "repo.task.run" && command.method !== "repo.task.read")) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const payload: Record<string, unknown> = {

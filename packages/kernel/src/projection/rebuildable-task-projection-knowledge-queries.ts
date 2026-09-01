@@ -20,7 +20,7 @@ import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
-import { watermark } from "./rebuildable-task-projection-sql.ts";
+import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -57,59 +57,54 @@ export function knowledgeQueryApi(
       }),
     readFact: (factId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           fact: readFactRow(db, factId),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     searchFacts: (filters) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db),
+        const cut = readProjectionCut(db, readHead),
           page = searchFactRowsPage(db, filters);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           facts: page.rows,
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
           ...(page.page ? { page: page.page } : {}),
         };
       }),
     listFactDomainTypes: () =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           domainTypes: listFactDomainTypeRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readFactAnchors: (refs) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           rows: readFactAnchorRows(db, refs),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readFactGraph: () =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           ...readFactGraphRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     admitDecision: (event) =>
@@ -125,59 +120,54 @@ export function knowledgeQueryApi(
       }),
     readDecision: (decisionId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           decision: readDecisionRow(db, decisionId),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readDecisions: (decisionIds) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           decisions: readDecisionRows(db, decisionIds),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     listDecisions: (filters) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           decisions: listDecisionRows(db, filters),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     listDecisionAgendaPage: (query) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db),
+        const cut = readProjectionCut(db, readHead),
           page = listDecisionAgendaRowsPage(db, query);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           decisions: page.rows,
           page: page.page,
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readDecisionGraph: () =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           ...readDecisionGraphRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
   };

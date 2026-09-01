@@ -206,7 +206,7 @@ test(
         rmSync(fakeProviderRoot, { recursive: true, force: true });
       }
     });
-    const codexInstallation = discoverRuntimeInstallations().find(
+    const codexInstallation = (await discoverRuntimeInstallations()).find(
       (installation) =>
         installation.kindId === "codex" && installation.executablePath === realpathSync.native(fakeProviderPath),
     );

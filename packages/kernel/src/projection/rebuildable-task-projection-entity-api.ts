@@ -1,26 +1,23 @@
 // @write-boundary-exemption rebuildable-projection
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
-import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { getEntityProjectionRow, listEntityProjectionRows } from "./rebuildable-task-projection-entities.ts";
-import { watermark } from "./rebuildable-task-projection-sql.ts";
+import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
 
 export function entityQueryApi(context: ProjectionContext): Pick<TaskProjection, "listEntities" | "getEntity"> {
-  const { eventStore, limit, projectionPath, readHead } = context;
+  const { projectionPath, readHead } = context;
   return {
     listEntities: (entityKind) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
-        requireReadyEntityCut(current, round.sourceRevision);
+        const cut = readProjectionCut(db, readHead);
+        requireReadyEntityCut(cut.watermark, cut.sourceRevision);
         return listEntityProjectionRows(db, entityKind);
       }),
     getEntity: (entityKind, entityId) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
-        requireReadyEntityCut(current, round.sourceRevision);
+        const cut = readProjectionCut(db, readHead);
+        requireReadyEntityCut(cut.watermark, cut.sourceRevision);
         return getEntityProjectionRow(db, entityKind, entityId);
       }),
   };

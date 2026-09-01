@@ -74,7 +74,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     writeFileSync(authored, documentBody);
     const status = await requestDaemonJsonRpcAt(
       fixture.endpoint,
-      "repo.task.run",
+      "repo.task.read",
       {
         repo: { repoId: fixture.repoId },
         payload: { action: { kind: "doc-status", paths: [documentPath] } },

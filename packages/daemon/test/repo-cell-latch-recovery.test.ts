@@ -253,10 +253,10 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
       ownerId: "latch-heal-two",
       now: () => clock,
     });
-    assert.equal(cell.status().state, "attached"); // the open is lazy; the first ledger read latches
+    assert.equal(cell.status().state, "unavailable"); // attach catch-up classifies the mixed ledger immediately
     const latchedList = await cell.run({ kind: "task-list" }, binding);
     assert.equal(latchedList.outcome, "op_rejected");
-    assert.equal(latchedList.code, "invalid_store");
+    assert.equal(latchedList.code, "repo_unavailable");
     assert.match(
       String(latchedList.nextAction),
       /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u,
@@ -464,7 +464,7 @@ test("every latched RepoCell exit declares the latch and the cause identically w
     cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-two" });
     const first = await cell.run({ kind: "task-list" }, binding);
     assert.equal(first.outcome, "op_rejected");
-    assert.equal(first.code, "invalid_store");
+    assert.equal(first.code, "repo_unavailable");
     assert.equal(cell.status().state, "unavailable");
     assert.match(
       String(first.nextAction ?? ""),

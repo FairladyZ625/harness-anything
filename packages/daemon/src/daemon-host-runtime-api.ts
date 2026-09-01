@@ -227,6 +227,7 @@ export function createDaemonHostRuntimeApi(
         evaluatedAtCut: "runtime-instances:current",
         now: context.now(),
       });
+      await context.instances.refreshInstallations();
       const receipt = (await context.instances.command({
         ...payload,
         kind: actionKind,
@@ -241,6 +242,7 @@ export function createDaemonHostRuntimeApi(
       const operation = method.slice("repo.runtimeInstance.auth.".length);
       if (!["login", "logout"].includes(operation))
         throw context.hostCodedError("unsupported_command", `Unsupported runtime auth method: ${method}.`);
+      await context.instances.refreshInstallations();
       const command = context.instances.prepareAuthCommand(
           context.requiredText(payload.instanceId, "instanceId"),
           operation as "login" | "logout",

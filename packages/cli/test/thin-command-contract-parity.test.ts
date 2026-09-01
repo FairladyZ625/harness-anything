@@ -204,15 +204,15 @@ test("executor injection follows the daemon-declared surface exactly", () => {
         `${method}: carries no payload envelope at all`,
       );
   }
-  // repo.task.run is the one structural exception: the executor rides inside the open action envelope.
+  // The legacy read envelope keeps its executor inside the open action, like the write envelope.
   assert.deepEqual(
     validateDaemonRpcCall({
-      method: "repo.task.run",
+      method: "repo.task.read",
       params: { repo: { repoId: "parity" }, payload: { action: { kind: "task-list", executor: agent } } },
     }),
     [],
   );
-  assert.equal(daemonMethodAcceptsPayloadExecutor("repo.task.run"), false);
+  assert.equal(daemonMethodAcceptsPayloadExecutor("repo.task.read"), false);
   assert.equal(daemonMethodAcceptsPayloadExecutor("repo.not.contracted"), false);
 });
 

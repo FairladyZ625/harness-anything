@@ -200,6 +200,7 @@ const dispatches: readonly TaskDispatchRow[] = [
 function projectionFixture(): TaskProjection {
   const selected = () => sessions;
   return {
+    readCut: () => ({ status: "ready", watermark: 40, sourceRevision: 40 }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 40, sourceRevision: 40 }),
     readRuntimeSessions: selected,
     readRuntimeDispatches: () => sessions.map(runtimeDispatch),

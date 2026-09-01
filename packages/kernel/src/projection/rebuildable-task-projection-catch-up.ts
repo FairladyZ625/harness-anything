@@ -29,7 +29,7 @@ export function reduceBatch(
   events: readonly CanonicalEventV1[],
   limit: number,
   readBlob: EventStreamPort["readContentBlob"],
-  _sourceRevision: number,
+  sourceRevision: number,
 ): ProjectionApplyReceipt {
   return transaction(db, () => {
     for (const event of events) stageEvent(db, event);
@@ -55,6 +55,9 @@ export function reduceBatch(
       );
     }
     runSql(db, "UPDATE projection_meta SET state_digest = NULL WHERE singleton = 1");
+    // A successful writer apply owns this complete cut. Persist its digest in the same SQLite
+    // transaction so a subsequent serving read never has to perform a catch-up write.
+    if (isAtSourceCut(db, sourceRevision)) refreshStateDigestAtSourceCut(db, sourceRevision);
     return { metrics: { sqliteTransactions: 1, reducedItems } };
   });
 }

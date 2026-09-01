@@ -11,7 +11,7 @@ import type {
   RuntimeInstallationWitness,
   RuntimeAuthReadiness,
 } from "./agent-runtime-instance-types.ts";
-import { runExecutableSync } from "./agent-runtime-installation-discovery.ts";
+import { runExecutable } from "./agent-runtime-installation-discovery.ts";
 import { providerConfigDirectory, tomlString } from "./agent-runtime-instance-storage.ts";
 import {
   requiredRuntimeInstanceText,
@@ -108,16 +108,16 @@ export function launchArgs(
   ];
 }
 
-export function providerSubscriptionReadiness(
+export async function providerSubscriptionReadiness(
   input: {
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
     readonly isolationState: RuntimeIsolationState;
   },
   platform: NodeJS.Platform,
-): RuntimeAuthReadiness {
+): Promise<RuntimeAuthReadiness> {
   try {
-    runExecutableSync(
+    await runExecutable(
       platform,
       input.installation.executablePath,
       input.installation.kindId === "codex"

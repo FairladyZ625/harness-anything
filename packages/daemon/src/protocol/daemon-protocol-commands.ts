@@ -159,7 +159,7 @@ export function commandClassForAction(kind: string): "repo-read" | "repo-write" 
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
-  if (method === "repo.task.run") {
+  if (method === "repo.task.run" || method === "repo.task.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
       descriptor = daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, action.kind));
     if (descriptor?.method !== method)
