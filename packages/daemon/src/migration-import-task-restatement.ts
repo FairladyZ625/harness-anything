@@ -129,9 +129,16 @@ export function restateTaskContractBody(input: {
   } catch (error) {
     throw new Error(`${input.sourcePath}: invalid task-contract.json`, { cause: error });
   }
-  const declaredDigest = contract.presetSnapshotDigest;
+  const legacyPreset =
+      contract.schema === "task-contract-snapshot/v1" && migrationImportRecord(contract.preset)
+        ? contract.preset
+        : null,
+    usesLegacyPresetDigest = contract.presetSnapshotDigest === undefined && legacyPreset?.digest !== undefined,
+    declaredDigest = usesLegacyPresetDigest ? legacyPreset?.digest : contract.presetSnapshotDigest;
   if (declaredDigest !== undefined && declaredDigest !== null && !presetDigest(declaredDigest))
-    throw new Error(`${input.sourcePath}: presetSnapshotDigest is not SHA-256`);
+    throw new Error(
+      `${input.sourcePath}: ${usesLegacyPresetDigest ? "preset.digest" : "presetSnapshotDigest"} is not SHA-256`,
+    );
   let metadata = contractCompileMetadata(contract, input.fallback);
   const settings = readSettingsFacet(
     readFileSync(path.join(resolveHarnessLayout(input.sourceRoot).authoredRoot, "harness.yaml"), "utf8"),

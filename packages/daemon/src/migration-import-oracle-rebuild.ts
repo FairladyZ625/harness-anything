@@ -48,11 +48,29 @@ export function rebuildMigrationProjectionOracle(
   sourceRoot: string,
   inspection = inspectMigrationSourceEvents(sourceRoot),
 ): MigrationProjectionOracle {
-  const rebuilt = inspection.events.length === 0 ? emptyOracle(inspection) : rebuildEventOracle(sourceRoot, inspection);
-  return {
-    ...overlayAuthoredOracle(sourceRoot, rebuilt, inspection),
-    normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
-  };
+  try {
+    const rebuilt =
+        inspection.events.length === 0 ? emptyOracle(inspection) : rebuildEventOracle(sourceRoot, inspection),
+      oracle = {
+        ...overlayAuthoredOracle(sourceRoot, rebuilt, inspection),
+        normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
+      };
+    if (inspection.eventHeadRevision !== null && oracle.watermark !== inspection.eventHeadRevision)
+      throw migrationImportError(
+        "migration_projection_oracle_cut_mismatch",
+        `Rebuilt projection watermark ${oracle.watermark} ` +
+          `does not match canonical event head ${inspection.eventHeadRevision}.`,
+      );
+    return oracle;
+  } catch (error) {
+    if (migrationErrorCode(error) !== null) throw error;
+    consumeKnownError(error);
+    throw migrationImportError(
+      "migration_projection_rebuild_failed",
+      `Could not rebuild the source oracle without modifying the source: ` +
+        `${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
 }
 
 export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEventInspection {
@@ -75,7 +93,8 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
       consumeKnownError(error);
       throw migrationImportError("invalid_migration_source", `${sourcePath}: canonical event is not JSON.`);
     }
-    const legacyTask = containsSchema(raw, "task/v1");
+    const legacyTask = containsSchema(raw, "task/v1"),
+      legacyMigrationTaskWithoutProvenance = isLegacyMigrationTaskWithoutProvenance(raw);
     let event: CanonicalEventV1;
     try {
       event = normalizePersistedCanonicalEvent(parseCanonicalEvent(`${stableStringify(raw)}\n`));
@@ -93,7 +112,9 @@ export function inspectMigrationSourceEvents(sourceRoot: string): MigrationEvent
       observations.push({
         code: "legacy_event_normalized",
         sourcePath,
-        detail: `normalized ${event.schema} to the current read contract for oracle replay`,
+        detail: legacyMigrationTaskWithoutProvenance
+          ? "restated legacy migration task entity with provenance=imported_snapshot for oracle replay"
+          : `normalized ${event.schema} to the current read contract for oracle replay`,
         treatment: "mechanically_normalized",
       });
     }
@@ -627,6 +648,19 @@ function containsSchema(value: unknown, schema: string): boolean {
   return isMigrationImportRecord(value)
     ? value.schema === schema || Object.values(value).some((entry) => containsSchema(entry, schema))
     : false;
+}
+
+function isLegacyMigrationTaskWithoutProvenance(value: unknown): boolean {
+  if (!isMigrationImportRecord(value) || value.schema !== "migration-import-event/v1") return false;
+  const payload = isMigrationImportRecord(value.payload) ? value.payload : null,
+    entity = payload !== null && isMigrationImportRecord(payload.entity) ? payload.entity : null;
+  return entity?.kind === "task" && !Object.hasOwn(entity, "provenance");
+}
+
+function migrationErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
 }
 
 function cleanScalar(value: string): string {

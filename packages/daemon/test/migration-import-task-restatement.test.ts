@@ -88,6 +88,33 @@ test("task contract restatement preserves a declared digest and rewrites migrate
   }
 });
 
+test("legacy snapshot contract preserves its nested preset digest without resolving the retired preset", () => {
+  const rootDir = fixtureRoot();
+  try {
+    const digest = `sha256:${"b".repeat(64)}` as const,
+      restated = restateTaskContractBody({
+        sourceRoot: rootDir,
+        sourcePath: "harness/tasks/task-old/task-contract.json",
+        body: JSON.stringify({
+          schema: "task-contract-snapshot/v1",
+          vertical: "software/coding",
+          preset: { id: "retired-local-preset", version: "0.1.0", digest },
+          profile: { id: "baseline" },
+          documents: [],
+        }),
+        targetTaskId: "task-new",
+        targetPackagePath: "tasks/task-new-migrated-task",
+        fallback: { title: "Migrated task", taskClass: "standard" },
+      }),
+      contract = JSON.parse(restated.body) as Record<string, unknown>;
+    assert.equal(restated.source, "contract");
+    assert.equal(restated.presetSnapshotDigest, digest);
+    assert.equal(contract.presetSnapshotDigest, digest);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task contract restatement recomputes a missing digest from contract metadata", () => {
   const rootDir = fixtureRoot();
   try {
