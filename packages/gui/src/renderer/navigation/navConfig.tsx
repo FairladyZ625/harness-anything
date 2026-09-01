@@ -13,6 +13,7 @@ import {
   Clock,
   FileHtml,
   BookOpen,
+  TerminalWindow,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -42,6 +43,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   artifacts: "shell.nav.artifacts",
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
+  terminal: "shell.nav.terminal",
   system: "shell.nav.system",
   daemonObserve: "shell.nav.daemonObserve",
   settings: "shell.nav.settings",
@@ -79,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     labelKey: "shell.nav.runtimeGroup",
     items: [
       { id: "sessions", icon: <Waveform weight="duotone" /> },
+      { id: "terminal", icon: <TerminalWindow weight="duotone" /> },
       { id: "schedules", icon: <Clock weight="duotone" /> },
       { id: "artifacts", icon: <FileHtml weight="duotone" /> },
       { id: "agentSquad", icon: <Users weight="duotone" /> },

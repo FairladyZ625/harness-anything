@@ -293,10 +293,11 @@ describe("runtime entry split (W6 IA)", () => {
     expect(settled).toMatchObject({ outcome: "applied", opId: "entity-op" });
   });
 
-  it("exposes the runtime nav entries with Schedules and no aggregate agents entry", () => {
+  it("exposes the runtime nav entries with the terminal page, Schedules, and no aggregate agents entry", () => {
     const runtime = NAV_GROUPS.find((group) => group.id === "runtime");
     expect(runtime?.items.map((item) => item.id)).toEqual([
       "sessions",
+      "terminal",
       "schedules",
       "artifacts",
       "agentSquad",

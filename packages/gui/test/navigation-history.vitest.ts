@@ -185,6 +185,23 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(viewCanBack(readViewHistory(shim, "proj-stale"))).toBe(false);
   });
 
+  it("persists the terminal first-class view across reload and returns to the previous view on back", () => {
+    const storage = new Map<string, string>();
+    const shim = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+    };
+    // W0:Ctrl+` 压栈进入终端页;离开走 goBack 回上一视图,位置经 sessionStorage 复原。
+    let state = createViewHistory(loc({ view: "overview" }));
+    state = pushLocation(state, loc({ view: "terminal" }));
+    writeViewHistory(shim, "proj-terminal", state);
+    const restored = readViewHistory(shim, "proj-terminal");
+    expect(currentLocation(restored).view).toBe("terminal");
+    expect(viewCanBack(restored)).toBe(true);
+    state = viewGoBack(restored);
+    expect(currentLocation(state).view).toBe("overview");
+  });
+
   it("persists per project and rejects corrupted storage", () => {
     const storage = new Map<string, string>();
     const shim = {

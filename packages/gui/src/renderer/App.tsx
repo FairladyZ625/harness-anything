@@ -49,7 +49,7 @@ import { useDecisionActions } from "./decision-actions.ts";
 import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
-import { TerminalDock, type TerminalDockHandle } from "./components/TerminalDock.tsx";
+import { TerminalView } from "./views/TerminalView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { useLocationRestore } from "./navigation/useLocationRestore.ts";
@@ -137,9 +137,7 @@ function AppShell() {
   useEffect(() => {
     setOverviewDecisionPreviewId(null);
   }, [view, activeRepoId]);
-  const [terminalOpen, setTerminalOpen] = useState(false);
   const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
-  const terminalDock = useRef<TerminalDockHandle>(null);
 
   // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
   // daemon 侧由同一批 active derives 边算出的 moduleKeys/productLines/
@@ -273,7 +271,7 @@ function AppShell() {
 
   const openProject = async (repoId: string) => {
     if (repoId !== activeRepoId) {
-      await terminalDock.current?.detachAll();
+      // 终端页(若挂载)随 goto("overview") 卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
       // 新仓以干净初始栈打开(overview + 默认筛选);仓内 back/forward 仍持久化。
       resetViewHistory(window.sessionStorage, repoId);
@@ -327,7 +325,13 @@ function AppShell() {
 
   useAppShortcuts({
     onTogglePalette: () => setPaletteOpen((open) => !open),
-    onToggleTerminal: () => setTerminalOpen((open) => !open),
+    // Ctrl+` = 终端页进出(PLT-TerminalWorkspace W0):不在终端页→压栈进入;
+    // 在终端页→回上一视图(栈底无上一视图时回总览,保证快捷键总能离开)。
+    onToggleTerminal: () => {
+      if (view !== "terminal") goto("terminal");
+      else if (canBack) back();
+      else goto("overview");
+    },
     onBack: back,
     onForward: forward,
   });
@@ -630,6 +634,12 @@ function AppShell() {
                 focusedEntityRef={focusedEntityRef}
                 onSelectEntity={selectRuntimeEntity}
               />
+            ) : view === "terminal" ? (
+              <TerminalView
+                repoId={projectId}
+                daemonGeneration={activeRepo?.generation ?? null}
+                tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+              />
             ) : view === "system" ? (
               <SystemView
                 activeRepoId={activeRepoId}
@@ -675,14 +685,6 @@ function AppShell() {
         entries={paletteEntries}
         onSelect={navigateToEntity}
         onClose={() => setPaletteOpen(false)}
-      />
-      <TerminalDock
-        ref={terminalDock}
-        repoId={projectId}
-        daemonGeneration={activeRepo?.generation ?? null}
-        tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
-        open={terminalOpen}
-        onToggle={() => setTerminalOpen((open) => !open)}
       />
       {setupGuide ? (
         <FirstRunGuide stage={setupGuide} onNext={() => setSetupGuide("agent")} onFinish={() => setSetupGuide(null)} />
