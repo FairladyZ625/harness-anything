@@ -13,6 +13,13 @@ export type AgentSkillRow = AgentSkillGuiRead["skills"][number];
 export type EntitySaveResult = {
   readonly outcome: "applied" | "pending" | "op_rejected";
   readonly opId?: string;
+  readonly revision?: number;
+  readonly proof?: {
+    readonly durable?: boolean;
+    readonly canonicalVisible?: boolean;
+    readonly worktreeVisible?: boolean | null;
+  };
+  readonly nextAction?: string;
   readonly error?: { readonly code?: string; readonly hint?: string };
 };
 
@@ -85,6 +92,7 @@ function detail(value: unknown, schema: string, field: string): unknown {
 function save(value: unknown): EntitySaveResult {
   const row = entityRecord(value),
     outcome = row.outcome;
+  const proof = entityRecord(row.proof);
   if (containsSecretLikeKey(row)) throw new Error("Agent entity save returned a forbidden credential-shaped key.");
   if (!["applied", "pending", "op_rejected"].includes(String(outcome)))
     throw new Error(hint(row, "Agent entity save returned an invalid receipt."));
@@ -92,6 +100,19 @@ function save(value: unknown): EntitySaveResult {
   return {
     outcome: outcome as EntitySaveResult["outcome"],
     ...(typeof row.opId === "string" ? { opId: row.opId } : {}),
+    ...(typeof row.revision === "number" && Number.isInteger(row.revision) ? { revision: row.revision } : {}),
+    ...(typeof proof.canonicalVisible === "boolean"
+      ? {
+          proof: {
+            ...(typeof proof.durable === "boolean" ? { durable: proof.durable } : {}),
+            canonicalVisible: proof.canonicalVisible,
+            ...(proof.worktreeVisible === null || typeof proof.worktreeVisible === "boolean"
+              ? { worktreeVisible: proof.worktreeVisible }
+              : {}),
+          },
+        }
+      : {}),
+    ...(typeof row.nextAction === "string" ? { nextAction: row.nextAction } : {}),
     ...(Object.keys(error).length
       ? {
           error: {

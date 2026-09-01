@@ -9,7 +9,7 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { agentEntityClient } from "../src/renderer/agent-entity-client.ts";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
-import { waitForEntityCatalogRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { settleEntitySaveReceipt } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
@@ -274,16 +274,23 @@ afterEach(async () => {
 });
 
 describe("runtime entry split (W6 IA)", () => {
-  it("waits for a newly saved entity to become visible in the canonical catalog", async () => {
-    const client = new QueryClient(),
-      reads = [[], [{ id: "new-agent" }]] as const;
-    let readIndex = 0;
-    const read = vi.fn(async () => reads[Math.min(readIndex++, reads.length - 1)]!),
-      rows = await waitForEntityCatalogRow(client, ["agents", "repo-a"], read, "new-agent", async () => undefined);
+  it("settles a pending entity save through its opId receipt", async () => {
+    const showReceipt = vi.fn(async () => ({
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "agent-install",
+      outcome: "applied",
+      opId: "entity-op",
+      proof: { durable: true, canonicalVisible: true, worktreeVisible: true },
+    }));
+    const settled = await settleEntitySaveReceipt(
+      "repo-a",
+      { outcome: "pending", opId: "entity-op", nextAction: "receipt show" },
+      showReceipt,
+    );
 
-    expect(rows).toEqual([{ id: "new-agent" }]);
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(client.getQueryData(["agents", "repo-a"])).toEqual([{ id: "new-agent" }]);
+    expect(showReceipt).toHaveBeenCalledWith({ repoId: "repo-a", opId: "entity-op" });
+    expect(settled).toMatchObject({ outcome: "applied", opId: "entity-op" });
   });
 
   it("exposes the runtime nav entries with Schedules and no aggregate agents entry", () => {

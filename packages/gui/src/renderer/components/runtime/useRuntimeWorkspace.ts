@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
@@ -65,41 +65,27 @@ export function runtimeSelectionFromRef(ref: string | null): RuntimeSelection | 
 // liveness word decides "is this carrier running anything" through a table lookup alone.
 const LIVENESS_LIVE: Record<string, boolean> = { live: true };
 
-const ENTITY_VISIBILITY_ATTEMPTS = 80,
-  ENTITY_VISIBILITY_PAUSE_MS = 250;
-
-/** A write receipt may settle before the read projection exposes its declaration. */
-export async function waitForEntityCatalogRow<T extends { readonly id: string }>(
-  client: QueryClient,
-  queryKey: readonly unknown[],
-  read: () => Promise<readonly T[]>,
-  entityId: string,
-  pause: () => Promise<void> = () =>
-    new Promise<void>((resolve) => window.setTimeout(resolve, ENTITY_VISIBILITY_PAUSE_MS)),
-): Promise<readonly T[] | null> {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < ENTITY_VISIBILITY_ATTEMPTS; attempt += 1) {
-    try {
-      const rows = await read();
-      lastError = null;
-      client.setQueryData(queryKey, rows);
-      if (rows.some((row) => row.id === entityId)) return rows;
-    } catch (error) {
-      consumeKnownError(error);
-      lastError = error;
-    }
-    if (attempt + 1 < ENTITY_VISIBILITY_ATTEMPTS) await pause();
-  }
-  if (lastError !== null) throw lastError;
-  return null;
-}
-
 function saveWasRejected(saved: EntitySaveResult): boolean {
   return saved.outcome === "op_rejected";
 }
 
 function saveFailureHint(saved: EntitySaveResult): string {
   return saved.error?.hint ?? `Entity save returned ${saved.outcome}.`;
+}
+
+type EntityReceipt = EntitySaveResult & {
+  readonly nextAction?: string | null;
+};
+
+/** Settle an entity write by its durable receipt before rereading the projection. */
+export async function settleEntitySaveReceipt(
+  repoId: string,
+  saved: EntitySaveResult,
+  showReceipt: (payload: { readonly repoId: string; readonly opId: string }) => Promise<unknown> = (payload) =>
+    harnessClient.showReceipt(payload),
+): Promise<EntitySaveResult> {
+  if (saved.outcome !== "pending" || !saved.opId) return saved;
+  return (await showReceipt({ repoId, opId: saved.opId })) as EntityReceipt;
 }
 
 // W6 IA 拆分:聚合页撤销后,「运行时」组三个入口各自只读自己的面——每页一个
@@ -369,18 +355,20 @@ export function useAgentSquadWorkspace(
         channel.reportError(saveFailureHint(saved));
         return null;
       }
-      const visible = await waitForEntityCatalogRow(
-        client,
-        ["agents", repoId],
-        () => agentEntityClient.listAgents(repoId),
-        declaration.id,
-      );
-      if (visible === null) {
-        channel.reportError(`Agent ${declaration.id} was saved but is not visible in the Agent catalog yet.`);
+      const settled = await settleEntitySaveReceipt(repoId, saved);
+      if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
+        channel.reportError(
+          settled.nextAction ?? `Agent ${declaration.id} is awaiting canonical projection settlement.`,
+        );
         return null;
       }
+      await client.fetchQuery({
+        queryKey: ["agents", repoId],
+        queryFn: () => agentEntityClient.listAgents(repoId),
+        staleTime: 0,
+      });
       await client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" });
-      return saved;
+      return settled;
     },
     saveSquad: async (declaration: SquadDeclarationV1): Promise<EntitySaveResult | null> => {
       // Keep the first blank Squad create on the same write/read ordering as Agent create.
@@ -398,18 +386,20 @@ export function useAgentSquadWorkspace(
         channel.reportError(saveFailureHint(saved));
         return null;
       }
-      const visible = await waitForEntityCatalogRow(
-        client,
-        ["squads", repoId],
-        () => agentEntityClient.listSquads(repoId),
-        declaration.id,
-      );
-      if (visible === null) {
-        channel.reportError(`Squad ${declaration.id} was saved but is not visible in the Squad catalog yet.`);
+      const settled = await settleEntitySaveReceipt(repoId, saved);
+      if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
+        channel.reportError(
+          settled.nextAction ?? `Squad ${declaration.id} is awaiting canonical projection settlement.`,
+        );
         return null;
       }
+      await client.fetchQuery({
+        queryKey: ["squads", repoId],
+        queryFn: () => agentEntityClient.listSquads(repoId),
+        staleTime: 0,
+      });
       await client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" });
-      return saved;
+      return settled;
     },
     dispatch: async (request: DispatchRequest) => {
       const settled = await channel.spawn(buildDispatchSpawnInput(request, overview.data?.instances ?? []));
