@@ -22,11 +22,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { format } from "prettier";
-import { explainEntityKind, relationTypes } from "../packages/kernel/src/index.ts";
-// Deep import on purpose: the registered kind table is not on the public bucket, and
-// hand-listing the kinds here would reintroduce the very drift this generator removes.
-// This is build-time tooling, not shipped renderer code.
-import { entityKindContracts } from "../packages/kernel/src/domain/entity-kind-registry.ts";
+import { relationTypes } from "../packages/kernel/src/index.ts";
+// Deep import on purpose: the kind registry and its explainer are deliberately kept off the
+// public bucket, and hand-listing the kinds here would reintroduce the very drift this
+// generator removes. Every kernel contract test reaches for them the same way. This is
+// build-time tooling, not shipped renderer code.
+import { entityKindContracts, explainEntityKind } from "../packages/kernel/src/domain/entity-kind-registry.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const catalogTarget = path.join(root, "packages/gui/src/renderer/entity-docs.ts");

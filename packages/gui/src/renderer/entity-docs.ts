@@ -90,7 +90,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "agent-declaration/v1",
     refTemplate: "agent/{id}",
     statuses: [],
-    actions: [],
+    actions: ["install"],
   },
   decision: {
     schemaId: "decision-package",
@@ -192,7 +192,15 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
       },
     ],
-    actions: [],
+    actions: [
+      "runtime_session_started",
+      "runtime_session_provider_bound",
+      "runtime_session_task_bound",
+      "runtime_session_liveness_changed",
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ],
   },
   schedule: {
     schemaId: "Schedule/v1",
@@ -227,7 +235,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "SettingsRepository/v1",
     refTemplate: "settings/{id}",
     statuses: [],
-    actions: [],
+    actions: ["read", "update"],
   },
   squad: {
     schemaId: "squad-declaration/v1",

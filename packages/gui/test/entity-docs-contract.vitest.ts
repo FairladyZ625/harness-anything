@@ -1,13 +1,13 @@
 // harness-test-tier: contract
 import { describe, expect, it } from "vitest";
 import {
-  explainEntityKind,
   isAllowedRelationKindTriple,
   relationStates,
   relationTypes,
   type EntityRefKind,
   type RelationType,
 } from "../../kernel/src/index.ts";
+import { explainEntityKind } from "../../kernel/src/domain/entity-kind-registry.ts";
 import decisionPackageSchema from "../../kernel/schemas/json/decision-package.schema.json";
 import factEventSchema from "../../kernel/schemas/json/fact-event.schema.json";
 import { checkEntityDocContract, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
