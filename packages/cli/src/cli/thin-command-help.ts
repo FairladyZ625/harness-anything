@@ -8,7 +8,20 @@ export type ThinHelpCatalogEntry = {
   readonly errorCode?: string;
 };
 
-const publicCommands = () => thinCliCommands;
+export const clientLocalCommands = [
+  {
+    id: "gui",
+    path: ["gui"],
+    usage: "ha gui [--root <path>]",
+    summary: "Build and launch the attach-only Electron GUI.",
+    help: [
+      "    Uses the canonical CLI installation for GUI code and daemon autostart.",
+      "    --root selects the repository context; it defaults to the current directory.",
+      "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
+    ].join("\n"),
+  },
+] as const;
+const publicCommands = () => [...thinCliCommands, ...clientLocalCommands];
 
 function commandDirectory(
   commands: ReadonlyArray<{ readonly id: string; readonly path: readonly string[] }>,

@@ -53,7 +53,7 @@ export function useDaemonControl(authorityRepoId: string | null) {
   const [receipt, setReceipt] = useState<DaemonControlReceipt | null>(null);
   const [busy, setBusy] = useState(false);
   const request = useCallback(
-    async (kind: "refresh" | "restart") => {
+    async (kind: "refresh") => {
       if (!authorityRepoId || busy) return null;
       setBusy(true);
       try {

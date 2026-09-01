@@ -12,15 +12,13 @@ record, gate the exits, and make a false "done" impossible to sustain. In our
 own self-involving use, every ungated path was bypassed; no gate means 100%
 bypass.
 
-## Install the 0.0.1 release candidate
+## Install the 0.0.1 source candidate
 
-The macOS Local v1 release candidate is `Harness-Anything-0.0.1-arm64.dmg`.
-The unsigned Apple-silicon build is not published yet. Before the `gui-v0.0.1`
-tag exists, use a locally built DMG or the source path below.
-The complete Gatekeeper, Homebrew, CLI, and uninstall steps are in the
-[install guide](start/en/01-install.md).
+The supported GUI path is the source-installed `ha gui` command. The unsigned
+DMG remains a packaging candidate, not a production launch entry. Complete CLI,
+GUI, and uninstall steps are in the [install guide](start/en/01-install.md).
 
-To run the source proof instead:
+To run the source proof:
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -28,6 +26,9 @@ cd harness-anything
 npm ci
 npm run quickstart:demo
 ```
+
+After linking the source CLI as described in the install guide, run `ha gui`
+from any registered repository to launch Electron.
 
 That smoke run builds the CLI, initializes a throwaway git workspace, creates a
 task, records a queryable fact, and renders the relation graph. If a load-bearing

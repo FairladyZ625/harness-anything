@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { detachedProcessOptions } from "../../daemon/src/process-port.ts";
-import { runGuiLaunch, type GuiLaunchDependencies } from "../src/daemon/control.ts";
+import { runGuiLaunch, type GuiLaunchDependencies } from "../src/cli/gui-launch.ts";
 import { emit } from "../src/index.ts";
 
 test("daemon process port hides detached startup windows", () => {
@@ -125,10 +125,10 @@ test("daemon-missing preset run rejects promptly without child or direct fallbac
   }
 });
 
-test("GUI launch reports a missing Electron binary with a next action", () => {
+test("GUI launch reports a missing Electron binary with a next action", async () => {
   const fixture = makeGuiFixture(false);
   try {
-    const output = captureGuiOutput(() =>
+    const output = await captureGuiOutput(() =>
       runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => undefined }, emit),
     );
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
@@ -142,33 +142,82 @@ test("GUI launch reports a missing Electron binary with a next action", () => {
   }
 });
 
-test("GUI launch reports a missing renderer dist with the build command", () => {
-  const fixture = makeGuiFixture(true);
+test("GUI launch reports a renderer build failure before daemon acquisition", async () => {
+  const fixture = makeGuiFixture(false);
   try {
-    const output = captureGuiOutput(() =>
-      runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" }, emit),
-    );
-    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
-    assert.equal(output.status, 1);
-    assert.equal(receipt.ok, false);
-    assert.equal(receipt.code, "gui_dist_missing");
-    assert.equal(receipt.error.code, "gui_dist_missing");
-    assert.match(receipt.error.hint, /npm run build -w @harness-anything\/gui/u);
-  } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
-  }
-});
-
-test("GUI launch refuses a built renderer whose preload bundle is missing", () => {
-  const fixture = makeGuiFixture(true);
-  try {
-    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
-    const output = captureGuiOutput(() =>
+    let daemonAcquisitions = 0;
+    const output = await captureGuiOutput(() =>
       runGuiLaunch(
         ["gui", "--json"],
         {
           workspaceRoot: fixture.root,
           resolveElectronBinary: () => "/electron",
+          prepareBundles: async () => ({ ok: false, hint: "fixture renderer build failed" }),
+          ensureDaemon: async () => {
+            daemonAcquisitions += 1;
+            return { ok: true, hint: "reachable", attempts: 0 };
+          },
+        },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_build_failed");
+    assert.equal(receipt.error.code, "gui_build_failed");
+    assert.match(receipt.error.hint, /fixture renderer build failed/u);
+    assert.equal(daemonAcquisitions, 0, "a broken GUI build must not start the daemon");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("GUI launch rejects unknown modes and a missing root before side effects", async () => {
+  const fixture = makeGuiFixture(false);
+  try {
+    let sideEffects = 0;
+    const dependencies: GuiLaunchDependencies = {
+      workspaceRoot: fixture.root,
+      resolveElectronBinary: () => {
+        sideEffects += 1;
+        return "/electron";
+      },
+      prepareBundles: async () => {
+        sideEffects += 1;
+        return { ok: true };
+      },
+      ensureDaemon: async () => {
+        sideEffects += 1;
+        return { ok: true, hint: "reachable", attempts: 0 };
+      },
+    };
+    for (const argv of [
+      ["gui", "--mode", "dev", "--json"],
+      ["gui", "--root", "--json"],
+    ]) {
+      const output = await captureGuiOutput(() => runGuiLaunch(argv, dependencies, emit)),
+        receipt = JSON.parse(output.stdout) as { code: string };
+      assert.equal(output.status, 2);
+      assert.ok(["unsupported_command", "missing_field"].includes(receipt.code));
+    }
+    assert.equal(sideEffects, 0, "invalid GUI arguments must be rejected before probing Electron, build, or daemon");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("GUI launch refuses prepared output whose preload bundle is missing", async () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json"],
+        {
+          workspaceRoot: fixture.root,
+          resolveElectronBinary: () => "/electron",
+          prepareBundles: async () => ({ ok: true }),
           spawnProcess: () => {
             throw new Error("a GUI without its preload bridge must never be launched");
           },
@@ -179,14 +228,14 @@ test("GUI launch refuses a built renderer whose preload bundle is missing", () =
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
     assert.equal(output.status, 1);
     assert.equal(receipt.ok, false);
-    assert.equal(receipt.code, "gui_preload_missing");
-    assert.match(receipt.error.hint, /npm run build:preload -w @harness-anything\/gui/u);
+    assert.equal(receipt.code, "gui_build_failed");
+    assert.match(receipt.error.hint, /dist-electron\/electron-preload\.cjs/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
-test("GUI launch starts the packaged Electron entry detached and without a dev renderer", () => {
+test("GUI launch acquires the daemon then starts Electron detached without a dev renderer", async () => {
   const fixture = makeGuiFixture(true),
     calls: Array<{ args: string[]; options: Record<string, unknown> }> = [];
   try {
@@ -195,12 +244,17 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
     process.env.ELECTRON_RENDERER_URL = "http://127.0.0.1:5173";
     process.env.ELECTRON_RUN_AS_NODE = "1";
     let unrefs = 0;
-    const output = captureGuiOutput(() =>
+    const output = await captureGuiOutput(() =>
       runGuiLaunch(
         ["gui", "--json"],
         {
           workspaceRoot: fixture.root,
           resolveElectronBinary: () => "/electron",
+          prepareBundles: async () => ({ ok: true }),
+          ensureDaemon: async (invokingRoot) => {
+            assert.equal(invokingRoot, fixture.root, "daemon autostart must be rooted at the GUI installation");
+            return { ok: true, hint: "daemon is reachable", attempts: 0 };
+          },
           spawnProcess: (command, args, options) => {
             void command;
             calls.push({ args, options: options as Record<string, unknown> });
@@ -216,8 +270,17 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
         emit,
       ),
     );
-    const receipt = JSON.parse(output.stdout) as { ok: boolean; pid: number };
+    const receipt = JSON.parse(output.stdout) as {
+      schema: string;
+      command: string;
+      outcome: string;
+      ok: boolean;
+      pid: number;
+    };
     assert.equal(output.status, 0);
+    assert.equal(receipt.schema, "command-receipt/v2");
+    assert.equal(receipt.command, "gui");
+    assert.equal(receipt.outcome, "applied");
     assert.equal(receipt.ok, true);
     assert.equal(receipt.pid, 42);
     assert.deepEqual(calls[0]?.args, [path.join(fixture.root, "packages/gui/src/main/electron-main.ts")]);
@@ -241,19 +304,21 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
   }
 });
 
-test("GUI launch rejects when the spawned Electron never yields a pid", () => {
+test("GUI launch rejects when the spawned Electron never yields a pid", async () => {
   const fixture = makeGuiFixture(true);
   try {
     writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
     writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
     // spawn surfaces a missing or unusable binary asynchronously, so it never throws here; an
     // absent pid is the only synchronous witness, and reporting ok would hand back a dead GUI.
-    const output = captureGuiOutput(() =>
+    const output = await captureGuiOutput(() =>
       runGuiLaunch(
         ["gui", "--json"],
         {
           workspaceRoot: fixture.root,
           resolveElectronBinary: () => "/nonexistent-electron",
+          prepareBundles: async () => ({ ok: true }),
+          ensureDaemon: async () => ({ ok: true, hint: "daemon is reachable", attempts: 0 }),
           spawnProcess: () =>
             ({ pid: undefined, on() {}, unref() {} }) as unknown as ReturnType<
               NonNullable<GuiLaunchDependencies["spawnProcess"]>
@@ -271,19 +336,70 @@ test("GUI launch rejects when the spawned Electron never yields a pid", () => {
   }
 });
 
+test("GUI launch does not spawn Electron when CLI daemon acquisition is refused", async () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
+    let electronSpawns = 0;
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json"],
+        {
+          workspaceRoot: fixture.root,
+          resolveElectronBinary: () => "/electron",
+          prepareBundles: async () => ({ ok: true }),
+          ensureDaemon: async () => ({
+            ok: false,
+            code: "daemon_start_noncanonical_checkout",
+            hint: "fixture canonical-only refusal",
+            attempts: 0,
+          }),
+          spawnProcess: () => {
+            electronSpawns += 1;
+            throw new Error("daemon refusal must prevent Electron launch");
+          },
+        },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { code: string; error: { hint: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.code, "daemon_start_noncanonical_checkout");
+    assert.match(receipt.error.hint, /fixture canonical-only refusal/u);
+    assert.equal(electronSpawns, 0);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("the gui command reaches the launcher through the CLI entry", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gui-route-"));
   try {
     const result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "gui", "--json"], {
       encoding: "utf8",
       cwd: root,
-      env: { ...process.env, HOME: path.join(root, ".home") },
+      env: {
+        ...process.env,
+        HOME: path.join(root, ".home"),
+        HARNESS_ACTOR: "agent:runtime-session:gui-route-test",
+      },
     });
     const receipt = JSON.parse(result.stdout) as { command: string };
     assert.equal(receipt.command, "gui", "argv routing must reach the launcher, not the daemon command parser");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("ha gui --help documents repository context and attach-only daemon ownership", () => {
+  const result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "gui", "--help"], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /ha gui \[--root <path>\]/u);
+  assert.match(result.stdout, /canonical CLI installation/u);
+  assert.match(result.stdout, /never stops the daemon/u);
 });
 
 function makeGuiFixture(withDist: boolean): { root: string } {
@@ -296,7 +412,9 @@ function makeGuiFixture(withDist: boolean): { root: string } {
   return { root };
 }
 
-function captureGuiOutput(run: () => number): { status: number; stdout: string; stderr: string } {
+async function captureGuiOutput(
+  run: () => Promise<number>,
+): Promise<{ status: number; stdout: string; stderr: string }> {
   const stdout: string[] = [],
     stderr: string[] = [],
     log = console.log,
@@ -304,7 +422,7 @@ function captureGuiOutput(run: () => number): { status: number; stdout: string; 
   console.log = (...args: unknown[]) => stdout.push(args.join(" "));
   console.error = (...args: unknown[]) => stderr.push(args.join(" "));
   try {
-    return { status: run(), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
+    return { status: await run(), stdout: stdout.join("\n"), stderr: stderr.join("\n") };
   } finally {
     console.log = log;
     console.error = error;
