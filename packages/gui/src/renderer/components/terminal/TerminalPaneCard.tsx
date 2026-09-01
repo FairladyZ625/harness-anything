@@ -1,5 +1,6 @@
 import type { IDockviewPanelProps } from "dockview-react";
 import { TerminalPane } from "./TerminalPane.tsx";
+import { ErrorBoundary } from "../ErrorBoundary.tsx";
 import { useTerminalPaneActions, type TerminalSplitDirection } from "./terminal-pane-context.ts";
 import type { TerminalTab } from "../../terminal-model.ts";
 import { t } from "../../i18n/index.tsx";
@@ -76,14 +77,18 @@ function LivePane({ tab }: { readonly tab: TerminalTab }) {
         </p>
       )}
       {tab.state === "running" || tab.output ? (
-        <TerminalPane
-          output={tab.output}
-          interactive={interactive}
-          openUrl={actions.openUrl}
-          onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}
-          onInput={(utf8) => actions.onInput(tab.sessionId, utf8)}
-          onFit={(cols, rows) => actions.onFit(tab.sessionId, cols, rows)}
-        />
+        // pane 级错误边界:单个 pane 渲染抛错(如某个 addon/renderer)只在本 pane 兜底,
+        // tab 条、其他 pane 与整窗都不受影响,不再一个 pane 崩溃就拖黑整个终端页。
+        <ErrorBoundary>
+          <TerminalPane
+            output={tab.output}
+            interactive={interactive}
+            openUrl={actions.openUrl}
+            onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}
+            onInput={(utf8) => actions.onInput(tab.sessionId, utf8)}
+            onFit={(cols, rows) => actions.onFit(tab.sessionId, cols, rows)}
+          />
+        </ErrorBoundary>
       ) : (
         <div className="grid flex-1 place-items-center px-4 text-center text-[12px] text-text-faint">
           {tab.notice ?? t("terminal.view.sessionNotInteractive")}

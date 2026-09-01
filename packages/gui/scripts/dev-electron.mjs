@@ -129,11 +129,26 @@ const electron = spawn(electronPath, [path.join(guiRoot, "src/main/electron-main
   stdio: "inherit",
 });
 
+let shuttingDown = false;
 const shutdown = async (code) => {
+  shuttingDown = true;
   await stopVite();
   process.exit(code);
 };
 electron.on("close", (code) => void shutdown(code ?? 0));
+// Lifecycle symmetry: the launcher already stops Vite when Electron closes. The reverse was missing —
+// if the Vite dev server died (crash, or the launcher's own vite child getting killed) while Electron
+// stayed up, Electron kept rendering a dead http://127.0.0.1:5173 as an unrecoverable black window
+// with no error. Tear Electron down loudly instead so the failure is visible and there is no orphan.
+vite.on("close", (code) => {
+  if (shuttingDown) return;
+  console.error(
+    `[dev-electron] renderer dev server exited unexpectedly (code ${code}); ` +
+      "shutting down Electron to avoid an orphaned black window. Re-run 'npm run dev:electron'.",
+  );
+  electron.kill("SIGTERM");
+  process.exit(code ?? 1);
+});
 process.on("SIGINT", () => {
   electron.kill("SIGTERM");
 });
