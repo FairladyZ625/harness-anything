@@ -40,5 +40,8 @@
   "terminal.view.closePane": "关闭 pane",
   "terminal.view.closePaneAria": "关闭 pane {name}",
   "terminal.view.paneSessionGone": "这个 pane 的会话已不在 daemon 侧;布局已恢复，关闭它即可。",
-  "terminal.view.groupPaneCount": "{count} pane"
+  "terminal.view.groupPaneCount": "{count} pane",
+  "terminal.view.findInTerminal": "在终端中查找",
+  "terminal.view.noSearchMatch": "没有匹配项",
+  "terminal.view.closeSearch": "关闭终端查找"
 }

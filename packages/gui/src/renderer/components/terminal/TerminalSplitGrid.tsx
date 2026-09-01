@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DockviewReact,
   themeAbyss,
+  themeLight,
   type DockviewApi,
   type DockviewReadyEvent,
   type SerializedDockview,
@@ -39,6 +40,7 @@ export function TerminalSplitGrid({
   readonly onLayoutChange: (grid: TerminalGridSnapshot) => void;
   readonly onActivePaneChange: (panelId: string | null) => void;
 }) {
+  const [isLight, setIsLight] = useState(() => document.documentElement.dataset.theme === "light");
   const seedsRef = useRef(seeds),
     gridRef = useRef(grid),
     onApiReadyRef = useRef(onApiReady),
@@ -48,6 +50,12 @@ export function TerminalSplitGrid({
   onApiReadyRef.current = onApiReady;
   onLayoutChangeRef.current = onLayoutChange;
   onActivePaneChangeRef.current = onActivePaneChange;
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => setIsLight(document.documentElement.dataset.theme === "light"));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
 
   const ready = useCallback((event: DockviewReadyEvent) => {
     const api = event.api;
@@ -79,7 +87,7 @@ export function TerminalSplitGrid({
     <DockviewReact
       components={components}
       onReady={ready}
-      theme={themeAbyss}
+      theme={isLight ? themeLight : themeAbyss}
       className="min-h-0 flex-1"
       disableDnd
       disableFloatingGroups

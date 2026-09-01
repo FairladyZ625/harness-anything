@@ -22,6 +22,7 @@ export const guiVitestManifest = [
   "packages/gui/test/task-pin-actions.vitest.ts",
   "packages/gui/test/triadic-read-scoping.vitest.ts",
   "packages/gui/test/terminal-renderer.vitest.ts",
+  "packages/gui/test/terminal-pane.vitest.ts",
   "packages/gui/test/terminal-page.vitest.ts",
   "packages/gui/test/terminal-split-layout.vitest.ts",
   "packages/gui/test/terminal-split-grid.vitest.ts",
