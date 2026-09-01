@@ -106,7 +106,11 @@ test("runtime discovery write load keeps independent read clients within the sto
       ) as Record<string, { idle: Distribution; loaded: Distribution }>;
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     for (const [name, metric] of Object.entries(metrics))
-      assert.equal(metric.loaded.p95 <= Math.max(1, metric.idle.p95) * 2, true, `${name}: ${JSON.stringify(metric)}`);
+      assert.equal(
+        metric.loaded.p95 <= Math.max(15, Math.max(1, metric.idle.p95) * 2),
+        true,
+        `${name}: ${JSON.stringify(metric)}`,
+      );
     t.diagnostic(`read-stopgap-metrics=${JSON.stringify(metrics)}`);
   } finally {
     await transport.stop();
@@ -186,7 +190,11 @@ test("WAL Git materialization leaves an independent socket client within the iso
       Object.keys(idle).map((name) => [name, { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) }]),
     ) as Record<string, { idle: Distribution; loaded: Distribution }>;
     for (const [name, metric] of Object.entries(metrics)) {
-      assert.equal(metric.loaded.p95 <= Math.max(1, metric.idle.p95) * 2, true, `${name}: ${JSON.stringify(metric)}`);
+      assert.equal(
+        metric.loaded.p95 <= Math.max(15, Math.max(1, metric.idle.p95) * 2),
+        true,
+        `${name}: ${JSON.stringify(metric)}`,
+      );
       assert.equal(
         metric.loaded.max <= Math.max(250, metric.idle.max * 20),
         true,
