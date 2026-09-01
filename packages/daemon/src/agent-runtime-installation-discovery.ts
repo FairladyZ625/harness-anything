@@ -37,7 +37,8 @@ export async function discoverRuntimeInstallations(
           accessSync(executableEntryPath, constants.X_OK);
           if (seen.has(key)) continue;
           seen.add(key);
-          candidates.push({ kindId, executableEntryPath, executablePath: realpathSync.native(executableEntryPath), key });
+          const executablePath = realpathSync.native(executableEntryPath);
+          candidates.push({ kindId, executableEntryPath, executablePath, key });
         } catch (error) {
           consumeKnownError(error);
         }
@@ -68,9 +69,7 @@ export async function discoverRuntimeInstallations(
         }
       }),
     ),
-    result = discovered.filter(
-      (entry): entry is Exclude<(typeof discovered)[number], null> => entry !== null,
-    );
+    result = discovered.filter((entry): entry is Exclude<(typeof discovered)[number], null> => entry !== null);
   return result.sort((a, b) => a.installationId.localeCompare(b.installationId));
 }
 
@@ -109,9 +108,7 @@ export function discoverRuntimeModelCatalog(input: {
           }[];
         };
         models = (decoded.models ?? [])
-          .map((model) =>
-            typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : "",
-          )
+          .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
           .filter(Boolean);
       } else if (input.kindId === "agy")
         models = output
