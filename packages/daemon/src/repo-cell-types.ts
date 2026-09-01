@@ -24,6 +24,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
+import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
@@ -42,6 +43,7 @@ export interface RepoCellBinding {
   readonly writerEpoch?: number;
   readonly assertWriterEpoch?: () => void;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;
+  readonly writerEpochFence?: WriterEpochFenceDescriptor;
 }
 
 export type RuntimeIngressAction =

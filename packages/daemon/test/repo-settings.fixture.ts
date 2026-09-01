@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
-  makeTaskEventStore,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore as makeGitEventStore } from "../../kernel/src/store/task-event-store.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 
@@ -22,7 +23,20 @@ export function seedSettingsEvent(input: {
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
   if (seededSettings.has(fixtureKey)) return;
-  const store = makeTaskEventStore({
+  const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
+    defaultDocumentBody = "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n";
+  if (!existsSync(settingsPath)) {
+    mkdirSync(path.dirname(settingsPath), { recursive: true });
+    writeFileSync(settingsPath, defaultDocumentBody, "utf8");
+  }
+  const settingsTarget = path.relative(rootDir, settingsPath);
+  try {
+    execFileSync("git", ["-C", rootDir, "cat-file", "-e", `HEAD:${settingsTarget}`], { stdio: "ignore" });
+  } catch {
+    execFileSync("git", ["-C", rootDir, "add", "--", settingsTarget]);
+    execFileSync("git", ["-C", rootDir, "commit", "-qm", "settings fixture baseline", "--", settingsTarget]);
+  }
+  const store = makeGitEventStore({
       repoId,
       rootDir,
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
@@ -32,10 +46,7 @@ export function seedSettingsEvent(input: {
     seededSettings.add(fixtureKey);
     return;
   }
-  const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
-    documentBody = existsSync(settingsPath)
-      ? readFileSync(settingsPath, "utf8")
-      : "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  const documentBody = readFileSync(settingsPath, "utf8"),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
   store.append(
     compileSettingsChangedEvent({
@@ -50,7 +61,6 @@ export function seedSettingsEvent(input: {
       occurredAt: "2026-08-27T00:00:00.000Z",
     }),
   );
-  void store.drain();
   seededSettings.add(fixtureKey);
 }
 

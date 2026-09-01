@@ -93,6 +93,7 @@ export interface RepoCellApiContext {
   readonly writerToken: Parameters<typeof assertCurrentWriter>[1];
   activeWriterEpochGuard: (() => void) | null;
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
+  activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
   readonly withLayoutAdvisory: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   lastError: string | null;
@@ -254,6 +255,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
+        context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
         try {
           const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
@@ -281,6 +283,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         } finally {
           context.activeWriterEpochGuard = null;
           context.activeWriterEpochFence = null;
+          context.activeWriterEpochFenceDescriptor = null;
         }
       });
       context.tail = pending.then(
@@ -736,12 +739,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         });
       context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
       context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
+      context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
       try {
         const result = await execute({ ...binding, authorizationDecision }, revision);
         return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
       } finally {
         context.activeWriterEpochGuard = null;
         context.activeWriterEpochFence = null;
+        context.activeWriterEpochFenceDescriptor = null;
       }
     });
     context.tail = pending.then(

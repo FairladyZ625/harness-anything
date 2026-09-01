@@ -99,6 +99,7 @@ export async function binding(
         ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
         ...(auth.assertWriterEpoch ? { assertWriterEpoch: auth.assertWriterEpoch } : {}),
         ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
+        ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
       },
       auth,
     );

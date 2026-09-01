@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
+import type { WalMaterializationFenceV1 } from "../../kernel/src/store/wal-materialization-protocol.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 export interface WriterEpochLease {
@@ -20,6 +21,7 @@ export interface WriterEpochLease {
   readonly version: number;
   readonly issuedAt: string;
 }
+export type WriterEpochFenceDescriptor = WalMaterializationFenceV1;
 export interface PersistentWriterEpoch {
   readonly acquire: (repoId: string) => WriterEpochLease;
   readonly current: (repoId: string) => WriterEpochLease | null;
@@ -100,6 +102,24 @@ export function openPersistentWriterEpoch(options: {
       closed = true;
     },
   };
+}
+
+export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+  if (
+    descriptor.schema !== "harness-writer-epoch-fence/v1" ||
+    !descriptor.stateRoot ||
+    !descriptor.repoId ||
+    !descriptor.holderId ||
+    !Number.isSafeInteger(descriptor.epoch) ||
+    descriptor.epoch < 1
+  )
+    throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
+  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
+  try {
+    return authority.withAppendFence(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
+  } finally {
+    authority.close();
+  }
 }
 
 function readState(file: string): EpochState {

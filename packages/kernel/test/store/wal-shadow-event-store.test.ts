@@ -14,7 +14,7 @@ import { resolveLedgerGitLayout } from "../../src/store/ledger-git-layout.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
-import { openWalEventLog } from "../../src/store/wal-event-log.ts";
+import { captureWalDurableCut, openWalDurablePrefix, openWalEventLog } from "../../src/store/wal-event-log.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("ledger Git layout resolution reuses one normalized-root identity", async () => {
@@ -282,7 +282,6 @@ test("an authoritative WAL fsync failure rejects the write without changing Git 
 test("materialization failures warn, retry with a bound, and do not revoke the write receipt", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    let failures = 0;
     const warnings: string[] = [];
     const originalWarn = console.warn;
     console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
@@ -293,9 +292,7 @@ test("materialization failures warn, retry with a bound, and do not revoke the w
       walFlushMs: 60_000,
       walRetryLimit: 4,
       walRetryBaseMs: 1,
-      killpoint: (point) => {
-        if (point === "after_git_commit" && failures++ < 2) throw new Error("transient materializer failure");
-      },
+      walMaterializationTestFault: { point: "after_git_commit", failures: 2 },
     });
     try {
       const receipt = store.append(taskBundle(1, "retry remains visible\n"));
@@ -329,7 +326,8 @@ test("a master branch forked from canonical stops the materializer once until re
     try {
       console.error = (...args: unknown[]) => errors.push(args.join(" "));
       store.append(taskBundle(1, "diverged cut\n"));
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      for (let attempt = 0; attempt < 200 && errors.length === 0; attempt += 1)
+        await new Promise((resolve) => setTimeout(resolve, 10));
       const processesAfterDivergence = localGitObjectRefStore.processCount();
       store.append(taskBundle(2, "still queued\n"));
       await new Promise((resolve) => setTimeout(resolve, 25));
@@ -363,9 +361,7 @@ test("restart recovery settles and checkpoints a WAL cut whose Git refs already 
       walFlushMs: 60_000,
       walRetryLimit: 1,
       walRetryBaseMs: 1,
-      killpoint: (point) => {
-        if (point === "after_git_ref_update") throw new Error("simulated process death after ref update");
-      },
+      walMaterializationTestFault: { point: "after_git_ref_update", failures: 1 },
     });
     const receipt = first.append(taskBundle(1, "recover me\n"));
     assert.equal(receipt.commitSha, null);
@@ -375,10 +371,10 @@ test("restart recovery settles and checkpoints a WAL cut whose Git refs already 
     assert.equal(openWalEventLog(rootDir).records().length, 1);
     const recovered = makeWalShadowEventStore({ repoId: "wal-recovery", rootDir, walFlushMs: 60_000 });
     recovered.recover();
+    await recovered.drain();
     assert.equal(readFileSync(documentPath, "utf8"), "recover me\n");
     assert.deepEqual(openWalEventLog(rootDir).records(), []);
     assert.equal(recovered.read().revision, 1);
-    await recovered.drain();
   });
 });
 
@@ -400,6 +396,91 @@ test("a concurrent append burst remains contiguous and materializes as one cut",
     assert.equal(store.read().events, store.read().events, "repeated stream reads reuse the merged event array");
     await store.drain();
     assert.equal(git(rootDir, "log", "-1", "--format=%s"), "harness WAL flush 1-24");
+  });
+});
+
+test("the worker retries fail closed without running Git materialization on the caller thread", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeWalShadowEventStore({
+      repoId: "wal-worker-exit",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+      walRetryLimit: 2,
+      walRetryBaseMs: 1,
+      walMaterializationTestFault: { point: "worker_exit", failures: 1 },
+    });
+    store.append(taskBundle(1, "worker restart\n"));
+    const callerGitProcesses = localGitObjectRefStore.processCount();
+    await store.drain();
+    assert.equal(
+      localGitObjectRefStore.processCount(),
+      callerGitProcesses,
+      "worker failure must not activate a caller-thread Git fallback",
+    );
+    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.equal(makeGitEventStore({ repoId: "wal-worker-exit", rootDir }).read().revision, 1);
+  });
+});
+
+test("one in-flight worker coalesces a newer durable suffix and reports checkpoint spans separately", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const spans: { readonly name: string; readonly durationMs: number; readonly throughRevision: number }[] = [],
+      store = makeWalShadowEventStore({
+        repoId: "wal-worker-coalesce",
+        rootDir,
+        walFlushEvents: 1,
+        walFlushMs: 60_000,
+        walMaterializationSpan: (span) => spans.push(span),
+      });
+    store.append(taskBundle(1));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    store.append(taskBundle(2));
+    store.append(taskBundle(3));
+    let heartbeats = 0;
+    const heartbeat = setInterval(() => {
+      heartbeats += 1;
+    }, 5);
+    try {
+      await store.drain();
+    } finally {
+      clearInterval(heartbeat);
+    }
+    const checkpoints = spans.filter((span) => span.name === "checkpoint");
+    assert.deepEqual(
+      checkpoints.map((span) => span.throughRevision),
+      [1, 3],
+    );
+    assert.equal(
+      checkpoints.every((span) => span.durationMs >= 0),
+      true,
+    );
+    assert.ok(heartbeats >= 10, `materialization worker should leave the caller event loop schedulable: ${heartbeats}`);
+  });
+});
+
+test("durable prefix validation rejects a wrong digest and checkpoints only the verified prefix", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const wal = openWalEventLog(rootDir);
+    wal.append({ event: taskCreated(1), blobs: [] });
+    const cut = captureWalDurableCut(wal)!;
+    wal.append({ event: taskCreated(2), blobs: [] });
+    assert.throws(
+      () =>
+        openWalDurablePrefix(rootDir, {
+          ...cut,
+          headDigest: `sha256:${"0".repeat(64)}`,
+        }),
+      /does not end at revision 1 and digest/u,
+    );
+    wal.checkpointCut(cut);
+    assert.deepEqual(
+      wal.records().map((record) => record.revision),
+      [2],
+    );
   });
 });
 

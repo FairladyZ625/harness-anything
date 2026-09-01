@@ -151,4 +151,6 @@ export interface CanonicalEventStore {
     readonly milliseconds: number;
   }) => void;
   readonly drain: () => Promise<void>;
+  /** Joins only materialization scheduled by crash recovery; normal acknowledged WAL remains asynchronous. */
+  readonly settleRecoveryMaterialization?: () => Promise<void>;
 }

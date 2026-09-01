@@ -207,7 +207,10 @@ async function openLockedRepoCell(
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   let activeWriterEpochGuard: (() => void) | null = null,
-    activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null;
+    activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
+    activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
+    queueDepth = 0,
+    tail = Promise.resolve();
   const initialize = () =>
     initializeRepoCell({
       input,
@@ -219,9 +222,21 @@ async function openLockedRepoCell(
       get activeWriterEpochFence() {
         return activeWriterEpochFence;
       },
+      get activeWriterEpochFenceDescriptor() {
+        return activeWriterEpochFenceDescriptor;
+      },
       mode,
       now,
       runtimeStream,
+      enqueueAfterFlush: (work) => {
+        queueDepth += 1;
+        const pending = chainRepoCellWrite(tail, async () => {
+          queueDepth -= 1;
+          await work();
+        });
+        tail = pending.catch(() => undefined);
+        return pending;
+      },
     });
   let core: ReturnType<typeof initialize>;
   try {
@@ -244,8 +259,6 @@ async function openLockedRepoCell(
     state === "attached"
       ? null
       : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
-  let queueDepth = 0,
-    tail = Promise.resolve();
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
   const latched = (): string =>
     causeClass === "infrastructure"
@@ -791,6 +804,12 @@ async function openLockedRepoCell(
     },
     set activeWriterEpochFence(value) {
       activeWriterEpochFence = value;
+    },
+    get activeWriterEpochFenceDescriptor() {
+      return activeWriterEpochFenceDescriptor;
+    },
+    set activeWriterEpochFenceDescriptor(value) {
+      activeWriterEpochFenceDescriptor = value;
     },
     withLayoutAdvisory: extracted.withLayoutAdvisory,
     withHumanSummary: extracted.withHumanSummary,

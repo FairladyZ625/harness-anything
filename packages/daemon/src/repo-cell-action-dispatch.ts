@@ -139,7 +139,10 @@ export async function executeAction(
           ].join(""),
         } as WriteReceipt);
   }
-  if (action.kind === "receipt-show") return cell.receiptForOperation(String(action.opId ?? ""), binding);
+  if (action.kind === "receipt-show") {
+    await cell.store.settleRecoveryMaterialization?.();
+    return cell.receiptForOperation(String(action.opId ?? ""), binding);
+  }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);

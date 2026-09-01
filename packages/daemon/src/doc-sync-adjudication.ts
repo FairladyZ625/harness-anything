@@ -205,6 +205,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
     ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
+    ...(input.authoredCandidateInventory ? { inventory: input.authoredCandidateInventory } : {}),
   });
   if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;

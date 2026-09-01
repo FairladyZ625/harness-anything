@@ -35,6 +35,18 @@ export interface WalHead {
   readonly headDigest: `sha256:${string}` | null;
 }
 
+export interface WalDurableCutDescriptor {
+  readonly schema: "harness-wal-durable-cut/v1";
+  readonly throughRevision: number;
+  readonly lastOffset: number;
+  readonly headDigest: `sha256:${string}`;
+}
+
+export interface WalMaterializationSource {
+  readonly records: () => readonly WalEventRecord[];
+  readonly readContentBlob: (sha256: string) => Uint8Array | null;
+}
+
 export interface WalAppendInput {
   readonly event: CanonicalEventV1;
   readonly blobs: readonly {
@@ -53,6 +65,7 @@ export interface WalEventLog {
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly checkpoint: (throughRevision: number) => void;
+  readonly checkpointCut: (cut: WalDurableCutDescriptor) => void;
   readonly reseed: (events: readonly CanonicalEventV1[]) => void;
   readonly audit: (gitEvents: readonly CanonicalEventV1[], gitRevision: number) => WalAuditReceipt;
 }
@@ -209,6 +222,13 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       for (const name of fileSystem.readNames(objectsRoot))
         if (!referenced.has(name)) fileSystem.remove(path.join(objectsRoot, name));
   };
+  const checkpointCut = (cut: WalDurableCutDescriptor): void => {
+    assertDurablePrefix(segmentPath, cut);
+    const record = readRecords().find((candidate) => candidate.revision === cut.throughRevision);
+    if (record?.eventDigest !== cut.headDigest)
+      throw new Error(`WAL checkpoint cut ${cut.throughRevision} does not match durable head ${cut.headDigest}`);
+    checkpoint(cut.throughRevision);
+  };
   const reseed = (events: readonly CanonicalEventV1[]): void => {
     ensureRoot();
     const records: WalEventRecord[] = [];
@@ -263,9 +283,69 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       return null;
     },
     checkpoint,
+    checkpointCut,
     reseed,
     audit: (gitEvents, gitRevision) => auditRecords(readRecords(), gitEvents, gitRevision),
   };
+}
+
+export function captureWalDurableCut(wal: WalEventLog): WalDurableCutDescriptor | null {
+  const head = wal.head();
+  return head.revision === 0 || head.lastOffset === 0 || head.headDigest === null
+    ? null
+    : {
+        schema: "harness-wal-durable-cut/v1",
+        throughRevision: head.revision,
+        lastOffset: head.lastOffset,
+        headDigest: head.headDigest,
+      };
+}
+
+export function openWalDurablePrefix(rootDir: string, cut: WalDurableCutDescriptor): WalMaterializationSource {
+  const walRoot = path.join(path.resolve(rootDir), ".harness", "wal"),
+    segmentPath = path.join(walRoot, WAL_SEGMENT),
+    objectsRoot = path.join(walRoot, "objects"),
+    records = assertDurablePrefix(segmentPath, cut);
+  return {
+    records: () => records,
+    readContentBlob: (sha256) => {
+      const target = path.join(objectsRoot, sha256);
+      return fileSystem.exists(target) ? Buffer.from(fileSystem.readText(target)) : null;
+    },
+  };
+}
+
+function assertDurablePrefix(segmentPath: string, cut: WalDurableCutDescriptor): readonly WalEventRecord[] {
+  if (
+    cut.schema !== "harness-wal-durable-cut/v1" ||
+    !Number.isSafeInteger(cut.throughRevision) ||
+    cut.throughRevision < 1 ||
+    !Number.isSafeInteger(cut.lastOffset) ||
+    cut.lastOffset < 1 ||
+    !/^sha256:[0-9a-f]{64}$/u.test(cut.headDigest)
+  )
+    throw new Error("WAL durable cut descriptor is invalid");
+  if (!fileSystem.exists(segmentPath)) throw new Error("WAL durable prefix segment is missing");
+  const bytes = Buffer.from(fileSystem.readText(segmentPath));
+  if (bytes.byteLength < cut.lastOffset)
+    throw new Error(`WAL durable prefix is truncated before byte ${cut.lastOffset}`);
+  const prefix = bytes.subarray(0, cut.lastOffset).toString("utf8");
+  if (!prefix.endsWith("\n") || Buffer.byteLength(prefix) !== cut.lastOffset)
+    throw new Error(`WAL durable prefix byte ${cut.lastOffset} is not a record boundary`);
+  const records = prefix
+    .split("\n")
+    .filter(Boolean)
+    .map((line, index) => parseRecord(line, index));
+  for (let index = 1; index < records.length; index += 1) {
+    const previous = records[index - 1]!,
+      current = records[index]!;
+    if (current.revision !== previous.revision + 1 || current.previousDigest !== previous.eventDigest)
+      throw new Error(`WAL revision or digest chain is not contiguous at revision ${current.revision}`);
+  }
+  const last = records.at(-1);
+  if (last?.revision !== cut.throughRevision || last.eventDigest !== cut.headDigest)
+    throw new Error(`WAL durable prefix does not end at revision ${cut.throughRevision} and digest ${cut.headDigest}`);
+  return records;
 }
 
 function parseRecord(line: string, index: number): WalEventRecord {
