@@ -34,13 +34,11 @@ import {
   serializePersistedCanonicalEvent,
   sha256Text,
   stableStringify,
-  validateFactEvent,
   type CanonicalEventV1,
   type CanonicalEventStore,
   type DecisionDocumentState,
   type DecisionEventV1,
   type DocEventV1,
-  type FactEventV1,
   type MigrationImportEventV1,
   type FactMemoryTag,
   type PersistedCanonicalEventV1,
@@ -57,6 +55,8 @@ import {
   type EmbeddedRelationRestatementDifference,
 } from "./embedded-relation-restatement.ts";
 import { factRekeyEvidence, factRekeyIdMapBody } from "./fact-rekey-evidence.ts";
+import { type MigrationTaskProvenanceRestatement } from "./migration-task-provenance-restatement.ts";
+import { readFactRekeyEvents } from "./fact-rekey-event-read.ts";
 import { isJsonObject, type JsonValue } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -90,7 +90,6 @@ interface RewrittenEntityBlob {
   readonly sha256: string;
   readonly body: string;
 }
-
 interface FactRekeyPlan {
   readonly facts: readonly LegacyFact[];
   readonly map: ReadonlyMap<string, string>;
@@ -112,6 +111,7 @@ interface FactRekeyPlan {
   readonly rewrittenAgentEvents: number;
   readonly rewrittenSettingsEvents: number;
   readonly embeddedRelationRestatements: readonly EmbeddedRelationRestatementDifference[];
+  readonly migrationTaskProvenanceRestatements: readonly MigrationTaskProvenanceRestatement[];
   readonly docsOnly: readonly MappedLegacyFact[];
 }
 
@@ -127,7 +127,7 @@ export function runFactRekey(input: {
   const mapBody = factRekeyIdMapBody(plan);
   const digest = sha256Text(mapBody);
   const markerOpId = `op_${sha256Text(`fact-rekey\0${digest}`)}`;
-  const existingMarker = migrationEvents(input.rootDir, input.store).find(
+  const existingMarker = readFactRekeyEvents(input.rootDir, input.store).events.find(
     (event: PersistedCanonicalEventV1) =>
       isMigrationImportEvent(event) &&
       event.payload.entity.kind === "id-map" &&
@@ -268,7 +268,8 @@ export function runFactRekey(input: {
 }
 
 function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
-  const events = migrationEvents(rootDir, store),
+  const eventRead = readFactRekeyEvents(rootDir, store),
+    events = eventRead.events,
     cold = readLegacyMigrationSource(rootDir),
     legacyEventRevisions = new Map<string, number>(),
     rows = new Map(cold.facts.map((row) => [`fact/${row.taskId}/${row.factId}`, row]));
@@ -351,6 +352,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     decisionRelations = new Map<string, DecisionDocumentState["relations"]>(),
     identityRefsChanged = map.size > 0 || [...relationMap].some(([from, to]) => from !== to),
     rewriteCounts = { agent: 0, settings: 0 },
+    forcedEventRewrites = new Set(eventRead.migrationTaskProvenanceRestatements.map(({ opId }) => opId)),
     legacyEvents = new Set(
       events
         .filter(
@@ -462,7 +464,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     }
     if (identityRefsChanged && next.schema === "task-event/v1" && next.type === "review_consent_recorded")
       next = rekeyReviewConsentProof(next);
-    if (stableStringify(next) !== stableStringify(event))
+    if (forcedEventRewrites.has(next.opId) || stableStringify(next) !== stableStringify(event))
       eventRewrites.push({ event: next, body: serializePersistedCanonicalEvent(next) });
   }
   const docsOnly: readonly MappedLegacyFact[] = facts
@@ -533,6 +535,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
     rewrittenAgentEvents: rewriteCounts.agent,
     rewrittenSettingsEvents: rewriteCounts.settings,
     embeddedRelationRestatements: embeddedRelationPlan.differences,
+    migrationTaskProvenanceRestatements: eventRead.migrationTaskProvenanceRestatements,
     docsOnly,
   };
 }
@@ -635,79 +638,6 @@ function mergeDecisionRelations(
 
 function legacyFactsDocumentName(): string {
   return ["facts", "md"].join(".");
-}
-
-function migrationEvents(rootDir: string, store: CanonicalEventStore): PersistedCanonicalEventV1[] {
-  const ledger = resolveLedgerGitLayout(rootDir),
-    commit = store.currentCommit().sha,
-    prefix = ledgerGitPath(ledger, "events/");
-  const entries = localGitObjectRefStore
-    .listTree(ledger.rootDir, commit, ledger.authoredPrefix || undefined)
-    .filter(({ target }) => target.startsWith(prefix) && !target.endsWith("/head.json") && target.endsWith(".json"));
-  if (entries.length === 0) return [];
-  const output = localGitObjectRefStore.batch(ledger.rootDir, `${entries.map(({ oid }) => oid).join("\n")}\n`);
-  const events: PersistedCanonicalEventV1[] = [];
-  let cursor = 0;
-  for (const _entry of entries) {
-    const headerEnd = output.indexOf(10, cursor);
-    if (headerEnd < 0) break;
-    const size = Number(output.subarray(cursor, headerEnd).toString("utf8").split(" ").at(-1)),
-      start = headerEnd + 1,
-      body = output.subarray(start, start + size).toString("utf8");
-    cursor = start + size + 1;
-    try {
-      const value: unknown = JSON.parse(body);
-      events.push(normalizeLegacyFactEvent(value) ?? parseCanonicalEvent(body));
-    } catch (error) {
-      consumeKnownError(error);
-      continue;
-    }
-  }
-  return events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
-}
-
-function normalizeLegacyFactEvent(value: unknown): FactEventV1 | null {
-  if (!isJsonObject(value) || value.schema !== "fact-event/v1" || !isJsonObject(value.payload)) return null;
-  const payload = value.payload;
-  if (!Array.isArray(payload.provenance) || !isJsonObject(payload.factsDocumentClaim)) return null;
-  const provenance = payload.provenance.map((entry) => {
-    if (
-      !isJsonObject(entry) ||
-      typeof entry.runtime !== "string" ||
-      (typeof entry.sessionId !== "string" && entry.sessionId !== null) ||
-      typeof entry.boundAt !== "string"
-    )
-      return null;
-    return {
-      ...entry,
-      runtime: entry.runtime,
-      sessionId: entry.sessionId,
-      boundAt: entry.boundAt,
-      transcriptReachability:
-        entry.transcriptReachability === "dispatch_stream_only" || entry.transcriptReachability === "unavailable"
-          ? entry.transcriptReachability
-          : ("by_session_id" as const),
-    };
-  });
-  if (provenance.some((entry) => entry === null) || typeof value.factId !== "string") return null;
-  const normalized = { ...value, schema: "fact-event/v1" as const, payload: { ...payload, provenance } };
-  const legacySupersedes = isJsonObject(payload.supersedes) ? payload.supersedes : null,
-    legacySupersededFactId =
-      typeof legacySupersedes?.factRef === "string"
-        ? /^fact\/[^/]+\/(F-[0-9A-HJKMNP-TV-Z]{8})$/u.exec(legacySupersedes.factRef)?.[1]
-        : undefined;
-  const validationCandidate = {
-    ...normalized,
-    payload: {
-      ...normalized.payload,
-      factsDocumentClaim: { ...payload.factsDocumentClaim, path: `facts/${value.factId}.md` },
-      ...(legacySupersededFactId && legacySupersedes
-        ? { supersedes: { ...legacySupersedes, factRef: `fact/${legacySupersededFactId}` } }
-        : {}),
-    },
-  };
-  if (validateFactEvent(validationCandidate).length > 0 || !isFactEvent(normalized)) return null;
-  return normalized;
 }
 
 function buildAuthoredRekeyEvents(

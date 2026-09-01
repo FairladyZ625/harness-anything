@@ -13,6 +13,10 @@ export interface FactRekeyEvidencePlan {
   readonly eventRewrites: readonly { readonly event: PersistedCanonicalEventV1 }[];
   readonly docsOnly: readonly unknown[];
   readonly embeddedRelationRestatements: readonly EmbeddedRelationRestatementDifference[];
+  readonly migrationTaskProvenanceRestatements: readonly {
+    readonly opId: string;
+    readonly sourcePath: string;
+  }[];
   readonly rewrittenAgentEvents: number;
   readonly rewrittenSettingsEvents: number;
 }
@@ -30,6 +34,7 @@ export function factRekeyEvidence(plan: FactRekeyEvidencePlan) {
     },
     counts: factRekeyCounts(plan),
     embeddedRelationRestatements: plan.embeddedRelationRestatements,
+    migrationTaskProvenanceRestatements: plan.migrationTaskProvenanceRestatements,
   };
 }
 
@@ -43,6 +48,7 @@ function factRekeyCounts(plan: FactRekeyEvidencePlan): Record<string, number> {
       ({ event }) => isMigrationImportEvent(event) && event.payload.entity.kind === "relation",
     ).length,
     rewrittenEmbeddedRelationEvents: plan.embeddedRelationRestatements.length,
+    rewrittenMigrationTaskEvents: plan.migrationTaskProvenanceRestatements.length,
     rewrittenDecisionEvents: plan.eventRewrites.filter(({ event }) => event.schema === "decision-event/v1").length,
     rewrittenTaskEvents: plan.eventRewrites.filter(({ event }) => event.schema === "task-event/v1").length,
     rewrittenAgentEvents: plan.rewrittenAgentEvents,
