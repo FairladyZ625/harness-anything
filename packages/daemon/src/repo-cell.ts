@@ -50,6 +50,7 @@ export interface RepoCellCoreInput {
     readonly repoId: string;
     readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
   };
   readonly rootDir: string;
   readonly authoredBranch?: string;
@@ -136,6 +137,7 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     rejectPreparedRecovery: context.mode === "remote-center",
     walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
   });
+  context.input.onStoreOpened?.(store);
   let recovery = store.recover();
   projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
   // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
