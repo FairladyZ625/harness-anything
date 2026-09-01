@@ -647,8 +647,16 @@ test("task-bound runtime sessions cannot review their own execution across exit 
         commitSha,
       }),
     );
+    const resumedImplementer = {
+      actor: {
+        principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${resumed.runtimeSessionId}` },
+      },
+      source: "local" as const,
+    };
     assert.equal(
-      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, implementer)).outcome,
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, resumedImplementer))
+        .outcome,
       "applied",
     );
     writeFileSync(
