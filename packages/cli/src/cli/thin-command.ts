@@ -35,7 +35,7 @@ import {
 } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
-import { commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
+import { clientLocalCommands, commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
 import type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
 import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted } from "./thin-command-router.ts";
@@ -95,6 +95,7 @@ export function renderThinHelp(catalog: readonly ThinHelpCatalogEntry[] = [], do
           help,
         }),
       ),
+      ...clientLocalCommands,
     ],
     visible = domain ? rows.filter(({ usage }) => usage.split(" ")[1] === domain) : rows,
     groups = commandDomains(),

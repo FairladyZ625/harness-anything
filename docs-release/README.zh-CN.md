@@ -11,15 +11,13 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 让虚假的“完成”无法维持。我们在自用（self-involving）中看到的是：没有门禁
 的路径会被 100% 旁路。没有 gate，就等于一定被绕过。
 
-## 安装 0.0.1 发布候选版
+## 安装 0.0.1 源码候选版
 
-macOS Local v1 发布候选版的文件名是
-`Harness-Anything-0.0.1-arm64.dmg`。它会作为未签名的 Apple silicon
-构建发布到 GitHub Releases；在 release tag 真正发布前，请使用本地构建
-的产物或下面的源码路径。Gatekeeper、Homebrew、CLI 与卸载步骤见
+受支持的 GUI 路径是源码安装的 `ha gui` 命令。未签名 DMG 仍是 packaging
+candidate，不是生产启动入口。CLI、GUI 与卸载步骤见
 [install guide](start/zh/01-install.md)。
 
-如果要跑源码 proof：
+运行源码 proof：
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -27,6 +25,8 @@ cd harness-anything
 npm ci
 npm run quickstart:demo
 ```
+
+按安装指南 link 源码 CLI 后，在任一已注册仓库运行 `ha gui` 即可启动 Electron。
 
 这条 smoke 会构建 CLI、初始化一个临时 git workspace、创建 task、记录可查询
 的 fact，并渲染 relation graph。如果承重步骤拿不出证据，流程会 fail closed，

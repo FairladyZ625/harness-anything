@@ -12,12 +12,22 @@ never becomes task state implicitly.
 Electron Harness client package. GUI and CLI share the same Controller/Service
 layer; GUI does not parse or control agent runtime sessions.
 
+## Launch
+
+Run `ha gui` from the repository to open, or pass `ha gui --root <path>`. This
+is the only production launch entry: the CLI builds the renderer and preload,
+acquires the default daemon through its canonical autostart path, and detaches
+Electron. The Electron process is attach-only; it never starts, restarts, or
+stops the daemon.
+
+`npm run dev:electron` remains package-local for contributor hot reload. It
+does not fast-forward Git and is not a production entry.
+
 ## Distribution Status
 
-Version 0.0.1 is the macOS Local v1 release candidate. The Apple-silicon DMG
-bundles the GUI, Node 24 runtime, CLI, and local daemon, and its first-run wizard
-bootstraps a selected git repository. It is deliberately unsigned and
-unnotarized; signing, notarization, and auto-update are not shipped capabilities.
+Version 0.0.1 retains packaging checks for the macOS Local candidate, but the
+unsigned DMG is not a supported launch surface. Signing, notarization,
+auto-update, and direct packaged-app launch remain unshipped capabilities.
 
 The policy separates:
 

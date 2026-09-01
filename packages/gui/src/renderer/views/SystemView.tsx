@@ -1,4 +1,4 @@
-import { ArrowClockwise, Power } from "@phosphor-icons/react";
+import { ArrowClockwise } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
@@ -176,14 +176,6 @@ export function SystemView({
               <ArrowClockwise />
               {t("views.settingsView.systemRefresh")}
             </button>
-            <button
-              disabled={!activeRepoId || control.busy}
-              onClick={() => void control.request("restart")}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-text-muted disabled:opacity-50"
-            >
-              <Power />
-              {t("views.settingsView.systemRestart")}
-            </button>
           </div>
         </div>
         {receipt && (
@@ -193,12 +185,6 @@ export function SystemView({
             <span>
               {t("views.systemView.operationId")} {receipt.operationId} · {receipt.kind} · {receipt.phase}
             </span>
-            {receipt.kind === "restart" && receipt.phase === "settled" && (
-              <span>
-                {" "}
-                · pid {receipt.before?.pid ?? dash()} → {receipt.after?.pid ?? dash()}
-              </span>
-            )}
             {receipt.error && (
               <span>
                 {" "}

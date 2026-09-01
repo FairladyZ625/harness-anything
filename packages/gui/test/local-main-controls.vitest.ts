@@ -58,31 +58,47 @@ describe("local main controls runtime-instance boundary", () => {
     expect(rawRequests).toEqual([]);
   });
 
-  it("refuses to restart a service daemon that this GUI only attached to", async () => {
+  it("forwards daemon lifecycle requests without becoming their local supervisor", async () => {
     const target = vi.fn(async () => {
-      throw new Error("attach-only restart must not resolve a process target");
+      throw new Error("attach-only controls must not resolve a process target");
     });
+    const forwarded: Array<{ readonly method: string; readonly payload: unknown }> = [];
     const bridge = addLocalMainControls({
       bridge: {
         stream: (() => () => undefined) as never,
-        invoke: async () => ({ ok: false, error: { code: "supervisor_required" } }),
+        invoke: async (method, payload) => {
+          forwarded.push({ method, payload });
+          return { ok: false, error: { code: "supervisor_required" } };
+        },
       },
       target,
       clientBuildCommit: null,
-      canRestartDaemon: () => false,
     });
-    const pending = await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" });
-    await vi.waitFor(async () => {
-      const receipt = await bridge.invoke("getDaemonControlReceipt", {
-        operationId: String((pending as Record<string, unknown>).operationId),
-      });
-      expect(receipt).toMatchObject({
-        ok: false,
-        phase: "failed",
-        error: { code: "restart_failed", hint: expect.stringContaining("attached to an existing service daemon") },
-      });
-    });
+    const result = await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" });
+    expect(result).toMatchObject({ ok: false, error: { code: "supervisor_required" } });
+    expect(forwarded).toEqual([
+      {
+        method: "requestDaemonControl",
+        payload: { kind: "restart", authorityRepoId: "repo-a" },
+      },
+    ]);
     expect(target).not.toHaveBeenCalled();
+  });
+
+  it("forwards daemon control receipts without keeping GUI-owned operation state", async () => {
+    const bridge = addLocalMainControls({
+      bridge: {
+        stream: (() => () => undefined) as never,
+        invoke: async (method, payload) => ({ method, payload, source: "daemon" }),
+      },
+      target,
+      clientBuildCommit: null,
+    });
+    await expect(bridge.invoke("getDaemonControlReceipt", { operationId: "daemon-operation" })).resolves.toEqual({
+      method: "getDaemonControlReceipt",
+      payload: { operationId: "daemon-operation" },
+      source: "daemon",
+    });
   });
 
   it("seals the API key before returning create to the registry-derived bridge", async () => {

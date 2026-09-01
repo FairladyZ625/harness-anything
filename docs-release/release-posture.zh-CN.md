@@ -16,10 +16,10 @@
 | ------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 源码 CLI 写路径           | Shipped      | CLI 写命令需要显式 actor 归属与 git author。`HARNESS_ACTOR` 继续用于 `agent:<id>` 与 `system:<id>`；human 写入必须使用 `--actor human:<id>`，因为环境变量会被继承。journal 会记录 `env`、`flag` 或 `daemon` source。示例使用 `HARNESS_GIT_AUTHOR_NAME` / `HARNESS_GIT_AUTHOR_EMAIL`，也可 fallback 到 Git author 变量。证据：`packages/cli/src/composition/actor-attribution.ts`。 |
 | 任务层级与关系语义        | Shipped      | `ha task create --parent <id>`、`ha task tree <id> [--json]`、`ha task relate <src> depends-on <tgt> --rationale <t>` 已存在，并且 depends-on 有环检测。父任务完成不要求子任务完成；只会发出 `open_child_tasks` 软告警。`parent` 字段创建后不可变。证据：canon 1.4。                                                                                                               |
-| 本地 daemon，包括单机多仓 | Shipped      | `ha daemon start`、`ha daemon repo register`、热注册 reconcile、按 repo 路由的 CLI 本地 daemon 模式都可用。CLI 默认仍是进程内 direct 模式；只有设置 `HARNESS_DAEMON_MODE=local` 才走 daemon。证据：canon 1.3。                                                                                                                                                                     |
-| 桌面 GUI 本地界面         | Foundation   | Version 0.0.1 有未签名的 Apple-silicon DMG 发布候选版，内置 Node runtime、daemon 与首次启动仓库初始化。多个产品视图仍是只读、deferred 或 mock-backed，因此它是 local v1，而非完整桌面工作流。                                                                                                                              |
+| 本地 daemon，包括单机多仓 | Shipped      | `ha daemon start --service`、workspace bootstrap、repo registration、每仓 RepoCell 隔离与按 repo 路由都可用。CLI 命令（包括 `ha gui`）使用 canonical-only autostart；Electron GUI 进程只 attach，永不 start、restart 或 stop daemon。证据：`packages/daemon/src/client/daemon-autostart.ts` 与 `packages/gui/src/main/local-composition-root.ts`。                                 |
+| 桌面 GUI 本地界面         | Foundation   | `ha gui [--root <path>]` 是受支持的 source-checkout Electron 入口：它重建 file-backed renderer/preload，经 CLI 取得 daemon，再 detached 启动 Electron。未签名的 Apple-silicon DMG 仍是 packaging candidate，不是受支持的启动入口。多个产品视图仍是只读、deferred 或 mock-backed。                                                                                                  |
 | Remote SSH daemon 模式    | Experimental | remote 模式会打开 `ssh <host> ha daemon connect --stdio`，连接到已有 daemon。团队 principal 需要逐 key 配置 `authorized_keys` forced command 与 roster credential；relay 会验证 sshd 进程上下文、精确 original command 与固定 root。它不是“GUI 连接远端 daemon”、tunnel 产品、TCP、HTTP 或 WebSocket。证据：`packages/cli/src/commands/daemon/connect.ts`。                        |
-| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.0.1 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                      |
+| 运行时与发布就绪          | Foundation   | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.0.1 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                                                    |
 | 供应链与许可证 gate       | Foundation   | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                                         |
 | M3-M7 backlog             | Planned      | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package、仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                                 |
 
@@ -27,17 +27,17 @@
 
 这些机制已经实现到足以被视为真实能力，但在文档、证据或工作流缺口关闭前，本页不把它们描述成打磨完成的产品界面。
 
-| 能力                         | 状态               | 边界和证据                                                                                                                                                                                              |
-| ---------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Subtask expansion preset     | Mechanism-complete | `ha preset action subtask-expansion plan --task <id> --allow-scripts` 会产出 `subtask-plan/v1` 工件和命令字符串。它是规划器，不是自动展开器；用户必须自己执行生成的 task-create 命令。证据：canon 1.4。 |
-| 决策文档 CAS 写入            | Mechanism-complete | 决策文档写入使用乐观并发，可能返回 `cas_watermark_mismatch`，CLI 面表现为 `write_rejected`。证据：canon 1.4。                                                                                           |
-| Append-delta 幂等性          | Mechanism-complete | 逐字节相同的重复 fact 记录现在是幂等 no-op，而不是 rejection。证据：canon 1.4。                                                                                                                         |
-| Claim-check blob store       | Mechanism-complete | session body 可以作为内容寻址 blob 存在 `harness/objects/sha256/...` 下；v0 没有 GC，也没有分块。证据：canon 1.4。                                                                                      |
+| 能力                         | 状态               | 边界和证据                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------ |
+| Subtask expansion preset     | Mechanism-complete | `ha preset action subtask-expansion plan --task <id> --allow-scripts` 会产出 `subtask-plan/v1` 工件和命令字符串。它是规划器，不是自动展开器；用户必须自己执行生成的 task-create 命令。证据：canon 1.4。                                                                                                                          |
+| 决策文档 CAS 写入            | Mechanism-complete | 决策文档写入使用乐观并发，可能返回 `cas_watermark_mismatch`，CLI 面表现为 `write_rejected`。证据：canon 1.4。                                                                                                                                                                                                                    |
+| Append-delta 幂等性          | Mechanism-complete | 逐字节相同的重复 fact 记录现在是幂等 no-op，而不是 rejection。证据：canon 1.4。                                                                                                                                                                                                                                                  |
+| Claim-check blob store       | Mechanism-complete | session body 可以作为内容寻址 blob 存在 `harness/objects/sha256/...` 下；v0 没有 GC，也没有分块。证据：canon 1.4。                                                                                                                                                                                                               |
 | Code-doc reconciliation gate | Mechanism-complete | 解析出的 preset/profile 声明 `code-doc-reconciliation` 时，公开仓交付物必须有绑定 Execution 的已验证路径 witness；已复核 submission 的非空 deliverable 列表若全是任务包工件，可直接完成而不伪造公开仓锚点，空列表或歧义声明仍 fail-closed。该门由契约派生并按 Execution 判断适用性，并非全局门（ADR-0027 D7）。证据：canon 1.4。 |
-| Distill 循环                 | Mechanism-complete | `ha task complete` 会排入 distill 候选，`ha distill candidate` 与 `ha distill promote` 已存在。公开发布文档仍需要补真实 distill 工作流。证据：canon 1.4。                                               |
-| Create-milestone preset      | Mechanism-complete | `ha preset action create-milestone <scaffold                                                                                                                                                            | render-html | check> --task <id> --allow-scripts --input ...`已存在。没有顶层`ha create-milestone` 命令。证据：canon 1.4。 |
-| Task archive                 | Shipped            | `ha task archive <id> --reason <r>` 支持单个与批量形式，包括 `--ids`、`--filter state:<s>`、`--before`。证据：canon 1.4。                                                                               |
-| Graph panorama flags         | Shipped            | `ha graph` 支持 `--out`、`--focus`、`--projection`、`--include-archived`、`--json`；调用者需要满足投影 DB 前置条件。证据：canon 1.4。                                                                   |
+| Distill 循环                 | Mechanism-complete | `ha task complete` 会排入 distill 候选，`ha distill candidate` 与 `ha distill promote` 已存在。公开发布文档仍需要补真实 distill 工作流。证据：canon 1.4。                                                                                                                                                                        |
+| Create-milestone preset      | Mechanism-complete | `ha preset action create-milestone <scaffold                                                                                                                                                                                                                                                                                     | render-html | check> --task <id> --allow-scripts --input ...`已存在。没有顶层`ha create-milestone` 命令。证据：canon 1.4。 |
+| Task archive                 | Shipped            | `ha task archive <id> --reason <r>` 支持单个与批量形式，包括 `--ids`、`--filter state:<s>`、`--before`。证据：canon 1.4。                                                                                                                                                                                                        |
+| Graph panorama flags         | Shipped            | `ha graph` 支持 `--out`、`--focus`、`--projection`、`--include-archived`、`--json`；调用者需要满足投影 DB 前置条件。证据：canon 1.4。                                                                                                                                                                                            |
 
 ## M2.5 GUI/daemon foundation
 
@@ -45,7 +45,8 @@ GUI/daemon 方向有真实的 foundation 切片：
 
 - 本地 daemon 通过 method registry 读写；
 - 本地 daemon 仓库注册与多仓路由；
-- 未签名的 macOS arm64 DMG 候选版，内置 GUI、Node、CLI 和 daemon；
+- source-checkout `ha gui` 入口，使用 canonical build 输入与 CLI-owned daemon acquisition；
+- 未签名的 macOS arm64 DMG packaging candidate，只保留 build 验证，不作为受支持启动入口；
 - 首次启动的仓库选择、身份 bootstrap 与后续引导；
 - 面向 graph 的视图使用真实关系投影；
 - 源码 checkout 与 package smoke 有构建、运行时、分发策略检查。
@@ -120,9 +121,9 @@ npm run -w @harness-anything/gui build
 
 ### GUI 分发与更新边界
 
-Harness Anything GUI 0.0.1 提供手动安装、未签名的 macOS arm64 分发。
-DMG 内置 local daemon，而非安装独立的 daemon service package。签名、
-notarization、其他操作系统和 update feed 属于后续发布任务。
+Harness Anything GUI 0.0.1 仍保留手动、未签名的 macOS arm64 packaging
+candidate，但 source installation 的 `ha gui` 是唯一受支持的启动入口。直接启动
+DMG application、签名、notarization、其他操作系统和 update feed 属于后续发布任务。
 
 ### 运行时发布边界
 

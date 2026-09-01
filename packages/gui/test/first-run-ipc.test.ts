@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL } from "../src/api/first-run-contract.ts";
-import { daemonServeLaunch } from "../src/main/daemon-serve-launch.ts";
 import { registerFirstRunIpcHandlers, validateFirstRunBootstrapInput } from "../src/main/first-run-ipc.ts";
 
 const trustedEvent = {
@@ -83,18 +82,4 @@ test("first-run bootstrap rejects paths and identity fields outside its contract
       }),
     /does not exist/u,
   );
-});
-
-test("packaged daemon launch uses the CLI package's declared dist layout", () => {
-  const resourcesPath = path.join(path.sep, "Applications", "Harness Anything.app", "Contents", "Resources");
-  const launch = daemonServeLaunch({ userRoot: "/Users/owner/.harness", daemonId: "default" }, { resourcesPath });
-  assert.equal(launch.args[0], path.join(resourcesPath, "app", "packages", "cli", "dist", "cli", "src", "index.js"));
-  assert.deepEqual(launch.args.slice(1), [
-    "daemon",
-    "serve",
-    "--user-root",
-    "/Users/owner/.harness",
-    "--daemon-id",
-    "default",
-  ]);
 });

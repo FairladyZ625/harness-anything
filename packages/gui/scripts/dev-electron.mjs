@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-// Human-facing GUI launcher: builds the preload bundle, starts the Vite dev
-// renderer on the origin the security contract pins (http://127.0.0.1:5173),
-// then launches the Electron shell against it. Ctrl+C or closing the window
-// tears everything down. Zero dependencies beyond what the package already has.
+// Package-local hot-reload launcher for GUI development. Production users run
+// `ha gui`, which builds file-backed renderer assets and owns no Vite server.
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { createRequire } from "node:module";
@@ -13,36 +11,6 @@ const require = createRequire(import.meta.url);
 const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(guiRoot, "../..");
 const rendererUrl = "http://127.0.0.1:5173";
-
-// Auto fast-forward the local checkout to origin/main before building, so the
-// launcher always ships the latest merged GUI. Main is never developed on
-// directly — all work lands through worktree PRs — so a clean fast-forward is
-// always safe. Skip loudly (never fail the launch) when the checkout is not on
-// main or the working tree is dirty; the daemon reads its canonical ledger from
-// ~/.harness, not this source tree, so a source fast-forward does not disturb it.
-function fastForwardToOriginMain() {
-  const branch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).stdout?.trim();
-  if (branch !== "main") {
-    log(`on '${branch}', not main — skipping auto fast-forward`);
-    return;
-  }
-  if (spawnSync("git", ["status", "--porcelain"], { cwd: repoRoot, encoding: "utf8" }).stdout?.trim()) {
-    log("working tree dirty — skipping auto fast-forward");
-    return;
-  }
-  log("fetching origin/main...");
-  if (spawnSync("git", ["fetch", "origin", "main"], { cwd: repoRoot, stdio: "inherit" }).status !== 0) {
-    log("git fetch failed — building current checkout");
-    return;
-  }
-  const ff = spawnSync("git", ["merge", "--ff-only", "origin/main"], { cwd: repoRoot, encoding: "utf8" });
-  if (ff.status === 0) log("fast-forwarded to origin/main");
-  else log(`not fast-forwardable (local diverged?) — building current checkout: ${(ff.stderr || "").trim()}`);
-}
-fastForwardToOriginMain();
 
 const electronPath = require("electron");
 // Resolve vite's own bin script through Node's module resolution rather than shelling

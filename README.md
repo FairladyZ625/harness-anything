@@ -105,6 +105,20 @@ npm run quickstart:demo
 The demo builds the CLI, creates a throwaway project, runs a real task loop, and
 shows the records that remain after the agent work is over.
 
+To use the Electron GUI from this source installation, link the built CLI once,
+then launch it from the repository you want to open:
+
+```bash
+npm run build -w @harness-anything/cli
+(cd packages/cli && npm link)
+ha gui
+```
+
+`ha gui` is the production GUI entry. It builds the renderer, obtains the
+default daemon through the CLI, and detaches Electron; closing the window never
+stops the daemon. The package-local `npm run dev:electron` script is only a
+contributor hot-reload tool.
+
 Ready to use it on a project? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
 

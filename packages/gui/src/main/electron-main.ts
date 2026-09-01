@@ -6,11 +6,7 @@ import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
-import {
-  bootstrapLocalRepository,
-  createLocalDaemonLifecycle,
-  createLocalGuiServiceBridge,
-} from "./local-composition-root.ts";
+import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
@@ -162,19 +158,11 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),
-    packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined,
-    daemonLifecycle = createLocalDaemonLifecycle(),
-    bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), {
-      ...(packaged ? { packaged } : {}),
-      lifecycle: daemonLifecycle,
-    }),
+    bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()),
     controlled = addLocalMainControls({
       bridge,
-      invokingRoot: rootDir,
       target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
       clientBuildCommit: daemonBuildStamp().commit,
-      canRestartDaemon: daemonLifecycle.isOwned,
-      ...(packaged ? { packaged } : {}),
     }),
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
@@ -207,7 +195,7 @@ export async function startGuiApp(): Promise<void> {
         });
         return selected.canceled ? null : (selected.filePaths[0] ?? null);
       },
-      bootstrap: (input) => bootstrapLocalRepository(input, packaged),
+      bootstrap: (input) => bootstrapLocalRepository(input),
     },
     trustPolicy,
   );

@@ -1,12 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { terminateProcess } from "../../daemon/src/process-port.ts";
-import { daemonSingletonLockPath } from "../../daemon/src/daemon-singleton.ts";
 import { readDaemonPid, startDaemon, type RunningDaemon } from "../../daemon/src/runtime.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 
@@ -23,15 +21,19 @@ function resident(daemon: Awaited<ReturnType<typeof startDaemon>>): RunningDaemo
   return daemon;
 }
 
-test("GUI bridge auto-starts an unreachable daemon, retries the read, and reaches the resident daemon", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-autostart-")),
+test("GUI bridge is attach-only even when its first request finds no daemon", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-first-attach-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
-    daemonId = "gui-autostart";
+    daemonId = "gui-first-attach";
   const previous = process.env.HARNESS_DAEMON_USER_ROOT,
-    previousId = process.env.HARNESS_DAEMON_ID;
+    previousId = process.env.HARNESS_DAEMON_ID,
+    previousEndpoint = process.env.HARNESS_DAEMON_ENDPOINT,
+    previousTmp = process.env.TMPDIR;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
   process.env.HARNESS_DAEMON_ID = daemonId;
+  delete process.env.HARNESS_DAEMON_ENDPOINT;
+  process.env.TMPDIR = "/tmp";
   const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal(
@@ -39,71 +41,44 @@ test("GUI bridge auto-starts an unreachable daemon, retries the read, and reache
         await requestDaemonJsonRpcAt(
           daemon.endpoint,
           "daemon.repo.bootstrap",
-          { rootDir, repoId: "gui-autostart", personId: "person-gui", displayName: "GUI Autostart" },
+          { rootDir, repoId: "gui-first-attach", personId: "person-gui", displayName: "GUI Attach" },
           1_000,
         )
       ).ok,
       true,
     );
-    assert.equal(
-      (
-        await requestDaemonJsonRpcAt(
-          daemon.endpoint,
-          "repo.task.create",
-          { repo: { repoId: "gui-autostart" }, payload: { taskId: "task-gui-autostart", title: "GUI autostart task" } },
-          1_000,
-        )
-      ).ok,
-      true,
-    );
-    const beforePid = readDaemonPid(userRoot, daemonId);
-    assert.ok(beforePid);
     await daemon.stop();
-    // No in-process daemon and no pid file: the first bridge read must launch a
-    // detached daemon through the main-process launch seam and then answer.
-    const tasks = await createLocalGuiServiceBridge(rootDir).invoke("getTasks", { repoId: "gui-autostart" });
-    assert.equal(tasks.ok, true, JSON.stringify(tasks));
-    const rows = (tasks as { rows?: Array<{ taskId?: string }> }).rows ?? [];
-    assert.deepEqual(
-      rows.map((row) => row.taskId),
-      ["task-gui-autostart"],
-      JSON.stringify(tasks),
-    );
-    const afterPid = readDaemonPid(userRoot, daemonId);
-    assert.ok(afterPid, "bridge autostart must leave a resident daemon pid file");
-    assert.notEqual(afterPid, beforePid);
-    // A live resident daemon is probed and reused, never respawned: a second
-    // bridge read must keep the same generation and the same singleton holder.
-    const again = await createLocalGuiServiceBridge(rootDir).invoke("getTasks", { repoId: "gui-autostart" });
-    assert.equal(again.ok, true, JSON.stringify(again));
-    assert.equal(
-      readDaemonPid(userRoot, daemonId),
-      afterPid,
-      "a reachable daemon must not be replaced by a second spawn",
-    );
-    assert.equal(
-      readFileSync(daemonSingletonLockPath(userRoot, daemonId), "utf8"),
-      `${afterPid}\n`,
-      "the bridge must not disturb the daemon singleton claim",
-    );
-    await stopResident(userRoot, daemonId);
+    const failure = (await createLocalGuiServiceBridge(rootDir).invoke("getTasks", {
+      repoId: "gui-first-attach",
+    })) as Failure;
+    assert.equal(failure.ok, false);
+    assert.equal(failure.error?.code, "daemon_unavailable");
+    assert.match(failure.error?.hint ?? "", /GUI is attach-only and never starts or restarts the daemon/u);
+    assert.match(failure.error?.hint ?? "", /Run `ha gui` from an operator shell/u);
+    assert.equal(readDaemonPid(userRoot, daemonId), null, "a first GUI request must not spawn a daemon");
   } finally {
-    process.env.HARNESS_DAEMON_USER_ROOT = previous;
-    process.env.HARNESS_DAEMON_ID = previousId;
+    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);
+    restoreEnv("HARNESS_DAEMON_ID", previousId);
+    restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEndpoint);
+    restoreEnv("TMPDIR", previousTmp);
     await daemon.stop().catch(() => undefined);
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test("GUI bridge stays attach-only after its resident service daemon stops", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-attach-only-")),
+test("GUI bridge reuses a resident daemon and does not respawn it after an explicit stop", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-resident-attach-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
-    daemonId = "gui-attach-only";
+    daemonId = "gui-resident-attach";
   const previous = process.env.HARNESS_DAEMON_USER_ROOT,
-    previousId = process.env.HARNESS_DAEMON_ID;
+    previousId = process.env.HARNESS_DAEMON_ID,
+    previousEndpoint = process.env.HARNESS_DAEMON_ENDPOINT,
+    previousTmp = process.env.TMPDIR;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
   process.env.HARNESS_DAEMON_ID = daemonId;
+  delete process.env.HARNESS_DAEMON_ENDPOINT;
+  process.env.TMPDIR = "/tmp";
   const daemon = resident(await startDaemon({ daemonId, userRoot }));
   try {
     assert.equal(
@@ -111,90 +86,33 @@ test("GUI bridge stays attach-only after its resident service daemon stops", asy
         await requestDaemonJsonRpcAt(
           daemon.endpoint,
           "daemon.repo.bootstrap",
-          { rootDir, repoId: "gui-attach-only", personId: "person-gui", displayName: "GUI Attach" },
+          { rootDir, repoId: "gui-resident-attach", personId: "person-gui", displayName: "GUI Attach" },
           1_000,
         )
       ).ok,
       true,
     );
-    const bridge = createLocalGuiServiceBridge(rootDir);
-    assert.equal((await bridge.invoke("getTasks", { repoId: "gui-attach-only" })).ok, true);
+    const bridge = createLocalGuiServiceBridge(rootDir),
+      beforePid = readDaemonPid(userRoot, daemonId);
+    assert.ok(beforePid);
+    assert.equal((await bridge.invoke("getTasks", { repoId: "gui-resident-attach" })).ok, true);
+    assert.equal(readDaemonPid(userRoot, daemonId), beforePid, "attaching must not replace the resident generation");
     await daemon.stop();
-    const stopped = (await bridge.invoke("getTasks", { repoId: "gui-attach-only" })) as Failure;
+    const stopped = (await bridge.invoke("getTasks", { repoId: "gui-resident-attach" })) as Failure;
     assert.equal(stopped.ok, false);
     assert.equal(stopped.error?.code, "daemon_unavailable");
-    assert.match(stopped.error?.hint ?? "", /GUI is attach-only/u);
-    assert.equal(readDaemonPid(userRoot, daemonId), null, "an attached GUI must not respawn a stopped service daemon");
+    assert.equal(readDaemonPid(userRoot, daemonId), null, "a stopped daemon must remain stopped while the GUI is open");
   } finally {
-    process.env.HARNESS_DAEMON_USER_ROOT = previous;
-    process.env.HARNESS_DAEMON_ID = previousId;
+    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);
+    restoreEnv("HARNESS_DAEMON_ID", previousId);
+    restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEndpoint);
+    restoreEnv("TMPDIR", previousTmp);
     await daemon.stop().catch(() => undefined);
-    await stopResident(userRoot, daemonId);
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-test(
-  "GUI bridge reports the single-flight lock permission failure without spawning",
-  {
-    skip:
-      process.platform === "win32" || process.getuid?.() === 0 ? "requires POSIX non-root permission semantics" : false,
-  },
-  async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-autostart-fail-")),
-      rootDir = path.join(parent, "repo"),
-      userRoot = path.join(parent, "user"),
-      daemonId = "gui-autostart-fail";
-    const previous = process.env.HARNESS_DAEMON_USER_ROOT,
-      previousId = process.env.HARNESS_DAEMON_ID;
-    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
-    process.env.HARNESS_DAEMON_ID = daemonId;
-    const daemon = resident(await startDaemon({ daemonId, userRoot }));
-    try {
-      assert.equal(
-        (
-          await requestDaemonJsonRpcAt(
-            daemon.endpoint,
-            "daemon.repo.bootstrap",
-            { rootDir, repoId: "gui-autostart-fail", personId: "person-gui", displayName: "GUI Autostart" },
-            1_000,
-          )
-        ).ok,
-        true,
-      );
-      await daemon.stop();
-      chmodSync(userRoot, 0o555);
-      const failure = (await createLocalGuiServiceBridge(rootDir).invoke("getTasks", {
-        repoId: "gui-autostart-fail",
-      })) as Failure;
-      assert.equal(failure.ok, false);
-      assert.equal(failure.error?.code, "daemon_spawn_permission");
-      assert.match(failure.error?.hint ?? "", /permission was denied/u);
-      assert.equal(
-        readDaemonPid(userRoot, daemonId),
-        null,
-        "the permission failure must happen before any daemon spawn",
-      );
-    } finally {
-      process.env.HARNESS_DAEMON_USER_ROOT = previous;
-      process.env.HARNESS_DAEMON_ID = previousId;
-      chmodSync(userRoot, 0o755);
-      await daemon.stop().catch(() => undefined);
-      rmSync(parent, { recursive: true, force: true });
-    }
-  },
-);
-
-async function stopResident(userRoot: string, daemonId: string): Promise<void> {
-  const pid = readDaemonPid(userRoot, daemonId);
-  if (pid === null) return;
-  terminateProcess(pid);
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }

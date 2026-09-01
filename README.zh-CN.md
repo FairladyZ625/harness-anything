@@ -95,6 +95,18 @@ npm run quickstart:demo
 Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环，并展示 agent 工作结束后
 真正留在仓库里的记录。
 
+要使用这份源码安装的 Electron GUI，先 link 一次构建后的 CLI，再从要打开的仓库启动：
+
+```bash
+npm run build -w @harness-anything/cli
+(cd packages/cli && npm link)
+ha gui
+```
+
+`ha gui` 是 GUI 的生产入口：它构建 renderer、经 CLI 取得 default daemon，再 detached
+启动 Electron；关闭窗口永远不会停止 daemon。package-local 的 `npm run dev:electron`
+只用于贡献者 hot reload。
+
 准备在自己的项目里使用？继续阅读[上手指南](./docs-release/start/zh/00-what-is-this.md)。
 
 ### 或者让 agent 替你装

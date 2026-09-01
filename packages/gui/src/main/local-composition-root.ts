@@ -11,7 +11,6 @@ import {
   parseDaemonGuiReadResponse,
   parseDaemonGuiReadResult,
 } from "../../../daemon/src/protocol/gui-result-validation.ts";
-import { ensureLocalDaemonRunning, isDaemonUnreachable } from "../../../daemon/src/client/daemon-autostart.ts";
 import {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -19,7 +18,6 @@ import {
 } from "../../../daemon/src/client/local-daemon-target.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
-import { daemonServeLaunch, type PackagedRuntime } from "./daemon-serve-launch.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
 import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
 type JsonObject = { readonly [key: string]: JsonValue };
@@ -40,36 +38,15 @@ interface DaemonClient {
     responseTimeoutMs?: number,
   ) => Promise<JsonObject>;
 }
-export interface LocalDaemonLifecycle {
-  readonly attached: () => void;
-  readonly spawned: () => void;
-  readonly canAutostart: () => boolean;
-  readonly isOwned: () => boolean;
-}
 let client: Promise<DaemonClient> | undefined;
-export function createLocalDaemonLifecycle(): LocalDaemonLifecycle {
-  let owner: "unresolved" | "external" | "gui" = "unresolved";
-  return {
-    attached: () => {
-      if (owner === "unresolved") owner = "external";
-    },
-    spawned: () => {
-      owner = "gui";
-    },
-    canAutostart: () => owner !== "external",
-    isOwned: () => owner === "gui",
-  };
-}
 export function createLocalGuiServiceBridge(
   rootDir: string,
   _layoutOverrides?: { readonly authoredRoot?: string },
-  options: { readonly packaged?: PackagedRuntime; readonly lifecycle?: LocalDaemonLifecycle } = {},
 ): GuiServiceBridge {
   const root = path.resolve(rootDir);
-  const lifecycle = options.lifecycle ?? createLocalDaemonLifecycle();
   validateProjectPath(root, ".");
   return createGuiServiceBridgeForDaemon(
-    (route, payload) => request(root, route, payload, lifecycle, options.packaged),
+    (route, payload) => request(root, route, payload),
     async (route, payload, emit) => {
       const daemon = await loadClient(),
         scoped = repoPayload(payload),
@@ -92,10 +69,7 @@ export function createLocalGuiServiceBridge(
     },
   );
 }
-export async function bootstrapLocalRepository(
-  input: FirstRunBootstrapInput,
-  packaged?: PackagedRuntime,
-): Promise<JsonObject> {
+export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): Promise<JsonObject> {
   const target = globalTarget();
   try {
     const daemon = await loadClient();
@@ -106,42 +80,16 @@ export async function bootstrapLocalRepository(
         input as unknown as JsonObject,
         75_000,
       );
-    try {
-      return await invoke();
-    } catch (connectError) {
-      if (!isDaemonUnreachable(connectError)) throw connectError;
-      const started = await ensureLocalDaemonRunning({
-        socketPath: target.socketPath,
-        invokingRoot: input.rootDir,
-        launch: () => daemonServeLaunch(target, packaged),
-      });
-      if (!started.ok)
-        return daemonProtocolError(
-          "init",
-          started.code ?? "daemon_start_failed",
-          started.hint,
-        ) as unknown as JsonObject;
-      return await invoke();
-    }
+    return await invoke();
   } catch (error) {
     return daemonProtocolError(
       "init",
       "daemon_unavailable",
-      `Repository setup failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
+      attachOnlyHint(`Repository setup failed. Cause: ${error instanceof Error ? error.message : String(error)}`),
     ) as unknown as JsonObject;
   }
 }
-// Owner decision (autostart, plan A): when the daemon is unreachable the trusted
-// main process starts it (bounded: two attempts), then retries the request once.
-// Anything that is not a connection-level failure — an unregistered workspace, a
-// protocol rejection — is reported as-is and never triggers a launch.
-async function request(
-  rootDir: string,
-  route: ShippedGuiRoute,
-  payload: unknown,
-  lifecycle: LocalDaemonLifecycle,
-  packaged?: PackagedRuntime,
-): Promise<JsonObject> {
+async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> {
   try {
     const daemon = await loadClient(),
       scoped = route.requiresRepo ? repoPayload(payload) : null;
@@ -171,42 +119,21 @@ async function request(
         undefined,
         requestTimeoutMs(route, daemonPayload),
       );
-    try {
-      const result = parse(await invoke());
-      lifecycle.attached();
-      return result;
-    } catch (connectError) {
-      if (!isDaemonUnreachable(connectError)) throw connectError;
-      if (!lifecycle.canAutostart())
-        throw new Error(
-          [
-            "The service daemon stopped after this GUI attached to it;",
-            "the GUI is attach-only for that daemon.",
-            "Start the service daemon explicitly, then retry.",
-          ].join(" "),
-        );
-      const started = await ensureLocalDaemonRunning({
-        socketPath: target.socketPath,
-        invokingRoot: rootDir,
-        launch: () => daemonServeLaunch(target, packaged),
-      });
-      if (!started.ok)
-        return daemonProtocolError(
-          route.rpcMethod,
-          started.code ?? "daemon_start_failed",
-          started.hint,
-        ) as unknown as JsonObject;
-      if (started.attempts > 0) lifecycle.spawned();
-      else lifecycle.attached();
-      return parse(await invoke());
-    }
+    return parse(await invoke());
   } catch (error) {
     return daemonProtocolError(
       route.rpcMethod,
       "daemon_unavailable",
-      `Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`,
+      attachOnlyHint(`Local daemon request failed. Cause: ${error instanceof Error ? error.message : String(error)}`),
     ) as unknown as JsonObject;
   }
+}
+function attachOnlyHint(cause: string): string {
+  return [
+    cause,
+    "The GUI is attach-only and never starts or restarts the daemon.",
+    "Run `ha gui` from an operator shell to acquire the daemon through the CLI, then retry.",
+  ].join(" ");
 }
 
 export function reportInvalidTaskSnapshotRows(

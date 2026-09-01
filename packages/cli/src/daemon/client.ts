@@ -22,7 +22,6 @@ import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autosta
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
-
 export { fleetScheduleRoute } from "./fleet-command-route.ts";
 
 export {
@@ -61,12 +60,13 @@ export function cliDaemonServeLaunch(
   userRoot: string,
   daemonId: string,
   execPath = process.execPath,
+  entry = daemonServeEntry(),
 ): DaemonLaunchSpec {
   const env = { ...process.env };
   for (const key of daemonRuntimeScopedEnvironmentKeys) delete env[key];
   return {
     command: execPath,
-    args: [daemonServeEntry(), "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+    args: [entry, "daemon", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
     env,
   };
 }
