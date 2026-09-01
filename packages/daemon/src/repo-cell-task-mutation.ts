@@ -13,6 +13,7 @@ import {
   type TaskV2,
 } from "../../kernel/src/index.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -327,11 +328,7 @@ function terminalExecutionRuntimeBinding(
             .map((header) => readDispatchStreamSummary(cell.rootDir, header.dispatchId))
             .filter(
               (stream) =>
-                stream?.attemptOutcome !== null &&
-                stream?.attemptOutcome !== undefined &&
-                (stream.attemptOutcome.classification !== "provider_fault" ||
-                  stream.header.fallbackAttempt === undefined ||
-                  stream.fallbackState === "exhausted"),
+                stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
             )
             .map((stream) => stream!.header.runtimeSessionId),
         )
@@ -341,9 +338,32 @@ function terminalExecutionRuntimeBinding(
   for (const session of sessions) {
     if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
     if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
-    if (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") continue;
+    if (
+      (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
+      !inferredTerminalSessionIds?.has(session.runtimeSessionId)
+    )
+      continue;
     const binding = resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
     if (binding) return binding;
   }
   return null;
+}
+
+function dispatchReachedTerminalAttempt(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
+  return (
+    stream.attemptOutcome !== null &&
+    stream.attemptOutcome !== undefined &&
+    (stream.attemptOutcome.classification !== "provider_fault" ||
+      stream.header.fallbackAttempt === undefined ||
+      stream.fallbackState === "exhausted")
+  );
+}
+
+function dispatchProcessIsOrphaned(stream: NonNullable<ReturnType<typeof readDispatchStreamSummary>>): boolean {
+  return (
+    stream.fallbackState !== "scheduled" &&
+    stream.process !== null &&
+    stream.process !== undefined &&
+    (stream.process.exited || !runtimePidIsAlive(stream.process.pid))
+  );
 }

@@ -7,7 +7,7 @@ import test from "node:test";
 import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "../../kernel/src/index.ts";
 import { taskSurfaceWrite } from "../src/repo-cell-task-command-docs.ts";
 import { taskMutation } from "../src/repo-cell-task-command.ts";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 
 const now = "2026-08-25T03:15:20.000Z";
 const owner = (executorId: string): ActorIdentity => ({
@@ -272,6 +272,91 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
       ownedTask,
       terminalSnapshot,
       taskOwnerBinding,
+    );
+    assert.equal(mutation.type, "lease_released");
+    assert.equal(mutation.releasedLease, heldLease);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the same principal reclaims a live-projected RuntimeSession only after its dispatch process dies", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dead-runtime-lease-reclaim-")),
+    runtimeSessionId = "runtime-dead-process-reclaim",
+    runtimeActor = {
+      principal: { personId: "person-owner" },
+      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+    },
+    heldLease = { ...lease, actor: runtimeActor },
+    execution = {
+      schema: "execution/v1" as const,
+      executionId: heldLease.executionId,
+      taskId: heldLease.taskId,
+      nodeId: "implementation" as const,
+      iteration: 0 as const,
+      state: "active" as const,
+      actor: runtimeActor,
+      claimedAt: now,
+      submittedAt: null,
+      closedAt: null,
+      submission: null,
+    },
+    runtimeSession = {
+      runtimeSessionId,
+      instanceId: "codex-test",
+      installationId: "installation-test",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/test",
+      providerSessionId: null,
+      transcriptRef: null,
+      launchGeneration: 1,
+      liveness: "live" as const,
+      attachable: true,
+      taskBindings: [
+        {
+          taskId: heldLease.taskId,
+          executionId: heldLease.executionId,
+          providerSessionId: null,
+          transcriptRef: null,
+          boundAt: now,
+        },
+      ],
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
+      lastObservedAt: now,
+    },
+    reclaimCell = {
+      ...cell,
+      rootDir,
+      projection: { readRuntimeSessionsForTask: () => [runtimeSession] },
+    },
+    heldSnapshot = { ...snapshot(), executions: [execution], lease: heldLease },
+    replacement = authorized(owner("replacement-worker")),
+    dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb";
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: heldLease.taskId,
+      executionId: heldLease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.throws(
+      () => taskMutation(reclaimCell, { kind: "task-release", taskId: task.taskId }, task, heldSnapshot, replacement),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
+      "a live dispatch process must retain its lease",
+    );
+
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    const mutation = taskMutation(
+      reclaimCell,
+      { kind: "task-release", taskId: task.taskId, reason: "The bound dispatch process is gone." },
+      task,
+      heldSnapshot,
+      replacement,
     );
     assert.equal(mutation.type, "lease_released");
     assert.equal(mutation.releasedLease, heldLease);
