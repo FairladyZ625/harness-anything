@@ -228,6 +228,18 @@ test("task transition leaves lifecycle eligibility to the kernel", () => {
   );
 });
 
+test("doc conflict exits preserve the conflict id for daemon dispatch", () => {
+  for (const action of ["resolve", "discard-local", "overwrite-center"] as const) {
+    const parsed = parseThinCommand(["doc", "conflict", action, "abcdef12"]);
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, {
+        kind: `doc-conflict-${action}`,
+        conflictId: "abcdef12",
+      });
+  }
+});
+
 test("CLI version is read from the CLI package metadata", () => {
   const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(resolveCliVersion(), packageJson.version);

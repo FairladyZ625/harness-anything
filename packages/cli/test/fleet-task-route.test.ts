@@ -60,6 +60,18 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   assert.equal(docStatus?.method, "daemon.fleet.doc.sync");
   assert.equal(docStatus?.payload.dryRun, true);
   assert.deepEqual(docStatus?.payload.paths, ["context/notes.md"]);
+  for (const [kind, action] of [
+    ["doc-conflict-resolve", "resolve"],
+    ["doc-conflict-discard-local", "discard-local"],
+    ["doc-conflict-overwrite-center", "overwrite-center"],
+  ] as const) {
+    const conflict = command("repo.task.run", { kind, conflictId: "cflt-one" });
+    assert.equal(await fleetTaskRoute(conflict, env), null);
+    const routedConflict = await fleetDocRoute(conflict, env);
+    assert.equal(routedConflict?.method, "daemon.fleet.conflict.exit");
+    assert.equal(routedConflict?.payload.action, action);
+    assert.equal(routedConflict?.payload.conflictId, "cflt-one");
+  }
   const child = path.join(root, "worktrees", "nested");
   mkdirSync(child, { recursive: true });
   const childRouted = await fleetTaskRoute(

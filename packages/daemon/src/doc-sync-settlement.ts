@@ -121,9 +121,9 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
       })),
     nextAction: hasConflict
       ? [
-          "merge the listed conflict scratch into the canonical file, run ha doc ",
-          "sync --dry-run --path <path> for a fresh base, then save to submit a new ",
-          "opId",
+          "merge the listed conflict scratch into the canonical file, then run ha doc ",
+          "conflict resolve <conflict-id>; use discard-local or overwrite-center ",
+          "when either side should win unchanged",
         ].join("")
       : deletion
         ? blockedCandidateNextAction(
