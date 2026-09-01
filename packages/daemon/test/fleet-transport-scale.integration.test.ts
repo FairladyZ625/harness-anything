@@ -10,9 +10,11 @@ import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from 
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
-// wait for materialized commits, so pin the test-local idle timer to a fast interval.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
+// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). This suite
+// waits for materialized commits AND asserts same-repo writes coalesce into fewer Git cuts;
+// the idle timer resets on every append, so the pin must exceed the widest gap between two
+// same-repo writes in a round (~1.4s observed) or sequential writes flush as separate cuts.
+process.env.HARNESS_WAL_FLUSH_MS = "2000";
 
 const replicaQuota = 64 * 1024 * 1024;
 function reclaimer() {
