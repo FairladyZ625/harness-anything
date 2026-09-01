@@ -112,7 +112,7 @@ export function readDocument(
   readHead: EventStreamPort["readHead"],
   eventStore: EventStreamPort,
   documentPath: string,
-  limit: number,
+  _limit: number,
 ): DocumentProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
@@ -134,7 +134,7 @@ export function readPresetSnapshot(
   readHead: EventStreamPort["readHead"],
   eventStore: EventStreamPort,
   digest: string,
-  limit: number,
+  _limit: number,
 ): PresetSnapshotProjectionRead {
   return withDatabase(projectionPath, readHead, (db) => {
     const cut = readProjectionCut(db, readHead),
