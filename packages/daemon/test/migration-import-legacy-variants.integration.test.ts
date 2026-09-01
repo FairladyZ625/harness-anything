@@ -11,6 +11,7 @@ import {
   compileScheduleDefinitionEvent,
   createScheduleV1,
   eventObjectRelativePath,
+  makeTaskProjection,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
@@ -27,6 +28,11 @@ const variants: readonly { readonly name: string; readonly build: VariantBuilder
   { name: "flat-task-v1-events", build: (root) => taskV1Fixture(root, "flat/v1") },
   { name: "sharded-task-v1-events", build: (root) => taskV1Fixture(root, "sharded-sha256-2/v1") },
   { name: "migration-import-task-v1", build: migrationTaskV1Fixture },
+  {
+    name: "in-place-migration-import-task-v1",
+    build: inPlaceMigrationTaskV1Fixture,
+    observation: /ACCEPT legacy_event_normalized .*provenance=imported_snapshot/u,
+  },
   { name: "legacy-doc-commit-cut", build: legacyDocCutFixture },
   { name: "task-local-fact-event", build: legacyFactEventFixture },
   { name: "taskless-fact-current-provenance", build: tasklessFactFixture },
@@ -110,6 +116,21 @@ function migrationTaskV1Fixture(root: string): void {
   writeBlob(root, claim.sha256, body);
   writeEvent(root, event.opId, eventBody, "flat/v1");
   writeHead(root, 1, event.opId, eventBody);
+}
+
+function inPlaceMigrationTaskV1Fixture(root: string): void {
+  migrationTaskV1Fixture(root);
+  writeFileSync(path.join(root, ".gitignore"), "/.harness/\n");
+  const projection = makeTaskProjection({
+    rootDir: root,
+    eventStore: {
+      readHead: () => null,
+      readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
+      readContentBlob: () => null,
+    },
+  });
+  projection.rebuild();
+  projection.close();
 }
 
 function legacyFactEventFixture(root: string): void {

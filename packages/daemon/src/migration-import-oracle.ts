@@ -124,9 +124,11 @@ export function readMigrationProjectionOracle(sourceRoot: string): MigrationProj
   const layout = resolveHarnessLayout(sourceRoot),
     databasePath = path.join(layout.localRoot, "cache", "task.sqlite"),
     inspection = inspectMigrationSourceEvents(sourceRoot);
-  const oracle = !existsSync(databasePath)
-    ? rebuildMigrationProjectionOracle(sourceRoot, inspection)
-    : {
+  let oracle: MigrationProjectionOracle;
+  if (!existsSync(databasePath)) oracle = rebuildMigrationProjectionOracle(sourceRoot, inspection);
+  else
+    try {
+      oracle = {
         ...readMigrationProjectionOracleAtPath(
           sourceRoot,
           databasePath,
@@ -135,6 +137,11 @@ export function readMigrationProjectionOracle(sourceRoot: string): MigrationProj
         ),
         normalizedRelationMigrationEntities: inspection.normalizedRelationMigrationEntities,
       };
+    } catch (error) {
+      if (!hasErrorCode(error, "migration_projection_oracle_cut_mismatch")) throw error;
+      consumeKnownError(error);
+      oracle = rebuildMigrationProjectionOracle(sourceRoot, inspection);
+    }
   return overlayAgentDeclarations(sourceRoot, oracle);
 }
 
@@ -574,4 +581,8 @@ function number(value: unknown, label: string): number {
   if (typeof result !== "number" || !Number.isSafeInteger(result) || result < 0)
     throw migrationImportError("invalid_migration_projection_oracle", `${label} is invalid.`);
   return result;
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
