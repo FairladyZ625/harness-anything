@@ -24,6 +24,7 @@
   "shell.nav.factDetail": "事实详情",
   "shell.nav.sessions": "会话",
   "shell.nav.terminal": "终端",
+  "shell.nav.browser": "浏览器",
   "shell.nav.agentSquad": "Agent · 含 Squad",
   "shell.nav.providers": "Provider",
   "shell.nav.schedules": "定时计划",

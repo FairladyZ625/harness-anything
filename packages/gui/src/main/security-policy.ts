@@ -1,10 +1,9 @@
 import { isTrustedRendererUrl, type TrustedRendererUrlOptions } from "./window-config.ts";
-import {
-  isAllowedHtmlArtifactAttachment,
-  isAllowedHtmlArtifactRequest,
-} from "../api/html-artifact-policy.ts";
+import { isAllowedHtmlArtifactAttachment, isAllowedHtmlArtifactRequest } from "../api/html-artifact-policy.ts";
 
 export { HTML_ARTIFACT_DATA_URL_PREFIX, HTML_ARTIFACT_PARTITION } from "../api/html-artifact-policy.ts";
+
+export const IN_APP_BROWSER_PARTITION = "in-app-browser";
 
 export type SecurityDecisionReason =
   | "trusted_renderer"
@@ -17,8 +16,10 @@ export type SecurityDecisionReason =
   | "html_artifact_source_denied"
   | "html_artifact_request_allowed"
   | "html_artifact_request_denied"
-  | "missing_browser_preview_threat_model"
-  | "browser_preview_not_shipped";
+  | "in_app_browser_source_allowed"
+  | "in_app_browser_source_denied"
+  | "in_app_browser_navigation_allowed"
+  | "in_app_browser_navigation_denied";
 
 export type SecurityDecision =
   | { readonly action: "allow"; readonly reason: SecurityDecisionReason }
@@ -38,32 +39,14 @@ export interface IpcSenderIdentity {
   } | null;
 }
 
-export interface BrowserPreviewThreatModel {
-  readonly reviewedBy: string;
-  readonly reviewedAt: string;
-  readonly allowedSchemes: ReadonlyArray<"http:" | "https:">;
-  readonly storagePartition: "ephemeral";
-  readonly userGestureRequired: true;
-}
-
-export interface BrowserPreviewOpenRequest {
-  readonly url: string;
-  readonly source: "open-target-router" | "localhost-preview" | "remote-content";
-  readonly userGesture: boolean;
-  readonly threatModel?: BrowserPreviewThreatModel;
-}
-
 export function createStaticWebContentsTrustPolicy(ids: Iterable<number>): IpcWebContentsTrustPolicy {
   const trusted = new Set(ids);
   return {
-    isTrustedWebContentsId: (id) => trusted.has(id)
+    isTrustedWebContentsId: (id) => trusted.has(id),
   };
 }
 
-export function evaluateIpcSender(
-  event: IpcSenderIdentity,
-  trustPolicy: IpcWebContentsTrustPolicy
-): SecurityDecision {
+export function evaluateIpcSender(event: IpcSenderIdentity, trustPolicy: IpcWebContentsTrustPolicy): SecurityDecision {
   const senderUrl = event.senderFrame?.url;
   if (!senderUrl || !isTrustedRendererUrl(senderUrl, trustPolicy.rendererUrl)) {
     return { action: "deny", reason: "untrusted_renderer_url" };
@@ -105,17 +88,19 @@ export function evaluateHtmlArtifactRequest(url: string): SecurityDecision {
   return { action: "deny", reason: "html_artifact_request_denied", detail: url };
 }
 
-export function evaluateBrowserPreviewOpenRequest(request: BrowserPreviewOpenRequest): SecurityDecision {
-  if (!request.threatModel) {
-    return {
-      action: "deny",
-      reason: "missing_browser_preview_threat_model",
-      detail: request.source
-    };
+export function evaluateInAppBrowserUrl(url: string): SecurityDecision {
+  if (URL.canParse(url)) {
+    const scheme = new URL(url).protocol;
+    if (scheme === "http:" || scheme === "https:") {
+      return { action: "allow", reason: "in_app_browser_navigation_allowed" };
+    }
   }
-  return {
-    action: "deny",
-    reason: "browser_preview_not_shipped",
-    detail: request.url
-  };
+  return { action: "deny", reason: "in_app_browser_navigation_denied", detail: url };
+}
+
+export function evaluateInAppBrowserAttachment(params: Readonly<Record<string, string>>): SecurityDecision {
+  if (params.partition === IN_APP_BROWSER_PARTITION && evaluateInAppBrowserUrl(params.src).action === "allow") {
+    return { action: "allow", reason: "in_app_browser_source_allowed" };
+  }
+  return { action: "deny", reason: "in_app_browser_source_denied", detail: params.src };
 }

@@ -35,6 +35,7 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "agentSquad",
   "providers",
   "terminal",
+  "browser",
   "system",
   "daemonObserve",
   "settings",
@@ -74,6 +75,7 @@ function isAppLocation(value: unknown): value is AppLocation {
     !isNullableString(value.selectedId) ||
     !isNullableString(value.previewId) ||
     !isNullableString(value.focusedEntityRef) ||
+    !(value.browserUrl === undefined || isNullableString(value.browserUrl)) ||
     !isCanonicalFocusedRef(value.focusedEntityRef) ||
     !isTaskFilters(value.taskFilters)
   )
@@ -107,6 +109,7 @@ function storageKey(projectId: string): string {
 export function initialLocation(filters?: TaskFilters): AppLocation {
   return {
     view: "overview",
+    browserUrl: null,
     selectedId: null,
     previewId: null,
     focusedEntityRef: null,

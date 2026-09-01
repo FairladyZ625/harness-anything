@@ -22,6 +22,7 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
+import { BrowserView } from "../src/renderer/views/BrowserView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
@@ -722,6 +723,7 @@ const VIEW_RENDERERS = {
       daemonGeneration: 1,
       tasks: FIXTURE_TASKS.map(({ taskId, title }) => ({ taskId, title })),
     }),
+  browser: () => createElement(BrowserView, { initialUrl: "https://example.com" }),
   system: () => createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: noop }),
   daemonObserve: () =>
     createElement(DaemonObserveView, {
