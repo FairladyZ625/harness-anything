@@ -34,7 +34,7 @@
   "terminal.view.cancel": "Cancel",
   "terminal.view.confirmTerminate": "Confirm terminate",
   "terminal.view.terminate": "Terminate…",
-  "terminal.view.splitShortcut": "Ctrl+Shift+5/6 split · Ctrl+Shift+W close pane · Ctrl+Alt+Arrows focus",
+  "terminal.view.splitShortcut": "Ctrl+W close pane · Ctrl+Shift+Arrows split · Ctrl+Alt+Arrows focus · drag the title bar to rearrange · right-click for menu",
   "terminal.view.splitRight": "Split right",
   "terminal.view.splitDown": "Split down",
   "terminal.view.closePane": "Close pane",
@@ -43,5 +43,10 @@
   "terminal.view.groupPaneCount": "{count} panes",
   "terminal.view.findInTerminal": "Find in terminal",
   "terminal.view.noSearchMatch": "No match",
-  "terminal.view.closeSearch": "Close terminal search"
+  "terminal.view.closeSearch": "Close terminal search",
+  "terminal.view.splitShortcutMac": "⌘W close pane · ⌃⌘Arrows split · ⌃⌥Arrows focus · drag the title bar to rearrange · right-click for menu",
+  "terminal.view.splitLeft": "Split left",
+  "terminal.view.splitUp": "Split up",
+  "terminal.view.paneMenuAria": "Pane menu",
+  "terminal.view.dragHandleTitle": "Drag onto another pane to rearrange"
 }

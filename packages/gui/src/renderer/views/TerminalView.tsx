@@ -31,6 +31,7 @@ import {
   type TerminalGroupLayout,
 } from "../terminal-layout.ts";
 import { directionalPane, type PaneBox, type PaneDirection } from "../terminal-pane-focus.ts";
+import { isMacPlatform } from "../platform.ts";
 import { terminalLinkTargetOf, type TerminalLinkMatch } from "../components/terminal/terminal-links.ts";
 import {
   TerminalChrome,
@@ -466,16 +467,27 @@ export function TerminalView({
     focusPaneInput(regionRef.current, target);
   }, []);
 
+  /** 拖拽换位:同一 tab 的 dockview 内,把 source pane 挪到 target pane 的某一侧;空掉的 group 由 dockview 回收。 */
+  const movePane = useCallback((panelId: string, targetPanelId: string, position: TerminalSplitDirection) => {
+    const api = gridApi.current;
+    const source = api?.getPanel(panelId),
+      target = api?.getPanel(targetPanelId);
+    if (!source || !target || source === target) return;
+    source.api.moveTo({ group: target.api.group, position: dockviewPosition(position) });
+    setFocusedPanelId(panelId);
+  }, []);
+
   // 分屏快捷键(与 useAppShortcuts 同一惯例:window keydown + preventDefault)。
-  // Ctrl+Shift+5/6 分割,Ctrl+Shift+W 关 pane,Ctrl+Alt+方向键 移动焦点。
+  // macOS:⌘W 关 pane、⌃⌘方向键 朝该方向分屏;其他平台:Ctrl+W 关 pane、Ctrl+Shift+方向键 分屏。
+  // 两边都用 Ctrl+Alt+方向键 切焦点。只在真的有动作时 preventDefault,没有焦点 pane 的 ⌘W 仍归窗口。
   useEffect(() => {
+    const mac = isMacPlatform();
     const onKey = (event: KeyboardEvent) => {
-      if (!event.ctrlKey) return;
       const arrow = arrowDirection(event.key);
-      if (event.shiftKey && ["5", "%"].includes(event.key)) run(event, () => splitFocused("right"));
-      else if (event.shiftKey && ["6", "^"].includes(event.key)) run(event, () => splitFocused("below"));
-      else if (event.shiftKey && event.key.toLowerCase() === "w") run(event, closeFocused);
-      else if (event.altKey && arrow) run(event, () => moveFocus(arrow));
+      if (arrow && event.ctrlKey && event.altKey && !event.metaKey) return run(event, () => moveFocus(arrow));
+      if (!(mac ? event.metaKey : event.ctrlKey)) return;
+      if (arrow && (mac ? event.ctrlKey : event.shiftKey)) run(event, () => splitFocused(splitDirectionOf(arrow)));
+      else if (event.key.toLowerCase() === "w" && !event.shiftKey && !event.altKey) closeFocused(event);
     };
     const run = (event: KeyboardEvent, action: () => void) => {
       event.preventDefault();
@@ -486,10 +498,10 @@ export function TerminalView({
       if (panelId) splitPane(panelId, direction);
       else void start(false);
     };
-    const closeFocused = () => {
+    const closeFocused = (event: KeyboardEvent) => {
       const panelId = focusedPanelIdRef.current;
       const sessionId = panelId ? sessionOfPane(groupsRef.current, panelId) : null;
-      if (panelId && sessionId) void closePane(panelId, sessionId);
+      if (panelId && sessionId) run(event, () => void closePane(panelId, sessionId));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -507,11 +519,25 @@ export function TerminalView({
       onFocusPane: focusPane,
       onClosePane: (panelId, sessionId) => void closePane(panelId, sessionId),
       onSplitPane: splitPane,
+      onMovePane: movePane,
       onTerminate: (sessionId) => void terminate(sessionId),
       openLink,
       openUrl: openUrl ?? null,
     }),
-    [closePane, confirmId, focusPane, focusedPanelId, openLink, openUrl, refit, send, splitPane, tabs, terminate],
+    [
+      closePane,
+      confirmId,
+      focusPane,
+      focusedPanelId,
+      movePane,
+      openLink,
+      openUrl,
+      refit,
+      send,
+      splitPane,
+      tabs,
+      terminate,
+    ],
   );
 
   return (
@@ -610,6 +636,12 @@ function paneBoxes(region: HTMLElement | null): readonly PaneBox[] {
 function focusPaneInput(region: HTMLElement | null, panelId: string): void {
   const host = region?.querySelector<HTMLElement>(`[data-pane-id="${panelId}"]`);
   host?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+}
+function splitDirectionOf(arrow: PaneDirection): TerminalSplitDirection {
+  return arrow === "up" ? "above" : arrow === "down" ? "below" : arrow;
+}
+function dockviewPosition(direction: TerminalSplitDirection): "left" | "right" | "top" | "bottom" {
+  return direction === "above" ? "top" : direction === "below" ? "bottom" : direction;
 }
 function arrowDirection(key: string): PaneDirection | null {
   const map: Record<string, PaneDirection> = {

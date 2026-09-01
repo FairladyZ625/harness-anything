@@ -2,6 +2,7 @@ import type { FormEvent, ReactNode } from "react";
 import type { TerminalSessionRow } from "../../../../../daemon/src/gui-s3-control.ts";
 import type { TerminalPreferences } from "../../terminal-preferences.ts";
 import { t } from "../../i18n/index.tsx";
+import { isMacPlatform } from "../../platform.ts";
 
 const shellOptions = ["default", "zsh", "bash", "sh", "fish"] as const;
 
@@ -91,8 +92,8 @@ export function TerminalChrome({
             {t("terminal.view.backendTmux")}
           </button>
         </span>
-        <span className="ml-auto font-mono text-[11px] text-text-faint" title={t("terminal.view.splitShortcut")}>
-          {t("terminal.view.shortcut")} · {t("terminal.view.splitShortcut")}
+        <span className="ml-auto font-mono text-[11px] text-text-faint" title={splitShortcutHint()}>
+          {t("terminal.view.shortcut")} · {splitShortcutHint()}
         </span>
       </header>
       <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border px-2 py-1">
@@ -236,4 +237,8 @@ function Field({ label, children }: { readonly label: string; readonly children:
       {children}
     </label>
   );
+}
+
+function splitShortcutHint(): string {
+  return t(isMacPlatform() ? "terminal.view.splitShortcutMac" : "terminal.view.splitShortcut");
 }

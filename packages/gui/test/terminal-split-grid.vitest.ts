@@ -336,22 +336,22 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(tabChips()).toHaveLength(0);
   });
 
-  it("splits and closes the focused pane from the keyboard", async () => {
+  it("splits and closes the focused pane from the keyboard (Ctrl+Shift+Arrow / Ctrl+W off macOS)", async () => {
     const { bridge } = stubBridge([sessionRow()]);
     mountView();
     await flush();
 
-    // Ctrl+Shift+5 = 向右分屏(与 useAppShortcuts 同惯例:window keydown + preventDefault)。
+    // Ctrl+Shift+→ = 向右分屏(与 useAppShortcuts 同惯例:window keydown + preventDefault)。
     act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "5", ctrlKey: true, shiftKey: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", ctrlKey: true, shiftKey: true }));
     });
     await flush();
     expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
     expect(panes()).toHaveLength(2);
 
-    // Ctrl+Shift+W 关掉当前焦点 pane(分屏后焦点落在新 pane 上)。
+    // Ctrl+W 关掉当前焦点 pane(分屏后焦点落在新 pane 上)。
     act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "W", ctrlKey: true, shiftKey: true }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", ctrlKey: true }));
     });
     await flush();
     expect(panes().map((pane) => pane.dataset.sessionId)).toEqual(["s-restore"]);
@@ -360,6 +360,119 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
       sessionId: "s-split-1",
       attachmentId: "attach-s-split-1",
     });
+  });
+
+  it("uses ⌃⌘Arrow to split and ⌘W to close on macOS, leaving ⌘W to the window with no focused pane", async () => {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+    try {
+      const { bridge } = stubBridge([sessionRow()]);
+      mountView();
+      await flush();
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", ctrlKey: true, metaKey: true }));
+      });
+      await flush();
+      expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
+      expect(panes()).toHaveLength(2);
+      const close = new KeyboardEvent("keydown", { key: "w", metaKey: true, cancelable: true });
+      act(() => {
+        window.dispatchEvent(close);
+      });
+      await flush();
+      expect(close.defaultPrevented).toBe(true);
+      expect(panes()).toHaveLength(1);
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "w", metaKey: true, cancelable: true }));
+      });
+      await flush();
+      expect(panes()).toHaveLength(0);
+      // 没有焦点 pane 时 ⌘W 不再被本页吞掉,留给窗口。
+      const orphan = new KeyboardEvent("keydown", { key: "w", metaKey: true, cancelable: true });
+      act(() => {
+        window.dispatchEvent(orphan);
+      });
+      expect(orphan.defaultPrevented).toBe(false);
+    } finally {
+      Reflect.deleteProperty(navigator, "platform");
+    }
+  });
+
+  it("rearranges panes by dragging one pane's title bar onto another pane's edge", async () => {
+    stubBridge([sessionRow()]);
+    localStorage.setItem(layoutKey, JSON.stringify(storedLayout()));
+    mountView();
+    await flush();
+    const [left, right] = panes();
+    expect([left.dataset.sessionId, right.dataset.sessionId]).toEqual(["s-restore", "s-gone"]);
+    // 落点 card 在 happy-dom 里没有尺寸:给它一个 200×100 的盒子;指针在左缘 → 放到它左边。
+    const box = () =>
+      ({
+        left: 0,
+        top: 0,
+        width: 200,
+        height: 100,
+        right: 200,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    right.getBoundingClientRect = box;
+    act(() => {
+      left.querySelector<HTMLElement>("[draggable]")!.dispatchEvent(new Event("dragstart", { bubbles: true }));
+      right.dispatchEvent(new MouseEvent("dragover", { bubbles: true, cancelable: true, clientX: 10, clientY: 50 }));
+    });
+    expect(right.querySelector<HTMLElement>('[data-testid="terminal-pane-drop"]')?.dataset.zone).toBe("left");
+    act(() => {
+      right.dispatchEvent(new MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 10, clientY: 50 }));
+    });
+    await flush();
+    expect(panes().map((pane) => pane.dataset.sessionId)).toEqual(["s-restore", "s-gone"]);
+    // 再拖到右缘:两个 pane 交换位置(死会话占位 pane 一样可以当落点)。
+    const [a, b] = panes();
+    b.getBoundingClientRect = box;
+    act(() => {
+      a.querySelector<HTMLElement>("[draggable]")!.dispatchEvent(new Event("dragstart", { bubbles: true }));
+      b.dispatchEvent(new MouseEvent("drop", { bubbles: true, cancelable: true, clientX: 190, clientY: 50 }));
+    });
+    await flush();
+    expect(panes().map((pane) => pane.dataset.sessionId)).toEqual(["s-gone", "s-restore"]);
+    expect(document.querySelector('[data-testid="terminal-pane-drop"]')).toBeNull();
+  });
+
+  it("opens a right-click menu on a pane with split/close/terminate and closes it on Escape", async () => {
+    const { bridge } = stubBridge([sessionRow()]);
+    mountView();
+    await flush();
+    const [pane] = panes();
+    act(() => {
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 30 }));
+    });
+    const menu = document.querySelector<HTMLElement>('[data-testid="terminal-pane-menu"]');
+    expect(menu).not.toBeNull();
+    expect(menu!.style.left).toBe("40px");
+    expect([...menu!.querySelectorAll("[role=menuitem]")].map((item) => item.textContent)).toEqual([
+      "Split left",
+      "Split right",
+      "Split up",
+      "Split down",
+      "Close pane",
+      "Terminate…",
+    ]);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(document.querySelector('[data-testid="terminal-pane-menu"]')).toBeNull();
+    act(() => {
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    act(() => {
+      document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]')[2].click();
+    });
+    await flush();
+    expect(document.querySelector('[data-testid="terminal-pane-menu"]')).toBeNull();
+    expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
+    expect(panes()).toHaveLength(2);
   });
 
   it("bans attaching one session into two panes by disabling it in the attach picker", async () => {

@@ -34,7 +34,7 @@
   "terminal.view.cancel": "取消",
   "terminal.view.confirmTerminate": "确认终止",
   "terminal.view.terminate": "终止…",
-  "terminal.view.splitShortcut": "Ctrl+Shift+5/6 分屏 · Ctrl+Shift+W 关 pane · Ctrl+Alt+方向键 切焦点",
+  "terminal.view.splitShortcut": "Ctrl+W 关 pane · Ctrl+Shift+方向键 分屏 · Ctrl+Alt+方向键 切焦点 · 拖标题栏换位 · 右键菜单",
   "terminal.view.splitRight": "向右分屏",
   "terminal.view.splitDown": "向下分屏",
   "terminal.view.closePane": "关闭 pane",
@@ -43,5 +43,10 @@
   "terminal.view.groupPaneCount": "{count} pane",
   "terminal.view.findInTerminal": "在终端中查找",
   "terminal.view.noSearchMatch": "没有匹配项",
-  "terminal.view.closeSearch": "关闭终端查找"
+  "terminal.view.closeSearch": "关闭终端查找",
+  "terminal.view.splitShortcutMac": "⌘W 关 pane · ⌃⌘方向键 分屏 · ⌃⌥方向键 切焦点 · 拖标题栏换位 · 右键菜单",
+  "terminal.view.splitLeft": "向左分屏",
+  "terminal.view.splitUp": "向上分屏",
+  "terminal.view.paneMenuAria": "pane 菜单",
+  "terminal.view.dragHandleTitle": "拖动到别的 pane 上换位"
 }
