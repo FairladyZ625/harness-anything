@@ -18,6 +18,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
+import { initRepo as initMigrationRepo, legacyFixture, sources } from "./migration-import.fixtures.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
@@ -57,10 +58,97 @@ test("projection recovery names and carries the reachable rebuild command", () =
     causes: ["data-shape"],
     settlesLatch: true,
   });
+  assert.deepEqual(recoveryCommandPolicy("migrate-import", "data-shape"), {
+    causes: ["data-shape"],
+    settlesLatch: true,
+  });
+  assert.equal(recoveryCommandPolicy("migrate-import", "projection"), null);
+  assert.equal(recoveryCommandPolicy("migrate-import", "infrastructure"), null);
   assert.deepEqual(recoveryCommandPolicy("receipt-show", "infrastructure"), {
     causes: ["data-shape", "infrastructure"],
     settlesLatch: false,
   });
+});
+
+test("migration import enters a data-shape latch, stays single-flight, and re-probes after apply", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-latch-migrate-import-")),
+    source = path.join(scratch, "legacy"),
+    destination = path.join(scratch, "destination"),
+    binding = { actor, source: "local" as const },
+    clock = "2026-09-01T00:00:00.000Z";
+  let injectLatch = false,
+    cell: RepoCell | undefined;
+  try {
+    legacyFixture(source);
+    initMigrationRepo(destination);
+    const sourceRoots = sources(source);
+    cell = await openRepoCell({
+      repoId: workspaceId("latch-migrate-import"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "latch-migrate-import-bootstrap",
+      now: () => clock,
+    });
+    await cell.close();
+    cell = undefined;
+    git(destination, "read-tree", "refs/ha/canonical");
+    git(destination, "checkout-index", "-a", "-f");
+    git(destination, "update-ref", "HEAD", "refs/ha/canonical");
+
+    cell = await openRepoCell({
+      repoId: workspaceId("latch-migrate-import"),
+      rootDir: canonicalRoot(destination),
+      ownerId: "latch-migrate-import-recovery",
+      now: () => clock,
+      killpoint: (point) => {
+        if (injectLatch && point === "before_event_write") {
+          injectLatch = false;
+          throw new Error("migration task entity is invalid");
+        }
+      },
+    });
+    injectLatch = true;
+    const latched = await cell.run(
+      { kind: "task-create", taskId: "task_injected_latch", title: "Injected latch" },
+      binding,
+    );
+    assert.equal(latched.outcome, "op_rejected", JSON.stringify(latched));
+    assert.match(String(latched.nextAction), /migration task entity is invalid/u);
+    assert.equal(cell.status().state, "unavailable");
+    assert.equal(cell.status().causeClass, "data-shape");
+    const cache = path.join(destination, ".harness/cache/task.sqlite"),
+      db = new DatabaseSync(cache),
+      row = db.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get() as {
+        readonly schema_version: number;
+      };
+    db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;");
+    db.close();
+    const failedProbe = await cell.run({ kind: "task-list" }, binding);
+    assert.equal(failedProbe.code, "repo_unavailable");
+    assert.match(String(failedProbe.nextAction), /kernel projection schema 999/u);
+
+    const repaired = new DatabaseSync(cache);
+    repaired.prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1").run(row.schema_version);
+    repaired.close();
+    const dryRun = await cell.run({ kind: "migrate-import", sourceRoots, dryRun: true }, binding);
+    assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
+    assert.equal((dryRun as Record<string, unknown>).mode, "dry-run");
+    assert.equal((dryRun as Record<string, unknown>).exitCode, 0);
+    assert.equal(cell.status().state, "unavailable", "a dry-run cannot claim to have repaired the latch");
+    assert.equal((await cell.run({ kind: "task-list" }, binding)).code, "repo_unavailable");
+
+    const first = cell.run({ kind: "migrate-import", sourceRoots }, binding),
+      second = await cell.run({ kind: "migrate-import", sourceRoots }, binding),
+      applied = await first;
+    assert.equal(second.outcome, "op_rejected", JSON.stringify(second));
+    assert.equal(second.code, "recovery_conflict");
+    assert.match(String(second.nextAction), /single-writer recovery ingress/u);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(cell.status().state, "attached");
+    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("projection rebuild is executable from a projection latch and settles it", async () => {
