@@ -14,8 +14,12 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
-import { compileSquadInstallAction } from "../../kernel/src/domain/squad-action-contract.ts";
+import {
+  createEntityStore,
+  getEntityKindContract,
+  makeTaskEventStore,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
@@ -109,7 +113,8 @@ test("Squad install rejects the canonical blank roster scaffold", async () => {
   try {
     assert.throws(
       () =>
-        compileSquadInstallAction({
+        getEntityKindContract("squad")!.actionCatalog!.actions.find((action) => action.id === "install")!.execution
+          .compile!({
           action: { declaration: { ...squad, roster: "## Squad Roster\n（待补写）" } },
           actor: { principal: { personId: "agent-entities-test" }, executor: null },
           source: "local",
