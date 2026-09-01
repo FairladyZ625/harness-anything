@@ -1,0 +1,18 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "allowlist-path-existence-positive-control",
+  "entries": {
+    "paths": [
+      {
+        "value": "packages",
+        "ref": "task_01130d097481420c8d59e1fe08",
+        "reason": "Existing directories are valid path-accounting targets."
+      },
+      {
+        "value": "packages/allowlist-positive-control-does-not-exist.ts",
+        "ref": "task_01130d097481420c8d59e1fe08",
+        "reason": "Positive control: a missing allowlist target must make the ratchet red."
+      }
+    ]
+  }
+}
