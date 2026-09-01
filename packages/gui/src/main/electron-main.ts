@@ -13,9 +13,12 @@ import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
+  evaluateInAppBrowserAttachment,
+  evaluateInAppBrowserUrl,
   evaluatePermissionRequest,
   evaluateWindowOpenRequest,
   HTML_ARTIFACT_PARTITION,
+  IN_APP_BROWSER_PARTITION,
   type IpcWebContentsTrustPolicy,
 } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy, isNavigableAppDocumentUrl } from "./window-config.ts";
@@ -87,10 +90,35 @@ export function installContentSecurityPolicy(): void {
     callback({ cancel: evaluateHtmlArtifactRequest(details.url).action === "deny" });
   });
   artifactSession.on("will-download", (event) => event.preventDefault());
+  const browserSession = session.fromPartition(IN_APP_BROWSER_PARTITION);
+  browserSession.setPermissionCheckHandler(() => false);
+  browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
+  browserSession.on("will-download", (event) => event.preventDefault());
 }
 
 function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
   mainWindow.webContents.on("will-attach-webview", (event, webPreferences, params) => {
+    if (params.partition === IN_APP_BROWSER_PARTITION) {
+      if (evaluateInAppBrowserAttachment(params).action === "deny") {
+        event.preventDefault();
+        return;
+      }
+      delete webPreferences.preload;
+      webPreferences.nodeIntegration = false;
+      webPreferences.nodeIntegrationInWorker = false;
+      webPreferences.nodeIntegrationInSubFrames = false;
+      webPreferences.contextIsolation = true;
+      webPreferences.sandbox = true;
+      webPreferences.webSecurity = true;
+      webPreferences.javascript = true;
+      webPreferences.plugins = false;
+      webPreferences.devTools = false;
+      webPreferences.navigateOnDragDrop = false;
+      webPreferences.webviewTag = false;
+      webPreferences.partition = IN_APP_BROWSER_PARTITION;
+      delete params.preload;
+      return;
+    }
     if (evaluateHtmlArtifactAttachment(params).action === "deny") {
       event.preventDefault();
       return;
@@ -111,6 +139,13 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
     delete params.preload;
   });
   mainWindow.webContents.on("did-attach-webview", (_event, guest) => {
+    if (guest.session === session.fromPartition(IN_APP_BROWSER_PARTITION)) {
+      guest.setWindowOpenHandler(() => ({ action: "deny" }));
+      guest.on("will-navigate", (event, url) => {
+        if (evaluateInAppBrowserUrl(url).action === "deny") event.preventDefault();
+      });
+      return;
+    }
     guest.setWindowOpenHandler(() => ({ action: "deny" }));
     guest.on("will-navigate", (event) => event.preventDefault());
     guest.on("will-frame-navigate", (event) => event.preventDefault());

@@ -35,6 +35,7 @@ export type ViewId =
   | "agentSquad"
   | "providers"
   | "terminal"
+  | "browser"
   | "system"
   | "daemonObserve"
   | "settings";
@@ -47,6 +48,7 @@ export interface DrillState {
 
 export interface AppLocation {
   view: ViewId;
+  browserUrl?: string | null;
   selectedId: string | null;
   previewId: string | null;
   focusedEntityRef: string | null;
@@ -89,6 +91,7 @@ export function goForward(state: ViewHistoryState): ViewHistoryState {
 export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
   return (
     a.view === b.view &&
+    (a.browserUrl ?? null) === (b.browserUrl ?? null) &&
     a.selectedId === b.selectedId &&
     a.previewId === b.previewId &&
     a.focusedEntityRef === b.focusedEntityRef &&

@@ -343,6 +343,12 @@ html[data-theme="light"] ::selection {
   min-height: 0;
 }
 
+.in-app-browser-webview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 /*
  * Agent Runtime 配置平面（原型 agent-runtime-prototype.html 的视觉语言）
  * 只有这些形状在 Tailwind 工具类里表达不动，或需要成对出现才有意义，才落到这里。

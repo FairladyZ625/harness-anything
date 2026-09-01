@@ -22,6 +22,7 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
+import { BrowserView } from "../src/renderer/views/BrowserView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
@@ -722,6 +723,7 @@ const VIEW_RENDERERS = {
       daemonGeneration: 1,
       tasks: FIXTURE_TASKS.map(({ taskId, title }) => ({ taskId, title })),
     }),
+  browser: () => createElement(BrowserView, { initialUrl: "https://example.com" }),
   system: () => createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: noop }),
   daemonObserve: () =>
     createElement(DaemonObserveView, {
@@ -766,7 +768,7 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     // 「在映射里但没渲染」的键在这里被导航面一致性断言拦下。
     const declared = new Set(Object.keys(VIEW_RENDERERS));
     expect([...declared].sort()).toEqual(
-      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve"].sort(),
+      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
     );
     for (const id of navViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
   });

@@ -44,6 +44,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
   terminal: "shell.nav.terminal",
+  browser: "shell.nav.browser",
   system: "shell.nav.system",
   daemonObserve: "shell.nav.daemonObserve",
   settings: "shell.nav.settings",

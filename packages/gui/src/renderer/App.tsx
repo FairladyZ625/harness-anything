@@ -50,6 +50,7 @@ import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
 import { TerminalView } from "./views/TerminalView.tsx";
+import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { useLocationRestore } from "./navigation/useLocationRestore.ts";
@@ -640,6 +641,8 @@ function AppShell() {
                 daemonGeneration={activeRepo?.generation ?? null}
                 tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
               />
+            ) : view === "browser" ? (
+              <BrowserView initialUrl={location.browserUrl} />
             ) : view === "system" ? (
               <SystemView
                 activeRepoId={activeRepoId}
