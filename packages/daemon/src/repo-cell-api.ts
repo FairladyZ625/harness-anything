@@ -127,6 +127,7 @@ export interface RepoCellApiContext {
 }
 
 export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
+  let settlingRecovery: string | null = null;
   const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
     try {
       ({ action, binding } = bindVerifiedExecutorClaim({
@@ -180,6 +181,28 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           context.latched(),
         ),
       );
+    const claimsRecovery = context.state !== "attached" && recoveryCommand?.settlesLatch === true;
+    if (claimsRecovery && settlingRecovery !== null) {
+      const nextAction = [
+        "Recovery command ",
+        `${settlingRecovery}`,
+        " already holds this repository's single-writer recovery ingress; retry ",
+        `${action.kind}`,
+        " after it settles.",
+      ].join("");
+      return Promise.resolve(
+        frameCurrent(
+          context.rejected(
+            context.operationId(action, binding, context.input.repoId, 0),
+            "recovery_conflict",
+            nextAction,
+          ),
+          [],
+          nextAction,
+        ),
+      );
+    }
+    if (claimsRecovery) settlingRecovery = action.kind;
     const failAction = (error: unknown, authorizationDecision?: AuthorizationDecision): WriteReceipt => {
       if (context.fatalCellError(error)) context.latchWith(error);
       const receipt = context.failed(
@@ -232,11 +255,23 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
-            context.state = "attached";
-            context.lastError = null;
-            context.causeClass = null;
-            context.recoveryUncertain = false;
-            context.recoveryProbe.clear();
+            if (action.kind === "migrate-import") {
+              context.recoveryProbe.clear();
+              context.attemptRecovery();
+              if (context.state !== "attached")
+                return {
+                  ...receipt,
+                  outcome: "pending",
+                  code: "repo_unavailable",
+                  nextAction: context.latched(),
+                } as WriteReceipt;
+            } else {
+              context.state = "attached";
+              context.lastError = null;
+              context.causeClass = null;
+              context.recoveryUncertain = false;
+              context.recoveryProbe.clear();
+            }
           }
           context.replica.kick();
           return receipt;
@@ -249,7 +284,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         () => undefined,
         () => undefined,
       );
-      return pending.catch((error) => failAction(error, queuedDecision));
+      return pending
+        .catch((error) => failAction(error, queuedDecision))
+        .finally(() => {
+          if (claimsRecovery) settlingRecovery = null;
+        });
     };
     if (action.kind === "squad-run") {
       if (!isJsonObject(action))
