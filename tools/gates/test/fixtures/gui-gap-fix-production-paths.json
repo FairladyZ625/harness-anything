@@ -12,15 +12,7 @@
     "module": "gui"
   },
   {
-    "path": "packages/gui/src/renderer/components/TerminalDock.tsx",
-    "module": "gui"
-  },
-  {
     "path": "packages/gui/src/renderer/components/terminal/TerminalPane.tsx",
-    "module": "gui"
-  },
-  {
-    "path": "packages/gui/src/renderer/components/terminal/dock-resize.ts",
     "module": "gui"
   },
   {
