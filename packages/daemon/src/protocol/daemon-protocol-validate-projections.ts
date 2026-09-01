@@ -15,7 +15,7 @@ import {
   warningArray,
 } from "./daemon-protocol-validate-entities.ts";
 import { blockingAssessment, queryPageRow } from "./daemon-protocol-validate-task.ts";
-import { decisionStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
+import { decisionStateWords, factLivenessWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 export function agendaTask(value: unknown): boolean {
@@ -208,7 +208,7 @@ function fullFactInvalid(row: unknown): boolean {
       "liveness",
     ]) ||
     row.schema !== "task-fact-row/v1" ||
-    !["standing", "superseded_fact"].includes(String(row.liveness)) ||
+    !statusWord(factLivenessWords, row.liveness) ||
     !["low", "medium", "high"].includes(String(row.confidence)) ||
     !["semantic", "episodic", "procedural"].includes(String(row.memoryClass)) ||
     !stringArray(row.memoryTags) ||

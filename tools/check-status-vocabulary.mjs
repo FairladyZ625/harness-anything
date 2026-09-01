@@ -24,13 +24,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { daemonStatusVocabularyProjectionFinding } from "./generate-daemon-status-vocabulary.mjs";
 
 const REGISTER = "../packages/kernel/src/domain/status-vocabulary.ts";
 const KERNEL_DOMAIN = "packages/kernel/src/domain";
 const GUI_MODEL = "packages/gui/src/renderer/model/types.ts";
 const GUI_ADAPTER = "packages/gui/src/renderer/triadic-data.ts";
 const DAEMON_PROTOCOL = "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts";
-const DAEMON_MIRROR_CONST = /(?:Status|State|Phase|Disposition|Verdict|Outcome)Words$/u;
+const DAEMON_MIRROR_CONST = /(?:Status|State|Phase|Disposition|Verdict|Outcome|Liveness)Words$/u;
 const LOCAL_MIRROR_CONST =
   /const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*(?::[^=\n]+)?=\s*(?:Object\.freeze\(\s*)?\[([^\]]*)\]\s*as\s+const/gu;
 const LOCAL_MIRROR_ALIAS = /export\s+const\s+([A-Za-z_][A-Za-z0-9_]*Words)\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*;/gu;
@@ -279,23 +280,23 @@ export function checkGuiMirrorAgreement(register, guiModelText, guiAdapterText, 
 }
 
 export function checkDaemonMirrorAgreement(register, daemonText, findings = []) {
-  // The daemon vocabulary module is imported by the wire contract on the CLI's eager
-  // startup path, so it carries plain-data mirrors. This check makes those mirrors
-  // ratchet-locked to the register instead of being free-floating hand copies.
+  // Core wire vocabularies are generated from their kernel runtime authorities because
+  // the thin CLI path must stay dependency-free. Remaining mirrors stay parity-checked.
   const registered = register.statusVocabularies.filter((vocabulary) => vocabulary.module === DAEMON_PROTOCOL);
-  const aliases = [...daemonText.matchAll(LOCAL_MIRROR_ALIAS)].map((match) => {
+  const localDeclarations = [...daemonText.matchAll(LOCAL_MIRROR_CONST)].map((match) => ({
+      anchor: match[1],
+      words: literalWords(match[2]),
+    })),
+    aliasDeclarations = [...daemonText.matchAll(LOCAL_MIRROR_ALIAS)],
+    aliases = aliasDeclarations.map((match) => {
       const source = register.statusVocabularies.find((vocabulary) => vocabulary.anchor === match[2]);
       if (!source)
         findings.push(`${DAEMON_PROTOCOL}#${match[1]}: mirror alias ${match[2]} has no registered vocabulary`);
       return { anchor: match[1], words: source?.words ?? [] };
     }),
-    declared = [
-      ...[...daemonText.matchAll(LOCAL_MIRROR_CONST)].map((match) => ({
-        anchor: match[1],
-        words: literalWords(match[2]),
-      })),
-      ...aliases,
-    ].filter((entry) => DAEMON_MIRROR_CONST.test(entry.anchor));
+    declared = [...localDeclarations, ...aliases].filter((entry) => DAEMON_MIRROR_CONST.test(entry.anchor));
+  const projectionFinding = daemonStatusVocabularyProjectionFinding(daemonText);
+  if (projectionFinding) findings.push(`${DAEMON_PROTOCOL}: ${projectionFinding}`);
   for (const entry of declared) {
     const match = registered.find(
       (vocabulary) => vocabulary.anchor === entry.anchor && sameWords(vocabulary.words, entry.words),
@@ -368,7 +369,7 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    "Status vocabulary check passed (register, kernel vocabularies, and GUI mirrors agree; unknown stays unknown).",
+    "Status vocabulary check passed (register, kernel vocabularies, generated daemon mirrors, and GUI mirrors agree).",
   );
 }
 

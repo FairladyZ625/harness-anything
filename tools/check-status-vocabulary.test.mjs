@@ -159,13 +159,16 @@ test("bypass fixture: smoothing an unknown decision state into a neighbour is re
 });
 
 test("bypass fixture: a daemon wire mirror drifting from the kernel vocabulary is refused", () => {
-  // The wire contract's eager vocabulary dependency carries plain-data mirrors, and
-  // the gate must keep them from silently diverging.
+  // Mutating the build-time projection must fail both freshness and parity.
   const daemonText = readFileSync(
     path.join(repoRoot, "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts"),
     "utf8",
   ).replace('  "superseded",\n', "");
   const findings = checkDaemonMirrorAgreement(register, daemonText);
+  assert.ok(
+    findings.some((finding) => finding.includes("Generated daemon status vocabulary is stale")),
+    findings.join("\n"),
+  );
   assert.ok(
     findings.some((finding) => finding.includes("decisionStateWords") && finding.includes("drift")),
     findings.join("\n"),

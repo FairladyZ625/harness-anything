@@ -20,7 +20,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "build": "node ../../tools/generate-daemon-status-vocabulary.mjs --check && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "prepack": "npm run build"
   },
   "bin": {

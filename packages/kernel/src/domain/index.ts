@@ -69,6 +69,8 @@ export {
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
+export { queryPayloadValidation } from "./query-payload-validation.ts";
+export type { QueryPayloadKind, QueryPayloadValidationIssue } from "./query-payload-validation.ts";
 
 export {
   assessTransitionDocument,

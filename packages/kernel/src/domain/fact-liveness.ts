@@ -1,4 +1,5 @@
-export type FactLiveness = "standing" | "superseded_fact";
+export const factLivenessStates = ["standing", "superseded_fact"] as const;
+export type FactLiveness = (typeof factLivenessStates)[number];
 export interface FactLivenessInput {
   readonly ref: string;
 }

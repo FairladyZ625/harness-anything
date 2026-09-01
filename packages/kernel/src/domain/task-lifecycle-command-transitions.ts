@@ -232,7 +232,7 @@ export const block: Transition = {
   from: "planned|active|in_review",
   proof: [],
   eventType: "task_transitioned",
-  matches: (command) => command.type === "TransitionTask" && command.status === "blocked",
+  matches: (command) => command.type === "TransitionTask" && command.status === "blocked" && !command.force,
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -262,7 +262,8 @@ export const reinstate: Transition = {
   matches: (command, snapshot) =>
     command.type === "TransitionTask" &&
     (reinstateTaskTargets as readonly DomainStatus[]).includes(command.status) &&
-    snapshot.task?.status === "cancelled",
+    snapshot.task?.status === "cancelled" &&
+    !command.force,
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -296,7 +297,10 @@ export const returnToPlanned: Transition = {
   proof: ["auditedReason"],
   eventType: "task_transitioned",
   matches: (command, snapshot) =>
-    command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
+    command.type === "TransitionTask" &&
+    command.status === "planned" &&
+    snapshot.task?.status === "active" &&
+    !command.force,
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
@@ -323,7 +327,7 @@ export const unblock: Transition = {
   from: "blocked",
   proof: [],
   eventType: "task_transitioned",
-  matches: (command) => command.type === "TransitionTask" && command.status === "active",
+  matches: (command) => command.type === "TransitionTask" && command.status === "active" && !command.force,
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);

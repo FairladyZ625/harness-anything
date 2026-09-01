@@ -7,12 +7,49 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const judgments = ["closeoutReadiness", "factLiveness", "coverageOf", "blockingOf"];
-const canonical = new Map([
-  ["closeoutReadiness", "packages/kernel/src/domain/closeout-readiness.ts"],
-  ["factLiveness", "packages/kernel/src/domain/fact-liveness.ts"],
-  ["coverageOf", "packages/kernel/src/domain/decision-coverage.ts"],
-  ["blockingOf", "packages/kernel/src/domain/task-blocking.ts"],
+const judgments = Object.freeze([
+  {
+    id: "closeoutReadiness",
+    symbol: "closeoutReadiness",
+    canonical: "packages/kernel/src/domain/closeout-readiness.ts",
+    declaration: "function",
+  },
+  {
+    id: "factLiveness",
+    symbol: "factLiveness",
+    canonical: "packages/kernel/src/domain/fact-liveness.ts",
+    declaration: "function",
+  },
+  {
+    id: "coverageOf",
+    symbol: "coverageOf",
+    canonical: "packages/kernel/src/domain/decision-coverage.ts",
+    declaration: "function",
+  },
+  {
+    id: "blockingOf",
+    symbol: "blockingOf",
+    canonical: "packages/kernel/src/domain/task-blocking.ts",
+    declaration: "function",
+  },
+  {
+    id: "startability",
+    symbol: "canStartExecution",
+    canonical: "packages/kernel/src/domain/task-lifecycle-command-transitions.ts",
+    declaration: "function",
+  },
+  {
+    id: "queryPayloadValidation",
+    symbol: "queryPayloadValidation",
+    canonical: "packages/kernel/src/domain/query-payload-validation.ts",
+    declaration: "function",
+  },
+  {
+    id: "statusVocabulary",
+    symbol: "statusVocabularies",
+    canonical: "packages/kernel/src/domain/status-vocabulary-catalog.ts",
+    declaration: "const",
+  },
 ]);
 const requiredConsumers = new Map([
   ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts", "closeoutReadiness("],
@@ -23,21 +60,35 @@ const requiredConsumers = new Map([
   ["packages/kernel/src/projection/cold-rebuild-source.ts#liveness", "factLiveness("],
   ["packages/daemon/src/repo-cell.ts#closeout", "closeoutReadiness("],
   ["packages/daemon/src/repo-cell.ts#blocking", "blockingOf("],
+  ["packages/kernel/src/domain/task-action-capability.ts", "canStartExecution("],
+  ["packages/kernel/src/domain/status-vocabulary.ts", 'from "./status-vocabulary-catalog.ts"'],
+  [
+    "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#generated-start",
+    "// daemon-status-vocabulary:generated:start",
+  ],
+  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#task", "export const taskStatusWords = ["],
+  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#decision", "export const decisionStateWords = ["],
+  ["packages/daemon/src/protocol/daemon-protocol-vocabulary.ts#fact", "export const factLivenessWords = ["],
 ]);
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   const findings = [],
     files = walk(root, path.join(root, "packages"));
-  for (const name of judgments) {
-    const definition = new RegExp(`(?:export\\s+)?function\\s+${name}\\s*\\(`, "gu"),
+  for (const judgment of judgments) {
+    const definition =
+        judgment.declaration === "function"
+          ? new RegExp(`(?:export\\s+)?function\\s+${judgment.symbol}\\s*\\(`, "gu")
+          : new RegExp(`(?:export\\s+)?const\\s+${judgment.symbol}(?:\\s*:[^=]+)?\\s*=`, "gu"),
       hits = [];
     for (const file of files) {
       const count = [...readFileSync(file, "utf8").matchAll(definition)].length;
       for (let index = 0; index < count; index += 1) hits.push(relative(root, file));
     }
-    const expected = canonical.get(name);
-    if (hits.length !== 1 || hits[0] !== expected)
-      findings.push(`${name}: expected one definition at ${expected}; found ${hits.length ? hits.join(", ") : "none"}`);
+    if (hits.length !== 1 || hits[0] !== judgment.canonical)
+      findings.push(
+        `${judgment.id}: expected one definition of ${judgment.symbol} at ${judgment.canonical}; ` +
+          `found ${hits.length ? hits.join(", ") : "none"}`,
+      );
   }
   for (const [key, call] of requiredConsumers) {
     const file = key.split("#")[0],
@@ -56,6 +107,8 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
     triadic = read(root, "packages/gui/src/renderer/triadic-data.ts"),
     guiTriadic = read(root, "packages/gui/src/renderer/model/triadic.ts");
+  const daemonDispatch = read(root, "packages/daemon/src/repo-cell-action-dispatch.ts"),
+    taskSurface = read(root, "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts");
   if (/function\s+(?:deriveBlocking|closeoutReadiness|gateResults)\s*\(/u.test(taskAdapter))
     findings.push("packages/gui/src/renderer/task-adapter.ts: recomputes closeout or blocking judgment");
   if (
@@ -66,6 +119,16 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     findings.push("packages/gui/src/renderer/triadic-data.ts: must consume projected fact liveness");
   if (/function\s+coverageOf\s*\(/u.test(guiTriadic))
     findings.push("packages/gui/src/renderer/model/triadic.ts: carries a renderer coverage algorithm");
+  if (
+    /preview\s*&&\s*!current\.snapshot\.task|preview\s*&&\s*current\.snapshot\.lease|isTerminalStatus\(current\.snapshot\.task\.status\)/u.test(
+      daemonDispatch,
+    )
+  )
+    findings.push("packages/daemon/src/repo-cell-action-dispatch.ts: carries a second Task startability preview");
+  if (/(?:requiredWhen|allowedWhen):\s*\{\s*field:\s*"status"/su.test(taskSurface))
+    findings.push(
+      "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts: projects cancellation eligibility into the CLI",
+    );
   return findings;
 }
 
@@ -108,7 +171,7 @@ async function main() {
     for (const finding of findings) console.error(`- ${finding}`);
     process.exit(1);
   }
-  console.log("Domain judgment single-definition check passed (four judgments resolve to kernel domain services).");
+  console.log("Domain judgment single-definition check passed (seven judgments resolve to kernel domain services).");
 }
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
