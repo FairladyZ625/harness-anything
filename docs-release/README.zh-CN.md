@@ -115,6 +115,13 @@ daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、�
 
 → **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**
 
+## 恢复一个拒绝一切命令的仓库
+
+升级后的 daemon 可能拒收台账里仍带 legacy migration 事件的仓库。这种拒收有明确的原地恢复
+路径：读症状、预演 fact rekey、对账计数、执行、验证幂等，并确认仓库 re-attach。
+
+→ **[migration-legacy-ledger-recovery.zh-CN.md](migration-legacy-ledger-recovery.zh-CN.md)**
+
 ## 正确标注每一次写入的归属
 
 human、agent、system、本地 CLI 与已认证 daemon 并不走同一条身份通道。配置 shell 或团队

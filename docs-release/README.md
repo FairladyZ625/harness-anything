@@ -128,6 +128,14 @@ mirrors, and the remote boundary.
 
 → **[operations-server-daemon.md](operations-server-daemon.md)**
 
+## Recover a repository that refuses every command
+
+An upgraded daemon can refuse a repository whose ledger still carries legacy migration events.
+That refusal has a defined in-place recovery: read the symptom, preview the fact rekey, reconcile
+the counts, apply, prove idempotency, and confirm the repository re-attaches.
+
+→ **[migration-legacy-ledger-recovery.md](migration-legacy-ledger-recovery.md)**
+
 ## Attribute every write correctly
 
 Human, agent, system, local CLI, and authenticated daemon writes do not use the
