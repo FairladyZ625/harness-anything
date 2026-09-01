@@ -65,7 +65,13 @@ export function authorizeRepoCellAction(input: {
   return authorizeAction(envelope, context);
 }
 
-/** Concrete durable routes. Every case reaches the same port; no route grants authority here. */
+/**
+ * Concrete durable routes. Every case reaches the same port; no route grants authority here.
+ * The exhaustive per-action cases look like duplication of durablePolicyActions, but they are
+ * the static witness tools/gates/ontology-durable-action-authorization.mjs traces: each kind's
+ * literal must sit in a region that provably reaches AuthorizationPort. Collapsing this into an
+ * inventory-membership check breaks that trace for every action routed only here.
+ */
 export function authorizeDurableRepoCellAction(
   input: Parameters<typeof authorizeRepoCellAction>[0],
 ): AuthorizationDecision | null {
@@ -130,9 +136,13 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "doc-submit":
       return authorizeRepoCellAction(input);
+    case "fact-reclassify":
+      return authorizeRepoCellAction(input);
     case "fact-record":
       return authorizeRepoCellAction(input);
     case "fact-rekey":
+      return authorizeRepoCellAction(input);
+    case "fact-type-register":
       return authorizeRepoCellAction(input);
     case "ledger-migrate":
       return authorizeRepoCellAction(input);

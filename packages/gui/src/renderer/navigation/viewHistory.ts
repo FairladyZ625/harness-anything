@@ -26,6 +26,7 @@ export type ViewId =
   | "factDetail"
   | "graph"
   | "presets"
+  | "entities"
   | "adapters"
   | "sessions"
   | "schedules"

@@ -1,7 +1,4 @@
 import type { VerticalDefinition } from "../schemas/registry.ts";
-import taskFrontmatterJsonSchema from "../../schemas/json/task-frontmatter.schema.json" with { type: "json" };
-import decisionPackageJsonSchema from "../../schemas/json/decision-package.schema.json" with { type: "json" };
-import factEventJsonSchema from "../../schemas/json/fact-event.schema.json" with { type: "json" };
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
@@ -15,15 +12,12 @@ import {
 } from "./base-entity.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
 import { DEFAULT_POLICY } from "./default-policy.ts";
-import {
-  explainEntityJsonSchema,
-  type EntityDocumentJsonSchema,
-  type EntityJsonObjectSchema,
-  type EntityJsonSchemaNode,
-} from "./entity-json-schema.ts";
+import { explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { decisionSchema, executionSchema, factSchema, reviewSchema, taskSchema } from "./entity-document-schemas.ts";
 import {
   compileDecisionReckonAction,
   compileFactRecordAction,
+  compileFactReclassifyAction,
   decisionActionCompiler,
   relationActionCompiler,
   type EntityActionCompileHook,
@@ -344,63 +338,6 @@ const scheduleIdentity = requireEntityTypeContract("schedule").id;
 const settingsIdentity = requireEntityTypeContract("settings").id;
 const personIdentity = requireEntityTypeContract("person").id;
 const relationIdentity = requireEntityTypeContract("relation").id;
-const executionIdPattern = executionIdentity.pattern;
-const reviewIdPattern = reviewIdentity.pattern;
-const lifecycleTaskIdPattern = taskIdentity.pattern;
-const opaqueObject = (): EntityJsonObjectSchema => ({
-  type: "object",
-  properties: {},
-  required: [],
-  additionalProperties: true,
-});
-const nullableOpaqueObject = (): EntityJsonSchemaNode => ({
-  type: "object",
-  properties: {},
-  required: [],
-  additionalProperties: true,
-  "x-nullable": true,
-});
-
-function explainableSchema(
-  id: string,
-  source: Readonly<{ required?: readonly string[]; properties?: Readonly<Record<string, unknown>> }>,
-): EntityDocumentJsonSchema {
-  const properties = Object.fromEntries(
-    Object.entries(source.properties ?? {}).map(([name, node]) => [name, explainableNode(node)]),
-  );
-  return {
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: id,
-    type: "object",
-    properties,
-    required: source.required ?? [],
-    additionalProperties: false,
-  };
-}
-
-function explainableNode(value: unknown): EntityJsonSchemaNode {
-  const node = typeof value === "object" && value !== null ? (value as Readonly<Record<string, unknown>>) : {};
-  const description = typeof node.description === "string" ? node.description : undefined;
-  const inferred =
-    typeof node.type === "string"
-      ? node.type
-      : typeof node.const === "string"
-        ? "string"
-        : typeof node.const === "number"
-          ? "number"
-          : typeof node.const === "boolean"
-            ? "boolean"
-            : "object";
-  if (inferred === "string") return { type: "string", ...(description ? { description } : {}) };
-  if (inferred === "number" || inferred === "integer" || inferred === "boolean" || inferred === "null")
-    return { type: inferred, ...(description ? { description } : {}) };
-  if (inferred === "array") return { type: "array", items: opaqueObject(), ...(description ? { description } : {}) };
-  return { ...opaqueObject(), ...(description ? { description } : {}) };
-}
-
-const taskSchema = explainableSchema("task-frontmatter", taskFrontmatterJsonSchema);
-const factSchema = explainableSchema("fact-event", factEventJsonSchema);
-const decisionSchema = explainableSchema("decision-package", decisionPackageJsonSchema);
 const decisionFramework = Object.freeze({
   schemaId: "decision-package",
   mutabilityContract: "entityFieldContracts" as const,
@@ -450,74 +387,6 @@ const factFramework = Object.freeze({
   ]),
   storageForm: "lifecycle" as const,
 });
-const executionSchema: EntityDocumentJsonSchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "Execution/v1",
-  type: "object",
-  properties: {
-    schema: { type: "string", const: "execution/v1" },
-    executionId: { type: "string", pattern: executionIdPattern, minLength: 1 },
-    taskId: { type: "string", pattern: lifecycleTaskIdPattern, minLength: 1 },
-    nodeId: { type: "string", const: "implementation" },
-    iteration: { type: "integer" },
-    state: { type: "string", enum: ["active", "submitted", "accepted", "changes_requested", "abandoned"] },
-    actor: opaqueObject(),
-    claimedAt: { type: "string", minLength: 1 },
-    submittedAt: { type: "string", minLength: 1, "x-nullable": true },
-    closedAt: { type: "string", minLength: 1, "x-nullable": true },
-    submission: nullableOpaqueObject(),
-  },
-  required: [
-    "schema",
-    "executionId",
-    "taskId",
-    "nodeId",
-    "iteration",
-    "state",
-    "actor",
-    "claimedAt",
-    "submittedAt",
-    "closedAt",
-    "submission",
-  ],
-  additionalProperties: false,
-};
-const reviewSchema: EntityDocumentJsonSchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "Review/v1",
-  type: "object",
-  properties: {
-    schema: { type: "string", const: "review/v1" },
-    reviewId: { type: "string", pattern: reviewIdPattern, minLength: 1 },
-    taskId: { type: "string", pattern: lifecycleTaskIdPattern, minLength: 1 },
-    executionId: { type: "string", pattern: executionIdPattern, minLength: 1 },
-    verdict: { type: "string", enum: ["approved", "changes_requested", "dismissed"] },
-    actor: opaqueObject(),
-    capabilityRef: { type: "string", minLength: 1 },
-    reason: { type: "string", minLength: 1 },
-    evidenceChecked: { type: "array", items: { type: "string", minLength: 1 } },
-    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$" },
-    iteration: { type: "integer" },
-    contentDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
-    reviewedAt: { type: "string", minLength: 1 },
-  },
-  required: [
-    "schema",
-    "reviewId",
-    "taskId",
-    "executionId",
-    "verdict",
-    "actor",
-    "capabilityRef",
-    "reason",
-    "evidenceChecked",
-    "commitSha",
-    "iteration",
-    "contentDigest",
-    "reviewedAt",
-  ],
-  additionalProperties: false,
-};
 
 const relationsFor = (kind: string): EntityKindContract["relations"] => {
   const edges = canonicalRelationDirections
@@ -565,7 +434,17 @@ const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
     executableAction("fact", factIdentity, "record", "fact-record", compileFactRecordAction, factExposure),
+    executableAction("fact", factIdentity, "reclassify", "fact-reclassify", compileFactReclassifyAction, factExposure),
+    executableAction(
+      "fact",
+      factIdentity,
+      "type-register",
+      "fact-type-register",
+      compileFactRecordAction,
+      factExposure,
+    ),
     executableAction("fact", factIdentity, "search", "fact-search", null, factExposure, true),
+    executableAction("fact", factIdentity, "type-list", "fact-type-list", null, factExposure, true),
     executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
   ]),
 });

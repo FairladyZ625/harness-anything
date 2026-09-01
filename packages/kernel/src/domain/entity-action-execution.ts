@@ -8,6 +8,7 @@ import { deriveRelationId } from "./entity-relation.ts";
 import { compileRelationCreatedEvent, compileRelationRetiredEvent, type RelationEventV1 } from "./relation-event.ts";
 import {
   factMemoryTags,
+  validDomainType,
   type FactConfidence,
   type FactEventDraftV1,
   type FactEventV1,
@@ -78,12 +79,14 @@ export type EntityActionCompileHook = (input: EntityActionCompileInput) => Entit
 export function compileFactRecordAction(input: EntityActionCompileInput): EntityActionDraft {
   const action = input.action,
     confidence = action.confidence as FactConfidence,
+    domainTypes = stringList(action.domainTypes),
     memoryClass = action.memoryClass as FactMemoryClass,
     memoryTags = stringList(action.memoryTags),
     observedAt = typeof action.observedAt === "string" ? action.observedAt : input.occurredAt;
   if (
     !(["low", "medium", "high"] as const).includes(confidence) ||
     !(["semantic", "episodic", "procedural"] as const).includes(memoryClass) ||
+    domainTypes.some((domainType) => !validDomainType(domainType)) ||
     memoryTags.some((tag) => !factMemoryTags.includes(tag as never))
   )
     invalid(input, "Fact classification is invalid.");
@@ -119,6 +122,8 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         evidenceSource: requiredText(input, action.evidenceSource, "evidenceSource"),
         observedAt,
         confidence,
+        ...(domainTypes.length ? { domainTypes } : {}),
+        ...(typeof action.registersDomainType === "string" ? { registersDomainType: action.registersDomainType } : {}),
         memoryClass,
         memoryTags: memoryTags as FactEventV1["payload"]["memoryTags"],
         provenance: [sessionProvenance(input.session, input.occurredAt)],
@@ -130,6 +135,22 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
               },
             }
           : {}),
+      },
+    },
+  };
+}
+
+export function compileFactReclassifyAction(input: EntityActionCompileInput): EntityActionDraft {
+  const recorded = compileFactRecordAction(input);
+  if (recorded.kind !== "fact") throw new Error("fact reclassification compiler produced a non-Fact draft");
+  return {
+    kind: "fact",
+    event: {
+      ...recorded.event,
+      type: "fact_reclassified",
+      payload: {
+        ...recorded.event.payload,
+        reclassificationRationale: requiredText(input, input.action.rationale, "rationale"),
       },
     },
   };

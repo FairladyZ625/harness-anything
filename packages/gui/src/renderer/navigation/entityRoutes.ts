@@ -53,6 +53,14 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
     if (!presetId) return null;
     return { view: "presets", focusedEntityRef: `preset/${presetId}` };
   }
+  // entitydoc/<kind> → 实体说明面内的实体详情(dec_2935057783CD5D56E9F287AE4D CH4):
+  // 与 preset/<id> 同一条「目录页内详情」路径——落 entities 视图,focusedEntityRef
+  // 区分目录/详情,推栈回撤原路返回。
+  if (ref.startsWith("entitydoc/")) {
+    const kind = ref.split("/")[1];
+    if (!kind) return null;
+    return { view: "entities", focusedEntityRef: `entitydoc/${kind}` };
+  }
   // 会话页的 Task 详情反向入口只落单会话段并展开该任务组;小队编排当前没有跨页
   // producer,因此不预埋对应的 consumer 路由。
   if (ref.startsWith("tasksessions/")) {

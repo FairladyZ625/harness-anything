@@ -12,6 +12,7 @@ import {
   HourglassMedium,
   Clock,
   FileHtml,
+  BookOpen,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -34,6 +35,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   factDetail: "shell.nav.factDetail",
   graph: "shell.nav.graph",
   presets: "shell.nav.presets",
+  entities: "shell.nav.entities",
   adapters: "shell.nav.adapters",
   sessions: "shell.nav.sessions",
   schedules: "shell.nav.schedules",
@@ -87,6 +89,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "system",
     labelKey: "shell.nav.systemGroup",
     items: [
+      { id: "entities", icon: <BookOpen weight="duotone" /> },
       { id: "presets", icon: <Stack weight="duotone" /> },
       { id: "adapters", icon: <PlugsConnected weight="duotone" /> },
       { id: "system", icon: <GearSix weight="duotone" /> },

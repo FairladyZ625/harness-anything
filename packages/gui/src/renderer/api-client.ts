@@ -22,7 +22,7 @@ import type {
   WorkspaceSummaryRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
-import { isRendererRecord } from "./result-validation.ts";
+import { isFactDomainTypeSummaryRow, isRendererRecord, type FactDomainTypeSummaryRow } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
 
@@ -139,6 +139,7 @@ export interface RelationFactFacetSuccess {
   readonly ok: true;
   readonly facet: "facts";
   readonly facts: ReadonlyArray<RelationFactSummaryRow>;
+  readonly domainTypes: ReadonlyArray<FactDomainTypeSummaryRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 export type WorkspaceSummarySuccess = WorkspaceSummaryRead;
@@ -802,7 +803,9 @@ function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
     result.ok !== true ||
     result.facet !== "facts" ||
     !Array.isArray(result.facts) ||
-    !result.facts.every(isRelationFactSummaryRow)
+    !result.facts.every(isRelationFactSummaryRow) ||
+    !Array.isArray(result.domainTypes) ||
+    !result.domainTypes.every(isFactDomainTypeSummaryRow)
   ) {
     throw new Error(localErrorHint(value, "Relation fact facet bridge returned an invalid result."));
   }
@@ -810,6 +813,7 @@ function readRelationFactFacetResult(value: unknown): RelationFactFacetSuccess {
     ok: true,
     facet: "facts",
     facts: result.facts,
+    domainTypes: result.domainTypes,
     warnings: Array.isArray(result.warnings) ? result.warnings : [],
   };
 }

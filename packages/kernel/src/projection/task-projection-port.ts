@@ -14,6 +14,7 @@ import type {
   DecisionProjectionRead,
   DocumentProjectionRead,
   FactAnchorProjectionRead,
+  FactDomainTypeProjectionRead,
   FactGraphProjectionRead,
   FactProjectionRead,
   FactProjectionSearchRead,
@@ -124,6 +125,7 @@ export interface TaskProjection {
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;
+  readonly listFactDomainTypes: () => FactDomainTypeProjectionRead;
   readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead;
   readonly readFactGraph: () => FactGraphProjectionRead;
   readonly admitDecision: (event: DecisionEventV1) => void;

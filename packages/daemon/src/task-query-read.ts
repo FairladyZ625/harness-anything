@@ -91,7 +91,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function relationGraphFacet(query: DaemonRelationGraphFacetPayload): DaemonRelationGraphFacetResult {
-    const emptyRows = { edges: [], coverageRows: [], factAnchors: [], facts: [] } as const;
+    const emptyRows = { edges: [], coverageRows: [], factAnchors: [], facts: [], domainTypes: [] } as const;
     if (query.facet === "runtimeEdges") {
       return {
         ok: true,
@@ -120,7 +120,8 @@ export function makeTaskQueryReadModel(input: {
       };
     }
     if (query.facet === "facts") {
-      const read = projection.searchFacts({});
+      const read = projection.searchFacts({}),
+        domainTypes = projection.listFactDomainTypes();
       return {
         ok: true,
         facet: "facts",
@@ -136,7 +137,8 @@ export function makeTaskQueryReadModel(input: {
                 : ("finding" as const),
           ...(row.taskId === undefined ? {} : { taskId: row.taskId }),
         })),
-        warnings: relationFacetWarnings(read.status),
+        domainTypes: domainTypes.domainTypes,
+        warnings: relationFacetWarnings(read.status === "ready" ? domainTypes.status : read.status),
         ...projectionCut(read),
       };
     }

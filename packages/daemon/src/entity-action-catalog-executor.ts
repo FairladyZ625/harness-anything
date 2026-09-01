@@ -13,6 +13,7 @@ import {
   relationEventWritePlan,
   requireEntityStoreKindContract,
   timestamp,
+  validDomainType,
   type AuthorizationDecision,
   type CanonicalEventCut,
   type CanonicalEventStore,
@@ -25,6 +26,7 @@ import {
   type EntityUpsertBundle,
   type EventPublicationKillpoint,
   type FactConfidence,
+  type FactDomainType,
   type FactEventV1,
   type FactMemoryClass,
   type FactSearchFilters,
@@ -79,6 +81,7 @@ export function makeEntityActionCatalogExecutor(input: {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
       if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
+      if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
       if (action.kind === "fact-show")
         return readReceipt("fact-show", facts.show(requiredCommandText(action.factId, "factId")));
       if (action.kind === "decision-list") {
@@ -188,7 +191,9 @@ export function makeEntityActionCatalogExecutor(input: {
               rawAction,
               decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
             )
-          : rawAction
+          : contract.id === "reclassify"
+            ? reclassificationAction(rawAction, input.projection)
+            : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
@@ -493,6 +498,26 @@ export function deriveActionResult(
     nextActions: Object.freeze([
       ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
     ]),
+  };
+}
+
+function reclassificationAction(
+  action: Readonly<Record<string, unknown>>,
+  projection: TaskProjection,
+): Readonly<Record<string, unknown>> {
+  const factId = requiredCommandText(action.factId, "factId"),
+    read = projection.readFact(factId),
+    fact = read.fact;
+  if (!fact) reject("invalid_command", `Fact fact/${factId} does not exist.`);
+  return {
+    ...action,
+    ...(fact.taskId ? { taskId: fact.taskId } : {}),
+    statement: fact.statement,
+    evidenceSource: fact.evidenceSource,
+    observedAt: fact.observedAt,
+    confidence: fact.confidence,
+    memoryClass: fact.memoryClass,
+    memoryTags: fact.memoryTags,
   };
 }
 
@@ -874,6 +899,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
       "query",
       "taskId",
       "confidence",
+      "domainType",
       "memoryClass",
       "observedAfter",
       "observedBefore",
@@ -882,7 +908,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
     ],
     unknownField = unknownFieldViolation(action, allowed);
   if (unknownField) reject("invalid_command", `Fact search filters contain an ${unknownField}`);
-  const { query, taskId, confidence, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
+  const { query, taskId, confidence, domainType, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
   if (query !== undefined && (typeof query !== "string" || !query.trim()))
     reject("invalid_command", "Fact search query must be a non-empty string.");
   if (taskId !== undefined && (typeof taskId !== "string" || !taskId.trim()))
@@ -898,6 +924,8 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
       !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as FactMemoryClass))
   )
     reject("invalid_command", "Fact search memory class is invalid.");
+  if (domainType !== undefined && !validDomainType(domainType))
+    reject("invalid_command", "Fact search domain type is invalid.");
   if (observedAfter !== undefined && !timestamp(observedAfter))
     reject("invalid_command", "observedAfter must be an ISO-8601 UTC timestamp.");
   if (observedBefore !== undefined && !timestamp(observedBefore))
@@ -916,6 +944,7 @@ function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilte
     ...(typeof query === "string" ? { query } : {}),
     ...(typeof taskId === "string" ? { taskId } : {}),
     ...(typeof confidence === "string" ? { confidence: confidence as FactConfidence } : {}),
+    ...(typeof domainType === "string" ? { domainType: domainType as FactDomainType } : {}),
     ...(typeof memoryClass === "string" ? { memoryClass: memoryClass as FactMemoryClass } : {}),
     ...(typeof observedAfter === "string" ? { observedAfter } : {}),
     ...(typeof observedBefore === "string" ? { observedBefore } : {}),

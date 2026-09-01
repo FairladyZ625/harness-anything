@@ -402,6 +402,34 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       ).outcome,
       "applied",
     );
+    assert.deepEqual(evidence(await cell.run({ kind: "fact-type-list" }, binding)).domainTypes, []);
+    for (const domainType of ["architecture", "custom-3", "custom-4", "custom-5"])
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "fact-type-register",
+              statement: `Registered Fact domain type: ${domainType}`,
+              evidenceSource: "fact-query-fixture",
+              confidence: "high",
+              memoryClass: "semantic",
+              registersDomainType: domainType,
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+    const vocabulary = evidence(await cell.run({ kind: "fact-type-list" }, binding));
+    assert.deepEqual(
+      (vocabulary.domainTypes as { domainType: string }[]).map(({ domainType }) => domainType),
+      ["architecture", "custom-3", "custom-4", "custom-5"],
+    );
+    assert.match(String((vocabulary.domainTypes as { registeredByFactId: string }[])[0]?.registeredByFactId), /^F-/u);
+    const guiVocabulary = (await cell.read("repo.triadic.relationGraph", { facet: "facts" })) as {
+      readonly domainTypes: readonly { readonly domainType: string; readonly registeredByFactId: string }[];
+    };
+    assert.equal(JSON.stringify(guiVocabulary.domainTypes), JSON.stringify(vocabulary.domainTypes));
     for (let index = 1; index <= 5; index += 1)
       assert.equal(
         (
@@ -414,6 +442,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
               evidenceSource: "fact-query-fixture",
               observedAt: `2026-08-15T00:00:0${index}.000Z`,
               confidence: "high",
+              ...(index <= 2 ? { domainTypes: ["architecture"] } : { domainTypes: [`custom-${index}`] }),
               memoryClass: "semantic",
             },
             binding,
@@ -453,6 +482,29 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       (window.facts as { factId: string }[]).map(({ factId }) => factId),
       ["F-00000004", "F-00000003"],
     );
+    const architecture = evidence(
+      await cell.run({ kind: "fact-search", taskId: "task_fact_query", domainType: "architecture" }, binding),
+    );
+    assert.deepEqual(
+      (architecture.facts as { factId: string }[]).map(({ factId }) => factId),
+      ["F-00000002", "F-00000001"],
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "fact-reclassify",
+            factId: "F-00000001",
+            domainTypes: ["architecture", "custom-3"],
+            rationale: "This observation now spans architecture and the custom-3 facet.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    const reclassified = evidence(await cell.run({ kind: "fact-show", factId: "F-00000001" }, binding));
+    assert.deepEqual((reclassified.fact as { domainTypes: string[] }).domainTypes, ["architecture", "custom-3"]);
     const invalidDate = await cell.run(
         {
           kind: "fact-search",
@@ -488,7 +540,7 @@ test("fact search action forwards observed-time windows and preserves keyset pag
     assert.equal(unknownField.outcome, "op_rejected");
     assert.equal(
       unknownField.nextAction,
-      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
+      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "domainType", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
     );
   } finally {
     await cell?.close();

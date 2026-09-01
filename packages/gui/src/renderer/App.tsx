@@ -12,6 +12,7 @@ import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailVi
 import { FreshnessView } from "./views/FreshnessView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
+import { EntitiesView } from "./views/EntitiesView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
@@ -573,6 +574,21 @@ function AppShell() {
                   navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
                 }
                 onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                projectName={project.name}
+              />
+            ) : view === "entities" ? (
+              <EntitiesView
+                repoId={projectId}
+                // 实体说明深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
+                // 推栈回撤原路返回)。
+                focusedEntityDocKind={
+                  focusedEntityRef?.startsWith("entitydoc/") ? focusedEntityRef.slice("entitydoc/".length) : null
+                }
+                onOpenEntityDoc={(kind) =>
+                  navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
+                }
+                onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                onOpenView={goto}
                 projectName={project.name}
               />
             ) : view === "adapters" ? (

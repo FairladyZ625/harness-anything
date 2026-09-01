@@ -165,6 +165,12 @@ export interface FactProjectionSearchRead {
   readonly sourceRevision: number;
   readonly page?: FactSearchPage;
 }
+export interface FactDomainTypeProjectionRead {
+  readonly status: "ready" | "pending";
+  readonly domainTypes: ReturnType<typeof import("./fact-event-projection.ts").listFactDomainTypeRows>;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+}
 export interface FactAnchorProjectionRead {
   readonly status: "ready" | "pending";
   readonly rows: ReturnType<typeof readFactAnchorRows>;

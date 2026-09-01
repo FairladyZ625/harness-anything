@@ -155,6 +155,19 @@ export const factFieldContracts = {
     "confidence is captured with the observation; later doubt is expressed by another fact or invalidation",
     show("fact.confidence"),
   ),
+  domainTypes: lifecycle(
+    "domain types change only through an audited reclassification event",
+    [lifecycleWrite("reclassify")],
+    show("fact.domainTypes"),
+  ),
+  registersDomainType: immutable(
+    "type vocabulary registration is an audited create-time action",
+    show("fact.registersDomainType"),
+  ),
+  reclassificationRationale: immutable(
+    "each reclassification rationale is immutable audit evidence",
+    show("fact.reclassificationRationale"),
+  ),
   memoryClass: immutable("memory class is create-time classification", show("fact.memoryClass")),
   memoryTags: immutable("memory tags are create-time classification", show("fact.memoryTags")),
   provenance: immutable(

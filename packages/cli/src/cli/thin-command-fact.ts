@@ -12,12 +12,45 @@ export function parseFact(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (id === "fact-record") return parseFactRecord(args, rootDir, repoId, json, inputs);
+  if (id === "fact-reclassify") {
+    const factId = args[2]?.startsWith("--") ? undefined : args[2],
+      f = readFlags(id, args.slice(factId ? 3 : 2), inputs);
+    if (!factId)
+      return rejected("missing_field", "Use ha fact reclassify <fact-id> --type <type> --rationale <why>.", json);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-reclassify",
+      factId,
+      domainTypes: f.many.get("--type") ?? [],
+      rationale: f.one.get("--rationale"),
+    });
+  }
+  if (id === "fact-type-register") {
+    const domainType = args[3],
+      f = readFlags(id, args.slice(4), inputs);
+    if (!domainType || domainType.startsWith("--"))
+      return rejected("missing_field", "Use ha fact type register <type> --source <source>.", json);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-type-register",
+      statement: `Registered Fact domain type: ${domainType}`,
+      evidenceSource: f.one.get("--source"),
+      confidence: "high",
+      memoryClass: "semantic",
+      memoryTags: [],
+      registersDomainType: domainType,
+    });
+  }
+  if (id === "fact-type-list")
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-type-list",
+    });
   if (id === "fact-search") {
     const query = args[2]?.startsWith("--") ? undefined : args[2];
     return parseProjected(id, args.slice(query ? 3 : 2), rootDir, repoId, json, inputs, query ? { query } : {});
   }
   if (id === "fact-show") return parseProjected(id, args.slice(2), rootDir, repoId, json, inputs);
-  return rejected("unsupported_command", "Use fact record, search, or show.", json);
+  return rejected("unsupported_command", "Use fact record, type register, type list, search, or show.", json);
 }
 
 export function parseFactRecord(
@@ -46,6 +79,7 @@ export function parseFactRecord(
     evidenceSource = f.one.get("--source"),
     observedAt = f.one.get("--observed-at"),
     confidence = f.one.get("--confidence") ?? "medium",
+    domainTypes = f.many.get("--type") ?? [],
     memoryClass = f.one.get("--memory-class") ?? "episodic",
     waitProjectionMs = projectionWaitMs(f.one.get("--wait-projection")),
     supersedes = f.one.get("--supersedes"),
@@ -69,6 +103,7 @@ export function parseFactRecord(
     evidenceSource,
     ...(observedAt ? { observedAt } : {}),
     confidence,
+    ...(domainTypes.length ? { domainTypes } : {}),
     memoryClass,
     memoryTags: f.many.get("--memory-tag") ?? [],
     ...(waitProjectionMs === undefined ? {} : { waitProjectionMs }),

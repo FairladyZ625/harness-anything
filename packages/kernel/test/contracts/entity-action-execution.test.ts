@@ -54,6 +54,7 @@ const readIngressKinds = new Set([
   "decision-validate",
   "fact-search",
   "fact-show",
+  "fact-type-list",
   "schedule-list",
   "schedule-runs",
   "schedule-show",
