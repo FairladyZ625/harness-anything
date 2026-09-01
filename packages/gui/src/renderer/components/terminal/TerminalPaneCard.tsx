@@ -79,7 +79,9 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         <div
           data-testid="terminal-pane-drop"
           data-zone={dropZone}
-          className={`pointer-events-none absolute z-10 border-2 border-accent bg-accent/20 ${dropZoneClassName[dropZone]}`}
+          className={`pointer-events-none absolute z-10 border-2 border-accent bg-accent/20 ${
+            dropZoneClassName[dropZone]
+          }`}
         />
       )}
       {menu && (
@@ -104,7 +106,10 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         onDragEnd={() => {
           drag.panelId = null;
         }}
-        className="flex cursor-grab flex-wrap items-center gap-2 border-b border-border px-2 py-1 text-[11px] active:cursor-grabbing"
+        className={
+          "flex cursor-grab flex-wrap items-center gap-2 border-b border-border px-2 py-1 text-[11px] " +
+          "active:cursor-grabbing"
+        }
       >
         <span className="truncate font-mono text-text-faint">
           {tab ? `${tab.name} · ${tab.cwd} · ${tab.backend} · ${tab.durability} · ${tab.state}` : sessionId}
