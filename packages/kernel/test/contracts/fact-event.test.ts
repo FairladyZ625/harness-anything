@@ -300,7 +300,7 @@ test("Decision compiler renders the exact single-file package and frozen write p
     ),
     true,
   );
-  assert.match(decision.body, new RegExp(`relations: .*${initialRelation.relation_id}`, "u"));
+  assert.doesNotMatch(decision.body, /^relations:/mu);
   assert.equal(decision.body.endsWith("---\n# Canonical Decision\n\n初始正文。\n"), true);
   assert.throws(
     () =>

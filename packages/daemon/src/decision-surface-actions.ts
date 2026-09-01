@@ -205,7 +205,6 @@ function validateOne(
       ["chosen", decision.chosen],
       ["rejected", decision.rejected],
       ["claims", decision.claims],
-      ["relations", relations],
     ] as const)
       if (!jsonEqual(readScalar(frontmatter, field), expected))
         errors.push(`${field} does not match the live projection`);
