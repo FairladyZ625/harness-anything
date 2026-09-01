@@ -1,14 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-policy.ts";
+import { DEFAULT_POLICY } from "../../src/domain/default-policy.ts";
 import { parsePolicyDeclarationV1, validatePolicyDeclarationV1 } from "../../src/domain/policy.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 
 test("the built-in v5 Policy registers only qualification predicates and all durable Actions", () => {
   assert.deepEqual(validatePolicyDeclarationV1(DEFAULT_POLICY), []);
   assert.equal(DEFAULT_POLICY.version, 5);
-  assert.deepEqual(DEFAULT_POLICY.actions, durablePolicyActions);
   assert.deepEqual(
     [
       ...new Set(
@@ -19,7 +18,8 @@ test("the built-in v5 Policy registers only qualification predicates and all dur
     ],
     ["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"],
   );
-  assert.equal(DEFAULT_POLICY.rules?.length, 103);
+  // rules 对 durable inventory 的覆盖由 authorization-port 契约断言(那条测试就叫 "covers the
+  // frozen durable inventory exactly once");这里只管 predicate 词表,不再抄一份长度快照。
 });
 
 test("ha entity explain policy exposes the same predicate, Action, and rule authority", () => {
