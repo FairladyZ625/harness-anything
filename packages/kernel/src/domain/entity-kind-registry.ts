@@ -47,6 +47,7 @@ import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
+import { createSquadActionCatalog } from "./squad-action-contract.ts";
 import {
   dispositionMatrix,
   supported,
@@ -436,6 +437,11 @@ const personActionCatalog = createPersonActionCatalog(
   actionResultContract,
 );
 
+const squadActionCatalog = createSquadActionCatalog(
+  (id) => entityAction("squad", requireEntityTypeContract("squad").id, id),
+  actionResultContract,
+);
+
 const factActionCatalog = Object.freeze({
   ref: "kernel/fact-event/v1",
   actions: Object.freeze([
@@ -633,7 +639,7 @@ export const entityKindContracts = Object.freeze([
     schema: SQUAD_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: { embeddedEvents: [], row: { idField: "id", ownerField: null } },
-    actionCatalog: null,
+    actionCatalog: squadActionCatalog,
     entityStore: genericEntityStore("squads/{id}.json"),
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,

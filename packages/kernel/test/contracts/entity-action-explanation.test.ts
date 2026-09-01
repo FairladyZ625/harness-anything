@@ -22,6 +22,7 @@ test("Entity Action explain request is exact and caps object batches at 500 refs
     validateEntityActionExplainRequest({
       schema: "entity-action-explain-request/v1",
       mode: "object",
+      entityKind: null,
       refs: Array.from({ length: 500 }, () => "task/task-1"),
     }),
     [],
@@ -30,6 +31,7 @@ test("Entity Action explain request is exact and caps object batches at 500 refs
     validateEntityActionExplainRequest({
       schema: "entity-action-explain-request/v1",
       mode: "object",
+      entityKind: null,
       refs: Array.from({ length: 501 }, () => "task/task-1"),
     }).join("\n"),
     /1\.\.500/u,
@@ -38,6 +40,7 @@ test("Entity Action explain request is exact and caps object batches at 500 refs
     validateEntityActionExplainRequest({
       schema: "entity-action-explain-request/v1",
       mode: "catalog",
+      entityKind: "task",
       refs: [],
       actor,
     }).join("\n"),

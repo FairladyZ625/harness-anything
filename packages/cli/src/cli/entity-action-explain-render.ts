@@ -6,8 +6,8 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
   assertRenderableExplanation(value);
   const heading =
       value.mode === "catalog"
-        ? "Task actions (catalog; availability is not evaluated without an object):"
-        : `Task action explanation at ${String(value.evaluatedAtCut)}:`,
+        ? `${title(value.subjects[0]?.kind)} actions (catalog; availability is not evaluated without an object):`
+        : `Entity action explanation at ${String(value.evaluatedAtCut)}:`,
     subjects = value.subjects.flatMap((subject) => {
       if (subject.failure)
         return [
@@ -15,7 +15,9 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
           `  evaluated cut: ${String(value.evaluatedAtCut)}`,
           ...subject.failure.nextActions.map((next) => `  next: ${next}`),
         ];
-      const subjectHeading = subject.ref ? `${subject.ref} @ revision ${String(subject.revision)}` : "task catalog",
+      const subjectHeading = subject.ref
+          ? `${subject.ref} @ revision ${String(subject.revision)}`
+          : `${subject.kind ?? "entity"} catalog`,
         actions = subject.actions.flatMap((row) => {
           const state = row.available === null ? "not evaluated" : row.available ? "available" : "unavailable";
           return [
@@ -40,6 +42,10 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
       return [subjectHeading, ...actions];
     });
   return [heading, ...subjects].join("\n");
+}
+
+function title(value: string | null | undefined): string {
+  return value ? `${value[0]!.toUpperCase()}${value.slice(1)}` : "Entity";
 }
 
 function assertRenderableExplanation(value: EntityActionExplanationRenderInput): void {

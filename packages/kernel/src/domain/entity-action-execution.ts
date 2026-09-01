@@ -21,6 +21,7 @@ import type { AgentActionDraft } from "./agent-action-contract.ts";
 import type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 import type { SettingsActionDraft } from "./settings-action-contract.ts";
 import type { PersonActionDraft } from "./person-action-contract.ts";
+import type { SquadActionDraft } from "./squad-action-contract.ts";
 
 export interface EntityActionExecutionContract {
   readonly ingress: string;
@@ -100,6 +101,7 @@ export interface EntityActionCompileInput {
 
 export type EntityActionDraft =
   | AgentActionDraft
+  | SquadActionDraft
   | RuntimeSessionActionDraft
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
   | { readonly kind: "fact"; readonly event: FactEventDraftV1 }

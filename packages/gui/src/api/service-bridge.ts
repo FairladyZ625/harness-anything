@@ -10,6 +10,7 @@ type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<J
 export type ShippedGuiRoute = {
   readonly guiBridgeMethod: (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"];
   readonly rpcMethod: (typeof daemonGuiInvokeFacets)[number]["method"];
+  readonly commandClass?: "admin" | "repo-write" | "repo-read" | "arbiter";
   readonly requiresRepo: boolean;
   readonly inputSchemaId?: string;
 };
@@ -23,6 +24,7 @@ const shippedRoutes: ReadonlyArray<ShippedGuiRoute> = daemonGuiInvokeFacets.map(
   guiBridgeMethod: facet.guiBridgeMethod,
   rpcMethod: facet.method,
   requiresRepo: facet.requiresRepo,
+  ...("commandClass" in facet ? { commandClass: facet.commandClass } : {}),
   ...("inputSchemaId" in facet ? { inputSchemaId: facet.inputSchemaId } : {}),
 }));
 const routeByGuiMethod: ReadonlyMap<string, ShippedGuiRoute> = new Map(

@@ -70,8 +70,16 @@ test("registered declaration Entity kinds explain the same contract shape from t
     },
   );
   assert.deepEqual(
-    { catalogRef: explanations[1]!.transitions.catalogRef, available: explanations[1]!.transitions.available },
-    { catalogRef: null, available: [] },
+    {
+      catalogRef: explanations[1]!.transitions.catalogRef,
+      available: explanations[1]!.transitions.available,
+      declared: explanations[1]!.transitions.actions.map(({ id }) => id),
+    },
+    {
+      catalogRef: "kernel/squad-action/v1",
+      available: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
+      declared: ["install", "validate", "list", "inspect", "run", "status", "cancel"],
+    },
   );
   assert.equal(explanations[0]!.documentSchema.fields.find(({ name }) => name === "runtime_type")?.required, true);
   assert.match(

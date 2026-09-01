@@ -10,7 +10,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
-import { prepareAgentEntityInstall, runAgentEntityAction } from "./agent-entities.ts";
+import { runAgentEntityAction } from "./agent-entities.ts";
 import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
@@ -242,20 +242,7 @@ export async function executeAction(
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
   }
-  if (action.kind === "squad-install") {
-    const prepared = prepareAgentEntityInstall({
-      rootDir: cell.rootDir,
-      action,
-      entityStore: createEntityStore(cell.store),
-      runtimeInstances: cell.input.runtimeInstances?.(),
-    });
-    return cell.upsertEntity(action, binding, {
-      entityKind: prepared.kind,
-      entity: prepared.declaration,
-      report: prepared.report,
-    });
-  }
-  if (/^(?:agent|squad)-(?:list|inspect|validate)$/u.test(action.kind)) {
+  if (/^agent-(?:list|inspect|validate)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       result = runAgentEntityAction({
         rootDir: cell.rootDir,

@@ -14,7 +14,12 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createEntityStore, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import {
+  createEntityStore,
+  getEntityKindContract,
+  makeTaskEventStore,
+  makeTaskProjection,
+} from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
   readAgentEntityGuiProjection,
@@ -106,9 +111,18 @@ test("Agent and Squad entities prepare, list, inspect, and replace declarations 
 test("Squad install rejects the canonical blank roster scaffold", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-placeholder-"));
   try {
-    await assert.rejects(
+    assert.throws(
       () =>
-        install({ rootDir, kind: "squad-install", declaration: { ...squad, roster: "## Squad Roster\n（待补写）" } }),
+        getEntityKindContract("squad")!.actionCatalog!.actions.find((action) => action.id === "install")!.execution
+          .compile!({
+          action: { declaration: { ...squad, roster: "## Squad Roster\n（待补写）" } },
+          actor: { principal: { personId: "agent-entities-test" }, executor: null },
+          source: "local",
+          session: { kind: "local-process", processId: "agent-entities-test" },
+          opId: "op-agent-entities-placeholder",
+          occurredAt: "2026-08-25T00:00:00.000Z",
+          workspaceRevision: 1,
+        }),
       (error: unknown) => (error as { readonly code?: unknown }).code === "roster_placeholder",
     );
   } finally {

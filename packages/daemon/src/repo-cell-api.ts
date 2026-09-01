@@ -36,7 +36,7 @@ import {
   type DaemonTaskDispatchesPayload,
   type CanonicalRoot,
 } from "./protocol/daemon-protocol.contract.ts";
-import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
@@ -213,12 +213,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           )
         : (result as WriteReceipt);
     };
-    if (action.kind === "squad-status")
-      return Promise.resolve(
-        context.squadCoordinator.status(
-          context.requiredCellText(action.squadRunId, "squadRunId"),
-        ) as unknown as WriteReceipt,
-      );
     if (command.commandClass === "repo-read")
       return Promise.resolve()
         .then(async () => {
@@ -299,29 +293,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           if (claimsRecovery) settlingRecovery = null;
         });
     };
-    if (action.kind === "squad-run") {
-      if (!isJsonObject(action))
-        return Promise.resolve(
-          frameCurrent(
-            context.rejected(
-              context.operationId(action, binding, context.input.repoId, 0),
-              "invalid_command",
-              "Squad input must contain only JSON values.",
-            ),
-            [],
-            "Squad input must contain only JSON values.",
-          ),
-        );
-      return enqueuePublication(() => context.squadCoordinator.start(action, binding) as unknown as WriteReceipt);
-    }
-    if (action.kind === "squad-cancel")
-      return enqueuePublication(
-        () =>
-          context.squadCoordinator.cancel(
-            context.requiredCellText(action.squadRunId, "squadRunId"),
-            binding,
-          ) as unknown as WriteReceipt,
-      );
     if (action.kind === "script-run")
       return Promise.resolve()
         .then(() =>

@@ -30,6 +30,7 @@ import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import {
   cellCodedError,
+  cellCriterionError,
   cellErrorCode,
   cellErrorMessage,
   errorOperationId,
@@ -66,6 +67,7 @@ import {
 } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
+import { makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
@@ -88,24 +90,33 @@ export async function reacquireSquadTaskLease(input: {
   if (!execution) {
     const started = await input.start();
     if (started.outcome === "applied") return;
-    throw cellCodedError(
+    throw cellCriterionError(
       started.code ?? "runtime_task_lease_required",
       started.nextAction ?? `Task ${input.taskId} could not acquire an execution lease for squad dispatch.`,
+      "run",
+      "squad/execution-lease-reacquisition",
+      [`Run ha task show ${input.taskId}, resolve its execution state, then retry the Squad run.`],
     );
   }
   const lease = input.snapshot.lease;
   if (lease) {
     if (lease.executionId === execution.executionId && isSameExecution(lease.actor, input.binding.actor)) return;
-    throw cellCodedError(
+    throw cellCriterionError(
       "lease_conflict",
       `Task ${input.taskId} is leased by another execution or actor; the squad continuation stopped.`,
+      "run",
+      "squad/execution-lease-holder",
+      [`The current holder must run ha task release ${input.taskId}; wait for release before retrying.`],
     );
   }
   const started = await input.start(execution.executionId);
   if (started.outcome !== "applied")
-    throw cellCodedError(
+    throw cellCriterionError(
       "runtime_task_lease_required",
       `Squad continuation could not reacquire execution ${execution.executionId} for task ${input.taskId}.`,
+      "run",
+      "squad/execution-lease-reacquisition",
+      [`Inspect task/${input.taskId} and retry after the same actor can reacquire execution ${execution.executionId}.`],
     );
 }
 
@@ -548,14 +559,16 @@ async function openLockedRepoCell(
   const settings = makeRepoCellSettingsState(extracted),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext),
     settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
-    prepareAgentAction: EntityActionCatalogPreparer = (_contract, action, _binding, opId) => {
+    squadActionRuntime = makeSquadActionRuntime(runtimeContext),
+    prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
+      if (contract.id !== "install") return action;
       const existing = store.readEvent(opId),
         prepared = prepareAgentEntityInstall({
           rootDir,
           action,
           entityStore: createEntityStore(store),
           runtimeInstances: input.runtimeInstances?.(),
-          replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === "agent",
+          replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind,
         });
       return {
         ...action,
@@ -570,9 +583,11 @@ async function openLockedRepoCell(
       schedule: scheduleActionRuntime,
       settings: settingsActionRuntime,
       person: personActionRuntime,
+      squad: squadActionRuntime,
     }),
     prepare: Object.freeze({
       agent: prepareAgentAction,
+      squad: prepareAgentAction,
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     }),
   });
