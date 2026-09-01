@@ -79,13 +79,12 @@ export function knowledgeQueryApi(
       }),
     listFactDomainTypes: () =>
       withDatabase(projectionPath, readHead, (db) => {
-        const round = catchUpRound(db, eventStore, limit),
-          current = watermark(db);
+        const cut = readProjectionCut(db, readHead);
         return {
-          status: current === round.sourceRevision ? "ready" : "pending",
+          status: cut.status,
           domainTypes: listFactDomainTypeRows(db),
-          watermark: current,
-          sourceRevision: round.sourceRevision,
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
         };
       }),
     readFactAnchors: (refs) =>
