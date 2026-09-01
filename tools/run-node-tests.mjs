@@ -89,9 +89,9 @@ if (selection.files.length === 0) {
 }
 
 if (options.list) {
-  for (const file of selection.files) {
-    console.log(file);
-  }
+  await new Promise((resolveWrite) => {
+    process.stdout.write(`${selection.files.join("\n")}\n`, resolveWrite);
+  });
   process.exit(0);
 }
 
