@@ -73,9 +73,16 @@ async function settleSettingsEvent(input: {
   readonly rootDir: string;
   readonly authoredBranch?: string;
 }): Promise<void> {
+  const repoId = workspaceId(input.repoId),
+    rootDir = canonicalRoot(input.rootDir),
+    fixtureKey = `${rootDir}\0${repoId}`;
+  // registerBootstrappedDaemonRepo already placed a durable settings record in
+  // the WAL. Reopening and draining a second store here defeats attach budgets
+  // and masks tests that intentionally exercise an invalid Git layout.
+  if (seededSettings.has(fixtureKey)) return;
   const store = makeTaskEventStore({
-      repoId: workspaceId(input.repoId),
-      rootDir: canonicalRoot(input.rootDir),
+      repoId,
+      rootDir,
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
     stream = store.read();
@@ -84,7 +91,7 @@ async function settleSettingsEvent(input: {
       documentBody = existsSync(settingsPath)
         ? readFileSync(settingsPath, "utf8")
         : "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-      digest = createHash("sha256").update(`${input.repoId}\0${documentBody}`).digest("hex");
+      digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({
         settings: readSettingsFacet(documentBody),
@@ -100,7 +107,7 @@ async function settleSettingsEvent(input: {
     );
   }
   await store.drain();
-  seededSettings.add(`${input.rootDir}\0${workspaceId(input.repoId)}`);
+  seededSettings.add(fixtureKey);
 }
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {

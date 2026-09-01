@@ -10,7 +10,7 @@ export interface FleetAssignmentRecord extends FleetAssignmentBinding {
 }
 
 export interface FleetCenterOptions {
-  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "status">;
+  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
   readonly stateRoot: string;
   readonly key: string | Buffer;
   readonly cert: string | Buffer;

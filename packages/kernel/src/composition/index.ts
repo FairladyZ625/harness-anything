@@ -31,6 +31,7 @@ export type {
 export {
   configureLedgerMaintenance,
   localGitObjectRefStore,
+  localGitWorktreeSettlement,
   makeLocalVersionControlSystem,
 } from "../store/local-version-control-system.ts";
 export { createEntityStore, openEntityStore } from "../store/entity-store.ts";

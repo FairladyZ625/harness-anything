@@ -191,7 +191,7 @@ export function fleetCredentialFromRoster(nodeId: string, rosterPath: string): s
   return node.credential;
 }
 export interface FleetCenterAdmissionRequest {
-  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "status">;
+  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
   readonly userRoot: string;
   readonly payload: {
     readonly port: number;

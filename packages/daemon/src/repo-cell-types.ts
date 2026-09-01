@@ -142,6 +142,8 @@ export interface RepoCell {
   readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>;
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  /** Joins acknowledged WAL while the caller's writer epoch is still current. */
+  readonly settlePendingMaterialization: (context: string) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 

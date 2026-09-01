@@ -370,9 +370,24 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       }
       return succeeded;
     };
-    inFlightFlush = pump().finally(() => {
-      inFlightFlush = null;
-    });
+    inFlightFlush = pump().then(
+      (succeeded) => {
+        inFlightFlush = null;
+        // afterFlush can append while the pump is leaving its loop. In that window
+        // scheduleFlush observes the old promise and coalesces the request after the
+        // loop has already checked it, so explicitly hand the late request to a new
+        // pump before releasing this turn.
+        if (succeeded && coalescedFlush !== null)
+          void queueFlush(coalescedFlush.context, coalescedFlush.compactWorktree).then((settled) => {
+            if (!settled) scheduleRetry();
+          });
+        return succeeded;
+      },
+      (error: unknown) => {
+        inFlightFlush = null;
+        throw error;
+      },
+    );
     return inFlightFlush;
   };
   const scheduleRetry = (): void => {

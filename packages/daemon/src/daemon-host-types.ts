@@ -22,6 +22,7 @@ export interface DaemonHost {
     auth: DaemonAuthenticationContext,
   ) => ReturnType<RepoCell["presetRun"]>;
   readonly replica: (repoId: string) => RepoCell["replica"];
+  readonly settleMaterialization: (repoId: string, context: string) => Promise<void>;
   readonly read: <M extends DaemonGuiRpcReadMethod>(
     repoId: string,
     method: M,

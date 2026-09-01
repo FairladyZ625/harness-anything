@@ -611,8 +611,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       closed = true;
       leaseBroker.close();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      ackStore.close();
-      writerEpoch.close();
+      try {
+        for (const [repoId, owned] of ownedEpochs) {
+          const current = writerEpoch.current(repoId);
+          if (current?.epoch === owned.epoch && current.holderId === owned.holderId)
+            await options.host.settleMaterialization(repoId, "fleet center close");
+        }
+      } finally {
+        ackStore.close();
+        writerEpoch.close();
+      }
     },
     replicaReceipt: (opId, nodeId, viewId, repoId) =>
       deriveReplicaReceipt(options.host.replica(repoId), ackStore, { nodeId, viewId, repoId }, opId),

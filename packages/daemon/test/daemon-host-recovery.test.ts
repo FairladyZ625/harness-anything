@@ -531,10 +531,11 @@ function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
 }
 async function waitControl(host: Awaited<ReturnType<typeof openDaemonHost>>, operationId: string) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     const receipt = host.controlReceipt(operationId, auth);
     if (receipt.phase === "settled" || receipt.phase === "failed") return receipt;
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(`control ${operationId} did not settle`);
 }

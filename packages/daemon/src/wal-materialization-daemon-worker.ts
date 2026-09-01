@@ -1,7 +1,9 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import {
   consumeKnownError,
+  localGitWorktreeSettlement,
   makeGitEventStore,
+  resolveLedgerGitLayout,
   runWalMaterializationRequest,
   WAL_MATERIALIZATION_WORKER_KIND,
   type WalMaterializationRequestV1,
@@ -22,16 +24,19 @@ if (!isMainThread && workerData?.kind === WAL_MATERIALIZATION_WORKER_KIND && wor
     }
     try {
       const store = makeGitEventStore({
-        repoId: config.repoId,
-        rootDir: config.rootDir,
-        ...(config.authoredBranch ? { authoredBranch: config.authoredBranch } : {}),
-      });
+          repoId: config.repoId,
+          rootDir: config.rootDir,
+          ...(config.authoredBranch ? { authoredBranch: config.authoredBranch } : {}),
+        }),
+        inventory = scanAuthoredCandidateInventory({ rootDir: config.rootDir, store }),
+        ledger = resolveLedgerGitLayout(config.rootDir),
+        fingerprint = localGitWorktreeSettlement.changesFingerprint(ledger.rootDir, ledger.authoredPrefix || ".");
       parentPort!.postMessage({
         ...response,
-        settlementIntent: {
-          ...response.settlementIntent,
-          inventory: scanAuthoredCandidateInventory({ rootDir: config.rootDir, store }),
-        },
+        // Inventory and fingerprint form one optimistic snapshot. A concurrent
+        // hand edit invalidates the snapshot and must never be auto-authored.
+        settlementIntent:
+          fingerprint === response.settlementFingerprint ? { ...response.settlementIntent, inventory } : null,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

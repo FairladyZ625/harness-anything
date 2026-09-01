@@ -887,6 +887,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       causeClass: context.causeClass,
       recoveryMs: context.recovery.elapsedMs,
     }),
+    settlePendingMaterialization: async (settlementContext) => {
+      await context.tail;
+      if (context.state !== "attached") return;
+      await context.store.settlePendingMaterialization?.(settlementContext);
+    },
     close: async () => {
       if (context.state === "closed") return;
       context.state = "closed";

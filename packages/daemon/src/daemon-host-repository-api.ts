@@ -37,7 +37,7 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
 
 export function createDaemonHostRepositoryApi(
   context: DaemonHostApiContext,
-): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "presetRun" | "read"> {
+): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "settleMaterialization" | "presetRun" | "read"> {
   return {
     bootstrap: async (request, auth) => {
       const prepared = resolveRepoBootstrap(request, auth);
@@ -281,6 +281,10 @@ export function createDaemonHostRepositoryApi(
       }
     },
     replica: (repoId) => context.requiredCell(context.cells, context.warming, context.unavailable, repoId).replica,
+    settleMaterialization: (repoId, settlementContext) =>
+      context
+        .requiredCell(context.cells, context.warming, context.unavailable, repoId)
+        .settlePendingMaterialization(settlementContext),
     presetRun: async (repoId, action, auth) => {
       const command = commandDescriptorForAction(action.kind),
         hostAdmission = context.admitHostMode(repoId, command, auth);

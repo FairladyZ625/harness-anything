@@ -143,8 +143,11 @@ export async function executeAction(
         } as WriteReceipt);
   }
   if (action.kind === "receipt-show") {
-    await cell.store.settleRecoveryMaterialization?.();
-    return cell.receiptForOperation(String(action.opId ?? ""), binding);
+    const opId = String(action.opId ?? "");
+    // A provably absent operation can be answered from the durable read model.
+    // Do not let unrelated recovery WAL mask that negative receipt.
+    if (cell.store.readEvent(opId) !== null) await cell.store.settleRecoveryMaterialization?.();
+    return cell.receiptForOperation(opId, binding);
   }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);

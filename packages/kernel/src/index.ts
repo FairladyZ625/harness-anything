@@ -271,6 +271,7 @@ export {
   canonicalEventWritePlan,
   configureLedgerMaintenance,
   localGitObjectRefStore,
+  localGitWorktreeSettlement,
   createEntityStore,
   ledgerGitPath,
   makeGitEventStore,
