@@ -8,10 +8,21 @@ import { useAppShortcuts } from "../src/renderer/navigation/useAppShortcuts.ts";
 import { terminalQueryKeys } from "../src/renderer/terminal-client.ts";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
 
-vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
-  TerminalPane: ({ output }: { readonly output: string }) =>
-    createElement("div", { "data-testid": "terminal-pane", "data-output": output }),
-}));
+vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", async () => {
+  const { useTerminalPaneActions } = await vi.importActual<
+    typeof import("../src/renderer/components/terminal/terminal-pane-context.ts")
+  >("../src/renderer/components/terminal/terminal-pane-context.ts");
+  return {
+    // W2:顺手捕获 pane actions 与 openUrl 注入,链接分发测试从这里取。
+    TerminalPane: ({ output, openUrl }: { readonly output: string; readonly openUrl: unknown }) => {
+      paneProbe.actions = useTerminalPaneActions();
+      paneProbe.openUrl = openUrl;
+      return createElement("div", { "data-testid": "terminal-pane", "data-output": output });
+    },
+  };
+});
+
+const paneProbe = vi.hoisted(() => ({ actions: null as unknown, openUrl: undefined as unknown }));
 
 const AT = "2026-09-01T00:00:00.000Z";
 type Row = Record<string, unknown>;
@@ -85,6 +96,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  paneProbe.actions = null;
+  paneProbe.openUrl = undefined;
 });
 
 afterEach(() => {
@@ -103,7 +116,18 @@ function mountView(props: Record<string, unknown>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   root = createRoot(container);
   act(() => {
-    root!.render(createElement(QueryClientProvider, { client }, createElement(TerminalView, props)));
+    root!.render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(TerminalView, {
+          repoRoot: null,
+          onNavigateEntity: () => undefined,
+          onOpenDocument: () => undefined,
+          ...props,
+        }),
+      ),
+    );
   });
   return client;
 }
@@ -256,5 +280,84 @@ describe("Ctrl+` shortcut wiring", () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "`" }));
     });
     expect(onToggleTerminal).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("terminal links dispatch (PLT-TerminalWorkspace W2)", () => {
+  function attachBridge() {
+    return stubBridge([sessionRow()], {
+      schema: "terminal-attach/v1",
+      ok: true,
+      sessionId: "s-restore",
+      attachmentId: "attach-links",
+      daemonGeneration: 7,
+      status: "attached",
+      replayFromSeq: 0,
+      outputSeq: 2,
+    });
+  }
+
+  it("routes entity links to the entity navigation callback and path links to the document opener", async () => {
+    attachBridge();
+    const onNavigateEntity = vi.fn();
+    const onOpenDocument = vi.fn();
+    mountView({
+      repoId: "repo-a",
+      daemonGeneration: null,
+      tasks: [],
+      repoRoot: "/repo/a",
+      onNavigateEntity,
+      onOpenDocument,
+    });
+    await flush();
+    const actions = paneProbe.actions as {
+      readonly openLink: (match: unknown, text: string, cwd: string | null) => void;
+    } | null;
+    expect(actions).not.toBeNull();
+    act(() => {
+      actions!.openLink(
+        { kind: "entity", ref: "task/01cb8cf64ad28a48b4a7506b85", start: 0, end: 31 },
+        "task_01cb8cf64ad28a48b4a7506b85",
+        "/repo/a",
+      );
+      actions!.openLink(
+        { kind: "path", path: "packages/gui/src/a.ts", line: 3, start: 0, end: 27 },
+        "packages/gui/src/a.ts:3",
+        "/repo/a",
+      );
+    });
+    expect(onNavigateEntity).toHaveBeenCalledWith("task/01cb8cf64ad28a48b4a7506b85");
+    expect(onOpenDocument).toHaveBeenCalledWith("/repo/a/packages/gui/src/a.ts");
+  });
+
+  it("copies the link text when no base can resolve a relative path", async () => {
+    attachBridge();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const onNavigateEntity = vi.fn();
+    const onOpenDocument = vi.fn();
+    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: [], onNavigateEntity, onOpenDocument });
+    await flush();
+    const actions = paneProbe.actions as {
+      readonly openLink: (match: unknown, text: string, cwd: string | null) => void;
+    } | null;
+    act(() => {
+      actions!.openLink({ kind: "path", path: "src/a.ts", line: null, start: 0, end: 8 }, "src/a.ts", null);
+    });
+    await flush();
+    expect(writeText).toHaveBeenCalledWith("src/a.ts");
+    expect(onNavigateEntity).not.toHaveBeenCalled();
+    expect(onOpenDocument).not.toHaveBeenCalled();
+  });
+
+  it("threads the openUrl seam to the pane; null keeps the web-links default", async () => {
+    attachBridge();
+    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: [] });
+    await flush();
+    expect(paneProbe.openUrl).toBeNull();
+    const openUrl = vi.fn();
+    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: [], openUrl });
+    await flush();
+    expect(paneProbe.openUrl).toBe(openUrl);
   });
 });

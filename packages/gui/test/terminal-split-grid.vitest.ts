@@ -177,7 +177,14 @@ function mountView() {
       createElement(
         QueryClientProvider,
         { client },
-        createElement(TerminalView, { repoId: "repo-a", daemonGeneration: null, tasks: [] }),
+        createElement(TerminalView, {
+          repoId: "repo-a",
+          daemonGeneration: null,
+          tasks: [],
+          repoRoot: null,
+          onNavigateEntity: () => undefined,
+          onOpenDocument: () => undefined,
+        }),
       ),
     );
   });

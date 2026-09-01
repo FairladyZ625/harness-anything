@@ -31,6 +31,7 @@ import {
   type TerminalGroupLayout,
 } from "../terminal-layout.ts";
 import { directionalPane, type PaneBox, type PaneDirection } from "../terminal-pane-focus.ts";
+import { terminalLinkTargetOf, type TerminalLinkMatch } from "../components/terminal/terminal-links.ts";
 import {
   TerminalChrome,
   type TerminalSpawnDraft,
@@ -55,11 +56,23 @@ import { t } from "../i18n/index.tsx";
  * pane 树由 dockview 承载(见 TerminalSplitGrid),布局快照按仓存 localStorage,重启后
  * 按 pane 载荷里的 sessionId 逐个 re-attach,会话已消失的 pane 渲染可关闭占位。每个 pane
  * 自带 ResizeObserver + fit,cols/rows 各自走既有 resize 通道上报,互不干扰。
+ *
+ * W2 链接:pane 里的 URL/仓库路径/实体 id 可点(识别见 components/terminal/terminal-links.ts)。
+ * 实体经 onNavigateEntity 推栈可回撤;文档经 onOpenDocument 落既有预览浮层;URL 走
+ * openUrl 接缝(缺省 web-links 默认行为)。
  */
 interface Props {
   readonly repoId: string;
   readonly daemonGeneration: number | null;
   readonly tasks: readonly { readonly taskId: string; readonly title: string }[];
+  /** 仓库(canonical)根绝对路径;相对路径链接的解析基座(其次才用会话 cwd)。 */
+  readonly repoRoot: string | null;
+  /** 实体链接出口(App 的 navigateToEntity:详情页推栈,回撤原路返回终端页)。 */
+  readonly onNavigateEntity: (ref: string) => void;
+  /** 文档链接出口(App 的本机文档预览浮层;存在性由只读桥在打开时校验)。 */
+  readonly onOpenDocument: (path: string) => void;
+  /** URL 打开接缝(W3 内嵌浏览器接线点);缺省走 web-links 默认行为(新窗口)。 */
+  readonly openUrl?: (uri: string) => void;
 }
 type AttachRow = Pick<
   TerminalSessionRow,
@@ -79,7 +92,15 @@ type Placement =
   | { readonly kind: "group" }
   | { readonly kind: "split"; readonly referencePanelId: string; readonly direction: TerminalSplitDirection };
 
-export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
+export function TerminalView({
+  repoId,
+  daemonGeneration,
+  tasks,
+  repoRoot,
+  onNavigateEntity,
+  onOpenDocument,
+  openUrl,
+}: Props) {
   const queryClient = useQueryClient(),
     [tabs, setTabs] = useState<readonly TerminalTab[]>([]),
     [groups, setGroups] = useState<readonly TerminalGroupLayout[]>([]),
@@ -92,7 +113,13 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
     regionRef = useRef<HTMLDivElement>(null),
     stops = useRef(new Map<string, () => void>()),
     repoIdRef = useRef(repoId),
+    repoRootRef = useRef(repoRoot),
+    onNavigateEntityRef = useRef(onNavigateEntity),
+    onOpenDocumentRef = useRef(onOpenDocument),
     mountedRef = useRef(true);
+  repoRootRef.current = repoRoot;
+  onNavigateEntityRef.current = onNavigateEntity;
+  onOpenDocumentRef.current = onOpenDocument;
   const ackSeq = useRef(new Map<string, number>()),
     inflight = useRef(new Map<string, Promise<void>>());
   const initialised = useRef(new Set<string>());
@@ -419,6 +446,16 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
   const focusPane = useCallback((panelId: string) => {
     setFocusedPanelId((current) => (current === panelId ? current : panelId));
   }, []);
+  /** W2 链接分发:实体 → App 实体导航(推栈);路径 → 文档预览;无基座可解析时复制原文。 */
+  const openLink = useCallback((match: TerminalLinkMatch, text: string, cwd: string | null) => {
+    const target = terminalLinkTargetOf(match, { repoRoot: repoRootRef.current, cwd });
+    if (target === null) {
+      void navigator.clipboard?.writeText(text)?.catch(consumeKnownError);
+      return;
+    }
+    if (target.kind === "entity") onNavigateEntityRef.current(target.ref);
+    else onOpenDocumentRef.current(target.path);
+  }, []);
   const moveFocus = useCallback((direction: PaneDirection) => {
     const target = directionalPane(paneBoxes(regionRef.current), focusedPanelIdRef.current, direction);
     if (!target) return;
@@ -469,8 +506,10 @@ export function TerminalView({ repoId, daemonGeneration, tasks }: Props) {
       onClosePane: (panelId, sessionId) => void closePane(panelId, sessionId),
       onSplitPane: splitPane,
       onTerminate: (sessionId) => void terminate(sessionId),
+      openLink,
+      openUrl: openUrl ?? null,
     }),
-    [closePane, confirmId, focusPane, focusedPanelId, refit, send, splitPane, tabs, terminate],
+    [closePane, confirmId, focusPane, focusedPanelId, openLink, openUrl, refit, send, splitPane, tabs, terminate],
   );
 
   return (

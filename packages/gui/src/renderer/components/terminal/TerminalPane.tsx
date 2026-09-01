@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import type { TerminalLinkMatch } from "./terminal-links.ts";
+import { registerTerminalLinks } from "./terminal-link-provider.ts";
 
 /**
  * 真 PTY 仿真终端面板(@xterm/xterm + FitAddon;移植老 main 线 TerminalPane,
@@ -12,17 +15,23 @@ import "@xterm/xterm/css/xterm.css";
  * - 输入:onData → onInput(utf8),由 Dock 携带 clientSeq 串行发 daemon。
  * - 尺寸:ResizeObserver → FitAddon.fit → onFit(cols, rows),Dock 负责
  *   resize receipt;键盘输入焦点在面板自身,行式输入表单退役。
+ * - 链接(W2):URL 走官方 web-links addon(默认新窗口,openUrl 可注入替换);
+ *   仓库路径/实体 id 走自写 provider(terminal-link-provider),activate 上抛给页面。
  */
 export function TerminalPane({
   output,
   interactive,
   onInput,
   onFit,
+  openUrl,
+  onOpenLink,
 }: {
   readonly output: string;
   readonly interactive: boolean;
   readonly onInput: (utf8: string) => void;
   readonly onFit: (cols: number, rows: number) => void;
+  readonly openUrl: ((uri: string) => void) | null;
+  readonly onOpenLink: (match: TerminalLinkMatch, text: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -30,9 +39,13 @@ export function TerminalPane({
   const interactiveRef = useRef(interactive);
   const onInputRef = useRef(onInput);
   const onFitRef = useRef(onFit);
+  const openUrlRef = useRef(openUrl);
+  const onOpenLinkRef = useRef(onOpenLink);
   interactiveRef.current = interactive;
   onInputRef.current = onInput;
   onFitRef.current = onFit;
+  openUrlRef.current = openUrl;
+  onOpenLinkRef.current = onOpenLink;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -55,6 +68,14 @@ export function TerminalPane({
     terminal.loadAddon(fit);
     terminal.open(host);
     terminalRef.current = terminal;
+
+    const webLinks = new WebLinksAddon((_event, uri) => {
+      const open = openUrlRef.current;
+      if (open !== null) open(uri);
+      else openUrlInWindow(uri);
+    });
+    terminal.loadAddon(webLinks);
+    const linkDisposable = registerTerminalLinks(terminal, (match, text) => onOpenLinkRef.current(match, text));
 
     const inputDisposable = terminal.onData((utf8) => {
       if (interactiveRef.current) onInputRef.current(utf8);
@@ -89,6 +110,7 @@ export function TerminalPane({
     return () => {
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
+      linkDisposable.dispose();
       inputDisposable.dispose();
       terminal.dispose();
       terminalRef.current = null;
@@ -113,4 +135,18 @@ export function TerminalPane({
   return <div ref={hostRef} data-testid="terminal-pane" className="min-h-0 flex-1 bg-[#1d1d20] p-1" />;
 }
 
-function consumeKnownError(error: unknown): void { void error; }
+function consumeKnownError(error: unknown): void {
+  void error;
+}
+
+/** web-links addon 默认行为的本地等价:新窗口导航前清 opener(注入 openUrl 时不走这里)。 */
+function openUrlInWindow(uri: string): void {
+  const opened = window.open();
+  if (opened === null) return;
+  try {
+    opened.opener = null;
+  } catch (cause) {
+    consumeKnownError(cause); // Electron 下 opener 赋值可能抛;窗口已开,继续导航。
+  }
+  opened.location.href = uri;
+}

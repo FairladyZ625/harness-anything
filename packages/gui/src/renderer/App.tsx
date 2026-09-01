@@ -62,6 +62,7 @@ import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.ts
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
+import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 
 /**
  * 渲染全量决策行的视图。总览不在决策抽屉关闭时预读完整图;
@@ -155,6 +156,9 @@ function AppShell() {
     tasks[0]?.lastKnownAt ?? systemQuery.data?.observedAt ?? new Date(0).toISOString(),
   );
   const { favorites, toggleFavorite } = useFavorites(projectId);
+  // 终端链接(W2)的文档落点:本机文档预览浮层的既有打开入口,repo 相对路径在
+  // TerminalView 侧解析成绝对路径后从这里进浮层,存在性由只读桥打开时校验。
+  const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
@@ -640,6 +644,18 @@ function AppShell() {
                 repoId={projectId}
                 daemonGeneration={activeRepo?.generation ?? null}
                 tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+                repoRoot={activeRepo?.canonicalRoot ?? null}
+                onNavigateEntity={navigateToEntity}
+                onOpenDocument={openLocalDocument}
+                openUrl={(uri) =>
+                  navigate({
+                    view: "browser",
+                    browserUrl: uri,
+                    focusedEntityRef: null,
+                    selectedId: null,
+                    previewId: null,
+                  })
+                }
               />
             ) : view === "browser" ? (
               <BrowserView initialUrl={location.browserUrl} />
