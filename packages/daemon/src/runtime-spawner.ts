@@ -13,6 +13,7 @@ import {
   isSameExecution,
   isSamePerson,
   resolveTaskBoundRuntimeBinding,
+  runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
 } from "../../kernel/src/index.ts";
@@ -489,11 +490,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "invalid_runtime_launch",
         "Prepared runtime launch does not match the closed spawn request.",
       );
-    const definitionSnapshotRef = [
-        "artifact:runtime-definition/",
-        `${createHash("sha256").update(JSON.stringify(definition)).digest("hex")}`,
-        "",
-      ].join(""),
+    const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
+      definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
       protocolFamily = runtimeKind.protocolFamily,
       workerGitEnvironment = taskId
@@ -625,6 +623,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
         dispatchOpId,
         binding,
+        definitionArtifact.body,
       );
     } catch (error) {
       process?.terminate();

@@ -42,6 +42,7 @@ const session = (runtimeSessionId: string, taskId: string) =>
     kindId: "codex",
     definitionSnapshotRef: "artifact:runtime-definition/test",
     definitionSnapshot: definition,
+    definitionSnapshotPersisted: true,
     liveness: "live",
     attachCapability: "supported",
     streamCursor: "stream:4",
@@ -53,7 +54,13 @@ const session = (runtimeSessionId: string, taskId: string) =>
         lease: { phase: "held", expiresAt: "2026-08-23T01:00:00.000Z" },
       },
     ],
-    activity: { lastObservedAt: "2026-08-23T00:00:00.000Z", outcome: null, exitCode: null, resultRef: null },
+    activity: {
+      lastObservedAt: "2026-08-23T00:00:00.000Z",
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
+      missingEvidence: null,
+    },
   }) as const;
 const boundSession = session("runtime-bound", "task-bound"),
   siblingSession = session("runtime-sibling", "task-bound");

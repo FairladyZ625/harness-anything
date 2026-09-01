@@ -966,7 +966,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (noActionRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (noActionRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "unknown", exitCode: 0 },
+      { outcome: "succeeded", exitCode: 0 },
     );
     const noWrite = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
@@ -994,7 +994,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (noWriteRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (noWriteRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "unknown", exitCode: 0 },
+      { outcome: "succeeded", exitCode: 0 },
     );
     const denied = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
@@ -1022,7 +1022,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "unknown", exitCode: 0 },
+      { outcome: "succeeded", exitCode: 0 },
     );
     const empty = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
@@ -1050,7 +1050,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (emptyRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (emptyRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "unknown", exitCode: 1 },
+      { outcome: "failed", exitCode: 1 },
     );
     assert.equal(
       (emptyRead.result as Record<string, unknown>).text,
@@ -1530,7 +1530,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       });
       return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
     });
-    assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "unknown");
+    assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "succeeded");
     assert.equal((rejectedRead.result as Record<string, unknown>).text, "");
   } finally {
     await host.close();

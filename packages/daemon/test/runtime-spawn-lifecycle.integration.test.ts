@@ -9,6 +9,7 @@ import {
   consumeKnownError,
   makeTaskEventStore,
   makeTaskProjection,
+  runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "../../kernel/src/index.ts";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
@@ -241,6 +242,19 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.definitionSnapshot,
         definition,
       );
+      const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition);
+      assert.equal(
+        dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.definitionSnapshotRef,
+        definitionArtifact.ref,
+      );
+      assert.equal(
+        Buffer.from(
+          makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).readContentBlob(
+            definitionArtifact.claim.sha256,
+          )!,
+        ).toString("utf8"),
+        definitionArtifact.body,
+      );
       assert.equal(started?.type === "runtime_session_started" && started.payload.instanceId, definition.instanceId);
       assert.equal(
         started?.type === "runtime_session_started" && started.payload.installationId,
@@ -254,6 +268,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       const session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
       assert.equal(session?.instanceId, definition.instanceId);
       assert.deepEqual(session?.definitionSnapshot, definition);
+      assert.equal(session?.definitionSnapshotPersisted, true);
       assert.equal(session?.liveness, "live");
       assert.equal(session?.semanticState, "running");
 
@@ -678,7 +693,7 @@ test("attached task runtime settlement releases its execution lease before publi
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
           );
-        return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "unknown";
+        return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
       });
       const failedEvents = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
         failedExitIndex = failedEvents.findIndex(
@@ -708,7 +723,7 @@ test("attached task runtime settlement releases its execution lease before publi
         ).length,
         1,
       );
-      assert.equal(failedStatus.session.activity.outcome, "unknown");
+      assert.equal(failedStatus.session.activity.outcome, "failed");
       assert.equal(
         failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
         "runtime_lease_release_failed",

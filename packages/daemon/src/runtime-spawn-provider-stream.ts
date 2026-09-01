@@ -6,7 +6,7 @@ import type {
   CanonicalEventStore,
   SessionIdentity,
 } from "../../kernel/src/index.ts";
-import { canonicalEventWritePlan, consumeKnownError } from "../../kernel/src/index.ts";
+import { canonicalEventWritePlan, consumeKnownError, runtimeEventContentClaims } from "../../kernel/src/index.ts";
 import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -58,11 +58,15 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
     } as AgentRuntimeEventV1;
   if (!runtimeEventHasType(value, type))
     throw context.runtimeSpawnError("invalid_runtime_event", "Runtime event construction changed the event type.");
+  const claims = runtimeEventContentClaims(value);
   let blobs: readonly CanonicalContentBlob[] = [];
   if (resultBody !== undefined) {
-    if (!isRuntimeOutcomeEvent(value))
-      throw context.runtimeSpawnError("invalid_runtime_event", "Only a runtime outcome can carry result bytes.");
-    blobs = [{ ...value.payload.result, body: resultBody }];
+    if (claims.length !== 1)
+      throw context.runtimeSpawnError(
+        "invalid_runtime_event",
+        "Only a content-bearing runtime event can carry content bytes.",
+      );
+    blobs = [{ ...claims[0]!, body: resultBody }];
   }
   const appended = store.append({
     event: value,
@@ -71,12 +75,6 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
   });
   projection.apply(value);
   return { event: value, publication: appended };
-}
-
-function isRuntimeOutcomeEvent(
-  event: AgentRuntimeEventV1,
-): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }> {
-  return event.type === "runtime_session_outcome_observed";
 }
 
 export async function consumeProviderChunk(

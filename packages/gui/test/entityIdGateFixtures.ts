@@ -192,6 +192,7 @@ export const FIXTURE_SESSION_DTO: AgentRuntimeSessionDto = {
   kindId: "codex",
   definitionSnapshotRef: "artifact:runtime-definition/g10",
   definitionSnapshot: DEFINITION_SNAPSHOT,
+  definitionSnapshotPersisted: true,
   liveness: "live",
   attachCapability: "supported",
   streamCursor: "stream:4",
@@ -203,7 +204,7 @@ export const FIXTURE_SESSION_DTO: AgentRuntimeSessionDto = {
       lease: { phase: "held", expiresAt: AT },
     },
   ],
-  activity: { lastObservedAt: AT, outcome: null, exitCode: null, resultRef: null },
+  activity: { lastObservedAt: AT, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
 };
 
 export const FIXTURE_INSTANCE: AgentRuntimeInstanceDto = {

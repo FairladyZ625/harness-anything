@@ -43,6 +43,7 @@ const session = {
   kindId: "codex",
   definitionSnapshotRef: "artifact:runtime-definition/test",
   definitionSnapshot: definition,
+  definitionSnapshotPersisted: true,
   liveness: "unknown",
   attachCapability: "supported",
   streamCursor: "stream:4",
@@ -54,7 +55,13 @@ const session = {
       lease: { phase: "held", expiresAt: "2026-08-13T01:00:00.000Z" },
     },
   ],
-  activity: { lastObservedAt: "2026-08-13T00:00:00.000Z", outcome: null, exitCode: null, resultRef: null },
+  activity: {
+    lastObservedAt: "2026-08-13T00:00:00.000Z",
+    outcome: null,
+    exitCode: null,
+    resultRef: null,
+    missingEvidence: null,
+  },
 } as const;
 const installation = {
   installationId: "installation-codex",
@@ -301,6 +308,22 @@ describe("agent runtime renderer", () => {
     expect(markup).toContain("last activity");
     expect(markup).toContain("2026-08-13T00:00:00.000Z");
     expect(markup).not.toContain("secret");
+  });
+  it("keeps a historical session visible when its definition snapshot was not persisted", () => {
+    const markup = detailView({
+      session: { ...session, definitionSnapshot: null, definitionSnapshotPersisted: false },
+    });
+    expect(markup).toContain("Snapshot artifact was not persisted");
+    expect(markup).toContain("Session facts");
+  });
+  it("states which terminal evidence is missing when an outcome is genuinely unknown", () => {
+    const markup = detailView({
+      session: {
+        ...session,
+        activity: { ...session.activity, outcome: "unknown", missingEvidence: "exit-code-and-result" },
+      },
+    });
+    expect(markup).toContain("Missing exit code and result artifact");
   });
   it("renders live, stale, unknown, and exited as distinct session states", () => {
     for (const state of ["live", "stale", "unknown", "exited"] as const)

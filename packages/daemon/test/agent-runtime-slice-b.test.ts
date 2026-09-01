@@ -86,6 +86,7 @@ test("runtime read facets expose safe overview/session/events through the shared
       ["runtime-session"],
     );
     assert.deepEqual(overview.sessions[0]?.definitionSnapshot, definition);
+    assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, false);
     assert.deepEqual(secretKeys(overview), []);
     assert.deepEqual(
       reads.session({ runtimeSessionId: "runtime-session" }).session.runtimeSessionId,
@@ -106,6 +107,21 @@ test("runtime read facets expose safe overview/session/events through the shared
         .length,
       0,
     );
+  }));
+
+test("historical runtime sessions with no snapshot event degrade without failing the overview", () =>
+  withRuntime(({ store, projection, stream }) => {
+    const withoutDispatchSnapshot = new Proxy(projection, {
+        get: (target, property, receiver) => {
+          if (property === "readRuntimeDispatch") return () => null;
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      overview = makeAgentRuntimeReadModel({ store, projection: withoutDispatchSnapshot, stream }).overview({});
+    assert.equal(overview.sessions[0]?.definitionSnapshot, null);
+    assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, false);
+    assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
 test("one stream parser validates agent-runtime and terminal facets by method", () => {

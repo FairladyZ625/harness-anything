@@ -1,5 +1,6 @@
 import {
   consumeKnownError,
+  runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type RuntimeSession,
   type TaskProjection,
@@ -76,7 +77,7 @@ export function readTaskDispatches(
         stream?.records.some((record) => record.kind === "process_lost") === true ||
         (stream?.process?.exited === false &&
           candidate.session?.liveness === "exited" &&
-          candidate.session.outcome === "unknown");
+          runtimeSessionOutcomeFromEvidence(candidate.session) === "unknown");
     for (const target of candidate.taskPackages) {
       const documentPath = `${target.packagePath}/artifacts/dispatches/${dispatchId}.json`;
       const read = input.projection.readDocument(documentPath);
@@ -233,7 +234,21 @@ function archiveRow(
       ? value.classification
       : (attemptOutcome?.classification ?? null),
     reason = typeof value.reason === "string" ? value.reason : (attemptOutcome?.reason ?? null),
-    outcome = isOutcome(value.outcome) ? value.outcome : (session?.outcome ?? "unknown");
+    resultRef = typeof value.resultRef === "string" ? value.resultRef : (session?.resultRef ?? null),
+    exitCode = typeof value.exitCode === "number" ? value.exitCode : (session?.exitCode ?? null),
+    archivedOutcome = isOutcome(value.outcome) ? value.outcome : null,
+    declaredOutcome =
+      session?.outcome && session.outcome !== "unknown"
+        ? session.outcome
+        : archivedOutcome && archivedOutcome !== "unknown"
+          ? archivedOutcome
+          : (session?.outcome ?? archivedOutcome ?? "unknown"),
+    outcome = runtimeSessionOutcomeFromEvidence({
+      outcome: declaredOutcome,
+      exitCode,
+      resultRef,
+      ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
+    });
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
@@ -281,9 +296,9 @@ function archiveRow(
     startedAt: String(value.startedAt),
     endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
     outcome,
-    status: lost ? "lost" : outcome,
-    resultRef: typeof value.resultRef === "string" ? value.resultRef : (session?.resultRef ?? null),
-    exitCode: typeof value.exitCode === "number" ? value.exitCode : (session?.exitCode ?? null),
+    status: lost ? "lost" : (outcome ?? "unknown"),
+    resultRef,
+    exitCode,
     dispatchPath: `${packagePath}/artifacts/dispatches/${String(value.dispatchId)}.json`,
     reportPath: `${packagePath}/artifacts/reports/${String(value.dispatchId)}.md`,
   };
@@ -297,7 +312,7 @@ function liveRow(
   packagePath: string | null,
   lost: boolean,
 ): TaskDispatchRow {
-  const outcome = session?.outcome ?? null;
+  const outcome = session ? runtimeSessionOutcomeFromEvidence(session) : null;
   return {
     dispatchId: header.dispatchId,
     taskId: header.taskId!,

@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto";
-import { canonicalEventWritePlan, stableStringify, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import {
+  canonicalEventWritePlan,
+  runtimeEventContentClaims,
+  stableStringify,
+  type AgentRuntimeEventV1,
+} from "../../kernel/src/index.ts";
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
@@ -44,8 +49,8 @@ export function appendAuxiliaryRuntimeIngress(
       "invalid_runtime_event",
       "RuntimeSession events must execute through the Entity Action catalog.",
     );
-  if (action.resultBody !== undefined)
-    throw cell.cellCodedError("invalid_runtime_event", "Auxiliary runtime events cannot carry result bytes.");
+  if (action.resultBody !== undefined && action.type !== "runtime_dispatch_requested")
+    throw cell.cellCodedError("invalid_runtime_event", "Only a runtime dispatch can carry auxiliary content bytes.");
   const existing = cell.store.readEvent(action.opId);
   if (existing) {
     if (
@@ -80,10 +85,22 @@ export function appendAuxiliaryRuntimeIngress(
     occurredAt: cell.now(),
     payload: action.payload,
   } as AgentRuntimeEventV1;
+  const claims = runtimeEventContentClaims(value),
+    blobs =
+      action.resultBody === undefined
+        ? []
+        : claims.length === 1
+          ? [{ ...claims[0]!, body: action.resultBody }]
+          : (() => {
+              throw cell.cellCodedError(
+                "invalid_runtime_event",
+                "Runtime dispatch content does not match a declared artifact.",
+              );
+            })();
   cell.store.append({
     event: value,
     plan: canonicalEventWritePlan(value, "agent-runtime/v1", value.opId),
-    blobs: [],
+    blobs,
   });
   cell.projection.apply(value);
   return runtimeIngressReceipt(cell, value);

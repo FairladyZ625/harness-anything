@@ -83,7 +83,8 @@ export interface AgentRuntimeSessionDto {
   readonly installationId: string;
   readonly kindId: "claude" | "codex" | "agy";
   readonly definitionSnapshotRef: string;
-  readonly definitionSnapshot: AgentDefinitionSnapshot;
+  readonly definitionSnapshot: AgentDefinitionSnapshot | null;
+  readonly definitionSnapshotPersisted: boolean;
   readonly liveness: "live" | "stale" | "unknown" | "exited";
   readonly semanticState?: RuntimeSessionSemanticState;
   readonly attachCapability: "supported" | "unsupported";
@@ -95,6 +96,7 @@ export interface AgentRuntimeSessionDto {
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
     readonly exitCode: number | null;
     readonly resultRef: string | null;
+    readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
     readonly reasonCode?: string;
   };
 }
@@ -405,6 +407,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "kindId",
         "definitionSnapshotRef",
         "definitionSnapshot",
+        "definitionSnapshotPersisted",
         "liveness",
         "attachCapability",
         "streamCursor",
@@ -419,9 +422,12 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (item) => typeof item === "string" && item.length > 0,
     ) &&
     ["claude", "codex", "agy"].includes(String(value.kindId)) &&
-    validDefinitionSnapshot(value.definitionSnapshot) &&
-    value.definitionSnapshot.instanceId === value.instanceId &&
-    value.definitionSnapshot.installationId === value.installationId &&
+    typeof value.definitionSnapshotPersisted === "boolean" &&
+    (value.definitionSnapshot === null ||
+      (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
+        value.definitionSnapshot.instanceId === value.instanceId &&
+        value.definitionSnapshot.installationId === value.installationId)) &&
+    (!value.definitionSnapshotPersisted || value.definitionSnapshot !== null) &&
     liveness.includes(String(value.liveness)) &&
     (value.semanticState === undefined || semanticStates.includes(String(value.semanticState))) &&
     attachCapabilities.includes(String(value.attachCapability)) &&
@@ -432,7 +438,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     isAgentRuntimeContractRecord(value.activity) &&
     hasAgentRuntimeContractFields(
       value.activity,
-      ["lastObservedAt", "outcome", "exitCode", "resultRef"],
+      ["lastObservedAt", "outcome", "exitCode", "resultRef", "missingEvidence"],
       ["reasonCode"],
     ) &&
     typeof value.activity.lastObservedAt === "string" &&
@@ -441,6 +447,8 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     (value.activity.exitCode === null ||
       (Number.isInteger(value.activity.exitCode) && (value.activity.exitCode as number) >= 0)) &&
     (value.activity.resultRef === null || typeof value.activity.resultRef === "string") &&
+    (value.activity.missingEvidence === null ||
+      ["exit-code-and-result", "exit-code", "result"].includes(String(value.activity.missingEvidence))) &&
     (value.activity.reasonCode === undefined ||
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
   );
@@ -496,7 +504,7 @@ function validPage(value: unknown): boolean {
     (value.remainingCount as number) >= 0
   );
 }
-function validDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {
+export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {
   return (
     isAgentRuntimeContractRecord(value) &&
     hasAgentRuntimeContractFields(

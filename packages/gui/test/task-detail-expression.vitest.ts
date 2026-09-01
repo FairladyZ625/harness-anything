@@ -29,6 +29,7 @@ const session = {
   kindId: "codex",
   definitionSnapshotRef: "artifact:definition/w3",
   definitionSnapshot: definition,
+  definitionSnapshotPersisted: true,
   liveness: "exited",
   attachCapability: "supported",
   streamCursor: "stream:4",
@@ -45,6 +46,7 @@ const session = {
     outcome: "succeeded",
     exitCode: 0,
     resultRef: "artifact:result/w3",
+    missingEvidence: null,
   },
 } as const;
 const dispatch = {
