@@ -24,6 +24,10 @@ import {
 } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
+
+// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). This suite
+// waits for materialized commits, so pin the test-local idle timer to a fast interval.
+process.env.HARNESS_WAL_FLUSH_MS = "250";
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
