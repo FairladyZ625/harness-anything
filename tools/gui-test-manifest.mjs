@@ -25,6 +25,7 @@ export const guiVitestManifest = [
   "packages/gui/test/terminal-page.vitest.ts",
   "packages/gui/test/terminal-split-layout.vitest.ts",
   "packages/gui/test/terminal-split-grid.vitest.ts",
+  "packages/gui/test/browser-shell.vitest.ts",
   "packages/gui/test/genealogy.vitest.ts",
   "packages/gui/test/territory.vitest.ts",
   "packages/gui/test/territory-layout.vitest.ts",

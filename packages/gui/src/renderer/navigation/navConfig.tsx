@@ -14,7 +14,6 @@ import {
   FileHtml,
   BookOpen,
   TerminalWindow,
-  Globe,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -84,7 +83,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "sessions", icon: <Waveform weight="duotone" /> },
       { id: "terminal", icon: <TerminalWindow weight="duotone" /> },
-      { id: "browser", icon: <Globe weight="duotone" /> },
       { id: "schedules", icon: <Clock weight="duotone" /> },
       { id: "artifacts", icon: <FileHtml weight="duotone" /> },
       { id: "agentSquad", icon: <Users weight="duotone" /> },

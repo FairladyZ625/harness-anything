@@ -768,7 +768,7 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     // 「在映射里但没渲染」的键在这里被导航面一致性断言拦下。
     const declared = new Set(Object.keys(VIEW_RENDERERS));
     expect([...declared].sort()).toEqual(
-      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve"].sort(),
+      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
     );
     for (const id of navViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
   });
