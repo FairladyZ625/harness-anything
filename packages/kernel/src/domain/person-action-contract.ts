@@ -247,14 +247,14 @@ export function evaluatePersonActionCapability(input: {
     parsed = invocation ? parseEvaluation(id, invocation, input.actorPersonId, input.evaluatedAt, usage) : null,
     inputEvaluation: PersonActionCapabilityEvaluation = parsed
       ? parsed.ok
-        ? evaluation(personActionCriterionRef(id, "input"), "met")
-        : evaluation(personActionCriterionRef(id, "input"), "unmet", parsed.nextActions)
-      : evaluation(personActionCriterionRef(id, "input"), "invocation-required", [`Run ${usage}.`]),
+        ? personCriterionEvaluation(personActionCriterionRef(id, "input"), "met")
+        : personCriterionEvaluation(personActionCriterionRef(id, "input"), "unmet", parsed.nextActions)
+      : personCriterionEvaluation(personActionCriterionRef(id, "input"), "invocation-required", [`Run ${usage}.`]),
     invariantEvaluation =
       parsed?.ok === true
         ? evaluateInvariant(id, input.roster, parsed.action, usage)
         : parsed?.ok === false
-          ? evaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [])
+          ? personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [])
           : evaluateObjectInvariant(id, input.roster, input.personId, input.actorPersonId, usage);
   return Object.freeze([inputEvaluation, invariantEvaluation]);
 }
@@ -305,10 +305,14 @@ function evaluateInvariant(
 ): PersonActionCapabilityEvaluation {
   try {
     applyPeopleRosterAction(JSON.stringify(roster), action);
-    return evaluation(personActionCriterionRef(id, "invariants"), "met");
+    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "met");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return evaluation(personActionCriterionRef(id, "invariants"), "unmet", invariantNextActions(message, usage));
+    return personCriterionEvaluation(
+      personActionCriterionRef(id, "invariants"),
+      "unmet",
+      invariantNextActions(message, usage),
+    );
   }
 }
 
@@ -321,23 +325,25 @@ function evaluateObjectInvariant(
 ): PersonActionCapabilityEvaluation {
   const person = roster.people.find(({ personId: candidate }) => candidate === targetPersonId);
   if (id === "add")
-    return evaluation(personActionCriterionRef(id, "invariants"), "unmet", [
+    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
       `Person ${targetPersonId} already exists; choose a new Person identity before running ${usage}.`,
     ]);
   if (!person)
-    return evaluation(personActionCriterionRef(id, "invariants"), "unmet", [
+    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
       `Person ${targetPersonId} does not exist; choose an existing Person ref.`,
     ]);
   if ((id === "delegate" || id === "revoke-delegation") && actorPersonId !== targetPersonId)
-    return evaluation(personActionCriterionRef(id, "invariants"), "unmet", [
+    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
       `Authenticate as Person ${targetPersonId} to ${id === "delegate" ? "issue" : "revoke"} that Person's delegation.`,
     ]);
   if (id === "remove") return evaluateInvariant(id, roster, { kind: "people-remove", personId: targetPersonId }, usage);
   if (id === "delegate" && person.disabled)
-    return evaluation(personActionCriterionRef(id, "invariants"), "unmet", [
+    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
       `Person ${targetPersonId} is disabled and cannot issue a DelegatedExecutionToken.`,
     ]);
-  return evaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [`Run ${usage}.`]);
+  return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [
+    `Run ${usage}.`,
+  ]);
 }
 
 function parseEvaluation(
@@ -368,15 +374,15 @@ function parsePersonAction(
   occurredAt: string,
 ): PeopleRosterAction {
   if (id === "bind") {
-    const actor = roleBindingActor(requiredText(action.actor, "actor"));
+    const actor = roleBindingActor(personRequiredText(action.actor, "actor"));
     return {
       kind: "people-bind",
       binding: {
         actor,
-        role: requiredText(action.role, "role"),
-        target: requiredText(action.target, "target") as never,
+        role: personRequiredText(action.role, "role"),
+        target: personRequiredText(action.target, "target") as never,
         source: "declared",
-        expiresAt: action.expiresAt === null ? null : (text(action.expiresAt) ?? null),
+        expiresAt: action.expiresAt === null ? null : (personText(action.expiresAt) ?? null),
       },
     };
   }
@@ -385,33 +391,33 @@ function parsePersonAction(
       kind: "people-delegate",
       token: {
         schema: "delegated-execution-token/v1",
-        tokenId: requiredText(action.tokenId, "token-id"),
+        tokenId: personRequiredText(action.tokenId, "token-id"),
         issuer: { personId: issuerPersonId },
-        delegate: { runtimeSessionId: requiredText(action.runtimeSessionId, "runtime-session-id") },
-        allowedActions: stringArray(action.action, "action"),
+        delegate: { runtimeSessionId: personRequiredText(action.runtimeSessionId, "runtime-session-id") },
+        allowedActions: personStringArray(action.action, "action"),
         issuedAt: occurredAt,
-        expiresAt: requiredText(action.expiresAt, "expires-at"),
+        expiresAt: personRequiredText(action.expiresAt, "expires-at"),
         revokedAt: null,
       },
     };
   if (id === "revoke-delegation")
     return {
       kind: "people-revoke-delegation",
-      tokenId: requiredText(action.tokenId, "token-id"),
+      tokenId: personRequiredText(action.tokenId, "token-id"),
       issuerPersonId,
       revokedAt: occurredAt,
     };
-  const targetPersonId = requiredText(action.personId, "person-id");
+  const targetPersonId = personRequiredText(action.personId, "person-id");
   if (id === "remove") return { kind: "people-remove", personId: targetPersonId };
-  const roleId = requiredText(action.role, "role"),
+  const roleId = personRequiredText(action.role, "role"),
     commandClasses = commandClassArray(action.commandClass),
     rolePolicy = { roleId, commandClasses };
   if (id === "set-role") return { kind: "people-set-role", personId: targetPersonId, rolePolicy };
-  const displayName = requiredText(action.displayName, "display-name"),
-    primaryEmail = text(action.primaryEmail),
-    credentialKind = text(action.credentialKind),
-    credentialIssuer = text(action.credentialIssuer),
-    credentialSubject = text(action.credentialSubject),
+  const displayName = personRequiredText(action.displayName, "display-name"),
+    primaryEmail = personText(action.primaryEmail),
+    credentialKind = personText(action.credentialKind),
+    credentialIssuer = personText(action.credentialIssuer),
+    credentialSubject = personText(action.credentialSubject),
     credentialFields = [credentialKind, credentialIssuer, credentialSubject];
   if (credentialFields.some(Boolean) && !credentialFields.every(Boolean))
     throw new PersonActionInputError(
@@ -449,7 +455,7 @@ function personActionIngress(id: PersonActionId): string {
 }
 
 function personActionUsageFromInput(id: PersonActionId, action: Readonly<Record<string, unknown>>): string {
-  const target = text(action.personId) ?? "<person-id>";
+  const target = personText(action.personId) ?? "<person-id>";
   return renderPersonActionUsage(id, actionInputs[id].fields, target);
 }
 
@@ -457,7 +463,7 @@ function invariantNextActions(message: string, usage: string): readonly string[]
   return Object.freeze([`${message} Then retry ${usage}.`]);
 }
 
-function evaluation(
+function personCriterionEvaluation(
   criterionRef: string,
   status: PersonActionCapabilityEvaluation["status"],
   nextActions: readonly string[] = [],
@@ -475,27 +481,27 @@ function roleBindingActor(value: string): { readonly kind: "person" | "executor"
 }
 
 function commandClassArray(value: unknown): readonly PeopleCommandClass[] {
-  const values = stringArray(value, "command-class");
+  const values = personStringArray(value, "command-class");
   for (const candidate of values)
     if (!(peopleCommandClasses as readonly string[]).includes(candidate))
       throw new PersonActionInputError(`Unknown command class: ${candidate}`);
   return values as readonly PeopleCommandClass[];
 }
 
-function stringArray(value: unknown, field: string): readonly string[] {
-  const values = (Array.isArray(value) ? value : [value]).map(text).filter((entry): entry is string => !!entry);
+function personStringArray(value: unknown, field: string): readonly string[] {
+  const values = (Array.isArray(value) ? value : [value]).map(personText).filter((entry): entry is string => !!entry);
   if (values.length === 0) throw new PersonActionInputError(`At least one --${field} is required`);
   if (new Set(values).size !== values.length) throw new PersonActionInputError(`--${field} values must be unique`);
   return values;
 }
 
-function requiredText(value: unknown, field: string): string {
-  const valueText = text(value);
+function personRequiredText(value: unknown, field: string): string {
+  const valueText = personText(value);
   if (!valueText) throw new PersonActionInputError(`--${field} is required`);
   return valueText;
 }
 
-function text(value: unknown): string | undefined {
+function personText(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 

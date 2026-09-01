@@ -45,7 +45,7 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
     if (existing) {
       if (!isPeopleEvent(existing))
         throw cell.cellCodedError("revision_conflict", `Operation ${opId} belongs to a non-People event.`);
-      return replayReceipt(cell.receiptForOperation(opId, binding), existing.payload.targetPersonId);
+      return personReplayReceipt(cell.receiptForOperation(opId, binding), existing.payload.targetPersonId);
     }
     const peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
       currentBody = existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null,
@@ -135,7 +135,7 @@ function publishPersonDraft(
       } as WriteReceipt);
 }
 
-function replayReceipt(receipt: WriteReceipt, personId: string | null): WriteReceipt {
+function personReplayReceipt(receipt: WriteReceipt, personId: string | null): WriteReceipt {
   return {
     ...receipt,
     personId,

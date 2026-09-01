@@ -28,7 +28,7 @@ export function makePersonActionExplanationService(dependencies: PersonActionExp
   const catalog = personCatalog();
   return Object.freeze({
     catalog: (): EntityActionExplanationSetV1 =>
-      checked({
+      personChecked({
         schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
         mode: "catalog",
         subjects: [
@@ -51,7 +51,7 @@ export function makePersonActionExplanationService(dependencies: PersonActionExp
       const target = input.entity.ref as EntityRef,
         person = input.roster.people.find(({ personId }) => personId === input.entity.id);
       if (!person) throw new Error("Person Action explanation requires its Person in the same-cut People roster.");
-      return checked({
+      return personChecked({
         schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
         mode: "object",
         subjects: [
@@ -59,7 +59,7 @@ export function makePersonActionExplanationService(dependencies: PersonActionExp
             kind: "person",
             ref: target,
             revision: input.entity.revision,
-            actions: catalog.actions.map((action) => objectRow(catalog.ref, action, input, target, dependencies)),
+            actions: catalog.actions.map((action) => personObjectRow(catalog.ref, action, input, target, dependencies)),
             failure: null,
           },
         ],
@@ -103,7 +103,7 @@ function catalogRow(catalogRef: string, action: EntityActionContract): EntityAct
   });
 }
 
-function objectRow(
+function personObjectRow(
   catalogRef: string,
   action: EntityActionContract,
   input: {
@@ -164,7 +164,7 @@ function stableUnique(values: readonly string[]): readonly string[] {
   return Object.freeze([...new Set(values)]);
 }
 
-function checked(value: EntityActionExplanationSetV1): EntityActionExplanationSetV1 {
+function personChecked(value: EntityActionExplanationSetV1): EntityActionExplanationSetV1 {
   const issues = validateEntityActionExplanationSet(value);
   if (issues.length > 0) throw new Error(`Invalid Person Action explanation: ${issues.join("; ")}`);
   return Object.freeze(value);

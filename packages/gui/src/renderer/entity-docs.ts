@@ -145,7 +145,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "person/v1",
     refTemplate: "person/{id}",
     statuses: [],
-    actions: [],
+    actions: ["add", "set-role", "bind", "delegate", "revoke-delegation", "remove"],
   },
   policy: {
     schemaId: "policy/v1",
