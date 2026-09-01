@@ -85,7 +85,8 @@ export async function runGuiLaunch(
     if (child.pid === undefined)
       return reject(
         "gui_launch_failed",
-        `Electron at ${electronBinary} could not be started. Reinstall it with \`node node_modules/electron/install.js\`, then retry \`ha gui\`.`,
+        `Electron at ${electronBinary} could not be started. ` +
+          "Reinstall it with `node node_modules/electron/install.js`, then retry `ha gui`.",
       );
     child.unref();
     return finish(
