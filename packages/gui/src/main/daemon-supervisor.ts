@@ -91,7 +91,7 @@ export function createDaemonSupervisor(input: {
         phase: "failed",
         completedAt: now(),
         error: { code: "restart_failed", hint: error instanceof Error ? error.message : "Daemon restart failed." },
-        nextAction: "Inspect daemon status; the next request starts the daemon automatically.",
+        nextAction: "Inspect daemon status and start the service daemon explicitly if needed.",
       };
     }
     receipts.set(operationId, active);

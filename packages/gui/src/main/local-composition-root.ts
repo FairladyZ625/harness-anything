@@ -39,16 +39,36 @@ interface DaemonClient {
     responseTimeoutMs?: number,
   ) => Promise<JsonObject>;
 }
+export interface LocalDaemonLifecycle {
+  readonly attached: () => void;
+  readonly spawned: () => void;
+  readonly canAutostart: () => boolean;
+  readonly isOwned: () => boolean;
+}
 let client: Promise<DaemonClient> | undefined;
+export function createLocalDaemonLifecycle(): LocalDaemonLifecycle {
+  let owner: "unresolved" | "external" | "gui" = "unresolved";
+  return {
+    attached: () => {
+      if (owner === "unresolved") owner = "external";
+    },
+    spawned: () => {
+      owner = "gui";
+    },
+    canAutostart: () => owner !== "external",
+    isOwned: () => owner === "gui",
+  };
+}
 export function createLocalGuiServiceBridge(
   rootDir: string,
   _layoutOverrides?: { readonly authoredRoot?: string },
-  options: { readonly packaged?: PackagedRuntime } = {},
+  options: { readonly packaged?: PackagedRuntime; readonly lifecycle?: LocalDaemonLifecycle } = {},
 ): GuiServiceBridge {
   const root = path.resolve(rootDir);
+  const lifecycle = options.lifecycle ?? createLocalDaemonLifecycle();
   validateProjectPath(root, ".");
   return createGuiServiceBridgeForDaemon(
-    (route, payload) => request(root, route, payload, options.packaged),
+    (route, payload) => request(root, route, payload, lifecycle, options.packaged),
     async (route, payload, emit) => {
       const daemon = await loadClient(),
         scoped = repoPayload(payload),
@@ -118,6 +138,7 @@ async function request(
   rootDir: string,
   route: ShippedGuiRoute,
   payload: unknown,
+  lifecycle: LocalDaemonLifecycle,
   packaged?: PackagedRuntime,
 ): Promise<JsonObject> {
   try {
@@ -146,9 +167,19 @@ async function request(
         requestTimeoutMs(route, daemonPayload),
       );
     try {
-      return parse(await invoke());
+      const result = parse(await invoke());
+      lifecycle.attached();
+      return result;
     } catch (connectError) {
       if (!isDaemonUnreachable(connectError)) throw connectError;
+      if (!lifecycle.canAutostart())
+        throw new Error(
+          [
+            "The service daemon stopped after this GUI attached to it;",
+            "the GUI is attach-only for that daemon.",
+            "Start the service daemon explicitly, then retry.",
+          ].join(" "),
+        );
       const started = await ensureLocalDaemonRunning({
         socketPath: target.socketPath,
         invokingRoot: rootDir,
@@ -160,6 +191,8 @@ async function request(
           started.code ?? "daemon_start_failed",
           started.hint,
         ) as unknown as JsonObject;
+      if (started.attempts > 0) lifecycle.spawned();
+      else lifecycle.attached();
       return parse(await invoke());
     }
   } catch (error) {
