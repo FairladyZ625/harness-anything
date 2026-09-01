@@ -24,9 +24,9 @@ test("production CSP does not allow wildcard localhost connections", () => {
   assert.doesNotMatch(createGuiContentSecurityPolicy({ allowDevRenderer: true }), /127\.0\.0\.1:\*/);
 });
 
-test("inline script/style relaxation is dev-only; production CSP stays strict", () => {
-  assert.doesNotMatch(guiContentSecurityPolicy, /unsafe-inline/);
-  assert.doesNotMatch(createGuiContentSecurityPolicy(), /unsafe-inline/);
+test("inline script relaxation is dev-only; inline style stays open for xterm's injected stylesheets", () => {
+  assert.match(guiContentSecurityPolicy, /script-src 'self';/);
+  assert.match(guiContentSecurityPolicy, /style-src 'self' 'unsafe-inline'/);
   const devCsp = createGuiContentSecurityPolicy({ allowDevRenderer: true });
   assert.match(devCsp, /script-src 'self' 'unsafe-inline'/);
   assert.match(devCsp, /style-src 'self' 'unsafe-inline'/);
