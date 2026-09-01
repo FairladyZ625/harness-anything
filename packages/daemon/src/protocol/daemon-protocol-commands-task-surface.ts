@@ -32,7 +32,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-declare-executor",
     phase: "W3",
     path: ["task", "declare-executor", "<task-id>"],
-    summary: "Auditably declare the agent executor omitted from a submitted Execution at the review node.",
+    summary:
+      "Repair executor attribution only for a submitted Execution that still has " +
+      "executor=null; dispatched workers bind before launch.",
     method: "repo.task.run",
     inputs: [
       cliInput("--execution-id", "single", false, {

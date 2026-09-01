@@ -166,7 +166,7 @@ export async function publishExit(
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
         resultRef,
-        binding: active.binding,
+        binding: terminalBinding,
       })
       .catch((error: unknown) => {
         consumeKnownError(error);

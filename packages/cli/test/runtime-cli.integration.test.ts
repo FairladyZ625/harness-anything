@@ -981,9 +981,34 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
               prompt: "batch hold one",
               task: taskId,
             },
-            { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold two", cwd: ".", task: taskId },
-            { instance: "cli-worker", agent: "fable", to: "terra", mission: "existing-mission", task: taskId },
-            { instance: "cli-worker", agent: "fable", to: "terra", prompt: "batch hold three", task: taskId },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold two",
+              cwd: ".",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              mission: "existing-mission",
+              task: taskId,
+            },
+            {
+              instance: "cli-worker",
+              agent: "fable",
+              to: "terra",
+              effort: "high",
+              fast: true,
+              prompt: "batch hold three",
+              task: taskId,
+            },
           ],
         },
         null,
@@ -996,22 +1021,29 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(batch.receipt.outcome, "partial_failure");
     const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
     assert.equal(batchRows.length, 5);
-    assert.deepEqual(
-      batchRows.map((row) => row.status),
-      ["rejected", "succeeded", "succeeded", "succeeded", "succeeded"],
+    const taskBatchRows = batchRows.slice(1),
+      successfulBatchRows = taskBatchRows.filter((row) => row.status === "succeeded"),
+      rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
+    assert.equal(successfulBatchRows.length, 1, JSON.stringify(batch.receipt));
+    assert.equal(rejectedTaskBatchRows.length, 3, JSON.stringify(batch.receipt));
+    assert.equal(
+      rejectedTaskBatchRows.every((row) => row.code === "runtime_task_lease_required"),
+      true,
       JSON.stringify(batch.receipt),
     );
     assert.equal(batchRows[0]?.code, "squad_member_not_found");
     assert.match(String(batchRows[0]?.reason), /missing-agent/u);
     assert.equal(
-      batchRows.slice(1).every((row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string"),
+      successfulBatchRows.every(
+        (row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string",
+      ),
       true,
     );
-    const batchDispatchIds = new Set(batchRows.slice(1).map((row) => String(row.dispatchId))),
+    const batchDispatchIds = new Set(successfulBatchRows.map((row) => String(row.dispatchId))),
       batchDispatches = (
         run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
       ).filter((row) => batchDispatchIds.has(String(row.dispatchId)));
-    assert.equal(batchDispatches.length, 4);
+    assert.equal(batchDispatches.length, 1);
     assert.equal(
       batchDispatches.every(
         (row) => row.agentId === "terra" && row.delegatedByAgentId === "fable" && row.squadId === "core-squad",
@@ -1019,13 +1051,13 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       true,
       JSON.stringify(batchDispatches),
     );
-    const batchArchives = batchRows
-      .slice(1)
-      .map((row) => path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`));
+    const batchArchives = successfulBatchRows.map((row) =>
+      path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
+    );
     assert.deepEqual(
       batchArchives.filter((archive) => !existsSync(archive)),
       [],
-      "runtime batch returned before every dispatch archive became visible",
+      "runtime batch returned before its successful dispatch archive became visible",
     );
     const slowBatchArchive = batchArchives[0]!;
     assert.equal(
@@ -1123,16 +1155,17 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         dispatch: failedRow,
       })}`,
     );
-    const events = readFileSync(tracker, "utf8").trim().split("\n");
+    const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],
+      trackedBatchDispatches = successfulBatchRows.filter((row) => row.index !== 3).length;
     let active = 0,
       peak = 0;
     for (const event of events) {
       active += event === "start" ? 1 : -1;
       peak = Math.max(peak, active);
     }
-    assert.equal(events.filter((event) => event === "start").length, 3);
-    assert.equal(events.filter((event) => event === "end").length, 3);
-    assert.ok(peak <= 2, `batch exceeded declared concurrency: ${events.join(",")}`);
+    assert.equal(events.filter((event) => event === "start").length, trackedBatchDispatches);
+    assert.equal(events.filter((event) => event === "end").length, trackedBatchDispatches);
+    assert.ok(peak <= 1, `task-bound batch exceeded its single lease holder: ${events.join(",")}`);
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const detached = run(root, env, [
         "runtime",

@@ -145,6 +145,12 @@ export interface RuntimeSpawnerInput {
     schedule: TrustedScheduleRuntime | null,
   ) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
+  readonly handoffTaskLease?: (input: {
+    readonly taskId: string;
+    readonly runtimeSessionId: string;
+    readonly fromRuntimeSessionId: string | null;
+    readonly binding: RuntimeBinding;
+  }) => Promise<RuntimeBinding>;
   /** Re-authorizes each local canonical Runtime event at the cut where it is appended. */
   readonly authorizeRuntimeEvent?: (input: {
     readonly type: AgentRuntimeEventV1["type"];
@@ -201,6 +207,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     binding: RuntimeBinding,
     inheritedFallback?: RuntimeFallbackAttempt,
     trustedSchedule?: TrustedScheduleRuntime,
+    handoffFromRuntimeSessionId?: string,
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -295,7 +302,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId,
         purpose: "runtime.run",
       });
-    const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null,
+    const leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
       taskSnapshot = taskId && !input.remote ? projection!.read(taskId).snapshot : null,
       reviewExecutions =
         taskSnapshot?.task?.status === "in_review" &&
@@ -307,29 +314,43 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
-      dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`;
+      dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
+      trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     if (taskId && !input.remote) {
       const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
         runtimeBinding =
-          callerRuntimeSessionId === null || lease === null
+          callerRuntimeSessionId === null || leaseAtAdmission === null
             ? null
             : resolveTaskBoundRuntimeBinding(
                 projection!.readRuntimeSession(callerRuntimeSessionId),
                 taskId,
-                lease.executionId,
+                leaseAtAdmission.executionId,
               );
+      const leaseExecutorId = leaseAtAdmission?.actor.executor?.id ?? null,
+        leaseHeldByRuntime = leaseExecutorId?.startsWith("runtime-session:") === true,
+        dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
+        trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
       const leaseQualifies =
-        lease?.phase === "held" &&
-        isSamePerson(lease.actor, binding.actor) &&
-        (binding.actor.executor === null || isSameExecution(lease.actor, binding.actor) || runtimeBinding !== null);
+        leaseAtAdmission === null || leaseAtAdmission.phase === "released"
+          ? input.handoffTaskLease !== undefined
+          : leaseAtAdmission.phase === "held" &&
+            isSamePerson(leaseAtAdmission.actor, binding.actor) &&
+            (isSameExecution(leaseAtAdmission.actor, binding.actor) ||
+              runtimeBinding !== null ||
+              leaseExecutorId === dispatchLeaseExecutor ||
+              leaseExecutorId === trustedSourceExecutor ||
+              (binding.actor.executor === null && !leaseHeldByRuntime));
       if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
         throw runtimeSpawnError(
           "authorization_missing",
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
       if (!leaseQualifies && reviewExecution === null)
-        throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
+        throw runtimeSpawnError(
+          "runtime_task_lease_required",
+          runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
+        );
     }
     const daemonRoute = taskId || trustedSchedule ? input.runtimeDaemonRoute : undefined;
     if ((taskId || trustedSchedule) && !daemonRoute)
@@ -499,6 +520,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         : trustedSchedule?.mode === "remediate"
           ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
           : undefined;
+    const taskLeaseHandoff = taskId && !input.remote && reviewExecution === null ? input.handoffTaskLease : undefined,
+      activeBinding = taskLeaseHandoff
+        ? await taskLeaseHandoff({
+            taskId: taskId!,
+            runtimeSessionId,
+            fromRuntimeSessionId: trustedHandoffSource,
+            binding,
+          })
+        : binding;
+    const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
+    if (
+      taskId &&
+      !input.remote &&
+      reviewExecution === null &&
+      (lease?.phase !== "held" || lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}`)
+    )
+      throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
     // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
     // route as well as its own executor identity.
     const workerLaunch =
@@ -555,7 +593,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchOpId,
         kindId: definition.kindId,
         permissionMode: launchedPermissionMode ?? null,
-        binding,
+        binding: activeBinding,
         cwd,
         prompt: scrubProviderValue(prompt) as string,
         mission: scrubProviderValue(mission) as string,
@@ -576,6 +614,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       }));
+    const settleFailedHandoff = async (error: unknown): Promise<void> => {
+      if (!taskLeaseHandoff || !taskBinding) return;
+      await input.onAttemptTerminal?.({
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        task: taskBinding,
+        schedule: trustedSchedule ?? null,
+        outcome: "failed",
+        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+        endedAt: input.now(),
+        resultRef: null,
+        binding: activeBinding,
+      });
+    };
     if (providerSessionId)
       try {
         openStream();
@@ -586,6 +638,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         process?.terminate();
         process?.release?.();
         removeDispatchStream(input.rootDir, newDispatchId);
+        await settleFailedHandoff(error);
         if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
         consumeKnownError(error);
         throw runtimeSpawnError(
@@ -629,6 +682,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.terminate();
       process?.release?.();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      await settleFailedHandoff(error);
       throw error;
     }
     // Publish the canonical session before starting the provider. A provider can
@@ -653,6 +707,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.terminate();
       process?.release?.();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      await settleFailedHandoff(error);
       throw error;
     }
     if (!process)
@@ -661,6 +716,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
       } catch (error) {
         removeDispatchStream(input.rootDir, newDispatchId);
+        await settleFailedHandoff(error);
         await publishRuntimeEvent(
           "runtime_dispatch_outcome_unknown",
           { dispatchId: newDispatchId, runtimeSessionId },
@@ -682,7 +738,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       delegatedBy,
       squadId: squad?.squadId ?? null,
       parentRuntimeSessionId: parentRuntimeSessionId ?? null,
-      binding,
+      binding: activeBinding,
       task: taskBinding,
       schedule: trustedSchedule ?? null,
       cwd,
@@ -917,6 +973,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
             nextFallback,
             header.schedule,
+            header.runtimeSessionId,
           );
           writer.appendFallbackState(
             {

@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
 import {
   assertCurrentWriter,
-  currentSubmittedExecutions,
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
@@ -790,55 +788,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const action = { kind: "runtime-spawn", ...payload };
-    return enqueueRuntimePublication("runtime-run", action, binding, async (authorizedBinding, revision) => {
-      const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null,
-        readyTask = await waitForOptionalTaskProjection({
-          invalidWait: (message) => context.cellCodedError("invalid_command", message),
-          projection: context.projection,
-          purpose: "runtime.run admission",
-          store: context.store,
-          taskId,
-          waitProjectionMs: payload.waitProjectionMs,
-        });
-      const idempotencyKey =
-          typeof payload.idempotencyKey === "string" && payload.idempotencyKey ? payload.idempotencyKey : null,
-        dispatchOpId = idempotencyKey
-          ? `runtime-spawn-${createHash("sha256")
-              .update(`${context.input.repoId}\0${idempotencyKey}`)
-              .digest("hex")
-              .slice(0, 32)}`
-          : null,
-        taskLease = taskId ? context.projection.currentLease(taskId) : null,
-        taskSnapshot = readyTask?.snapshot ?? null,
-        reviewContinuation =
-          taskSnapshot?.task?.status === "in_review" &&
-          taskSnapshot.task.currentNode === "review" &&
-          taskSnapshot.lease === null &&
-          currentSubmittedExecutions(taskSnapshot).length === 1;
-      if (
-        taskId &&
-        !reviewContinuation &&
-        (taskLease === null || taskLease.phase === "released") &&
-        (!dispatchOpId || context.store.readEvent(dispatchOpId) === null)
-      ) {
-        const startAction = { kind: "task-start", taskId },
-          startDecision = authorizeRepoCellAction({
-            action: startAction,
-            binding: authorizedBinding,
-            actionId: context.operationId(startAction, authorizedBinding, context.input.repoId, revision),
-            revision,
-            now: context.now(),
-          }),
-          started = await context.executeAction(startAction, {
-            ...authorizedBinding,
-            authorizationDecision: startDecision,
-          });
-        if (started.outcome !== "applied")
-          throw context.cellCodedError(
-            started.code ?? "runtime_task_lease_required",
-            started.nextAction ?? `Task ${taskId} could not acquire an execution lease for runtime dispatch.`,
-          );
-      }
+    return enqueueRuntimePublication("runtime-run", action, binding, async (authorizedBinding) => {
+      const taskId = typeof payload.taskId === "string" && payload.taskId ? payload.taskId : null;
+      await waitForOptionalTaskProjection({
+        invalidWait: (message) => context.cellCodedError("invalid_command", message),
+        projection: context.projection,
+        purpose: "runtime.run admission",
+        store: context.store,
+        taskId,
+        waitProjectionMs: payload.waitProjectionMs,
+      });
       return context.runtimeSpawner.spawn(payload, authorizedBinding);
     });
   };

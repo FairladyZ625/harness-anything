@@ -5,7 +5,7 @@ import { readRuntimeBatch } from "./cli-runtime-batch-input.ts";
 import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import type { RuntimeBatchDeclaration, RuntimeBatchEntry, RuntimeBatchResult } from "./cli-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
-import { consumeKnownError, runCommandThroughDaemon } from "./daemon/client.ts";
+import { consumeKnownError } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
 
 export async function runRuntimeBatch(
@@ -38,24 +38,6 @@ export async function runRuntimeBatchDeclaration(
       },
       writeActivity,
     );
-  // Concurrent task-bound entries keep one execution lease through their final live sibling. A
-  // worker can still reach its next entry after an earlier generation was released, so a dispatch
-  // spawns first and only a runtime_task_lease_required rejection reacquires the lease and
-  // resubmits once under the same idempotency key — the rejected spawn wrote no ledger event, so
-  // the resubmit is not a duplicate dispatch. The resubmit, not the reacquisition receipt, decides
-  // the entry: a lease a sibling worker just reacquired is already the lease this spawn needs, and
-  // a lease that stayed out of reach rejects again naming the holder that has to release it.
-  const leaseAwareSpawn = async (entry: RuntimeBatchEntry): Promise<JsonObject> => {
-    const idempotencyKey = `runtime-batch-${randomUUID()}`,
-      first = await spawn(entry, idempotencyKey);
-    if (!entry.task || !rejectedWith(first, "runtime_task_lease_required")) return first;
-    await runCommandThroughDaemon({
-      ...command,
-      method: "repo.task.run",
-      action: { kind: "task-start", taskId: entry.task },
-    });
-    return spawn(entry, idempotencyKey);
-  };
   const worker = async (): Promise<void> => {
     while (true) {
       const index = next++;
@@ -63,7 +45,7 @@ export async function runRuntimeBatchDeclaration(
       const entry = declaration.dispatches[index]!;
       let receipt: JsonObject;
       try {
-        receipt = await leaseAwareSpawn(entry);
+        receipt = await spawn(entry, `runtime-batch-${randomUUID()}`);
       } catch (error) {
         consumeKnownError(error);
         receipt = runtimeRejected("runtime-run", "batch_dispatch_failed", cliErrorMessage(error));
@@ -87,11 +69,6 @@ export async function runRuntimeBatchDeclaration(
     summary: `runtime-batch: ${results.length - failed.length} succeeded, ${failed.length} failed`,
     exitCode: failed.length ? 1 : 0,
   };
-}
-
-export function rejectedWith(receipt: JsonObject, code: string): boolean {
-  const error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : null;
-  return receipt.ok !== true && (receipt.code === code || error?.code === code);
 }
 
 export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["action"] {

@@ -3,6 +3,7 @@ import {
   consumeKnownError,
   createEntityStore,
   isSameExecution,
+  isSamePerson,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
   type EventPublicationKillpoint,
@@ -326,6 +327,9 @@ async function openLockedRepoCell(
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
+  let handoffTaskLease: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["handoffTaskLease"]> = async () => {
+    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell task lease handoff is not ready.");
+  };
   const authorizeRuntimeAction = (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],
@@ -393,6 +397,7 @@ async function openLockedRepoCell(
       if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
       input.onAttemptTerminal?.(terminal);
     },
+    handoffTaskLease: (handoff) => handoffTaskLease(handoff),
     authorizeRuntimeEvent: ({ type, payload, opId, binding }) =>
       authorizeRuntimeAction(
         {
@@ -569,6 +574,60 @@ async function openLockedRepoCell(
   const peopleActions = makeRepoCellPeopleActions(extracted);
   const operationalContext = Object.assign(runtimeContext, { settings, peopleActions });
   operationalContext satisfies RepoCellOperationalContext;
+  handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding }) => {
+    const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      runtimeBinding = { ...binding, actor: { principal: binding.actor.principal, executor: runtimeExecutor } };
+    let lease = projection.currentLease(taskId, now());
+    const executionId = lease?.executionId;
+    if (lease?.phase === "held" && !isSameExecution(lease.actor, runtimeBinding.actor)) {
+      const heldRuntimeSessionId =
+          lease.actor.executor?.kind === "agent" && lease.actor.executor.id.startsWith("runtime-session:")
+            ? lease.actor.executor.id.slice("runtime-session:".length)
+            : null,
+        dispatcherOwnsLease = isSameExecution(lease.actor, binding.actor),
+        trustedRuntimeHandoff =
+          heldRuntimeSessionId !== null &&
+          heldRuntimeSessionId === fromRuntimeSessionId &&
+          isSamePerson(lease.actor, binding.actor);
+      if (!dispatcherOwnsLease && !trustedRuntimeHandoff)
+        throw cellCodedError(
+          "lease_conflict",
+          `Task ${taskId} is held by another RuntimeSession; wait for it to settle before dispatching again.`,
+        );
+      const releaseAction = {
+          kind: "task-release",
+          taskId,
+          reason: `Runtime dispatch hands execution ${lease.executionId} to ${runtimeSessionId}.`,
+        },
+        releaseBinding = authorizeRuntimeAction(
+          releaseAction,
+          { ...binding, actor: lease.actor },
+          `runtime-task-handoff-release:${taskId}:${runtimeSessionId}:${String(lease.version)}`,
+        ),
+        released = await operationalContext.taskSurfaceWrite(releaseAction, releaseBinding);
+      if (released.outcome !== "applied")
+        throw cellCodedError(
+          released.code ?? "runtime_task_lease_required",
+          released.nextAction ?? `Task ${taskId} lease could not be released for runtime dispatch.`,
+        );
+      lease = projection.currentLease(taskId, now());
+      if (lease?.phase === "held" || lease?.phase === "reserving")
+        throw cellCodedError("lease_conflict", `Task ${taskId} lease remained active after dispatch handoff release.`);
+    }
+    const startAction = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
+      startBinding = authorizeRuntimeAction(
+        startAction,
+        runtimeBinding,
+        `runtime-task-handoff-start:${taskId}:${runtimeSessionId}`,
+      ),
+      started = await operationalContext.lifecycleAction(startAction, startBinding);
+    if (started.outcome !== "applied")
+      throw cellCodedError(
+        started.code ?? "runtime_task_lease_required",
+        started.nextAction ?? `Task ${taskId} could not acquire a RuntimeSession execution lease.`,
+      );
+    return startBinding;
+  };
   if (input.bootstrap && !input.bootstrap.configureOnly) {
     const roleBindings = declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
       baseBinding = {

@@ -156,19 +156,21 @@ export const start: Transition = {
       rejoin = snapshot.executions.find((value) => value.executionId === command.executionId) as
         | ExecutionV1
         | undefined,
-      execution: ExecutionV1 = rejoin ?? {
-        schema: "execution/v1",
-        executionId: command.executionId,
-        taskId: command.taskId,
-        nodeId: "implementation",
-        iteration: task.iteration,
-        state: "active",
-        actor: command.actor,
-        claimedAt: command.occurredAt,
-        submittedAt: null,
-        closedAt: null,
-        submission: null,
-      },
+      execution: ExecutionV1 = rejoin
+        ? { ...rejoin, actor: command.actor }
+        : {
+            schema: "execution/v1",
+            executionId: command.executionId,
+            taskId: command.taskId,
+            nodeId: "implementation",
+            iteration: task.iteration,
+            state: "active",
+            actor: command.actor,
+            claimedAt: command.occurredAt,
+            submittedAt: null,
+            closedAt: null,
+            submission: null,
+          },
       lease: LeaseV1 = {
         schema: "lease/v1",
         taskId: command.taskId,
@@ -185,7 +187,7 @@ export const start: Transition = {
         ...snapshot,
         revision: command.workspaceRevision,
         task,
-        executions: rejoin ? snapshot.executions : [...snapshot.executions, execution],
+        executions: rejoin ? replaceExecution(snapshot.executions, execution) : [...snapshot.executions, execution],
         lease,
       },
       event: envelope<ExecutionStartedEvent>(command, "execution_started", {

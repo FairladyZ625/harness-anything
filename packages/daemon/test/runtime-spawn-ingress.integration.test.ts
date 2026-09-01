@@ -121,7 +121,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       },
       auth,
     );
-    await t.test("server-bound dispatcher writes the task and execution join", async () => {
+    await t.test("server binds the dispatched RuntimeSession to the task execution", async () => {
       const taskId = "task-runtime-agent",
         executionId = "exec-runtime-agent";
       await createReadyTask(taskId, "Agent runtime");
@@ -168,7 +168,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             ) ?? null,
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
-      assert.equal(bound?.actor.executor, null);
+      assert.deepEqual(bound?.actor.executor, {
+        kind: "agent",
+        id: `runtime-session:${receipt.runtimeSessionId}`,
+      });
       assert.deepEqual(
         bound?.type === "runtime_session_task_bound" && {
           taskId: bound.payload.taskId,
@@ -176,6 +179,22 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
         { taskId, executionId },
       );
+      const claimed = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      });
+      try {
+        assert.deepEqual(claimed.read(taskId).snapshot.lease?.actor.executor, {
+          kind: "agent",
+          id: `runtime-session:${receipt.runtimeSessionId}`,
+        });
+        assert.deepEqual(claimed.read(taskId).snapshot.executions[0]?.actor.executor, {
+          kind: "agent",
+          id: `runtime-session:${receipt.runtimeSessionId}`,
+        });
+      } finally {
+        claimed.close();
+      }
       const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
         session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
       assert.equal(
@@ -185,7 +204,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         true,
       );
     });
-    await t.test("dispatcher can hand off a task held by the authenticated principal", async () => {
+    await t.test("the first dispatch holds the task lease and a concurrent second dispatch is rejected", async () => {
       const taskId = "task-runtime-dispatcher-handoff",
         executionId = "exec-runtime-dispatcher-handoff";
       await createReadyTask(taskId, "Dispatcher handoff");
@@ -214,7 +233,24 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             ) ?? null,
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
-      assert.equal(bound?.actor.executor, null);
+      assert.deepEqual(bound?.actor.executor, {
+        kind: "agent",
+        id: `runtime-session:${receipt.runtimeSessionId}`,
+      });
+      const launchesAfterFirst = launchCount,
+        concurrent = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "A second dispatcher must not share the execution lease.",
+            taskId,
+            idempotencyKey: "dispatcher-handoff-concurrent",
+          },
+        });
+      assert.equal(concurrent.outcome, "op_rejected", JSON.stringify(concurrent));
+      assert.equal(concurrent.code, "runtime_task_lease_required", JSON.stringify(concurrent));
+      assert.equal(launchCount, launchesAfterFirst, "the rejected dispatch must not launch a provider");
       const projection = makeTaskProjection({
         rootDir: root,
         eventStore: makeTaskEventStore({ repoId, rootDir: root }),
@@ -347,7 +383,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.ok(started >= 0 && started < dispatched, events.map((event) => event.type).join(" -> "));
       const start = events[started];
       assert.equal(start?.type, "execution_started");
-      if (start?.type === "execution_started") assert.equal(start.payload.lease.actor.executor, null);
+      if (start?.type === "execution_started")
+        assert.deepEqual(start.payload.lease.actor.executor, {
+          kind: "agent",
+          id: `runtime-session:${receipt.runtimeSessionId}`,
+        });
     });
     await t.test("an in-review task dispatches a closeout continuation without reopening execution", async () => {
       const taskId = "task-runtime-review-continuation",
@@ -410,7 +450,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(bound?.type, "runtime_session_task_bound");
       if (bound?.type === "runtime_session_task_bound") assert.equal(bound.payload.executionId, executionId);
     });
-    await t.test("human lease remains task-bindable without an executor", async () => {
+    await t.test("a bare-person lease becomes the dispatched runtime's lease", async () => {
       const taskId = "task-runtime-human",
         executionId = "exec-runtime-human";
       await createReadyTask(taskId, "Human runtime");
@@ -438,7 +478,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             ) ?? null,
       );
       assert.equal(bound?.type, "runtime_session_task_bound");
-      assert.equal(bound?.actor.executor, null);
+      assert.deepEqual(bound?.actor.executor, {
+        kind: "agent",
+        id: `runtime-session:${receipt.runtimeSessionId}`,
+      });
       assert.deepEqual(
         bound?.type === "runtime_session_task_bound" && {
           taskId: bound.payload.taskId,
@@ -446,6 +489,18 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
         { taskId, executionId },
       );
+      const projected = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      });
+      try {
+        assert.deepEqual(projected.read(taskId).snapshot.lease?.actor.executor, {
+          kind: "agent",
+          id: `runtime-session:${receipt.runtimeSessionId}`,
+        });
+      } finally {
+        projected.close();
+      }
     });
     await t.test(
       "the bound runtime appends attributed progress while an unrelated executor stays rejected",
@@ -582,7 +637,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       },
     );
     await t.test(
-      "the task-bound runtime publishes only its assigned artifacts after projection reopen while lifecycle authority stays holder-only",
+      "the task-bound runtime keeps writes scoped and submits only its own execution after projection reopen",
       async () => {
         const taskId = "task-runtime-artifact",
           executionId = "exec-runtime-artifact",
@@ -695,17 +750,14 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           crossTaskDoc.nextAction ?? "",
           /no live execution lease covers tasks\/task-runtime-artifact-other-runtime-artifact-other\/artifacts\/reports\/cross-task-doc-sync\.md for this runtime session; submit through the lease-brokered task command for a bound execution, or have the dispatcher re-dispatch \(a non-runtime principal may rerun ha doc sync --submit through the repository prose channel\)/u,
         );
-        const planPath = "tasks/task-runtime-artifact-runtime-artifact/task_plan.md",
-          planTarget = path.join(root, "harness", planPath),
-          planBody = readFileSync(planTarget, "utf8");
-        writeFileSync(planTarget, `${planBody}\nRuntime worker prose.\n`);
-        const taskProse = await host.run(repoId, { kind: "doc-submit", paths: [planPath], executor: worker }, auth);
-        assert.equal(taskProse.outcome, "op_rejected");
-        assert.equal(taskProse.code, "preview_blocked");
-        assert.equal(taskProse.detail?.unresolvedTouches[0]?.requiredRoute, "task-bound-runtime-artifacts");
-        writeFileSync(planTarget, planBody);
+        const closeoutPath = "tasks/task-runtime-artifact-runtime-artifact/closeout.md",
+          closeoutTarget = path.join(root, "harness", closeoutPath),
+          closeoutBody = readFileSync(closeoutTarget, "utf8");
+        writeFileSync(closeoutTarget, `${closeoutBody}\nRuntime worker closeout.\n`);
+        const taskProse = await host.run(repoId, { kind: "doc-submit", paths: [closeoutPath], executor: worker }, auth);
+        assert.equal(taskProse.outcome, "applied", JSON.stringify(taskProse));
         const submission = {
-          completionClaim: "Runtime worker must not submit.",
+          completionClaim: "Runtime worker submits its own dispatched execution.",
           deliverables: ["artifact"],
           outputs: [String(published.destination)],
           verificationNotes: ["integration"],
@@ -713,45 +765,55 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           residualRisks: [],
           commitSha: "a".repeat(40),
         };
-        const lifecycle = await host.run(
+        const nonHolder = await host.run(
           repoId,
           {
             kind: "task-submit",
             taskId,
             executionId,
             submission,
-            executor: worker,
+            executor: { kind: "agent", id: "runtime-session:unrelated-runtime" },
           },
           auth,
         );
         assert.deepEqual(
-          { outcome: lifecycle.outcome, code: lifecycle.code },
-          { outcome: "op_rejected", code: "lease_required" },
-          JSON.stringify(lifecycle),
+          { outcome: nonHolder.outcome, code: nonHolder.code },
+          { outcome: "op_rejected", code: "executor_binding_invalid" },
+          JSON.stringify(nonHolder),
         );
-        assert.match(
-          String(lifecycle.nextAction),
-          new RegExp(
-            `authenticated holder \\(personId=owner, executor=none\\) must run ha task submit ${taskId} --json-input '<submission-json>', or ha task release ${taskId}`,
-            "u",
-          ),
-        );
-        writeFileSync(path.join(root, "submission.json"), JSON.stringify(submission));
         assert.equal(
-          (
-            await host.run(
-              repoId,
-              {
-                kind: "task-submit",
-                taskId,
-                executionId,
-                fromFile: "submission.json",
-              },
-              auth,
-            )
-          ).outcome,
+          (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: worker }, auth)).outcome,
           "applied",
+          "the dispatched worker reuses its own active lease",
         );
+        const lifecycle = await host.run(
+          repoId,
+          { kind: "task-submit", taskId, executionId, submission, executor: worker },
+          auth,
+        );
+        assert.equal(lifecycle.outcome, "applied", JSON.stringify(lifecycle));
+        const submitted = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+        });
+        try {
+          assert.deepEqual(submitted.read(taskId).snapshot.executions[0]?.actor.executor, worker);
+        } finally {
+          submitted.close();
+        }
+        const declaration = await host.run(
+          repoId,
+          {
+            kind: "task-declare-executor",
+            taskId,
+            executionId,
+            agent: worker.id,
+            reason: "A dispatched execution should already have an executor.",
+          },
+          auth,
+        );
+        assert.equal(declaration.outcome, "op_rejected", JSON.stringify(declaration));
+        assert.equal(declaration.code, "invalid_proof", JSON.stringify(declaration));
       },
     );
   } finally {

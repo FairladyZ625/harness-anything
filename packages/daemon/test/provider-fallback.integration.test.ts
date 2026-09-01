@@ -163,11 +163,20 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     assert.equal(exhausted.rows[1]?.fallbackState, "exhausted");
     const exhaustionEvents = makeTaskEventStore({ repoId: "provider-fallback", rootDir: root })
-      .read()
-      .events.filter((event) => event.taskId === "task_provider_fallback_exhausted");
-    assert.equal(exhaustionEvents.filter((event) => event.type === "lease_released").length, 1);
+        .read()
+        .events.filter((event) => event.taskId === "task_provider_fallback_exhausted"),
+      exhaustionReleases = exhaustionEvents.filter((event) => event.type === "lease_released");
+    assert.deepEqual(
+      exhaustionReleases.map((event) => event.actor.executor),
+      [
+        null,
+        { kind: "agent", id: `runtime-session:${exhausted.rows[0]!.runtimeSessionId}` },
+        { kind: "agent", id: `runtime-session:${exhausted.rows[1]!.runtimeSessionId}` },
+      ],
+      "dispatcher-to-attempt handoffs and terminal settlement must each release their current lease generation",
+    );
     assert.equal(exhaustionEvents.filter((event) => event.type === "task_transitioned").length, 0);
-    const exhaustion = exhaustionEvents.find((event) => event.type === "lease_released");
+    const exhaustion = exhaustionReleases.at(-1);
     assert.deepEqual(exhaustion?.payload.mutation.fields, ["lease"]);
     assert.equal(exhaustion?.payload.task.status, "active");
     const restartedTask = await cell.run(

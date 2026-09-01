@@ -538,6 +538,19 @@ test("attached task runtime settlement releases its execution lease before publi
         },
         binding,
       );
+      const claimedProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
+      });
+      try {
+        assert.deepEqual(
+          claimedProjection.read(taskId).snapshot.lease?.actor.executor,
+          { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` },
+          "dispatch must hand the lease to the RuntimeSession before provider work starts",
+        );
+      } finally {
+        claimedProjection.close();
+      }
       const records = [
         { type: "thread.started", thread_id: "provider-attached-tail" },
         {
@@ -841,7 +854,14 @@ test("terminal settlement leaves an execution lease generation it never dispatch
       // The holder hands the execution over — release and restart — while the dispatch is still
       // live. Both generations carry the same executionId, so only the lease version tells them
       // apart, and the dispatch below belongs to the first one.
-      assert.equal((await cell.run({ kind: "task-release", taskId }, binding)).outcome, "applied");
+      const runtimeHolder = {
+        ...binding,
+        actor: {
+          principal: binding.actor.principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${receipt.runtimeSessionId}` },
+        },
+      };
+      assert.equal((await cell.run({ kind: "task-release", taskId }, runtimeHolder)).outcome, "applied");
       assert.equal(await start(), "applied");
       appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
         kind: "provider_event",

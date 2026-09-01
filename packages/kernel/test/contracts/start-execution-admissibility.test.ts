@@ -17,10 +17,14 @@ import type { ActorAxes } from "../../src/domain/task.ts";
 
 const implementer: ActorAxes = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } };
 
-function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(revision: number, intent: C) {
+function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
+  revision: number,
+  intent: C,
+  actor: ActorAxes = implementer,
+) {
   return {
     ...normalizeTaskLifecycleCommand(
-      { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: revision - 1 },
+      { workspaceId: "workspace-1", actor, source: "local", expectedRevision: revision - 1 },
       intent,
     ),
     eventId: `event-${revision}`,
@@ -128,4 +132,36 @@ test("after the lease expires, only rejoining the round's active execution is ad
     false,
     "allocating a fresh id cannot be admitted while an active execution exists — the daemon preview used to hardcode admissible:true here",
   );
+});
+
+test("rejoining an active execution transfers its attribution to the new lease holder", () => {
+  const expired: TaskLifecycleSnapshot = { ...started(), lease: null },
+    runtimeActor: ActorAxes = {
+      principal: implementer.principal,
+      executor: { kind: "agent", id: "runtime-session:runtime-handoff" },
+    },
+    rejoined = apply(
+      expired,
+      command(
+        3,
+        { type: "StartExecution", taskId: "task-1", executionId: "execution-1" },
+        runtimeActor,
+      ) as TaskLifecycleCommand,
+      {
+        actorBinding: runtimeActor,
+        reservation: {
+          taskId: "task-1",
+          executionId: "execution-1",
+          expiresAt: "2026-08-17T01:30:00.000Z",
+          ttlMs: 1_800_000,
+          previousHolder: null,
+          reason: "rejoin",
+          version: 1,
+        },
+      },
+    );
+
+  assert.equal(rejoined.executions.length, 1);
+  assert.deepEqual(rejoined.executions[0]?.actor, runtimeActor);
+  assert.deepEqual(rejoined.lease?.actor, runtimeActor);
 });
