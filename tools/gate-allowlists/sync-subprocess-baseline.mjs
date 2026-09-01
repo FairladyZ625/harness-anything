@@ -5,8 +5,6 @@
 // Baseline membership still rejects unmarked additions, unknown ids, duplicate ids,
 // and stale identities.
 export const syncSubprocessBaseline = Object.freeze([
-  { key: "sync-subprocess-001", kind: "import", api: "execFileSync" }, // execFileSync import @ <module>
-  { key: "sync-subprocess-002", kind: "call", api: "execFileSync" }, // execFileSync call @ runExecutableSync.stdout
   { key: "sync-subprocess-003", kind: "import", api: "execFileSync" }, // execFileSync import @ <module>
   { key: "sync-subprocess-004", kind: "call", api: "execFileSync" }, // execFileSync call @ gitTracked
   { key: "sync-subprocess-005", kind: "call", api: "execFileSync" }, // execFileSync call @ gitModified
