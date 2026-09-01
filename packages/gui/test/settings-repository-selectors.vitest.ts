@@ -23,7 +23,7 @@ const SETTINGS = {
   defaultProfile: "baseline",
   locale: "zh-CN" as const,
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
+  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
 };
 const SNAPSHOT = {
   schema: "gui-catalog-snapshot/v1" as const,
@@ -280,7 +280,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       walFlushAdaptive: true,
       walFlushEvents: 256,
       walFlushBytes: 8_388_608,
-      walFlushMilliseconds: 2_000,
+      walFlushMilliseconds: 3_600_000,
     });
   });
 

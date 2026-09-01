@@ -37,6 +37,10 @@ import {
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
+// wait for materialized commits, so pin the test-local idle timer to a fast interval.
+process.env.HARNESS_WAL_FLUSH_MS = "250";
+
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands

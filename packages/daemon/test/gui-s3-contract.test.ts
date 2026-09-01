@@ -30,7 +30,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
       task: "governance/task-scaffold.json",
       repository: "governance/repository-scaffold.json",
     },
-    walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
+    walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
   };
   const valid = { schema: "daemon.settings-read/v1", ok: true, settings };
   assert.equal(parseDaemonGuiReadResult("repo.settings.read", valid), valid);

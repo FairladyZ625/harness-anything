@@ -10,6 +10,10 @@ import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from 
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
+// wait for materialized commits, so pin the test-local idle timer to a fast interval.
+process.env.HARNESS_WAL_FLUSH_MS = "250";
+
 const replicaQuota = 64 * 1024 * 1024;
 function reclaimer() {
   const closers: Array<() => void> = [],

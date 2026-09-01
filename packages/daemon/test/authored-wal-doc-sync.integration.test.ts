@@ -11,6 +11,10 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
+// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
+// wait for materialized commits, so pin the test-local idle timer to a fast interval.
+process.env.HARNESS_WAL_FLUSH_MS = "250";
+
 test("WAL flush settles an eligible authored edit and status highlights blocked candidates", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-doc-sync-"));
   initRepo(rootDir);
