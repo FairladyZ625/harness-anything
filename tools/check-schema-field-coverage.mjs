@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { decisionAmendableFields, entityFieldContracts } from "../packages/kernel/src/entity/field-contracts.ts";
+import { decisionAmendableFields, entityFieldContracts } from "../packages/kernel/src/domain/entity-field-contracts.ts";
 
 const defaultExpectedFields = Object.fromEntries(
-  Object.entries(entityFieldContracts).map(([entityKind, fields]) => [entityKind, Object.keys(fields).sort()])
+  Object.entries(entityFieldContracts).map(([entityKind, fields]) => [entityKind, Object.keys(fields).sort()]),
 );
 
 export function checkEntityFieldCoverage(contracts = entityFieldContracts, expectedFields = defaultExpectedFields) {
@@ -49,7 +49,10 @@ export function checkEntityFieldCoverage(contracts = entityFieldContracts, expec
       if (contract.mutability === "lifecycle" && !write.some((surface) => surface?.kind === "lifecycle")) {
         violations.push(`${prefix}: lifecycle field must declare a lifecycle write surface`);
       }
-      if ((contract.mutability === "immutable" || contract.mutability === "derived") && (!contract.reason || typeof contract.reason !== "string")) {
+      if (
+        (contract.mutability === "immutable" || contract.mutability === "derived") &&
+        (!contract.reason || typeof contract.reason !== "string")
+      ) {
         violations.push(`${prefix}: ${contract.mutability} field must declare a reason`);
       }
       if ((contract.mutability === "immutable" || contract.mutability === "derived") && write.length > 0) {
@@ -63,7 +66,9 @@ export function checkEntityFieldCoverage(contracts = entityFieldContracts, expec
     .sort();
   const routedDecisionAmendable = [...decisionAmendableFields].sort();
   if (JSON.stringify(declaredDecisionAmendable) !== JSON.stringify(routedDecisionAmendable)) {
-    violations.push(`decision: amendable fields must match amend routing: declared=${declaredDecisionAmendable.join(", ")} routed=${routedDecisionAmendable.join(", ")}`);
+    violations.push(
+      `decision: amendable fields must match amend routing: declared=${declaredDecisionAmendable.join(", ")} routed=${routedDecisionAmendable.join(", ")}`,
+    );
   }
   return violations;
 }

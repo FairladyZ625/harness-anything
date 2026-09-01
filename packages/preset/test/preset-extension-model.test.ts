@@ -9,18 +9,17 @@ import {
   VerticalDefinitionSchema,
   type TemplateCatalog,
   type VerticalDefinition,
-} from "../../src/schemas/registry.ts";
-import { createEntityKindRegistry } from "../../src/domain/entity-kind-registry.ts";
+} from "../../kernel/src/index.ts";
 import {
   planTemplateMaterialization,
   validateExtensionInputShape,
   validateTemplateCatalog,
   validateVerticalDefinition,
-} from "../../src/domain/extension-model.ts";
+} from "../src/preset-extension-model.ts";
 
-const templateCatalogUrl = new URL("../../fixtures/schemas/template-catalog/valid.json", import.meta.url);
-const templateCatalogRootUrl = new URL("../../fixtures/schemas/template-catalog/", import.meta.url);
-const verticalDefinitionUrl = new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url);
+const templateCatalogUrl = new URL("../../kernel/fixtures/schemas/template-catalog/valid.json", import.meta.url);
+const templateCatalogRootUrl = new URL("../../kernel/fixtures/schemas/template-catalog/", import.meta.url);
+const verticalDefinitionUrl = new URL("../../kernel/fixtures/schemas/vertical-definition/valid.json", import.meta.url);
 
 test("vertical and template schemas decode clean-room extension fixtures", async () => {
   const catalog = Schema.decodeUnknownSync(TemplateCatalogSchema)(await readFixture(templateCatalogUrl));
@@ -153,16 +152,11 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
 test("vertical validation accepts decision lifecycle and fact schema entity kinds", async () => {
   const vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(await readFixture(verticalDefinitionUrl));
   const byId = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
-  const registry = createEntityKindRegistry(vertical);
 
   assert.deepEqual([...byId.keys()], ["task", "decision", "fact"]);
   assert.equal(byId.get("decision")?.entityType, "lifecycle");
   assert.equal(byId.get("fact")?.entityType, "schema");
   assert.deepEqual(vertical.contractEntityKinds, ["task", "decision", "fact"]);
-  assert.deepEqual(registry.ids, ["task", "decision", "fact"]);
-  assert.equal(registry.byId.get("task")?.repositoryRoot?.path, "{{paths.tasksRoot}}");
-  assert.equal(registry.byId.get("decision")?.repositoryRoot?.create, "lazy");
-  assert.equal(registry.byId.get("fact")?.repositoryRoot, undefined);
   assert.equal(validateVerticalDefinition(vertical).ok, true);
 });
 

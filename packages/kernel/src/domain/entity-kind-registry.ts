@@ -1,4 +1,3 @@
-import type { VerticalDefinition } from "../schemas/registry.ts";
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
@@ -48,36 +47,78 @@ import { createRuntimeSessionActionCatalog } from "./runtime-session-action-cont
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
 import { createSquadActionCatalog } from "./squad-action-contract.ts";
-import {
-  dispositionMatrix,
-  supported,
-  unsupported,
-  type EntityAnchorDeclaration,
-  type EntityCanonicalProjectionDeclaration,
-  type EntityDispositionMatrix,
-  type EntityRelationProjectionDeclaration,
-  type EntityStorageForm,
-} from "../entity/registry-contract.ts";
-
-export type EntityKindDeclaration = VerticalDefinition["entityKinds"][number];
-export type EntityPackageScaffold = VerticalDefinition["packageScaffolds"][number];
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
-export type EntityRepositoryRootScaffold = VerticalDefinition["repositoryScaffold"]["entityRoots"][number];
 
-export interface EntityKindRegistration {
-  readonly id: string;
-  readonly entityType: EntityKindDeclaration["entityType"];
-  readonly contractEntity: boolean;
-  readonly packageKind?: string;
-  readonly schemaRef?: string;
-  readonly packageScaffold?: EntityPackageScaffold;
-  readonly repositoryRoot?: EntityRepositoryRootScaffold;
+export type EntityStorageForm =
+  | "lifecycle"
+  | "schema"
+  | "composite"
+  | "host_frontmatter"
+  | "hosted-entity"
+  | "composite-manifest-blob";
+export type DispositionLevel = "D1" | "D2" | "D3" | "D4";
+export type DispositionAction = "retire" | "supersede" | "invalidate" | "archive" | "tombstone" | "hard-delete";
+
+export interface EntityAnchorDeclaration {
+  readonly entityRef: string;
+  readonly anchors: ReadonlyArray<{ readonly field: string; readonly idField: string; readonly ref: string }>;
+}
+export interface EmbeddedCanonicalEventDeclaration {
+  readonly schema: string;
+  readonly types: ReadonlyArray<string>;
+  readonly payloadField: string;
+}
+export interface EntityCanonicalProjectionDeclaration {
+  readonly embeddedEvents: ReadonlyArray<EmbeddedCanonicalEventDeclaration>;
+  readonly row: {
+    readonly idField: string;
+    readonly ownerField: string | null;
+  };
+}
+export interface EntityRelationProjectionDeclaration {
+  readonly source: {
+    readonly field: string;
+    readonly refTemplate: string;
+  };
+  readonly target: {
+    readonly field: string;
+    readonly refTemplate: string;
+  };
+  readonly direction: "directed";
+  readonly strength: "strong" | "weak";
+  readonly origin: "generated" | "inferred";
+  readonly rationale: string;
+}
+export interface DispositionMatrixEntry {
+  readonly level: DispositionLevel;
+  readonly action: DispositionAction;
+  readonly supported: boolean;
+  readonly writeOpKinds: ReadonlyArray<string>;
+  readonly reason: string;
+}
+export interface EntityDispositionMatrix {
+  readonly entries: Readonly<Record<DispositionAction, DispositionMatrixEntry>>;
 }
 
-export interface EntityKindRegistry {
-  readonly ids: ReadonlyArray<string>;
-  readonly entries: ReadonlyArray<EntityKindRegistration>;
-  readonly byId: ReadonlyMap<string, EntityKindRegistration>;
+function dispositionMatrix(entries: ReadonlyArray<DispositionMatrixEntry>): EntityDispositionMatrix {
+  return {
+    entries: Object.fromEntries(entries.map((entry) => [entry.action, entry])) as Readonly<
+      Record<DispositionAction, DispositionMatrixEntry>
+    >,
+  };
+}
+
+function supported(
+  level: DispositionLevel,
+  action: DispositionAction,
+  writeOpKinds: ReadonlyArray<string>,
+  reason: string,
+): DispositionMatrixEntry {
+  return { level, action, supported: true, writeOpKinds, reason };
+}
+
+function unsupported(level: DispositionLevel, action: DispositionAction, reason: string): DispositionMatrixEntry {
+  return { level, action, supported: false, writeOpKinds: [], reason };
 }
 
 export type { EntityKind, EntityResidencyFacets, RegisteredEntity } from "./base-entity.ts";
@@ -952,24 +993,4 @@ export function entityDocumentPath(contract: EntityStoreKindContract, id: string
   if (!new RegExp(contract.id.pattern, "u").test(id))
     throw Object.assign(new Error(`${id} is not a valid ${contract.kind} id.`), { code: "invalid_entity_id" });
   return contract.entityStore.document.pathTemplate.replace("{id}", id);
-}
-
-export function createEntityKindRegistry(vertical: VerticalDefinition): EntityKindRegistry {
-  const packageScaffolds = new Map(vertical.packageScaffolds.map((scaffold) => [scaffold.entityKind, scaffold]));
-  const repositoryRoots = new Map(vertical.repositoryScaffold.entityRoots.map((root) => [root.entityKind, root]));
-  const entries = vertical.entityKinds.map(
-    (entity): EntityKindRegistration => ({
-      id: entity.id,
-      entityType: entity.entityType,
-      contractEntity: entity.contractEntity,
-      ...(entity.entityType === "lifecycle" ? { packageKind: entity.packageKind } : { schemaRef: entity.schemaRef }),
-      ...(packageScaffolds.get(entity.id) ? { packageScaffold: packageScaffolds.get(entity.id) } : {}),
-      ...(repositoryRoots.get(entity.id) ? { repositoryRoot: repositoryRoots.get(entity.id) } : {}),
-    }),
-  );
-  return {
-    ids: entries.map((entry) => entry.id),
-    entries,
-    byId: new Map(entries.map((entry) => [entry.id, entry])),
-  };
 }

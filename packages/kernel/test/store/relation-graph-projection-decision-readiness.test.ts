@@ -4,13 +4,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
-  checkTaskProjection,
   compileDecisionWrite,
   decisionWritePlan,
   projectDecisionReadiness,
   renderDecisionDocument,
   sha256Text,
-  taskLifecycleWritePlan,
 } from "../../src/index.ts";
 import { readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { withTempStore } from "./helpers.ts";
@@ -18,55 +16,13 @@ import { withTempStore } from "./helpers.ts";
 import {
   accepted,
   applyDecision,
-  applyFact,
-  claim,
   compileCurrent,
   decisionProjectionDatabase,
-  fact,
   git,
   projectionFixture,
   proposal,
-  related,
-  relation,
-  taskCreated,
   testReadinessSource,
-  writeTask,
 } from "./relation-graph-projection.fixtures.ts";
-test("post-merge continues to consume event-backed Decision/Fact truth", () => {
-  withTempStore((rootDir) => {
-    const fixture = projectionFixture(rootDir);
-    applyDecision(fixture, proposal(1, "dec_GRAPH"));
-    applyFact(fixture, fact(2));
-    const edge = relation({
-      source: "decision/dec_GRAPH/C1",
-      target: "fact/F-DEADBEEF",
-      type: "evidenced-by",
-    });
-    applyDecision(fixture, claim(3, "dec_GRAPH"));
-    applyDecision(fixture, related(4, "dec_GRAPH", edge));
-    assert.equal(
-      checkTaskProjection({
-        rootDir,
-        postMerge: true,
-        eventRelationTruth: fixture.projection.readRelationTruth(),
-      }).ok,
-      true,
-    );
-  });
-});
-
-test("post-merge fails closed without identity-bound event relation truth", () => {
-  withTempStore((rootDir) => {
-    const result = checkTaskProjection({ rootDir, postMerge: true });
-    assert.equal(result.ok, false);
-    assert.equal(
-      result.warnings.some(
-        ({ code, message }) => code === "relation_truth_unavailable" && message.includes("identity-bound"),
-      ),
-      true,
-    );
-  });
-});
 
 test("Decision readiness is commit-bound and ignores uncommitted worktree guesses", () => {
   withTempStore((rootDir) => {
@@ -150,41 +106,6 @@ test("Decision readiness batches canonical Git reads across the ledger", () => {
     3,
     `readiness opened ${calls.length} Git processes for ${count} decisions sharing one canonical scope`,
   );
-});
-
-test("real post-merge cycle check includes canonical Decision edges and task-authored edges", () => {
-  withTempStore((rootDir) => {
-    const fixture = projectionFixture(rootDir),
-      projection = fixture.projection,
-      created = taskCreated(1, "task-cycle");
-    projection.apply(created, taskLifecycleWritePlan(created));
-    applyDecision(fixture, proposal(2, "dec_CYCLE"));
-    const derives = relation({
-      source: "decision/dec_CYCLE",
-      target: "task/task-cycle",
-      type: "derives",
-    });
-    applyDecision(fixture, related(3, "dec_CYCLE", derives));
-    writeTask(
-      rootDir,
-      "task-cycle",
-      relation({
-        source: "task/task-cycle",
-        target: "decision/dec_CYCLE",
-        type: "implements",
-      }),
-    );
-    const result = checkTaskProjection({
-      rootDir,
-      postMerge: true,
-      eventRelationTruth: projection.readRelationTruth(),
-    });
-    assert.equal(result.ok, false);
-    assert.equal(
-      result.warnings.some(({ code }) => code === "relation_cycle_detected"),
-      true,
-    );
-  });
 });
 
 test("Replay accepts a document today's renderer no longer reproduces, as long as its content hash matches the signed claim", () => {

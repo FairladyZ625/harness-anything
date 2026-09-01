@@ -102,9 +102,7 @@ function discoverPhysicalWriteFiles(rootDir) {
         match[1].split(",").map((name) => name.trim().split(/\s+as\s+/u)[0]),
       );
       const fsWrite = fsImports.some((name) => mutatingFs.has(name));
-      const gitWrite =
-        /\b(?:execFileSync|spawnSync)\(\s*["']git["']/u.test(body) &&
-        !/^packages\/kernel\/src\/projection\/post-merge-checks\.ts$/u.test(file);
+      const gitWrite = /\b(?:execFileSync|spawnSync)\(\s*["']git["']/u.test(body);
       const sqliteWrite =
         /from\s*["'](?:node:sqlite|@effect\/sql-sqlite-node)["']/u.test(body) &&
         hasWritableSqliteConstructionSite(body);

@@ -47,12 +47,6 @@ export interface TaskFieldExtensionProjection {
   };
 }
 
-export interface TaskFieldExtensionFilter {
-  readonly field: string;
-  readonly column: string;
-  readonly value: string;
-}
-
 export interface TaskProjectionRow {
   readonly schema: "sqlite-task-row/v1";
   readonly taskId: string;
@@ -81,22 +75,6 @@ export interface TaskProjectionRow {
   readonly fieldExtensions?: Readonly<Record<string, string | null>>;
 }
 
-export interface TaskProjectionQueryFilters {
-  readonly state?: string;
-  readonly moduleKey?: string;
-  readonly queue?: string;
-  readonly preset?: string;
-  readonly workKind?: TaskWorkKind;
-  readonly riskTier?: PriorityTier;
-  readonly urgency?: PriorityTier;
-  readonly review?: string;
-  readonly lesson?: "present" | "missing";
-  readonly missingMaterials?: boolean;
-  readonly includeArchived?: boolean;
-  readonly search?: string;
-  readonly fieldExtensions?: ReadonlyArray<TaskFieldExtensionFilter>;
-}
-
 export interface ProjectionWarning {
   readonly code: ProjectionWarningCode;
   readonly source: ProjectionWarningSource;
@@ -105,34 +83,9 @@ export interface ProjectionWarning {
   readonly repairHint?: string;
 }
 
-export interface ProjectionCheckAxisReport {
-  readonly axis: ProjectionWarningSource;
-  readonly ok: boolean;
-  readonly warningCount: number;
-  readonly hardFailCount: number;
-  readonly codes: ReadonlyArray<ProjectionWarningCode>;
-}
-
-export interface ProjectionCheckReport {
-  readonly schema: "harness-check-report/v1";
-  readonly ok: boolean;
-  readonly axes: readonly [ProjectionCheckAxisReport, ProjectionCheckAxisReport, ProjectionCheckAxisReport];
-  readonly summary: {
-    readonly rowCount: number;
-    readonly warningCount: number;
-    readonly hardFailCount: number;
-  };
-}
-
 export interface ProjectionReadResult {
   readonly rows: ReadonlyArray<TaskProjectionRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export interface ProjectionCheckResult extends ProjectionReadResult {
-  readonly ok: boolean;
-  readonly projectionPath: string;
-  readonly report: ProjectionCheckReport;
 }
 
 export interface TaskProjectionOptions {

@@ -181,16 +181,6 @@ export type {
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export * from "./entity/disposition.ts";
-export * from "./entity/field-contracts.ts";
-export type {
-  DispositionAction,
-  DispositionLevel,
-  DispositionMatrixEntry,
-  EntityAnchorDeclaration,
-  EntityDispositionMatrix,
-  EntityStorageForm,
-} from "./entity/registry-contract.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
   contentObjectRelativePath,
@@ -210,7 +200,6 @@ export {
   normalizeRelativeDocumentPath,
   readFrontmatter,
   readScalar,
-  resolveEntityRoot,
   resolveHarnessLayout,
   settingBlockValue,
   slugifyTaskTitle,
@@ -219,8 +208,6 @@ export {
   validateTaskIdSyntax,
 } from "./layout/index.ts";
 export type {
-  EntityRootIntent,
-  EntityRootResolution,
   HarnessLayout,
   HarnessLayoutInput,
   HarnessLayoutOverrides,
@@ -228,7 +215,6 @@ export type {
 } from "./layout/index.ts";
 export * from "./markdown/frontmatter.ts";
 export * from "./ports/index.ts";
-export * from "./projection/post-merge-checks.ts";
 export { detectRelationGraphCycles } from "./projection/relation-graph-projection.ts";
 export type {
   FactAnchorRow,
@@ -255,20 +241,9 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export * from "./publish/index.ts";
-export {
-  checkTaskProjection,
-  defaultTaskProjectionPath,
-  hashTaskProjectionRows,
-  queryTaskChildren,
-  readTaskProjection,
-  rebuildTaskProjection,
-} from "./projection/sqlite-task-projection.ts";
 export type {
   CoordinationStatus,
   ProjectionCanonicalStatus,
-  ProjectionCheckAxisReport,
-  ProjectionCheckReport,
-  ProjectionCheckResult,
   ProjectionFreshness,
   ProjectionReadResult,
   ProjectionSource,
@@ -278,9 +253,8 @@ export type {
   ProjectionWarningSource,
   TaskFieldExtensionProjection,
   TaskProjectionOptions,
-  TaskProjectionQueryFilters,
   TaskProjectionRow,
-} from "./projection/sqlite-task-projection.ts";
+} from "./projection/types.ts";
 export * from "./schemas/registry.ts";
 export * from "./schemas/common.ts";
 export {

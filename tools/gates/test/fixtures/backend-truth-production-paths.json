@@ -13,8 +13,6 @@
   { "path": "packages/kernel/src/projection/rebuildable-relation-read.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/relation-graph-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/sqlite-projection-store.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/sqlite-task-projection.ts", "module": "kernel" },
   { "path": "packages/kernel/src/projection/types.ts", "module": "kernel" },
   { "path": "packages/kernel/src/schemas/harness-check-report.ts", "module": "kernel" }
 ]

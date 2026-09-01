@@ -4,12 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  readTaskProjection,
-  rebuildTaskProjection,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -107,17 +102,16 @@ test("task create publishes complete metadata and first-class relations survive 
       ) as Record<string, unknown>;
     assert.doesNotMatch(index, /relations:/u);
     assert.equal((contract.metadata as { moduleKey: string }).moduleKey, "kernel");
-    rebuildTaskProjection({ rootDir });
-    const row = readTaskProjection({ rootDir }).rows.find((candidate) => candidate.taskId === "task_surface"),
-      replay = makeTaskProjection({
+    const replay = makeTaskProjection({
         rootDir,
         eventStore: makeTaskEventStore({ repoId: "task-surface", rootDir }),
       }),
+      task = replay.read("task_surface").snapshot.task,
       edge = replay.readRelationQuery({}).rows.find((candidate) => candidate.sourceRef === "task/task_surface");
     replay.close();
-    assert.equal(row?.parentTaskId, "task_dependency");
-    assert.equal(row?.moduleKey, "kernel");
-    assert.equal(row?.riskTier, "high");
+    assert.equal(task?.metadata.parentTaskId, "task_dependency");
+    assert.equal(task?.metadata.moduleKey, "kernel");
+    assert.equal(task?.metadata.riskTier, "high");
     assert.equal(edge?.targetRef, "task/task_dependency");
   } finally {
     await cell?.close();
@@ -446,21 +440,19 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         .events.some((event) => event.schema === "relation-event/v1" && event.type === "relation_created"),
       true,
     );
-    rebuildTaskProjection({ rootDir });
-    const rows = readTaskProjection({ rootDir }).rows,
-      lifecycle = rows.find((row) => row.taskId === "task_lifecycle"),
-      replacement = rows.find((row) => row.taskId === "task_replacement"),
-      replay = makeTaskProjection({
+    const replay = makeTaskProjection({
         rootDir,
         eventStore: makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir }),
       }),
+      lifecycle = replay.read("task_lifecycle").snapshot.task,
+      replacement = replay.read("task_replacement").snapshot.task,
       edge = replay
         .readRelationQuery({})
         .rows.find((row) => row.sourceRef === "task/task_lifecycle" && row.targetRef === "task/task_replacement");
     replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
-    assert.equal(lifecycle?.riskTier, "high");
-    assert.equal(lifecycle?.moduleKey, "daemon");
+    assert.equal(lifecycle?.metadata.riskTier, "high");
+    assert.equal(lifecycle?.metadata.moduleKey, "daemon");
     assert.equal(lifecycle?.packageDisposition, "archived");
     assert.equal(replacement?.packageDisposition, "active");
     assert.equal(edge?.relationType, "depends-on");

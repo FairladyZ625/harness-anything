@@ -56,9 +56,9 @@ export function parseHunks(diffText) {
  * `trailingComma: "all"`. But both do add to a line's raw length, so running the
  * formatter over an already-overlong line it does not otherwise touch grows that
  * line by a few characters — and the comparison then reads that as "you made this
- * longer" on a change that only ever shortened things. Measured case: restoring
- * packages/kernel/src/entity/disposition.ts cut its overlong total from 1405 to
- * 280 characters while its longest line went 279 -> 280, the entire delta being
+ * longer" on a change that only ever shortened things. In the measured cleanup,
+ * the overlong total fell from 1405 to 280 characters while its longest line went
+ * 279 -> 280, the entire delta being
  * one comma appended to a string literal whose contents are byte-identical.
  *
  * This is applied to both halves rather than only the longest-line one. The same

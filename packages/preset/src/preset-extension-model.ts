@@ -1,5 +1,4 @@
-import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "../schemas/registry.ts";
-import { createEntityKindRegistry } from "./entity-kind-registry.ts";
+import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "../../kernel/src/index.ts";
 
 export interface ExtensionValidationIssue {
   readonly code:
@@ -138,8 +137,7 @@ export function validateTemplateCatalog(
 
 export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
-  const registry = createEntityKindRegistry(vertical);
-  const entityById = registry.byId;
+  const entityById = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
   const scaffoldEntityKinds = new Set<string>();
   const repositoryRootEntityKinds = new Set<string>();
 
@@ -324,7 +322,7 @@ export function planTemplateMaterialization(request: MaterializationRequest): Ma
   return { ok: issues.length === 0, documents, issues };
 }
 
-export function formatTemplateRef(id: string, version: string): string {
+function formatTemplateRef(id: string, version: string): string {
   return `template://${id}@${version}`;
 }
 

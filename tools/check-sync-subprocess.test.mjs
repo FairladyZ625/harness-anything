@@ -10,9 +10,9 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 
 test("repository inventory freezes the governed API and syntax-kind multisets", () => {
   const counts = inventoryCounts(scanSyncSubprocess(repoRoot));
-  assert.equal(counts.total, 15);
-  assert.deepEqual(counts.kinds, { import: 6, call: 9 });
-  assert.deepEqual(counts.apis, { execFileSync: 13, spawnSync: 2 });
+  assert.equal(counts.total, 13);
+  assert.deepEqual(counts.kinds, { import: 5, call: 8 });
+  assert.deepEqual(counts.apis, { execFileSync: 11, spawnSync: 2 });
 });
 
 test("renamed named imports are resolved while comments and strings are ignored", () => {

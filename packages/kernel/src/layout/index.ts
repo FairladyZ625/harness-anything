@@ -1,7 +1,5 @@
 import { randomBytes } from "node:crypto";
 import path from "node:path";
-import { resolveEntityRootForLayout } from "./entity-root-resolver.ts";
-import type { EntityRootIntent, EntityRootResolution } from "./entity-root-resolver.ts";
 import type { TaskId } from "../domain/index.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
@@ -14,7 +12,6 @@ export {
   findPortablePathCollisions,
   normalizeRelativeDocumentPath,
 } from "./portable-path.ts";
-export type { EntityRootIntent, EntityRootResolution } from "./entity-root-resolver.ts";
 
 export interface HarnessLayout {
   readonly rootDir: string;
@@ -110,14 +107,6 @@ export function harnessRuntimeRoot(input: HarnessLayoutInput): string {
 
 export function resolveHarnessLayout(input: HarnessLayoutInput): HarnessLayout {
   return buildHarnessLayout(resolveHarnessLayoutSettings(input));
-}
-
-export function resolveEntityRoot(
-  input: HarnessLayoutInput,
-  ref: string | Parameters<typeof resolveEntityRootForLayout>[1],
-  intent?: EntityRootIntent,
-): EntityRootResolution {
-  return resolveEntityRootForLayout(resolveHarnessLayout(input), ref, intent);
 }
 
 function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutSettings {

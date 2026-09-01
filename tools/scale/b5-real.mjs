@@ -108,7 +108,7 @@ async function measureB5RealSingle(options) {
   const importSource = (relativePath) => import(pathToFileURL(join(options.sourceRoot, relativePath)).href);
   const kernel = await importSource("packages/kernel/src/index.ts");
   const { makeTaskProjection } = await importSource("packages/kernel/src/projection/rebuildable-task-projection.ts");
-  const sqliteTaskProjection = await importSource("packages/kernel/src/projection/sqlite-task-projection.ts");
+  const relationGraphProjection = await importSource("packages/kernel/src/projection/relation-graph-projection.ts");
   const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
   const daemonActionModule = await importSource("packages/daemon/src/entity-action-catalog-executor.ts").catch(
     () => null,
@@ -438,7 +438,7 @@ async function measureB5RealSingle(options) {
         projection,
         judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf },
       })
-    : makeBaselineReadModel({ rootDir, projection, kernel, sqliteTaskProjection });
+    : makeBaselineReadModel({ rootDir, projection, kernel, relationGraphProjection });
   const catalogActions = daemonActionModule?.makeEntityActionCatalogExecutor({
     store: eventStore,
     projection,

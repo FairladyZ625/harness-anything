@@ -2,68 +2,23 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { checkTaskProjection, readLegacyMigrationSource, rebuildTaskProjection } from "../../src/index.ts";
+import { readLegacyMigrationSource } from "../../src/index.ts";
 import { readColdRebuildSource } from "../../src/projection/cold-rebuild-source.ts";
-import { readRelationGraphProjection } from "../../src/projection/sqlite-task-projection.ts";
+import { readRelationGraphProjection } from "../../src/projection/relation-graph-projection.ts";
 import { withTempStore } from "./helpers.ts";
 
 import {
-  applyDecision,
   fact,
   migrationFactEvent,
   migrationRelationEvent,
-  projectionFixture,
-  proposal,
   relation,
   seedRelationProjection,
   writeColdHistory,
   writeFactEvent,
   writeLegacyFactEvent,
   writeMigrationEvent,
-  writeTask,
 } from "./relation-graph-projection.fixtures.ts";
-test("real post-merge entry resolves event-backed Decision anchors and rejects unknown anchors", () => {
-  withTempStore((rootDir) => {
-    const fixture = projectionFixture(rootDir);
-    applyDecision(fixture, proposal(1, "dec_KNOWN"));
-    writeTask(
-      rootDir,
-      "task-authored",
-      relation({
-        source: "task/task-authored",
-        target: "decision/dec_KNOWN/CH1",
-        type: "implements",
-      }),
-    );
-    const pass = checkTaskProjection({
-      rootDir,
-      postMerge: true,
-      eventRelationTruth: fixture.projection.readRelationTruth(),
-    });
-    assert.equal(pass.ok, true, JSON.stringify(pass.warnings));
-    writeTask(
-      rootDir,
-      "task-authored",
-      relation({
-        source: "task/task-authored",
-        target: "decision/dec_KNOWN/CH404",
-        type: "implements",
-      }),
-    );
-    const fail = checkTaskProjection({
-      rootDir,
-      postMerge: true,
-      eventRelationTruth: fixture.projection.readRelationTruth(),
-    });
-    assert.equal(fail.ok, false);
-    assert.equal(
-      fail.warnings.some(({ code }) => code === "relation_endpoint_unknown"),
-      true,
-    );
-  });
-});
 
 test("GUI graph reads task and relation truth from one read-only L2 database", () => {
   withTempStore((rootDir) => {
@@ -112,7 +67,7 @@ test("GUI graph rejects structurally complete relation tables without a truth-so
   });
 });
 
-test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth from authored L1", () => {
+test("cold source derives Decision, relation, and Fact truth from authored L1", () => {
   withTempStore((rootDir) => {
     const factRef = "fact/F-DEADBEEF",
       migratedRef = "fact/F-ABCDEFGH",
@@ -142,24 +97,14 @@ test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth
       },
     });
     writeFactEvent(rootDir, { ...fact(2), taskId: "task-cold", factId: "F-ABCDEFGH" });
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
     assert.equal(existsSync(path.join(rootDir, ".harness/cache/task.sqlite")), false);
-    rebuildTaskProjection({ rootDir, projectionPath });
-    const graph = readRelationGraphProjection({ rootDir, projectionPath }),
-      db = new DatabaseSync(projectionPath, { readOnly: true });
-    try {
-      assert.equal(db.prepare("SELECT count(*) AS count FROM decision_projection").get()!.count, 1);
-      assert.deepEqual(
-        {
-          ...db.prepare("SELECT decision_id, state, title FROM decision_projection").get()!,
-        },
-        { decision_id: "dec_COLD", state: "active", title: "Cold truth" },
-      );
-    } finally {
-      db.close();
-    }
+    const source = readColdRebuildSource(rootDir);
     assert.deepEqual(
-      graph.edges.map(({ relationId }) => relationId).sort(),
+      source.decisions.map(({ decisionId, state, title }) => ({ decisionId, state, title })),
+      [{ decisionId: "dec_COLD", state: "active", title: "Cold truth" }],
+    );
+    assert.deepEqual(
+      source.truth.edges.map(({ relationId }) => relationId).sort(),
       [
         derived.relation_id,
         evidenced.relation_id,
@@ -169,33 +114,17 @@ test("explicit cold rebuild derives Decision, relation, coverage, and Fact truth
       ].sort(),
     );
     assert.deepEqual(
-      graph.facts.map(({ ref, statement }) => ({ ref, statement })),
+      source.facts.map(({ ref, statement }) => ({ ref, statement })),
       [
         { ref: migratedRef, statement: "Event-backed evidence" },
         { ref: factRef, statement: "Event-backed evidence" },
       ],
     );
     assert.deepEqual(
-      graph.factAnchors.map(({ factRef: ref }) => ref),
+      source.truth.factAnchors.map(({ factRef: ref }) => ref),
       [migratedRef, factRef],
     );
-    assert.deepEqual(
-      graph.coverageRows.map(({ claimRef, status, fulfillment, coveringFactRef }) => ({
-        claimRef,
-        status,
-        fulfillment,
-        coveringFactRef,
-      })),
-      [
-        {
-          claimRef: "decision/dec_COLD/C1",
-          status: "covered",
-          fulfillment: "evidenced",
-          coveringFactRef: factRef,
-        },
-      ],
-    );
-    assert.deepEqual(graph.warnings, []);
+    assert.equal(source.complete, true);
   });
 });
 
@@ -328,23 +257,21 @@ test("cold rebuild replays migrated Fact and relation truth from canonical L1 ev
     writeMigrationEvent(rootDir, migrationFactEvent(1));
     writeMigrationEvent(rootDir, migrationRelationEvent(2, migratedEdge));
     writeMigrationEvent(rootDir, migrationRelationEvent(3, existingEdge));
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
-    rebuildTaskProjection({ rootDir, projectionPath });
-    const graph = readRelationGraphProjection({ rootDir, projectionPath });
+    const source = readColdRebuildSource(rootDir);
     assert.equal(
-      graph.facts.some(({ ref, statement }) => ref === migratedFact && statement === "Migrated event fact"),
+      source.facts.some(({ ref, statement }) => ref === migratedFact && statement === "Migrated event fact"),
       true,
     );
     assert.equal(
-      graph.edges.some(({ relationId }) => relationId === migratedEdge.relation_id),
+      source.truth.edges.some(({ relationId }) => relationId === migratedEdge.relation_id),
       true,
     );
     assert.equal(
-      graph.edges.find(({ relationId }) => relationId === existingEdge.relation_id)?.origin,
+      source.truth.edges.find(({ relationId }) => relationId === existingEdge.relation_id)?.origin,
       "imported_snapshot",
       "canonical event fields win over a duplicated Markdown snapshot",
     );
-    assert.deepEqual(graph.warnings, []);
+    assert.equal(source.complete, true);
   });
 });
 
@@ -385,11 +312,9 @@ test("cold rebuild derives supersedes-fact edges from native Fact events", () =>
         supersedes: { factRef: target, rationale: edge.rationale },
       },
     });
-    const projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
-    rebuildTaskProjection({ rootDir, projectionPath });
-    const graph = readRelationGraphProjection({ rootDir, projectionPath });
+    const source = readColdRebuildSource(rootDir);
     assert.equal(
-      graph.edges.some(
+      source.truth.edges.some(
         ({ relationId, sourceRef, targetRef, relationType }) =>
           relationId === edge.relation_id &&
           sourceRef === replacement &&
@@ -398,11 +323,11 @@ test("cold rebuild derives supersedes-fact edges from native Fact events", () =>
       ),
       true,
     );
-    assert.deepEqual(graph.warnings, []);
+    assert.equal(source.complete, true);
   });
 });
 
-test("cold rebuild marks structurally present relation truth unavailable when an authored source is incomplete", () => {
+test("cold source marks relation truth incomplete when an authored source is malformed", () => {
   withTempStore((rootDir) => {
     const evidenced = relation({
         source: "decision/dec_COLD/C1",
@@ -420,21 +345,12 @@ test("cold rebuild marks structurally present relation truth unavailable when an
         type: "supersedes-fact",
       });
     writeColdHistory(rootDir, evidenced, derived, superseded);
-    const factsPath = path.join(rootDir, "harness/tasks/task-cold/facts.md"),
-      projectionPath = path.join(rootDir, ".harness/cache/projections.sqlite");
+    const factsPath = path.join(rootDir, "harness/tasks/task-cold/facts.md");
     writeFileSync(factsPath, readFileSync(factsPath, "utf8").replace("confidence: high", "confidence: invalid"));
-    rebuildTaskProjection({ rootDir, projectionPath });
-    const db = new DatabaseSync(projectionPath, { readOnly: true });
-    try {
-      assert.equal(db.prepare("SELECT count(*) AS count FROM relation_edges").get()!.count, 1);
-      assert.equal(db.prepare("SELECT value FROM projection_meta WHERE key = 'relationTruthSource'").get(), undefined);
-    } finally {
-      db.close();
-    }
-    const graph = readRelationGraphProjection({ rootDir, projectionPath });
-    assert.deepEqual(graph.edges, []);
+    const source = readColdRebuildSource(rootDir);
+    assert.equal(source.complete, false);
     assert.equal(
-      graph.warnings.some(({ code, severity }) => code === "relation_truth_unavailable" && severity === "hard-fail"),
+      source.issues.some(({ sourcePath, reason }) => sourcePath.endsWith("facts.md") && reason.length > 0),
       true,
     );
   });

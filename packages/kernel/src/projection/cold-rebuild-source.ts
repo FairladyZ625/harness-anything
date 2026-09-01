@@ -43,7 +43,6 @@ import {
 } from "./relation-migration-normalization.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
-import { coverageOf } from "../domain/decision-coverage.ts";
 import { factLiveness } from "../domain/fact-liveness.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
@@ -342,34 +341,6 @@ function readColdRebuildSourceInternal(
     ),
     complete,
   };
-}
-
-export function buildColdCoverage(
-  source: ColdRebuildSource,
-  edgesInput: readonly RelationGraphEdgeRow[],
-): readonly RelationCoverageRow[] {
-  return [
-    ...coverageOf(
-      source.decisions.map((decision) => {
-        const ref = `decision/${decision.decisionId}`;
-        return {
-          ref,
-          state: decision.state,
-          decisionClass:
-            decision.decisionClass === "standing-policy" ? "standing_policy" : (decision.decisionClass ?? "ordinary"),
-          appliesTo: { modules: decision.moduleKeys, productLines: decision.productLineKeys },
-          claims: decision.claimRecords.map((claim) => ({
-            ref: `${ref}/${claim.id}`,
-            loadBearing: claim.loadBearing,
-            fulfillment: claim.fulfillment,
-          })),
-        };
-      }),
-      source.facts,
-      source.tasks,
-      edgesInput,
-    ),
-  ].sort((a, b) => a.claimRef.localeCompare(b.claimRef));
 }
 
 function readDecisions(

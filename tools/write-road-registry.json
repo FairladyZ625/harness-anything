@@ -84,7 +84,6 @@
     "packages/kernel/src/daemon/registry.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
-    "packages/kernel/src/projection/sqlite-projection-store.ts",
     "packages/kernel/src/store/local-version-control-system.ts",
     "packages/preset/src/preset-installation.ts",
     "packages/preset/src/preset-process-service.ts"

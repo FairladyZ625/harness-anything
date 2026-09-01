@@ -9,7 +9,6 @@ import {
   compileTaskLifecycleWrite,
   makeTaskEventStore,
   makeTaskProjection,
-  rebuildTaskProjection,
   reduceTaskEvent,
   sha256Text,
 } from "../../kernel/src/index.ts";
@@ -119,7 +118,6 @@ test("amending the title retitles the published plan through the typed route and
       assert.ok(planClaim, "amend event must claim the retitled plan");
       assert.equal(planClaim.policyId, "markdown-body-replaceable/v1");
     }
-    rebuildTaskProjection({ rootDir });
     const projected = (await cell.run({ kind: "doc-show", path: plan }, binding)) as { evidence?: string };
     assert.match((projected.evidence ?? "").split("\n")[0] ?? "", /^# amend retitle second title$/u);
     writeFileSync(target, retitled.replace("first round of worker prose", "second round of worker prose"));
