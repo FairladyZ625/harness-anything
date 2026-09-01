@@ -49,7 +49,7 @@ import { useDecisionActions } from "./decision-actions.ts";
 import { selectActiveRepoId, useSystemStatusQuery } from "./system-data.ts";
 import { useCatalogSnapshot } from "./catalog-data.ts";
 import { adaptRepoProject } from "./model/project-adapter.ts";
-import { TerminalView } from "./views/TerminalView.tsx";
+import { TerminalView, type TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
@@ -161,6 +161,8 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
+  /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
+  const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
   const filteredProjectTasks = useMemo(
@@ -413,6 +415,11 @@ function AppShell() {
                 onSetPin={(task, pinned) => {
                   void taskActions.setTaskPin(task, pinned);
                 }}
+                onOpenTerminal={(task) => {
+                  setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
+                  updateLocation({ selectedId: null });
+                  goto("terminal");
+                }}
                 onFocusGraph={focusEntityInGraph}
               />
             ) : view === "home" ? (
@@ -644,6 +651,7 @@ function AppShell() {
                 repoId={projectId}
                 daemonGeneration={activeRepo?.generation ?? null}
                 tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+                launchTask={terminalLaunch}
                 repoRoot={activeRepo?.canonicalRoot ?? null}
                 onNavigateEntity={navigateToEntity}
                 onOpenDocument={openLocalDocument}

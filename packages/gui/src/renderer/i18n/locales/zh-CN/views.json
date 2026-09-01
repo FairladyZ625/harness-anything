@@ -685,5 +685,6 @@
   "views.overviewView.statsRevisionUnknown": "台账切面尚未读到,版本对未知",
   "views.overviewView.statsAnomalyDaemon": "daemon 无响应",
   "views.overviewView.statsAnomalyProjection": "投影落后 {lag}",
-  "views.overviewView.statsAnomalyRead": "读失败"
+  "views.overviewView.statsAnomalyRead": "读失败",
+  "views.taskDetailView.openTerminal": "打开终端"
 }

@@ -3,6 +3,7 @@ import type { TerminalSessionRow } from "../../../../../daemon/src/gui-s3-contro
 import type { TerminalPreferences } from "../../terminal-preferences.ts";
 import { t } from "../../i18n/index.tsx";
 import { isMacPlatform } from "../../platform.ts";
+import { TerminalTaskPicker } from "./TerminalTaskPicker.tsx";
 
 const shellOptions = ["default", "zsh", "bash", "sh", "fish"] as const;
 
@@ -195,19 +196,7 @@ export function TerminalChrome({
             </select>
           </Field>
           <Field label={t("terminal.view.task")}>
-            <select
-              value={spawn.taskId}
-              onChange={(event) => onSpawnChange({ taskId: event.target.value })}
-              className="control max-w-44"
-            >
-              <option value="">{t("terminal.view.unbound")}</option>
-              {tasks.map((task) => (
-                // G10:实体 ID 不落在不可激活文本里;taskId 走机器值/tooltip,文本用标题。
-                <option key={task.taskId} value={task.taskId} title={task.taskId}>
-                  {task.title}
-                </option>
-              ))}
-            </select>
+            <TerminalTaskPicker tasks={tasks} value={spawn.taskId} onChange={(taskId) => onSpawnChange({ taskId })} />
           </Field>
           <button className="rounded border border-accent/60 bg-accent/10 px-3 py-1 text-[12px] text-text">
             {t("terminal.view.startCustom")}

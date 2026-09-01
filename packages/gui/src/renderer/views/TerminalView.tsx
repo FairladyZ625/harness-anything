@@ -74,6 +74,13 @@ interface Props {
   readonly onOpenDocument: (path: string) => void;
   /** URL 打开接缝(W3 内嵌浏览器接线点);缺省走 web-links 默认行为(新窗口)。 */
   readonly openUrl?: (uri: string) => void;
+  /** 从 task 详情「打开终端」进来:进页即按该 task 建一个绑定会话;requestId 防 StrictMode 双跑。 */
+  readonly launchTask?: TerminalLaunchTask | null;
+}
+export interface TerminalLaunchTask {
+  readonly requestId: string;
+  readonly taskId: string;
+  readonly title: string;
 }
 type AttachRow = Pick<
   TerminalSessionRow,
@@ -98,6 +105,7 @@ export function TerminalView({
   daemonGeneration,
   tasks,
   repoRoot,
+  launchTask = null,
   onNavigateEntity,
   onOpenDocument,
   openUrl,
@@ -266,21 +274,21 @@ export function TerminalView({
   );
 
   const start = useCallback(
-    async (custom: boolean, placement: Placement = { kind: "group" }) => {
+    async (custom: boolean, placement: Placement = { kind: "group" }, draft: TerminalSpawnDraft = spawn) => {
       setError(null);
       const cwd: TerminalSpawnInput["cwd"] =
-        custom && spawn.cwdScope === "repo-relative"
-          ? { scope: "repo-relative", path: spawn.path }
+        custom && draft.cwdScope === "repo-relative"
+          ? { scope: "repo-relative", path: draft.path }
           : { scope: "repo-root" };
-      const name = custom ? spawn.name : t("terminal.view.title");
+      const name = custom ? draft.name : t("terminal.view.title");
       try {
         const receipt = await terminalClient.spawn(repoId, {
           idempotencyKey: `terminal-gui-${crypto.randomUUID()}`,
           backend: preferences.backend,
           name: name || undefined,
           cwd,
-          shellProfileId: custom ? spawn.shellProfileId || undefined : "default",
-          taskId: custom ? spawn.taskId || undefined : undefined,
+          shellProfileId: custom ? draft.shellProfileId || undefined : "default",
+          taskId: custom ? draft.taskId || undefined : undefined,
         });
         if (receipt.outcome !== "applied" || !receipt.sessionId)
           throw new Error(
@@ -303,6 +311,15 @@ export function TerminalView({
     },
     [attach, preferences.backend, queryClient, repoId, spawn],
   );
+  // task 详情「打开终端」:同一 requestId 只处理一次(StrictMode 双跑 / 父组件重渲染都不重复建会话)。
+  const launchedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!launchTask || launchedRef.current === launchTask.requestId) return;
+    launchedRef.current = launchTask.requestId;
+    const draft = { ...spawn, taskId: launchTask.taskId, name: launchTask.title.slice(0, 48) };
+    setSpawn(draft);
+    void start(true, { kind: "group" }, draft);
+  }, [launchTask, spawn, start]);
 
   useEffect(() => {
     if (generation !== null && generation !== undefined)
@@ -328,8 +345,8 @@ export function TerminalView({
     }
     const restored = mostRecentAttachableTerminal(sessions.data.sessions);
     if (restored) attach(restored, 0);
-    else void start(false);
-  }, [attach, attachStream, repoId, sessions.data, sessions.isSuccess, start]);
+    else if (!launchTask) void start(false); // 带 launchTask 进页时由它建绑定会话,不再另开一个未绑定的。
+  }, [attach, attachStream, launchTask, repoId, sessions.data, sessions.isSuccess, start]);
 
   const create = (event: FormEvent) => {
     event.preventDefault();
