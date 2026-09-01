@@ -20,7 +20,6 @@ import {
   type WriteSource,
   type WriteTarget,
 } from "./write-chain.contract.ts";
-import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 
 export interface EntityDeclarationClaim {
   readonly path: string;
@@ -81,8 +80,6 @@ export function compileEntityUpsert(input: {
   const contractErrors = contract.entityStore.validate?.(entity) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (typeof entityId !== "string") throw new Error(`${input.entityKind} declaration has no string identity`);
-  if (input.entityKind === "squad" && isRecord(entity))
-    assertTransitionDocumentReady(requireTransitionDocumentKind("squad.install"), String(entity.roster ?? ""));
   const body = serializeEntityJsonSchema(contract.schema, entity, `${input.entityKind} declaration`),
     claim: EntityDeclarationClaim = {
       path: normalizeRelativeDocumentPath(entityDocumentPath(contract, entityId)),

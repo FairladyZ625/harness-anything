@@ -16,6 +16,7 @@ export { FactServiceError, makeFactService } from "./fact-service.ts";
 export type { FactRecordResult, FactWriteBundle } from "./fact-service.ts";
 export { makeTaskActionExplanationService } from "./task-action-explanation-service.ts";
 export { makePersonActionExplanationService } from "./person-action-explanation-service.ts";
+export { makeSquadActionExplanationService } from "./squad-action-explanation-service.ts";
 export type {
   TaskActionExplanationAuthorizationInput,
   TaskActionExplanationObjectInput,

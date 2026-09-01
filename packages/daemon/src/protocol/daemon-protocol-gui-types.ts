@@ -384,6 +384,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.entity.actions.explain": {
     readonly schema: "entity-action-explain-request/v1";
     readonly mode: "catalog" | "object";
+    readonly entityKind: string | null;
     readonly refs: readonly string[];
   };
   readonly "repo.settings.read": Readonly<Record<string, never>>;

@@ -12,7 +12,7 @@ export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
 
 export const ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA = Object.freeze({
   id: "entity-action-explain-request/v1",
-  required: Object.freeze(["schema", "refs", "mode"]),
+  required: Object.freeze(["schema", "entityKind", "refs", "mode"]),
 });
 
 export const DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({

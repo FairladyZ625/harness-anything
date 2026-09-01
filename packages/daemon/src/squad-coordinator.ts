@@ -3,17 +3,19 @@ import path from "node:path";
 import {
   consumeKnownError,
   createEntityStore,
+  parseAgentDeclarationV1,
+  parseSquadDeclarationV1,
   runtimeSessionSemanticState,
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import { readSquadDeclaration } from "./agent-entities.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummaries } from "./dispatch-stream.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
+import { cellCriterionError } from "./repo-cell-errors.ts";
 import { deriveTaskMission } from "./runtime-spawn-mission.ts";
 import {
   callbackLeaderPrompt,
@@ -80,21 +82,23 @@ export function makeSquadCoordinator(input: {
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
       taskId = requiredSquadText(action.taskId, "taskId"),
-      cwd = resolveCwd(input.rootDir, action.cwd);
+      cwd = resolveCwd(input.rootDir, action.cwd),
+      squad = squadForRun(squadId);
     let mission: string;
+    await input.reacquireTaskLease(taskId, binding);
     try {
-      await input.reacquireTaskLease(taskId, binding);
       const taskMission = deriveTaskMission(input.rootDir, input.projection(), taskId, "squad.run");
       mission = optionalText(action.prompt) ?? taskMission.mission;
     } catch (error) {
-      return rejection("squad-run", errorCode(error, "squad_task_unavailable"), errorText(error));
+      throw cellCriterionError(
+        errorCode(error, "squad_task_unavailable"),
+        errorText(error),
+        "run",
+        "squad/task-mission-ready",
+        [`Run ha task show ${taskId}, make its mission dispatchable, then retry ha squad run ${squadId}.`],
+      );
     }
-    const squad = readSquadDeclaration({
-        rootDir: input.rootDir,
-        squadId,
-        entityStore: createEntityStore(input.store()),
-      }),
-      squadRunId = `squad_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
+    const squadRunId = `squad_${randomUUID().replaceAll("-", "").slice(0, 24)}`,
       state: SquadState = {
         schema: "squad-run/v1",
         squadRunId,
@@ -145,19 +149,29 @@ export function makeSquadCoordinator(input: {
         phase: "failed",
         error: errorText(error),
       });
-      return rejection("squad-run", errorCode(error, "squad_leader_failed"), failed.error!);
+      throw cellCriterionError(errorCode(error, "squad_leader_failed"), failed.error!, "run", "squad/leader-dispatch", [
+        `Inspect the runtime instance and leader Agent, then retry ha squad run ${squadId}.`,
+      ]);
     }
   };
 
   const status = (squadRunId: string): JsonObject => {
     if (!validSquadRunId(squadRunId))
-      return rejection(
-        "squad-status",
+      throw cellCriterionError(
         "invalid_squad_run_id",
         "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
+        "status",
+        "squad/run-id",
       );
     const state = readSquadRunState(squadRunId);
-    if (!state) return rejection("squad-status", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
+    if (!state)
+      throw cellCriterionError(
+        "squad_run_not_found",
+        `Squad run ${squadRunId} does not exist.`,
+        "status",
+        "squad/run-present",
+        ["Run ha squad run <squad-id> --instance <runtime-instance-id> --task <task-id> first."],
+      );
     const detail = statusDto(state);
     return {
       schema: "command-receipt/v2",
@@ -173,13 +187,21 @@ export function makeSquadCoordinator(input: {
 
   const cancel = async (squadRunId: string, binding: RuntimeBinding): Promise<JsonObject> => {
     if (!validSquadRunId(squadRunId))
-      return rejection(
-        "squad-cancel",
+      throw cellCriterionError(
         "invalid_squad_run_id",
         "Use the squad_<24 lowercase hex characters> handle returned by ha squad run.",
+        "cancel",
+        "squad/run-id",
       );
     const state = readSquadRunState(squadRunId);
-    if (!state) return rejection("squad-cancel", "squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
+    if (!state)
+      throw cellCriterionError(
+        "squad_run_not_found",
+        `Squad run ${squadRunId} does not exist.`,
+        "cancel",
+        "squad/run-present",
+        ["Run ha squad status <squad-run-id> and choose an existing run."],
+      );
     if (state.phase !== "cancelled")
       writeState(
         revise(state, {
@@ -201,10 +223,12 @@ export function makeSquadCoordinator(input: {
     );
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0)
-      return rejection(
-        "squad-cancel",
+      throw cellCriterionError(
         "squad_cancel_incomplete",
         `Squad run ${squadRunId} is durably cancelled, but ${String(failures.length)} runtime cancellation(s) failed.`,
+        "cancel",
+        "squad/cancellation-complete",
+        [`Retry ha squad cancel ${squadRunId}; already-cancelled runtimes are idempotent.`],
       );
     return {
       schema: "command-receipt/v2",
@@ -218,6 +242,35 @@ export function makeSquadCoordinator(input: {
       exitCode: 0,
     };
   };
+
+  function squadForRun(squadId: string) {
+    const entityStore = createEntityStore(input.store()),
+      stored = entityStore.get("squad", squadId);
+    if (!stored)
+      throw cellCriterionError(
+        "squad_not_found",
+        `${squadId} is not an installed squad.`,
+        "run",
+        "squad/entity-present",
+        [`Run ha squad install --source <squad-package>, then retry ha squad run ${squadId}.`],
+      );
+    const squad = parseSquadDeclarationV1(stored.value),
+      missing = [...new Set([squad.leader, ...squad.workers])].filter((agentId) => {
+        const agent = entityStore.get("agent", agentId);
+        if (!agent) return true;
+        parseAgentDeclarationV1(agent.value);
+        return false;
+      });
+    if (missing.length)
+      throw cellCriterionError(
+        "squad_agent_not_found",
+        `Squad ${squad.id} references unavailable agents: ${missing.join(", ")}.`,
+        "run",
+        "squad/member-declarations",
+        missing.map((agentId) => `Install agent/${agentId}, then retry ha squad run ${squad.id}.`),
+      );
+    return squad;
+  }
 
   const list = (payload: Readonly<Record<string, unknown>>): SquadRunsListResult => {
     const query = listQuery(payload),
@@ -1000,17 +1053,4 @@ function errorCode(error: unknown, fallback: string): string {
   return error && typeof error === "object" && typeof (error as { readonly code?: unknown }).code === "string"
     ? String((error as { readonly code: string }).code)
     : fallback;
-}
-
-function rejection(command: string, code: string, hint: string): JsonObject {
-  return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command,
-    outcome: "rejected",
-    code,
-    nextAction: hint,
-    error: { code, hint },
-    exitCode: 1,
-  };
 }

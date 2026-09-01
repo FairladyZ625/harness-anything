@@ -43,12 +43,17 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       beforeDigest = observerProjection.readStateDigest(),
       beforeStatus = cell.status(),
       beforeWorktree = git(rootDir, "status", "--porcelain=v1"),
-      one = await cell.read(method, { schema: requestSchema, mode: "object", refs: ["task/task-explain"] }, binding),
+      one = await cell.read(
+        method,
+        { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
+        binding,
+      ),
       fiveHundred = await cell.read(
         method,
         {
           schema: requestSchema,
           mode: "object",
+          entityKind: null,
           refs: Array.from({ length: 500 }, () => "task/task-explain"),
         },
         binding,
@@ -70,6 +75,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       {
         schema: requestSchema,
         mode: "object",
+        entityKind: null,
         refs: ["not-a-ref", "task/task-missing", "fact/F-ABCDEFGH", "other:task/task-explain"],
       },
       binding,
@@ -82,7 +88,11 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     assert.equal(failures.subjects[0]!.kind, null);
     assert.equal(failures.evaluatedAtCut, one.evaluatedAtCut);
 
-    const catalog = await cell.read(method, { schema: requestSchema, mode: "catalog", refs: [] }, binding);
+    const catalog = await cell.read(
+      method,
+      { schema: requestSchema, mode: "catalog", entityKind: "task", refs: [] },
+      binding,
+    );
     assert.equal(catalog.evaluatedAtCut, null);
     assert.equal(
       catalog.subjects[0]!.actions.every(({ available }) => available === null),
@@ -111,12 +121,12 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     });
     const edgeFirst = await cell.read(
         method,
-        { schema: requestSchema, mode: "object", refs: ["task/task-explain"] },
+        { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
         binding,
       ),
       edgeSecond = await cell.read(
         method,
-        { schema: requestSchema, mode: "object", refs: ["task/task-explain"] },
+        { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
         binding,
       );
     assert.equal(edgeFirst.subjects[0]!.actions[0]!.available, edgeSecond.subjects[0]!.actions[0]!.available);
@@ -130,7 +140,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
 test("RPC contract rejects actor and cut overrides at the wire shape", () => {
   const params = {
     repo: { repoId: "action-explain" },
-    payload: { schema: requestSchema, mode: "object", refs: ["task/task-explain"] },
+    payload: { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
   } as const;
   assert.deepEqual(validateDaemonRpcCall({ method, params }), []);
   assert.match(

@@ -38,6 +38,7 @@ export type EntityActionExplanationFailureCode = (typeof entityActionExplanation
 
 export interface EntityActionExplainRequestV1 {
   readonly schema: typeof ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id;
+  readonly entityKind: string | null;
   readonly refs: readonly string[];
   readonly mode: "object" | "catalog";
 }
@@ -96,12 +97,19 @@ export interface EntityActionExplanationSetV1 {
 }
 
 export function validateEntityActionExplainRequest(value: unknown): readonly string[] {
-  if (!explanationRecord(value) || !explanationExact(value, ["schema", "refs", "mode"]))
+  if (!explanationRecord(value) || !explanationExact(value, ["schema", "entityKind", "refs", "mode"]))
     return ["Entity Action explain request fields are incomplete or unknown"];
   const errors: string[] = [];
   if (value.schema !== ENTITY_ACTION_EXPLAIN_REQUEST_SCHEMA.id)
     errors.push("Entity Action explain request schema is invalid");
   if (value.mode !== "object" && value.mode !== "catalog") errors.push("Entity Action explain request mode is invalid");
+  if (
+    value.mode === "catalog" &&
+    (!explanationNonEmpty(value.entityKind) || !getEntityKindContract(String(value.entityKind))?.actionCatalog)
+  )
+    errors.push("Entity Action catalog explain kind is unsupported");
+  if (value.mode === "object" && value.entityKind !== null)
+    errors.push("Entity Action object explain derives kind from refs");
   if (!Array.isArray(value.refs) || value.refs.some((ref) => typeof ref !== "string" || ref.length === 0))
     errors.push("Entity Action explain request refs must be non-empty strings");
   else if (value.mode === "object" && (value.refs.length < 1 || value.refs.length > 500))
@@ -172,6 +180,10 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
     for (const [index, action] of value.actions.entries())
       errors.push(...validateAction(action, mode, cut, value).map((issue) => `actions[${index}]: ${issue}`));
     if (value.failure === null) {
+      const canonicalIds =
+        typeof value.kind === "string"
+          ? (getEntityKindContract(value.kind)?.actionCatalog?.actions.map(({ id }) => id) ?? [])
+          : [];
       const ids = value.actions.map((action) =>
           explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
         ),
@@ -181,6 +193,10 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
             : null;
       if (canonicalIds === null || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
         errors.push("successful Entity subject actions must follow its canonical catalog order");
+        explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
+      );
+      if (canonicalIds.length === 0 || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
+        errors.push("successful Entity subject actions must follow canonical catalog order");
     }
   }
   if (value.failure !== null) errors.push(...validateFailure(value.failure));
@@ -200,6 +216,9 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
     )
       errors.push("catalog subject must be one static registered Entity Action catalog");
     if (!Array.isArray(value.actions) || value.actions.length !== catalog?.actions.length)
+    if (!catalog || value.ref !== null || value.revision !== null || value.failure !== null)
+      errors.push("catalog subject must name one static Entity Action catalog");
+    if (!Array.isArray(value.actions) || value.actions.length !== (catalog?.actions.length ?? -1))
       errors.push("catalog subject must contain every canonical Entity Action");
   } else if (
     value.failure === null &&
@@ -209,6 +228,7 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
       !positiveInteger(value.revision))
   )
     errors.push("successful object subject requires a registered executable Entity ref and revision");
+    errors.push("successful object subject requires a catalog-backed Entity ref and revision");
   if (value.failure !== null && Array.isArray(value.actions) && value.actions.length !== 0)
     errors.push("failed subject cannot contain evaluated actions");
   return errors;

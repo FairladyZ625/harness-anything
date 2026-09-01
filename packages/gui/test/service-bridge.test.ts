@@ -149,6 +149,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                         ...scope,
                                         schema: "entity-action-explain-request/v1",
                                         mode: "catalog",
+                                        entityKind: "task",
                                         refs: [],
                                       }
                                     : scope;

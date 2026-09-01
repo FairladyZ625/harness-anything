@@ -196,6 +196,8 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Ontology-Explain-A",
     path: ["explain", "<task|person|entity/ref>..."],
     summary: "Explain the Task or Person Action catalog, or evaluate object refs at the current canonical cut.",
+    path: ["explain", "<task|squad|entity/ref>..."],
+    summary: "Explain a Task or Squad Action catalog, or evaluate object refs at the current canonical cut.",
     method: "repo.entity.actions.explain",
     inputs: [],
   }),

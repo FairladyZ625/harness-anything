@@ -3,6 +3,8 @@ import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin
 import type { ThinHelpOverlayRoute, ThinParseResult } from "./thin-command-types.ts";
 
 const explainUsage = "Use ha explain task|person for a catalog, or pass 1..500 task/<id> or person/<id> object refs.";
+const explainUsage =
+  "Use ha explain task|squad for a catalog, or ha explain <entity-ref> [<entity-ref>...] for 1..500 objects.";
 
 export function taskExplainHelpOverlay(argv: readonly string[]): ThinHelpOverlayRoute | undefined {
   const args = stripGlobals(argv);
@@ -43,6 +45,7 @@ export function parseExplain(
 ): ThinParseResult {
   const targets = args.slice(1);
   if (targets.length === 1 && (targets[0] === "task" || targets[0] === "person"))
+  if (targets.length === 1 && (targets[0] === "task" || targets[0] === "squad"))
     return accepted(
       rootDir,
       repoId,
@@ -52,6 +55,8 @@ export function parseExplain(
         schema: "entity-action-explain-request/v1",
         mode: "catalog",
         refs: targets[0] === "task" ? [] : [targets[0]],
+        entityKind: targets[0],
+        refs: [],
       },
       method,
     );
@@ -65,7 +70,13 @@ export function parseExplain(
     rootDir,
     repoId,
     json,
-    { kind: "entity-action-explain", schema: "entity-action-explain-request/v1", mode: "object", refs: targets },
+    {
+      kind: "entity-action-explain",
+      schema: "entity-action-explain-request/v1",
+      mode: "object",
+      entityKind: null,
+      refs: targets,
+    },
     method,
   );
 }

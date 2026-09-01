@@ -366,7 +366,7 @@ export function prepareAgentEntityInstall(input: {
       kind,
       decoded.issues[0]?.code ?? "invalid_entity_package",
       decoded.issues[0]?.message ?? "Entity package is invalid.",
-      "agent/declaration-schema",
+      `${kind}/declaration-schema`,
     );
   if (input.action.generatedOnly === true && input.action.validated !== true)
     throw agentInstallError(
@@ -392,7 +392,7 @@ export function prepareAgentEntityInstall(input: {
       "revision_conflict",
       `${kind} ${declaration.id} expected revision ${String(input.action.expectedVersion)}, ` +
         `current revision is ${String(current.workspaceRevision ?? 0)}.`,
-      "agent/entity-revision",
+      `${kind}/entity-revision`,
     );
   if (input.action.generatedOnly === true && current.exists && input.replay !== true)
     throw generatedAgentConflict(declaration.id);
@@ -622,7 +622,5 @@ function agentInstallError(
   criterionRef: string,
 ): Error & { readonly code: string } {
   const error = entityError(code, message);
-  return kind === "agent"
-    ? (attributeEntityActionCriterion(error, "install", criterionRef) as Error & { readonly code: string })
-    : error;
+  return attributeEntityActionCriterion(error, "install", criterionRef) as Error & { readonly code: string };
 }

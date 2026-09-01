@@ -168,6 +168,7 @@ export const daemonGuiReadMethods = Object.freeze([
       payload: shape({
         schema: "string",
         mode: { values: ["catalog", "object"], optional: false },
+        entityKind: "string-null?",
         refs: "array",
       }),
     }),

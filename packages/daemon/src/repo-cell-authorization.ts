@@ -377,6 +377,7 @@ function actionTarget(action: RepoTaskAction): EntityRef {
     ["execution", action.executionId],
     ["schedule", action.scheduleId],
     ["agent", action.agentId],
+    ["squad", action.squadId],
   ] as const;
   for (const [kind, id] of candidates) {
     if (typeof id !== "string") continue;
