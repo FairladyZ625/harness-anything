@@ -217,7 +217,10 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
   if (["showRuntimeInstance", "updateRuntimeInstance", "deleteRuntimeInstance"].includes(route.guiBridgeMethod))
     return 2_000;
   if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
-  return 200;
+  // Reads share the daemon with the single-writer queue; a long ledger write can hold the
+  // workspace past 200ms, which turned every such window into a visible GUI error. 2s keeps
+  // the read honest without failing on ordinary write contention (泽宇 2026-09-01 亲裁调高).
+  return 2_000;
 }
 function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
   if (!value || typeof value !== "object" || Array.isArray(value))
