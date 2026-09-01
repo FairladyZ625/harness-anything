@@ -20,6 +20,15 @@ export type ThinParseResult =
       readonly json: boolean;
     };
 
+export type ThinHelpOverlayRoute =
+  | { readonly ok: true; readonly argv: readonly string[] }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly nextAction: string;
+      readonly json: boolean;
+    };
+
 export interface ThinCliInput {
   readonly name: string;
   readonly kind: "single" | "repeated" | "boolean";

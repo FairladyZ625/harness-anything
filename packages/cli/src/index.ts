@@ -19,6 +19,7 @@ import {
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
 import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./cli/thin-command-schedule.ts";
+import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import {
   renderEntityActionExplanation,
   type EntityActionExplanationRenderInput,
@@ -41,11 +42,30 @@ const repositoryDiffContract = [
 ].join("");
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
-  const command = firstCliCommand(argv);
+  const command = firstCliCommand(argv),
+    explainHelpOverlay = taskExplainHelpOverlay(argv);
   if (argv.includes("--version") || argv.includes("-v") || command === "version")
     return emitMeta("version", argv.includes("--json"));
   if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
-  if (argv.length === 0 || argv.includes("--help")) {
+  if (isRetiredEntityExplain(argv)) {
+    emit(
+      cliFailure(
+        "entity explain",
+        "unsupported_command",
+        "Use ha explain task for the Task catalog, or ha explain task/<task-id> for an object evaluation.",
+      ),
+      argv.includes("--json"),
+    );
+    return 2;
+  }
+  if (explainHelpOverlay && !explainHelpOverlay.ok) {
+    emit(
+      cliFailure("entity-action-explain", explainHelpOverlay.code, explainHelpOverlay.nextAction),
+      explainHelpOverlay.json,
+    );
+    return 2;
+  }
+  if (argv.length === 0 || (argv.includes("--help") && explainHelpOverlay === undefined)) {
     const domain = helpDomain(argv);
     if (domain !== undefined && !cliCommandDomains().includes(domain)) {
       emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json"));
@@ -59,7 +79,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     const { runDaemonControl } = await import("./daemon/control.ts");
     return runDaemonControl(argv, emit);
   }
-  const parsed = parseThinCommand(argv);
+  const parsed = parseThinCommand(explainHelpOverlay?.argv ?? argv);
   if (!parsed.ok) {
     emit(cliFailure("parse", parsed.code, parsed.nextAction), parsed.json);
     return 2;
