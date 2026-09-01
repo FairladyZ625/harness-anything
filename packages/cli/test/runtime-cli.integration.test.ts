@@ -514,8 +514,9 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(mismatch.status, 1);
     assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
     const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
-    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
-    writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+    // The unavailable rejection is only deterministic while the file is absent: once it exists on
+    // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
+    // flush, racing both this rejection and a doc status that expects "eligible".
     const unsyncedMission = runMaybe(root, env, [
       "runtime",
       "run",
@@ -532,9 +533,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       String(unsyncedMission.receipt.nextAction),
       new RegExp(`ha doc sync --submit --path ${existingMissionPath}`, "u"),
     );
-    const missionStatus = run(root, env, ["doc", "status", "--path", existingMissionPath]);
-    assert.match(String(missionStatus.evidence), /"state":"eligible"/u);
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+    // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
+    // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
     const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
+    assert.match(String(run(root, env, ["doc", "status", "--path", existingMissionPath]).evidence), /"state":"clean"/u);
     const retiredPromptFile = runMaybe(root, env, [
       "runtime",
       "run",
@@ -569,7 +573,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
           code: unsyncedMission.receipt.code,
           nextAction: unsyncedMission.receipt.nextAction,
         },
-        status: { outcome: missionStatus.outcome, evidence: missionStatus.evidence },
         sync: { outcome: missionSync.outcome, summary: missionSync.summary },
         after: { outcome: reused.outcome, dispatchId: reusedDispatchId },
       })}`,
