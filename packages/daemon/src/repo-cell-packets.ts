@@ -66,11 +66,61 @@ export function reviewPacket(
       "invalid_command",
       "Review accepts either the public fromFile packet or one daemon-internal JSON packet, not both.",
     );
-  if (action.jsonInput === undefined) return packetFile(rootDir, action.fromFile, reviewJsonFields);
-  const body = requiredCellText(action.jsonInput, "jsonInput");
+  const body =
+    action.jsonInput === undefined
+      ? workspaceText(rootDir, action.fromFile, "fromFile")
+      : requiredCellText(action.jsonInput, "jsonInput");
+  let value: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(body) as unknown,
+      standardFields = [...reviewJsonFields].sort().join("\0"),
+      externalFields = [...reviewJsonFields, "externalCompletionAnchor", "noDispatchReason"].sort().join("\0"),
+      noIndependentReviewFields = [...reviewJsonFields, "noIndependentReview", "noIndependentReviewReason"]
+        .sort()
+        .join("\0");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+    const fields = Object.keys(parsed).sort().join("\0");
+    if (fields !== standardFields && fields !== externalFields && fields !== noIndependentReviewFields)
+      throw new Error("unexpected fields");
+    value = parsed as Record<string, unknown>;
+  } catch {
+    throw cellCodedError(
+      "invalid_command",
+      `Review JSON requires exactly ${reviewJsonFields.join(", ")}, or those fields plus ` +
+        "externalCompletionAnchor and noDispatchReason, or noIndependentReview and noIndependentReviewReason.",
+    );
+  }
   return {
-    value: packetJson(body, reviewJsonFields),
+    value,
     digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+  };
+}
+
+/**
+ * The optional review-qualification fields a RecordReview command carries when a same-person
+ * review is justified without a dispatch: an external completion anchor, or an explicit
+ * no-independent-review weak mark. Kept beside the packet field-set validation so the two field
+ * families stay described in one place.
+ */
+export function reviewQualificationFields(value: Record<string, unknown>): {
+  readonly externalCompletionAnchor?: string;
+  readonly noDispatchReason?: string;
+  readonly noIndependentReview?: boolean;
+  readonly noIndependentReviewReason?: string;
+} {
+  return {
+    ...(value.externalCompletionAnchor === undefined
+      ? {}
+      : {
+          externalCompletionAnchor: requiredCellText(value.externalCompletionAnchor, "externalCompletionAnchor"),
+          noDispatchReason: requiredCellText(value.noDispatchReason, "noDispatchReason"),
+        }),
+    ...(value.noIndependentReview === undefined
+      ? {}
+      : {
+          noIndependentReview: value.noIndependentReview === true,
+          noIndependentReviewReason: requiredCellText(value.noIndependentReviewReason, "noIndependentReviewReason"),
+        }),
   };
 }
 

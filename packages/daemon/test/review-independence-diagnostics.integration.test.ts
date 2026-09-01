@@ -308,6 +308,49 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
     assert.match(String(refused.nextAction), /original start/u);
     assert.deepEqual(refused.nextActions, [refused.nextAction]);
 
+    writeFileSync(
+      path.join(rootDir, "external-review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "External delivery evidence was inspected.",
+        evidenceChecked: ["merged delivery"],
+        externalCompletionAnchor: "PR #2088",
+        noDispatchReason: "The work was assigned through a legacy external channel.",
+      }),
+    );
+    const dispatchCannotBeSkipped = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "r-external-disallowed",
+        fromFile: "external-review.json",
+      },
+      bare,
+    );
+    assert.equal(dispatchCannotBeSkipped.code, "actor_unauthorized", JSON.stringify(dispatchCannotBeSkipped));
+    writeFileSync(
+      path.join(rootDir, "no-independent-review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "The delivery is ready to record.",
+        evidenceChecked: ["authored documentation"],
+        noIndependentReview: true,
+        noIndependentReviewReason: "No independent reviewer was available.",
+      }),
+    );
+    const dispatchCannotUseWeakMarker = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "r-no-independent-review-disallowed",
+        fromFile: "no-independent-review.json",
+      },
+      bare,
+    );
+    assert.equal(dispatchCannotUseWeakMarker.code, "actor_unauthorized", JSON.stringify(dispatchCannotUseWeakMarker));
+
     const wrongPrincipal = withRoleBinding(
       {
         actor: { principal: { personId: "1" }, executor: null },
@@ -414,6 +457,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
     writeFileSync(path.join(rootDir, "README.md"), "# Reviewed executor repair fixture\n");
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "--quiet", "-m", "fixture output");
+    git(rootDir, "update-ref", "refs/remotes/origin/main", "HEAD");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "review-bare-reviewed" });
     const parentCreated = await cell.run(
       { kind: "task-create", taskId: parentTaskId, title: "Bare reviewed parent" },
@@ -457,6 +501,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
         residualRisks: [],
         commitSha,
       };
+    git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
     writeFileSync(
       closeoutPath,
       "# Closeout\n\n## Summary\n\nReviewed executor repair.\n\n## Verification\n\nDaemon integration.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nCovered by the declaration audit.\n",
@@ -474,6 +519,78 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
         reason: "Independent review passed.",
         evidenceChecked: ["daemon integration"],
       }),
+    );
+    writeFileSync(
+      path.join(rootDir, "external-review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "The origin/main delivery anchor was inspected.",
+        evidenceChecked: ["origin/main"],
+        externalCompletionAnchor: commitSha,
+        noDispatchReason: "The repository owner implemented the delivery directly.",
+      }),
+    );
+    const unmarked = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-unmarked",
+        fromFile: "review.json",
+      },
+      bare,
+    );
+    assert.equal(unmarked.code, "actor_unauthorized", JSON.stringify(unmarked));
+    writeFileSync(
+      path.join(rootDir, "no-independent-review.json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "The documentation-only delivery is ready to record.",
+        evidenceChecked: ["authored documentation"],
+        noIndependentReview: true,
+        noIndependentReviewReason: "No independent reviewer was available for this documentation-only delivery.",
+      }),
+    );
+    const weaklyMarked = (await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-no-independent-review",
+        fromFile: "no-independent-review.json",
+      },
+      bare,
+    )) as Record<string, unknown>;
+    assert.equal(weaklyMarked.outcome, "applied", JSON.stringify(weaklyMarked));
+    const weakReviewEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(String(weaklyMarked.opId));
+    assert.equal(weakReviewEvent?.type, "review_recorded");
+    assert.deepEqual(
+      weakReviewEvent?.type === "review_recorded" ? weakReviewEvent.payload.review.evidenceChecked : [],
+      [
+        "authored documentation",
+        "NO INDEPENDENT REVIEW: No independent reviewer was available for this documentation-only delivery.",
+      ],
+    );
+    const externallyAnchored = (await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-external-anchor",
+        fromFile: "external-review.json",
+      },
+      bare,
+    )) as Record<string, unknown>;
+    assert.equal(externallyAnchored.outcome, "applied", JSON.stringify(externallyAnchored));
+    const externalReviewEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(String(externallyAnchored.opId));
+    assert.equal(externalReviewEvent?.type, "review_recorded");
+    assert.deepEqual(
+      externalReviewEvent?.type === "review_recorded" ? externalReviewEvent.payload.review.evidenceChecked : [],
+      [
+        "origin/main",
+        `external completion anchor: ${commitSha}`,
+        "no dispatch reason: The repository owner implemented the delivery directly.",
+      ],
     );
     const reviewer = withRoleBinding(
       {

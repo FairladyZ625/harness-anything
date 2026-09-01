@@ -85,6 +85,15 @@ function reviewIssues(
   return issues;
 }
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
+  const qualificationEvidence =
+    command.externalCompletionAnchor === undefined
+      ? command.noIndependentReview === true
+        ? [`NO INDEPENDENT REVIEW: ${command.noIndependentReviewReason}`]
+        : []
+      : [
+          `external completion anchor: ${command.externalCompletionAnchor}`,
+          `no dispatch reason: ${command.noDispatchReason}`,
+        ];
   return {
     schema: "review/v1",
     reviewId: command.reviewId,
@@ -94,7 +103,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
     actor: command.actor,
     capabilityRef: proof.capabilityRef,
     reason: command.reason,
-    evidenceChecked: command.evidenceChecked,
+    evidenceChecked: [...command.evidenceChecked, ...qualificationEvidence],
     commitSha: command.commitSha,
     iteration: command.iteration as 0 | 1,
     contentDigest: command.contentDigest,
