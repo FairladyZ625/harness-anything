@@ -681,6 +681,7 @@ export type {
   DaemonTaskDispatchesResult,
   DaemonTaskDocumentListResult,
   DaemonTaskQueryPayload,
+  DaemonTaskSnapshotInvalidRow,
   DaemonTaskSnapshotListResult,
   DaemonWorkspaceSummaryResult,
   ExecutionEvidenceProjection,
@@ -779,4 +780,8 @@ export {
   validateDaemonTaskDispatches,
   validateDaemonTaskDocumentList,
 } from "./daemon-protocol-validate-results.ts";
-export { validateDaemonTaskSnapshotList, validateDaemonWorkspaceSummary } from "./daemon-protocol-validate-task.ts";
+export {
+  isolateDaemonTaskSnapshotRows,
+  validateDaemonTaskSnapshotList,
+  validateDaemonWorkspaceSummary,
+} from "./daemon-protocol-validate-task.ts";

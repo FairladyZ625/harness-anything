@@ -83,6 +83,7 @@ describe("GUI S3 R1 repository isolation", () => {
         ok: true as const,
         status: "ready" as const,
         rows: [],
+        invalidRows: [],
         watermark: revision,
         sourceRevision: revision,
         warnings: [],
@@ -112,6 +113,7 @@ describe("GUI S3 R1 repository isolation", () => {
         ok: true as const,
         status: "ready" as const,
         rows: [],
+        invalidRows: [],
         watermark: 42,
         sourceRevision: 42,
         warnings: [],
@@ -137,7 +139,15 @@ describe("GUI S3 R1 repository isolation", () => {
       limit: TASK_LIST_PAGE_LIMIT,
       cursor: "task-page-2",
     });
-    expect(second).toEqual({ ok: true, status: "ready", rows: [], watermark: 42, sourceRevision: 42, warnings: [] });
+    expect(second).toEqual({
+      ok: true,
+      status: "ready",
+      rows: [],
+      invalidRows: [],
+      watermark: 42,
+      sourceRevision: 42,
+      warnings: [],
+    });
   });
 
   // 原断言:跨 cut 的两页拼在一起要抛错。跨刷新续读必然跨 cut,抛错会让忙仓库永远读不完,
@@ -147,6 +157,7 @@ describe("GUI S3 R1 repository isolation", () => {
       ok: true as const,
       status: "ready" as const,
       rows: [],
+      invalidRows: [],
       watermark: payload.cursor ? 43 : 42,
       sourceRevision: payload.cursor ? 43 : 42,
       warnings: [],
@@ -170,6 +181,7 @@ describe("GUI S3 R1 repository isolation", () => {
       ok: true as const,
       status: "ready" as const,
       rows: [],
+      invalidRows: [],
       watermark: 43,
       sourceRevision: 43,
       warnings: [],
@@ -184,6 +196,7 @@ describe("GUI S3 R1 repository isolation", () => {
       ok: true,
       status: "ready",
       rows: cachedRows,
+      invalidRows: [],
       watermark: 42,
       sourceRevision: 42,
       warnings: [],
@@ -214,6 +227,7 @@ describe("GUI S3 R1 repository isolation", () => {
             : payload.updatedAfter === undefined
               ? projectionRows
               : projectionRows.filter((row) => row.updatedAt >= payload.updatedAfter!),
+        invalidRows: [],
         watermark: 43,
         sourceRevision: 43,
         warnings: [],
@@ -226,6 +240,7 @@ describe("GUI S3 R1 repository isolation", () => {
       ok: true,
       status: "ready",
       rows: cachedRows,
+      invalidRows: [],
       watermark: 42,
       sourceRevision: 42,
       warnings: [],

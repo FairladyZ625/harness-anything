@@ -23,6 +23,7 @@ import {
   parseDaemonGuiReadResult,
 } from "../../daemon/src/protocol/gui-result-validation.ts";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
+import { reportInvalidTaskSnapshotRows } from "../src/main/local-composition-root.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). This suite
@@ -34,6 +35,28 @@ import { restoreEnv } from "./service-bridge.fixtures.ts";
 
 import { seedEntityDeclarations, seedRuntime } from "./service-bridge.fixtures.ts";
 const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
+
+test("GUI main reports every isolated task snapshot row with field-level context", () => {
+  const messages: string[] = [];
+  reportInvalidTaskSnapshotRows(
+    {
+      invalidRows: [
+        {
+          rowIndex: 4,
+          taskId: "task-invalid",
+          field: "rows[4].snapshot.codeDocWitnesses[0]",
+          message: "Task snapshot field is invalid.",
+        },
+      ],
+    },
+    (message) => messages.push(message),
+  );
+
+  assert.deepEqual(messages, [
+    "[repo.tasks.list] isolated invalid task snapshot row rowIndex=4 taskId=task-invalid " +
+      "field=rows[4].snapshot.codeDocWitnesses[0]: Task snapshot field is invalid.",
+  ]);
+});
 
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({

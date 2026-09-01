@@ -711,11 +711,19 @@ export type DaemonTaskSnapshotListResult = {
     readonly placement: TaskPlacementSupplement;
     readonly executionEvidence: readonly ExecutionEvidenceProjection[];
   })[];
+  readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly warnings: readonly TaskProjectionWarning[];
   readonly page?: ProjectionPage;
 };
+
+export interface DaemonTaskSnapshotInvalidRow {
+  readonly rowIndex: number;
+  readonly taskId: string;
+  readonly field: string;
+  readonly message: string;
+}
 
 export type DaemonWorkspaceSummaryResult = {
   readonly schema: "daemon.workspace-summary/v1";

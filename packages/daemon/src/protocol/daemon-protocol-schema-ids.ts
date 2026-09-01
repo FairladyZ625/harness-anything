@@ -2,7 +2,7 @@ import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.
 
 export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   id: "daemon.task-snapshot-list/v1",
-  required: Object.freeze(["ok", "status", "rows", "watermark", "sourceRevision", "warnings"]),
+  required: Object.freeze(["ok", "status", "rows", "invalidRows", "watermark", "sourceRevision", "warnings"]),
 });
 
 export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({

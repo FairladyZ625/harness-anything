@@ -83,6 +83,7 @@ function joinLedgerCut(
     ok: true,
     status: complete ? read.status : "pending",
     warnings: read.warnings,
+    invalidRows: read.invalidRows,
     watermark,
     sourceRevision,
     rows: [...rows.values()].sort((left, right) => compareTaskId(left.taskId, right.taskId)),

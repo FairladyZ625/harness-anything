@@ -1,7 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateDaemonTaskSnapshotList } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  isolateDaemonTaskSnapshotRows,
+  validateDaemonTaskSnapshotList,
+} from "../src/protocol/daemon-protocol.contract.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 const repoint = {
@@ -54,23 +57,37 @@ const row = {
   },
   executionEvidence: [],
 } as const;
-const list = { ok: true, status: "ready", watermark: 1, sourceRevision: 1, warnings: [], rows: [row] } as const;
+const list = {
+  ok: true,
+  status: "ready",
+  watermark: 1,
+  sourceRevision: 1,
+  warnings: [],
+  rows: [row],
+  invalidRows: [],
+} as const;
 
 test("task snapshot protocol accepts audited code-doc repoints", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
 });
 
-test("task snapshot protocol identifies the task and malformed field", () => {
-  const invalid = {
-    ...list,
-    rows: [
-      {
-        ...row,
-        snapshot: { ...row.snapshot, codeDocWitnesses: [{ ...repoint, reason: "" }] },
-      },
-    ],
-  };
-  assert.deepEqual(validateDaemonTaskSnapshotList(invalid), [
-    "daemon task snapshot taskId=task-repoint field=rows[0].snapshot.codeDocWitnesses[0] is invalid",
+test("task snapshot protocol isolates a malformed field with its source row identity", () => {
+  const malformed = {
+      ...row,
+      taskId: "task-invalid",
+      snapshot: { ...row.snapshot, codeDocWitnesses: [{ ...repoint, reason: "" }] },
+    },
+    isolated = isolateDaemonTaskSnapshotRows([row, malformed]),
+    result = { ...list, ...isolated };
+
+  assert.deepEqual(isolated.rows, [row]);
+  assert.deepEqual(isolated.invalidRows, [
+    {
+      rowIndex: 1,
+      taskId: "task-invalid",
+      field: "rows[1].snapshot.codeDocWitnesses[0]",
+      message: "Task snapshot field is invalid.",
+    },
   ]);
+  assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
 });

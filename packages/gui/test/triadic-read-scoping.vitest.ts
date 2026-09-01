@@ -161,6 +161,7 @@ async function mountApp(options: { readonly view: string }): Promise<{
       ok: true,
       status: "ready",
       rows: [taskRow("task_probe")],
+      invalidRows: [],
       watermark: revision,
       sourceRevision: revision,
       warnings: [],

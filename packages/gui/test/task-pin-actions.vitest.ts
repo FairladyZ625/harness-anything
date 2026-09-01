@@ -79,6 +79,7 @@ describe("useTaskActions pin write channel", () => {
           },
         } as never,
       ],
+      invalidRows: [],
       watermark: 9,
       sourceRevision: 9,
       warnings: [],
