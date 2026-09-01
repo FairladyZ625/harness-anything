@@ -7,8 +7,6 @@ export const integrationTestFileWeightsMs = Object.freeze({
   "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts": 15469.7,
   "packages/cli/test/daemon-thin-client-cli.test.ts": 38159.7,
   "packages/kernel/test/store/daemon-registry.test.ts": 190.1,
-  "packages/kernel/test/store/entity-disposition.test.ts": 487.3,
-  "packages/kernel/test/store/relation-cascade-direction.test.ts": 446.4,
   "packages/kernel/test/store/relation-graph-projection.test.ts": 850.9,
   "tools/check-docs-release-map.test.mjs": 590.0,
   "tools/check-import-boundaries.test.mjs": 1230.7,
