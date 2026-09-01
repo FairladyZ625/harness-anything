@@ -506,8 +506,9 @@ test("fixture teardown reclaims a still-running edge child and its TLS center", 
     label: "reclaim",
     startDelayMs: 30_000,
   });
+  const rejected = assert.rejects(pending, /fault edge exited null/u);
   await fixture.close();
-  await assert.rejects(pending, /fault edge exited null/u);
+  await rejected;
   await assert.rejects(
     rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
     /ECONNREFUSED/u,

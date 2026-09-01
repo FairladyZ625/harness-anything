@@ -46,7 +46,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       authMode: "subscription",
     } as const;
   initRepo(rootDir);
-  const cell = await openRepoCell({
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
     ownerId: "runtime-session-action-test",
@@ -104,6 +104,8 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       start("runtime-start-stale-generation", binding),
       (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_session_adoption_stale",
     );
+    await cell.close();
+    cell = undefined;
     const store = makeTaskEventStore({ repoId, rootDir });
     assert.equal(
       store
@@ -115,7 +117,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     );
     await store.drain();
   } finally {
-    await cell.close();
+    await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

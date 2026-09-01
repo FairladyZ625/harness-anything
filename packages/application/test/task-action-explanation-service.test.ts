@@ -113,7 +113,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
     assert.deepEqual(deniedStart.authorizationDecision?.reasonCodes, ["role_binding_missing"]);
     assert.equal(new Set(deniedStart.nextActions).size, deniedStart.nextActions.length);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 

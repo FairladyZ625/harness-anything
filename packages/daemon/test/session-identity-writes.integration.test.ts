@@ -34,7 +34,7 @@ test("task create, fact record, and decision propose project the canonical runti
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    seedRuntime(rootDir);
+    await seedRuntime(rootDir);
     cell = await openRepoCell({
       repoId: workspaceId("session-identity-writes"),
       rootDir: canonicalRoot(rootDir),
@@ -126,16 +126,6 @@ test("task create, fact record, and decision propose project the canonical runti
 
     const runtime = (await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId })).session;
     assert.equal(runtime.providerSessionId, providerSessionId);
-    const auditStore = makeTaskEventStore({
-        repoId: "session-identity-writes",
-        rootDir,
-      }),
-      providerBound = auditStore.readEvent("op-runtime-4");
-    assert.equal(providerBound?.type, "runtime_session_provider_bound");
-    if (providerBound?.type === "runtime_session_provider_bound")
-      assert.equal(providerBound.payload.transcriptRef, transcriptRef);
-    await auditStore.drain();
-
     assert.equal(
       (
         await cell.run(
@@ -159,13 +149,24 @@ test("task create, fact record, and decision propose project the canonical runti
         transcriptReachability: "unavailable",
       },
     ]);
+    await cell.close();
+    cell = undefined;
+    const auditStore = makeTaskEventStore({
+        repoId: "session-identity-writes",
+        rootDir,
+      }),
+      providerBound = auditStore.readEvent("op-runtime-4");
+    assert.equal(providerBound?.type, "runtime_session_provider_bound");
+    if (providerBound?.type === "runtime_session_provider_bound")
+      assert.equal(providerBound.payload.transcriptRef, transcriptRef);
+    await auditStore.drain();
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-function seedRuntime(rootDir: string): void {
+async function seedRuntime(rootDir: string): Promise<void> {
   const store = makeTaskEventStore({
     repoId: "session-identity-writes",
     rootDir,
@@ -176,6 +177,7 @@ function seedRuntime(rootDir: string): void {
       plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
       blobs: [],
     });
+  await store.drain();
 }
 function runtimeEvents(): readonly AgentRuntimeEventV1[] {
   const common = (revision: number) => ({

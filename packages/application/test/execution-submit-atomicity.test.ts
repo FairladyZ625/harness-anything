@@ -24,10 +24,13 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
     assert.equal(read.snapshot.executions[0]?.state, "submitted");
     assert.equal(read.snapshot.task?.status, "in_review");
     assert.equal(read.snapshot.task?.currentNode, "review");
-    assert.deepEqual(read.snapshot.edgesTaken.map((edge) => edge.on), ["submitted"]);
+    assert.deepEqual(
+      read.snapshot.edgesTaken.map((edge) => edge.on),
+      ["submitted"],
+    );
     assert.equal(read.snapshot.lease, null);
     assert.deepEqual(readFileSync(sentinel), before);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });

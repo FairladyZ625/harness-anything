@@ -49,6 +49,6 @@ test("event saga rejects a second executor and self-review, then completes on Re
     assert.equal(completed.snapshot.executions[0]?.state, "accepted");
     assert.deepEqual(completed.snapshot.executions[0]?.submission?.outputs, []);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });

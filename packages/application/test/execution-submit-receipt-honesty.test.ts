@@ -19,6 +19,6 @@ test("an authored submit with failed projection reports pending until explicit c
     assert.equal(recovered.status, "ready");
     assert.equal(recovered.snapshot.executions[0]?.state, "submitted");
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });

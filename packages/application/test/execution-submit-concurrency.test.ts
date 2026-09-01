@@ -10,7 +10,7 @@ test("concurrent submits from one snapshot accept one payload and reject the oth
     await harness.start("execution-1");
     const results = await Promise.allSettled([
       harness.submit("execution-1", "op-submit-a", "payload a"),
-      harness.submit("execution-1", "op-submit-b", "payload b")
+      harness.submit("execution-1", "op-submit-b", "payload b"),
     ]);
 
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
@@ -20,6 +20,6 @@ test("concurrent submits from one snapshot accept one payload and reject the oth
     assert.equal(events[2]?.type, "execution_submitted");
     assert.equal((await harness.service.read("task-1")).snapshot.executions[0]?.state, "submitted");
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });

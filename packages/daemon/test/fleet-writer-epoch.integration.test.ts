@@ -6,11 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { REPLAY_TASK_GRAPH } from "../../kernel/src/domain/task-graph.ts";
-import type { TaskCreatedEvent } from "../../kernel/src/domain/task-lifecycle.contract.ts";
-import { makeTaskEventStore as makeGitEventStore } from "../../kernel/src/store/task-event-store.ts";
-import { captureWalDurableCut, openWalEventLog } from "../../kernel/src/store/wal-event-log.ts";
-import { openWalMaterializationWorker } from "../../kernel/src/store/wal-materialization-worker.ts";
+import {
+  compileTaskLifecycleWrite,
+  makeTaskEventStore,
+  reduceTaskEvent,
+  REPLAY_TASK_GRAPH,
+  type TaskEventV1,
+} from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openPersistentWriterEpoch, withWriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
@@ -168,58 +170,32 @@ test("the materialization worker verifies the writer epoch inside Git ref finali
     first = openPersistentWriterEpoch({ stateRoot, holderId: "center-a" }),
     second = openPersistentWriterEpoch({ stateRoot, holderId: "center-b" }),
     leaseA = first.acquire("probe-repo"),
-    leaseB = second.acquire("probe-repo"),
-    gitStore = makeGitEventStore({ repoId: "probe-repo", rootDir: repo }),
-    wal = openWalEventLog(repo),
-    worker = openWalMaterializationWorker(
-      {
-        schema: "harness-wal-materialization-worker/v1",
-        repoId: "probe-repo",
-        rootDir: repo,
-      },
-      new URL("../src/wal-materialization-daemon-worker.ts", import.meta.url),
-    );
+    leaseB = second.acquire("probe-repo");
+  let fence = {
+    schema: "harness-writer-epoch-fence/v1" as const,
+    stateRoot,
+    repoId: "probe-repo",
+    epoch: leaseA.epoch,
+    holderId: leaseA.holderId,
+  };
+  const store = makeTaskEventStore({
+    repoId: "probe-repo",
+    rootDir: repo,
+    walMaterializationWorkerUrl: new URL("../src/wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterializationFence: () => fence,
+  });
+  const baselineCommit = probeGit(repo, "rev-parse", "refs/ha/canonical");
   try {
-    wal.append({ event: workerTaskCreated(), blobs: [] });
-    const cut = captureWalDurableCut(wal)!;
-    const request = {
-      schema: "harness-wal-materialization-request/v1" as const,
-      cut,
-      expectedGit: { revision: 0, commitSha: gitStore.currentCommit().sha },
-      context: "writer epoch test",
-      compactWorktree: false,
-      previousSettlementFingerprint: null,
-    };
-    const stale = await worker.materialize({
-      ...request,
-      fence: {
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot,
-        repoId: "probe-repo",
-        epoch: leaseA.epoch,
-        holderId: leaseA.holderId,
-      },
-    });
-    assert.equal(stale.outcome, "failed");
-    assert.match(stale.outcome === "failed" ? stale.error.message : "", /writer epoch 1.*stale/u);
-    assert.equal(makeGitEventStore({ repoId: "probe-repo", rootDir: repo }).read().revision, 0);
-    assert.equal(wal.records().length, 1);
+    appendWorkerTask(store, 1);
+    await assert.rejects(store.settlePendingMaterialization!("writer epoch test"), /WAL writer epoch test exhausted/u);
+    assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), baselineCommit);
 
-    const materialized = await worker.materialize({
-      ...request,
-      fence: {
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot,
-        repoId: "probe-repo",
-        epoch: leaseB.epoch,
-        holderId: leaseB.holderId,
-      },
-    });
-    assert.equal(materialized.outcome, "materialized");
-    wal.checkpointCut(cut);
-    assert.equal(makeGitEventStore({ repoId: "probe-repo", rootDir: repo }).read().revision, 1);
+    fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
+    appendWorkerTask(store, 2);
+    await store.settlePendingMaterialization!("writer epoch test");
+    assert.equal(JSON.parse(probeGit(repo, "show", "refs/ha/canonical:harness/events/head.json")).revision, 2);
   } finally {
-    await worker.close();
+    await store.drain();
     second.close();
     first.close();
     rmSync(root, { recursive: true, force: true });
@@ -244,13 +220,27 @@ test("concurrent processes allocate unique epochs through the same critical sect
   }
 });
 
-function workerTaskCreated(): TaskCreatedEvent {
+function appendWorkerTask(store: ReturnType<typeof makeTaskEventStore>, revision: number): void {
+  const event = workerTaskCreated(revision);
+  store.append(
+    compileTaskLifecycleWrite({
+      event,
+      snapshot: reduceTaskEvent(
+        { revision: revision - 1, task: null, executions: [], reviews: [], edgesTaken: [], lease: null },
+        event,
+      ),
+      packagePath: null,
+      currentDocuments: [],
+    }),
+  );
+}
+function workerTaskCreated(revision: number): TaskEventV1 {
   return {
     schema: "task-event/v1",
-    eventId: "event-worker-fence",
-    workspaceRevision: 1,
-    opId: "op-worker-fence",
-    taskId: "task-worker-fence",
+    eventId: `event-worker-fence-${revision}`,
+    workspaceRevision: revision,
+    opId: `op-worker-fence-${revision}`,
+    taskId: `task-worker-fence-${revision}`,
     type: "task_created",
     actor: {
       principal: { personId: "writer" },
@@ -261,7 +251,7 @@ function workerTaskCreated(): TaskCreatedEvent {
     payload: {
       task: {
         schema: "task/v2",
-        taskId: "task-worker-fence",
+        taskId: `task-worker-fence-${revision}`,
         title: "Worker fence",
         taskClass: "standard",
         status: "planned",

@@ -157,6 +157,7 @@ export type {
   DocClaimRef,
   DocEventChange,
   DocEventV1,
+  DocumentState,
   DocWriteIntent,
   PersistedCanonicalEventV1,
 } from "./domain/doc-sync.contract.ts";
@@ -272,11 +273,14 @@ export {
   localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,
+  makeGitEventStore,
   openEntityStore,
   resolveLedgerGitLayout,
   resolveRetirableDocument,
   makeTaskEventStore,
   makeTaskProjection,
+  runWalMaterializationRequest,
+  WAL_MATERIALIZATION_WORKER_KIND,
 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
@@ -294,6 +298,9 @@ export type {
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
+  WalMaterializationFenceV1,
+  WalMaterializationRequestV1,
+  WalMaterializationWorkerConfig,
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,

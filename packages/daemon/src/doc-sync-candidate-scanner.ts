@@ -24,11 +24,11 @@ import {
   type ActorIdentity,
   type CanonicalEventStore,
   type DocWriteIntent,
+  type DocumentState,
   type LedgerCutIdentity,
   type TaskProjection,
   type WriteSource,
 } from "../../kernel/src/index.ts";
-import type { DocumentState } from "../../kernel/src/domain/doc-sync.contract.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 

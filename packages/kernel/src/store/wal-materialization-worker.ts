@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -119,6 +120,7 @@ export function openWalMaterializationWorker(
         } catch (error) {
           pending.delete(request.requestId);
           if (pending.size === 0) active.unref();
+          consumeKnownError(error);
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
@@ -291,28 +293,28 @@ function failureResponse(
 }
 
 function isReadyMessage(value: unknown): value is { readonly schema: "harness-wal-materialization-worker-ready/v1" } {
-  return isRecord(value) && value.schema === "harness-wal-materialization-worker-ready/v1";
+  return isWorkerRecord(value) && value.schema === "harness-wal-materialization-worker-ready/v1";
 }
 
 function isWalMaterializationRequest(value: unknown): value is WalMaterializationRequestV1 {
   return (
-    isRecord(value) &&
+    isWorkerRecord(value) &&
     value.schema === WAL_MATERIALIZATION_REQUEST_SCHEMA &&
     typeof value.requestId === "string" &&
-    isRecord(value.cut) &&
-    (value.fence === null || (isRecord(value.fence) && value.fence.schema === "harness-writer-epoch-fence/v1"))
+    isWorkerRecord(value.cut) &&
+    (value.fence === null || (isWorkerRecord(value.fence) && value.fence.schema === "harness-writer-epoch-fence/v1"))
   );
 }
 
 function isWalMaterializationResponse(value: unknown): value is WalMaterializationResponseV1 {
   return (
-    isRecord(value) &&
+    isWorkerRecord(value) &&
     value.schema === WAL_MATERIALIZATION_RESPONSE_SCHEMA &&
     typeof value.requestId === "string" &&
     (value.outcome === "materialized" || value.outcome === "failed")
   );
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isWorkerRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

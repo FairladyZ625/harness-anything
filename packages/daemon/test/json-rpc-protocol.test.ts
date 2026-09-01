@@ -800,7 +800,7 @@ test("RepoCell preserves an acknowledged receipt when Git materialization stops 
   let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); crashed = await openRepoCell({ repoId: workspaceId("git-cut-crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-one",
-      killpoint: (point) => { if (point === "after_git_commit") throw new Error(`crash:${point}`); } });
+      walMaterializationTestFault: { point: "after_git_commit", failures: 4 } });
     const baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical"));
     const first = await crashed.run(action, repoWriteBinding);
     assert.deepEqual({ outcome: first.outcome, commitSha: first.commitSha }, { outcome: "applied", commitSha: null });

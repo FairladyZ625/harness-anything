@@ -10,8 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
-import type { WalMaterializationFenceV1 } from "../../kernel/src/store/wal-materialization-protocol.ts";
+import { consumeKnownError, type WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 export interface WriterEpochLease {

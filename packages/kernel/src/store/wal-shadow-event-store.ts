@@ -129,6 +129,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let coalescedFlush: { readonly context: string; readonly compactWorktree: boolean } | null = null;
   let remainingTestFaults = options.walMaterializationTestFault?.failures ?? 0;
   let recoveryMaterializationPending = false;
+  let pendingMaterializationFence: WalMaterializationFenceV1 | null = null;
   const settlementFutures = new Set<Promise<void>>();
 
   const reloadGit = (advancedBaseline?: GitBaseline): void => {
@@ -232,13 +233,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   };
   const trackSettlement = (intent: WalMaterializationSuccessV1["settlementIntent"]): void => {
     if (!intent || !options.afterFlush) return;
-    let pending: Promise<void>;
-    try {
-      pending = Promise.resolve(options.afterFlush(intent.actor, intent.inventory));
-    } catch (error) {
-      pending = Promise.reject(error);
-    }
-    const observed = pending
+    const observed = Promise.resolve()
+      .then(() => options.afterFlush!(intent.actor, intent.inventory))
       .catch((error) => {
         console.warn(`[wal-materializer] authored settlement failed: ${walShadowErrorMessage(error)}`);
         consumeKnownError(error);
@@ -282,6 +278,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     pendingWalRecords = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
     walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
     latestPendingClaims = latestDocumentClaims(pendingWalRecords.map((record) => record.event));
+    if (pendingWalRecords.length === 0) pendingMaterializationFence = null;
     if (contentValidatedThrough >= gitRevisionBeforeFlush)
       contentValidatedThrough = Math.max(contentValidatedThrough, response.git.head.revision);
     lastFlushDurationMs = response.spans.materializationMs;
@@ -322,14 +319,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         context,
         compactWorktree,
         previousSettlementFingerprint: lastSettlementFingerprint,
-        fence: options.walMaterializationFence?.() ?? null,
+        fence: pendingMaterializationFence,
         ...(fault ? { testFault: fault } : {}),
       });
       if (response.outcome === "failed") throw materializationError(response);
       reconcileMaterializedCut(cut, response, gitRevisionBeforeFlush);
-      console.info(
-        `[wal-materializer] materialized revisions ${first}-${cut.throughRevision} (${context}, attempt ${consecutiveFailures + 1})`,
-      );
+      const range = `${first}-${cut.throughRevision}`;
+      const attempt = consecutiveFailures + 1;
+      console.info(`[wal-materializer] materialized revisions ${range} (${context}, attempt ${attempt})`);
       consecutiveFailures = 0;
       lastFlushError = null;
       return true;
@@ -344,8 +341,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       }
       consecutiveFailures += 1;
       lastFlushError = walShadowErrorMessage(error);
+      const failedAttempt = `${consecutiveFailures}/${retryLimit}`;
       console.warn(
-        `[wal-materializer] materialization failed (${context}, attempt ${consecutiveFailures}/${retryLimit}); acknowledged WAL writes remain valid: ${lastFlushError}`,
+        `[wal-materializer] materialization failed (${context}, attempt ${failedAttempt}); ` +
+          `acknowledged WAL writes remain valid: ${lastFlushError}`,
       );
       consumeKnownError(error);
       return false;
@@ -380,7 +379,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     if (closed || divergedError !== null || !hasWalRecords() || consecutiveFailures >= retryLimit) {
       if (consecutiveFailures >= retryLimit)
         console.warn(
-          `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; the next write, recovery, or drain will retry the pending WAL cut`,
+          `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; ` +
+            "the next write, recovery, or drain will retry the pending WAL cut",
         );
       return;
     }
@@ -536,6 +536,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     };
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
+    pendingMaterializationFence = options.walMaterializationFence?.() ?? null;
     const changedPaths = [
       ...canonicalDocumentClaims(bundle.event).map((claim) => claim.path),
       ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path),
@@ -718,6 +719,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         git.readContentBlob(sha256),
       ),
     beginBulkWrite,
+    settlePendingMaterialization: flushPending,
     configureWalFlushPolicy: (policy) => {
       configuredFlushPolicy = policy;
       clearSchedule();

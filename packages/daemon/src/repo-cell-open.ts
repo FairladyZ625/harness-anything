@@ -4,6 +4,7 @@ import {
   createEntityStore,
   isSameExecution,
   isSamePerson,
+  makeTaskEventStore,
   type CanonicalEventAppendReceipt,
   type CanonicalEventStore,
   type DaemonRepoMode,
@@ -152,6 +153,8 @@ export async function openRepoCell(input: {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Test seam for controlling WAL materialization without wall-clock scheduling. */
   readonly onStoreOpened?: (store: CanonicalEventStore) => void;
+  /** Test seam for injecting a failure inside the WAL materialization worker. */
+  readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;

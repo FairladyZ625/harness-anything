@@ -51,6 +51,7 @@ export interface RepoCellCoreInput {
   readonly input: {
     readonly repoId: string;
     readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
+    readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
   };
@@ -131,6 +132,7 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     killpoint: context.input.killpoint,
     afterFlush: settleAuthoredCandidates,
     walMaterializationWorkerUrl: new URL("./wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterializationTestFault: context.input.walMaterializationTestFault,
     walMaterializationFence: () => context.activeWriterEpochFenceDescriptor,
     beforeAppend: () => context.activeWriterEpochGuard?.(),
     withAppendFence: (operation) =>

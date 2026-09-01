@@ -1,13 +1,12 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { makeTaskEventStore as makeGitEventStore } from "../../kernel/src/store/task-event-store.ts";
-import type {
-  WalMaterializationRequestV1,
-  WalMaterializationWorkerConfig,
-} from "../../kernel/src/store/wal-materialization-protocol.ts";
 import {
+  consumeKnownError,
+  makeGitEventStore,
   runWalMaterializationRequest,
   WAL_MATERIALIZATION_WORKER_KIND,
-} from "../../kernel/src/store/wal-materialization-worker.ts";
+  type WalMaterializationRequestV1,
+  type WalMaterializationWorkerConfig,
+} from "../../kernel/src/index.ts";
 import { scanAuthoredCandidateInventory } from "./doc-sync-candidate-scanner.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
@@ -35,9 +34,9 @@ if (!isMainThread && workerData?.kind === WAL_MATERIALIZATION_WORKER_KIND && wor
         },
       });
     } catch (error) {
-      console.warn(
-        `[wal-materializer] authored candidate inventory failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[wal-materializer] authored candidate inventory failed: ${message}`);
+      consumeKnownError(error);
       parentPort!.postMessage({ ...response, settlementIntent: null });
     }
   });

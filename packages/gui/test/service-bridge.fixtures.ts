@@ -15,7 +15,7 @@ export interface Failure {
   readonly ok: boolean;
   readonly error?: { readonly code: string; readonly hint: string };
 }
-export function seedRuntime(rootDir: string, repoId: string): void {
+export async function seedRuntime(rootDir: string, repoId: string): Promise<void> {
   const store = makeTaskEventStore({ rootDir, repoId }),
     base = store.read().revision,
     values = [
@@ -93,8 +93,8 @@ export function seedRuntime(rootDir: string, repoId: string): void {
       } as AgentRuntimeEventV1;
     store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
   }
-  void store.drain();
-  seedTriadicEvents(rootDir, repoId);
+  await store.drain();
+  await seedTriadicEvents(rootDir, repoId);
 }
 export function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
   return Object.freeze({

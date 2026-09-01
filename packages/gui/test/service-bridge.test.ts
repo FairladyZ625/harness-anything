@@ -38,9 +38,9 @@ const SEEDED_SQUAD_RUN_ID = "squad_aabbccddeeff001122334455";
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-gui-smoke", title: "Resident GUI task" },
-    beforeRestart: (rootDir: string, repoId: string) => {
-      seedRuntime(rootDir, repoId);
-      seedSchedule(rootDir, repoId);
+    beforeRestart: async (rootDir: string, repoId: string) => {
+      await seedRuntime(rootDir, repoId);
+      await seedSchedule(rootDir, repoId);
       seedSquadRunState(rootDir, repoId);
     },
   });
@@ -612,7 +612,7 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
   return squadRunId;
 }
 
-function seedSchedule(rootDir: string, repoId: string): void {
+async function seedSchedule(rootDir: string, repoId: string): Promise<void> {
   const store = makeTaskEventStore({ rootDir, repoId }),
     workspaceRevision = store.read().revision + 1,
     occurredAt = "2026-08-13T00:04:00.000Z",
@@ -640,7 +640,7 @@ function seedSchedule(rootDir: string, repoId: string): void {
       occurredAt,
     });
   store.append(bundle);
-  void store.drain();
+  await store.drain();
 }
 
 test("local GUI bridge fails closed without explicit daemon registration and never autostarts", async () => {

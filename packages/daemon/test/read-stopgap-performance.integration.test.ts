@@ -1,12 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { Worker } from "node:worker_threads";
-import { openWalEventLog } from "../../kernel/src/store/wal-event-log.ts";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -181,7 +180,8 @@ test("WAL Git materialization leaves an independent socket client within the iso
     });
     assert.equal(triggered.outcome, "applied", JSON.stringify(triggered));
     const loaded = await loadedProbe.result;
-    await eventually(() => openWalEventLog(root).records().length === 0);
+    const walSegment = path.join(root, ".harness/wal/seg-000000.log");
+    await eventually(() => !existsSync(walSegment) || statSync(walSegment).size === 0);
     const metrics = Object.fromEntries(
       Object.keys(idle).map((name) => [name, { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) }]),
     ) as Record<string, { idle: Distribution; loaded: Distribution }>;

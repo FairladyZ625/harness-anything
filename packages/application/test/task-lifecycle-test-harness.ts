@@ -9,19 +9,36 @@ import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
 
 export const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
-export const reviewer = { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "reviewer" } };
+export const reviewer = {
+  principal: { personId: "person-reviewer" },
+  executor: { kind: "agent" as const, id: "reviewer" },
+};
 export const commitSha = "a".repeat(40);
 export const replayGraph = {
   template: "replay/v1" as const,
   nodes: [
     { id: "implementation", kind: "work" },
-    { id: "review", kind: "review" }
+    { id: "review", kind: "review" },
   ] as const,
   edges: [
-    { id: "implementation-submitted", from: "implementation", to: "review", on: "submitted", actorRole: "executor", kind: "forward" },
-    { id: "review-changes-requested", from: "review", to: "implementation", on: "changes_requested", actorRole: "reviewer", kind: "return" }
+    {
+      id: "implementation-submitted",
+      from: "implementation",
+      to: "review",
+      on: "submitted",
+      actorRole: "executor",
+      kind: "forward",
+    },
+    {
+      id: "review-changes-requested",
+      from: "review",
+      to: "implementation",
+      on: "changes_requested",
+      actorRole: "reviewer",
+      kind: "return",
+    },
   ] as const,
-  maxIterations: 1 as const
+  maxIterations: 1 as const,
 };
 
 export function lifecycleHarness() {
@@ -31,9 +48,16 @@ export function lifecycleHarness() {
   git(rootDir, "config", "user.email", "lifecycle-test@example.invalid");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   let killAt: TaskLifecycleKillpoint | EventPublicationKillpoint | null = null;
-  const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir, killpoint: (point) => {
-    if (point === killAt) { killAt = null; throw new Error(`killpoint:${point}`); }
-  } });
+  const eventStore = makeTaskEventStore({
+    repoId: "test-repo",
+    rootDir,
+    killpoint: (point) => {
+      if (point === killAt) {
+        killAt = null;
+        throw new Error(`killpoint:${point}`);
+      }
+    },
+  });
   const realProjection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
   let failProjection = false;
   const projection = {
@@ -52,7 +76,7 @@ export function lifecycleHarness() {
         throw new Error("projection unavailable");
       }
       return realProjection.apply(event, plan);
-    }
+    },
   };
   const service = makeTaskLifecycleService({
     eventStore,
@@ -62,64 +86,185 @@ export function lifecycleHarness() {
         killAt = null;
         throw new Error(`killpoint:${point}`);
       }
-    }
+    },
   });
   const revision = () => eventStore.read().revision;
   const at = (next: number) => `2026-08-11T00:${String(next).padStart(2, "0")}:00.000Z`;
-  const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(actor: typeof owner | typeof reviewer, next: number, intent: C, tag: string) => ({
-    ...normalizeTaskLifecycleCommand({ workspaceId: rootDir, actor, source: "local", expectedRevision: next - 1 }, intent), eventId: `event-${tag}`, workspaceRevision: next, occurredAt: at(next)
+  const command = <C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
+    actor: typeof owner | typeof reviewer,
+    next: number,
+    intent: C,
+    tag: string,
+  ) => ({
+    ...normalizeTaskLifecycleCommand(
+      { workspaceId: rootDir, actor, source: "local", expectedRevision: next - 1 },
+      intent,
+    ),
+    eventId: `event-${tag}`,
+    workspaceRevision: next,
+    occurredAt: at(next),
   });
   return {
     rootDir,
     eventStore,
     projection: realProjection,
     service,
-    cleanup: () => { realProjection.close(); void eventStore.drain(); rmSync(rootDir, { recursive: true, force: true }); },
-    kill: (point: TaskLifecycleKillpoint | EventPublicationKillpoint) => { killAt = point; },
-    failNextProjection: () => { failProjection = true; },
+    cleanup: async () => {
+      realProjection.close();
+      try {
+        await eventStore.drain();
+      } finally {
+        rmSync(rootDir, { recursive: true, force: true });
+      }
+    },
+    kill: (point: TaskLifecycleKillpoint | EventPublicationKillpoint) => {
+      killAt = point;
+    },
+    failNextProjection: () => {
+      failProjection = true;
+    },
     create: (opId = "op-create") => {
       const next = revision() + 1;
-      return service.execute(command(owner, next, {
-        type: "CreateReplayTask", taskId: "task-1", title: "Replay task", taskClass: "standard", graph: replayGraph, completionGateIds: [], presetSnapshotDigest: null
-      }, opId), { taskIdUnique: true, actorBinding: owner });
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "CreateReplayTask",
+            taskId: "task-1",
+            title: "Replay task",
+            taskClass: "standard",
+            graph: replayGraph,
+            completionGateIds: [],
+            presetSnapshotDigest: null,
+          },
+          opId,
+        ),
+        { taskIdUnique: true, actorBinding: owner },
+      );
     },
-    start: (executionId = `execution-${revision() + 1}`, opId = `op-start-${revision() + 1}`, expiresAt = "2026-08-11T01:00:00.000Z") => {
+    start: (
+      executionId = `execution-${revision() + 1}`,
+      opId = `op-start-${revision() + 1}`,
+      expiresAt = "2026-08-11T01:00:00.000Z",
+    ) => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "StartExecution", taskId: "task-1", executionId }, opId), {
         actorBinding: owner,
-        reservation: { taskId: "task-1", executionId, expiresAt, ttlMs: 1_800_000,
-          previousHolder: null, reason: "initial_claim", version: 0 }
+        reservation: {
+          taskId: "task-1",
+          executionId,
+          expiresAt,
+          ttlMs: 1_800_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 0,
+        },
       });
     },
     submit: async (executionId: string, opId = `op-submit-${revision() + 1}`, claim = "implemented") => {
       const next = revision() + 1;
       const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
       if (leaseVersion === undefined) throw new Error(`execution ${executionId} has no active lease`);
-      return service.execute(command(owner, next, {
-        type: "SubmitExecution", taskId: "task-1", executionId,
-        submission: { completionClaim: claim, deliverables: [], outputs: [], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha }
-      }, opId), { actorBinding: owner, leaseVersion, sessionDisposition: "complete" });
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "SubmitExecution",
+            taskId: "task-1",
+            executionId,
+            submission: {
+              completionClaim: claim,
+              deliverables: [],
+              outputs: [],
+              verificationNotes: ["tests"],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha,
+            },
+          },
+          opId,
+        ),
+        { actorBinding: owner, leaseVersion, sessionDisposition: "complete" },
+      );
     },
-    review: async (executionId: string, kind: "anti_entropy" | "acceptance", verdict: "approved" | "changes_requested" | "dismissed", opId = `op-review-${revision() + 1}`) => {
+    review: async (
+      executionId: string,
+      kind: "anti_entropy" | "acceptance",
+      verdict: "approved" | "changes_requested" | "dismissed",
+      opId = `op-review-${revision() + 1}`,
+    ) => {
       const next = revision() + 1;
       const snapshot = (await service.read("task-1")).snapshot;
-      return service.execute(command(reviewer, next, {
-        type: "RecordReview", taskId: "task-1", executionId, reviewId: `review-${opId}`, verdict,
-        reason: `${kind} ${verdict}`, evidenceChecked: [], commitSha,
-        iteration: snapshot.task?.iteration ?? 0, contentDigest: `sha256:${"b".repeat(64)}`
-      }, opId), {
-        actorBinding: reviewer,
-        capability: "execution-review@v1", capabilityRef: `cap-${opId}`
-      });
+      return service.execute(
+        command(
+          reviewer,
+          next,
+          {
+            type: "RecordReview",
+            taskId: "task-1",
+            executionId,
+            reviewId: `review-${opId}`,
+            verdict,
+            reason: `${kind} ${verdict}`,
+            evidenceChecked: [],
+            commitSha,
+            iteration: snapshot.task?.iteration ?? 0,
+            contentDigest: `sha256:${"b".repeat(64)}`,
+          },
+          opId,
+        ),
+        {
+          actorBinding: reviewer,
+          capability: "execution-review@v1",
+          capabilityRef: `cap-${opId}`,
+        },
+      );
     },
-    consent: async (executionId: string, opId = `op-consent-${revision() + 1}`, reviewId?: string) => { const next = revision() + 1, snapshot = (await service.read("task-1")).snapshot, reviews = snapshot.reviews.filter((value) => value.executionId === executionId && value.verdict === "approved"), review = reviewId ? reviews.find((value) => value.reviewId === reviewId) : reviews.length === 1 ? reviews[0] : undefined; if (!review) throw new Error(reviewId ? `approved review ${reviewId} missing` : "review id required unless exactly one approved review exists"); return service.execute(command(owner, next, { type: "RecordReviewConsent", taskId: "task-1", executionId, reviewId: review.reviewId, consentId: `consent-${opId}`, reviewDigest: reviewDigest(review), contentDigest: review.contentDigest }, opId), { actorBinding: owner, capability: "execution-consent@v1", capabilityRef: `cap-${opId}` }); },
+    consent: async (executionId: string, opId = `op-consent-${revision() + 1}`, reviewId?: string) => {
+      const next = revision() + 1,
+        snapshot = (await service.read("task-1")).snapshot,
+        reviews = snapshot.reviews.filter((value) => value.executionId === executionId && value.verdict === "approved"),
+        review = reviewId
+          ? reviews.find((value) => value.reviewId === reviewId)
+          : reviews.length === 1
+            ? reviews[0]
+            : undefined;
+      if (!review)
+        throw new Error(
+          reviewId
+            ? `approved review ${reviewId} missing`
+            : "review id required unless exactly one approved review exists",
+        );
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "RecordReviewConsent",
+            taskId: "task-1",
+            executionId,
+            reviewId: review.reviewId,
+            consentId: `consent-${opId}`,
+            reviewDigest: reviewDigest(review),
+            contentDigest: review.contentDigest,
+          },
+          opId,
+        ),
+        { actorBinding: owner, capability: "execution-consent@v1", capabilityRef: `cap-${opId}` },
+      );
+    },
     complete: (executionId: string, opId = `op-complete-${revision() + 1}`) => {
       const next = revision() + 1;
       return service.execute(command(owner, next, { type: "CompleteTask", taskId: "task-1", executionId }, opId), {
-        capability: "task-complete@v1", capabilityRef: `cap-${opId}`,
-        actorRole: "owner", noActiveLease: true, gateReceipts: []
+        capability: "task-complete@v1",
+        capabilityRef: `cap-${opId}`,
+        actorRole: "owner",
+        noActiveLease: true,
+        gateReceipts: [],
       });
-    }
+    },
   };
 }
 

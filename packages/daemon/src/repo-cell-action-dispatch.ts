@@ -38,7 +38,8 @@ export async function executeAction(
       now: cell.now,
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
     });
-  if (action.kind === "fact-rekey")
+  if (action.kind === "fact-rekey") {
+    if (action.dryRun !== true) await cell.store.settlePendingMaterialization?.("fact rekey");
     return runFactRekey({
       action,
       binding,
@@ -47,6 +48,7 @@ export async function executeAction(
       projection: cell.projection,
       now: cell.now,
     });
+  }
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
@@ -90,6 +92,7 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
+    await cell.store.settlePendingMaterialization?.("layout migration");
     const appended = cell.store.migrateLayout({
       actor: binding.actor,
       source: binding.source,

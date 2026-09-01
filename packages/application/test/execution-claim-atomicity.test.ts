@@ -18,7 +18,7 @@ test("claim releases its CAS reservation after response loss and converges from 
     assert.equal(converged.snapshot.executions[0]?.state, "active");
     assert.equal(converged.snapshot.lease?.phase, "held");
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
 
@@ -36,6 +36,6 @@ test("a claim the lifecycle contract rejects leaves the previous lease untouched
     assert.equal(lease?.phase, "orphaned");
     assert.equal(lease?.version, 1);
   } finally {
-    harness.cleanup();
+    await harness.cleanup();
   }
 });
