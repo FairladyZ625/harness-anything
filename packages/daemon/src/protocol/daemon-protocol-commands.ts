@@ -53,7 +53,7 @@ const settingsWriteTopology = {
       phase: "Settings-Kind",
       path: ["settings", "read"],
       summary: "Read the repository Settings entity from the canonical projection.",
-      method: "repo.settings.read",
+      method: "repo.task.run",
       inputs: [],
     }),
     defineCliCommand({
@@ -89,6 +89,16 @@ const settingsWriteTopology = {
         positiveSettingInput("--wal-flush-events"),
         positiveSettingInput("--wal-flush-bytes"),
         positiveSettingInput("--wal-flush-milliseconds"),
+        cliInput(
+          "--expected-version",
+          "single",
+          false,
+          {
+            code: "invalid_field",
+            nextAction: "Use the non-negative Settings entity revision returned by settings read.",
+          },
+          { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
+        ),
         cliInput("--idempotency-key", "single", false, {
           code: "invalid_field",
           nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",

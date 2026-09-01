@@ -104,7 +104,7 @@ export interface RepoCellPeopleActions {
   readonly run: (action: RepoTaskAction, binding: RepoCellBinding) => WriteReceipt;
 }
 
-export interface RepoCellSettingsActions {
+export interface RepoCellSettingsState {
   readonly initialize: (
     settings: SettingsV1,
     documentBody: string,
@@ -115,7 +115,7 @@ export interface RepoCellSettingsActions {
   ) => ReturnType<CanonicalEventStore["append"]> | null;
   readonly read: () => SettingsV1;
   readonly readRepository: () => RepositorySettingsV1;
-  readonly update: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
+  readonly writeLocal: (locale: SettingsV1["locale"]) => boolean;
 }
 
 export interface RepoCellActionContext extends TaskQueryCell {
@@ -215,7 +215,7 @@ export interface RepoCellRuntimeContext extends RepoCellActionContext {
 
 export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
   readonly peopleActions: RepoCellPeopleActions;
-  readonly settingsActions: RepoCellSettingsActions;
+  readonly settings: RepoCellSettingsState;
 }
 
 export function createRepoCellActionContext(bindings: {

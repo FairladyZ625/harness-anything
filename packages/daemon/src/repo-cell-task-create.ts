@@ -183,7 +183,7 @@ export function createTask(
     occurredAt = cell.now(),
     baseCompiled = compileRepoTaskBootstrap({
       rootDir: cell.rootDir,
-      settings: cell.settingsActions.read(),
+      settings: cell.settings.read(),
       action: canonicalAction,
       taskId,
       actor: binding.actor,
@@ -293,7 +293,7 @@ export function upgradePresetSnapshot(
   if (existing) return cell.receiptForOperation(opId, binding);
   const compiled = compileRepoPresetSnapshotUpgrade({
       rootDir: cell.rootDir,
-      settings: cell.settingsActions.read(),
+      settings: cell.settings.read(),
       task: projected.snapshot.task,
       taskContractBody: contract.document.body,
       actor: binding.actor,

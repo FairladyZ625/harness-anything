@@ -1,4 +1,4 @@
-import type { DaemonRepoMode, WriteSource } from "../../kernel/src/index.ts";
+import { getExecutableEntityAction, type DaemonRepoMode, type WriteSource } from "../../kernel/src/index.ts";
 import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
 
 export interface RepoModeAdmission {
@@ -12,19 +12,16 @@ const rejection = (code: string, nextAction: string): RepoModeAdmission => ({
   nextAction,
 });
 
-/** Locale is a machine-local preference; repository-owned settings retain the command's normal route. */
-export function settingsCommandTopology(
+/** Resolve field-scoped local effects declared by an executable Entity Action contract. */
+export function entityActionCommandTopology(
   command: CommandTopology,
   action: Readonly<Record<string, unknown>> & { readonly kind?: string },
 ): CommandTopology {
-  if (
-    action.kind !== "settings-update" ||
-    typeof action.locale !== "string" ||
-    ["defaultVertical", "defaultPreset", "defaultProfile", "taskScaffold", "repositoryScaffold"].some((field) =>
-      Object.hasOwn(action, field),
-    )
-  )
-    return command;
+  const localOnlyFields = action.kind ? (getExecutableEntityAction(action.kind)?.execution?.localOnlyFields ?? []) : [],
+    mutationFields = Object.keys(action).filter(
+      (field) => !["kind", "idempotencyKey", "expectedVersion"].includes(field),
+    );
+  if (mutationFields.length === 0 || mutationFields.some((field) => !localOnlyFields.includes(field))) return command;
   return {
     ...command,
     admission: { local: "direct", "remote-center": "direct", "remote-edge": "direct" },

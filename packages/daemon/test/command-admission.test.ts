@@ -4,7 +4,7 @@ import test from "node:test";
 import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-gui-reads.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { admitRepoMode, settingsCommandTopology } from "../src/repo-mode.ts";
+import { admitRepoMode, entityActionCommandTopology } from "../src/repo-mode.ts";
 
 const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
@@ -95,18 +95,21 @@ test("Settings CLI read uses the common read topology while update forwards from
 
 test("Settings locale-only updates use local admission while repository fields keep center routing", () => {
   const descriptor = new Map(daemonProtocolCommands.map((command) => [command.id, command])).get("settings-update")!;
-  assert.deepEqual(settingsCommandTopology(descriptor, { kind: "settings-update", locale: "zh-CN" }).admission, {
+  assert.deepEqual(entityActionCommandTopology(descriptor, { kind: "settings-update", locale: "zh-CN" }).admission, {
     local: "direct",
     "remote-center": "direct",
     "remote-edge": "direct",
   });
   assert.deepEqual(
-    settingsCommandTopology(descriptor, { kind: "settings-update", defaultPreset: "strict-task" }).admission,
+    entityActionCommandTopology(descriptor, { kind: "settings-update", defaultPreset: "strict-task" }).admission,
     descriptor.admission,
   );
   assert.deepEqual(
-    settingsCommandTopology(descriptor, { kind: "settings-update", locale: "zh-CN", defaultPreset: "strict-task" })
-      .admission,
+    entityActionCommandTopology(descriptor, {
+      kind: "settings-update",
+      locale: "zh-CN",
+      defaultPreset: "strict-task",
+    }).admission,
     descriptor.admission,
   );
 });

@@ -178,6 +178,7 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
     [
       "saveAgent",
       "saveSquad",
+      "updateSettings",
       "spawnAgentRuntime",
       "spawnTerminal",
       "showReceipt",

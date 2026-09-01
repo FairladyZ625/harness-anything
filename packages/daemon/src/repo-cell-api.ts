@@ -46,7 +46,7 @@ import {
   authorizeRepoCellAction,
   bindVerifiedExecutorClaim,
 } from "./repo-cell-authorization.ts";
-import { admitRepoMode, settingsCommandTopology } from "./repo-mode.ts";
+import { admitRepoMode, entityActionCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
@@ -56,7 +56,7 @@ import { readCiObservatory } from "./ci-observatory-read.ts";
 import type {
   RepoCellOperationalContext,
   RepoCellPeopleActions,
-  RepoCellSettingsActions,
+  RepoCellSettingsState,
 } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";
@@ -114,7 +114,7 @@ export interface RepoCellApiContext {
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly settingsActions: RepoCellSettingsActions;
+  readonly settings: RepoCellSettingsState;
   readonly peopleActions: RepoCellPeopleActions;
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
@@ -148,7 +148,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         ),
       );
     }
-    const command = settingsCommandTopology(commandDescriptorForAction(action.kind), action),
+    const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
       authorizeAtCurrentCut = (): AuthorizationDecision | null => {
         const revision = context.store.readHead()?.revision ?? 0,
           actionId = context.operationId(action, binding, context.input.repoId, revision);
@@ -406,7 +406,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     "repo.settings.read": () => ({
       schema: "daemon.settings-read/v1" as const,
       ok: true as const,
-      settings: context.settingsActions.read(),
+      settings: context.settings.read(),
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),

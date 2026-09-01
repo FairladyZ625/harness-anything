@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -23,6 +24,11 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     const binding = { actor, source: "local" as const },
       configPath = path.join(root, "harness/harness.yaml"),
       before = readFileSync(configPath, "utf8");
+    const read = await cell.run({ kind: "settings-read" }, binding);
+    assert.equal(read.outcome, "applied", JSON.stringify(read));
+    const catalogSettings = (read as typeof read & { readonly settings?: { readonly locale?: string } }).settings,
+      initialRevision = read.revision!;
+    assert.equal(catalogSettings?.locale, "en-US");
     for (const selection of [
       { defaultVertical: "software/coding", defaultPreset: "standard-task", defaultProfile: "prose" },
       { defaultVertical: "other/vertical", defaultPreset: "standard-task", defaultProfile: "baseline" },
@@ -36,30 +42,82 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       assert.equal(readFileSync(configPath, "utf8"), before);
     }
 
-    const applied = await cell.run(
-      {
+    const repositoryUpdate = {
         kind: "settings-update",
         defaultVertical: "software/coding",
         defaultPreset: "docs-task",
         defaultProfile: "baseline",
+        expectedVersion: initialRevision,
         idempotencyKey: "valid-settings-selection",
-      },
-      binding,
-    );
+      } as const,
+      [applied, stale] = await Promise.all([
+        cell.run(repositoryUpdate, binding),
+        cell.run(
+          {
+            kind: "settings-update",
+            walFlushEvents: 1024,
+            expectedVersion: initialRevision,
+            idempotencyKey: "stale-settings-update",
+          },
+          binding,
+        ),
+      ]);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
-    assert.match(readFileSync(configPath, "utf8"), /defaultPreset: docs-task[\s\S]*defaultProfile: baseline/u);
-
-    const flushApplied = await cell.run(
+    assert.deepEqual(applied.updatedProjection, {
+      kind: "settings",
+      ref: "settings/repository",
+      revision: applied.revision,
+    });
+    assert.equal(stale.outcome, "op_rejected");
+    assert.equal(stale.code, "revision_conflict");
+    assert.deepEqual(stale.unmetCriteria, [
       {
-        kind: "settings-update",
-        walFlushAdaptive: false,
-        walFlushEvents: 4096,
-        walFlushBytes: 16_777_216,
-        walFlushMilliseconds: 30_000,
-        idempotencyKey: "wal-flush-settings",
+        ref: "settings/singleton-revision",
+        failureCode: "revision_conflict",
+        explain: "When supplied, expectedVersion matches the current Settings singleton revision.",
       },
-      binding,
-    );
+    ]);
+    assert.match(readFileSync(configPath, "utf8"), /defaultPreset: docs-task[\s\S]*defaultProfile: baseline/u);
+    const eventStore = makeTaskEventStore({ repoId: "settings-catalog", rootDir: root }),
+      audited = eventStore.readEvent(applied.opId);
+    assert.equal(audited?.schema, "settings-event/v1");
+    if (audited?.schema === "settings-event/v1") {
+      assert.deepEqual(audited.actor, actor);
+      assert.equal(audited.payload.settings.defaultPreset, "docs-task");
+    }
+
+    const eventCount = eventStore.read().events.filter((event) => event.schema === "settings-event/v1").length,
+      replayed = await cell.run(repositoryUpdate, binding);
+    assert.equal(replayed.outcome, "applied", JSON.stringify(replayed));
+    assert.equal(replayed.opId, applied.opId);
+    assert.equal(replayed.revision, applied.revision);
+    assert.equal(eventStore.read().events.filter((event) => event.schema === "settings-event/v1").length, eventCount);
+
+    const currentRevision = applied.revision!,
+      unchanged = await cell.run(
+        {
+          kind: "settings-update",
+          defaultPreset: "docs-task",
+          expectedVersion: currentRevision,
+          idempotencyKey: "unchanged-settings-selection",
+        },
+        binding,
+      ),
+      flushApplied = await cell.run(
+        {
+          kind: "settings-update",
+          walFlushAdaptive: false,
+          walFlushEvents: 4096,
+          walFlushBytes: 16_777_216,
+          walFlushMilliseconds: 30_000,
+          expectedVersion: currentRevision,
+          idempotencyKey: "wal-flush-settings",
+        },
+        binding,
+      );
+    assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
+    assert.equal(unchanged.code, "no_changes");
+    assert.equal(unchanged.origin, "daemon");
     assert.equal(flushApplied.outcome, "applied", JSON.stringify(flushApplied));
     const settings = (await cell.read("repo.settings.read")) as { readonly settings: { readonly walFlush: unknown } };
     assert.deepEqual(settings.settings.walFlush, {
@@ -69,6 +127,15 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       milliseconds: 30_000,
     });
     assert.match(readFileSync(configPath, "utf8"), /walFlush:[\s\S]*adaptive: false[\s\S]*events: 4096/u);
+
+    const beforeLocalRevision = eventStore.readHead()!.revision,
+      localApplied = await cell.run(
+        { kind: "settings-update", locale: "zh-CN", idempotencyKey: "local-settings-update" },
+        binding,
+      );
+    assert.equal(localApplied.outcome, "applied", JSON.stringify(localApplied));
+    assert.equal(eventStore.readHead()!.revision, beforeLocalRevision);
+    assert.deepEqual(localApplied.effects, ["settings-local/locale_changed"]);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

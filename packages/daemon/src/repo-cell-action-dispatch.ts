@@ -29,7 +29,6 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   if (action.kind === "ci-observe-pull") return pullAndIngestCiObservations(cell, action, binding);
-  if (action.kind === "settings-update") return cell.settingsActions.update(action, binding);
   if (
     action.kind === "people-add" ||
     action.kind === "people-set-role" ||
@@ -59,7 +58,7 @@ export async function executeAction(
       now: cell.now,
     });
   if (action.kind === "projection-rebuild") {
-    cell.settingsActions.initializeFromAuthoredDocument(binding);
+    cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
       sourceRevision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, sourceRevision),
@@ -287,7 +286,7 @@ export async function executeAction(
     const result = await runPresetAction({
         rootDir: cell.rootDir,
         action,
-        settings: cell.settingsActions.read(),
+        settings: cell.settings.read(),
       }),
       revision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, revision),

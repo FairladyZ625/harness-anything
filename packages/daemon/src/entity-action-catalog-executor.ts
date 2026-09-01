@@ -51,6 +51,7 @@ export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
   binding: RepoCellBinding,
+  opId: string,
 ) => Promise<WriteReceipt>;
 export type EntityActionCatalogPreparer = (
   contract: ExecutableAction,
@@ -59,7 +60,7 @@ export type EntityActionCatalogPreparer = (
   opId: string,
 ) => RepoTaskAction;
 export interface EntityActionCatalogRuntimes {
-  readonly schedule?: EntityActionCatalogRunner;
+  readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: EntityActionCatalogRunner;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
 }
@@ -110,14 +111,13 @@ export function makeEntityActionCatalogExecutor(input: {
     const contract = executableAction(action.kind),
       prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
-    if (contract.execution.implementation === "schedule-event") {
-      if (!runtimes.schedule)
-        throw Object.assign(new Error(`Action ${action.kind} requires the Schedule Action runtime.`), {
+    if (contract.execution.implementation === "catalog-runtime") {
+      const runtime = runtimes.entity?.[contract.target.kind];
+      if (!runtime)
+        throw Object.assign(new Error(`Action ${action.kind} requires the ${contract.target.kind} catalog runtime.`), {
           code: "unsupported_command",
         });
-      return runtimes
-        .schedule(contract, action, binding)
-        .then((receipt) => deriveActionResult(contract, action, receipt));
+      return runtime(contract, action, binding, opId).then((receipt) => deriveActionResult(contract, action, receipt));
     }
     if (
       contract.execution.implementation !== "task-lifecycle" &&
@@ -128,7 +128,9 @@ export function makeEntityActionCatalogExecutor(input: {
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",
       });
-    return runtimes.task(contract, action, binding).then((receipt) => deriveActionResult(contract, action, receipt));
+    return runtimes
+      .task(contract, action, binding, opId)
+      .then((receipt) => deriveActionResult(contract, action, receipt));
   };
 
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
@@ -477,9 +479,10 @@ export function deriveActionResult(
   return {
     ...receipt,
     unmetCriteria,
-    effects: rejected ? [] : contract.effects.map(({ ref }) => ref),
-    updatedProjection:
-      rejected || !targetId
+    effects: rejected ? [] : (receipt.effects ?? contract.effects.map(({ ref }) => ref)),
+    updatedProjection: Object.hasOwn(receipt, "updatedProjection")
+      ? receipt.updatedProjection
+      : rejected || !targetId
         ? null
         : {
             kind: contract.target.kind,
@@ -520,6 +523,7 @@ function compileDraft(
     return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
   if (draft.kind === "runtime-session") return compileRuntimeSessionDraft(draft);
   if (draft.kind === "schedule") reject("invalid_command", "Schedule drafts require the Schedule Action runtime.");
+  if (draft.kind === "settings") reject("invalid_command", "Settings drafts require the Settings Action runtime.");
   if (draft.kind === "relation")
     reject("invalid_command", "Relation drafts are committed directly through the Relation aggregate executor.");
   const read = projection.readDecision(draft.event.decisionId);
