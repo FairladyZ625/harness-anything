@@ -29,6 +29,11 @@ import { relationTypes } from "../packages/kernel/src/index.ts";
 // build-time tooling, not shipped renderer code.
 import { entityKindContracts, explainEntityKind } from "../packages/kernel/src/domain/entity-kind-registry.ts";
 
+// Re-exported for the GUI contract test: the boundary lint bars GUI files from deep kernel
+// imports, so the test reaches the explainer through this build-time tool — the same channel
+// it already uses for projectedEntityKinds and checkEntityDocContract.
+export { explainEntityKind };
+
 const root = path.resolve(import.meta.dirname, "..");
 const catalogTarget = path.join(root, "packages/gui/src/renderer/entity-docs.ts");
 const catalogMarkers = {

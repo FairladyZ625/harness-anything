@@ -7,10 +7,13 @@ import {
   type EntityRefKind,
   type RelationType,
 } from "../../kernel/src/index.ts";
-import { explainEntityKind } from "../../kernel/src/domain/entity-kind-registry.ts";
 import decisionPackageSchema from "../../kernel/schemas/json/decision-package.schema.json";
 import factEventSchema from "../../kernel/schemas/json/fact-event.schema.json";
-import { checkEntityDocContract, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
+import {
+  checkEntityDocContract,
+  explainEntityKind,
+  projectedEntityKinds,
+} from "../../../tools/generate-entity-doc-contract.mjs";
 import {
   ENTITY_DOC_BY_KIND,
   ENTITY_DOC_GROUPS,

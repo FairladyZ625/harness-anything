@@ -455,7 +455,9 @@ const relationDoc: EntityKindDoc = {
   statuses: [{ field: "type", words: RELATION_TYPE_WORDS }, ...kernelContract("relation").statuses],
   storage: "台账边表(canonical 事件)",
   definition:
-    "三元语之间的边:把 task / decision / fact 连成语义网。边是一等实体,有方向、强度、出处与状态;方向注册表规定哪种 (源, 动词, 目标) 三元组是合法的。边本身也可以作为关系端点——任何已登记的 kind 都能与一条边相关联,用来给边加注说明。",
+    "三元语之间的边:把 task / decision / fact 连成语义网。边是一等实体,有方向、强度、出处与状态;" +
+    "方向注册表规定哪种 (源, 动词, 目标) 三元组是合法的。边本身也可以作为关系端点——" +
+    "任何已登记的 kind 都能与一条边相关联,用来给边加注说明。",
   fields: [
     field("id", true, "string", "稳定 ID(rel_ 加 16 位十六进制)。"),
     field("relationEndpoint", true, "object", "两端的 kind 与 ref;方向注册表按它判定三元组是否合法。"),
