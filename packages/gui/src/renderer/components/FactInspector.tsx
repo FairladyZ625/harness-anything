@@ -148,13 +148,19 @@ export function FactInspector({
           entityRef={fullRef}
           onFocusGraph={onFocusGraph}
           testId="fact-view-in-graph"
-          className="flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px] text-text-faint hover:border-border-strong hover:bg-surface-raised hover:text-text"
+          className={
+            "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px] " +
+            "text-text-faint hover:border-border-strong hover:bg-surface-raised hover:text-text"
+          }
         />
         {onClose && (
           <button
             onClick={onClose}
             title={t("components.factInspector.closeFactInspector")}
-            className="ml-auto grid size-6 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+            className={
+              "ml-auto grid size-6 shrink-0 place-items-center rounded text-text-faint " +
+              "hover:bg-surface-raised hover:text-text"
+            }
           >
             <X weight="bold" />
           </button>

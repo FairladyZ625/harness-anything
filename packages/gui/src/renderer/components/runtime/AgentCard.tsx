@@ -137,7 +137,10 @@ export function AgentCard({
           entityRef={`agent/${detail.id}`}
           onFocusGraph={onFocusGraph}
           testId="agent-view-in-graph"
-          className="ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+          className={
+            "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[11px] " +
+            "text-text-muted hover:border-border-strong hover:text-text"
+          }
         />
       </Crumbs>
       <Card>

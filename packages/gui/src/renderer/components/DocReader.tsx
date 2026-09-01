@@ -55,7 +55,12 @@ export function DocReader({
           };
           if (childProps.className?.includes("language-mermaid")) {
             return (
-              <pre className="my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 font-mono text-[12px] text-text-muted">
+              <pre
+                className={
+                  "my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 " +
+                  "font-mono text-[12px] text-text-muted"
+                }
+              >
                 <code>{String(childProps.children ?? "").trim()}</code>
               </pre>
             );

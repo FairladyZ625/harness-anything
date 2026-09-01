@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileText, X } from "@phosphor-icons/react";
 import { DocReader } from "../components/DocReader.tsx";
 import { t } from "../i18n/index.tsx";
-import { readLocalDocument } from "./local-doc-client.ts";
+import { requestLocalDocument } from "./local-doc-client.ts";
 import { LocalDocContext, type LocalDocOpener } from "./local-doc-context.ts";
 
 /**
@@ -35,7 +35,7 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
   }, [onClose]);
   const query = useQuery({
     queryKey: ["local-doc", path],
-    queryFn: () => readLocalDocument(path),
+    queryFn: () => requestLocalDocument(path),
     retry: false,
     staleTime: 5_000,
   });
@@ -49,7 +49,10 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
         role="dialog"
         aria-modal="true"
         aria-label={t("components.localDoc.title")}
-        className="flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-strong bg-bg shadow-2xl"
+        className={
+          "flex h-full w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border-strong " +
+          "bg-bg shadow-2xl"
+        }
         onClick={(event) => event.stopPropagation()}
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
@@ -74,7 +77,10 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
             onClick={onClose}
             aria-label={t("components.localDoc.close")}
             data-testid="local-doc-close"
-            className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+            className={
+              "grid size-6 shrink-0 place-items-center rounded text-text-faint " +
+              "hover:bg-surface-raised hover:text-text"
+            }
           >
             <X weight="bold" />
           </button>
@@ -99,7 +105,10 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
           ) : (
             <pre
               data-testid="local-doc-plain"
-              className="whitespace-pre-wrap break-words rounded-md border border-border bg-surface p-4 font-mono text-[12px] leading-5 text-text"
+              className={
+                "whitespace-pre-wrap break-words rounded-md border border-border bg-surface p-4 " +
+                "font-mono text-[12px] leading-5 text-text"
+              }
             >
               {query.data.content}
             </pre>

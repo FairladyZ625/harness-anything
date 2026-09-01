@@ -16,7 +16,7 @@ const bridge = (): LocalDocBridge | null => {
   return value?.localDoc ?? null;
 };
 
-export async function readLocalDocument(path: string): Promise<LocalDocReadResult> {
+export async function requestLocalDocument(path: string): Promise<LocalDocReadResult> {
   const channel = bridge();
   if (channel === null)
     return {
