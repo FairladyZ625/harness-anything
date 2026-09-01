@@ -14,7 +14,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
     const revision = cell.store.readHead()?.revision ?? 0;
     if (contract.id === "list") return cell.readResult(opId, listSquads(cell), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
-      return cell.readResult(opId, inspectSquad(cell, requiredText(action.squadId, "squadId")), revision, null);
+      return cell.readResult(opId, inspectSquad(cell, squadRequiredText(action.squadId, "squadId")), revision, null);
     if (contract.id === "validate") {
       const report = runAgentEntityAction({
         rootDir: cell.rootDir,
@@ -24,7 +24,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       return cell.readResult(opId, report as object, revision, null);
     }
     if (contract.id === "status") {
-      const raw = cell.squadCoordinator.status(requiredText(action.squadRunId, "squadRunId"));
+      const raw = cell.squadCoordinator.status(squadRequiredText(action.squadRunId, "squadRunId"));
       return coordinatorReceipt(cell, raw, opId, revision, []);
     }
     if (contract.id === "run") {
@@ -38,7 +38,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       );
     }
     if (contract.id === "cancel") {
-      const raw = await cell.squadCoordinator.cancel(requiredText(action.squadRunId, "squadRunId"), binding);
+      const raw = await cell.squadCoordinator.cancel(squadRequiredText(action.squadRunId, "squadRunId"), binding);
       return coordinatorReceipt(
         cell,
         raw,
@@ -122,7 +122,7 @@ function coordinatorReceipt(
   } as unknown as WriteReceipt;
 }
 
-function requiredText(value: unknown, field: string): string {
+function squadRequiredText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   throw Object.assign(new Error(`${field} is required.`), { code: "invalid_command" });
 }

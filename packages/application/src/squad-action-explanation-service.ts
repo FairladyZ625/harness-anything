@@ -43,7 +43,7 @@ export function makeSquadActionExplanationService(
   const catalog = squadActionCatalog();
   return Object.freeze({
     catalog: () =>
-      checked({
+      squadChecked({
         schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
         mode: "catalog",
         subjects: [
@@ -61,7 +61,7 @@ export function makeSquadActionExplanationService(
       if (input.declaration.id !== input.entity.id)
         throw new Error("Squad Action explanation declaration and BaseEntity witness identities must match.");
       const target = input.entity.ref as EntityRef;
-      return checked({
+      return squadChecked({
         schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
         mode: "object",
         subjects: [
@@ -69,7 +69,7 @@ export function makeSquadActionExplanationService(
             kind: "squad",
             ref: target,
             revision: input.entity.revision,
-            actions: catalog.actions.map((action) => objectRow(catalog.ref, action, input, target, dependencies)),
+            actions: catalog.actions.map((action) => squadObjectRow(catalog.ref, action, input, target, dependencies)),
             failure: null,
           },
         ],
@@ -113,7 +113,7 @@ function catalogRow(catalogRef: string, action: EntityActionContract): EntityAct
   });
 }
 
-function objectRow(
+function squadObjectRow(
   catalogRef: string,
   action: EntityActionContract,
   input: SquadActionExplanationObjectInput,
@@ -211,7 +211,7 @@ function evaluateCriterion(
   throw new Error(`Squad Action ${action.id} criterion ${criterionRef} has no capability classification.`);
 }
 
-function checked(value: EntityActionExplanationSetV1): EntityActionExplanationSetV1 {
+function squadChecked(value: EntityActionExplanationSetV1): EntityActionExplanationSetV1 {
   const issues = validateEntityActionExplanationSet(value);
   if (issues.length) throw new Error(`Invalid Squad Action explanation: ${issues.join("; ")}`);
   return Object.freeze(value);
