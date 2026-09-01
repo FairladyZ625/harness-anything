@@ -42,8 +42,8 @@ test("promoted Entity catalogs distinguish executable Agent and RuntimeSession a
   assert.deepEqual(declared("review"), ["record"]);
   assert.deepEqual(catalogs.agent?.statusVocabulary, []);
   assert.equal(catalogs.agent?.transitions.catalogRef, "kernel/agent-action/v1");
-  assert.deepEqual(catalogs.agent?.transitions.available, ["install"]);
-  assert.deepEqual(declared("agent"), ["install"]);
+  assert.deepEqual(catalogs.agent?.transitions.available, ["install", "validate", "list", "inspect"]);
+  assert.deepEqual(declared("agent"), ["install", "validate", "list", "inspect"]);
   assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
   assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);

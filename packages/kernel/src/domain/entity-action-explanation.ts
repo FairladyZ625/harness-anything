@@ -19,8 +19,6 @@ export class EntityActionExplanationContractError extends Error {
   readonly code = "invalid_entity_action_explanation";
 }
 
-export const taskLifecycleActionIds = Object.freeze(["start", "submit", "review", "complete"] as const);
-export type TaskLifecycleActionId = (typeof taskLifecycleActionIds)[number];
 export const entityActionCriterionStatuses = Object.freeze([
   "met",
   "unmet",

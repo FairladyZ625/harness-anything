@@ -1,5 +1,4 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import {
   parseDecisionAmend,
   parseDecisionRepin,
@@ -19,15 +18,13 @@ export function parseDecision(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const id = route.id,
-    actionKind = "actionKind" in route ? route.actionKind : id,
-    contract = getExecutableEntityAction(actionKind);
+  const id = route.id;
   if (id === "decision-validate" || id === "decision-verify")
     return parseDecisionValidation(id, args, rootDir, repoId, json, inputs);
   if (id === "decision-repin") return parseDecisionRepin(args, rootDir, repoId, json, inputs);
   if (id === "decision-transition") return parseDecisionTransition(args, rootDir, repoId, json, inputs);
   const noId = id === "decision-propose" || id === "decision-list",
-    nested = contract?.id === "declare-claim" || contract?.id === "fulfill-claim",
+    nested = route.path[1] === "claim",
     decisionId = noId ? undefined : args[nested ? 3 : 2];
   if (!noId && !nonEmpty(decisionId)) return rejected("missing_field", "Decision id is required.", json);
   if (id === "decision-propose") return parseProposal(args, rootDir, repoId, json, inputs);

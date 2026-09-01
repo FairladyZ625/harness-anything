@@ -1,5 +1,4 @@
 import path from "node:path";
-import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import { daemonUserRoot, readRegisteredRepos } from "../../../daemon/src/client/local-daemon-target.ts";
 import { canonicalRoot, daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
@@ -12,9 +11,7 @@ export async function fleetScheduleRoute(
     (command.method !== "repo.task.run" && command.method !== "repo.task.read") ||
     !daemonProtocolCommands.some(
       (candidate) =>
-        candidate.method === command.method &&
-        candidate.id === command.action.kind &&
-        getExecutableEntityAction(candidate.id)?.target.kind === "schedule",
+        candidate.method === command.method && candidate.id === command.action.kind && candidate.path[0] === "schedule",
     )
   )
     return null;

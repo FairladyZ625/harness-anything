@@ -116,8 +116,8 @@ export interface RuntimeSpawnerInput {
   readonly projection?: () => TaskProjection;
   readonly readSettings?: () => SettingsV1;
   readonly remote?: RemoteRuntimePersistence;
-  /** Local RuntimeSession catalog commit; the caller already owns the RepoCell writer queue. */
-  readonly commitRuntimeSessionAction?: (
+  /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
+  readonly commitRuntimeEvent?: (
     draft: {
       readonly type: AgentRuntimeEventV1["type"];
       readonly payload: Readonly<Record<string, unknown>>;

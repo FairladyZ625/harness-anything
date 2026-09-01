@@ -5,6 +5,7 @@ import {
   isSameExecution,
   isSamePerson,
   makeTaskEventStore,
+  runtimeSessionActionIds,
   type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
   type CanonicalEventStore,
@@ -427,12 +428,17 @@ async function openLockedRepoCell(
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
-    commitRuntimeSessionAction: async (draft, binding) => {
-      const receipt = await commitRuntimeSessionAction(extracted, { kind: "event", ...draft }, binding),
-        event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event;
+    commitRuntimeEvent: async (draft, binding) => {
+      const action = { kind: "event" as const, ...draft },
+        receipt = runtimeSessionActionIds.includes(draft.type as never)
+          ? await commitRuntimeSessionAction(extracted, action, binding)
+          : extracted.appendAuxiliaryRuntimeIngress(action, binding),
+        event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event,
+        runtimeReceipt = { ...(receipt as unknown as JsonObject) };
+      delete runtimeReceipt.event;
       return {
         ...(event ? { event } : {}),
-        receipt: receipt as unknown as JsonObject,
+        receipt: runtimeReceipt,
       };
     },
     authorizeRuntimeEvent: ({ type, payload, opId, binding }) =>

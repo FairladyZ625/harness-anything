@@ -81,13 +81,13 @@ test("entity explanations expose action identity but keep runtime compile hooks 
   }
 });
 
-test("Agent install owns declaration readiness, revision, idempotency, and artifact contracts", () => {
+test("Agent catalog exposes reads while install owns its write contracts", () => {
   const explanation = explainEntityKind("agent"),
     action = getExecutableEntityAction("agent-install");
-  assert.deepEqual(explanation.transitions.available, ["install"]);
+  assert.deepEqual(explanation.transitions.available, ["install", "validate", "list", "inspect"]);
   assert.deepEqual(
     explanation.transitions.actions.map(({ id }) => id),
-    ["install"],
+    ["install", "validate", "list", "inspect"],
   );
   assert.ok(action?.execution?.compile);
   assert.equal(action.execution.implementation, "compiled-event");

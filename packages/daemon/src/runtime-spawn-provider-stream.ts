@@ -29,8 +29,8 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
           opId,
           ...(resultBody === undefined ? {} : { resultBody }),
         })
-      : context.input.commitRuntimeSessionAction
-        ? await context.input.commitRuntimeSessionAction(
+      : context.input.commitRuntimeEvent
+        ? await context.input.commitRuntimeEvent(
             {
               type,
               payload,
@@ -42,7 +42,7 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
         : (() => {
             throw context.runtimeSpawnError(
               "runtime_preconditions_unavailable",
-              "Local RuntimeSession catalog commit is unavailable.",
+              "Local runtime event commit is unavailable.",
             );
           })();
   if (!published.event) {

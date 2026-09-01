@@ -22,10 +22,9 @@ export function appendAuxiliaryRuntimeIngress(
   binding: RepoCellBinding,
 ): JsonObject {
   const scope = binding.assignmentScope;
-  if (!scope)
-    throw cell.cellCodedError("assignment_required", "Runtime Fleet ingress requires an authenticated assignment.");
   if (action.kind === "archive") {
     if (
+      !scope ||
       scope.scope.kind !== "task" ||
       action.archive.taskId !== scope.scope.taskId ||
       action.archive.executionId !== scope.scope.executionId
@@ -44,6 +43,8 @@ export function appendAuxiliaryRuntimeIngress(
       archive: action.archive,
     }) as unknown as JsonObject;
   }
+  if (!scope && binding.source !== "local")
+    throw cell.cellCodedError("assignment_required", "Runtime Fleet ingress requires an authenticated assignment.");
   if (!auxiliaryEventTypes.includes(action.type as (typeof auxiliaryEventTypes)[number]))
     throw cell.cellCodedError(
       "invalid_runtime_event",

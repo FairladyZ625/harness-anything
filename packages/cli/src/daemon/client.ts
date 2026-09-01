@@ -1,11 +1,11 @@
 import { realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import {
   canonicalRoot,
   commandClassForAction,
+  commandDescriptorForAction,
   daemonMethodAcceptsPayload,
   daemonMethodAcceptsPayloadExecutor,
   workspaceId,
@@ -554,6 +554,8 @@ export async function fleetTaskRoute(
   if (!config) return null;
   const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
   if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
+  const actionKind = command.action.kind,
+    descriptor = commandDescriptorForAction(actionKind);
   const {
     executor: _executor,
     createMode,
@@ -576,7 +578,7 @@ export async function fleetTaskRoute(
   // outside the remote-edge surface. Falling through produces the existing,
   // explicit repo_mode_read_only receipt instead of silently dropping their
   // authority-bearing fields on the fleet route.
-  if (command.action.kind === "task-create" && (createMode !== undefined || fromLegacyId !== undefined)) return null;
+  if (actionKind === "task-create" && (createMode !== undefined || fromLegacyId !== undefined)) return null;
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,
@@ -611,10 +613,7 @@ export async function fleetTaskRoute(
     }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet))
       throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-    if (
-      command.action.kind === "task-create" ||
-      getExecutableEntityAction(command.action.kind)?.target.kind === "schedule"
-    ) {
+    if (actionKind === "task-create" || ("path" in descriptor && descriptor.path[0] === "schedule")) {
       const fields = packet as Record<string, unknown>;
       const unsupported = Object.keys(fields).filter((field) =>
         ["fromFile", "jsonInput", "kind", "createMode", "fromLegacyId"].includes(field),

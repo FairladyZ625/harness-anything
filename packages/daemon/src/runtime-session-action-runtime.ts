@@ -83,6 +83,16 @@ export async function commitRuntimeSessionAction(
   try {
     return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {
+    if (cell.store.readEvent(action.opId))
+      try {
+        return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
+      } catch (replayError) {
+        return deriveActionResult(
+          contract,
+          catalogAction,
+          cell.failed(action.opId, replayError, contract, catalogAction),
+        );
+      }
     return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
   }
 }

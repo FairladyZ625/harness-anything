@@ -1,5 +1,4 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { getExecutableEntityAction } from "../../../kernel/src/index.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
@@ -21,9 +20,7 @@ export function parseRouted(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
   if (!route) return undefined;
-  const actionKind = "actionKind" in route ? route.actionKind : route.id,
-    targetKind = getExecutableEntityAction(actionKind)?.target.kind,
-    rootCommand = route.path[0];
+  const rootCommand = route.path[0];
   if (route.id === "repo-bootstrap") {
     const f = readFlags(route.id, args.slice(1), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
@@ -72,20 +69,18 @@ export function parseRouted(
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
-  if (targetKind === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
-  if (targetKind === "settings")
-    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
-  if (targetKind === "person") return parsePeople(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "ci-observe-pull")
-    return parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "settings" || rootCommand === "ci")
+    return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
     return accepted(rootDir, repoId, json, {
       kind: "receipt-show",
       opId: args[2],
     });
   if (rootCommand === "doc") return parseDoc(route.id, args, rootDir, repoId, json, inputs);
-  if (targetKind === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
-  if (targetKind === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
   if (route.id === "distill-candidate" || route.id === "distill-promote")
     return parseProjected(
       route.id,
@@ -97,7 +92,7 @@ export function parseRouted(
       {},
       route.id === "distill-promote" ? { confidence: "medium", memoryClass: "semantic" } : {},
     );
-  if (targetKind === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") {
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
@@ -110,13 +105,7 @@ export function parseRouted(
       ...(route.id === "entity-get" ? { entityId: f.one.get("--id") } : {}),
     });
   }
-  if (
-    route.phase.startsWith("Preset-") ||
-    targetKind === "agent" ||
-    targetKind === "squad" ||
-    rootCommand === "agent" ||
-    rootCommand === "squad"
-  )
+  if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
 }

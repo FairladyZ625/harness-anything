@@ -245,7 +245,7 @@ export async function executeAction(
     );
   }
   const actionVersion = Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0);
-  if (actionContract?.execution && !actionContract.execution.read)
+  if (actionContract?.execution && (!actionContract.execution.read || actionContract.target.kind !== "agent"))
     return cell.entityActionExecutor.run(
       action,
       binding,

@@ -223,7 +223,9 @@ export function makeEntityActionCatalogExecutor(input: {
           bundle,
           existing !== null,
           authorizationDecision,
-          () => publicationKillpoints(input.killpoint),
+          () => {
+            if (existing === null) publicationKillpoints(input.killpoint);
+          },
         ),
       );
     }
