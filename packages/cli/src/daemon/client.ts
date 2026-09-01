@@ -641,11 +641,7 @@ export async function fleetDocRoute(
 ): Promise<{ readonly method: string; readonly payload: Record<string, unknown> } | null> {
   const kind = command.action.kind,
     route = fleetDocSyncKinds.get(kind);
-  if (
-    route === undefined ||
-    (command.method !== "repo.task.run" && command.method !== "repo.task.read")
-  )
-    return null;
+  if (route === undefined || (command.method !== "repo.task.run" && command.method !== "repo.task.read")) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const payload: Record<string, unknown> = {
