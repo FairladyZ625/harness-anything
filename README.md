@@ -180,6 +180,7 @@ The result is a repository that remembers more than its code:
 - [Architecture](./docs-release/architecture/en/00-overview.md) — explore the kernel, storage model, write path, and projections. ([中文](./docs-release/architecture/zh/00-overview.md))
 - [Release posture](./docs-release/release-posture.md) — see what is shipped, foundational, or planned.
 - [Migration](./docs-release/migration-genesis-replay.md) — replay an older-generation ledger into the current format. ([agent skill](./skills/harness-migration/SKILL.md))
+- [Ledger recovery](./docs-release/migration-legacy-ledger-recovery.md) — repair a repository whose legacy ledger the current daemon refuses to attach. ([中文](./docs-release/migration-legacy-ledger-recovery.zh-CN.md))
 - [Minimal example](./examples/minimal-project/) — inspect the smallest working project.
 
 ## Contributing
