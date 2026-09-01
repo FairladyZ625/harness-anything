@@ -12,6 +12,10 @@ export interface TaskCloseoutPacket {
     readonly verdict: ReviewVerdict;
     readonly reason: string;
     readonly evidenceChecked: readonly string[];
+    readonly externalCompletionAnchor?: string;
+    readonly noDispatchReason?: string;
+    readonly noIndependentReview?: true;
+    readonly noIndependentReviewReason?: string;
   };
   readonly consent: { readonly approved: true };
   readonly completion: {
@@ -20,6 +24,9 @@ export interface TaskCloseoutPacket {
   };
 }
 
+// `templateOmit` marks an optional field that is valid input but is left out of the generated
+// `--print-template` scaffold, so the default template stays the standard shape while the field
+// remains accepted when a caller supplies it.
 type SchemaNode =
   | {
       readonly type: "object";
@@ -28,6 +35,7 @@ type SchemaNode =
       readonly additionalProperties: false;
       readonly description?: string;
       readonly example?: unknown;
+      readonly templateOmit?: true;
     }
   | {
       readonly type: "array";
@@ -35,6 +43,7 @@ type SchemaNode =
       readonly minItems?: number;
       readonly description?: string;
       readonly example?: unknown;
+      readonly templateOmit?: true;
     }
   | {
       readonly type: "string";
@@ -44,12 +53,14 @@ type SchemaNode =
       readonly enum?: readonly string[];
       readonly description?: string;
       readonly example?: unknown;
+      readonly templateOmit?: true;
     }
   | {
       readonly type: "boolean";
       readonly const: boolean;
       readonly description?: string;
       readonly example?: unknown;
+      readonly templateOmit?: true;
     };
 
 const nonEmptyString = (example: string, description: string): SchemaNode => ({
@@ -122,6 +133,11 @@ export const taskCloseoutPacketSchema = Object.freeze({
       type: "object",
       additionalProperties: false,
       required: ["verdict", "reason", "evidenceChecked"],
+      // The optional qualification fields let an owner-direct closeout justify a same-person review
+      // when no dispatch record exists: an external completion anchor (a merged PR / commit SHA / CI
+      // run), or an explicit no-independent-review weak mark. Which exact combination is admissible
+      // stays governed downstream by the review packet, so the rule lives in one place; here they are
+      // only allowed through the closeout packet shape.
       properties: {
         verdict: {
           type: "string",
@@ -131,6 +147,38 @@ export const taskCloseoutPacketSchema = Object.freeze({
         },
         reason: nonEmptyString("Explain why the delivery satisfies the task intent.", "Review rationale."),
         evidenceChecked: stringArray("Name one inspected evidence item.", "Inspected evidence identifiers."),
+        externalCompletionAnchor: {
+          ...nonEmptyString(
+            "e63a871c71520ae75a6854c20204aebccb726ef4",
+            "Optional: a merged PR number, a 40-char origin/main commit SHA, or a CI run URL standing in for " +
+              "dispatch attribution when none exists. Pair with noDispatchReason.",
+          ),
+          templateOmit: true,
+        },
+        noDispatchReason: {
+          ...nonEmptyString(
+            "Delivered through a retired external channel, so ha task dispatches is empty.",
+            "Optional: why this task has no dispatch record. Required with externalCompletionAnchor.",
+          ),
+          templateOmit: true,
+        },
+        noIndependentReview: {
+          type: "boolean",
+          const: true,
+          example: true,
+          templateOmit: true,
+          description:
+            "Optional: explicitly declare there was no independent review. The recorded Review is marked " +
+            "NO INDEPENDENT REVIEW and never passes as an independently-reviewed approval. " +
+            "Pair with noIndependentReviewReason.",
+        },
+        noIndependentReviewReason: {
+          ...nonEmptyString(
+            "No independent reviewer was available for this documentation-only delivery.",
+            "Optional: why no independent review is possible. Required with noIndependentReview.",
+          ),
+          templateOmit: true,
+        },
       },
     },
     consent: {
@@ -245,7 +293,11 @@ function validatePortablePath(value: string, path: string, issues: string[]): vo
 function exampleValue(schema: SchemaNode): unknown {
   if (schema.example !== undefined) return structuredClone(schema.example);
   if (schema.type === "object")
-    return Object.fromEntries(Object.entries(schema.properties).map(([field, child]) => [field, exampleValue(child)]));
+    return Object.fromEntries(
+      Object.entries(schema.properties)
+        .filter(([, child]) => child.templateOmit !== true)
+        .map(([field, child]) => [field, exampleValue(child)]),
+    );
   if (schema.type === "array") return [];
   if (schema.type === "boolean") return schema.const;
   return schema.enum?.[0] ?? "";
