@@ -32,7 +32,9 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
       onFocusCapture={() => actions.onFocusPane(panelId)}
       onMouseDownCapture={() => actions.onFocusPane(panelId)}
       className={[
-        "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+        // dockview 的 panel 宿主(dv-react-part)是 block、非 flex,flex-1 在这里不生效,card 会缩到
+        // 内容高、底下露黑。用 h-full 填满宿主高度,再由内部 flex-col 把终端撑到整个 pane。
+        "flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
         focused ? "outline outline-1 -outline-offset-1 outline-accent/50" : "",
       ].join(" ")}
     >
