@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -26,6 +27,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
+    daemonId = `runtime-cli-test-${randomUUID()}`,
     binRoot = path.join(parent, "bin"),
     tracker = path.join(root, ".batch-tracker"),
     nonzeroTrace = path.join(root, ".notify-nonzero.json"),
@@ -66,7 +68,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     OPENAI_API_KEY: "sk-must-not-reach-notifier",
     HARNESS_NOTIFY_TEST_SECRET: "must-not-reach-notifier",
     HARNESS_DAEMON_USER_ROOT: userRoot,
-    HARNESS_DAEMON_ID: "runtime-cli-test",
+    HARNESS_DAEMON_ID: daemonId,
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
   try {
@@ -419,7 +421,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
       daemonUserRoot: userRoot,
-      daemonId: "runtime-cli-test",
+      daemonId,
       runtimeSessionId: String(bound.runtimeSessionId),
       mission: "bound prompt",
     });
@@ -512,8 +514,9 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(mismatch.status, 1);
     assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
     const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
-    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
-    writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+    // The unavailable rejection is only deterministic while the file is absent: once it exists on
+    // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
+    // flush, racing both this rejection and a doc status that expects "eligible".
     const unsyncedMission = runMaybe(root, env, [
       "runtime",
       "run",
@@ -530,9 +533,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       String(unsyncedMission.receipt.nextAction),
       new RegExp(`ha doc sync --submit --path ${existingMissionPath}`, "u"),
     );
-    const missionStatus = run(root, env, ["doc", "status", "--path", existingMissionPath]);
-    assert.match(String(missionStatus.evidence), /"state":"eligible"/u);
+    mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
+    writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
+    // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
+    // the write, which the receipt reports as no_changes — both outcomes leave the doc clean.
     const missionSync = run(root, env, ["doc", "sync", "--submit", "--path", existingMissionPath]);
+    assert.match(String(run(root, env, ["doc", "status", "--path", existingMissionPath]).evidence), /"state":"clean"/u);
     const retiredPromptFile = runMaybe(root, env, [
       "runtime",
       "run",
@@ -567,7 +573,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
           code: unsyncedMission.receipt.code,
           nextAction: unsyncedMission.receipt.nextAction,
         },
-        status: { outcome: missionStatus.outcome, evidence: missionStatus.evidence },
         sync: { outcome: missionSync.outcome, summary: missionSync.summary },
         after: { outcome: reused.outcome, dispatchId: reusedDispatchId },
       })}`,
@@ -584,7 +589,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
       daemonUserRoot: userRoot,
-      daemonId: "runtime-cli-test",
+      daemonId,
       runtimeSessionId: String(reused.runtimeSessionId),
       mission:
         `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
@@ -617,7 +622,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       workerRoot: realpathSync(root),
       taskPackageRoot: taskPackage,
       daemonUserRoot: userRoot,
-      daemonId: "runtime-cli-test",
+      daemonId,
       runtimeSessionId: String(derived.runtimeSessionId),
       mission: derivedMission,
     });
@@ -664,7 +669,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       retrievalProcess.pid,
       "detach and status --wait must execute in different CLI processes",
     );
-    const readerReuse = await eventuallyRuntimeReaderReuse(userRoot);
+    const readerReuse = await eventuallyRuntimeReaderReuse(userRoot, daemonId);
     context.diagnostic(
       `detach cross-process retrieval: ${JSON.stringify({ launcherPid: detachedProcess.pid, retrievalPid: retrievalProcess.pid, runtimeSessionId: detachedRuntimeSessionId, outcome: retrievalProcess.receipt.outcome, resultText: retrievedText, readerReuse })}`,
     );
@@ -1211,7 +1216,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
       daemonUserRoot: userRoot,
-      daemonId: "runtime-cli-test",
+      daemonId,
       runtimeSessionId: detachedSessionId,
       mission: "hold",
     });
@@ -1271,7 +1276,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       workerRoot: realpathSync(root),
       taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
       daemonUserRoot: userRoot,
-      daemonId: "runtime-cli-test",
+      daemonId,
       runtimeSessionId: String(resumedDispatch.runtimeSessionId),
       mission: "follow up",
     });
@@ -1476,13 +1481,14 @@ function runAsync(
 }
 async function eventuallyRuntimeReaderReuse(
   userRoot: string,
+  daemonId: string,
 ): Promise<{ readonly conn: string; readonly helloCount: number; readonly statusReads: number }> {
   let observed: Record<string, string[]> = {};
   for (let attempt = 0; attempt < 100; attempt += 1) {
     observed = {};
     const logRoot = path.join(userRoot, "logs"),
       names = existsSync(logRoot)
-        ? readdirSync(logRoot).filter((name) => /^daemon-runtime-cli-test-conn-.*\.jsonl$/u.test(name))
+        ? readdirSync(logRoot).filter((name) => name.startsWith(`daemon-${daemonId}-conn-`) && name.endsWith(".jsonl"))
         : [];
     for (const name of names)
       for (const line of readFileSync(path.join(logRoot, name), "utf8").trim().split("\n").filter(Boolean)) {
