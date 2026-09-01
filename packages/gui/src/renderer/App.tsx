@@ -647,6 +647,15 @@ function AppShell() {
                 repoRoot={activeRepo?.canonicalRoot ?? null}
                 onNavigateEntity={navigateToEntity}
                 onOpenDocument={openLocalDocument}
+                openUrl={(uri) =>
+                  navigate({
+                    view: "browser",
+                    browserUrl: uri,
+                    focusedEntityRef: null,
+                    selectedId: null,
+                    previewId: null,
+                  })
+                }
               />
             ) : view === "browser" ? (
               <BrowserView initialUrl={location.browserUrl} />
