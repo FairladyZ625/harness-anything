@@ -208,6 +208,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     inheritedFallback?: RuntimeFallbackAttempt,
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
+    retainCoordinatorTaskLease = false,
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -520,7 +521,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         : trustedSchedule?.mode === "remediate"
           ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
           : undefined;
-    const taskLeaseHandoff = taskId && !input.remote && reviewExecution === null ? input.handoffTaskLease : undefined,
+    // A squad coordinator explicitly retains one stable binding while sibling workers share the
+    // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
+    // they select a squad member through --to.
+    const taskLeaseHandoff =
+        taskId && !input.remote && reviewExecution === null && !retainCoordinatorTaskLease
+          ? input.handoffTaskLease
+          : undefined,
       activeBinding = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
@@ -532,8 +539,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const lease = taskId && !input.remote ? projection!.currentLease(taskId) : null;
     if (
       taskId &&
-      !input.remote &&
-      reviewExecution === null &&
+      taskLeaseHandoff &&
       (lease?.phase !== "held" || lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}`)
     )
       throw runtimeSpawnError("runtime_task_lease_required", runtimeTaskLeaseRequiredMessage(taskId, lease));
@@ -786,6 +792,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   return {
     spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
+    spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
+      spawnAttempt(payload, binding, undefined, undefined, undefined, true),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
         {
@@ -974,6 +982,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             nextFallback,
             header.schedule,
             header.runtimeSessionId,
+            header.taskId !== null &&
+              header.binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
           );
           writer.appendFallbackState(
             {

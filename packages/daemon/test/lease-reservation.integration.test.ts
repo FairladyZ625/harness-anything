@@ -143,7 +143,8 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
       sequence = events.map((event) => event.type),
       started = sequence.indexOf("execution_started"),
       bound = sequence.indexOf("runtime_session_task_bound"),
-      release = sequence.indexOf("lease_released"),
+      // Dispatch handoff adds an earlier dispatcher release; settlement is the release after bind.
+      release = sequence.indexOf("lease_released", bound + 1),
       outcome = sequence.indexOf("runtime_session_outcome_observed");
     assert.ok(started >= 0 && started < bound, sequence.join(" -> "));
     assert.ok(bound < release && release < outcome, sequence.join(" -> "));

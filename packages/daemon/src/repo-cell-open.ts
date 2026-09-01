@@ -459,7 +459,7 @@ async function openLockedRepoCell(
               authorizationDecision.nextActions.join(" ") || "Squad runtime dispatch requires repo-write authority.",
             ),
           );
-        return runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+        return runtimeSpawner.spawnCoordinated(payload, { ...binding, authorizationDecision });
       },
       cancel: (payload, binding) => {
         const action = { kind: "runtime-cancel", ...payload },
