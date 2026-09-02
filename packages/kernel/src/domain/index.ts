@@ -105,7 +105,6 @@ export type {
   TaskCapability,
   TaskCapabilityId,
   TaskCapabilityReason,
-  TaskVisibility,
 } from "./task-board-projection.ts";
 
 export {
