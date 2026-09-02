@@ -269,18 +269,19 @@ async function terminate(child: ChildProcessWithoutNullStreams): Promise<void> {
 }
 
 function classifySpawnError(error: unknown): RemoteDaemonTransportError {
-  if (isCode(error, "ENOENT")) return new RemoteDaemonTransportError("ssh_not_found", "OpenSSH client was not found.");
-  return new RemoteDaemonTransportError("ssh_spawn_failed", errorMessage(error));
+  if (remoteTransportHasCode(error, "ENOENT"))
+    return new RemoteDaemonTransportError("ssh_not_found", "OpenSSH client was not found.");
+  return new RemoteDaemonTransportError("ssh_spawn_failed", remoteErrorMessage(error));
 }
 
 export function classifyRemoteError(error: unknown, stderr: string): RemoteDaemonTransportError {
-  if (isCode(error, "daemon_response_timeout"))
-    return new RemoteDaemonTransportError("remote_daemon_timeout", errorMessage(error));
+  if (remoteTransportHasCode(error, "daemon_response_timeout"))
+    return new RemoteDaemonTransportError("remote_daemon_timeout", remoteErrorMessage(error));
 
   // SSH commonly reports transport failures by closing stdout before the JSON-RPC
   // handshake completes. Inspect stderr before treating that EOF as a clean daemon
   // close, otherwise host-key, auth, and network failures all collapse to one code.
-  const message = withStderr(errorMessage(error), stderr);
+  const message = withStderr(remoteErrorMessage(error), stderr);
   if (/host key|known_hosts|authenticity/iu.test(message))
     return new RemoteDaemonTransportError("ssh_host_key_failed", message);
   if (/permission denied|authentication failed|no such identity file|identity file .* type -1/iu.test(message))
@@ -289,7 +290,8 @@ export function classifyRemoteError(error: unknown, stderr: string): RemoteDaemo
     return new RemoteDaemonTransportError("ssh_connection_failed", message);
   if (/daemon stdio bridge could not connect|command not found|no such file or directory/iu.test(message))
     return new RemoteDaemonTransportError("remote_daemon_unavailable", message);
-  if (isCode(error, "daemon_closed")) return new RemoteDaemonTransportError("remote_daemon_closed", message);
+  if (remoteTransportHasCode(error, "daemon_closed"))
+    return new RemoteDaemonTransportError("remote_daemon_closed", message);
   return new RemoteDaemonTransportError("remote_daemon_unavailable", message);
 }
 
@@ -298,10 +300,10 @@ function withStderr(message: string, stderr: string): string {
   return detail.length > 0 ? `${message} ${detail}` : message;
 }
 
-function isCode(error: unknown, code: string): boolean {
+function remoteTransportHasCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-function errorMessage(error: unknown): string {
+function remoteErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
