@@ -181,10 +181,12 @@ export {
   canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,
+  relationConsumability,
   relationDirections,
   relationOrigins,
   relationStates,
   relationStrengths,
+  relationStrengthForType,
   relationTypes,
 } from "./entity-relation.ts";
 export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
@@ -193,11 +195,14 @@ export type {
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,
+  RelationConsumability,
   RelationOrigin,
   RelationState,
   RelationStrength,
   RelationType,
 } from "./entity-relation.ts";
+export { entityFreshnesses, relationFreshnessAtCut, relationFreshnesses } from "./entity-freshness.ts";
+export type { EntityFreshness, EntityVersion, EntityVersionWitness, RelationFreshness } from "./entity-freshness.ts";
 
 export { normalizeDomainError } from "./errors.ts";
 export type {

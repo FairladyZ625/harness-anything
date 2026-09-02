@@ -22,6 +22,7 @@ import type {
 import { ftsQuery } from "./fts-query.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
+import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 
 export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
   return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
@@ -323,10 +324,7 @@ export function readDecisionGraphRows(db: DatabaseSync): {
   readonly decisionAnchors: readonly DecisionAnchorRow[];
   readonly coverageRows: readonly DecisionCoverageRow[];
 } {
-  const edges = queryRows<{ readonly row_json: string }>(
-      db,
-      "SELECT row_json FROM relation_edge WHERE owner_ref NOT LIKE 'fact/%' ORDER BY relation_id",
-    ).map((r) => JSON.parse(r.row_json) as DecisionRelationEdgeRow),
+  const edges = readRelationProjectionRows(db).filter((edge) => !edge.ownerRef.startsWith("fact/")),
     anchors = decisionAnchorIndex(db),
     decisionAnchors = queryRows<{ readonly decision_id: string }>(
       db,

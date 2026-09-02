@@ -525,6 +525,17 @@ function relationRow(row: SqlRow, original: Readonly<Record<string, unknown>>): 
     strength: text(original.strength, "relation strength") as RelationGraphEdgeRow["strength"],
     origin: text(original.origin, "relation origin") as RelationGraphEdgeRow["origin"],
     state: text(original.state ?? row.state, "relation state") as RelationGraphEdgeRow["state"],
+    targetObservedVersion:
+      typeof original.targetObservedVersion === "string" || typeof original.targetObservedVersion === "number"
+        ? original.targetObservedVersion
+        : null,
+    currentTargetVersion:
+      typeof original.currentTargetVersion === "string" || typeof original.currentTargetVersion === "number"
+        ? original.currentTargetVersion
+        : null,
+    freshness: ["current", "suspect", "orphaned"].includes(String(original.freshness))
+      ? (original.freshness as RelationGraphEdgeRow["freshness"])
+      : "suspect",
     rationale: text(original.rationale, "relation rationale"),
     ownerRef: text(original.ownerRef ?? row.owner_ref, "relation owner"),
     sourcePath: text(original.sourcePath, "relation source path"),

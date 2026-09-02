@@ -15,13 +15,13 @@ test("query payload validation accepts task and relation query facets", () => {
     }),
     [],
   );
-  assert.deepEqual(queryPayloadValidation("relation-graph", { status: "edge_retired", limit: 1 }), []);
+  assert.deepEqual(queryPayloadValidation("relation-graph", { status: "retired", limit: 1 }), []);
 });
 
 test("query payload validation owns status, revision, time, limit, and cursor rules", () => {
   assert.deepEqual(
     queryPayloadValidation("task-list", {
-      status: "edge_retired",
+      status: "retired",
       changedAfterRevision: -1,
       updatedAfter: "2026-09-01T00:00:00.000Z",
       updatedBefore: "2026-08-01T00:00:00.000Z",

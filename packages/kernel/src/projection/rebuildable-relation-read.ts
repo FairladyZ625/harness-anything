@@ -59,6 +59,9 @@ export const rebuildableRelationRequiredColumns = {
     "strength",
     "origin",
     "state",
+    "target_observed_version",
+    "current_target_version",
+    "freshness",
     "rationale",
     "owner_ref",
     "source_path",
@@ -115,6 +118,9 @@ function edgeRow(row: EdgeRecord): RelationGraphEdgeRow {
     strength: row.strength as RelationGraphEdgeRow["strength"],
     origin: row.origin as RelationGraphEdgeRow["origin"],
     state: row.state as RelationGraphEdgeRow["state"],
+    targetObservedVersion: row.target_observed_version,
+    currentTargetVersion: row.current_target_version,
+    freshness: row.freshness as RelationGraphEdgeRow["freshness"],
     rationale: row.rationale,
     ownerRef: row.owner_ref,
     sourcePath: row.source_path,
@@ -212,6 +218,9 @@ export interface EdgeRecord {
   readonly strength: string;
   readonly origin: string;
   readonly state: string;
+  readonly target_observed_version: string | number | null;
+  readonly current_target_version: string | number | null;
+  readonly freshness: string;
   readonly rationale: string;
   readonly owner_ref: string;
   readonly source_path: string;

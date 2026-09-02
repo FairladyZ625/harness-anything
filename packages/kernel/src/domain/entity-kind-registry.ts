@@ -26,7 +26,6 @@ import {
   relationDirections,
   relationOrigins,
   relationStates,
-  relationStrengths,
   relationTypes,
   type RelationDirection,
   type RelationType,
@@ -628,7 +627,7 @@ const decisionActionCatalog = Object.freeze({
 const relationActionInput = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
   Object.freeze({ schema: "entity-action-input/v1", fields, exactlyOneOf: [] });
 const relationExecutableAction = (
-  id: "relate" | "unrelate",
+  id: "relate" | "unrelate" | "reconfirm",
   input: EntityActionInputContract,
 ): EntityActionContract => {
   const declared = executableAction(
@@ -645,7 +644,7 @@ const relationExecutableAction = (
     criteria: Object.freeze([
       {
         ref: "relation/aggregate-revision",
-        failureCode: "revision_conflict",
+        failureCode: id === "reconfirm" ? "version_conflict" : "revision_conflict",
         explain: "The expected Relation aggregate revision must equal the projected revision at the canonical cut.",
       },
       {
@@ -674,7 +673,6 @@ const relationActionCatalog = Object.freeze({
         { field: "sourceRef", type: "string", required: true },
         { field: "targetRef", type: "string", required: true },
         { field: "relationType", type: "string", required: true, enum: relationTypes },
-        { field: "strength", type: "string", required: false, enum: relationStrengths },
         { field: "direction", type: "string", required: false, enum: relationDirections },
         { field: "origin", type: "string", required: false, enum: relationOrigins },
         { field: "rationale", type: "string", required: true },
@@ -686,6 +684,14 @@ const relationActionCatalog = Object.freeze({
       relationActionInput([
         { field: "relationId", type: "string", required: true, regex: relationIdentity.pattern },
         { field: "reason", type: "string", required: true },
+        { field: "expectedVersion", type: "number", required: true },
+      ]),
+    ),
+    relationExecutableAction(
+      "reconfirm",
+      relationActionInput([
+        { field: "relationId", type: "string", required: true, regex: relationIdentity.pattern },
+        { field: "rationale", type: "string", required: true },
         { field: "expectedVersion", type: "number", required: true },
       ]),
     ),

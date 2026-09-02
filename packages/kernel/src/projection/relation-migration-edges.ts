@@ -1,5 +1,9 @@
 import { parseEntityRef } from "../domain/entity-ref.ts";
-import { validateRelationRecordsForHost, type EntityRelationRecord } from "../domain/entity-relation.ts";
+import {
+  relationStrengthForType,
+  validateRelationRecordsForHost,
+  type EntityRelationRecord,
+} from "../domain/entity-relation.ts";
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { legacyRelationManualReason } from "./relation-migration-normalization.ts";
 
@@ -72,9 +76,17 @@ export function readMigrationRelationEdges(
       targetRef: entry.record.target,
       relationType: entry.record.type,
       direction: entry.record.direction,
-      strength: entry.record.strength,
+      strength: relationStrengthForType(entry.record.type),
       origin: entry.record.origin,
       state: entry.record.state,
+      targetObservedVersion:
+        "targetObservedVersion" in entry.record &&
+        (typeof entry.record.targetObservedVersion === "string" ||
+          typeof entry.record.targetObservedVersion === "number")
+          ? entry.record.targetObservedVersion
+          : null,
+      currentTargetVersion: null,
+      freshness: "suspect",
       rationale: entry.record.rationale,
       ownerRef: entry.ownerRef,
       sourcePath: entry.sourcePath,

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
+import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { createHarnessRuntimeContext, resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import {
@@ -25,6 +26,9 @@ export interface RelationGraphEdgeRow {
   readonly strength: EntityRelationRecord["strength"];
   readonly origin: EntityRelationRecord["origin"];
   readonly state: EntityRelationRecord["state"];
+  readonly targetObservedVersion: EntityVersion | null;
+  readonly currentTargetVersion: EntityVersion | null;
+  readonly freshness: RelationFreshness;
   readonly rationale: string;
   readonly ownerRef: string;
   readonly sourcePath: string;
@@ -80,11 +84,14 @@ export interface RelationGraphProjection {
 export function createRelationGraphProjectionTables(db: DatabaseSync): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS relation_edge (relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL,
-      state TEXT NOT NULL, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL);
+      state TEXT NOT NULL, target_observed_version, owner_ref TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS relation_edge_source ON relation_edge(source_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_target ON relation_edge(target_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_type_target ON relation_edge(relation_type, target_ref, state);
     CREATE INDEX IF NOT EXISTS relation_edge_state_page ON relation_edge(state, relation_id);
+    CREATE INDEX IF NOT EXISTS relation_edge_target_observation
+      ON relation_edge(target_ref, target_observed_version, relation_id);
   `);
 }
 

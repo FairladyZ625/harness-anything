@@ -2,6 +2,7 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
+import type { RelationFreshness } from "./entity-freshness.ts";
 
 export const relationTypes = [
   "supports",
@@ -29,13 +30,14 @@ export const relationTypes = [
 export const relationStrengths = ["strong", "weak"] as const;
 export const relationDirections = ["directed", "undirected"] as const;
 export const relationOrigins = ["declared", "imported_snapshot", "generated", "inferred"] as const;
-export const relationStates = ["active", "edge_retired", "deleted"] as const;
+export const relationStates = ["active", "retired"] as const;
 
 export type RelationType = (typeof relationTypes)[number];
 export type RelationStrength = (typeof relationStrengths)[number];
 export type RelationDirection = (typeof relationDirections)[number];
 export type RelationOrigin = (typeof relationOrigins)[number];
 export type RelationState = (typeof relationStates)[number];
+export type RelationConsumability = "consumable" | "warn" | "refuse";
 
 export interface EntityRelationRecord {
   readonly relation_id: string;
@@ -47,6 +49,17 @@ export interface EntityRelationRecord {
   readonly origin: RelationOrigin;
   readonly rationale: string;
   readonly state: RelationState;
+}
+
+export function relationStrengthForType(type: RelationType): RelationStrength {
+  return type === "relates" ? "weak" : "strong";
+}
+
+export function relationConsumability(
+  edge: Pick<EntityRelationRecord, "strength"> & { readonly freshness: RelationFreshness },
+): RelationConsumability {
+  if (edge.freshness === "current") return "consumable";
+  return edge.strength === "weak" ? "warn" : "refuse";
 }
 
 export type EntityRelationValidationIssueCode =
@@ -108,7 +121,7 @@ export function validateRelationRecordsForHost(
       continue;
     }
 
-    // The type-subset whitelist only governs live edges. Retired/deleted records are
+    // The type-subset whitelist only governs live edges. Retired records are
     // audit history: a migration retires an illegal edge in place, and re-validating the
     // corpse would permanently block every future write to the host document.
     if (record.state === "active" && !isAllowedRelationRecord(record, source.kind, target.kind, registry)) {

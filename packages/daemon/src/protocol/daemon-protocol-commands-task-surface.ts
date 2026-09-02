@@ -1,4 +1,4 @@
-import { relationStateWords } from "./daemon-protocol-vocabulary.ts";
+import { relationFreshnessWords, relationStateWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
   cliInput,
@@ -375,7 +375,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineRepoReadCommand({
     id: "relation-list",
-    phase: "W3",
+    phase: "Governed-Entity-W1-D",
     path: ["relation", "list"],
     summary: "Query first-class Relation aggregates from the canonical versioned projection.",
     method: "repo.task.read",
@@ -402,9 +402,19 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use active, edge_retired, or deleted.",
+          nextAction: "Use active or retired.",
         },
         { enum: relationStateWords },
+      ),
+      cliInput(
+        "--freshness",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+          nextAction: "Use current, suspect, or orphaned.",
+        },
+        { enum: relationFreshnessWords },
       ),
       cliInput(
         "--updated-after",

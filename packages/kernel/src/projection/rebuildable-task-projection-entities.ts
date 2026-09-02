@@ -12,25 +12,31 @@ import {
 import { entityKindContracts, type EntityKindContract } from "../domain/entity-kind-registry.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { EntityProjectionRow } from "./task-projection-port.ts";
+import type { EntityFreshness, EntityVersion } from "../domain/entity-freshness.ts";
 
 const UPSERT_ENTITY_SQL = [
-  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision, value_json)",
-  "VALUES (?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
-  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
+  "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision,",
+  "freshness, current_version, value_json)",
+  "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
+  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, freshness=excluded.freshness,",
+  "current_version=excluded.current_version, value_json=excluded.value_json",
   "WHERE entity_projection.workspace_revision <= excluded.workspace_revision",
 ].join(" ");
 const LIST_ENTITY_SQL = [
-  "SELECT entity_kind, entity_id, task_id, workspace_revision, value_json FROM entity_projection",
+  "SELECT entity_kind, entity_id, task_id, workspace_revision, freshness, current_version, value_json",
+  "FROM entity_projection",
   "WHERE entity_kind = ? ORDER BY entity_id",
 ].join(" ");
 const GET_ENTITY_SQL = [
-  "SELECT entity_kind, entity_id, task_id, workspace_revision, value_json FROM entity_projection",
+  "SELECT entity_kind, entity_id, task_id, workspace_revision, freshness, current_version, value_json",
+  "FROM entity_projection",
   "WHERE entity_kind = ? AND entity_id = ? LIMIT 1",
 ].join(" ");
 
 export function projectEmbeddedCanonicalEntities(db: DatabaseSync, event: CanonicalEventV1): void {
   for (const contract of entityKindContracts)
-    for (const projection of interpretEmbeddedEntityProjections(contract, event)) writeEntityProjection(db, projection);
+    for (const projection of interpretEmbeddedEntityProjections(contract, event))
+      writeEntityProjection(db, projection, "current", projection.workspaceRevision);
 }
 
 export function projectRuntimeSessionCanonicalEntity(
@@ -56,13 +62,20 @@ export function projectInterpretedEntityValue(
   entity: InterpretedEntityValue,
   workspaceRevision: number,
   sourcePath: string,
+  freshness: EntityFreshness = "current",
+  currentVersion: EntityVersion | null = workspaceRevision,
 ): InterpretedEntityProjection | null {
   const projection = deriveEntityProjection(contract, entity, workspaceRevision, sourcePath);
-  if (projection !== null) writeEntityProjection(db, projection);
+  if (projection !== null) writeEntityProjection(db, projection, freshness, currentVersion);
   return projection;
 }
 
-function writeEntityProjection(db: DatabaseSync, projection: InterpretedEntityProjection): void {
+function writeEntityProjection(
+  db: DatabaseSync,
+  projection: InterpretedEntityProjection,
+  freshness: EntityFreshness,
+  currentVersion: EntityVersion | null,
+): void {
   runSql(
     db,
     UPSERT_ENTITY_SQL,
@@ -70,6 +83,8 @@ function writeEntityProjection(db: DatabaseSync, projection: InterpretedEntityPr
     projection.id,
     projection.ownerId,
     projection.workspaceRevision,
+    freshness,
+    currentVersion,
     canonicalJson(projection.value),
   );
 }
@@ -91,7 +106,7 @@ export function deleteEntityProjectionRow(db: DatabaseSync, entityKind: string, 
   runSql(db, "DELETE FROM entity_projection WHERE entity_kind = ? AND entity_id = ?", entityKind, entityId);
 }
 
-export function advanceEntityProjectionRevision(
+export function markEntityProjectionMissing(
   db: DatabaseSync,
   entityKind: string,
   entityId: string,
@@ -99,7 +114,7 @@ export function advanceEntityProjectionRevision(
 ): void {
   runSql(
     db,
-    "UPDATE entity_projection SET workspace_revision = ? " +
+    "UPDATE entity_projection SET workspace_revision = ?, freshness = 'orphaned', current_version = NULL " +
       "WHERE entity_kind = ? AND entity_id = ? AND workspace_revision <= ?",
     workspaceRevision,
     entityKind,
@@ -117,6 +132,9 @@ function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProj
     id: String(row.entity_id),
     ownerId: row.task_id === null ? null : String(row.task_id),
     workspaceRevision: Number(row.workspace_revision),
+    freshness: String(row.freshness) as EntityFreshness,
+    currentVersion:
+      typeof row.current_version === "string" || typeof row.current_version === "number" ? row.current_version : null,
     value: value as Readonly<Record<string, unknown>>,
   };
 }

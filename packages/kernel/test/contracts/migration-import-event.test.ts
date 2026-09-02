@@ -154,7 +154,7 @@ test("truth-gap restatements preserve archived entities and retire unresolved ed
       direction: "directed" as const,
       origin: "imported_snapshot" as const,
       rationale: "The source endpoint has no active same-cut witness.",
-      state: "edge_retired" as const,
+      state: "retired" as const,
     },
     retired = {
       ...repoDocumentEvent("field-notes/retired.json"),

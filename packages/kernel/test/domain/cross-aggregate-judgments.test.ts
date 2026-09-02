@@ -249,7 +249,7 @@ test("fact liveness retires the target of the canonical supersedes-fact edge", (
   ];
   assert.equal(factLiveness({ ref: "fact/task/F-old" }, edges), "superseded_fact");
   assert.equal(factLiveness({ ref: "fact/task/F-new" }, edges), "standing");
-  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "edge_retired" }]), "standing");
+  assert.equal(factLiveness({ ref: "fact/task/F-old" }, [{ ...edges[0]!, state: "retired" }]), "standing");
 });
 
 test("coverage handles transitive evidence, delivered tasks, standing policy, and only live refuters", () => {
@@ -279,6 +279,8 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       targetRef: "decision/helper",
       relationType: "relates",
       state: "active",
+      strength: "weak" as const,
+      freshness: "current" as const,
     },
     {
       relationId: "evidence",
@@ -286,6 +288,8 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       targetRef: "fact/task/F-live",
       relationType: "evidenced-by",
       state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
     },
     {
       relationId: "delivery",
@@ -293,6 +297,8 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       targetRef: "task/done",
       relationType: "derives",
       state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
     },
     {
       relationId: "refute",
@@ -300,6 +306,8 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       targetRef: "fact/task/F-retired",
       relationType: "refuted-by",
       state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
     },
     {
       relationId: "retire",
@@ -307,6 +315,8 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       targetRef: "fact/task/F-retired",
       relationType: "supersedes-fact",
       state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
     },
   ];
   const rows = coverageOf(
@@ -323,6 +333,24 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
       { claimRef: "decision/policy/C1", status: "covered", relationPath: ["decision/policy"] },
     ],
   );
+  const staleStrong = coverageOf(
+    decisions,
+    [{ ref: "fact/task/F-live" }],
+    [{ ref: "task/done", status: "done" }],
+    relations.map((relation) =>
+      relation.relationId === "evidence" ? { ...relation, freshness: "suspect" as const } : relation,
+    ),
+  );
+  assert.equal(staleStrong[0]?.status, "uncovered", "suspect strong evidence is refused");
+  const staleWeak = coverageOf(
+    decisions,
+    [{ ref: "fact/task/F-live" }],
+    [{ ref: "task/done", status: "done" }],
+    relations.map((relation) =>
+      relation.relationId === "via" ? { ...relation, freshness: "suspect" as const } : relation,
+    ),
+  );
+  assert.equal(staleWeak[0]?.status, "covered", "suspect weak context remains warn-only");
 });
 
 test("freshness reason classifies uncovered causes once, in the domain", () => {
@@ -372,6 +400,8 @@ test("blocking applies depends-on to the source and releases it only when the ta
       relationType: "depends-on",
       direction: "directed",
       state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
       rationale: "a waits",
     };
   assert.deepEqual(
@@ -381,6 +411,15 @@ test("blocking applies depends-on to the source and releases it only when the ta
       { taskId: "b", state: "clear" },
     ],
   );
+  const refused = blockingOf(tasks, [{ ...relation, freshness: "suspect" as const }]);
+  assert.deepEqual(
+    refused.map(({ state }) => state),
+    ["unknown", "unknown"],
+    "a suspect strong dependency is refused instead of trusted as a blocker",
+  );
+  const warned = blockingOf(tasks, [{ ...relation, strength: "weak" as const, freshness: "suspect" as const }]);
+  assert.equal(warned[0]?.state, "blocked");
+  assert.match(warned[0]?.warnings[0] ?? "", /weak blocking relation/u);
   assert.deepEqual(
     blockingOf([{ ...tasks[0]! }, { ...tasks[1]!, status: "done" }], [relation]).map(({ state }) => state),
     ["clear", "clear"],

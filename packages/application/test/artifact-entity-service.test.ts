@@ -100,3 +100,29 @@ test("dry-run and missing resolution compile plans without mutating any dependen
   assert.equal(prepared.preview.dryRun, true);
   assert.equal(reads, 1);
 });
+
+test("a resolver network error is unknown, not an authoritative missing observation", async () => {
+  const current = { descriptor: null, revision: 4 } as const;
+  let operationReads = 0;
+  const service = makeArtifactEntityService({
+    contracts: [contract],
+    resolveSource: async () => {
+      throw new Error("network unavailable");
+    },
+    readCurrent: () => current,
+    readOperation: () => {
+      operationReads += 1;
+      return null;
+    },
+    countRelationChanges: () => 0,
+  });
+  await assert.rejects(
+    service.prepare(
+      { kind: contract.typeIdentity, locator: "docs/adr.md", expectedVersion: 4 },
+      { ...envelope, workspaceRevision: 5 },
+    ),
+    (error: unknown) => (error as { code?: string }).code === "source_resolution_failed",
+  );
+  assert.deepEqual(current, { descriptor: null, revision: 4 });
+  assert.equal(operationReads, 0, "a network error does not become an observation operation");
+});

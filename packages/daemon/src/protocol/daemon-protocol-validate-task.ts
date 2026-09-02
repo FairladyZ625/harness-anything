@@ -30,10 +30,12 @@ import {
 import {
   decisionStateWords,
   packageDispositionWords,
+  relationFreshnessWords,
   relationStateWords,
   taskBoardColumnWords,
   taskCapabilityIdWords,
   taskCapabilityReasonWords,
+  relationStrengthWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
@@ -451,9 +453,19 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
     !Array.isArray(value.decisionRelations) ||
     value.decisionRelations.some(
       (relation) =>
-        !exactRecord(relation, ["relationId", "sourceRef", "targetRef", "relationType", "state"]) ||
+        !exactRecord(relation, [
+          "relationId",
+          "sourceRef",
+          "targetRef",
+          "relationType",
+          "state",
+          "strength",
+          "freshness",
+        ]) ||
         ![relation.relationId, relation.sourceRef, relation.targetRef, relation.relationType].every(nonEmpty) ||
-        !statusWord(relationStateWords, relation.state),
+        !statusWord(relationStateWords, relation.state) ||
+        !statusWord(relationStrengthWords, relation.strength) ||
+        !statusWord(relationFreshnessWords, relation.freshness),
     )
   )
     paths.push("snapshot.decisionRelations");

@@ -74,27 +74,19 @@ export const executionAndRelationStatusWords: readonly StatusWordRegistration[] 
     word: "active",
     entity: "Relation",
     field: "state",
-    meaning: "Edge is load-bearing (not edge_retired, not deleted).",
+    meaning: "Edge is live and may be load-bearing when its freshness is consumable.",
     divergence: "divergent",
     resolution:
       "Bookkeeping liveness, unrelated to the other `active` concepts (Task/Execution/Package); stored in relation " +
       "records — CH2 proposal only.",
   },
   {
-    word: "edge_retired",
+    word: "retired",
     entity: "Relation",
     field: "state",
     meaning: "Edge was retired in place; kept as audit history.",
     divergence: "entity-scoped",
   },
-  {
-    word: "deleted",
-    entity: "Relation",
-    field: "state",
-    meaning: "Edge record removed from the live document.",
-    divergence: "entity-scoped",
-  },
-
   // ---- Package.disposition (task package lifecycle) ----
   {
     word: "active",

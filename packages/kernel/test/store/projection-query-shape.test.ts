@@ -67,7 +67,7 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
   const insertFact = db.prepare(
     "INSERT INTO fact(task_id, fact_id, ref, statement, evidence_source, observed_at, confidence, memory_class, op_id, workspace_revision, row_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
-  const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?)");
+  const insertEdge = db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'evidenced-by', 'active', ?, ?, ?, ?)");
   db.exec("BEGIN");
   for (let index = 0; index < facts; index += 1) {
     const taskId = `task-${index}`,
@@ -112,26 +112,33 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
     insertOption.run(decisionId, "O1", `option ${index}`, index + 1);
     insertClaim.run(decisionId, "C1", `claim ${index}`, index + 1);
     // Every claim reaches a live Fact, so the coverage walk does real work rather than exiting early.
-    const targetRef = `fact/F-${String(index % Math.max(facts, 1)).padStart(8, "0")}`;
+    const targetIndex = index % Math.max(facts, 1),
+      targetRef = `fact/F-${String(targetIndex).padStart(8, "0")}`,
+      targetVersion = targetIndex + 1;
     insertEdge.run(
       `rel_shape_${index}`,
       claimRef,
       targetRef,
+      targetVersion,
       root,
       index + 1,
       JSON.stringify({
-        relationId: `rel_shape_${index}`,
-        sourceRef: claimRef,
-        targetRef,
-        relationType: "evidenced-by",
-        direction: "directed",
-        strength: "strong",
-        origin: "authored",
-        state: "active",
-        rationale: "shape fixture",
-        ownerRef: root,
+        schema: "relation-projection/v1",
+        entity: {
+          kind: "relation",
+          id: `rel_shape_${index}`,
+          revision: index + 1,
+          source: claimRef,
+          target: targetRef,
+          type: "evidenced-by",
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          state: "active",
+          rationale: "shape fixture",
+          targetObservedVersion: targetVersion,
+        },
         sourcePath: `event:op-${index}`,
-        recordIndex: index,
       }),
     );
   }
@@ -359,7 +366,7 @@ test("task context collection reads stay indexed, bounded, and constant in state
       ["rel_bc", "task/b", "task/c"],
     ] as const)
       insertTask.run(relationId, source.slice(5), source, target, source);
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', ?, 1, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, 'derives', 'active', NULL, ?, 1, ?)").run(
       "rel_decision_a",
       "decision/dec_A/CH1",
       "task/a",
@@ -389,8 +396,8 @@ test("task context collection reads stay indexed, bounded, and constant in state
       derives.map(({ relationId }) => relationId),
       ["rel_decision_a"],
     );
-    assert.equal(afterClosure - before, 1);
-    assert.equal(afterTargets - afterClosure, 1);
+    assert.equal(afterClosure - before, 3);
+    assert.equal(afterTargets - afterClosure, 3);
     assert.throws(() => readTaskDependencyClosureRows(db, ["task/a"], 1), /depth limit/u);
     const closureRead = counted.reads().find(({ sql }) => sql.includes("WITH RECURSIVE dependency_walk"))!,
       targetRead = counted.reads().find(({ sql }) => sql.includes("requested_targets"))!;

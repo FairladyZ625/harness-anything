@@ -30,6 +30,7 @@ import {
 } from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRows } from "./relation-entity-projection.ts";
+import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -101,6 +102,7 @@ export function taskQueryApi(
   | "readRelationQuery"
   | "readOperation"
   | "readRelationTruth"
+  | "readEntityVersionWitness"
   | "readTaskOperation"
   | "readTaskCompletion"
   | "readRuntimeDispatch"
@@ -227,6 +229,8 @@ export function taskQueryApi(
           })),
         };
       }),
+    readEntityVersionWitness: (entityRef) =>
+      withDatabase(projectionPath, readHead, (db) => readEntityVersionWitness(db, entityRef)),
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row =

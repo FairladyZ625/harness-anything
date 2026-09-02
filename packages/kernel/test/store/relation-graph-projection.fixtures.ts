@@ -10,6 +10,7 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
+  relationStrengthForType,
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,
@@ -169,7 +170,7 @@ export function relation(input: Pick<EntityRelationRecord, "source" | "target" |
   return {
     relation_id: deriveRelationId(identity),
     ...identity,
-    strength: "strong",
+    strength: relationStrengthForType(input.type),
     origin: "declared",
     rationale: "Production entry fixture.",
     state: "active",
@@ -368,12 +369,12 @@ export function seedRelationProjection(projectionPath: string, includeTruthSourc
     db.exec(`
   CREATE TABLE projection_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL);
   CREATE TABLE task_projection (task_id TEXT PRIMARY KEY,title TEXT NOT NULL,parent_task_id TEXT,canonical_status TEXT NOT NULL,coordination_status TEXT NOT NULL,raw_status TEXT NOT NULL,package_disposition TEXT NOT NULL,closeout_readiness TEXT NOT NULL,lifecycle_engine TEXT NOT NULL,freshness TEXT NOT NULL,updated_at TEXT NOT NULL,source TEXT NOT NULL,source_path TEXT NOT NULL,work_kind TEXT,risk_tier TEXT,urgency TEXT,vertical TEXT,preset TEXT,profile TEXT,module_key TEXT,module_title TEXT,has_lesson_candidates INTEGER NOT NULL);
-  CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY,source_ref TEXT NOT NULL,target_ref TEXT NOT NULL,relation_type TEXT NOT NULL,direction TEXT NOT NULL,strength TEXT NOT NULL,origin TEXT NOT NULL,state TEXT NOT NULL,rationale TEXT NOT NULL,owner_ref TEXT NOT NULL,source_path TEXT NOT NULL,record_index INTEGER NOT NULL);
+  CREATE TABLE relation_edges (relation_id TEXT PRIMARY KEY,source_ref TEXT NOT NULL,target_ref TEXT NOT NULL,relation_type TEXT NOT NULL,direction TEXT NOT NULL,strength TEXT NOT NULL,origin TEXT NOT NULL,state TEXT NOT NULL,target_observed_version,current_target_version,freshness TEXT NOT NULL,rationale TEXT NOT NULL,owner_ref TEXT NOT NULL,source_path TEXT NOT NULL,record_index INTEGER NOT NULL);
   CREATE TABLE relation_coverage (claim_ref TEXT PRIMARY KEY,decision_ref TEXT NOT NULL,status TEXT NOT NULL,fulfillment TEXT NOT NULL,covering_fact_ref TEXT,refuting_fact_refs_json TEXT,relation_path_json TEXT NOT NULL);
   CREATE TABLE task_fact_anchors (fact_ref TEXT PRIMARY KEY,task_id TEXT NOT NULL,fact_id TEXT NOT NULL,source_path TEXT NOT NULL);
   CREATE TABLE task_fact_projection (fact_ref TEXT PRIMARY KEY,task_id TEXT NOT NULL,fact_id TEXT NOT NULL,schema_name TEXT NOT NULL,statement TEXT NOT NULL,source TEXT NOT NULL,observed_at TEXT NOT NULL,confidence TEXT NOT NULL,memory_class TEXT NOT NULL,memory_tags_json TEXT NOT NULL,provenance_json TEXT NOT NULL,liveness TEXT NOT NULL);
   INSERT INTO task_projection VALUES ('task-positive','Positive',NULL,'active','open','active','active','not_ready','kernel/task-lifecycle/v1','fresh','2026-08-14T00:00:00.000Z','local-document','harness/tasks/task-positive/INDEX.md',NULL,'medium','medium','software/coding','standard-task',NULL,'kernel','Kernel',0);
-  INSERT INTO relation_edges VALUES ('rel_positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','task/task-positive','derives','directed','strong','declared','active','positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','harness/decisions/decision-dec_01KXA7811SVVT8P66HNDFZQ7DF/decision.md',0);
+  INSERT INTO relation_edges VALUES ('rel_positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','task/task-positive','derives','directed','strong','declared','active',1,1,'current','positive','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','harness/decisions/decision-dec_01KXA7811SVVT8P66HNDFZQ7DF/decision.md',0);
   INSERT INTO relation_coverage VALUES ('decision/dec_01KXA7811SVVT8P66HNDFZQ7DF/CH1','decision/dec_01KXA7811SVVT8P66HNDFZQ7DF','covered','standing-policy',NULL,'[]','["rel_positive"]');
   INSERT INTO task_fact_anchors VALUES ('fact/F-POSITIVE','task-positive','F-POSITIVE','harness/facts/F-POSITIVE.md');
   INSERT INTO task_fact_projection VALUES ('fact/F-POSITIVE','task-positive','F-POSITIVE','task-fact-row/v1','Observed','fixture','2026-08-14T00:00:00.000Z','high','semantic','[]','[]','standing');`);

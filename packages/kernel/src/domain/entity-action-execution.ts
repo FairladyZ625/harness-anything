@@ -5,7 +5,13 @@ import type { ActorIdentity } from "./actor-identity.ts";
 import type { DecisionAmendableSnapshot, DecisionEventDraftV1 } from "./decision-event.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
-import { compileRelationCreatedEvent, compileRelationRetiredEvent, type RelationEventV1 } from "./relation-event.ts";
+import {
+  compileRelationCreatedEvent,
+  compileRelationReconfirmedEvent,
+  compileRelationRetiredEvent,
+  type RelationEventV1,
+} from "./relation-event.ts";
+import type { EntityVersion } from "./entity-freshness.ts";
 import {
   factMemoryTags,
   validDomainType,
@@ -87,6 +93,8 @@ export interface EntityActionCompileInput {
   readonly entityRevision?: number;
   readonly currentDocumentBlobSha256?: string | null;
   readonly currentDocumentBody?: string;
+  readonly priorTargetVersion?: EntityVersion | null;
+  readonly currentTargetVersion?: EntityVersion | null;
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -241,7 +249,7 @@ export function compileDecisionReckonAction(input: EntityActionCompileInput): En
   };
 }
 
-export function relationActionCompiler(id: "relate" | "unrelate"): EntityActionCompileHook {
+export function relationActionCompiler(id: "relate" | "unrelate" | "reconfirm"): EntityActionCompileHook {
   return (input) => {
     if (id === "unrelate")
       return {
@@ -256,6 +264,25 @@ export function relationActionCompiler(id: "relate" | "unrelate"): EntityActionC
           workspaceRevision: input.workspaceRevision,
         }),
       };
+    if (id === "reconfirm") {
+      const targetObservedVersion = input.currentTargetVersion;
+      if (targetObservedVersion === null || targetObservedVersion === undefined)
+        invalid(input, "Relation target must have a current version before it can be reconfirmed.");
+      return {
+        kind: "relation",
+        event: compileRelationReconfirmedEvent({
+          relationId: requiredText(input, input.action.relationId, "relationId"),
+          priorTargetVersion: input.priorTargetVersion ?? null,
+          targetObservedVersion,
+          rationale: requiredText(input, input.action.rationale, "rationale"),
+          actor: input.actor,
+          source: input.source,
+          opId: input.opId,
+          occurredAt: input.occurredAt,
+          workspaceRevision: input.workspaceRevision,
+        }),
+      };
+    }
     const identity = {
       source: requiredText(input, input.action.sourceRef, "sourceRef"),
       target: requiredText(input, input.action.targetRef, "targetRef"),
@@ -268,10 +295,10 @@ export function relationActionCompiler(id: "relate" | "unrelate"): EntityActionC
         record: {
           relation_id: deriveRelationId(identity),
           ...identity,
-          strength: (typeof input.action.strength === "string" ? input.action.strength : "strong") as "strong",
           origin: (typeof input.action.origin === "string" ? input.action.origin : "declared") as "declared",
           state: "active",
           rationale: requiredText(input, input.action.rationale, "rationale"),
+          targetObservedVersion: input.currentTargetVersion ?? null,
         },
         actor: input.actor,
         source: input.source,

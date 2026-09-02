@@ -19,6 +19,8 @@ import type { MigrationImportEventV1 } from "../domain/migration-import-event.ts
 import type { RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import { canonicalJson, queryRow, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { readEntityVersionWitness, readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
+import { relationFreshnessAtCut, type EntityVersionWitness } from "../domain/entity-freshness.ts";
 
 export const RELATION_PROJECTION_VERSION = "relation-projection/v1" as const;
 
@@ -37,16 +39,18 @@ export function applyRelationProjectionEvent(
   const relationId =
       migration?.kind === "relation" ? migration.relation.relation_id : (event as RelationEventV1).relationId,
     current = readRelationProjectionRow(db, relationId),
-    entity = reduceRelationEntity(current?.entity ?? null, event),
-    row = relationProjectionRow(entity, `event:${event.opId}`);
+    projectedEvent = relationEventWithTargetWitness(db, event),
+    entity = reduceRelationEntity(current?.entity ?? null, projectedEvent),
+    row = relationProjectionRow(db, entity, `event:${event.opId}`);
   runSql(
     db,
     [
       "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, " +
-        "state, owner_ref, workspace_revision, row_json)",
-      "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "state, target_observed_version, owner_ref, workspace_revision, row_json)",
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       "ON CONFLICT(relation_id) DO UPDATE SET source_ref=excluded.source_ref, target_ref=excluded.target_ref,",
-      "relation_type=excluded.relation_type, state=excluded.state, owner_ref=excluded.owner_ref,",
+      "relation_type=excluded.relation_type, state=excluded.state,",
+      "target_observed_version=excluded.target_observed_version, owner_ref=excluded.owner_ref,",
       "workspace_revision=excluded.workspace_revision, row_json=excluded.row_json",
       "WHERE relation_edge.workspace_revision < excluded.workspace_revision",
     ].join(" "),
@@ -55,6 +59,7 @@ export function applyRelationProjectionEvent(
     row.targetRef,
     row.relationType,
     row.state,
+    row.targetObservedVersion,
     row.ownerRef,
     row.workspaceRevision,
     canonicalJson(row),
@@ -67,6 +72,47 @@ export function applyRelationProjectionEvent(
   if (taskId && taskRelationReady)
     refreshTaskRelationProjection(db, taskId, null, row.workspaceRevision, entity.updatedAt);
   return row;
+}
+
+function relationEventWithTargetWitness(
+  db: DatabaseSync,
+  event: RelationEventV1 | MigrationImportEventV1,
+): RelationEventV1 | MigrationImportEventV1 {
+  if (event.schema === "migration-import-event/v1" && event.payload.entity.kind === "relation") {
+    const currentVersion = readEntityVersionWitness(db, event.payload.entity.relation.target).currentVersion;
+    return currentVersion === null
+      ? event
+      : ({
+          ...event,
+          payload: {
+            ...event.payload,
+            entity: {
+              ...event.payload.entity,
+              relation: { ...event.payload.entity.relation, targetObservedVersion: currentVersion },
+            },
+          },
+        } as MigrationImportEventV1);
+  }
+  if (event.schema !== "relation-event/v1") return event;
+  if (event.type !== "relation_created" && event.type !== "relation_replaced") return event;
+  if (event.payload.relation.targetObservedVersion !== null) return event;
+  const currentVersion = readEntityVersionWitness(db, event.payload.relation.target).currentVersion;
+  if (currentVersion === null) return event;
+  if (event.type === "relation_created")
+    return {
+      ...event,
+      payload: {
+        ...event.payload,
+        relation: { ...event.payload.relation, targetObservedVersion: currentVersion },
+      },
+    };
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      relation: { ...event.payload.relation, targetObservedVersion: currentVersion },
+    },
+  };
 }
 
 export function applyEmbeddedRelationProjectionEvents(
@@ -121,10 +167,25 @@ function projectDerivedRelation(
       actor: event.actor,
       source: event.source,
       occurredAt: event.occurredAt,
-      payload: { relation: record },
+      payload: {
+        relation: {
+          relation_id: record.relation_id,
+          source: record.source,
+          target: record.target,
+          type: record.type,
+          direction: record.direction,
+          origin: record.origin,
+          state: record.state,
+          rationale: record.rationale,
+          targetObservedVersion: readEntityVersionWitness(db, record.target).currentVersion,
+        },
+      },
     });
-  else if (canonicalJson(relationRecord(current.entity)) !== canonicalJson(record))
-    throw new Error(`Embedded relation ${record.relation_id} changed identity`);
+  else {
+    const { targetObservedVersion: _targetObservedVersion, ...projected } = relationRecord(current.entity);
+    if (canonicalJson(projected) !== canonicalJson(record))
+      throw new Error(`Embedded relation ${record.relation_id} changed identity`);
+  }
 }
 
 export function readRelationProjectionRow(db: DatabaseSync, relationId: string): VersionedRelationProjectionRow | null {
@@ -136,20 +197,32 @@ export function readRelationProjectionRow(db: DatabaseSync, relationId: string):
   if (!selected) return null;
   const value = JSON.parse(selected.row_json) as Partial<VersionedRelationProjectionRow>;
   return value.schema === RELATION_PROJECTION_VERSION && value.entity?.kind === "relation"
-    ? (value as VersionedRelationProjectionRow)
+    ? relationProjectionRow(db, value.entity as RelationEntity, String(value.sourcePath))
     : null;
 }
 
 export function readRelationProjectionRows(db: DatabaseSync): readonly VersionedRelationProjectionRow[] {
-  return queryRows<{ readonly row_json: string }>(db, "SELECT row_json FROM relation_edge ORDER BY relation_id")
+  const rows = queryRows<{ readonly row_json: string }>(db, "SELECT row_json FROM relation_edge ORDER BY relation_id")
     .map((row) => JSON.parse(row.row_json) as Partial<VersionedRelationProjectionRow>)
     .filter(
       (row): row is VersionedRelationProjectionRow =>
         row.schema === RELATION_PROJECTION_VERSION && row.entity?.kind === "relation",
     );
+  const witnesses = readEntityVersionWitnesses(
+    db,
+    rows.map(({ entity }) => entity.target),
+  );
+  return rows.map((row) => relationProjectionRow(db, row.entity, row.sourcePath, witnesses.get(row.entity.target)));
 }
 
-export function relationProjectionRow(entity: RelationEntity, sourcePath: string): VersionedRelationProjectionRow {
+export function relationProjectionRow(
+  db: DatabaseSync,
+  entity: RelationEntity,
+  sourcePath: string,
+  targetWitness?: EntityVersionWitness,
+): VersionedRelationProjectionRow {
+  const target = targetWitness ?? readEntityVersionWitness(db, entity.target),
+    freshness = relationFreshnessAtCut({ target, targetObservedVersion: entity.targetObservedVersion });
   return Object.freeze({
     schema: RELATION_PROJECTION_VERSION,
     entity,
@@ -162,6 +235,9 @@ export function relationProjectionRow(entity: RelationEntity, sourcePath: string
     strength: entity.strength,
     origin: entity.origin,
     state: entity.state,
+    targetObservedVersion: entity.targetObservedVersion,
+    currentTargetVersion: target.currentVersion,
+    freshness,
     rationale: entity.rationale,
     ownerRef: relationOwnerRef(entity.source),
     sourcePath,

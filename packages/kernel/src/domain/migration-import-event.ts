@@ -408,7 +408,8 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
     (relationStrengths as readonly unknown[]).includes(relation.strength) &&
     (relationDirections as readonly unknown[]).includes(relation.direction) &&
     (relationOrigins as readonly unknown[]).includes(relation.origin) &&
-    (relationStates as readonly unknown[]).includes(relation.state) &&
+    ((allowUnknownFields && typeof relation.state === "string") ||
+      (relationStates as readonly unknown[]).includes(relation.state)) &&
     isNonEmptyString(relation.rationale)
   );
 }

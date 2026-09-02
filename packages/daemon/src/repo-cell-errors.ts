@@ -101,6 +101,7 @@ export function fatalCellError(error: unknown): boolean {
         "legacy_shape",
         "op_conflict",
         "revision_conflict",
+        "version_conflict",
         "publication_indeterminate",
         "writer_rejected",
       ].includes(normalized.code);

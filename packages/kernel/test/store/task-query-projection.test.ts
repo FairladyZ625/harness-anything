@@ -273,20 +273,31 @@ test("historical task relation events replay into the Relation projection and su
         const task = event.payload.task as (typeof fixture.tasks)[number] & {
           readonly relations?: readonly EntityRelationRecord[];
         };
-        return (task.relations ?? []).map((relation, recordIndex) => ({
-          relationId: relation.relation_id,
-          sourceRef: relation.source,
-          targetRef: relation.target,
-          relationType: relation.type,
-          direction: relation.direction,
-          strength: relation.strength,
-          origin: relation.origin,
-          state: relation.state,
-          rationale: relation.rationale,
-          ownerRef: `task/${task.taskId}`,
-          sourcePath: `event:${event.opId}`,
-          recordIndex,
-        }));
+        return (task.relations ?? []).map((relation, recordIndex) => {
+          const targetTaskId = relation.target.slice("task/".length),
+            targetVersion = Math.max(
+              ...fixture.events
+                .filter((candidate) => candidate.taskId === targetTaskId)
+                .map(({ workspaceRevision }) => workspaceRevision),
+            );
+          return {
+            relationId: relation.relation_id,
+            sourceRef: relation.source,
+            targetRef: relation.target,
+            relationType: relation.type,
+            direction: relation.direction,
+            strength: relation.strength,
+            origin: relation.origin,
+            state: relation.state,
+            targetObservedVersion: targetVersion,
+            currentTargetVersion: targetVersion,
+            freshness: "current" as const,
+            rationale: relation.rationale,
+            ownerRef: `task/${task.taskId}`,
+            sourcePath: `event:${event.opId}`,
+            recordIndex,
+          };
+        });
       });
     const projected = projection.readTaskRelations();
     assert.equal(projected.status, "ready");
@@ -381,7 +392,7 @@ test("fact search pages concatenate to the full result, honor windows, and keep 
       insertFts.run(factId, row.statement, row.evidenceSource);
     }
     // fact/1 supersedes fact/0: the liveness computation must still see it through the narrowed fetch.
-    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+    db.prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)").run(
       "rel_sup_0",
       "fact/F-00000001",
       "fact/F-00000000",
