@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -122,7 +122,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       );
     assert.equal(secondary.outcome, "applied", JSON.stringify(secondary));
     assert.equal(
-      makeTaskEventStore({ repoId, rootDir })
+      makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.filter((event) => event.schema === "relation-event/v1").length,
       2,
@@ -143,7 +143,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
       ),
       true,
     );
-    const eventCountBeforeTargetUpdate = makeTaskEventStore({ repoId, rootDir }).read().events.length,
+    const eventCountBeforeTargetUpdate = makeTaskEventReader({ repoId, rootDir }).read().events.length,
       relationEventCountBeforeTargetUpdate = relationEventCount(rootDir, repoId),
       targetUpdated = await cell.run(
         {
@@ -154,7 +154,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
         binding,
       );
     assert.equal(targetUpdated.outcome, "applied", JSON.stringify(targetUpdated));
-    assert.equal(makeTaskEventStore({ repoId, rootDir }).read().events.length, eventCountBeforeTargetUpdate + 1);
+    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().events.length, eventCountBeforeTargetUpdate + 1);
     assert.equal(relationEventCount(rootDir, repoId), relationEventCountBeforeTargetUpdate);
     const suspectRows = relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding));
     assert.deepEqual(suspectRows.map(({ relationId: id }) => id).sort(), [relationId, secondaryId].sort());
@@ -247,7 +247,7 @@ function relationRows(receipt: { readonly evidence?: unknown }): readonly {
 }
 
 function relationEventCount(rootDir: string, repoId: string): number {
-  return makeTaskEventStore({ repoId, rootDir })
+  return makeTaskEventReader({ repoId, rootDir })
     .read()
     .events.filter((event) => event.schema === "relation-event/v1").length;
 }
