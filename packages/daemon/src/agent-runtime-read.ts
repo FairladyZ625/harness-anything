@@ -247,7 +247,7 @@ export function makeAgentRuntimeReadModel(input: {
     events: (payload: Readonly<Record<string, unknown>>): AgentRuntimeEventsResult => {
       const runtimeSessionIdValue = requiredRuntimeReadField(payload, "runtimeSessionId"),
         after = lifecycleCursor(requiredRuntimeReadField(payload, "afterCursor")),
-        source = input.store.readHead()?.revision ?? 0;
+        source = input.projection.readCut().watermark;
       if (after > source)
         throw coded("invalid_cursor", `Lifecycle cursor lifecycle:${after} is ahead of lifecycle:${source}.`);
       const matching = input.projection.readRuntimeSessionEvents(runtimeSessionIdValue, after, 65),

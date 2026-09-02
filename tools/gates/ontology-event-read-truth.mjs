@@ -7,6 +7,7 @@ import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ont
 const eventReadPaths = Object.freeze([
   "packages/daemon/src/task-query-read.ts",
   "packages/daemon/src/repo-cell-task-query.ts",
+  "packages/daemon/src/agent-runtime-read.ts",
 ]);
 const legacyReadCalls = new Set([
   "readRelationGraphProjection",
@@ -48,11 +49,63 @@ export function auditEventReadTruth(rootDir = process.cwd()) {
       }
       ts.forEachChild(node, visit);
     }
+    if (file === "packages/daemon/src/agent-runtime-read.ts") auditRuntimeEventCut(sourceFile, report);
   }
   const deduped = [
     ...new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.reason}`, finding])).values(),
   ];
   return { findings: deduped.sort((left, right) => left.file.localeCompare(right.file) || left.line - right.line) };
+}
+
+function auditRuntimeEventCut(sourceFile, report) {
+  let handler = null;
+  visit(sourceFile);
+  if (handler === null) {
+    report(sourceFile, "runtime event read handler is missing");
+    return;
+  }
+  const source = findNode(
+    handler,
+    (node) => ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "source",
+  );
+  if (!source || !projectionWatermark(source.initializer, sourceFile))
+    report(handler, "runtime event source cursor must come from the projection reader watermark");
+
+  function visit(node) {
+    if (
+      handler === null &&
+      ts.isPropertyAssignment(node) &&
+      node.name.getText(sourceFile) === "events" &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    )
+      handler = node.initializer;
+    ts.forEachChild(node, visit);
+  }
+}
+
+function findNode(root, matches) {
+  let found = null;
+  visit(root);
+  return found;
+
+  function visit(node) {
+    if (found !== null) return;
+    if (matches(node)) {
+      found = node;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+}
+
+function projectionWatermark(expression, sourceFile) {
+  return (
+    expression !== undefined &&
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "watermark" &&
+    ts.isCallExpression(expression.expression) &&
+    expression.expression.expression.getText(sourceFile) === "input.projection.readCut"
+  );
 }
 
 function callName(expression) {

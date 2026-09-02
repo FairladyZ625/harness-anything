@@ -149,9 +149,7 @@ export async function openRepoCellProxy(
         [
           "repo.entity.actions.explain",
           "repo.agentRuntime.overview",
-          "repo.agentRuntime.sessionGroups",
           "repo.agentRuntime.sessions.read",
-          "repo.agentRuntime.events.read",
         ] as readonly string[]
       ).includes(method),
       readStore = needsWalOverlay
