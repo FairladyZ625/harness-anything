@@ -637,10 +637,11 @@ export function validateSessionIdentity(value: unknown): value is SessionIdentit
       : isNonEmptyString(value.sessionId) && value.transcriptReachability !== "unavailable")
   );
 }
-export function validateSessionProvenance(value: unknown): value is SessionProvenanceV1 {
+export function validateSessionProvenance(value: unknown, allowUnknownFields = false): value is SessionProvenanceV1 {
+  const fields = ["runtime", "sessionId", "transcriptReachability", "boundAt"];
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ["runtime", "sessionId", "transcriptReachability", "boundAt"]) &&
+    (allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields)) &&
     validateSessionIdentity({
       runtime: value.runtime,
       sessionId: value.sessionId,
