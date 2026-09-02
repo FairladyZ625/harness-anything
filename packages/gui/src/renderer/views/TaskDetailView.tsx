@@ -9,6 +9,7 @@ import {
   PushPin,
   SealCheck,
   ShareNetwork,
+  TerminalWindow,
 } from "@phosphor-icons/react";
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
@@ -53,6 +54,7 @@ export function TaskDetailView({
   fromViewLabel = t("views.taskDetailView.workspace"),
   onNavigateDecision,
   onNavigateEntity,
+  onOpenTerminal,
   mutationFeedback,
   onProgress,
   onSubmit,
@@ -71,6 +73,8 @@ export function TaskDetailView({
   /** G10 实体互链:详情页内出现的其他实体 ID 必须有路;必填,不给回调就没有路。 */
   onNavigateDecision: (decisionId: string) => void;
   onNavigateEntity: (ref: string) => void;
+  /** 「打开终端」:在终端页建一个绑定本 task 的会话(App 负责切页与建会话)。 */
+  onOpenTerminal?: (task: TaskRow) => void;
   mutationFeedback?: TaskMutationFeedback;
   onProgress?: (input: {
     text: string;
@@ -147,6 +151,21 @@ export function TaskDetailView({
             <span className="whitespace-nowrap">
               <EngineBadge engine={task.engine} locked={external} />
             </span>
+            {onOpenTerminal && (
+              <button
+                type="button"
+                data-testid="task-detail-open-terminal"
+                onClick={() => onOpenTerminal(task)}
+                title={t("views.taskDetailView.openTerminal")}
+                className={[
+                  "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px]",
+                  "text-text-faint hover:border-border-strong hover:text-text-muted",
+                ].join(" ")}
+              >
+                <TerminalWindow weight="bold" />
+                {t("views.taskDetailView.openTerminal")}
+              </button>
+            )}
             {onSetPin ? (
               <button
                 type="button"

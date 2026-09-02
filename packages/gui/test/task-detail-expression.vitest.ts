@@ -222,6 +222,22 @@ afterEach(async () => {
 });
 
 describe("Task detail expression", () => {
+  it("offers an open-terminal action in the header only when the app wires one", async () => {
+    await mount();
+    expect(document.querySelector('[data-testid="task-detail-open-terminal"]')).toBeNull();
+    const opened: TaskRow[] = [];
+    onOpenTerminal = (row) => opened.push(row);
+    try {
+      await mount();
+      const button = document.querySelector<HTMLButtonElement>('[data-testid="task-detail-open-terminal"]');
+      expect(button?.textContent).toContain("打开终端");
+      await act(async () => button!.click());
+      expect(opened.map((row) => row.taskId)).toEqual([task.taskId]);
+    } finally {
+      onOpenTerminal = undefined;
+    }
+  });
+
   it("renders compact task identity, six task-first tabs and a permanent document tree", async () => {
     const bridge = installBridge();
     await mount();
@@ -563,6 +579,8 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
   return bridge;
 }
 
+let onOpenTerminal: ((task: TaskRow) => void) | undefined;
+
 async function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div"),
@@ -583,6 +601,7 @@ async function mount() {
           onSelect: () => undefined,
           onNavigateDecision: () => undefined,
           onNavigateEntity: () => undefined,
+          onOpenTerminal,
           projectName: "Harness",
         }),
       ),

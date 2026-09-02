@@ -48,5 +48,8 @@
   "terminal.view.splitLeft": "Split left",
   "terminal.view.splitUp": "Split up",
   "terminal.view.paneMenuAria": "Pane menu",
-  "terminal.view.dragHandleTitle": "Drag onto another pane to rearrange"
+  "terminal.view.dragHandleTitle": "Drag onto another pane to rearrange",
+  "terminal.view.taskPickerPlaceholder": "Search task title or id…",
+  "terminal.view.taskPickerEmpty": "No matching task",
+  "terminal.view.taskPickerMore": "{count} more — keep typing to narrow down"
 }

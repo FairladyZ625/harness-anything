@@ -351,6 +351,81 @@ describe("Ctrl+` shortcut wiring", () => {
   });
 });
 
+/** 受控 input:必须走原生 value setter 再派 input,否则 React 的 value tracker 会把事件当无变化吞掉。 */
+function typeInto(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+describe("task binding (searchable picker + open-from-task-detail)", () => {
+  const manyTasks = Array.from({ length: 300 }, (_, index) => ({
+    taskId: `task_${String(index).padStart(4, "0")}`,
+    title: index === 42 ? "Fix xterm colour palette" : `Task number ${index}`,
+  }));
+
+  it("filters thousands of tasks by title or id and binds the picked one to the custom launch", async () => {
+    const { bridge } = stubBridge([sessionRow()], null); // 已有会话 → 进页只附加,不自动 spawn。
+    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: manyTasks });
+    await flush();
+    const picker = container!.querySelector<HTMLInputElement>('[data-testid="terminal-task-picker"]')!;
+    act(() => picker.focus());
+    // 打开后只列前 40 条,余量用提示承接,几千个 option 不进 DOM。
+    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(41);
+    expect(container!.textContent).toContain("260");
+    act(() => typeInto(picker, "colour"));
+    const options = [...container!.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+    expect(options.map((option) => option.textContent)).toEqual(["unbound", "Fix xterm colour palettetask_0042"]);
+    act(() => options[1].click());
+    expect(picker.value).toBe("Fix xterm colour palette");
+    expect(picker.title).toBe("task_0042");
+    act(() => typeInto(picker, "task_00"));
+    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(41);
+    act(() => picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(container!.querySelector('[data-testid="terminal-task-picker-list"]')).toBeNull();
+    const form = picker.closest("form")!;
+    act(() => form.requestSubmit());
+    await flush();
+    expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
+    expect(bridge.spawnTerminal.mock.calls[0][0]).toMatchObject({ taskId: "task_0042" });
+  });
+
+  it("spawns one session bound to the launch task when entered from task detail, even under StrictMode", async () => {
+    const { bridge } = stubBridge([], null);
+    const launchTask = { requestId: "req-1", taskId: "task_0042", title: "Fix xterm colour palette" };
+    container = document.createElement("div");
+    document.body.append(container);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(
+          StrictMode,
+          null,
+          createElement(
+            QueryClientProvider,
+            { client },
+            createElement(TerminalView, {
+              repoId: "repo-a",
+              daemonGeneration: null,
+              tasks: manyTasks,
+              repoRoot: null,
+              launchTask,
+              onNavigateEntity: () => undefined,
+              onOpenDocument: () => undefined,
+            }),
+          ),
+        ),
+      );
+    });
+    await flush();
+    expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
+    expect(bridge.spawnTerminal.mock.calls[0][0]).toMatchObject({
+      taskId: "task_0042",
+      name: "Fix xterm colour palette",
+    });
+  });
+});
+
 describe("terminal links dispatch (PLT-TerminalWorkspace W2)", () => {
   function attachBridge() {
     return stubBridge([sessionRow()], {

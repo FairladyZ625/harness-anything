@@ -685,5 +685,6 @@
   "views.overviewView.statsRevisionUnknown": "ledger cut not read yet, revision pair unknown",
   "views.overviewView.statsAnomalyDaemon": "daemon unresponsive",
   "views.overviewView.statsAnomalyProjection": "projection behind by {lag}",
-  "views.overviewView.statsAnomalyRead": "read failed"
+  "views.overviewView.statsAnomalyRead": "read failed",
+  "views.taskDetailView.openTerminal": "Open terminal"
 }
