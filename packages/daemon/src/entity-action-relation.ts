@@ -35,12 +35,12 @@ export function executeRelationAction(input: {
   const requestedRelationId =
       action.kind === "relation-relate"
         ? deriveRelationId({
-            source: requiredText(action.sourceRef, "sourceRef"),
-            target: requiredText(action.targetRef, "targetRef"),
-            type: requiredText(action.relationType, "relationType") as never,
+            source: requiredRelationText(action.sourceRef, "sourceRef"),
+            target: requiredRelationText(action.targetRef, "targetRef"),
+            type: requiredRelationText(action.relationType, "relationType") as never,
             direction: (typeof action.direction === "string" ? action.direction : "directed") as "directed",
           })
-        : requiredText(action.relationId, "relationId"),
+        : requiredRelationText(action.relationId, "relationId"),
     current = input.projection.readRelationTruth().edges.find((edge) => edge.relationId === requestedRelationId) as
       | (ReturnType<TaskProjection["readRelationTruth"]>["edges"][number] & {
           readonly workspaceRevision?: number;
@@ -182,7 +182,7 @@ function noChanges(input: {
   } as WriteReceipt;
 }
 
-function requiredText(value: unknown, field: string): string {
+function requiredRelationText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
 }

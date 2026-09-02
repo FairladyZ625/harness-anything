@@ -1,4 +1,5 @@
 import type { FactEventDraftV1 } from "../../src/domain/fact-event.ts";
+import { relationStrengthForType } from "../../src/domain/entity-relation.ts";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -10,7 +11,6 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
-  relationStrengthForType,
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,

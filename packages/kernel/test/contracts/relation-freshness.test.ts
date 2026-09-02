@@ -1,13 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  deriveRelationId,
-  relationConsumability,
-  relationFreshnessAtCut,
-  relationStrengthForType,
-  relationTypes,
-} from "../../src/index.ts";
+import { deriveRelationId, relationTypes } from "../../src/index.ts";
+import { relationConsumability, relationStrengthForType } from "../../src/domain/entity-relation.ts";
+import { relationFreshnessAtCut } from "../../src/domain/entity-freshness.ts";
 import {
   compileRelationCreatedEvent,
   validateCurrentRelationEvent,
