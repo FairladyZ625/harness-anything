@@ -153,9 +153,8 @@ export async function runCommandThroughDaemon(
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
-  const transport = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
-    requestLocalDaemonJsonRpcForTarget =
-      timeRequest?.(transport.requestLocalDaemonJsonRpcForTarget) ?? transport.requestLocalDaemonJsonRpcForTarget,
+  const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
+    requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show",
     env = options.env ?? process.env;
   if (command.action.kind === "repo-bootstrap") {
