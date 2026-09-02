@@ -990,7 +990,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           repo: { repoId },
           payload: { runtimeSessionId: readOnly.runtimeSessionId },
         });
-        return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+        // A read racing the writer's projection catch-up can observe the session before it is
+        // projected (runtime_session_not_found), which returns a receipt with no `session` at
+        // all -- keep polling rather than crashing on that transient shape.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
     assert.deepEqual(
       (
@@ -1018,7 +1021,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           repo: { repoId },
           payload: { runtimeSessionId: noAction.runtimeSessionId },
         });
-        return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+        // A read racing the writer's projection catch-up can observe the session before it is
+        // projected (runtime_session_not_found), which returns a receipt with no `session` at
+        // all -- keep polling rather than crashing on that transient shape.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
     assert.deepEqual(
       (
@@ -1046,7 +1052,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           repo: { repoId },
           payload: { runtimeSessionId: noWrite.runtimeSessionId },
         });
-        return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+        // A read racing the writer's projection catch-up can observe the session before it is
+        // projected (runtime_session_not_found), which returns a receipt with no `session` at
+        // all -- keep polling rather than crashing on that transient shape.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
     assert.deepEqual(
       (
@@ -1074,7 +1083,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           repo: { repoId },
           payload: { runtimeSessionId: denied.runtimeSessionId },
         });
-        return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+        // A read racing the writer's projection catch-up can observe the session before it is
+        // projected (runtime_session_not_found), which returns a receipt with no `session` at
+        // all -- keep polling rather than crashing on that transient shape.
+        return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
     assert.deepEqual(
       (
@@ -1102,7 +1114,9 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         repo: { repoId },
         payload: { runtimeSessionId: empty.runtimeSessionId },
       });
-      return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+      // See the comment above the first occurrence of this guard: a read racing the writer's
+      // projection catch-up can return a receipt with no `session` yet.
+      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
     });
     assert.deepEqual(
       (
@@ -1135,7 +1149,9 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         repo: { repoId },
         payload: { runtimeSessionId: stderrFailure.runtimeSessionId },
       });
-      return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+      // See the comment above the first occurrence of this guard: a read racing the writer's
+      // projection catch-up can return a receipt with no `session` yet.
+      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
     });
     assert.match(
       String((stderrRead.result as Record<string, unknown>).text),
@@ -1161,7 +1177,9 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         repo: { repoId },
         payload: { runtimeSessionId: structured.runtimeSessionId },
       });
-      return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+      // See the comment above the first occurrence of this guard: a read racing the writer's
+      // projection catch-up can return a receipt with no `session` yet.
+      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
     });
     assert.match(String((structuredRead.result as Record<string, unknown>).text), /structured provider failure/u);
     assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
@@ -1416,7 +1434,9 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
           repo: { repoId },
           payload: { runtimeSessionId: spawned.runtimeSessionId },
         });
-        return (value.session as Record<string, unknown>).liveness === "exited" ? value : null;
+        // See the comment above the `.activity` polling guards: a read racing the writer's
+        // projection catch-up can return a receipt with no `session` yet.
+        return (value.session as Record<string, unknown> | undefined)?.liveness === "exited" ? value : null;
       });
       assert.equal(
         (read.session as Record<string, unknown>).activity &&
@@ -1591,7 +1611,9 @@ test("agy consumes only its closed stream-json event protocol", async () => {
         repo: { repoId },
         payload: { runtimeSessionId: rejected.runtimeSessionId },
       });
-      return (value.session as { activity: { outcome: unknown } }).activity.outcome ? value : null;
+      // See the comment above the first occurrence of this guard: a read racing the writer's
+      // projection catch-up can return a receipt with no `session` yet.
+      return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
     });
     assert.equal((rejectedRead.session as { activity: { outcome: string } }).activity.outcome, "succeeded");
     assert.equal((rejectedRead.result as Record<string, unknown>).text, "");
