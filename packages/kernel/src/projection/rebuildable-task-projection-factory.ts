@@ -31,14 +31,17 @@ import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import type { TaskProjection } from "./task-projection-port.ts";
+import type { TaskProjection, TaskProjectionQueries, TaskProjectionReader } from "./task-projection-port.ts";
 import type { EventStreamPort, ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import {
   closeDatabase,
   discardDatabase,
   ProjectionIdentityMismatchError,
+  projectionSchemaVersion,
   withDatabase,
+  withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
+import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { catchUpRound, reduceBatch } from "./rebuildable-task-projection-catch-up.ts";
 import { listProjection, readProjection, rebuildProjection } from "./rebuildable-task-projection-reads.ts";
 import { knowledgeQueryApi } from "./rebuildable-task-projection-knowledge-queries.ts";
@@ -179,5 +182,125 @@ export function makeTaskProjection(options: {
     ...taskQueryApi(context),
     ...knowledgeQueryApi(context),
     ...runtimeLeaseApi(context),
+  };
+}
+
+export function makeTaskProjectionReader(options: {
+  readonly rootDir: string;
+  readonly projectionPath?: string;
+  readonly now?: () => string;
+}): TaskProjectionReader {
+  const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir),
+    now = options.now ?? (() => new Date().toISOString());
+  let publishedHead: ReturnType<EventStreamPort["readHead"]> = null;
+  const readHead = () => publishedHead,
+    unavailableSource: EventStreamPort = {
+      readHead,
+      readBatch: () => {
+        throw new Error("query-only projection reader cannot catch up from the canonical event source");
+      },
+      readContentBlob: () => null,
+    },
+    context: ProjectionContext = {
+      projectionPath,
+      readHead,
+      eventStore: unavailableSource,
+      limit: 4096,
+      now,
+    },
+    taskQueries = taskQueryApi(context),
+    knowledgeQueries = knowledgeQueryApi(context),
+    runtimeQueries = runtimeLeaseApi(context),
+    queries: TaskProjectionQueries = {
+      path: projectionPath,
+      readStateDigest: () => withDatabase(projectionPath, readHead, readStateDigest),
+      readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
+      read: (taskId) => readProjection(projectionPath, readHead, unavailableSource, taskId, 4096, now),
+      list: (query) => listProjection(projectionPath, readHead, unavailableSource, 4096, now, query),
+      ...entityQueryApi(context),
+      readTaskIndex: taskQueries.readTaskIndex,
+      readWorkspaceSummary: taskQueries.readWorkspaceSummary,
+      readTaskRelations: taskQueries.readTaskRelations,
+      readTaskDependencyClosure: taskQueries.readTaskDependencyClosure,
+      readTaskRelationsByTargets: taskQueries.readTaskRelationsByTargets,
+      readTaskStatuses: taskQueries.readTaskStatuses,
+      readTaskRuntimeBatch: taskQueries.readTaskRuntimeBatch,
+      readRelationQuery: taskQueries.readRelationQuery,
+      readOperation: taskQueries.readOperation,
+      readRelationTruth: taskQueries.readRelationTruth,
+      readTaskOperation: taskQueries.readTaskOperation,
+      readTaskCompletion: taskQueries.readTaskCompletion,
+      readRuntimeDispatch: taskQueries.readRuntimeDispatch,
+      readRuntimeDispatches: taskQueries.readRuntimeDispatches,
+      readRuntimeSessionEvents: taskQueries.readRuntimeSessionEvents,
+      readCanonicalEvents: taskQueries.readCanonicalEvents,
+      readCiRunObservations: taskQueries.readCiRunObservations,
+      readDocument: taskQueries.readDocument,
+      readReplicaBasis: taskQueries.readReplicaBasis,
+      taskIdForDocumentPath: taskQueries.taskIdForDocumentPath,
+      readPresetSnapshot: taskQueries.readPresetSnapshot,
+      readProgress: taskQueries.readProgress,
+      readFact: knowledgeQueries.readFact,
+      searchFacts: knowledgeQueries.searchFacts,
+      listFactDomainTypes: knowledgeQueries.listFactDomainTypes,
+      readFactAnchors: knowledgeQueries.readFactAnchors,
+      readFactGraph: knowledgeQueries.readFactGraph,
+      readDecision: knowledgeQueries.readDecision,
+      readDecisions: knowledgeQueries.readDecisions,
+      listDecisions: knowledgeQueries.listDecisions,
+      listDecisionAgendaPage: knowledgeQueries.listDecisionAgendaPage,
+      readDecisionGraph: knowledgeQueries.readDecisionGraph,
+      readLeaseIntervals: runtimeQueries.readLeaseIntervals,
+      currentLease: runtimeQueries.currentLease,
+      currentLeaseForExecution: runtimeQueries.currentLeaseForExecution,
+      readRuntimeInstallation: runtimeQueries.readRuntimeInstallation,
+      readRuntimeInstallations: runtimeQueries.readRuntimeInstallations,
+      readRuntimeSession: runtimeQueries.readRuntimeSession,
+      readRuntimeSessions: runtimeQueries.readRuntimeSessions,
+      readRuntimeSessionsForTask: runtimeQueries.readRuntimeSessionsForTask,
+      readRuntimeSessionPage: runtimeQueries.readRuntimeSessionPage,
+      squadRunProjectionReady: runtimeQueries.squadRunProjectionReady,
+      readSquadRun: runtimeQueries.readSquadRun,
+      readSquadRuns: runtimeQueries.readSquadRuns,
+    };
+  return {
+    path: projectionPath,
+    withSession: (read) =>
+      withQueryOnlyDatabaseSession(projectionPath, readHead, (db) => {
+        const observedSchema = projectionSchemaVersion(db);
+        if (observedSchema !== taskProjectionSchemaVersion)
+          throw Object.assign(
+            new Error(
+              `kernel projection schema ${observedSchema ?? "missing"} does not match supported schema ${taskProjectionSchemaVersion}; writer recovery must publish a compatible generation`,
+            ),
+            { code: "kernel_schema_mismatch" },
+          );
+        const row = db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as
+          | { readonly watermark: number }
+          | undefined;
+        if (row === undefined) throw new Error("projection metadata is unavailable");
+        const watermark = Number(row.watermark),
+          event =
+            watermark === 0
+              ? undefined
+              : (db.prepare("SELECT event_json FROM event_index WHERE workspace_revision = ?").get(watermark) as
+                  | { readonly event_json: string }
+                  | undefined);
+        if (watermark > 0 && event === undefined)
+          throw new Error(`projection completed cut ${watermark} has no canonical event`);
+        publishedHead =
+          event === undefined
+            ? null
+            : {
+                revision: watermark,
+                eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(JSON.parse(event.event_json)))}`,
+              };
+        try {
+          return read(queries);
+        } finally {
+          publishedHead = null;
+        }
+      }),
+    close: () => undefined,
   };
 }

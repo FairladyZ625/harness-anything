@@ -284,8 +284,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   runEventShapeMigration,
+  makeTaskProjectionReader,
   runWalMaterializationRequest,
-  WAL_MATERIALIZATION_WORKER_KIND,
 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
@@ -300,6 +300,9 @@ export type {
   ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskProjectionQueries,
+  TaskProjectionReader,
+  TaskProjectionWriter,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,

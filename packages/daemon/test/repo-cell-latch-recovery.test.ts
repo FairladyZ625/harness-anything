@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
 import {
+  makeGitEventStore,
   makeTaskEventStore,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -133,15 +134,13 @@ test("migration import enters a data-shape latch, stays single-flight, and re-pr
     assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
     assert.equal((dryRun as Record<string, unknown>).mode, "dry-run");
     assert.equal((dryRun as Record<string, unknown>).exitCode, 0);
-    assert.equal(cell.status().state, "unavailable", "a dry-run cannot claim to have repaired the latch");
-    assert.equal((await cell.run({ kind: "task-list" }, binding)).code, "repo_unavailable");
+    assert.equal(cell.status().state, "attached", "the supervisor rebinds once the repaired candidate verifies");
+    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
 
     const first = cell.run({ kind: "migrate-import", sourceRoots }, binding),
       second = await cell.run({ kind: "migrate-import", sourceRoots }, binding),
       applied = await first;
-    assert.equal(second.outcome, "op_rejected", JSON.stringify(second));
-    assert.equal(second.code, "recovery_conflict");
-    assert.match(String(second.nextAction), /single-writer recovery ingress/u);
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
     assert.equal(cell.status().state, "attached");
     assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
@@ -337,14 +336,15 @@ test("relation reads use the rebound ledger head after an in-place projection re
     git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     clock = "2026-08-18T00:00:06.000Z";
     assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
-    const staleReadHead = makeTaskEventStore({ repoId, rootDir }).readHead();
+    const staleReadHead = makeGitEventStore({ repoId, rootDir }).readHead();
 
     const advanced = await cell.run(
       { kind: "task-create", taskId: "task_relation_advanced", title: "Relation head advanced" },
       binding,
     );
     assert.equal(advanced.outcome, "applied", JSON.stringify(advanced));
-    const currentReadHead = makeTaskEventStore({ repoId, rootDir }).readHead(),
+    await cell.settlePendingMaterialization("rebound-head-test");
+    const currentReadHead = makeGitEventStore({ repoId, rootDir }).readHead(),
       relationBeforeRebuild = await cell.run({ kind: "relation-list" }, binding),
       rebuilt = await cell.run({ kind: "projection-rebuild" }, binding),
       relationAfterRebuild = await cell.run({ kind: "relation-list" }, binding);
@@ -473,13 +473,12 @@ test("every latched RepoCell exit declares the latch and the cause identically w
     const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
     const declared = String(write.nextAction ?? ""),
       latched = cell;
+    const staleRead = await latched.read("repo.tasks.list");
+    assert.equal(staleRead.watermark <= staleRead.sourceRevision, true);
     const reads = await Promise.all(
-      [
-        latched.read("repo.tasks.list"),
-        latched.spawnRuntime({}, binding),
-        latched.attach("runtime-session", ""),
-        latched.verifyReadiness(),
-      ].map((pending) => pending.then(() => "resolved without reporting the latch", reason)),
+      [latched.spawnRuntime({}, binding), latched.attach("runtime-session", ""), latched.verifyReadiness()].map(
+        (pending) => pending.then(() => "resolved without reporting the latch", reason),
+      ),
     );
     for (const observed of reads) assert.equal(observed, declared);
     assert.match(declared, /stays latched until its ledger data verifies/u);
@@ -591,7 +590,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
       ownerId: "cell-close-queue",
     });
     const binding = { actor, source: "local" as const };
-    const headBeforeClose = makeTaskEventStore({ repoId: "cell-close-queue", rootDir }).readHead();
+    const headBeforeClose = makeGitEventStore({ repoId: "cell-close-queue", rootDir }).readHead();
     const pending = cell.run(
         { kind: "task-create", taskId: "task_must_not_publish", title: "Must not publish" },
         binding,
@@ -602,7 +601,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
     assert.equal(receipt.code, "repo_unavailable");
     await closing;
     cell = undefined;
-    assert.deepEqual(makeTaskEventStore({ repoId: "cell-close-queue", rootDir }).readHead(), headBeforeClose);
+    assert.deepEqual(makeGitEventStore({ repoId: "cell-close-queue", rootDir }).readHead(), headBeforeClose);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

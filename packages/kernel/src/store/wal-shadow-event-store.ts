@@ -41,7 +41,8 @@ import type {
   WalMaterializationFailureV1,
   WalMaterializationSuccessV1,
 } from "./wal-materialization-protocol.ts";
-import { openWalMaterializationWorker } from "./wal-materialization-worker.ts";
+import { runWalMaterializationRequest } from "./wal-materialization-worker.ts";
+import type { WalMaterializationRequestV1, WalMaterializationResponseV1 } from "./wal-materialization-protocol.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
@@ -65,10 +66,14 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   readonly walRetryBaseMs?: number;
   /** Runs after a WAL cut is durable and Git state has been reloaded. */
   readonly afterFlush?: (actor: ActorIdentity, inventory: unknown | null) => void | Promise<void>;
-  readonly walMaterializationWorkerUrl?: URL;
+  /** Executes materialization in the RepoWriterCell that owns this WAL. */
+  readonly walMaterialize?: (
+    config: import("./wal-materialization-protocol.ts").WalMaterializationWorkerConfig,
+    request: WalMaterializationRequestV1,
+  ) => WalMaterializationResponseV1 | Promise<WalMaterializationResponseV1>;
   readonly walMaterializationFence?: () => WalMaterializationFenceV1 | null;
   readonly walMaterializationSpan?: (span: {
-    readonly name: "materialization" | "fingerprint" | "checkpoint";
+    readonly name: "materialization" | "fingerprint";
     readonly durationMs: number;
     readonly throughRevision: number;
   }) => void;
@@ -99,15 +104,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let gitStream: CanonicalEventStreamV1 | null = null;
   let mergedStream: CanonicalEventStreamV1 | null = null;
   const wal = openWalEventLog(rootDir);
-  const materializationWorker = openWalMaterializationWorker(
-    {
-      schema: "harness-wal-materialization-worker/v1",
-      repoId: options.repoId,
-      rootDir,
-      ...(options.authoredBranch ? { authoredBranch: options.authoredBranch } : {}),
-    },
-    options.walMaterializationWorkerUrl,
-  );
+  const materializationConfig = {
+    schema: "harness-wal-materialization-worker/v1",
+    repoId: options.repoId,
+    rootDir,
+    ...(options.authoredBranch ? { authoredBranch: options.authoredBranch } : {}),
+  } as const;
+  const materialize = options.walMaterialize ?? runWalMaterializationRequest;
   const retryLimit = positive(options.walRetryLimit, "HARNESS_WAL_RETRY_LIMIT", DEFAULT_RETRY_LIMIT);
   const retryBaseMs = positive(options.walRetryBaseMs, "HARNESS_WAL_RETRY_BASE_MS", DEFAULT_RETRY_BASE_MS);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -222,14 +225,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     lastFlushError = null;
     return true;
   };
-  const reportSpan = (
-    name: "materialization" | "fingerprint" | "checkpoint",
-    durationMs: number,
-    throughRevision: number,
-  ): void => {
+  const reportSpan = (name: "materialization" | "fingerprint", durationMs: number, throughRevision: number): void => {
     options.walMaterializationSpan?.({ name, durationMs, throughRevision });
-    if (name === "checkpoint")
-      console.info(`[wal-materializer] checkpoint through revision ${throughRevision} took ${durationMs.toFixed(3)}ms`);
   };
   const trackSettlement = (intent: WalMaterializationSuccessV1["settlementIntent"]): void => {
     if (!intent || !options.afterFlush) return;
@@ -250,7 +247,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       if ("delete" in file) files.delete(file.delete);
       else files.set(file.target, { mode: file.mode, oid: file.oid });
   };
-  const reconcileMaterializedCut = (
+  const acceptMaterializedCut = (
     requestCut: WalDurableCutDescriptor,
     response: WalMaterializationSuccessV1,
     gitRevisionBeforeFlush: number,
@@ -266,9 +263,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       !/^[0-9a-f]{40}$/u.test(response.git.commitSha)
     )
       throw new TaskEventStoreError("invalid_store", "worker returned a materialization receipt for the wrong WAL cut");
-    const checkpointStarted = performance.now();
+    // Materialization and destructive checkpoint execute in this RepoWriterCell
+    // against its one mutable WalEventLog owner.
     wal.checkpointCut(requestCut);
-    const checkpointMs = performance.now() - checkpointStarted;
     git.acceptMaterializedCut(response.git);
     gitHead = response.git.head;
     gitLayout = response.git.layout;
@@ -285,7 +282,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     lastSettlementFingerprint = response.settlementFingerprint;
     reportSpan("materialization", response.spans.materializationMs, requestCut.throughRevision);
     reportSpan("fingerprint", response.spans.fingerprintMs, requestCut.throughRevision);
-    reportSpan("checkpoint", checkpointMs, requestCut.throughRevision);
     trackSettlement(response.settlementIntent);
   };
   const materializationError = (failure: WalMaterializationFailureV1): Error => {
@@ -312,8 +308,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           : undefined;
     if (fault) remainingTestFaults -= 1;
     try {
-      const response = await materializationWorker.materialize({
+      const response = await materialize(materializationConfig, {
         schema: "harness-wal-materialization-request/v1",
+        requestId: randomUUID(),
         cut,
         expectedGit: {
           revision: gitRevisionBeforeFlush,
@@ -327,7 +324,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         ...(fault ? { testFault: fault } : {}),
       });
       if (response.outcome === "failed") throw materializationError(response);
-      reconcileMaterializedCut(cut, response, gitRevisionBeforeFlush);
+      acceptMaterializedCut(cut, response, gitRevisionBeforeFlush);
       const range = `${first}-${cut.throughRevision}`;
       const attempt = consecutiveFailures + 1;
       console.info(`[wal-materializer] materialized revisions ${range} (${context}, attempt ${attempt})`);
@@ -410,7 +407,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (!succeeded) scheduleRetry();
       });
     }, delay);
-    timer.unref?.();
   };
   const scheduleFlush = (): void => {
     if (closed || bulkWriteActive || divergedError !== null || !hasWalRecords()) return;
@@ -432,7 +428,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           if (!succeeded) scheduleRetry();
         });
       });
-      immediate.unref();
       return;
     }
     timer = setTimeout(() => {
@@ -441,7 +436,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (!succeeded) scheduleRetry();
       });
     }, policy.milliseconds);
-    timer.unref?.();
   };
   const readHead = (): EventHead | null => {
     const pending = wal.records().at(-1)?.event;
@@ -553,9 +547,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       options.killpoint?.("after_head_write");
       if (!bulkWriteActive) makeVisible(ledger, wal, priorClaims, gitBaseline.files, bundle, options);
     };
+    // Capture the finalize fence before any post-append killpoint can escape.
+    // Once WAL append is durable, every later Git finalize must carry it even
+    // if this request never reaches its normal receipt path.
+    pendingMaterializationFence = options.walMaterializationFence?.() ?? null;
     if (options.withAppendFence) options.withAppendFence(publish);
     else publish();
-    pendingMaterializationFence = options.walMaterializationFence?.() ?? null;
     const changedPaths = [
       ...canonicalDocumentClaims(bundle.event).map((claim) => claim.path),
       ...canonicalDocumentRetirements(bundle.event).map((retirement) => retirement.path),
@@ -654,7 +651,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (settlementFutures.size > 0) await Promise.all([...settlementFutures]);
       }
     } finally {
-      await materializationWorker.close();
+      wal.close();
     }
   };
   const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
@@ -979,3 +976,4 @@ function yieldToEventLoop(): Promise<void> {
 function walShadowErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+import { randomUUID } from "node:crypto";

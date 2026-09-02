@@ -89,7 +89,7 @@ export interface RepoCellApiContext {
       ? State
       : never
     : never;
-  readonly attemptRecovery: () => void;
+  readonly attemptRecovery: (force?: boolean) => Promise<void>;
   causeClass: ReturnType<RepoCell["status"]>["causeClass"];
   readonly latched: () => string;
   readonly latchWith: (error: unknown) => void;
@@ -128,7 +128,9 @@ export interface RepoCellApiContext {
 
 export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   let settlingRecovery: string | null = null;
-  const run = (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
+  const run = async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
+    if (context.state !== "attached")
+      await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
     try {
       ({ action, binding } = bindVerifiedExecutorClaim({
         action,
@@ -164,7 +166,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         durable
           ? withAuthorizationDecision(receipt, authorizeAtCurrentCut()!, criteria, explanation)
           : (receipt as WriteReceipt);
-    if (context.state !== "attached") context.attemptRecovery();
     const recoveryCommand =
         context.state === "attached" ? null : recoveryCommandPolicy(action.kind, context.causeClass),
       recoveryCommandAllowed =
@@ -236,7 +237,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
     ): Promise<WriteReceipt> => {
       context.queueDepth += 1;
-      let queuedDecision: AuthorizationDecision | undefined;
+      let queuedDecision: AuthorizationDecision | undefined,
+        replaceAfterPublication = false;
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
         if (durable) {
@@ -268,16 +270,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
           const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
-            if (action.kind === "migrate-import") {
+            if (action.kind === "migrate-import" && action.dryRun !== true) {
               context.recoveryProbe.clear();
-              context.attemptRecovery();
-              if (context.state !== "attached")
-                return {
-                  ...receipt,
-                  outcome: "pending",
-                  code: "repo_unavailable",
-                  nextAction: context.latched(),
-                } as WriteReceipt;
+              replaceAfterPublication = true;
             } else {
               context.state = "attached";
               context.lastError = null;
@@ -300,6 +295,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       );
       return pending
         .catch((error) => failAction(error, queuedDecision))
+        .then(async (receipt) => {
+          if (!replaceAfterPublication) return receipt;
+          await context.attemptRecovery(true);
+          return context.state === "attached"
+            ? receipt
+            : ({
+                ...receipt,
+                outcome: "pending",
+                code: "repo_unavailable",
+                nextAction: context.latched(),
+              } as WriteReceipt);
+        })
         .finally(() => {
           if (claimsRecovery) settlingRecovery = null;
         });
@@ -376,7 +383,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
       );
     if (!admission.ok) return reject(admission.code, admission.nextAction);
-    if (context.state !== "attached") context.attemptRecovery();
+    if (context.state !== "attached") await context.attemptRecovery();
     if (context.state !== "attached") return reject("repo_unavailable", context.latched());
     const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!queuedAdmission.ok) return reject(queuedAdmission.code, queuedAdmission.nextAction);
@@ -533,7 +540,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   // script) happens before publication. A read can therefore see the complete cut before or after
   // a write, never its partial state, without waiting behind the write tail.
   const read: RepoCell["read"] = async (method, payload = {}, binding) => {
-    if (context.state !== "attached") context.attemptRecovery();
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
     if (method === "repo.entity.actions.explain") {
       return readTaskActionExplanation(
@@ -758,7 +764,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     context.queueDepth += 1;
     const pending = chainRepoCellWrite(context.tail, async () => {
       context.queueDepth -= 1;
-      if (context.state !== "attached") context.attemptRecovery();
+      if (context.state !== "attached") await context.attemptRecovery();
       const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
       if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
@@ -876,7 +882,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     read,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
     observeTail: (payload, daemon) => {
-      if (context.state !== "attached") context.attemptRecovery();
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       return readObserveTail({
         repoId: context.input.repoId,
@@ -899,7 +904,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     },
     attach: async (runtimeSessionId, afterCursor) => {
       await context.tail;
-      if (context.state !== "attached") context.attemptRecovery();
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       return context.runtimeStream.attach(runtimeSessionId, afterCursor);
     },

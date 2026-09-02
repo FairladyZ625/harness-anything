@@ -124,7 +124,7 @@ export async function reacquireSquadTaskLease(input: {
     );
 }
 
-export async function openRepoCell(input: {
+export interface RepoCellOpenInput {
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
@@ -164,18 +164,15 @@ export async function openRepoCell(input: {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   readonly fleetRoster?: () => FleetRoster | null;
-}): Promise<RepoCell> {
-  const lock = await acquireWorkspaceLock(input.rootDir);
-  try {
-    return await openLockedRepoCell(input, lock);
-  } catch (error) {
-    await lock.close();
-    throw error;
-  }
 }
 
-async function openLockedRepoCell(
-  input: Parameters<typeof openRepoCell>[0],
+export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
+  const { openRepoCellProxy } = await import("./repo-cell-proxy.ts");
+  return openRepoCellProxy(input);
+}
+
+export async function openRepoWriterCell(
+  input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
 ): Promise<RepoCell> {
   const rootDir = input.rootDir,
@@ -244,9 +241,9 @@ async function openLockedRepoCell(
         return pending;
       },
     });
-  let core: ReturnType<typeof initialize>;
+  let core: Awaited<ReturnType<typeof initialize>>;
   try {
-    core = initialize();
+    core = await initialize();
   } catch (error) {
     runtimeStream.close();
     await presetProcess.close();
@@ -304,37 +301,69 @@ async function openLockedRepoCell(
   // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
   // with the replayed cause. Probes are throttled so frequent read retries cannot hot-loop them,
   // and every fresh latch earns one immediate probe.
-  const attemptRecovery = (): void => {
+  let coreClosedForReplacement = false;
+  let recoveryReplacement: Promise<void> | null = null;
+  const attemptRecovery = async (force = false): Promise<void> => {
     if (state !== "unavailable") return;
-    if (!recoveryProbe.begin(Date.parse(now()))) return;
-    let candidate: ReturnType<typeof initialize> | undefined;
-    try {
-      candidate = initialize();
-      const probeIndeterminate = candidate.recovery.status === "indeterminate";
-      if (probeIndeterminate)
-        throw cellCodedError(
-          candidate.recovery.errorCode ?? "publication_indeterminate",
-          candidate.recovery.error ??
-            `startup recovery ${candidate.recovery.status} after ${candidate.recovery.elapsedMs.toFixed(3)}ms`,
-        );
-      candidate.projection.list();
-      replica.close();
-      projection.close();
-      ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
-      knownTaskIds = null;
-      state = "attached";
-      lastError = null;
-      causeClass = null;
-      recoveryUncertain = false;
-      recoveryProbe.clear();
-    } catch (error) {
-      consumeKnownError(error);
-      candidate?.replica.close();
-      candidate?.projection.close();
-      if (candidate) recoveryUncertain = true;
-      lastError = cellErrorMessage(error);
-      causeClass = causeClassOf(error);
-    }
+    if (recoveryReplacement !== null) return recoveryReplacement;
+    if (!force && !recoveryProbe.begin(Date.parse(now()))) return;
+    if (force) recoveryProbe.begin(Date.parse(now()));
+    recoveryReplacement = (async () => {
+      let candidate: Awaited<ReturnType<typeof initialize>> | undefined;
+      try {
+        // A replacement is a single-owner lifecycle transaction. Quiesce and close the
+        // old mutable WAL owner before a candidate can even be initialized, then publish
+        // only a candidate whose recovery and projection probe both completed.
+        if (!coreClosedForReplacement) {
+          try {
+            await store.drain();
+          } catch (error) {
+            // The durable WAL remains the recovery source. A failed materialization must
+            // not keep the stale owner alive; the candidate will retry from disk.
+            consumeKnownError(error);
+          } finally {
+            replica.close();
+            projection.close();
+            coreClosedForReplacement = true;
+          }
+        }
+        candidate = await initialize();
+        const probeIndeterminate = candidate.recovery.status === "indeterminate";
+        if (probeIndeterminate)
+          throw cellCodedError(
+            candidate.recovery.errorCode ?? "publication_indeterminate",
+            candidate.recovery.error ??
+              `startup recovery ${candidate.recovery.status} after ${candidate.recovery.elapsedMs.toFixed(3)}ms`,
+          );
+        candidate.projection.list();
+        ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
+        candidate = undefined;
+        coreClosedForReplacement = false;
+        knownTaskIds = null;
+        state = "attached";
+        lastError = null;
+        causeClass = null;
+        recoveryUncertain = false;
+        recoveryProbe.clear();
+      } catch (error) {
+        consumeKnownError(error);
+        if (candidate) {
+          candidate.replica.close();
+          candidate.projection.close();
+          try {
+            await candidate.store.drain();
+          } catch (cleanupError) {
+            consumeKnownError(cleanupError);
+          }
+          recoveryUncertain = true;
+        }
+        lastError = cellErrorMessage(error);
+        causeClass = causeClassOf(error);
+      }
+    })().finally(() => {
+      recoveryReplacement = null;
+    });
+    return recoveryReplacement;
   };
   const schedule = (work: () => void | Promise<void>): void => {
     queueDepth += 1;
@@ -536,7 +565,6 @@ async function openLockedRepoCell(
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
     const admission = admitRepoMode(mode, ledgerWriteCommandTopology, binding.source);
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
-    if (state !== "attached") attemptRecovery();
     if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
   };
   const terminal: RepoCellTerminal = {

@@ -19,12 +19,15 @@ export type {
   EventPublicationKillpoint,
   PublicationFile,
 } from "../store/task-event-store.ts";
-export { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
+export { makeTaskProjection, makeTaskProjectionReader } from "../projection/rebuildable-task-projection.ts";
 export type {
   ProjectionPage,
   ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskProjectionQueries,
+  TaskProjectionReader,
+  TaskProjectionWriter,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
@@ -42,4 +45,4 @@ export {
   type WalMaterializationRequestV1,
   type WalMaterializationWorkerConfig,
 } from "../store/wal-materialization-protocol.ts";
-export { runWalMaterializationRequest, WAL_MATERIALIZATION_WORKER_KIND } from "../store/wal-materialization-worker.ts";
+export { runWalMaterializationRequest } from "../store/wal-materialization-worker.ts";
