@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import type { ArtifactEntityKindDefinition } from "../schemas/vertical-definition.ts";
 import {
@@ -137,7 +137,7 @@ export function deriveArtifactContentVersion(witness: ArtifactContentWitness): s
     typeof witness.content === "string"
       ? new TextEncoder().encode(normalizeArtifactText(witness.content))
       : witness.content;
-  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  return `sha256:${sha256Bytes(bytes)}`;
 }
 
 export function artifactDescriptorSchema(
@@ -356,7 +356,7 @@ function normalizeArtifactText(value: string): string {
 }
 
 function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
+  return sha256Text(value);
 }
 
 export function deepFreeze<T>(value: T): T {

@@ -486,7 +486,7 @@ function validateUpsertPayload(
   }
   if (typeof payload.entityId !== "string" || !new RegExp(contract.id.pattern, "u").test(payload.entityId))
     return ["entity event kind and identity are invalid"];
-  return validateClaim(payload, contract, schema);
+  return validateClaim(payload, contract, hasFields, schema);
 }
 
 function validObservationIdentity(payload: Record<string, unknown>, resolution: string, opId: string): boolean {
@@ -499,12 +499,13 @@ function validObservationIdentity(payload: Record<string, unknown>, resolution: 
 function validateClaim(
   payload: Record<string, unknown>,
   contract: EntityStoreKindContract,
+  hasFields: typeof hasOnlyFields | typeof hasRequiredFields = hasOnlyFields,
   schema: unknown = "entity-event/v1",
 ): readonly string[] {
   const claim = payload.declarationDocumentClaim;
   if (
     !isRecord(claim) ||
-    !hasOnlyFields(claim, ["path", "sha256", "size", "mediaType", "policyId"]) ||
+    !hasFields(claim, ["path", "sha256", "size", "mediaType", "policyId"]) ||
     claim.path !== entityDocumentPath(contract, String(payload.entityId)) ||
     !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) ||
     !Number.isSafeInteger(claim.size) ||
