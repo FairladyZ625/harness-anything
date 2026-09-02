@@ -8,6 +8,8 @@ import { NAV_GROUPS, navLabel } from "../navigation/navConfig.tsx";
 import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
 import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
+import { useConnectionsQuery } from "../connection-data.ts";
+import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 
 export interface AppSidebarProps {
@@ -59,6 +61,13 @@ export function AppSidebar({
   onOpenSystem,
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
+  // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
+  // local 仓挂在隐含本机连接下、无端点,不显示端点行。
+  const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
+    connections = useConnectionsQuery().data ?? [],
+    endpoint = activeRepo
+      ? connections.find((connection) => connection.id === activeRepo.connectionId)?.endpoint
+      : undefined;
   return (
     <aside
       data-testid="app-sidebar"
@@ -97,8 +106,13 @@ export function AppSidebar({
             >
               <FolderSimple weight="duotone" className="shrink-0 text-text-muted" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate">{project.name}</span>
-                <span className="block truncate font-mono ui-micro text-text-faint">{project.preset}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="min-w-0 truncate">{project.name}</span>
+                  {activeRepo ? <RepoModeBadge mode={activeRepo.mode} /> : null}
+                </span>
+                <span className="block truncate font-mono ui-micro text-text-faint">
+                  {endpoint ? `${project.preset} · ${endpoint}` : project.preset}
+                </span>
               </span>
               <CaretUpDown weight="bold" className="shrink-0 text-text-faint" />
             </button>

@@ -232,5 +232,10 @@
   "components.localDoc.errorBinaryFile": "The file is not text and cannot be read in the GUI: {path}",
   "components.localDoc.errorTooLarge": "The file exceeds the in-app reader limit (2 MiB): {path}",
   "components.localDoc.errorRequestRejected": "Request rejected: {message}",
-  "components.localDoc.errorBridgeUnavailable": "The local document bridge is unavailable (requires the Electron shell)."
+  "components.localDoc.errorBridgeUnavailable": "The local document bridge is unavailable (requires the Electron shell).",
+  "components.repoMode.local": "local",
+  "components.repoMode.remoteProxy": "view-only",
+  "components.repoMode.remoteCenter": "center",
+  "components.repoMode.remoteEdge": "edge",
+  "components.localDoc.remoteProxyDisabled": "This repository is view-only (remote-proxy): files on this device are not part of it, so local file links are disabled."
 }

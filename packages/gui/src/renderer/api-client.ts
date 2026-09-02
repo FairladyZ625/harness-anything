@@ -180,9 +180,14 @@ export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {
   readonly repoId: string;
   readonly displayName: string;
-  readonly canonicalRoot: string;
-  readonly authoredBranch: string;
+  /** remote-proxy 仓本机无工作区,daemon 投影为 null;视图按 mode 解释,不伪造路径。 */
+  readonly canonicalRoot: string | null;
+  readonly authoredBranch: string | null;
   readonly registrationState: "enabled" | "disabled";
+  /** registry v2 的模式(PLT-EdgeGUI);invalid 行回落 "local",与 daemon 投影口径一致。 */
+  readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge";
+  /** 该仓挂在哪个连接下("local" 为隐含本机连接)。 */
+  readonly connectionId: string;
   readonly cellState: "warming" | "attached" | "unavailable" | "not_loaded";
   readonly generation: number | null;
   readonly queueDepth: number | null;

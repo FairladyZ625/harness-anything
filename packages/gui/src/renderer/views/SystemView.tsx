@@ -3,6 +3,7 @@ import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../sys
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime, formatUptimeMs } from "../model/time.ts";
+import { RepoModeBadge } from "../components/RepoModeBadge.tsx";
 
 /**
  * System 面板:面向使用者的守护进程状态 + 本地仓库表。
@@ -76,8 +77,11 @@ function RepoRow({
           ) : null}
         </span>
       </td>
+      <td className="px-3 py-2 align-top">
+        <RepoModeBadge mode={repo.mode} />
+      </td>
       <td className="max-w-[16rem] px-3 py-2 align-top">
-        <span className="block truncate font-mono ui-micro text-text-muted" title={repo.canonicalRoot}>
+        <span className="block truncate font-mono ui-micro text-text-muted" title={repo.canonicalRoot ?? undefined}>
           {repo.canonicalRoot || dash()}
         </span>
       </td>
@@ -271,6 +275,7 @@ export function SystemView({
               <thead>
                 <tr className="border-b border-border font-mono ui-meta uppercase tracking-wide text-text-faint">
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRepo")}</th>
+                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColMode")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRoot")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColState")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColQueueDepth")}</th>

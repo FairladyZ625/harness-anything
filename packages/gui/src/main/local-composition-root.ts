@@ -21,6 +21,7 @@ import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
 import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
+import { defaultRegistryReader, resolveRepoScopedTarget } from "./repo-scoped-target.ts";
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 interface DaemonClient {
@@ -51,7 +52,7 @@ export function createLocalGuiServiceBridge(
     async (route, payload, emit) => {
       const daemon = await loadClient(),
         scoped = repoPayload(payload),
-        target = daemon.resolveLocalDaemonTarget({ rootDir: root, repoIdOverride: scoped.repoId });
+        target = repoTarget(daemon, root, scoped.repoId);
       // A stream that exhausts its reconnect budget reaches the renderer through the same frame
       // channel a failed open already uses, so a lost pane says so instead of going quietly blank.
       return streamDaemonFacetAt({
@@ -91,9 +92,7 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
   try {
     const daemon = await loadClient(),
       scoped = route.requiresRepo ? repoPayload(payload) : null;
-    const target = scoped
-      ? daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: scoped.repoId })
-      : globalTarget();
+    const target = scoped ? repoTarget(daemon, rootDir, scoped.repoId) : globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
@@ -199,6 +198,49 @@ function globalTarget() {
   const userRoot = daemonUserRoot(),
     daemonId = daemonIdFromEnv();
   return { socketPath: resolveLocalDaemonEndpoint({ userRoot, daemonId }), userRoot, daemonId };
+}
+
+/** repo 作用域 target:local 仓走严格判定,启用中的 remote-proxy 仓回退全局 socket(见 repo-scoped-target.ts)。 */
+function repoTarget(
+  daemon: DaemonClient,
+  rootDir: string,
+  repoId: string,
+): ReturnType<DaemonClient["resolveLocalDaemonTarget"]> {
+  return resolveRepoScopedTarget(
+    () => daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: repoId }),
+    defaultRegistryReader,
+    globalTarget,
+    repoId,
+  ) as ReturnType<DaemonClient["resolveLocalDaemonTarget"]>;
+}
+
+/** Settings → 仓库与连接 的 admin 通道:同一 one-shot 客户端直达本机 daemon 的 admin RPC。 */
+export async function requestDaemonAdminRpc(method: string, params: JsonObject): Promise<JsonObject> {
+  return daemonRpc(globalTarget(), method, params);
+}
+
+/** repo 作用域的一次性 RPC(主进程侧消费,如产物物化副本的正文读取)。 */
+export async function requestRepoScopedRpc(
+  rootDir: string,
+  repoId: string,
+  method: string,
+  params: JsonObject,
+): Promise<JsonObject> {
+  const daemon = await loadClient();
+  return daemonRpc(repoTarget(daemon, rootDir, repoId), method, params);
+}
+
+async function daemonRpc(
+  target: { readonly socketPath: string },
+  method: string,
+  params: JsonObject,
+): Promise<JsonObject> {
+  const daemon = await loadClient();
+  try {
+    return await daemon.requestLocalDaemonJsonRpcForTarget(target, method, params, CONNECT_TIMEOUT_MS, 20_000);
+  } catch (error) {
+    return failure(method, "Local daemon request failed", error);
+  }
 }
 async function loadClient(): Promise<DaemonClient> {
   client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>;

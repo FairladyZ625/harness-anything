@@ -36,7 +36,9 @@ export function HomeView({
                 <b className="truncate ui-body">{repo.displayName}</b>
                 <span className="ml-auto font-mono ui-micro text-text-faint">{repo.repoId}</span>
               </div>
-              <p className="mt-2 truncate font-mono ui-micro text-text-faint">{repo.canonicalRoot}</p>
+              <p className="mt-2 truncate font-mono ui-micro text-text-faint">
+                {repo.canonicalRoot ?? (repo.mode === "remote-proxy" ? "remote-proxy · 数据在服务器" : "—")}
+              </p>
               <div className="mt-3 flex flex-wrap gap-1.5 font-mono ui-micro">
                 <Badge value={repo.registrationState} />
                 <Badge value={repo.cellState} />

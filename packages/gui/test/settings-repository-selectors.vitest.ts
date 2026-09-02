@@ -178,7 +178,17 @@ async function mountView(
   const root = createRoot(container);
   mounted.push({ root, container });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(SettingsView, { repoId: REPO_ID })));
+    root.render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(SettingsView, {
+          repoId: REPO_ID,
+          repos: [],
+          onOpenProject: () => {},
+        }),
+      ),
+    );
   });
   for (let index = 0; index < 4; index += 1)
     await act(async () => {

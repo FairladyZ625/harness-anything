@@ -113,6 +113,8 @@ function fixtureRepoRow(): SystemRepoRow {
     canonicalRoot: "/tmp/g10-probe",
     authoredBranch: "main",
     registrationState: "enabled",
+    mode: "local",
+    connectionId: "local",
     cellState: "attached",
     generation: 1,
     queueDepth: 0,

@@ -60,7 +60,7 @@ import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
-import { FirstRunGuide, FirstRunWizard } from "./components/FirstRunWizard.tsx";
+import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 
@@ -355,385 +355,393 @@ function AppShell() {
       });
   }, [activeRepoId, navigate, setupGuide, view]);
 
-  if (systemQuery.isSuccess && enabledRepos.length === 0)
-    return (
-      <FirstRunWizard
-        onBootstrapped={async (repoId) => {
-          const refreshed = await systemQuery.refetch();
-          if (!refreshed.data?.repos.some((repo) => repo.repoId === repoId))
-            throw new Error("The initialized repository did not appear in daemon status.");
-          resetViewHistory(window.sessionStorage, repoId);
-          setActiveRepoId(repoId);
-          setSetupGuide("provider");
-        }}
-      />
-    );
+  // 首次运行并入 Settings → 仓库与连接(PLT-EdgeGUI-W3):无启用仓库时一次性把应用
+  // 带到该页的「添加仓库/添加连接」空态,不再弹独立首次运行对话框。
+  const landedOnEmptyState = useRef(false);
+  useEffect(() => {
+    if (!systemQuery.isSuccess || enabledRepos.length > 0 || landedOnEmptyState.current) return;
+    landedOnEmptyState.current = true;
+    if (view !== "settings") goto("settings");
+  }, [enabledRepos.length, goto, systemQuery.isSuccess, view]);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
-      <AppSidebar
-        project={project}
-        repos={systemQuery.data?.repos ?? []}
-        activeRepoId={activeRepoId}
-        view={view}
-        hasSelection={selected !== null}
-        inboxCount={inboxCount}
-        projectSwitcherOpen={projectSwitcherOpen}
-        onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
-        onOpenProject={(repoId) => {
-          void openProject(repoId);
-        }}
-        onOpenProjectManager={() => {
-          setProjectSwitcherOpen(false);
-          goto("home");
-        }}
-        onNavigate={goto}
-        ledgerStatus={ledgerStatusBar}
-        onRefreshLedger={refreshLedger}
-        health={runtimeHealth}
-        onOpenSystem={() => goto("system")}
-      />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
-        <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {selected ? (
-              <TaskDetailView
-                task={selected}
-                tasks={tasks}
-                relations={edgeRelations}
-                decisions={chromeDecisions}
-                onBack={() => updateLocation({ selectedId: null })}
-                onSelect={(id) => updateLocation({ selectedId: id })}
-                projectName={project.name}
-                fromViewLabel={navLabel(view)}
-                onNavigateDecision={navigateToDecision}
-                onNavigateEntity={navigateToEntity}
-                mutationFeedback={taskActions.feedback.get(selected.taskId)}
-                onProgress={(input) => taskActions.appendProgress(selected, input)}
-                onSubmit={(submission) => taskActions.submitTask(selected, submission)}
-                onSetPin={(task, pinned) => {
-                  void taskActions.setTaskPin(task, pinned);
-                }}
-                onOpenTerminal={(task) => {
-                  setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
-                  updateLocation({ selectedId: null });
-                  goto("terminal");
-                }}
-                onFocusGraph={focusEntityInGraph}
-              />
-            ) : view === "home" ? (
-              <HomeView
-                repos={systemQuery.data?.repos ?? []}
-                currentRepoId={activeRepoId}
-                onOpenProject={(repoId) => {
-                  void openProject(repoId);
-                }}
-              />
-            ) : view === "overview" ? (
-              workspaceSummaryQuery.data ? (
-                <OverviewView
-                  project={project}
-                  tasks={projectTasks}
-                  agenda={agendaQuery.data}
-                  decisions={decisions}
-                  workspaceSummary={workspaceSummaryQuery.data}
+    <LocalDocLayer mode={activeRepo?.mode ?? "local"}>
+      <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+        <AppSidebar
+          project={project}
+          repos={systemQuery.data?.repos ?? []}
+          activeRepoId={activeRepoId}
+          view={view}
+          hasSelection={selected !== null}
+          inboxCount={inboxCount}
+          projectSwitcherOpen={projectSwitcherOpen}
+          onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
+          onOpenProject={(repoId) => {
+            void openProject(repoId);
+          }}
+          onOpenProjectManager={() => {
+            setProjectSwitcherOpen(false);
+            goto("home");
+          }}
+          onNavigate={goto}
+          ledgerStatus={ledgerStatusBar}
+          onRefreshLedger={refreshLedger}
+          health={runtimeHealth}
+          onOpenSystem={() => goto("system")}
+        />
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
+          <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              {selected ? (
+                <TaskDetailView
+                  task={selected}
+                  tasks={tasks}
                   relations={edgeRelations}
-                  health={runtimeHealth}
-                  daemonReadFailed={daemonReadFailed}
-                  ledgerRevision={
-                    tasksQuery.data
-                      ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
-                      : null
-                  }
-                  onSelect={openTaskPreview}
-                  onDrill={(status) => drillToBoard("__all__", status, "root")}
-                  onOpenInbox={() => goto("decisions")}
-                  onOpenDecision={navigateToDecision}
+                  decisions={chromeDecisions}
+                  onBack={() => updateLocation({ selectedId: null })}
+                  onSelect={(id) => updateLocation({ selectedId: id })}
+                  projectName={project.name}
+                  fromViewLabel={navLabel(view)}
+                  onNavigateDecision={navigateToDecision}
                   onNavigateEntity={navigateToEntity}
-                  onDecisionPreviewChange={setOverviewDecisionPreviewId}
+                  mutationFeedback={taskActions.feedback.get(selected.taskId)}
+                  onProgress={(input) => taskActions.appendProgress(selected, input)}
+                  onSubmit={(submission) => taskActions.submitTask(selected, submission)}
+                  onSetPin={(task, pinned) => {
+                    void taskActions.setTaskPin(task, pinned);
+                  }}
+                  onOpenTerminal={(task) => {
+                    setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
+                    updateLocation({ selectedId: null });
+                    goto("terminal");
+                  }}
+                  onFocusGraph={focusEntityInGraph}
+                />
+              ) : view === "home" ? (
+                <HomeView
+                  repos={systemQuery.data?.repos ?? []}
+                  currentRepoId={activeRepoId}
+                  onOpenProject={(repoId) => {
+                    void openProject(repoId);
+                  }}
+                />
+              ) : view === "overview" ? (
+                workspaceSummaryQuery.data ? (
+                  <OverviewView
+                    project={project}
+                    tasks={projectTasks}
+                    agenda={agendaQuery.data}
+                    decisions={decisions}
+                    workspaceSummary={workspaceSummaryQuery.data}
+                    relations={edgeRelations}
+                    health={runtimeHealth}
+                    daemonReadFailed={daemonReadFailed}
+                    ledgerRevision={
+                      tasksQuery.data
+                        ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
+                        : null
+                    }
+                    onSelect={openTaskPreview}
+                    onDrill={(status) => drillToBoard("__all__", status, "root")}
+                    onOpenInbox={() => goto("decisions")}
+                    onOpenDecision={navigateToDecision}
+                    onNavigateEntity={navigateToEntity}
+                    onDecisionPreviewChange={setOverviewDecisionPreviewId}
+                    onSetPin={(task, pinned) => {
+                      void taskActions.setTaskPin(task, pinned);
+                    }}
+                  />
+                ) : (
+                  <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+                )
+              ) : view === "board" ? (
+                <BoardView
+                  tasks={filteredProjectTasks}
+                  allTasks={projectTasks}
+                  filters={taskFilters}
+                  onFiltersChange={setTaskFilters}
+                  onSelect={openTaskPreview}
+                  drill={drill}
+                  relations={boardRelations}
+                  favorites={favorites}
+                  onToggleFavorite={toggleFavorite}
+                  onStartTask={taskActions.startTask}
+                  mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
                   onSetPin={(task, pinned) => {
                     void taskActions.setTaskPin(task, pinned);
                   }}
                 />
-              ) : (
-                <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
-              )
-            ) : view === "board" ? (
-              <BoardView
-                tasks={filteredProjectTasks}
-                allTasks={projectTasks}
-                filters={taskFilters}
-                onFiltersChange={setTaskFilters}
-                onSelect={openTaskPreview}
-                drill={drill}
-                relations={boardRelations}
-                favorites={favorites}
-                onToggleFavorite={toggleFavorite}
-                onStartTask={taskActions.startTask}
-                mutationFeedback={(taskId) => taskActions.feedback.get(taskId)}
-                onSetPin={(task, pinned) => {
-                  void taskActions.setTaskPin(task, pinned);
-                }}
-              />
-            ) : view === "graph" ? (
-              <EntityWorkspace
-                focusedEntityRef={focusedEntityRef}
-                tasks={projectTasks}
-                relations={relations}
-                decisions={decisions}
-                facts={facts}
-                coverageRows={coverageRows}
-                factAnchors={factAnchors}
-                agents={runtimePlane.agents}
-                schedules={runtimePlane.schedules}
-                runtimeRelations={runtimePlane.relations}
-                onNavigateEntity={navigateToEntity}
-                onSetTaskPin={(task, pinned) => {
-                  void taskActions.setTaskPin(task, pinned);
-                }}
-                onOpenDecisionPool={openDecisionInPool}
-                onFocusEntityChange={focusEntityInWorkspace}
-                recentRefs={recentRefs}
-                entries={paletteEntries}
-                onOpenPalette={() => setPaletteOpen(true)}
-              />
-            ) : view === "decisionDetail" ? (
-              <DecisionDetailView
-                repoId={projectId}
-                decisionId={focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null}
-                decisions={decisions}
-                tasks={projectTasks}
-                relations={relations}
-                loading={triadicQuery.isPending}
-                onBack={back}
-                projectName={project.name}
-                fromViewLabel={navLabel(view)}
-                onNavigateDecision={navigateToDecision}
-                onNavigateTask={navigateToTask}
-                onNavigateEntity={navigateToEntity}
-                onFocusGraph={focusEntityInGraph}
-                onOpenPool={openDecisionInPool}
-              />
-            ) : view === "factDetail" ? (
-              <FactDetailView
-                factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
-                facts={facts}
-                tasks={tasks}
-                decisions={decisions}
-                relations={relations}
-                factAnchors={factAnchors}
-                coverageRows={coverageRows}
-                loading={triadicQuery.isPending}
-                onNavigateEntity={navigateToEntity}
-                onNavigateDecision={navigateToDecision}
-                onNavigateTask={navigateToTask}
-                onFocusGraph={focusEntityInGraph}
-              />
-            ) : view === "decisions" ? (
-              <DecisionsView
-                decisions={decisions}
-                tasks={tasks}
-                relations={relations}
-                facts={facts}
-                onJudge={decisionActions.judge}
-                mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
-                onCheckReceipt={(decisionId) => {
-                  void decisionActions.checkReceipt(decisionId);
-                }}
-                relationState={triadicQuery.relationState}
-                onNavigateDecision={navigateToDecision}
-                onNavigateTask={navigateToTask}
-                onNavigateEntity={navigateToEntity}
-                onFocusGraph={focusEntityInGraph}
-                coverageRows={coverageRows}
-              />
-            ) : view === "decisionPool" ? (
-              workspaceSummaryQuery.data ? (
-                <DecisionPoolView
-                  repoId={projectId}
-                  decisions={decisions}
-                  summary={workspaceSummaryQuery.data.decisions}
-                  facts={facts}
+              ) : view === "graph" ? (
+                <EntityWorkspace
+                  focusedEntityRef={focusedEntityRef}
+                  tasks={projectTasks}
                   relations={relations}
+                  decisions={decisions}
+                  facts={facts}
                   coverageRows={coverageRows}
-                  relationState={triadicQuery.relationState}
-                  onPropose={decisionActions.propose}
-                  proposalFeedback={decisionActions.feedback.get("proposal")}
+                  factAnchors={factAnchors}
+                  agents={runtimePlane.agents}
+                  schedules={runtimePlane.schedules}
+                  runtimeRelations={runtimePlane.relations}
+                  onNavigateEntity={navigateToEntity}
+                  onSetTaskPin={(task, pinned) => {
+                    void taskActions.setTaskPin(task, pinned);
+                  }}
+                  onOpenDecisionPool={openDecisionInPool}
+                  onFocusEntityChange={focusEntityInWorkspace}
+                  recentRefs={recentRefs}
+                  entries={paletteEntries}
+                  onOpenPalette={() => setPaletteOpen(true)}
+                />
+              ) : view === "decisionDetail" ? (
+                <DecisionDetailView
+                  repoId={projectId}
+                  decisionId={focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null}
+                  decisions={decisions}
+                  tasks={projectTasks}
+                  relations={relations}
+                  loading={triadicQuery.isPending}
+                  onBack={back}
+                  projectName={project.name}
+                  fromViewLabel={navLabel(view)}
+                  onNavigateDecision={navigateToDecision}
+                  onNavigateTask={navigateToTask}
+                  onNavigateEntity={navigateToEntity}
+                  onFocusGraph={focusEntityInGraph}
+                  onOpenPool={openDecisionInPool}
+                />
+              ) : view === "factDetail" ? (
+                <FactDetailView
+                  factRef={focusedEntityRef?.startsWith("fact/") ? focusedEntityRef : null}
+                  facts={facts}
+                  tasks={tasks}
+                  decisions={decisions}
+                  relations={relations}
+                  factAnchors={factAnchors}
+                  coverageRows={coverageRows}
+                  loading={triadicQuery.isPending}
+                  onNavigateEntity={navigateToEntity}
+                  onNavigateDecision={navigateToDecision}
+                  onNavigateTask={navigateToTask}
+                  onFocusGraph={focusEntityInGraph}
+                />
+              ) : view === "decisions" ? (
+                <DecisionsView
+                  decisions={decisions}
+                  tasks={tasks}
+                  relations={relations}
+                  facts={facts}
                   onJudge={decisionActions.judge}
                   mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
-                  onCheckReceipt={(key) => {
-                    void decisionActions.checkReceipt(key);
+                  onCheckReceipt={(decisionId) => {
+                    void decisionActions.checkReceipt(decisionId);
                   }}
-                  focusedDecisionId={focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null}
-                  onFocusGraph={focusEntityInGraph}
+                  relationState={triadicQuery.relationState}
                   onNavigateDecision={navigateToDecision}
+                  onNavigateTask={navigateToTask}
+                  onNavigateEntity={navigateToEntity}
+                  onFocusGraph={focusEntityInGraph}
+                  coverageRows={coverageRows}
+                />
+              ) : view === "decisionPool" ? (
+                workspaceSummaryQuery.data ? (
+                  <DecisionPoolView
+                    repoId={projectId}
+                    decisions={decisions}
+                    summary={workspaceSummaryQuery.data.decisions}
+                    facts={facts}
+                    relations={relations}
+                    coverageRows={coverageRows}
+                    relationState={triadicQuery.relationState}
+                    onPropose={decisionActions.propose}
+                    proposalFeedback={decisionActions.feedback.get("proposal")}
+                    onJudge={decisionActions.judge}
+                    mutationFeedback={(decisionId) => decisionActions.feedback.get(decisionId)}
+                    onCheckReceipt={(key) => {
+                      void decisionActions.checkReceipt(key);
+                    }}
+                    focusedDecisionId={
+                      focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null
+                    }
+                    onFocusGraph={focusEntityInGraph}
+                    onNavigateDecision={navigateToDecision}
+                  />
+                ) : (
+                  <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+                )
+              ) : view === "freshness" ? (
+                <FreshnessView
+                  decisions={decisions}
+                  coverageRows={coverageRows}
+                  relationState={triadicQuery.relationState}
+                  onNavigateEntity={navigateToEntity}
+                />
+              ) : view === "presets" ? (
+                <PresetsView
+                  repoId={projectId}
+                  // G7:preset/<id> 深链接落目录页内详情(与 task 详情同构,推栈回撤原路返回)。
+                  focusedPresetId={
+                    focusedEntityRef?.startsWith("preset/") ? focusedEntityRef.slice("preset/".length) : null
+                  }
+                  onOpenPreset={(presetId) =>
+                    navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
+                  }
+                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  projectName={project.name}
+                />
+              ) : view === "entities" ? (
+                <EntitiesView
+                  repoId={projectId}
+                  // 实体说明深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
+                  // 推栈回撤原路返回)。
+                  focusedEntityDocKind={
+                    focusedEntityRef?.startsWith("entitydoc/") ? focusedEntityRef.slice("entitydoc/".length) : null
+                  }
+                  onOpenEntityDoc={(kind) =>
+                    navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
+                  }
+                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  onOpenView={goto}
+                  projectName={project.name}
+                />
+              ) : view === "adapters" ? (
+                <AdaptersView repoId={projectId} tasks={projectTasks} />
+              ) : view === "sessions" ? (
+                <SessionsView
+                  repoId={projectId}
+                  relations={edgeRelations}
+                  focusedEntityRef={focusedEntityRef}
+                  onSelectEntity={selectRuntimeEntity}
+                  // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
+                  onOpenTask={navigateToTask}
+                />
+              ) : view === "schedules" ? (
+                <SchedulesView
+                  repoId={projectId}
+                  focusedEntityRef={focusedEntityRef}
+                  onSelectEntity={selectRuntimeEntity}
+                  onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
+                  onFocusGraph={focusEntityInGraph}
+                />
+              ) : view === "artifacts" ? (
+                <ArtifactsView repoId={projectId} onNavigateTask={navigateToTask} />
+              ) : view === "agentSquad" ? (
+                <AgentSquadView
+                  repoId={projectId}
+                  tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({
+                    taskId,
+                    title,
+                    heldLease: activeExecutionId !== undefined,
+                  }))}
+                  focusedEntityRef={focusedEntityRef}
+                  onSelectEntity={selectRuntimeEntity}
+                  onFocusGraph={focusEntityInGraph}
+                />
+              ) : view === "providers" ? (
+                <ProvidersView
+                  repoId={projectId}
+                  focusedEntityRef={focusedEntityRef}
+                  onSelectEntity={selectRuntimeEntity}
+                />
+              ) : view === "terminal" ? (
+                <TerminalView
+                  repoId={projectId}
+                  daemonGeneration={activeRepo?.generation ?? null}
+                  tasks={projectTasks.map(({ taskId, title, parentTaskId, coordinationStatus, createdAt }) => ({
+                    taskId,
+                    title,
+                    parentTaskId,
+                    status: coordinationStatus,
+                    createdAt,
+                  }))}
+                  launchTask={terminalLaunch}
+                  repoRoot={activeRepo?.canonicalRoot ?? null}
+                  onNavigateEntity={navigateToEntity}
+                  onOpenDocument={openLocalDocument}
+                  openUrl={(uri) =>
+                    navigate({
+                      view: "browser",
+                      browserUrl: uri,
+                      focusedEntityRef: null,
+                      selectedId: null,
+                      previewId: null,
+                    })
+                  }
+                />
+              ) : view === "browser" ? (
+                <BrowserView initialUrl={location.browserUrl} />
+              ) : view === "system" ? (
+                <SystemView
+                  activeRepoId={activeRepoId}
+                  onOpenObserve={(repoId) =>
+                    navigate({
+                      view: "daemonObserve",
+                      focusedEntityRef: `daemonRepo/${repoId}`,
+                      selectedId: null,
+                      previewId: null,
+                    })
+                  }
+                />
+              ) : view === "daemonObserve" ? (
+                <DaemonObserveView
+                  repoId={
+                    focusedEntityRef?.startsWith("daemonRepo/")
+                      ? focusedEntityRef.slice("daemonRepo/".length)
+                      : activeRepoId
+                  }
+                  repos={systemQuery.data?.repos ?? []}
+                  onBack={back}
+                  onNavigateEntity={navigateToEntity}
                 />
               ) : (
-                <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
-              )
-            ) : view === "freshness" ? (
-              <FreshnessView
-                decisions={decisions}
-                coverageRows={coverageRows}
-                relationState={triadicQuery.relationState}
-                onNavigateEntity={navigateToEntity}
-              />
-            ) : view === "presets" ? (
-              <PresetsView
-                repoId={projectId}
-                // G7:preset/<id> 深链接落目录页内详情(与 task 详情同构,推栈回撤原路返回)。
-                focusedPresetId={
-                  focusedEntityRef?.startsWith("preset/") ? focusedEntityRef.slice("preset/".length) : null
-                }
-                onOpenPreset={(presetId) =>
-                  navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
-                }
-                onExitDetail={() => updateLocation({ focusedEntityRef: null })}
-                projectName={project.name}
-              />
-            ) : view === "entities" ? (
-              <EntitiesView
-                repoId={projectId}
-                // 实体说明深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
-                // 推栈回撤原路返回)。
-                focusedEntityDocKind={
-                  focusedEntityRef?.startsWith("entitydoc/") ? focusedEntityRef.slice("entitydoc/".length) : null
-                }
-                onOpenEntityDoc={(kind) =>
-                  navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
-                }
-                onExitDetail={() => updateLocation({ focusedEntityRef: null })}
-                onOpenView={goto}
-                projectName={project.name}
-              />
-            ) : view === "adapters" ? (
-              <AdaptersView repoId={projectId} tasks={projectTasks} />
-            ) : view === "sessions" ? (
-              <SessionsView
-                repoId={projectId}
-                relations={edgeRelations}
-                focusedEntityRef={focusedEntityRef}
-                onSelectEntity={selectRuntimeEntity}
-                // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
-                onOpenTask={navigateToTask}
-              />
-            ) : view === "schedules" ? (
-              <SchedulesView
-                repoId={projectId}
-                focusedEntityRef={focusedEntityRef}
-                onSelectEntity={selectRuntimeEntity}
-                onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
-                onFocusGraph={focusEntityInGraph}
-              />
-            ) : view === "artifacts" ? (
-              <ArtifactsView repoId={projectId} onNavigateTask={navigateToTask} />
-            ) : view === "agentSquad" ? (
-              <AgentSquadView
-                repoId={projectId}
-                tasks={projectTasks.map(({ taskId, title, activeExecutionId }) => ({
-                  taskId,
-                  title,
-                  heldLease: activeExecutionId !== undefined,
-                }))}
-                focusedEntityRef={focusedEntityRef}
-                onSelectEntity={selectRuntimeEntity}
-                onFocusGraph={focusEntityInGraph}
-              />
-            ) : view === "providers" ? (
-              <ProvidersView
-                repoId={projectId}
-                focusedEntityRef={focusedEntityRef}
-                onSelectEntity={selectRuntimeEntity}
-              />
-            ) : view === "terminal" ? (
-              <TerminalView
-                repoId={projectId}
-                daemonGeneration={activeRepo?.generation ?? null}
-                tasks={projectTasks.map(({ taskId, title, parentTaskId, coordinationStatus, createdAt }) => ({
-                  taskId,
-                  title,
-                  parentTaskId,
-                  status: coordinationStatus,
-                  createdAt,
-                }))}
-                launchTask={terminalLaunch}
-                repoRoot={activeRepo?.canonicalRoot ?? null}
-                onNavigateEntity={navigateToEntity}
-                onOpenDocument={openLocalDocument}
-                openUrl={(uri) =>
-                  navigate({
-                    view: "browser",
-                    browserUrl: uri,
-                    focusedEntityRef: null,
-                    selectedId: null,
-                    previewId: null,
-                  })
-                }
-              />
-            ) : view === "browser" ? (
-              <BrowserView initialUrl={location.browserUrl} />
-            ) : view === "system" ? (
-              <SystemView
-                activeRepoId={activeRepoId}
-                onOpenObserve={(repoId) =>
-                  navigate({
-                    view: "daemonObserve",
-                    focusedEntityRef: `daemonRepo/${repoId}`,
-                    selectedId: null,
-                    previewId: null,
-                  })
-                }
-              />
-            ) : view === "daemonObserve" ? (
-              <DaemonObserveView
-                repoId={
-                  focusedEntityRef?.startsWith("daemonRepo/")
-                    ? focusedEntityRef.slice("daemonRepo/".length)
-                    : activeRepoId
-                }
-                repos={systemQuery.data?.repos ?? []}
-                onBack={back}
-                onNavigateEntity={navigateToEntity}
-              />
-            ) : (
-              <SettingsView repoId={projectId} />
-            )}
+                <SettingsView
+                  repoId={activeRepoId}
+                  repos={systemQuery.data?.repos ?? []}
+                  onOpenProject={(repoId) => {
+                    void openProject(repoId);
+                  }}
+                />
+              )}
+            </div>
           </div>
-        </div>
-      </main>
-      <TaskPreviewDrawer
-        task={previewTask}
-        tasks={projectTasks}
-        relations={edgeRelations}
-        onClose={() => updateLocation({ previewId: null })}
-        onOpenDetail={openTaskDetail}
-        onPreviewTask={openTaskPreview}
-        onSetPin={(task, pinned) => {
-          void taskActions.setTaskPin(task, pinned);
-        }}
-      />
-      <CommandPalette
-        open={paletteOpen}
-        entries={paletteEntries}
-        onSelect={navigateToEntity}
-        onClose={() => setPaletteOpen(false)}
-      />
-      {setupGuide ? (
-        <FirstRunGuide stage={setupGuide} onNext={() => setSetupGuide("agent")} onFinish={() => setSetupGuide(null)} />
-      ) : null}
-    </div>
+        </main>
+        <TaskPreviewDrawer
+          task={previewTask}
+          tasks={projectTasks}
+          relations={edgeRelations}
+          onClose={() => updateLocation({ previewId: null })}
+          onOpenDetail={openTaskDetail}
+          onPreviewTask={openTaskPreview}
+          onSetPin={(task, pinned) => {
+            void taskActions.setTaskPin(task, pinned);
+          }}
+        />
+        <CommandPalette
+          open={paletteOpen}
+          entries={paletteEntries}
+          onSelect={navigateToEntity}
+          onClose={() => setPaletteOpen(false)}
+        />
+        {setupGuide ? (
+          <FirstRunGuide
+            stage={setupGuide}
+            onNext={() => setSetupGuide("agent")}
+            onFinish={() => setSetupGuide(null)}
+          />
+        ) : null}
+      </div>
+    </LocalDocLayer>
   );
 }
 
 export function App() {
   return (
     <ThemeProvider>
-      {/* 本机文档浮层(task_89d324b5):详情页 Markdown 的项目外本机文件链接在 GUI 内
-          打开阅读;context 让所有 Markdown 锚点共享同一个打开入口。 */}
-      <LocalDocLayer>
-        <AppShell />
-      </LocalDocLayer>
+      {/* 本机文档浮层(task_89d324b5)挂在 AppShell 内:它需要当前仓的连接模式 ——
+          纯展示(remote-proxy)仓本机无文件,项目外本机文件链接禁用并提示
+          (PLT-EdgeGUI-W3);其余模式照常读取。 */}
+      <AppShell />
     </ThemeProvider>
   );
 }

@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LocalDocLayer } from "../src/renderer/local-doc/LocalDocLayer.tsx";
+import { MarkdownAnchor } from "../src/renderer/local-doc/MarkdownAnchor.tsx";
 import { DocReader } from "../src/renderer/components/DocReader.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
@@ -21,6 +22,21 @@ beforeAll(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
+
+async function renderLocalDocLayerWithMode(
+  mode: "local" | "remote-proxy" | "remote-center" | "remote-edge",
+  children: () => React.ReactNode,
+): Promise<HTMLElement> {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () => {
+    root.render(createElement(QueryClientProvider, { client }, createElement(LocalDocLayer, { mode }, children())));
+  });
+  mounted.push({ root, container });
+  return container;
+}
 
 async function renderLocalDocLayer(children: () => React.ReactNode): Promise<HTMLElement> {
   const container = document.createElement("div");
@@ -151,6 +167,20 @@ describe("markdown local-file links open in the GUI reader overlay", () => {
     );
     await clickAnchor(div.querySelector<HTMLAnchorElement>("a[href='artifacts/report.md']")!);
     expect(onOpenPackageDoc).toHaveBeenCalledWith("tasks/pkg_1/artifacts/report.md");
+    expect(read).not.toHaveBeenCalled();
+    await unmountAll();
+  });
+  it("shows the view-only notice instead of reading local files for a remote-proxy repository", async () => {
+    const read = vi.fn(async () => ({ ok: true, path: "/etc/hosts", content: "never", sizeBytes: 1 }));
+    stubLocalDocBridge(read);
+    const container = await renderLocalDocLayerWithMode("remote-proxy", () =>
+      createElement(MarkdownAnchor, { href: "/Users/owner/notes.md" }, "notes"),
+    );
+    await flush();
+    await clickAnchor(container.querySelector("a")!);
+    await flush();
+    expect(container.querySelector('[data-testid="local-doc-remote-disabled"]')).not.toBeNull();
+    expect(container.textContent).toContain("纯展示");
     expect(read).not.toHaveBeenCalled();
     await unmountAll();
   });

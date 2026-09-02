@@ -13,19 +13,34 @@ import { LocalDocContext, type LocalDocOpener } from "./local-doc-context.ts";
  * 不弹系统对话框。Markdown 文件复用 DocReader(同一渲染面、同一阅读工具条),其它
  * 文本按纯文本呈现。
  */
-export function LocalDocLayer({ children }: { readonly children: ReactNode }) {
+export function LocalDocLayer({
+  children,
+  mode = "local",
+}: {
+  readonly children: ReactNode;
+  /** 当前仓的连接模式:纯展示(remote-proxy)仓本机无文件,链接禁用并提示(PLT-EdgeGUI-W3)。 */
+  readonly mode?: "local" | "remote-proxy" | "remote-center" | "remote-edge";
+}) {
   const [activePath, setActivePath] = useState<string | null>(null);
   const openLocalDocument = useCallback((path: string) => setActivePath(path), []);
   const value = useMemo<LocalDocOpener>(() => ({ openLocalDocument }), [openLocalDocument]);
   return (
     <LocalDocContext.Provider value={value}>
       {children}
-      {activePath !== null && <LocalDocOverlay path={activePath} onClose={() => setActivePath(null)} />}
+      {activePath !== null && <LocalDocOverlay path={activePath} mode={mode} onClose={() => setActivePath(null)} />}
     </LocalDocContext.Provider>
   );
 }
 
-function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly onClose: () => void }) {
+function LocalDocOverlay({
+  path,
+  mode,
+  onClose,
+}: {
+  readonly path: string;
+  readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge";
+  readonly onClose: () => void;
+}) {
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -38,6 +53,8 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
     queryFn: () => requestLocalDocument(path),
     retry: false,
     staleTime: 5_000,
+    // 纯展示仓不发本机读取:浮层直接呈现禁用提示,不发注定失败的 IPC。
+    enabled: mode !== "remote-proxy",
   });
   return (
     <div
@@ -86,7 +103,14 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-          {query.isPending ? (
+          {mode === "remote-proxy" ? (
+            <div
+              data-testid="local-doc-remote-disabled"
+              className="rounded-md border border-border bg-surface px-4 py-3 ui-meta text-text-muted"
+            >
+              {t("components.localDoc.remoteProxyDisabled")}
+            </div>
+          ) : query.isPending ? (
             <p data-testid="local-doc-loading" className="font-mono ui-meta text-text-faint">
               {t("components.localDoc.loading")}
             </p>
