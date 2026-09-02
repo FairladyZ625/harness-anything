@@ -132,9 +132,8 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
   // The stored snapshot is pure task-aggregate state; the decision relations this task is a
   // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
-  const decisionRelations = readRelationProjectionRows(db)
-    .filter(({ targetRef }) => targetRef === `task/${taskId}`)
-    .map(({ relationId, sourceRef, targetRef, relationType, state, strength, freshness }) => ({
+  const decisionRelations = readRelationProjectionRows(db, `task/${taskId}`).map(
+    ({ relationId, sourceRef, targetRef, relationType, state, strength, freshness }) => ({
       relationId,
       sourceRef,
       targetRef,
@@ -142,7 +141,8 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
       state,
       strength,
       freshness,
-    }));
+    }),
+  );
   return {
     ...snapshot,
     executions,

@@ -29,7 +29,10 @@ export function readEntityVersionWitnesses(
     }),
     joins = [
       tables.has("entity_projection")
-        ? "LEFT JOIN entity_projection projected ON projected.entity_kind || '/' || projected.entity_id=requested.ref"
+        ? [
+            "LEFT JOIN entity_projection projected ON projected.entity_kind=requested.kind",
+            "AND projected.entity_id=requested.id AND requested.ref=requested.kind || '/' || requested.id",
+          ].join(" ")
         : "",
       ...coreVersionLookups
         .filter(({ table }) => tables.has(table))

@@ -215,7 +215,7 @@ export function projectMigration(
     return;
   }
   if (entity.kind === "task-document") {
-    if (!readSnapshot(db, entity.taskId).task)
+    if (!hasTaskSnapshot(db, entity.taskId))
       throw new Error(`migration task document owner is missing for ${entity.taskId}`);
     storeMigrationDocument(db, event, entity.documentClaim, readBlob);
     return;
@@ -271,4 +271,13 @@ export function storeMigrationDocument(
 export function migrationDocument(db: DatabaseSync, path: string): DocumentState | null {
   const row = queryRows(db, "SELECT value_json FROM document WHERE path=?", path)[0];
   return row ? (JSON.parse(String(row.value_json)) as DocumentState) : null;
+}
+
+function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
+  const row =
+    /* @gate-identity check-bypass-write-boundary/bypass-write-037 */
+    db
+      .prepare("SELECT json_type(snapshot_json, '$.task') AS task_type FROM task_snapshot WHERE task_id = ?")
+      .get(taskId) as { readonly task_type: string | null } | undefined;
+  return row !== undefined && row.task_type !== null && row.task_type !== "null";
 }

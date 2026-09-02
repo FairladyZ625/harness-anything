@@ -47,7 +47,10 @@ export function watermark(db: DatabaseSync): number {
   return Number(row.watermark);
 }
 
-export function readProjectionCut(db: DatabaseSync, readHead: EventStreamPort["readHead"]): {
+export function readProjectionCut(
+  db: DatabaseSync,
+  readHead: EventStreamPort["readHead"],
+): {
   readonly status: "ready" | "pending";
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -92,8 +95,8 @@ export function refreshStateDigestAtSourceCut(db: DatabaseSync, sourceRevision: 
   let digest = sha256Text("task-projection-state/v1");
   for (const [table, order] of stateDigestTables) {
     digest = sha256Text(`${digest}\n${table}`);
-    for (const row of queryRows(db, `SELECT * FROM ${table} ORDER BY ${order}`))
-      digest = sha256Text(`${digest}\n${canonicalJson(row)}`);
+    for (const row of prepareQuery(db, `SELECT * FROM ${table} ORDER BY ${order}`).iterate())
+      digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
   }
   const value = `sha256:${digest}` as `sha256:${string}`;
   runSql(db, "UPDATE projection_meta SET state_digest = ? WHERE singleton = 1", value);
