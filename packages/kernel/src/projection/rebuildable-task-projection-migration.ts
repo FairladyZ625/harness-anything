@@ -275,7 +275,7 @@ export function migrationDocument(db: DatabaseSync, path: string): DocumentState
 
 function hasTaskSnapshot(db: DatabaseSync, taskId: string): boolean {
   const row =
-    /* @gate-identity check-bypass-write-boundary/bypass-write-037 */
+    /* @gate-identity check-bypass-write-boundary/bypass-write-098 */
     db
       .prepare("SELECT json_type(snapshot_json, '$.task') AS task_type FROM task_snapshot WHERE task_id = ?")
       .get(taskId) as { readonly task_type: string | null } | undefined;
