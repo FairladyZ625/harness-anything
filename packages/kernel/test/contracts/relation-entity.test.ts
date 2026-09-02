@@ -8,6 +8,7 @@ import {
   getExecutableEntityAction,
   relationEventWritePlan,
   validateMigrationImportEvent,
+  type GovernedRelationRegistryWitness,
   type MigrationImportEventV1,
 } from "../../src/index.ts";
 import { validateCurrentMigrationImportEvent } from "../../src/domain/migration-import-event.ts";
@@ -199,6 +200,69 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
   const replaced = reduceRelationEntity(null, replacement);
   assert.equal(replaced.id, replacementRecord.relation_id);
   assert.equal(replaced.retirementReason, replacement.payload.reason);
+});
+
+test("a governed migration witness admits only its pinned artifact Relation direction", () => {
+  const sourceRef = "software/coding/architecture-decision-record@1/ADR-1234567890ABCDEF",
+    relation = record(sourceRef, "decision/dec_ADR_0001_TEST"),
+    registry: GovernedRelationRegistryWitness = {
+      schema: "governed-relation-registry-witness/v1",
+      registryRevision: `sha256:${"a".repeat(64)}`,
+      artifactEndpoints: [
+        {
+          kind: "software/coding/architecture-decision-record@1",
+          idPattern: "^ADR-[A-F0-9]{16}$",
+          refTemplate: "software/coding/architecture-decision-record@1/{id}",
+        },
+      ],
+      direction: {
+        type: "relates",
+        sourceKind: "software/coding/architecture-decision-record@1",
+        targetKind: "decision",
+        reads: "the architecture decision record relates to the target decision",
+        registration: "ratified",
+        strength: "weak",
+        governance: {
+          decisionClaimRef: "decision/dec_RELATION_GOVERNANCE/CH1",
+          decisionContentPin: `sha256:${"b".repeat(64)}`,
+        },
+      },
+    },
+    migrated: MigrationImportEventV1 = {
+      schema: "migration-import-event/v1",
+      eventId: "event-governed-relation-migration",
+      workspaceRevision: 17,
+      opId: "governed-relation-migration",
+      type: "entity_migrated",
+      actor,
+      source: "migration-import/v1",
+      occurredAt: "2026-09-02T00:00:00.000Z",
+      payload: {
+        migratedFrom: "adr-cutover:test",
+        generation: "v0",
+        entity: {
+          kind: "relation",
+          relation: { ...relation, origin: "imported_snapshot" },
+          ownerRef: sourceRef,
+          registry,
+        },
+      },
+    };
+  assert.deepEqual(validateCurrentMigrationImportEvent(migrated), []);
+  assert.equal(reduceRelationEntity(null, migrated).source, sourceRef);
+  assert.notDeepEqual(
+    validateCurrentMigrationImportEvent({
+      ...migrated,
+      payload: {
+        ...migrated.payload,
+        entity: {
+          ...migrated.payload.entity,
+          registry: { ...registry, direction: { ...registry.direction, targetKind: "task" } },
+        },
+      },
+    }),
+    [],
+  );
 });
 
 test("relation_reconfirmed advances only the pinned target witness", () => {

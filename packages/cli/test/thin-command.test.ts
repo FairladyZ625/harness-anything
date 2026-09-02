@@ -116,6 +116,44 @@ test("dispatch record migration projects its dry-run flag into the daemon Action
   assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
 });
 
+test("ADR migration projects its registry and occurrence fences into one center Action", () => {
+  const revision = `sha256:${"a".repeat(64)}`,
+    parsed = parseThinCommand([
+      "migrate",
+      "adrs",
+      "--registry-revision",
+      revision,
+      "--op-id",
+      "w1e-adr-cutover-20260902",
+      "--source-root",
+      "harness/adr",
+      "--expect-count",
+      "30",
+      "--dry-run",
+    ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, {
+    kind: "entity-migrate-adrs",
+    registryRevision: revision,
+    migrationOpId: "w1e-adr-cutover-20260902",
+    sourceRoot: "harness/adr",
+    expectCount: 30,
+    dryRun: true,
+  });
+  const missingSourceRoot = parseThinCommand([
+    "migrate",
+    "adrs",
+    "--registry-revision",
+    revision,
+    "--op-id",
+    "w1e-adr-cutover-20260902",
+  ]);
+  assert.equal(missingSourceRoot.ok, false);
+  if (!missingSourceRoot.ok) assert.equal(missingSourceRoot.code, "missing_field");
+});
+
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
@@ -174,6 +212,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     migrate: [
       "decision-digests-migrate",
       "dispatch-records-migrate",
+      "entity-migrate-adrs",
       "fact-rekey",
       "ledger-migrate",
       "migrate-import",

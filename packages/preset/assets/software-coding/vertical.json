@@ -97,7 +97,6 @@
       { "path": "{{paths.standardsRoot}}", "create": "init" },
       { "path": "{{paths.contextRoot}}", "create": "init" },
       { "path": "{{paths.contextRoot}}/architecture", "create": "init" },
-      { "path": "{{paths.adrRoot}}", "create": "init" },
       { "path": "{{paths.milestonesRoot}}", "create": "init" },
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
@@ -110,7 +109,6 @@
       { "slot": "repository.standard.index", "templateRef": "template://repository/standards-index@1", "materializeAs": "{{paths.standardsRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.standard.governance", "templateRef": "template://repository/repository-governance@1", "materializeAs": "{{paths.standardsRoot}}/repository-governance.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.standard.decision-writing", "templateRef": "template://repository/decision-writing@1", "materializeAs": "{{paths.standardsRoot}}/decision-writing.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.adr.index", "templateRef": "template://repository/adr-index@1", "materializeAs": "{{paths.adrRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.milestones.index", "templateRef": "template://repository/milestones-index@1", "materializeAs": "{{paths.milestonesRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
@@ -161,24 +159,6 @@
       "writes": [],
       "inputs": {},
       "metadata": { "description": "Inspect the bundled software/coding repository scaffold contract.", "purpose": "audit", "contractVersion": "script-entry/v1", "produces": [] }
-    },
-    {
-      "id": "vertical:software-coding:adr-seed",
-      "type": "script",
-      "command": "scripts/adr-seed.mjs",
-      "reads": [],
-      "writes": ["{{paths.adrRoot}}/**"],
-      "inputs": { "locale": "en-US" },
-      "metadata": { "description": "Seed repository ADR README and template documents.", "purpose": "scaffold", "contractVersion": "script-entry/v1", "produces": ["{{paths.adrRoot}}/README.md", "{{paths.adrRoot}}/0000-template.md"] }
-    },
-    {
-      "id": "vertical:software-coding:adr-render",
-      "type": "script",
-      "command": "scripts/adr-render.mjs",
-      "reads": ["{{paths.decisionsRoot}}/**", "{{paths.adrRoot}}/**"],
-      "writes": ["{{paths.adrRoot}}/**"],
-      "inputs": { "locale": "en-US" },
-      "metadata": { "description": "Render an ADR document from a canonical decision entity.", "purpose": "generate", "contractVersion": "script-entry/v1", "produces": ["{{paths.adrRoot}}/*.md"] }
     },
     {
       "id": "vertical:software-coding:decision-conformance",

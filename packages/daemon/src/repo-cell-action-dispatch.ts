@@ -186,7 +186,7 @@ export async function executeAction(
       ),
     );
   }
-  if (action.kind === "entity-import")
+  if (action.kind === "entity-import" || action.kind === "entity-migrate-adrs")
     return cell.entityActionExecutor.run(
       action,
       binding,

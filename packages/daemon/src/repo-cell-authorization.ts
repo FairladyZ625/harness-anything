@@ -139,6 +139,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "entity-import":
       return authorizeRepoCellAction(input);
+    case "entity-migrate-adrs":
+      return authorizeRepoCellAction(input);
     case "fact-reclassify":
       return authorizeRepoCellAction(input);
     case "fact-record":

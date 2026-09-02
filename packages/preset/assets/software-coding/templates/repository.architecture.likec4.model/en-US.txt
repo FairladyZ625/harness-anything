@@ -20,7 +20,6 @@ model {
       owner 'replace-me'
       responsibilities ['host authored code and architecture intent']
       nonResponsibilities ['represent generated dependency observations as intent']
-      adrRefs ['harness/adr/ADR-0000-replace-me.md']
       decisionRefs ['decision/dec_replace_me']
     }
   }
@@ -43,7 +42,6 @@ model {
       expectation 'allowed'
       status 'draft'
       placeholder true
-      adrRefs ['harness/adr/ADR-0000-replace-me.md']
       decisionRefs ['decision/dec_replace_me']
     }
   }

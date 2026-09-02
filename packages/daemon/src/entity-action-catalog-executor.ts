@@ -43,6 +43,7 @@ import {
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
 import { executeArtifactEntityImport } from "./artifact-entity-action.ts";
+import { runAdrEntityMigration } from "./adr-entity-migration.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -113,6 +114,17 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
     runtimes: EntityActionCatalogRuntimes = {},
   ): WriteReceipt | Promise<WriteReceipt> => {
+    if (action.kind === "entity-migrate-adrs")
+      return runAdrEntityMigration({
+        rootDir: input.rootDir ?? process.cwd(),
+        repositoryId: input.repositoryId ?? "repository",
+        action,
+        binding,
+        store: input.store,
+        projection: input.projection,
+        now: input.now,
+        authorizationDecision: decisionAuthorization(action, binding, opId, input),
+      });
     if (action.kind === "entity-import") {
       const authorizationDecision = decisionAuthorization(action, binding, opId, input);
       return executeArtifactEntityImport({

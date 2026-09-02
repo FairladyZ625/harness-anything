@@ -9,7 +9,7 @@
 
 - context 位于 `harness/context/`。
 - standards 只位于 `harness/governance/standards/`。
-- ADR 投影位于 `harness/adr/`，milestone 文档位于 `harness/milestones/`，canonical decision package 位于 `harness/decisions/`。
+- Artifact 源文档通过通用实体描述符定位；milestone 文档与 canonical decision package 保留在配置的 authored root 下。
 - 读取各目录自己的 README，不要在此复制规则。
 
 ## Architecture-aware Changes

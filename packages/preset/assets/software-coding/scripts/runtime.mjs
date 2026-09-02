@@ -27,8 +27,6 @@ const handlers = {
   "vertical:software-coding:architecture-snapshot": architectureSnapshot,
   "vertical:software-coding:architecture-check": architectureCheck,
   "vertical:software-coding:repository-audit": repositoryAudit,
-  "vertical:software-coding:adr-seed": adrSeed,
-  "vertical:software-coding:adr-render": adrRender,
   "vertical:software-coding:decision-conformance": decisionConformance,
 };
 
@@ -107,31 +105,6 @@ function repositoryAudit() {
     [],
     missing.length === 0,
   );
-}
-
-function adrSeed(context) {
-  const locale = context.inputs.locale === "zh-CN" ? "zh-CN" : "en-US",
-    templates = [
-      [path.join(context.paths.adrRoot, "README.md"), template(`repository.adr.index/${locale}.md`)],
-      [path.join(context.paths.adrRoot, "0000-template.md"), template(`repository.adr.template/${locale}.md`)],
-    ];
-  return scaffold(context, templates, "adr-scaffold");
-}
-
-function adrRender(context) {
-  const decisionId = context.inputs.decisionId;
-  if (!decisionId || !/^[A-Za-z0-9_-]+$/u.test(decisionId))
-    return failed("decision-required", { message: "adr-render requires inputs.decisionId" });
-  const source = path.join(context.paths.decisionsRoot, `decision-${decisionId}`, "decision.md");
-  if (!existsSync(source)) return failed("decision-not-found", { decisionId });
-  const canonical = readFileSync(source, "utf8"),
-    title = canonical.match(/^#\s+(.+)$/mu)?.[1] ?? decisionId,
-    state = canonical.match(/^state:\s*(\S+)/mu)?.[1] ?? "unknown",
-    body = `# ADR ${decisionId}: ${title}\n\n## Status\n\n${state}\n\n## Context\n\nDerived from canonical decision \`${decisionId}\`.\n\n## Decision\n\nSee \`decisions/decision-${decisionId}/decision.md\`; canonical decision content is not duplicated here.\n\n## Consequences\n\nTrack implementation and evidence through the canonical task lifecycle.\n`;
-  return generated(context, path.join(context.paths.adrRoot, `${decisionId}.md`), body, "text/markdown", {
-    decisionId,
-    sourceSha256: `sha256:${sha(canonical)}`,
-  });
 }
 
 function decisionConformance(context) {

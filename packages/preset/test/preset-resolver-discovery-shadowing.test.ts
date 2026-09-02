@@ -26,23 +26,17 @@ test("template and script discovery expose builtin content with typed vertical e
       materializeAs: string;
       locales: string[];
     }>;
-    assert.equal(templates.length, 33);
+    assert.equal(templates.length, 31);
     assert.deepEqual(
       templates,
-      [...templates].sort((left, right) =>
-        left.templateRef.localeCompare(right.templateRef),
-      ),
+      [...templates].sort((left, right) => left.templateRef.localeCompare(right.templateRef)),
     );
     assert.deepEqual(
-      templates.find(
-        ({ templateRef }) =>
-          templateRef === "template://repository/architecture-manifest@1",
-      ),
+      templates.find(({ templateRef }) => templateRef === "template://repository/architecture-manifest@1"),
       {
         templateRef: "template://repository/architecture-manifest@1",
         slot: "repository.architecture.manifest",
-        materializeAs:
-          "{{paths.contextRoot}}/architecture/architecture-manifest.json",
+        materializeAs: "{{paths.contextRoot}}/architecture/architecture-manifest.json",
         locales: ["en-US"],
       },
     );
@@ -64,22 +58,16 @@ test("template and script discovery expose builtin content with typed vertical e
     };
     assert.equal(rendered.schema, "template-render/v1");
     assert.equal(rendered.source, "builtin:software/coding");
-    assert.equal(
-      rendered.templateRef,
-      "template://repository/architecture-manifest@1",
-    );
+    assert.equal(rendered.templateRef, "template://repository/architecture-manifest@1");
     assert.equal(rendered.locale, "en-US");
-    assert.equal(
-      rendered.path,
-      "{{paths.contextRoot}}/architecture/architecture-manifest.json",
-    );
+    assert.equal(rendered.path, "{{paths.contextRoot}}/architecture/architecture-manifest.json");
     assert.match(rendered.body, /"schema": "architecture-manifest\/v1"/u);
     assert.match(rendered.digest, /^sha256:[0-9a-f]{64}$/u);
     const scripts = (await runPresetAction({
       rootDir,
       action: { kind: "script-list" },
     })) as Array<{ id: string; purpose: string; execution: string }>;
-    assert.equal(scripts.length, 7);
+    assert.equal(scripts.length, 5);
     assert.deepEqual(
       scripts.map(({ id }) => id),
       [...scripts.map(({ id }) => id)].sort(),
@@ -97,16 +85,12 @@ test("template and script discovery expose builtin content with typed vertical e
       execution: { available: boolean; code: string };
     };
     assert.equal(inspected.schema, "vertical-script-inspection/v1");
-    assert.equal(
-      inspected.declaration.command,
-      "scripts/architecture-check.mjs",
-    );
+    assert.equal(inspected.declaration.command, "scripts/architecture-check.mjs");
     assert.deepEqual(inspected.declaration.writes, []);
     assert.deepEqual(inspected.execution, {
       available: true,
       code: "script_run_available",
-      nextAction:
-        "Run ha script run vertical:software-coding:architecture-check [--dry-run].",
+      nextAction: "Run ha script run vertical:software-coding:architecture-check [--dry-run].",
     });
     await assert.rejects(
       runPresetAction({
@@ -116,8 +100,7 @@ test("template and script discovery expose builtin content with typed vertical e
           scriptId: "vertical:software-coding:architecture-check",
         },
       }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "unsupported_command",
+      (error: unknown) => (error as { code?: string }).code === "unsupported_command",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -125,9 +108,7 @@ test("template and script discovery expose builtin content with typed vertical e
 });
 
 test("user shadow lifecycle dry-runs mutation, blocks invalid content, and reveals bundled on uninstall", async () => {
-  const rootDir = mkdtempSync(
-      path.join(tmpdir(), "ha-preset-shadow-lifecycle-"),
-    ),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-shadow-lifecycle-")),
     sourceRoot = path.join(rootDir, "source", "standard-task"),
     userRoot = path.join(rootDir, ".harness/presets");
   try {
@@ -192,15 +173,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
         issues: [],
       },
     );
-    write(
-      path.join(
-        userRoot,
-        "preset-objects",
-        validated.preset!.digest,
-        "preset.json",
-      ),
-      "{}",
-    );
+    write(path.join(userRoot, "preset-objects", validated.preset!.digest, "preset.json"), "{}");
     const blocked = (await runPresetAction({
       rootDir,
       action: { kind: "preset-list" },
@@ -214,9 +187,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
       blocked.find(({ id }) => id === "standard-task") && {
         validity: blocked.find(({ id }) => id === "standard-task")!.validity,
         errorCode: blocked.find(({ id }) => id === "standard-task")!.errorCode,
-        issues: blocked
-          .find(({ id }) => id === "standard-task")!
-          .issues.map(({ code }) => code),
+        issues: blocked.find(({ id }) => id === "standard-task")!.issues.map(({ code }) => code),
       },
       {
         validity: "blocked",
@@ -238,8 +209,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
     };
     assert.equal(audited.blocked, 1);
     assert.match(
-      audited.issues.find(({ presetId }) => presetId === "standard-task")
-        ?.message ?? "",
+      audited.issues.find(({ presetId }) => presetId === "standard-task")?.message ?? "",
       /preset\.json is missing required field "schema".*bundled standard-task remains blocked/u,
     );
     await assert.rejects(
@@ -247,8 +217,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
         rootDir,
         action: { kind: "preset-inspect", presetId: "standard-task" },
       }),
-      (error: unknown) =>
-        (error as { code?: string }).code === "shadow_invalid",
+      (error: unknown) => (error as { code?: string }).code === "shadow_invalid",
     );
     assert.deepEqual(
       await runPresetAction({
@@ -266,10 +235,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
         removed: false,
       },
     );
-    assert.equal(
-      existsSync(path.join(userRoot, "active/standard-task.json")),
-      true,
-    );
+    assert.equal(existsSync(path.join(userRoot, "active/standard-task.json")), true);
     assert.deepEqual(
       await runPresetAction({
         rootDir,
@@ -277,20 +243,12 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
       }),
       { presetId: "standard-task", mode: "apply", active: true, removed: true },
     );
-    assert.equal(
-      existsSync(
-        path.join(userRoot, "preset-objects", validated.preset!.digest),
-      ),
-      true,
-    );
+    assert.equal(existsSync(path.join(userRoot, "preset-objects", validated.preset!.digest)), true);
     const revealed = (await runPresetAction({
       rootDir,
       action: { kind: "preset-list" },
     })) as Array<{ id: string; layer: string }>;
-    assert.equal(
-      revealed.find(({ id }) => id === "standard-task")?.layer,
-      "bundled",
-    );
+    assert.equal(revealed.find(({ id }) => id === "standard-task")?.layer, "bundled");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

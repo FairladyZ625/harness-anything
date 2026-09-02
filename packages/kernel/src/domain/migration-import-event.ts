@@ -1,4 +1,6 @@
 import {
+  assertGovernedRelationRecord,
+  assertGovernedRelationRegistryWitness,
   deriveRelationId,
   relationDirections,
   relationOrigins,
@@ -6,6 +8,7 @@ import {
   relationStrengths,
   relationTypes,
   type EntityRelationRecord,
+  type GovernedRelationRegistryWitness,
 } from "./entity-relation.ts";
 import { decisionStates, type DecisionDocumentState } from "./decision-event.ts";
 import {
@@ -117,6 +120,7 @@ export type MigrationEntity =
       readonly kind: "relation";
       readonly relation: EntityRelationRecord;
       readonly ownerRef: string;
+      readonly registry?: GovernedRelationRegistryWitness;
       readonly retirementReason?: "truth_gap";
     }
   | MigrationArchivedEntity
@@ -385,6 +389,7 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
     "kind",
     "relation",
     "ownerRef",
+    ...(value.registry === undefined ? [] : ["registry"]),
     ...(value.retirementReason === undefined ? [] : ["retirementReason"]),
   ];
   if (
@@ -395,7 +400,7 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
   )
     return false;
   const relation = value.relation;
-  return (
+  const valid =
     matchesMigrationFields(
       relation,
       ["relation_id", "source", "target", "type", "strength", "direction", "origin", "rationale", "state"],
@@ -410,8 +415,16 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
     (relationOrigins as readonly unknown[]).includes(relation.origin) &&
     ((allowUnknownFields && typeof relation.state === "string") ||
       (relationStates as readonly unknown[]).includes(relation.state)) &&
-    isNonEmptyString(relation.rationale)
-  );
+    isNonEmptyString(relation.rationale);
+  if (!valid) return false;
+  if (value.registry === undefined) return true;
+  try {
+    assertGovernedRelationRegistryWitness(value.registry);
+    assertGovernedRelationRecord(relation as unknown as EntityRelationRecord, value.registry);
+    return true;
+  } catch {
+    return false;
+  }
 }
 function validArchivedEntity(value: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
   return (

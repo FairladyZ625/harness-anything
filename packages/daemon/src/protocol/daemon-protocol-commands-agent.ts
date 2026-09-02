@@ -255,6 +255,50 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineCenterForwardWriteCommand({
+    id: "entity-migrate-adrs",
+    phase: "Governed-Entity-W1-E",
+    path: ["migrate", "adrs"],
+    summary: "Import numbered repository ADRs and their qualified Decision anchors through one center migration.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--registry-revision",
+        "single",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add --registry-revision sha256:<current bundled vertical digest>.",
+        },
+        { regex: "^sha256:[0-9a-f]{64}$" },
+      ),
+      cliInput(
+        "--op-id",
+        "single",
+        true,
+        { code: "missing_field", nextAction: "Add one stable portable migration --op-id." },
+        { field: "migrationOpId", regex: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
+      ),
+      cliInput("--source-root", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --source-root <repo-relative-dir> for the ADR Markdown files.",
+      }),
+      cliInput(
+        "--expect-count",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use a non-negative integer --expect-count or omit the check." },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
     id: "entity-import",
     phase: "Governed-Entity-W1-B",
     path: ["entity", "import"],

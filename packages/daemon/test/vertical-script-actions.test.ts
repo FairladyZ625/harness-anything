@@ -18,10 +18,11 @@ const binding = {
     actor: { principal: { personId: "person-owner" }, executor: null },
     source: "local" as const,
   },
-  scriptId = "vertical:software-coding:adr-seed";
+  scriptId = "vertical:software-coding:architecture-snapshot",
+  scriptTaskId = "task_01KZXSYDTJ3K1YE88294X33QNW";
 
 test("repo.script.run RPC params are closed and hydrate the kernel-owned action envelope", () => {
-  const payload = { scriptId, inputs: { locale: "en-US" }, dryRun: true },
+  const payload = { scriptId, inputs: {}, dryRun: true },
     parsed = parseDaemonRpcParams("repo.script.run", {
       repo: { repoId: "vertical-script" },
       payload,
@@ -51,12 +52,17 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     ownerId: "vertical-script-test",
   });
   try {
+    const created = await cell.run(
+      { kind: "task-create", taskId: scriptTaskId, title: "Vertical script fixture" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
     const action = {
         schema: "vertical-script-action/v1",
         kind: "script-run",
         scriptId,
-        taskId: null,
-        inputs: { locale: "en-US" },
+        taskId: scriptTaskId,
+        inputs: {},
         dryRun: true,
       } as const,
       store = () => makeTaskEventReader({ repoId: "vertical-script", rootDir }),
@@ -66,9 +72,9 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     const previewResult = parseVerticalScriptResult(JSON.parse(String(preview.evidence)));
     assert.equal(preview.proof?.canonicalVisible, false);
     assert.equal(preview.proof?.worktreeVisible, false);
-    assert.equal(previewResult.documents.length, 2);
+    assert.equal(previewResult.documents.length, 1);
     assert.equal(store().readHead()?.revision ?? 0, before);
-    assert.equal(existsSync(path.join(rootDir, "harness/decisions/adrs/README.md")), false);
+    assert.equal(existsSync(path.join(rootDir, "harness", previewResult.documents[0]!.path)), false);
     const applied = await cell.run({ ...action, dryRun: false }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
     const appliedResult = parseVerticalScriptResult(JSON.parse(String(applied.evidence)));
@@ -76,10 +82,8 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     assert.equal(appliedResult.planDigest, previewResult.planDigest);
     assert.deepEqual(appliedResult.documents, previewResult.documents);
     assert.equal(
-      readFileSync(path.join(rootDir, "harness/decisions/adrs/README.md"), "utf8").includes(
-        "Decision Projection Boundary",
-      ),
-      true,
+      JSON.parse(readFileSync(path.join(rootDir, "harness", appliedResult.documents[0]!.path), "utf8")).schema,
+      "architecture-snapshot/v1",
     );
     assert.equal(store().read().events.at(-1)?.schema, "doc-event/v1");
     const revision = store().readHead()!.revision,
@@ -169,9 +173,9 @@ test("same-repo writes advance while a vertical script is running", async (conte
   const action = {
       schema: "vertical-script-action/v1",
       kind: "script-run",
-      scriptId,
+      scriptId: "vertical:software-coding:repository-audit",
       taskId: null,
-      inputs: { locale: "en-US" },
+      inputs: {},
       dryRun: true,
     } as const,
     store = () => makeTaskEventReader({ repoId: "vertical-write-progress", rootDir });
@@ -241,7 +245,9 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.name", "Vertical Script Test");
   git(rootDir, "config", "user.email", "vertical-script@example.invalid");
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
+  writeFileSync(path.join(rootDir, "harness/harness.yaml"), "layout:\n  contextRoot: harness/context\n");
+  mkdirSync(path.join(rootDir, "harness/context/architecture"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/context/architecture/architecture-manifest.json"), "{}\n");
   git(rootDir, "add", ".");
   git(rootDir, "commit", "-qm", "base");
 }
