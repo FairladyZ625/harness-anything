@@ -15,11 +15,8 @@ import {
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-import { actor, blockedReason, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
-// F-42D28979/F-F4814511: a task plan whose H1 no longer matches the ledger
-// title is the highest-frequency doc-sync block; the receipt must name the
-// mechanical fix, and following it verbatim must leave the healed task idempotent.
-test("a renamed task plan H1 receipt names the exact title restore and the heal is idempotent", async () => {
+import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+test("a renamed task plan H1 remains authored prose and submits normally", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-h1-restore-"));
   initRepo(rootDir);
   const repoId = workspaceId("h1-restore"),
@@ -45,23 +42,11 @@ test("a renamed task plan H1 receipt names the exact title restore and the heal 
       `restore the H1 of ${plan.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")} to the task title verbatim \\("# ${title.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"\\), then rerun ha doc sync --submit --path ${plan.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`,
       "u",
     );
-    const status = (await cell.run({ kind: "doc-status", paths: [plan] }, binding)) as {
-      detail?: { nextAction?: string };
-    };
-    assert.equal(rows((await cell.run({ kind: "doc-status", paths: [plan] }, binding)).evidence)[0]?.state, "blocked");
-    assert.match(status.detail?.nextAction ?? "", restore);
-    const rejected = (await cell.run({ kind: "doc-submit", paths: [plan] }, binding)) as {
-      outcome?: string;
-      code?: string;
-      nextAction?: string;
-    };
-    assert.equal(rejected.outcome, "op_rejected");
-    assert.equal(rejected.code, "preview_blocked");
-    assert.match(rejected.nextAction ?? "", restore);
-    writeFileSync(target, readFileSync(target, "utf8").replace("# 好读的短标题", `# ${title}`));
-    const healed = await cell.run({ kind: "doc-submit", taskId }, binding);
-    assert.equal(healed.outcome, "no_changes", JSON.stringify(healed));
-    assert.equal(healed.code, "no_changes", JSON.stringify(healed));
+    const status = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
+    assert.equal(rows(status.evidence)[0]?.state, "eligible", JSON.stringify(status));
+    assert.doesNotMatch(JSON.stringify(status), restore);
+    const submitted = await cell.run({ kind: "doc-submit", paths: [plan] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -209,9 +194,8 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
       .replace(`# ${firstTitle}`, `# ${secondTitle}`)
       .concat("\n## Drift\n\nworker prose written under the already-renamed H1\n");
     writeFileSync(target, workerBody);
-    const blocked = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
-    assert.equal(rows(blocked.evidence)[0]?.state, "blocked", JSON.stringify(blocked));
-    assert.match(blockedReason(blocked.evidence), /base region is missing: "# no-op amend first title"/u);
+    const authored = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
+    assert.equal(rows(authored.evidence)[0]?.state, "eligible", JSON.stringify(authored));
     const noop = (await cell.run(
       {
         kind: "task-amend",

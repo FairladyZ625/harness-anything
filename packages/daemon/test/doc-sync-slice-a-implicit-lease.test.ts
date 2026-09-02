@@ -12,7 +12,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
-import { git, initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("implicit submit accepts two authored paths with identical content", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
   initRepo(rootDir);
@@ -45,7 +45,7 @@ test("implicit submit accepts two authored paths with identical content", async 
   }
 });
 
-test("implicit submit applies eligible prose and reports an unrelated blocked row as skipped", async () => {
+test("implicit submit applies prose after its heading is rewritten", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-"));
   initRepo(rootDir);
   const repoId = workspaceId("partial-blocked"),
@@ -62,33 +62,18 @@ test("implicit submit applies eligible prose and reports an unrelated blocked ro
     write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
     const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.match(
-      String(submitted.summary),
-      /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/blocked\.md\tblocked\tbase region is missing: "# Stable"/u,
-    );
+    assert.match(String(submitted.summary), /skipped:\n\(none\)/u);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
         event.payload.changes.map((change) => change.path),
-        ["context/eligible.md"],
+        ["context/blocked.md", "context/eligible.md"],
       );
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
-    const settledHead = git(rootDir, "rev-parse", "HEAD"),
-      skippedOnly = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
-    assert.equal(skippedOnly.outcome, "op_rejected", JSON.stringify(skippedOnly));
-    assert.equal(skippedOnly.code, "preview_blocked");
-    assert.match(
-      String(skippedOnly.nextAction),
-      /resolve context\/blocked\.md through refresh-region-policy: base region is missing: "# Stable"/u,
-    );
-    assert.doesNotMatch(String(skippedOnly.nextAction), /ha doc status/u);
-    assert.equal(
-      git(rootDir, "rev-parse", "HEAD"),
-      settledHead,
-      "a blocked-only implicit submit must reject without publishing an event",
-    );
+    const clean = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

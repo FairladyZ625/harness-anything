@@ -46,7 +46,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   }
 });
 
-test("claim mismatch, deletion, heading rename, machine touch, and ambiguous headings fail closed", () => {
+test("claim mismatch, deletion, machine touch, and ambiguous headings fail closed", () => {
   const base = "# Notes\nA\n",
     additive = `${base}B\n`,
     change = {
@@ -64,7 +64,7 @@ test("claim mismatch, deletion, heading rename, machine touch, and ambiguous hea
     assert.equal(deletion.code, "deletion_forbidden");
     assert.equal(deletion.detail.deletions[0]?.source, "intent");
   }
-  for (const candidate of ["# Renamed\nA\n", "---\nowner: other\n---\n# Notes\nA\n", "# Same\nA\n# Same\nB\n"]) {
+  for (const candidate of ["---\nowner: other\n---\n# Notes\nA\n", "# Same\nA\n# Same\nB\n"]) {
     const current = candidate.startsWith("---") ? "---\nowner: owner\n---\n# Notes\nA\n" : base,
       rejected = decide(
         {
@@ -170,7 +170,7 @@ test("direct CRLF claims name the line-ending repair when the contract rejects t
   }
 });
 
-test("prose regression controls reject deletion and duplicate headings while naming missing and reordered base regions", () => {
+test("prose regions may be removed, renamed, or reordered while file deletion and duplicate headings stay guarded", () => {
   const base = "# One\nA\n# Two\nB\n",
     prose = {
       path: "context/notes.md",
@@ -188,20 +188,11 @@ test("prose regression controls reject deletion and duplicate headings while nam
     assert.equal(duplicateResult.detail.unresolvedTouches[0]?.reason, "duplicate heading anchor");
   const missing = "# One\nA\n",
     missingResult = decide({ ...prose, candidate: claim(missing) }, state(base), Buffer.from(missing));
-  assert.equal(missingResult.accepted, false);
-  if (!missingResult.accepted)
-    assert.equal(missingResult.detail.unresolvedTouches[0]?.reason, 'base region is missing: "# Two"');
+  assert.equal(missingResult.accepted, true, JSON.stringify(missingResult));
   const allMissing = "Replacement prose.\n",
     allMissingResult = decide({ ...prose, candidate: claim(allMissing) }, state(base), Buffer.from(allMissing));
-  assert.equal(allMissingResult.accepted, false);
-  if (!allMissingResult.accepted)
-    assert.equal(allMissingResult.detail.unresolvedTouches[0]?.reason, 'base regions are missing: "# One", "# Two"');
+  assert.equal(allMissingResult.accepted, true, JSON.stringify(allMissingResult));
   const reordered = "# Two\nB\n# One\nA\n",
     reorderedResult = decide({ ...prose, candidate: claim(reordered) }, state(base), Buffer.from(reordered));
-  assert.equal(reorderedResult.accepted, false);
-  if (!reorderedResult.accepted)
-    assert.equal(
-      reorderedResult.detail.unresolvedTouches[0]?.reason,
-      'base regions are reordered: candidate places "# Two" before "# One"; expected "# One" before "# Two"',
-    );
+  assert.equal(reorderedResult.accepted, true, JSON.stringify(reorderedResult));
 });
