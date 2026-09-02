@@ -145,7 +145,8 @@ function projectionDatabaseOwner(
   const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
   let db: DatabaseSync | null = null,
     fingerprint: string | null = null,
-    schemaChecked = false;
+    schemaChecked = false,
+    useDepth = 0;
   let unregister = (): void => undefined;
   const register = (): void => {
     if (projectionClosers.get(resolvedProjectionPath)?.has(close)) return;
@@ -192,8 +193,16 @@ function projectionDatabaseOwner(
     schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
-    if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
-    if (db === null) initialize();
+    // A query operation can call back into this same owner while its own `operation` is still
+    // running (an event-shape migration's rewrite reads the scratch projection it is replaying
+    // into, mid-round). useDepth makes that reentrant: only the outermost call opens or closes
+    // the handle, so a nested call reuses the still-open connection instead of closing it out
+    // from under the frame that is still using it.
+    if (useDepth === 0) {
+      if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
+      if (db === null) initialize();
+    }
+    useDepth += 1;
     try {
       const observed = projectionSchemaVersion(db!);
       if (observed !== null && observed > taskProjectionSchemaVersion)
@@ -201,9 +210,10 @@ function projectionDatabaseOwner(
       if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
       return operation(db!);
     } finally {
+      useDepth -= 1;
       // A completed writer operation publishes the main projection file, not SQLite's
       // process-local WAL index. Query readers keep their own short-lived snapshot open.
-      close();
+      if (useDepth === 0) close();
     }
   };
   const owner = { use, discard, close };
