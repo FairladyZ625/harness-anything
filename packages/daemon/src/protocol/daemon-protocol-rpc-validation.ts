@@ -114,12 +114,7 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
   return [];
 }
 
-/**
- * Request-side half of the single selector boundary. `admitUseCaseProjectionSelector` decides the
- * name, the facet and the closed field set; only facet-specific value rules live below it. Before
- * this, the same vocabulary was restated in the request validator, the handler, the result
- * validator and the preload allowlist, so a selector added to one of them failed asymmetrically.
- */
+// Request-side half of the single selector boundary; only facet-specific value rules live here.
 function validateUseCaseProjectionPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["use-case projection payload must be an object"];
   const admitted = admitUseCaseProjectionSelector(value);
