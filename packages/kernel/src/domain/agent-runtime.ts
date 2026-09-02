@@ -319,7 +319,7 @@ interface RuntimePayloads {
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled";
     readonly exitCode: number | null;
     readonly resultRef: string;
-    readonly result: RuntimeResultClaim;
+    readonly result: RuntimeResultClaim | null;
     readonly reasonCode?: string;
   };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
@@ -468,7 +468,8 @@ export function isAgentRuntimeEvent(event: { readonly schema: string }): event i
 export function runtimeEventContentClaims(
   event: AgentRuntimeEventV1,
 ): readonly (RuntimeResultClaim | RuntimeDefinitionSnapshotClaim)[] {
-  if (event.type === "runtime_session_outcome_observed") return [event.payload.result];
+  if (event.type === "runtime_session_outcome_observed")
+    return event.payload.result === null ? [] : [event.payload.result];
   if (
     event.type === "runtime_dispatch_requested" &&
     /^artifact:runtime-definition\/sha256\/[0-9a-f]{64}$/u.test(event.payload.definitionSnapshotRef)
@@ -683,7 +684,8 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
     ["subscription", "api-key"].includes(String(value.authMode))
   );
 }
-function validResult(ref: unknown, value: unknown, allowUnknownFields: boolean): value is RuntimeResultClaim {
+function validResult(ref: unknown, value: unknown, allowUnknownFields: boolean): value is RuntimeResultClaim | null {
+  if (value === null) return /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u.test(String(ref));
   return (
     isRecord(value) &&
     (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["sha256", "size", "mediaType"]) &&

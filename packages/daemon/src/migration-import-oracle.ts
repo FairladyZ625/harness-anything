@@ -92,7 +92,7 @@ export interface ProjectionOracleRuntimeSession {
   readonly startedAt: string;
   readonly sourceAnchor: MigrationSourceAnchor;
   readonly outcome: {
-    readonly result: RuntimeResultClaim;
+    readonly result: RuntimeResultClaim | null;
     readonly reasonCode?: string;
   } | null;
 }
@@ -445,9 +445,12 @@ function readEntitySourceEvents(database: DatabaseSync): {
       held = runtime.get(sessionId) ?? { startedAt: occurredAt, latest: anchor, outcome: null };
     held.latest = anchor;
     if (event.type === "runtime_session_started") held.startedAt = occurredAt;
-    if (event.type === "runtime_session_outcome_observed" && isMigrationImportRecord(payload.result))
+    if (
+      event.type === "runtime_session_outcome_observed" &&
+      (payload.result === null || isMigrationImportRecord(payload.result))
+    )
       held.outcome = {
-        result: payload.result as unknown as RuntimeResultClaim,
+        result: payload.result as RuntimeResultClaim | null,
         ...(typeof payload.reasonCode === "string" ? { reasonCode: payload.reasonCode } : {}),
       };
     runtime.set(sessionId, held);

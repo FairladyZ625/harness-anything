@@ -967,7 +967,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           if (outcome?.type === "runtime_session_outcome_observed")
             assert.equal(
               Buffer.from(
-                makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result.sha256)!,
+                makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result!.sha256)!,
               ).toString("utf8"),
               `${kindId} final result`,
             );

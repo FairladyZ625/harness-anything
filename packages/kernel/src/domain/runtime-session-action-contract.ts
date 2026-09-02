@@ -240,7 +240,7 @@ function compileRuntimeSessionAction(
   if (event.type === "runtime_session_outcome_observed" && typeof resultBody === "string") {
     const result = event.payload.result,
       bytes = new TextEncoder().encode(resultBody);
-    if (bytes.byteLength !== result.size || sha256Text(resultBody) !== result.sha256)
+    if (result === null || bytes.byteLength !== result.size || sha256Text(resultBody) !== result.sha256)
       invalidRuntimeSessionAction(
         "content_claim_mismatch",
         "Runtime result bytes do not match the declared result claim.",
