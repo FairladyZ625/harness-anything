@@ -366,7 +366,7 @@ export const genericAuthoring = Object.freeze({
 export const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
 
-export const artifactEntityImportActionInput: EntityActionInputContract = Object.freeze({
+export const artifactEntityImportActionInput = Object.freeze({
   schema: "entity-action-input/v1" as const,
   fields: Object.freeze([
     { field: "entityKind", type: "string" as const, required: true },
@@ -379,7 +379,7 @@ export const artifactEntityImportActionInput: EntityActionInputContract = Object
     { field: "dryRun", type: "boolean" as const, required: false },
   ]),
   exactlyOneOf: Object.freeze([]),
-});
+} as const satisfies EntityActionInputContract);
 
 export function artifactEntityActionCatalog(
   kind: string,

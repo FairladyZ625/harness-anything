@@ -6,7 +6,7 @@ import {
   type VerticalDefinition,
 } from "../schemas/vertical-definition.ts";
 import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } from "./base-entity.ts";
-import { artifactDescriptorSchema } from "./artifact-entity.ts";
+import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
 import {
   artifactEntityActionCatalog,
   entityKindContracts,
@@ -251,12 +251,4 @@ function assertUniqueValues(values: readonly string[], label: string): void {
 
 function duplicate(field: string, value: string): never {
   throw new VerticalContractError(`Duplicate artifact ${field}: ${value}.`);
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) deepFreeze(child);
-    Object.freeze(value);
-  }
-  return value;
 }

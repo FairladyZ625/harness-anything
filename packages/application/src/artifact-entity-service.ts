@@ -143,7 +143,8 @@ export function makeArtifactEntityService(options: {
     if (!replay && request.expectedVersion !== (current?.revision ?? 0))
       throw new ArtifactEntityServiceError(
         "revision_conflict",
-        `Entity ${entityId} expected revision ${request.expectedVersion}, current revision is ${current?.revision ?? 0}.`,
+        `Entity ${entityId} expected revision ${request.expectedVersion}, ` +
+          `current revision is ${current?.revision ?? 0}.`,
       );
     if (current?.descriptor && current.descriptor.source !== sourceIdentity)
       throw new ArtifactEntityServiceError(

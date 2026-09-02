@@ -290,7 +290,8 @@ export function artifactObservationId(input: {
   readonly locator: ArtifactLocator;
   readonly resolution: string;
 }): string {
-  return `obs_${sha256(`${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`).slice(0, 24)}`;
+  const identity = `${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
+  return `obs_${sha256(identity).slice(0, 24)}`;
 }
 
 export function artifactImportOperationId(input: {
@@ -298,7 +299,8 @@ export function artifactImportOperationId(input: {
   readonly locator: ArtifactLocator;
   readonly resolution: string;
 }): string {
-  return `entity-import-${sha256(`${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`).slice(0, 32)}`;
+  const identity = `${input.entityId}\u0000${input.locator.kind}:${input.locator.value}\u0000${input.resolution}`;
+  return `entity-import-${sha256(identity).slice(0, 32)}`;
 }
 
 function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
@@ -357,7 +359,7 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function deepFreeze<T>(value: T): T {
+export function deepFreeze<T>(value: T): T {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) deepFreeze(child);
     Object.freeze(value);

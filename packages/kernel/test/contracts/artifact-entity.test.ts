@@ -6,8 +6,6 @@ import {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
   artifactObservationId,
-  assertEntityEventInputs,
-  canonicalArtifactUrl,
   canonicalSourceIdentity,
   compileEntityContentObserved,
   compileEntityTargetMissing,
@@ -16,10 +14,11 @@ import {
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
   deriveArtifactEntityId,
-  encodeArtifactDescriptor,
   type ArtifactDescriptor,
   type EntityStoreKindContract,
 } from "../../src/index.ts";
+import { canonicalArtifactUrl, encodeArtifactDescriptor } from "../../src/domain/artifact-entity.ts";
+import { assertEntityEventInputs } from "../../src/domain/entity-event.ts";
 
 const vertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),

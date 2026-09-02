@@ -99,7 +99,8 @@ export function advanceEntityProjectionRevision(
 ): void {
   runSql(
     db,
-    "UPDATE entity_projection SET workspace_revision = ? WHERE entity_kind = ? AND entity_id = ? AND workspace_revision <= ?",
+    "UPDATE entity_projection SET workspace_revision = ? " +
+      "WHERE entity_kind = ? AND entity_id = ? AND workspace_revision <= ?",
     workspaceRevision,
     entityKind,
     entityId,

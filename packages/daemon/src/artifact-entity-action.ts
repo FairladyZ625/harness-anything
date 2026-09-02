@@ -104,8 +104,8 @@ export async function runArtifactEntityImport(input: {
     }),
     prepared = await service.prepare(
       {
-        kind: requiredText(input.action.entityKind, "entityKind"),
-        locator: requiredText(input.action.locator, "locator"),
+        kind: requiredArtifactText(input.action.entityKind, "entityKind"),
+        locator: requiredArtifactText(input.action.locator, "locator"),
         expectedVersion: Number(input.action.expectedVersion),
         ...(typeof input.action.title === "string" ? { title: input.action.title } : {}),
         ...(typeof input.action.entityId === "string" ? { entityId: input.action.entityId } : {}),
@@ -120,7 +120,7 @@ export async function runArtifactEntityImport(input: {
       },
     );
   if (input.action.dryRun === true) return previewReceipt(prepared.preview, input, prepared.contract);
-  if (prepared.replay) return replayReceipt(prepared.replay, prepared.preview, input.authorizationDecision);
+  if (prepared.replay) return artifactReplayReceipt(prepared.replay, prepared.preview, input.authorizationDecision);
   const appended = input.store.append(prepared.bundle);
   input.projection.apply(prepared.bundle.event, prepared.bundle.plan);
   const applied = input.projection.readOperation(prepared.bundle.event.opId),
@@ -263,7 +263,7 @@ function previewReceipt(
   };
 }
 
-function replayReceipt(
+function artifactReplayReceipt(
   event: EntityEventV1,
   preview: Awaited<ReturnType<ReturnType<typeof makeArtifactEntityService>["prepare"]>>["preview"],
   authorizationDecision: AuthorizationDecision,
@@ -292,7 +292,7 @@ function titleFromContent(content: Uint8Array, relative: string): string {
   return heading || path.basename(relative, path.extname(relative));
 }
 
-function requiredText(value: unknown, field: string): string {
+function requiredArtifactText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim())
     throw new ArtifactEntityServiceError("invalid_command", `${field} is required.`);
   return value.trim();
