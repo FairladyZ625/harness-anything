@@ -18,6 +18,7 @@ const repositoryWriteActions = Object.freeze([
   "decision-transition",
   "distill-candidate",
   "distill-promote",
+  "dispatch-records-migrate",
   "doc-conflict-discard-local",
   "decision-digests-migrate",
   "doc-conflict-overwrite-center",

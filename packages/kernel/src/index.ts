@@ -2,6 +2,7 @@ export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
   runtimeProtocolFamilies,
+  runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
   runtimeSessionInActivityWindow,
@@ -282,6 +283,7 @@ export {
   resolveLedgerGitLayout,
   resolveRetirableDocument,
   eventShapeMigrations,
+  runDispatchRecordMigration,
   makeTaskEventStore,
   makeTaskProjection,
   runEventShapeMigration,
@@ -294,6 +296,7 @@ export type {
   CanonicalEventCut,
   CanonicalEventStore,
   CanonicalWriteBundle,
+  DispatchRecordLeaseSettlement,
   PublicationFile,
   EntityStore,
   EventPublicationKillpoint,

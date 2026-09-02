@@ -258,6 +258,15 @@ export function taskSurfaceWrite(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
+  return taskSurfaceWriteAt(cell, action, binding, cell.now());
+}
+
+export function taskSurfaceWriteAt(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  occurredAt: string,
+): WriteReceipt {
   const taskId = cell.requiredCellText(
       action.kind === "task-supersede" ? action.oldTaskId : action.taskId,
       action.kind === "task-supersede" ? "oldTaskId" : "taskId",
@@ -343,7 +352,7 @@ export function taskSurfaceWrite(
       type: mutation.type,
       actor: binding.actor,
       source: binding.source,
-      occurredAt: cell.now(),
+      occurredAt,
       payload: mutation.execution
         ? {
             task: mutation.task,

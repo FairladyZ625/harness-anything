@@ -124,6 +124,24 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "dispatch-records-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "dispatch-records"],
+    summary:
+      "Recover missing RuntimeSession lifecycle events from canonical runtime-dispatch/v1 task artifacts. " +
+      "Use --dry-run to report import-full, settle-tail, and skip decisions before applying.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
   defineRuntimeLocalWriteCommand({
     id: "agent-create",
     phase: "Runtime-B",

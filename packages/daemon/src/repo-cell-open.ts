@@ -10,6 +10,7 @@ import {
   type CanonicalEventAppendReceipt,
   type CanonicalEventStore,
   type DaemonRepoMode,
+  type DispatchRecordLeaseSettlement,
   type EventPublicationKillpoint,
   type SettingsV1,
   type WriterGeneration,
@@ -48,6 +49,7 @@ import {
 import { chainRepoCellWrite, initializeRepoCell } from "./repo-cell.ts";
 import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 import { operationId } from "./repo-cell-proof.ts";
+import { taskSurfaceWriteAt } from "./repo-cell-task-command-docs.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
@@ -411,6 +413,15 @@ export async function openRepoWriterCell(
   let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
   };
+  let settleRuntimeExecutionLease: (
+    task: NonNullable<RuntimeAttemptTerminal["task"]>,
+    runtimeSessionId: string,
+    leaseAt: string,
+    occurredAt: string,
+    binding: RuntimeAttemptTerminal["binding"],
+  ) => Promise<void> = async () => {
+    throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
+  };
   let settleScheduledOutcome: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell Schedule settlement is not ready.");
   };
@@ -679,7 +690,21 @@ export async function openRepoWriterCell(
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     }),
   });
-  const operationalContext = Object.assign(runtimeContext, { settings });
+  const operationalContext = Object.assign(runtimeContext, {
+    settings,
+    settleRuntimeExecutionLease: (settlement: DispatchRecordLeaseSettlement, binding: RepoCellBinding) =>
+      settleRuntimeExecutionLease(
+        {
+          taskId: settlement.taskId,
+          executionId: settlement.executionId,
+          leaseVersion: settlement.leaseVersion,
+        },
+        settlement.runtimeSessionId,
+        settlement.endedAt,
+        settlement.endedAt,
+        binding,
+      ),
+  });
   operationalContext satisfies RepoCellOperationalContext;
   handoffTaskLease = async ({ taskId, runtimeSessionId, fromRuntimeSessionId, binding }) => {
     const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
@@ -799,10 +824,14 @@ export async function openRepoWriterCell(
         `Schedule ${scheduled.scheduleId} settlement was ${receipt.outcome}.`,
       );
   };
-  settleExecutionLease = async (terminal) => {
-    const task = terminal.task;
-    if (!task) return;
-    const lease = extracted.projection.currentLease(task.taskId, terminal.endedAt);
+  settleRuntimeExecutionLease = async (
+    task: NonNullable<RuntimeAttemptTerminal["task"]>,
+    runtimeSessionId: string,
+    leaseAt: string,
+    occurredAt: string,
+    terminalBinding: RuntimeAttemptTerminal["binding"],
+  ): Promise<void> => {
+    const lease = extracted.projection.currentLease(task.taskId, leaseAt);
     if (!lease || lease.phase === "released" || lease.executionId !== task.executionId) return;
     // executionId survives release and reacquisition, so it cannot tell one lease generation from
     // the next: a sibling dispatch that settles late would otherwise release the lease its own
@@ -812,13 +841,23 @@ export async function openRepoWriterCell(
         kind: "task-release",
         taskId: task.taskId,
         terminalExecutionId: task.executionId,
-        terminalRuntimeSessionId: terminal.runtimeSessionId,
-        reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+        terminalRuntimeSessionId: runtimeSessionId,
+        reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
       },
-      binding = authorizeRuntimeAction(action, terminal.binding, `runtime-task-release:${terminal.runtimeSessionId}`),
-      settled = await extracted.taskSurfaceWrite(action, binding);
+      binding = authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
+      settled = taskSurfaceWriteAt(extracted, action, binding, occurredAt);
     if (settled.outcome !== "applied")
       throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
+  };
+  settleExecutionLease = async (terminal) => {
+    if (!terminal.task) return;
+    await settleRuntimeExecutionLease(
+      terminal.task,
+      terminal.runtimeSessionId,
+      terminal.endedAt,
+      now(),
+      terminal.binding,
+    );
   };
   await runtimeSpawner.adopt();
   schedule(() => squadCoordinator.reconcile());

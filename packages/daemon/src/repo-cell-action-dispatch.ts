@@ -8,7 +8,6 @@ import {
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
-  runEventShapeMigration,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -17,6 +16,7 @@ import { distillPromotionAction, prepareDistillCandidate } from "./distill-actio
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
+import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
@@ -52,13 +52,8 @@ export async function executeAction(
     });
   }
   if (action.kind === "relation-events-migrate" || action.kind === "decision-digests-migrate")
-    return runEventShapeMigration(eventShapeMigrations[action.kind], {
-      dryRun: action.dryRun === true,
-      actor: binding.actor,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      now: cell.now,
-    });
+    return runEventShapeMigrationAction(cell, eventShapeMigrations[action.kind], action, binding);
+  if (action.kind === "dispatch-records-migrate") return runDispatchRecordMigrationAction(cell, action, binding);
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
