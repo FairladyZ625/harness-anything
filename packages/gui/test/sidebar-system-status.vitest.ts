@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -71,6 +72,8 @@ const switcherRepos = [
     canonicalRoot: "/repo",
     authoredBranch: "main",
     registrationState: "enabled",
+    mode: "local",
+    connectionId: "local",
     cellState: "attached",
     generation: 1,
     queueDepth: 0,
@@ -85,6 +88,8 @@ const switcherRepos = [
     canonicalRoot: "/migration",
     authoredBranch: "migration/rehearsal",
     registrationState: "enabled",
+    mode: "local",
+    connectionId: "local",
     cellState: "unavailable",
     generation: 2,
     queueDepth: 0,
@@ -97,23 +102,27 @@ const switcherRepos = [
 
 function sidebarMarkup() {
   return renderToStaticMarkup(
-    createElement(AppSidebar, {
-      project,
-      repos: [],
-      activeRepoId: "repo",
-      view: "overview",
-      hasSelection: false,
-      inboxCount: 0,
-      projectSwitcherOpen: false,
-      onProjectSwitcherToggle: () => undefined,
-      onOpenProject: () => undefined,
-      onOpenProjectManager: () => undefined,
-      onNavigate: () => undefined,
-      ledgerStatus,
-      onRefreshLedger: () => undefined,
-      health: healthy,
-      onOpenSystem: () => undefined,
-    }),
+    createElement(
+      QueryClientProvider,
+      { client: new QueryClient() },
+      createElement(AppSidebar, {
+        project,
+        repos: [],
+        activeRepoId: "repo",
+        view: "overview",
+        hasSelection: false,
+        inboxCount: 0,
+        projectSwitcherOpen: false,
+        onProjectSwitcherToggle: () => undefined,
+        onOpenProject: () => undefined,
+        onOpenProjectManager: () => undefined,
+        onNavigate: () => undefined,
+        ledgerStatus,
+        onRefreshLedger: () => undefined,
+        health: healthy,
+        onOpenSystem: () => undefined,
+      }),
+    ),
   );
 }
 
@@ -190,29 +199,96 @@ function anchorRect(left: number, bottom: number): DOMRect {
   };
 }
 
+describe("current repository mode badge and endpoint (PLT-EdgeGUI-W3)", () => {
+  it("shows the view-only badge and the connection endpoint next to the current repo name", async () => {
+    vi.stubGlobal(
+      "window",
+      Object.assign(window, {
+        harness: {
+          connections: {
+            status: async () => ({
+              ok: true,
+              connections: [
+                { id: "local", kind: "local", displayName: "This device", state: "enabled" },
+                {
+                  id: "server-b",
+                  kind: "remote-endpoint",
+                  displayName: "Server B",
+                  state: "enabled",
+                  endpoint: "tcp://127.0.0.1:9911",
+                },
+              ],
+            }),
+          },
+        },
+      }),
+    );
+    const { div, root } = await mount(
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        createElement(AppSidebar, {
+          project,
+          repos: [
+            {
+              ...switcherRepos[0],
+              mode: "remote-proxy",
+              connectionId: "server-b",
+            },
+          ],
+          activeRepoId: "repo",
+          view: "overview",
+          hasSelection: false,
+          inboxCount: 0,
+          projectSwitcherOpen: false,
+          onProjectSwitcherToggle: () => undefined,
+          onOpenProject: () => undefined,
+          onOpenProjectManager: () => undefined,
+          onNavigate: () => undefined,
+          ledgerStatus,
+          onRefreshLedger: () => undefined,
+          health: healthy,
+          onOpenSystem: () => undefined,
+        }),
+      ),
+    );
+    const aside = div.querySelector('[data-testid="app-sidebar"]') as HTMLElement;
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(aside.querySelector('[data-testid="repo-mode-badge-remote-proxy"]')?.textContent).toContain("纯展示");
+    expect(aside.textContent).toContain("tcp://127.0.0.1:9911");
+    await act(async () => root.unmount());
+  });
+});
+
 describe("quick switcher overflow regression", () => {
   it("portals the open panel outside both clipping ancestors and preserves the existing actions", async () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(anchorRect(12, 84));
     const onOpenProject = vi.fn();
     const onOpenProjectManager = vi.fn();
     const { div, root } = await mount(
-      createElement(AppSidebar, {
-        project,
-        repos: switcherRepos,
-        activeRepoId: "repo",
-        view: "overview",
-        hasSelection: false,
-        inboxCount: 0,
-        projectSwitcherOpen: true,
-        onProjectSwitcherToggle: () => undefined,
-        onOpenProject,
-        onOpenProjectManager,
-        onNavigate: () => undefined,
-        ledgerStatus,
-        onRefreshLedger: () => undefined,
-        health: healthy,
-        onOpenSystem: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(AppSidebar, {
+          project,
+          repos: switcherRepos,
+          activeRepoId: "repo",
+          view: "overview",
+          hasSelection: false,
+          inboxCount: 0,
+          projectSwitcherOpen: true,
+          onProjectSwitcherToggle: () => undefined,
+          onOpenProject,
+          onOpenProjectManager,
+          onNavigate: () => undefined,
+          ledgerStatus,
+          onRefreshLedger: () => undefined,
+          health: healthy,
+          onOpenSystem: () => undefined,
+        }),
+      ),
     );
 
     const aside = div.querySelector('[data-testid="app-sidebar"]') as HTMLElement;
@@ -247,23 +323,27 @@ describe("quick switcher overflow regression", () => {
     let currentRect = anchorRect(12, 84);
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(() => currentRect);
     const { root } = await mount(
-      createElement(AppSidebar, {
-        project,
-        repos: switcherRepos,
-        activeRepoId: "repo",
-        view: "overview",
-        hasSelection: false,
-        inboxCount: 0,
-        projectSwitcherOpen: true,
-        onProjectSwitcherToggle: () => undefined,
-        onOpenProject: () => undefined,
-        onOpenProjectManager: () => undefined,
-        onNavigate: () => undefined,
-        ledgerStatus,
-        onRefreshLedger: () => undefined,
-        health: healthy,
-        onOpenSystem: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(AppSidebar, {
+          project,
+          repos: switcherRepos,
+          activeRepoId: "repo",
+          view: "overview",
+          hasSelection: false,
+          inboxCount: 0,
+          projectSwitcherOpen: true,
+          onProjectSwitcherToggle: () => undefined,
+          onOpenProject: () => undefined,
+          onOpenProjectManager: () => undefined,
+          onNavigate: () => undefined,
+          ledgerStatus,
+          onRefreshLedger: () => undefined,
+          health: healthy,
+          onOpenSystem: () => undefined,
+        }),
+      ),
     );
     const panel = document.body.querySelector('[data-testid="quick-switcher-panel"]') as HTMLElement;
     expect(panel.style.left).toBe("12px");

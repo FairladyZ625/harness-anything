@@ -1,6 +1,7 @@
 import type { GuiBridgeMethod } from "../api/renderer-dto.ts";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
+import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 type GuiInvokeFacet =
@@ -35,6 +36,8 @@ type HarnessBridge = Record<GuiBridgeMethod, (payload?: object | null) => Promis
   readonly capabilities?: unknown;
   readonly firstRun?: FirstRunApi;
   readonly artifacts?: ArtifactOpenApi;
+  readonly connections?: ConnectionAdminApi;
+  readonly repoAdmin?: RepoAdminApi;
 };
 
 declare global {

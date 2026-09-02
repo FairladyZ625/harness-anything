@@ -11,6 +11,19 @@ import { daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-proto
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import { LOCAL_DOC_READ_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";
+import {
+  CONNECTION_PROBE_CHANNEL,
+  CONNECTION_REGISTER_CHANNEL,
+  CONNECTION_STATUS_CHANNEL,
+  CONNECTION_UNREGISTER_CHANNEL,
+  CONNECTION_UPDATE_CHANNEL,
+  REPO_REGISTER_CHANNEL,
+  REPO_UNREGISTER_CHANNEL,
+  REPO_UPDATE_CHANNEL,
+  WORKSPACE_INSPECT_CHANNEL,
+  type ConnectionAdminApi,
+  type RepoAdminApi,
+} from "../api/connection-admin-contract.ts";
 const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ guiBridgeMethod }) => guiBridgeMethod));
 const exposedApi = Object.fromEntries(
   preloadAllowlist
@@ -37,6 +50,20 @@ const exposedHarnessApi = {
   localDoc: {
     read: (input) => ipcRenderer.invoke(LOCAL_DOC_READ_CHANNEL, input),
   } satisfies LocalDocApi,
+  // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin,主进程收窄见 main/connection-admin-ipc.ts。
+  connections: {
+    status: () => ipcRenderer.invoke(CONNECTION_STATUS_CHANNEL, null),
+    probe: (input) => ipcRenderer.invoke(CONNECTION_PROBE_CHANNEL, input),
+    register: (input) => ipcRenderer.invoke(CONNECTION_REGISTER_CHANNEL, input),
+    update: (input) => ipcRenderer.invoke(CONNECTION_UPDATE_CHANNEL, input),
+    unregister: (input) => ipcRenderer.invoke(CONNECTION_UNREGISTER_CHANNEL, input),
+  } satisfies ConnectionAdminApi,
+  repoAdmin: {
+    register: (input) => ipcRenderer.invoke(REPO_REGISTER_CHANNEL, input),
+    update: (input) => ipcRenderer.invoke(REPO_UPDATE_CHANNEL, input),
+    unregister: (input) => ipcRenderer.invoke(REPO_UNREGISTER_CHANNEL, input),
+    inspectWorkspace: (input) => ipcRenderer.invoke(WORKSPACE_INSPECT_CHANNEL, input),
+  } satisfies RepoAdminApi,
   capabilities: preloadApiCapabilities,
 };
 

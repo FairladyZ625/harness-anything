@@ -1,4 +1,5 @@
-import { statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
 import {
@@ -17,10 +18,13 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
  *   1. 只接受 `{repoId, path}` 里的 repo 相对产物路径，且路径形状必须是
  *      `tasks/<package>/artifacts/<…>`，段内不得出现 `..`/`.`/反斜杠/控制字符，
  *      扩展名只认 html/htm/md —— 渲染进程提不出任意路径。
- *   2. 绝对路径由主进程解析:repoId → 已注册仓库的 canonical root(daemon registry
+ *   2. 绝对路径由主进程解析:local 仓 repoId → 已注册仓库的 canonical root(daemon registry
  *      是唯一事实源)，再经 kernel 的 resolveHarnessLayout 取该仓 harness 目录，
- *      与 daemon artifacts 读侧同一条布局判定。
- *   3. 解析结果必须落在 harness 目录之内且是真实文件，才交给 openPath。
+ *      与 daemon artifacts 读侧同一条布局判定。remote-proxy 仓本机无文件,改走
+ *      daemon `repo.tasks.document.read` 取正文,物化只读副本到
+ *      `<userRoot>/artifact-cache/<repoId>/<sha>/<basename>` 后交给 openPath(§3.4 统一面)。
+ *   3. 解析结果必须落在 harness 目录之内(local)且是真实文件;物化副本必须落在
+ *      artifact-cache 之内,才交给 openPath。
  *
  * electron 的 shell 不在本模块引入（那会让 node 环境的单元测试无法加载），
  * 由 electron-main 作为 openPath 服务注入。
@@ -29,6 +33,16 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 export interface ArtifactOpenServices {
   /** repoId → 已注册仓库的 canonical root;未注册/被禁用时抛错。 */
   readonly canonicalRootOf: (repoId: string) => string;
+  /** repoId → registry v2 的模式;remote-proxy 仓走物化副本路径。 */
+  readonly repoModeOf: (repoId: string) => string | null;
+  /** 经 daemon 读产物正文(remote-proxy 物化副本的数据源);返回 {ok:false} 形态失败。 */
+  readonly readDocument: (
+    repoId: string,
+    taskId: string,
+    artifactPath: string,
+  ) => Promise<{ readonly body: string | null; readonly worktreeBody: string | null; readonly uncommitted: boolean }>;
+  /** 物化副本根目录(`<userRoot>/artifact-cache`);repoId 子目录由本模块追加。 */
+  readonly artifactCacheRoot: () => string;
   /** 交给系统打开的通路(electron-main 注入 shell.openPath)。返回空串 = 成功。 */
   readonly openPath: (absolutePath: string) => Promise<string>;
   /** 可注入的布局解析;缺省用 kernel 的 resolveHarnessLayout。 */
@@ -50,15 +64,45 @@ export function registerArtifactOpenIpc(
   registrar.handle(ARTIFACT_OPEN_EXTERNAL_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = validateArtifactOpenExternalInput(payload);
-    const canonicalRoot = services.canonicalRootOf(input.repoId);
-    const harnessRoot =
-      services.harnessRootOf !== undefined ? services.harnessRootOf(canonicalRoot) : defaultHarnessRoot(canonicalRoot);
-    const absolute = resolveArtifactAbsolutePath(harnessRoot, input.path);
-    const failure = await services.openPath(absolute);
-    if (failure !== "") throw new Error(`Opening ${absolute} in the system viewer failed: ${failure}`);
-    const result: ArtifactOpenExternalResult = { ok: true, openedPath: absolute, error: null };
-    return result;
+    const opened =
+      services.repoModeOf(input.repoId) === "remote-proxy"
+        ? await openMaterializedCopy(services, input)
+        : await openLocalFile(services, input);
+    return opened;
   });
+}
+
+async function openLocalFile(
+  services: ArtifactOpenServices,
+  input: ArtifactOpenExternalInput,
+): Promise<ArtifactOpenExternalResult> {
+  const canonicalRoot = services.canonicalRootOf(input.repoId);
+  const harnessRoot =
+    services.harnessRootOf !== undefined ? services.harnessRootOf(canonicalRoot) : defaultHarnessRoot(canonicalRoot);
+  const absolute = resolveArtifactAbsolutePath(harnessRoot, input.path);
+  const failureMessage = await services.openPath(absolute);
+  if (failureMessage !== "") throw new Error(`Opening ${absolute} in the system viewer failed: ${failureMessage}`);
+  return { ok: true, openedPath: absolute, error: null };
+}
+
+/** remote-proxy 的统一面:daemon 正文 → 只读副本 → openPath;local 模式不走这里。 */
+async function openMaterializedCopy(
+  services: ArtifactOpenServices,
+  input: ArtifactOpenExternalInput,
+): Promise<ArtifactOpenExternalResult> {
+  if (input.taskId === undefined || input.taskId.length === 0)
+    throw new Error("Opening an artifact of a remote-proxy repository requires its task id.");
+  const document = await services.readDocument(input.repoId, input.taskId, input.path);
+  const content = document.uncommitted && document.worktreeBody !== null ? document.worktreeBody : document.body;
+  if (content === null) throw new Error(`The remote repository does not have the artifact body for ${input.path}.`);
+  const sha = createHash("sha256").update(content, "utf8").digest("hex"),
+    directory = path.join(services.artifactCacheRoot(), input.repoId, sha),
+    copyPath = path.join(directory, artifactBasename(input.path));
+  mkdirSync(directory, { recursive: true });
+  if (!isRegularFile(copyPath)) writeFileSync(copyPath, content, { encoding: "utf8", mode: 0o444 });
+  const failureMessage = await services.openPath(copyPath);
+  if (failureMessage !== "") throw new Error(`Opening ${copyPath} in the system viewer failed: ${failureMessage}`);
+  return { ok: true, openedPath: copyPath, error: null };
 }
 
 export function validateArtifactOpenExternalInput(value: unknown): ArtifactOpenExternalInput {
@@ -66,11 +110,18 @@ export function validateArtifactOpenExternalInput(value: unknown): ArtifactOpenE
     throw new Error("Artifact open requires an object payload.");
   const record: Record<string, unknown> = value as Record<string, unknown>;
   for (const key of Object.keys(record))
-    if (key !== "repoId" && key !== "path") throw new Error(`Artifact open does not accept field ${key}.`);
+    if (key !== "repoId" && key !== "path" && key !== "taskId")
+      throw new Error(`Artifact open does not accept field ${key}.`);
   const repoId = record.repoId;
   if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
     throw new Error("Artifact open requires a registered repo id.");
-  return { repoId, path: requireArtifactRelativePath(record.path) };
+  if (record.taskId !== undefined && (typeof record.taskId !== "string" || record.taskId.length === 0))
+    throw new Error("Artifact open taskId must be a non-empty string.");
+  return {
+    repoId,
+    path: requireArtifactRelativePath(record.path),
+    ...(record.taskId !== undefined ? { taskId: record.taskId as string } : {}),
+  };
 }
 
 /** repo 相对产物路径:必须是 `tasks/<package>/artifacts/…`，段内禁 `..`/`.`/分隔符逃逸。 */
@@ -88,6 +139,24 @@ export function requireArtifactRelativePath(value: unknown): string {
       throw new Error("Artifact path must not contain relative or empty segments.");
   if (!/\.(?:html|htm|md)$/iu.test(value)) throw new Error("Artifact path must be an html or markdown file.");
   return value;
+}
+
+/** 物化副本的文件名:产物路径的末段(路径已过 requireArtifactRelativePath 的段校验)。 */
+export function artifactBasename(artifactPath: string): string {
+  const segments = artifactPath.split("/"),
+    name = segments[segments.length - 1] ?? "";
+  if (name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\"))
+    throw new Error("Artifact path must end in a plain file name.");
+  return name;
+}
+
+function isRegularFile(absolutePath: string): boolean {
+  try {
+    return statSync(absolutePath).isFile();
+  } catch (cause) {
+    consumeKnownError(cause);
+    return false;
+  }
 }
 
 function defaultHarnessRoot(canonicalRoot: string): string {

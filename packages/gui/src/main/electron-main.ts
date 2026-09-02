@@ -2,13 +2,19 @@ import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
+import { readDaemonRegistry, type HarnessLayoutOverrides } from "../../../kernel/src/index.ts";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
-import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import {
+  bootstrapLocalRepository,
+  createLocalGuiServiceBridge,
+  requestDaemonAdminRpc,
+  requestRepoScopedRpc,
+} from "./local-composition-root.ts";
+import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
-import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
+import { daemonUserRoot, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import {
   evaluateHtmlArtifactAttachment,
@@ -172,7 +178,7 @@ export async function startGuiApp(): Promise<void> {
       },
     };
   registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
-  // 「在默认浏览器打开」(task_7e713fee):唯一新增通道,主进程收窄见 artifact-open-ipc.ts。
+  // 「在默认浏览器打开」(task_7e713fee;W3 扩 remote-proxy 物化副本):主进程收窄见 artifact-open-ipc.ts。
   registerArtifactOpenIpc(
     ipcMain,
     {
@@ -181,10 +187,37 @@ export async function startGuiApp(): Promise<void> {
         if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
         return target.canonicalRoot;
       },
+      repoModeOf: (repoId) =>
+        readDaemonRegistry({ userRoot: daemonUserRoot() }).repos.find((repo) => repo.repoId === repoId)?.mode ?? null,
+      readDocument: async (repoId, taskId, artifactPath) => {
+        const result = await requestRepoScopedRpc(rootDir, repoId, "repo.tasks.document.read", {
+          repo: { repoId },
+          payload: { taskId, path: artifactPath },
+        });
+        const record = result as {
+          readonly ok?: boolean;
+          readonly body?: unknown;
+          readonly worktreeBody?: unknown;
+          readonly uncommitted?: unknown;
+          readonly error?: { readonly hint?: unknown };
+        };
+        if (record.ok !== true || typeof record.body !== "string")
+          throw new Error(
+            typeof record.error?.hint === "string" ? record.error.hint : "Remote artifact body read failed.",
+          );
+        return {
+          body: record.body,
+          worktreeBody: typeof record.worktreeBody === "string" ? record.worktreeBody : null,
+          uncommitted: record.uncommitted === true,
+        };
+      },
+      artifactCacheRoot: () => path.join(daemonUserRoot(), "artifact-cache"),
       openPath: (absolutePath) => shell.openPath(absolutePath),
     },
     trustPolicy,
   );
+  // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin 全部经本机 daemon RPC,GUI 零远程 transport。
+  registerConnectionAdminIpc(ipcMain, { request: requestDaemonAdminRpc }, trustPolicy);
   registerFirstRunIpcHandlers(
     ipcMain,
     {

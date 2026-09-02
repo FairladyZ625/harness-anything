@@ -21,6 +21,12 @@ export function useSystemStatusQuery() {
   });
 }
 
+/** 单仓行(共享 system status 缓存):需要模式/端点信息的局部视图用,不另立读路。 */
+export function useRepoRow(repoId: string): SystemRepoRow | null {
+  const status = useSystemStatusQuery();
+  return status.data?.repos.find((repo) => repo.repoId === repoId) ?? null;
+}
+
 export function controlSucceeded(receipt: DaemonControlReceipt): boolean {
   if (!receipt.ok || receipt.phase !== "settled" || !receipt.before || !receipt.after) return false;
   return receipt.kind === "refresh" || receipt.after.pid !== receipt.before.pid;

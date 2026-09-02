@@ -7,7 +7,8 @@ import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widg
 import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
-import type { CatalogPresetRow, SettingsSuccess } from "../api-client.ts";
+import type { CatalogPresetRow, SettingsSuccess, SystemRepoRow } from "../api-client.ts";
+import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
 // 模块级清单只留 id/key,文案键(labelKey/descKey)在渲染期经 t() 取。
@@ -30,6 +31,7 @@ const SHORTCUTS: { keys: string[]; descKey: MessageKey }[] = [
 ];
 
 type SettingsTab =
+  | "repositories"
   | "repository"
   | "appearance"
   | "language"
@@ -42,6 +44,11 @@ type SettingsTab =
 type SettingsDraft = SettingsSuccess["settings"];
 
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
+  {
+    id: "repositories",
+    labelKey: "views.settingsView.tabRepositories",
+    descKey: "views.settingsView.tabRepositoriesDesc",
+  },
   { id: "repository", labelKey: "views.settingsView.tabRepository", descKey: "views.settingsView.tabRepositoryDesc" },
   { id: "appearance", labelKey: "views.settingsView.tabAppearance", descKey: "views.settingsView.tabAppearanceDesc" },
   { id: "language", labelKey: "views.settingsView.tabLanguage", descKey: "views.settingsView.tabLanguageDesc" },
@@ -63,10 +70,19 @@ const SYNC_FEATURE_KEYS: readonly MessageKey[] = [
   "views.settingsView.syncFeatureMobileReview",
 ];
 
-export function SettingsView({ repoId }: { readonly repoId: string }) {
+export function SettingsView({
+  repoId,
+  repos,
+  onOpenProject,
+}: {
+  /** 当前仓;无仓(首次运行的空态)时为 null,仓库设置页停用、仓库与连接页照常可用。 */
+  readonly repoId: string | null;
+  readonly repos: readonly SystemRepoRow[];
+  readonly onOpenProject: (repoId: string) => void;
+}) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
   const { locale, setLocale } = useI18n();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("repository");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
   const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
   const settingsQuery = useSettingsQuery(repoId);
@@ -149,7 +165,15 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
 
   const renderActivePanel = () => {
     switch (activeTab) {
+      case "repositories":
+        return <RepositoriesAndConnectionsView repos={repos} activeRepoId={repoId} onOpenProject={onOpenProject} />;
       case "repository":
+        if (repoId === null)
+          return (
+            <Section title={t("views.settingsView.sectionRepository")}>
+              <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.repositoryTabNeedsRepo")}</div>
+            </Section>
+          );
         if (settingsQuery.error)
           return (
             <Section title={t("views.settingsView.sectionRepository")}>

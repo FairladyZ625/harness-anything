@@ -232,5 +232,10 @@
   "components.localDoc.errorBinaryFile": "文件不是文本,无法在 GUI 内阅读:{path}",
   "components.localDoc.errorTooLarge": "文件超过 GUI 内阅读上限(2 MiB):{path}",
   "components.localDoc.errorRequestRejected": "请求被拒绝:{message}",
-  "components.localDoc.errorBridgeUnavailable": "本机文档读取通道不可用(需要 Electron 壳)。"
+  "components.localDoc.errorBridgeUnavailable": "本机文档读取通道不可用(需要 Electron 壳)。",
+  "components.repoMode.local": "纯本地",
+  "components.repoMode.remoteProxy": "纯展示",
+  "components.repoMode.remoteCenter": "中心",
+  "components.repoMode.remoteEdge": "边缘",
+  "components.localDoc.remoteProxyDisabled": "该仓库为纯展示(remote-proxy)模式:本机文件不属于它,本机文件链接已禁用。"
 }

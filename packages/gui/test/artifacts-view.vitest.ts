@@ -241,6 +241,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(openExternal).toHaveBeenCalledWith({
       repoId: "repo-a",
       path: "tasks/task_weathering-slug/artifacts/reports/weathering.html",
+      taskId: "task_weathering",
     });
   });
 

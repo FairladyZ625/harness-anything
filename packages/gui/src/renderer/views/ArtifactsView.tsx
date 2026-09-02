@@ -19,6 +19,7 @@ import { Badge, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
+import { useRepoRow } from "../system-data.ts";
 import { artifactsClient } from "../artifacts-client.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
 import { isHtmlDocument } from "../components/taskDetail/TaskFilesTab.tsx";
@@ -315,11 +316,17 @@ function ArtifactPreviewPane({
   readonly onNavigateTask: (taskId: string) => void;
 }) {
   const document = useTaskDocumentQuery(repoId, row?.taskId ?? "", row?.path ?? null);
+  // 纯展示(remote-proxy)仓的「打开」走物化副本(主进程 §3.4 统一面),按钮旁标注服务器副本。
+  const remoteProxy = useRepoRow(repoId)?.mode === "remote-proxy";
   const [openError, setOpenError] = useState<string | null>(null);
   const openExternally = useCallback(async () => {
     if (row === null) return;
     setOpenError(null);
-    const outcome = await openArtifactExternally({ repoId, path: repoPathOf(row) });
+    const outcome = await openArtifactExternally({
+      repoId,
+      path: repoPathOf(row),
+      ...(row.taskId !== null ? { taskId: row.taskId } : {}),
+    });
     if (outcome.error !== null) setOpenError(outcome.error);
   }, [repoId, row]);
   return (
@@ -343,6 +350,7 @@ function ArtifactPreviewPane({
           document={document}
           onOpenExternally={openExternally}
           openError={openError}
+          remoteProxy={remoteProxy}
         />
       )}
     </aside>
@@ -355,12 +363,14 @@ function ArtifactPreviewBody({
   document,
   onOpenExternally,
   openError,
+  remoteProxy,
 }: {
   readonly row: ArtifactGuiRowDto;
   readonly onNavigateTask: (taskId: string) => void;
   readonly document: ReturnType<typeof useTaskDocumentQuery>;
   readonly onOpenExternally: () => void;
   readonly openError: string | null;
+  readonly remoteProxy: boolean;
 }) {
   const taskId = row.taskId;
   const html = isHtmlDocument(row.path);
@@ -374,17 +384,28 @@ function ArtifactPreviewBody({
           type="button"
           data-testid="artifact-open-external"
           onClick={onOpenExternally}
-          disabled={row.packagePath === null}
+          disabled={row.packagePath === null || (remoteProxy && row.taskId === null)}
           title={
             row.packagePath === null
               ? t("artifacts.preview.openExternalNoPackage")
-              : t("artifacts.preview.openExternalTitle")
+              : remoteProxy
+                ? t("artifacts.preview.serverCopyTitle")
+                : t("artifacts.preview.openExternalTitle")
           }
           className={OPEN_BUTTON_CLASS}
         >
           <ArrowSquareOut className="size-3" />
           {t("artifacts.preview.openExternal")}
         </button>
+        {remoteProxy ? (
+          <span
+            data-testid="artifact-server-copy-note"
+            title={t("artifacts.preview.serverCopyTitle")}
+            className="inline-flex shrink-0 items-center rounded border border-accent/40 px-1 py-px font-mono ui-micro text-accent"
+          >
+            {t("artifacts.preview.serverCopy")}
+          </span>
+        ) : null}
         {taskId !== null && (
           <button
             type="button"

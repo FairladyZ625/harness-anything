@@ -158,6 +158,8 @@ function seedQueries(client: QueryClient): void {
         canonicalRoot: "/tmp/g5-probe",
         authoredBranch: "main",
         registrationState: "enabled",
+        mode: "local",
+        connectionId: "local",
         cellState: "attached",
         generation: 1,
         queueDepth: 0,
