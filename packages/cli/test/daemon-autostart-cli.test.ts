@@ -28,7 +28,7 @@ import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   canonicalEventWritePlan,
-  makeTaskEventStore,
+  makeGitEventStore,
   registerDaemonRepo,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -47,8 +47,17 @@ test("registered checkout autostarts the daemon while its worktree only connects
     register(fixture.root, fixture.userRoot, "autostart");
     const status = run(fixture.root, fixture.userRoot, ["daemon", "status"]);
     assert.equal(status.entry, "source");
-    assert.equal(typeof (status.build as { readonly commit?: unknown }).commit, "string");
-    assert.match(String(status.summary), /entry=source commit=[0-9a-f]{40}/u);
+    const sourceCommit = (status.build as { readonly commit?: unknown }).commit;
+    const gitCommitResult = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: path.resolve("."),
+      encoding: "utf8",
+    });
+    const expectedSourceCommit = gitCommitResult.status === 0 ? gitCommitResult.stdout.trim() : null;
+    if (expectedSourceCommit !== null) {
+      assert.match(expectedSourceCommit, /^[0-9a-f]{40}$/u);
+      assert.equal(sourceCommit, expectedSourceCommit);
+      assert.match(String(status.summary), /entry=source commit=[0-9a-f]{40}/u);
+    } else assert.equal(sourceCommit, null, "an isolated source archive has no Git identity to report");
     assert.deepEqual(status.target, {
       endpoint: localUserDaemonEndpoint(fixture.userRoot, "default"),
       daemonId: "default",
@@ -82,7 +91,7 @@ test("registered checkout autostarts the daemon while its worktree only connects
     const lifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default");
     const processStart = lifecycle.find((record) => record.event === "process_start");
     assert.equal(processStart?.entry, "source");
-    assert.match(processStart?.commit ?? "", /^[0-9a-f]{40}$/u);
+    assert.equal(processStart?.commit, expectedSourceCommit);
     assert.equal(
       lifecycle.some((record) => record.event === "socket_bound"),
       true,
@@ -1070,7 +1079,7 @@ function seedLegacyTask(root: string, repoId: string, taskId: string): void {
         },
       },
     };
-  makeTaskEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+  makeGitEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
 }
 function seedAttachableRuntime(root: string, repoId: string, runtimeSessionId: string): void {
   const actor = { principal: { personId: "owner" }, executor: null } as const,
@@ -1147,7 +1156,7 @@ function seedAttachableRuntime(root: string, repoId: string, runtimeSessionId: s
       },
     },
   ];
-  const store = makeTaskEventStore({ repoId, rootDir: root });
+  const store = makeGitEventStore({ repoId, rootDir: root });
   for (const event of events)
     store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
 }

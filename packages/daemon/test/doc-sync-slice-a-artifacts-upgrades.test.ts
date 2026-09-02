@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   DOC_POLICY_ID,
   MIGRATION_DOCUMENT_POLICY_ID,
+  makeTaskEventReader,
   makeTaskEventStore,
   serializeCanonicalEvent,
 } from "../../kernel/src/index.ts";
@@ -82,8 +83,8 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
           receiptId: doc.receiptId,
         },
       );
-      const artifactStore = makeTaskEventStore({ repoId, rootDir: left }),
-        docStore = makeTaskEventStore({ repoId, rootDir: right }),
+      const artifactStore = makeTaskEventReader({ repoId, rootDir: left }),
+        docStore = makeTaskEventReader({ repoId, rootDir: right }),
         artifactEvent = artifactStore.readEvent(String(artifact.opId)),
         docEvent = docStore.readEvent(String(doc.opId));
       assert.ok(artifactEvent && docEvent);
@@ -218,7 +219,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
       "applied",
     );
     writeFileSync(path.join(rootDir, "unknown.md"), "# Unknown\n");
-    const revisionBeforeArtifact = makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read().revision;
+    const revisionBeforeArtifact = makeTaskEventReader({ repoId: "artifact-unknown", rootDir }).read().revision;
     armed = true;
     const unknown = await cell.run(
       {
@@ -234,7 +235,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
     assert.match(unknown.opId, /^op_/u);
     assert.match(unknown.nextAction ?? "", new RegExp(`receipt show ${unknown.opId}`, "u"));
     assert.equal(
-      makeTaskEventStore({ repoId: "artifact-unknown", rootDir }).read().revision,
+      makeTaskEventReader({ repoId: "artifact-unknown", rootDir }).read().revision,
       revisionBeforeArtifact + 1,
     );
     await cell.close();
@@ -260,7 +261,9 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     legacy = "# Docs Library\n\nfact 用 invalidate。\n",
     repoId = workspaceId("upgrade"),
     binding = ownerBinding;
-  makeTaskEventStore({ repoId, rootDir }).append(standardMigration(1, standard, legacy));
+  const seed = makeTaskEventStore({ repoId, rootDir });
+  seed.append(standardMigration(1, standard, legacy));
+  await seed.drain();
   const cell = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
@@ -275,7 +278,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     );
     const applied = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
-    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(applied.opId);
+    const upgraded = makeTaskEventReader({ repoId, rootDir }).readEvent(applied.opId);
     assert.equal(upgraded?.schema, "doc-event/v1");
     if (upgraded?.schema === "doc-event/v1")
       assert.deepEqual(upgraded.payload.changes[0]?.policyUpgrade, {
@@ -287,7 +290,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     write(rootDir, standard, secondBody);
     const second = await cell.run({ kind: "doc-submit", paths: [standard] }, binding);
     assert.equal(second.outcome, "applied", JSON.stringify(second));
-    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(second.opId);
+    const native = makeTaskEventReader({ repoId, rootDir }).readEvent(second.opId);
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
 
     write(rootDir, standard, `${secondBody}hand edit outside doc sync\n`);

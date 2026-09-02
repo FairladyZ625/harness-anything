@@ -479,6 +479,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     settleControl,
     buildObserver,
     startInitialAttachments,
+    waitForWarming,
     get closing() {
       return closing;
     },

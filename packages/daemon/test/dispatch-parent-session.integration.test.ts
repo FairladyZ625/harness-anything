@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  makeTaskEventStore,
+  makeTaskEventReader,
   type AgentDefinitionSnapshot,
   type RuntimeInstallationWitness,
 } from "../../kernel/src/index.ts";
@@ -171,7 +171,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
     assert.equal(archived.outcome, "succeeded");
     assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
     assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
-    assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));
+    await assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));
 
     const failedTaskId = "task_parent_session_archive_failed",
       failedExecutionId = "execution-parent-session-archive-failed";
@@ -203,30 +203,45 @@ test("a leader-only squad decision keeps attribution and settles success or fail
     assert.ok(failedRow, "failed leader dispatch settles");
     assert.equal(failedRow.outcome, "failed");
     assert.equal(failedRow.status, "failed");
-    assertLeaseReleasedBeforeOutcome(root, failedTaskId, failedExecutionId, String(failedReceipt.runtimeSessionId));
+    await assertLeaseReleasedBeforeOutcome(
+      root,
+      failedTaskId,
+      failedExecutionId,
+      String(failedReceipt.runtimeSessionId),
+    );
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-function assertLeaseReleasedBeforeOutcome(
+async function assertLeaseReleasedBeforeOutcome(
   rootDir: string,
   taskId: string,
   executionId: string,
   runtimeSessionId: string,
-): void {
-  const events = makeTaskEventStore({ repoId: "parent-session-archive", rootDir }).read().events,
-    releaseIndex = events.findIndex(
-      (event) =>
-        event.type === "lease_released" &&
-        event.taskId === taskId &&
-        event.payload.execution.executionId === executionId,
-    ),
-    outcomeIndex = events.findIndex(
-      (event) =>
-        event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-    );
+): Promise<void> {
+  let releaseIndex = -1,
+    outcomeIndex = -1;
+  for (let attempt = 0; attempt < 1_500 && outcomeIndex < 0; attempt += 1) {
+    const store = makeTaskEventReader({ repoId: "parent-session-archive", rootDir });
+    try {
+      const events = store.read().events;
+      releaseIndex = events.findIndex(
+        (event) =>
+          event.type === "lease_released" &&
+          event.taskId === taskId &&
+          event.payload.execution.executionId === executionId,
+      );
+      outcomeIndex = events.findIndex(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    } finally {
+      await store.drain();
+    }
+    if (outcomeIndex < 0) await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   assert.ok(releaseIndex >= 0, `execution lease ${executionId} was released`);
   assert.ok(outcomeIndex >= 0, `runtime session ${runtimeSessionId} has a terminal outcome`);
   assert.ok(releaseIndex < outcomeIndex, "lease release precedes the terminal runtime outcome");

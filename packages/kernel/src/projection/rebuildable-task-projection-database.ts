@@ -40,6 +40,7 @@ export class ProjectionSchemaMismatchError extends Error {
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
+const projectionBusyTimeoutMs = 250;
 let queryOnlySession: {
   readonly projectionPath: string;
   readonly readHead: EventStreamPort["readHead"];
@@ -96,7 +97,7 @@ export function withQueryOnlyDatabaseSession<A>(
   );
   try {
     /* @gate-identity check-bypass-write-boundary/bypass-write-098 */
-    db.exec("PRAGMA query_only = ON; BEGIN");
+    db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON; BEGIN`);
     queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
     const value = use(db);
     if (value !== null && typeof value === "object" && "then" in value)
@@ -143,7 +144,8 @@ function projectionDatabaseOwner(
   if (known !== undefined) return known;
   const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
   let db: DatabaseSync | null = null,
-    fingerprint: string | null = null;
+    fingerprint: string | null = null,
+    schemaChecked = false;
   let unregister = (): void => undefined;
   const register = (): void => {
     if (projectionClosers.get(resolvedProjectionPath)?.has(close)) return;
@@ -170,12 +172,13 @@ function projectionDatabaseOwner(
     fingerprint = projectionFileFingerprint(projectionPath);
   };
   const discard = () => {
+    schemaChecked = false;
     closeProjectionHandlesAt(resolvedProjectionPath);
     localRuntimeStateFileSystem.remove(projectionPath);
   };
   const initialize = () => {
     open();
-    const observed = projectionSchemaVersion(db!);
+    let observed = projectionSchemaVersion(db!);
     if (observed !== null && observed > taskProjectionSchemaVersion) {
       close();
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
@@ -183,8 +186,10 @@ function projectionDatabaseOwner(
     if (observed !== null && observed !== taskProjectionSchemaVersion) {
       discard();
       open();
+      observed = null;
     }
-    createTables(db!);
+    if (!schemaChecked || observed === null) createTables(db!);
+    schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
     if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
@@ -245,7 +250,7 @@ function openDatabase(projectionPath: string): DatabaseSync {
 }
 function configureDatabase(db: DatabaseSync): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-008 */
-  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON");
+  db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON`);
 }
 
 function createTables(db: DatabaseSync): void {

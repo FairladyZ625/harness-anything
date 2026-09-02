@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -398,7 +398,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       bare,
     )) as Record<string, unknown>;
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
-    const event = makeTaskEventStore({ repoId: "review-bare", rootDir }).readEvent(String(declared.opId));
+    const event = makeTaskEventReader({ repoId: "review-bare", rootDir }).readEvent(String(declared.opId));
     assert.equal(event?.type, "execution_executor_declared");
     if (event?.type === "execution_executor_declared") {
       assert.deepEqual(event.payload.previousActor, bare.actor);
@@ -562,7 +562,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       bare,
     )) as Record<string, unknown>;
     assert.equal(weaklyMarked.outcome, "applied", JSON.stringify(weaklyMarked));
-    const weakReviewEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(String(weaklyMarked.opId));
+    const weakReviewEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(weaklyMarked.opId));
     assert.equal(weakReviewEvent?.type, "review_recorded");
     assert.deepEqual(
       weakReviewEvent?.type === "review_recorded" ? weakReviewEvent.payload.review.evidenceChecked : [],
@@ -582,7 +582,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       bare,
     )) as Record<string, unknown>;
     assert.equal(externallyAnchored.outcome, "applied", JSON.stringify(externallyAnchored));
-    const externalReviewEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(String(externallyAnchored.opId));
+    const externalReviewEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(externallyAnchored.opId));
     assert.equal(externalReviewEvent?.type, "review_recorded");
     assert.deepEqual(
       externalReviewEvent?.type === "review_recorded" ? externalReviewEvent.payload.review.evidenceChecked : [],
@@ -893,7 +893,7 @@ async function runtimeEvent(
   matches: (event: ReturnType<ReturnType<typeof makeTaskEventStore>["read"]>["events"][number]) => boolean,
 ): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (makeTaskEventStore({ repoId, rootDir }).read().events.some(matches)) return;
+    if (makeTaskEventReader({ repoId, rootDir }).read().events.some(matches)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("runtime event did not arrive");

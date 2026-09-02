@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, parseVerticalScriptResult } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, parseVerticalScriptResult } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
   canonicalRoot,
@@ -59,7 +59,7 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
         inputs: { locale: "en-US" },
         dryRun: true,
       } as const,
-      store = () => makeTaskEventStore({ repoId: "vertical-script", rootDir }),
+      store = () => makeTaskEventReader({ repoId: "vertical-script", rootDir }),
       before = store().readHead()?.revision ?? 0;
     const preview = await cell.run(action, binding);
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
@@ -165,12 +165,8 @@ test("same-repo writes advance while a vertical script is running", async (conte
     started = `${blocker}.started`,
     previousBlocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
   initRepo(rootDir);
-  const cell = await openRepoCell({
-      repoId: workspaceId("vertical-write-progress"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "vertical-write-progress-test",
-    }),
-    action = {
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  const action = {
       schema: "vertical-script-action/v1",
       kind: "script-run",
       scriptId,
@@ -178,11 +174,16 @@ test("same-repo writes advance while a vertical script is running", async (conte
       inputs: { locale: "en-US" },
       dryRun: true,
     } as const,
-    store = () => makeTaskEventStore({ repoId: "vertical-write-progress", rootDir });
+    store = () => makeTaskEventReader({ repoId: "vertical-write-progress", rootDir });
   const writes: Promise<unknown>[] = [];
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
     process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = blocker;
+    cell = await openRepoCell({
+      repoId: workspaceId("vertical-write-progress"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "vertical-write-progress-test",
+    });
     const head = cell.run(action, binding);
     writes.push(head);
     await waitForPath(started);
@@ -230,7 +231,7 @@ test("same-repo writes advance while a vertical script is running", async (conte
     await Promise.allSettled(writes);
     if (previousBlocker === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE");
     else process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = previousBlocker;
-    await cell.close();
+    await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

@@ -198,13 +198,15 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
   }
 });
 
-test("progress publication recovers after prepared HEAD and retry does not duplicate the event or file entry", () => {
+test("progress publication recovers after prepared HEAD and retry does not duplicate the event or file entry", async () => {
   const rootDir = workspace();
   let initialProjection: ReturnType<typeof makeTaskProjection> | undefined,
-    replay: ReturnType<typeof makeTaskProjection> | undefined;
+    replay: ReturnType<typeof makeTaskProjection> | undefined,
+    store: ReturnType<typeof makeTaskEventStore> | undefined;
   try {
     const initial = bootstrapAndStart(rootDir);
     initialProjection = initial.projection;
+    await initial.store.drain();
     const { start } = initial,
       compiled = compileTaskProgress({
         ...domainFixture(),
@@ -217,13 +219,13 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
           if (point === "after_head_write") throw new Error("kill");
         },
       });
+    store = interrupted;
     assert.throws(() => interrupted.append(compiled), /kill/u);
-    assert.equal(makeTaskEventStore({ repoId: "progress", rootDir }).recover().status, "committed");
-    const resumed = makeTaskEventStore({ repoId: "progress", rootDir }),
-      before = resumed.currentCommit();
-    assert.deepEqual(resumed.append(compiled).metrics.changedPaths, []);
-    assert.deepEqual(resumed.currentCommit(), before);
-    replay = makeTaskProjection({ rootDir, eventStore: resumed });
+    assert.equal(interrupted.recover().status, "committed");
+    const before = interrupted.currentCommit();
+    assert.deepEqual(interrupted.append(compiled).metrics.changedPaths, []);
+    assert.deepEqual(interrupted.currentCommit(), before);
+    replay = makeTaskProjection({ rootDir, eventStore: interrupted });
     replay.rebuild();
     assert.equal(replay.readProgress("task-progress").rows.length, 1);
     assert.equal(
@@ -233,6 +235,7 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
   } finally {
     replay?.close();
     initialProjection?.close();
+    await store?.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   decideDocWrite,
   docSyncWritePlan,
+  makeTaskEventReader,
   makeTaskEventStore,
   parseDocWriteIntent,
   sha256Bytes,
@@ -102,7 +103,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       assert.equal(added.outcome, "applied", JSON.stringify(added));
       const logical = String(added.destination);
       assert.equal(logical, `${packagePath}/artifacts/${relative}`);
-      const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(added.opId));
+      const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(added.opId));
       assert.equal(event?.schema, "doc-event/v1", `${destination}: no doc event`);
       if (event?.schema !== "doc-event/v1") continue;
       const change = event.payload.changes[0]!;
@@ -246,12 +247,13 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
     assert.equal(historic.accepted, true, JSON.stringify(historic));
     if (!historic.accepted) return;
     store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
+    await store.drain();
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-policy-reclassify-next" });
     const rewritten = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nopaque rewrite\n";
     write(rootDir, report, rewritten);
     const submitted = (await cell.run({ kind: "doc-submit", paths: [report] }, binding)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
     const change = event.payload.changes[0]!;
@@ -295,7 +297,7 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
       unknown
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
     assert.deepEqual(
@@ -364,6 +366,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     return;
   }
   store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
+  await store.drain();
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "opaque-prose-restamp" });
   try {
     const firstBody = `${legacy}Current state.\n`;
@@ -375,7 +378,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     );
     const first = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
     assert.equal(first.outcome, "applied", JSON.stringify(first));
-    const upgraded = makeTaskEventStore({ repoId, rootDir }).readEvent(String(first.opId));
+    const upgraded = makeTaskEventReader({ repoId, rootDir }).readEvent(String(first.opId));
     assert.equal(upgraded?.schema, "doc-event/v1");
     if (upgraded?.schema === "doc-event/v1") {
       assert.equal(upgraded.payload.changes[0]?.policyId, PROSE_POLICY_ID);
@@ -388,7 +391,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     write(rootDir, logical, `${firstBody}Second edit.\n`);
     const second = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
     assert.equal(second.outcome, "applied", JSON.stringify(second));
-    const native = makeTaskEventStore({ repoId, rootDir }).readEvent(String(second.opId));
+    const native = makeTaskEventReader({ repoId, rootDir }).readEvent(String(second.opId));
     assert.equal(native?.schema, "doc-event/v1");
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
   } finally {
@@ -418,7 +421,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
       );
     const submitted = (await cell.run({ kind: "doc-submit", paths: prosePaths }, binding)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
     for (const change of event.payload.changes) {
@@ -488,7 +491,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     )) as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(completed.commitSha, null);
-    const store = makeTaskEventStore({ repoId, rootDir });
+    const store = makeTaskEventReader({ repoId, rootDir });
     assert.equal(
       store
         .read()

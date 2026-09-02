@@ -461,7 +461,7 @@ export function openFleetLeaseBroker(options: {
           revision: null,
           receipt: {
             outcome: "op_rejected",
-            code: "writer_epoch_stale",
+            code: "operation_not_published",
             nextAction: "Query the receipt or reacquire the current writer epoch before retrying.",
           },
           lease: null,
@@ -470,7 +470,12 @@ export function openFleetLeaseBroker(options: {
       throw error;
     }
     const applied = receipt.outcome === "applied",
-      record = receipt as unknown as Record<string, unknown>;
+      record = receipt as unknown as Record<string, unknown>,
+      payload = receiptPayload(record),
+      fleetReceipt =
+        receipt.code === "writer_epoch_stale" && payload !== null
+          ? { ...payload, code: "operation_not_published" }
+          : payload;
     let lease: FleetTaskResultFields["lease"] = null;
     if (!dryRun && key) {
       const { taskId } = splitKey(key);
@@ -497,7 +502,7 @@ export function openFleetLeaseBroker(options: {
       applied ? "applied" : "op_rejected",
       receipt.code ?? null,
       receipt.revision ?? null,
-      record,
+      fleetReceipt,
     );
     persist();
     return {
@@ -505,7 +510,7 @@ export function openFleetLeaseBroker(options: {
       opId,
       code: receipt.code ?? null,
       revision: receipt.revision ?? null,
-      receipt: receiptPayload(record),
+      receipt: fleetReceipt,
       lease,
       queuePosition: null,
     };

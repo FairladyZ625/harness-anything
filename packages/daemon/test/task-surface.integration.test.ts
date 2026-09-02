@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -63,7 +63,7 @@ test("task create publishes complete metadata and first-class relations survive 
     )) as Record<string, unknown>;
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     assert.equal(created.packagePath, "tasks/task_surface-surface");
-    const event = makeTaskEventStore({ repoId: "task-surface", rootDir })
+    const event = makeTaskEventReader({ repoId: "task-surface", rootDir })
       .read()
       .events.find(
         (candidate) => candidate.schema === "task-bootstrap-event/v1" && candidate.taskId === "task_surface",
@@ -104,7 +104,7 @@ test("task create publishes complete metadata and first-class relations survive 
     assert.equal((contract.metadata as { moduleKey: string }).moduleKey, "kernel");
     const replay = makeTaskProjection({
         rootDir,
-        eventStore: makeTaskEventStore({ repoId: "task-surface", rootDir }),
+        eventStore: makeTaskEventReader({ repoId: "task-surface", rootDir }),
       }),
       task = replay.read("task_surface").snapshot.task,
       edge = replay.readRelationQuery({}).rows.find((candidate) => candidate.sourceRef === "task/task_surface");
@@ -417,7 +417,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     assert.match(String(taskRead.evidence), /"packageDisposition":"archived"/u);
     assert.match(String(taskRead.evidence), /"supersededBy":"task_replacement"/u);
     assert.match(String(replacementRead.evidence), /"packageDisposition":"active"/u);
-    const events = makeTaskEventStore({
+    const events = makeTaskEventReader({
       repoId: "task-lifecycle-surface",
       rootDir,
     })
@@ -435,14 +435,14 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     ])
       assert.ok(events.includes(type as never), `${type} missing from ${events.join(",")}`);
     assert.equal(
-      makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir })
+      makeTaskEventReader({ repoId: "task-lifecycle-surface", rootDir })
         .read()
         .events.some((event) => event.schema === "relation-event/v1" && event.type === "relation_created"),
       true,
     );
     const replay = makeTaskProjection({
         rootDir,
-        eventStore: makeTaskEventStore({ repoId: "task-lifecycle-surface", rootDir }),
+        eventStore: makeTaskEventReader({ repoId: "task-lifecycle-surface", rootDir }),
       }),
       lifecycle = replay.read("task_lifecycle").snapshot.task,
       replacement = replay.read("task_replacement").snapshot.task,

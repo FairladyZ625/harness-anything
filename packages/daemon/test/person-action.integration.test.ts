@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -139,7 +139,7 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
 });
 
 function peopleEventCount(root: string): number {
-  return makeTaskEventStore({ repoId: "person-action", rootDir: root })
+  return makeTaskEventReader({ repoId: "person-action", rootDir: root })
     .read()
     .events.filter(({ schema }) => schema === "people-event/v1").length;
 }

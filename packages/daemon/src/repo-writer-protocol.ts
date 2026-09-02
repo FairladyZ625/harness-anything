@@ -66,6 +66,12 @@ export interface RepoWriterReceiptV1 {
   readonly error?: SerializedWriterErrorV1;
 }
 
+export interface RepoWriterCancelV1 {
+  readonly schema: "harness-repo-writer-cancel/v1";
+  readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
+  readonly requestId: string;
+}
+
 export interface RepoWriterStatusV1 {
   readonly schema: "harness-repo-writer-status/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
@@ -86,6 +92,7 @@ export type RepoWriterMessageV1 =
   | RepoWriterBootstrapV1
   | RepoWriterRequestV1
   | RepoWriterReceiptV1
+  | RepoWriterCancelV1
   | RepoWriterStatusV1
   | RepoWriterControlV1;
 

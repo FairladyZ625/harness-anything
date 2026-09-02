@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
   REPLAY_TASK_GRAPH,
@@ -207,7 +208,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
     assert.ok(hot);
     await cell.close();
     cell = undefined;
-    const store = makeTaskEventStore({ repoId: "task-status-replay", rootDir }),
+    const store = makeTaskEventReader({ repoId: "task-status-replay", rootDir }),
       replay = makeTaskProjection({ rootDir, eventStore: store });
     assert.deepEqual(
       store
@@ -249,7 +250,7 @@ test("batch archive preflights every selected task before publishing any event",
       },
       binding,
     );
-    const before = makeTaskEventStore({
+    const before = makeTaskEventReader({
       repoId: "task-archive-preflight",
       rootDir,
     }).read().events.length;
@@ -262,7 +263,7 @@ test("batch archive preflights every selected task before publishing any event",
       binding,
     );
     assert.equal(receipt.outcome, "op_rejected");
-    assert.equal(makeTaskEventStore({ repoId: "task-archive-preflight", rootDir }).read().events.length, before);
+    assert.equal(makeTaskEventReader({ repoId: "task-archive-preflight", rootDir }).read().events.length, before);
     assert.match(
       String((await cell.run({ kind: "task-show", taskId: "task_archive_valid" }, binding)).evidence),
       /"packageDisposition":"active"/u,
@@ -305,18 +306,20 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
         },
       },
     };
-    makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).append({
+    const seed = makeTaskEventStore({ repoId: "task-contract-manual", rootDir });
+    seed.append({
       event,
       plan: taskLifecycleWritePlan(event),
       blobs: [],
     });
+    await seed.drain();
     cell = await openRepoCell({
       repoId: workspaceId("task-contract-manual"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "task-contract-manual",
       now: () => "2026-08-15T02:45:00.000Z",
     });
-    const revisionBeforeDryRun = makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read().revision;
+    const revisionBeforeDryRun = makeTaskEventReader({ repoId: "task-contract-manual", rootDir }).read().revision;
     const receipt = await cell.run(
       {
         kind: "task-contract-migrate",
@@ -327,7 +330,10 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     );
     assert.equal(receipt.outcome, "pending");
     assert.equal(receipt.proof?.canonicalVisible, false);
-    assert.equal(makeTaskEventStore({ repoId: "task-contract-manual", rootDir }).read().revision, revisionBeforeDryRun);
+    assert.equal(
+      makeTaskEventReader({ repoId: "task-contract-manual", rootDir }).read().revision,
+      revisionBeforeDryRun,
+    );
     assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
   } finally {
     await cell?.close();

@@ -9,6 +9,7 @@ import {
   REPLAY_TASK_GRAPH,
   canonicalizeContractValue,
   eventObjectRelativePath,
+  makeTaskEventReader,
   makeTaskEventStore,
   readSettingsFacet,
   serializePersistedCanonicalEvent,
@@ -49,7 +50,7 @@ test("a CAS blob referenced by any migrated repo document follows it into the ev
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
-    const store = makeTaskEventStore({
+    const store = makeTaskEventReader({
         repoId: "migration-repo-reference-target",
         rootDir: destination,
       }),
@@ -191,7 +192,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
       readFileSync(path.join(destination, "harness/tasks/task_coverage-coverage-fixture/INDEX.md"), "utf8"),
       index.body,
     );
-    const migrationEvents = makeTaskEventStore({
+    const migrationEvents = makeTaskEventReader({
       repoId: "migration-covered-target",
       rootDir: destination,
     })
@@ -201,7 +202,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
           event.schema === "migration-import-event/v1" &&
           ["execution", "task-document"].includes(event.payload.entity.kind),
       );
-    const taskMigration = makeTaskEventStore({
+    const taskMigration = makeTaskEventReader({
       repoId: "migration-covered-target",
       rootDir: destination,
     })
@@ -364,7 +365,7 @@ test("re-importing after fact rekey accepts only the id-map-proven restatement",
       unknown
     >;
     assert.equal(first.exitCode, 0, JSON.stringify(first));
-    const firstStore = makeTaskEventStore({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
+    const firstStore = makeTaskEventReader({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
       imported = firstStore
         .read()
         .events.find((event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "fact");
@@ -375,7 +376,7 @@ test("re-importing after fact rekey accepts only the id-map-proven restatement",
 
     const rekey = await cell.run({ kind: "fact-rekey" }, { actor, source: "local" });
     assert.equal(rekey.outcome, "applied", JSON.stringify(rekey));
-    const restatedStore = makeTaskEventStore({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
+    const restatedStore = makeTaskEventReader({ repoId: "migration-after-fact-rekey-target", rootDir: destination }),
       restated = restatedStore.readEvent(imported.opId);
     assert.equal(restated?.schema, "migration-import-event/v1");
     if (restated?.schema !== "migration-import-event/v1" || restated.payload.entity.kind !== "fact")
@@ -451,7 +452,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       ownerId: "migration-daemon",
       now: () => "2026-08-30T00:00:00.000Z",
     });
-    const store = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination }),
+    const store = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination }),
       revisionBefore = store.read().revision,
       dry = (await cell.run(
         { kind: "migrate-import", sourceRoots, dryRun: true },
@@ -504,7 +505,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       readFileSync(path.join(destination, "harness/schedules/backfill-schedule.json"), "utf8"),
       fixture.scheduleBody,
     );
-    const appliedStore = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination });
+    const appliedStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
     assert.equal(
       Buffer.from(appliedStore.readContentBlob(fixture.resultHash) ?? []).toString("utf8"),
       fixture.resultBody,
@@ -516,7 +517,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
         unknown
       >;
     assert.equal(second.exitCode, 0, JSON.stringify(second));
-    const rerunStore = makeTaskEventStore({ repoId: "migration-entity-backfill-target", rootDir: destination });
+    const rerunStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
     assert.equal(rerunStore.read().revision, firstRevision);
     assert.equal(rerunStore.read().events.length, firstEventCount);
     assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=1/u);
@@ -776,7 +777,7 @@ test("contract migration repairs old migrated rows through one canonical event a
         "# Closeout\n\n## Summary\n\nPending.\n\n## Verification\n\nPending.\n\n## Residual Risk\n\nPending.\n",
       store = makeTaskEventStore({ repoId, rootDir }),
       initialRevision = store.readHead()?.revision ?? 0,
-      ledger = () => makeTaskEventStore({ repoId, rootDir }).read(),
+      ledger = () => makeTaskEventReader({ repoId, rootDir }).read(),
       task = {
         schema: "task/v2" as const,
         taskId,
@@ -1112,14 +1113,14 @@ test("contract migration deterministically disposes all three canonical manual f
     await store.drain();
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "manual-family-daemon" });
     const binding = { actor, source: "local" as const },
-      before = makeTaskEventStore({ repoId, rootDir }).read().revision,
+      before = makeTaskEventReader({ repoId, rootDir }).read().revision,
       dry = await cell.run({ kind: "task-contract-migrate", mode: "dry-run" }, binding),
       evidence = JSON.parse(String(dry.evidence)) as {
         readonly report: readonly Record<string, unknown>[];
         readonly manual: readonly Record<string, unknown>[];
       };
     assert.equal(dry.outcome, "pending");
-    assert.equal(makeTaskEventStore({ repoId, rootDir }).read().revision, before);
+    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().revision, before);
     assert.equal(evidence.manual.length, 0);
     for (const sample of samples) {
       const row = evidence.report.find(({ taskId }) => taskId === sample.taskId)!;
@@ -1130,7 +1131,7 @@ test("contract migration deterministically disposes all three canonical manual f
     }
     const applied = await cell.run({ kind: "task-contract-migrate", mode: "apply" }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
-    const firstLedger = makeTaskEventStore({ repoId, rootDir }).read();
+    const firstLedger = makeTaskEventReader({ repoId, rootDir }).read();
     assert.equal(firstLedger.revision, before + samples.length);
     assert.equal(firstLedger.events.filter((event) => event.type === "task_contract_migrated").length, samples.length);
     const rows = (await cell.read("repo.tasks.list")).rows;
@@ -1141,7 +1142,7 @@ test("contract migration deterministically disposes all three canonical manual f
       assert.match(String(repaired.presetSnapshotDigest), /^sha256:[0-9a-f]{64}$/u);
     }
     const rerun = await cell.run({ kind: "task-contract-migrate", mode: "apply" }, binding),
-      secondLedger = makeTaskEventStore({ repoId, rootDir }).read();
+      secondLedger = makeTaskEventReader({ repoId, rootDir }).read();
     assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
     assert.equal(secondLedger.revision, firstLedger.revision);
     assert.equal(secondLedger.events.length, firstLedger.events.length);

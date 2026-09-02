@@ -54,7 +54,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     const backfillPackage = await packagePathOf(cell, "task_BACKFILL");
     await cell.close();
     cell = undefined;
-    appendMigratedExecution(
+    await appendMigratedExecution(
       rootDir,
       "task-wip-deadlock",
       "task_BACKFILL",
@@ -165,12 +165,14 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
       path.join(rootDir, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 1\n",
     );
-    cell = await openRepoCell({
-      repoId: workspaceId("task-wip-settings"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "task-wip-settings",
-      now: () => "2026-08-16T00:00:00.000Z",
-    });
+    const open = () =>
+      openRepoCell({
+        repoId: workspaceId("task-wip-settings"),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "task-wip-settings",
+        now: () => "2026-08-16T00:00:00.000Z",
+      });
+    cell = await open();
     const binding = { actor, source: "local" as const };
     assert.deepEqual(resolveTaskWipLimit(rootDir), { limit: 1, label: "settings.tasks.wipLimit" });
     for (const taskId of ["task_ONE", "task_TWO", "task_THREE"]) await createReadyTask(cell, rootDir, taskId, taskId);
@@ -183,12 +185,16 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     assert.equal(project.code, "task_wip_limit_reached");
     assert.match(String(project.nextAction), /1\/1; settings\.tasks\.wipLimit=1/u);
     process.env[TASK_WIP_LIMIT_ENV] = "3";
+    await cell.close();
+    cell = await open();
     assert.deepEqual(resolveTaskWipLimit(rootDir), { limit: 3, label: TASK_WIP_LIMIT_ENV });
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_TWO", executionId: "exe_two" }, binding)).outcome,
       "applied",
     );
     process.env[TASK_WIP_LIMIT_ENV] = "0";
+    await cell.close();
+    cell = await open();
     const invalid = await cell.run({ kind: "task-start", taskId: "task_THREE", executionId: "exe_three" }, binding);
     assert.equal(invalid.outcome, "op_rejected");
     assert.equal(invalid.code, "task_wip_limit_invalid");
@@ -198,6 +204,8 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
       "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 0\n",
     );
     delete process.env[TASK_WIP_LIMIT_ENV];
+    await cell.close();
+    cell = await open();
     const invalidSetting = await cell.run(
       { kind: "task-start", taskId: "task_THREE", executionId: "exe_three" },
       binding,
@@ -227,12 +235,14 @@ test("a standard task becomes a visible structure-derived root without rewriting
       path.join(rootDir, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 1\n    rootThreshold: 3\n",
     );
-    cell = await openRepoCell({
-      repoId: workspaceId("task-root-derive"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "task-root-derive",
-      now: () => "2026-08-20T00:00:00.000Z",
-    });
+    const open = () =>
+      openRepoCell({
+        repoId: workspaceId("task-root-derive"),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "task-root-derive",
+        now: () => "2026-08-20T00:00:00.000Z",
+      });
+    cell = await open();
     const binding = { actor, source: "local" as const };
     for (const [taskId, title] of [
       ["task_ROOT_3", "Three children"],
@@ -265,6 +275,8 @@ test("a standard task becomes a visible structure-derived root without rewriting
     );
     assert.deepEqual(shown.rootAssessment, { isRoot: true, reason: "derived", directChildCount: 3, threshold: 3 });
     process.env[TASK_ROOT_THRESHOLD_ENV] = "5";
+    await cell.close();
+    cell = await open();
     assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 5, label: TASK_ROOT_THRESHOLD_ENV });
     const four = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
     assert.equal(four.outcome, "op_rejected", "4 children occupies again after threshold is raised to 5");
@@ -273,6 +285,8 @@ test("a standard task becomes a visible structure-derived root without rewriting
       /Occupancy composition: 2 leaf tasks occupying; 0 declared roots and 0 derived roots excluded\./u,
     );
     process.env[TASK_ROOT_THRESHOLD_ENV] = "invalid";
+    await cell.close();
+    cell = await open();
     const invalid = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
     assert.equal(invalid.outcome, "op_rejected");
     assert.equal(invalid.code, "task_root_threshold_invalid");
@@ -281,6 +295,8 @@ test("a standard task becomes a visible structure-derived root without rewriting
       path.join(rootDir, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 1\n    rootThreshold: 0\n",
     );
+    await cell.close();
+    cell = await open();
     const invalidSetting = await cell.run(
       { kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" },
       binding,
@@ -539,7 +555,12 @@ async function createReadyTask(
   );
 }
 
-function appendMigratedExecution(rootDir: string, repoId: string, taskId: string, documentPath: string): void {
+async function appendMigratedExecution(
+  rootDir: string,
+  repoId: string,
+  taskId: string,
+  documentPath: string,
+): Promise<void> {
   const store = makeTaskEventStore({ repoId, rootDir });
   const execution: ArchivedExecutionV0 = {
     schema: "archived-execution/v1",
@@ -599,6 +620,7 @@ function appendMigratedExecution(rootDir: string, repoId: string, taskId: string
     plan: migrationImportWritePlan(event),
     blobs: [{ sha256: sha, size: Buffer.byteLength(body), mediaType: "application/json", body }],
   });
+  await store.drain();
 }
 
 function evidence(receipt: Awaited<ReturnType<Cell["run"]>>): Record<string, unknown> {

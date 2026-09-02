@@ -8,6 +8,7 @@ import {
   type TaskProjectionListQuery,
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
+import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
@@ -20,6 +21,8 @@ import { dispatchRead } from "./repo-cell-command.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { operationId } from "./repo-cell-proof.ts";
+import { renderEvidencePayload } from "./repo-cell-evidence.ts";
+import { admitRepoMode } from "./repo-mode.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { listTasks, type TaskQueryCell } from "./repo-cell-task-query.ts";
@@ -210,7 +213,7 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
       if (needsWalOverlay) void readStore.drain();
     }
   };
-  const run: RepoCell["run"] = async (action, binding) => {
+  const run: RepoCell["run"] = async (action, binding, signal) => {
     await Promise.resolve();
     if (closed)
       return {
@@ -221,18 +224,39 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
       } as never;
     if (action.kind === "task-list" && supervisor.status().state === "attached")
       return query((projection) => legacyTaskList(projection, action, binding, input));
-    return supervisor.request("run", { action }, binding);
+    return supervisor.request("run", { action }, binding, signal);
+  };
+  const admitTerminalWrite = (binding: RepoCellBinding): void => {
+    const admission = admitRepoMode(input.mode ?? "local", ledgerWriteCommandTopology, binding.source);
+    if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
+    if (closed || supervisor.status().state !== "attached")
+      throw cellCodedError("repo_unavailable", "RepoWriterCell is unavailable.");
   };
   const terminal: RepoCell["terminal"] = {
     list: terminalHost.list,
     attach: terminalHost.attach,
     detach: terminalHost.detach,
     close: terminalHost.close,
-    spawn: (payload, _binding) => terminalHost.spawn(payload),
-    spawnTrusted: (launch, _binding) => terminalHost.spawnTrusted(launch),
-    input: (payload, _binding) => terminalHost.input(payload),
-    resize: (payload, _binding) => terminalHost.resize(payload),
-    terminate: (payload, _binding) => terminalHost.terminate(payload),
+    spawn: (payload, binding) => {
+      admitTerminalWrite(binding);
+      return terminalHost.spawn(payload);
+    },
+    spawnTrusted: (launch, binding) => {
+      admitTerminalWrite(binding);
+      return terminalHost.spawnTrusted(launch);
+    },
+    input: (payload, binding) => {
+      admitTerminalWrite(binding);
+      return terminalHost.input(payload);
+    },
+    resize: (payload, binding) => {
+      admitTerminalWrite(binding);
+      return terminalHost.resize(payload);
+    },
+    terminate: (payload, binding) => {
+      admitTerminalWrite(binding);
+      return terminalHost.terminate(payload);
+    },
   };
   return {
     get bootstrapReceipt() {
@@ -352,24 +376,26 @@ function legacyTaskList(
   input: RepoCellOpenInput,
 ): Awaited<ReturnType<RepoCell["run"]>> {
   const readResult: TaskQueryCell["readResult"] = (opId, value, revision, worktreeVisible, cut) => {
-    const base = {
-      opId,
-      revision,
-      evidence: JSON.stringify({
+    const payload = {
         ...value,
         status: cut?.status,
         watermark: cut?.watermark,
         sourceRevision: cut?.sourceRevision,
-      }),
-      visibility: "center" as const,
-      proof: {
-        committedRevision: revision,
-        appliedCut: cut?.watermark ?? revision,
-        durable: true,
-        canonicalVisible: cut?.status === "ready",
-        worktreeVisible,
       },
-    };
+      base = {
+        opId,
+        revision,
+        evidence: JSON.stringify(payload),
+        summary: renderEvidencePayload(payload),
+        visibility: "center" as const,
+        proof: {
+          committedRevision: revision,
+          appliedCut: cut?.watermark ?? revision,
+          durable: true,
+          canonicalVisible: cut?.status === "ready",
+          worktreeVisible,
+        },
+      };
     return cut?.status === "ready"
       ? { outcome: "applied" as const, ...base }
       : {

@@ -410,6 +410,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (!succeeded) scheduleRetry();
       });
     }, delay);
+    timer.unref?.();
   };
   const scheduleFlush = (): void => {
     if (closed || bulkWriteActive || divergedError !== null || !hasWalRecords()) return;
@@ -431,6 +432,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           if (!succeeded) scheduleRetry();
         });
       });
+      immediate.unref();
       return;
     }
     timer = setTimeout(() => {
@@ -439,6 +441,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (!succeeded) scheduleRetry();
       });
     }, policy.milliseconds);
+    timer.unref?.();
   };
   const readHead = (): EventHead | null => {
     const pending = wal.records().at(-1)?.event;

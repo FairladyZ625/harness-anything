@@ -9,6 +9,7 @@ import {
   deserializeWriterError,
   serializeWriterError,
   type RepoWriterBootstrapV1,
+  type RepoWriterCancelV1,
   type RepoWriterCapabilityCallV1,
   type RepoWriterCapabilityResultV1,
   type RepoWriterControlV1,
@@ -36,7 +37,8 @@ async function startRepoWriterWorker(): Promise<void> {
       string,
       { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
     >(),
-    runtimeProcesses = new Map<string, RuntimeProcessListeners>();
+    runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
+    activeRequests = new Map<string, AbortController>();
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null,
     writerStore: CanonicalEventStore | null = null,
     bulkWrite: ReturnType<NonNullable<CanonicalEventStore["beginBulkWrite"]>> | null = null;
@@ -48,6 +50,10 @@ async function startRepoWriterWorker(): Promise<void> {
       asyncCapabilities.delete(message.callId);
       if (message.outcome === "ok") pending.resolve(message.value);
       else pending.reject(deserializeWriterError(message.error!));
+      return;
+    }
+    if (isWriterCancel(message)) {
+      activeRequests.get(message.requestId)?.abort();
       return;
     }
     if (isRuntimeProcessEvent(message)) {
@@ -122,8 +128,13 @@ async function startRepoWriterWorker(): Promise<void> {
   }
 
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
+    const abort = new AbortController();
+    activeRequests.set(request.requestId, abort);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    if (!cell) return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
+    if (!cell) {
+      activeRequests.delete(request.requestId);
+      return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
+    }
     try {
       const binding = reviveBinding(request.binding, request.writerEpoch);
       // Fence one: reject a stale descriptor when the request leaves the IPC queue.
@@ -131,7 +142,11 @@ async function startRepoWriterWorker(): Promise<void> {
       let value: unknown;
       switch (request.method) {
         case "run":
-          value = await cell.run((request.payload as { action: Parameters<typeof cell.run>[0] }).action, binding!);
+          value = await cell.run(
+            (request.payload as { action: Parameters<typeof cell.run>[0] }).action,
+            binding!,
+            abort.signal,
+          );
           break;
         case "presetRun":
           value = await cell.presetRun(
@@ -166,6 +181,8 @@ async function startRepoWriterWorker(): Promise<void> {
       consumeKnownError(error);
       postStatus({ kind: "status", status: cell.status() });
       postReceipt(request.requestId, undefined, error);
+    } finally {
+      activeRequests.delete(request.requestId);
     }
   }
 
@@ -189,6 +206,7 @@ async function startRepoWriterWorker(): Promise<void> {
       }
       if (control.command === "recover") await cell?.verifyReadiness();
       if (control.command === "drain") {
+        for (const request of activeRequests.values()) request.abort();
         if (bulkWrite) {
           const active = bulkWrite;
           try {
@@ -330,6 +348,9 @@ function postStatus(status: Omit<RepoWriterStatusV1, "schema" | "protocolVersion
 
 function isWriterRequest(value: unknown): value is RepoWriterRequestV1 {
   return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-request/v1";
+}
+function isWriterCancel(value: unknown): value is RepoWriterCancelV1 {
+  return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-cancel/v1";
 }
 function isWriterControl(value: unknown): value is RepoWriterControlV1 {
   return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-control/v1";

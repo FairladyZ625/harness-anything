@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -159,7 +159,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
       const bound = await eventuallyValue(
         async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.find(
               (event) =>
@@ -181,7 +181,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       const claimed = makeTaskProjection({
         rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
       });
       try {
         assert.deepEqual(claimed.read(taskId).snapshot.lease?.actor.executor, {
@@ -224,7 +224,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal((receipt.authorizationDecision as { outcome?: string } | null)?.outcome, "allowed");
       const bound = await eventuallyValue(
         async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.find(
               (event) =>
@@ -253,7 +253,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchCount, launchesAfterFirst, "the rejected dispatch must not launch a provider");
       const projection = makeTaskProjection({
         rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
       });
       try {
         assert.equal(
@@ -374,7 +374,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+      const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
         started = events.findIndex((event) => event.type === "execution_started" && event.taskId === taskId),
         dispatched = events.findIndex(
           (event) =>
@@ -417,7 +417,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         ).outcome,
         "applied",
       );
-      const before = makeTaskEventStore({ repoId, rootDir: root })
+      const before = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length;
       const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
@@ -431,7 +431,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const events = makeTaskEventStore({ repoId, rootDir: root }).read().events;
+      const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
       assert.equal(
         events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length,
         before,
@@ -439,7 +439,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       const bound = await eventuallyValue(
         async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.find(
               (event) =>
@@ -469,7 +469,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedEnv?.HARNESS_ACTOR, `agent:runtime-session:${receipt.runtimeSessionId}`);
       const bound = await eventuallyValue(
         async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.find(
               (event) =>
@@ -491,7 +491,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       const projected = makeTaskProjection({
         rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
       });
       try {
         assert.deepEqual(projected.read(taskId).snapshot.lease?.actor.executor, {
@@ -521,7 +521,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         });
         await eventuallyValue(
           async () =>
-            makeTaskEventStore({ repoId, rootDir: root })
+            makeTaskEventReader({ repoId, rootDir: root })
               .read()
               .events.find(
                 (event) =>
@@ -585,7 +585,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         );
         assert.equal(rejected.outcome, "op_rejected");
         assert.equal(rejected.code, "executor_binding_invalid");
-        const progress = makeTaskEventStore({ repoId, rootDir: root })
+        const progress = makeTaskEventReader({ repoId, rootDir: root })
           .read()
           .events.filter((event) => event.schema === "task-progress-event/v1" && event.payload.taskId === taskId);
         assert.deepEqual(
@@ -604,7 +604,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           readFileSync(path.join(root, "harness/tasks/task-runtime-progress-runtime-progress/progress.md"), "utf8"),
           /Worker checkpoint one\.[\s\S]*Worker checkpoint two\./u,
         );
-        const replayStore = makeTaskEventStore({ repoId, rootDir: root }),
+        const replayStore = makeTaskEventReader({ repoId, rootDir: root }),
           replay = makeTaskProjection({
             rootDir: root,
             eventStore: replayStore,
@@ -672,7 +672,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         });
         await eventuallyValue(
           async () =>
-            makeTaskEventStore({ repoId, rootDir: root })
+            makeTaskEventReader({ repoId, rootDir: root })
               .read()
               .events.find(
                 (event) =>
@@ -794,7 +794,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         assert.equal(lifecycle.outcome, "applied", JSON.stringify(lifecycle));
         const submitted = makeTaskProjection({
           rootDir: root,
-          eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+          eventStore: makeTaskEventReader({ repoId, rootDir: root }),
         });
         try {
           assert.deepEqual(submitted.read(taskId).snapshot.executions[0]?.actor.executor, worker);
@@ -956,7 +956,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
               /credentialRef|executablePath|apiToken|sk-provider-secret|\/provider\/private/u,
             );
           }
-          const outcome = makeTaskEventStore({ repoId, rootDir: root })
+          const outcome = makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.find(
               (event) =>
@@ -967,7 +967,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           if (outcome?.type === "runtime_session_outcome_observed")
             assert.equal(
               Buffer.from(
-                makeTaskEventStore({ repoId, rootDir: root }).readContentBlob(outcome.payload.result.sha256)!,
+                makeTaskEventReader({ repoId, rootDir: root }).readContentBlob(outcome.payload.result.sha256)!,
               ).toString("utf8"),
               `${kindId} final result`,
             );
@@ -1295,7 +1295,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
         });
         assert.equal(first.outcome, "applied", JSON.stringify(first));
         await eventually(async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.some(
               (event) =>
@@ -1316,7 +1316,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
             },
           });
         await eventually(async () =>
-          makeTaskEventStore({ repoId, rootDir: root })
+          makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.some(
               (event) =>
@@ -1424,7 +1424,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         "cancelled",
       );
       await eventually(() => frames.some((frame) => frame.type === "exit" && frame.outcome === "cancelled"));
-      const events = makeTaskEventStore({ repoId, rootDir: root })
+      const events = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter(
           (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === spawned.runtimeSessionId,

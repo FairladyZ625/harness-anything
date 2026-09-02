@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
@@ -331,7 +331,16 @@ test("repository modes close local, center-assignment, and edge command families
         ["local", "local"],
       ],
     );
-    assert.match(host.status().summary, /repos=3 entry=(?:source|dist) commit=[0-9a-f]{40}$/u);
+    const sourceCommit = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
+      cwd: path.resolve(import.meta.dirname, "../../.."),
+      encoding: "utf8",
+    });
+    assert.match(
+      host.status().summary,
+      sourceCommit.status === 0
+        ? new RegExp(`repos=3 entry=(?:source|dist) commit=${sourceCommit.stdout.trim()}$`, "u")
+        : /repos=3 entry=(?:source|dist) commit=unknown$/u,
+    );
     assert.equal(
       (await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth)).outcome,
       "applied",

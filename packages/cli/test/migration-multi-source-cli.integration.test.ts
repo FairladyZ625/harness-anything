@@ -1,23 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventStore,
-  makeTaskProjection,
-  sha256Text,
-  stableStringify,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -33,25 +21,12 @@ test("CLI merges two independently initialized Git Harness repositories into a t
     initialize(center, userRoot, "center");
     addSourceData(first, "alpha", "person_alpha");
     addSourceData(second, "beta", "person_beta");
-    const receipt = run(center, userRoot, [
-      "migrate",
-      "import",
-      "--source",
-      first,
-      "--source",
-      second,
-    ]);
+    const receipt = run(center, userRoot, ["migrate", "import", "--source", first, "--source", second]);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(receipt.exitCode, 0);
-    assert.match(
-      String(receipt.summary),
-      /Migration import batch \(2\/2 sources processed\)/u,
-    );
-    assert.match(
-      String(receipt.summary),
-      /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u,
-    );
-    const events = makeTaskEventStore({ repoId: "center", rootDir: center })
+    assert.match(String(receipt.summary), /Migration import batch \(2\/2 sources processed\)/u);
+    assert.match(String(receipt.summary), /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u);
+    const events = makeTaskEventReader({ repoId: "center", rootDir: center })
       .read()
       .events.filter(
         (event) =>
@@ -63,9 +38,7 @@ test("CLI merges two independently initialized Git Harness repositories into a t
     assert.equal(new Set(events.map(({ opId }) => opId)).size, 2);
     assert.equal(
       events.some(
-        (event) =>
-          event.payload.entity.kind === "task" &&
-          event.payload.entity.task.taskId.startsWith("task_shared__"),
+        (event) => event.payload.entity.kind === "task" && event.payload.entity.task.taskId.startsWith("task_shared__"),
       ),
       true,
     );
@@ -75,12 +48,7 @@ test("CLI merges two independently initialized Git Harness repositories into a t
       .filter((entry) => String(entry).endsWith("id-map.json"))
       .map(
         (entry) =>
-          JSON.parse(
-            readFileSync(
-              path.join(center, "harness/migrations", String(entry)),
-              "utf8",
-            ),
-          ) as {
+          JSON.parse(readFileSync(path.join(center, "harness/migrations", String(entry)), "utf8")) as {
             readonly remappings: readonly {
               readonly entityType: string;
               readonly sourceId: string;
@@ -94,14 +62,12 @@ test("CLI merges two independently initialized Git Harness repositories into a t
         .flatMap(({ remappings }) => remappings)
         .some(
           ({ entityType, sourceId, targetId }) =>
-            entityType === "task" &&
-            sourceId === "task_shared" &&
-            targetId.startsWith("task_shared__"),
+            entityType === "task" && sourceId === "task_shared" && targetId.startsWith("task_shared__"),
         ),
       true,
     );
     run(center, userRoot, ["daemon", "stop"]);
-    const store = makeTaskEventStore({ repoId: "center", rootDir: center }),
+    const store = makeTaskEventReader({ repoId: "center", rootDir: center }),
       digest = (file: string): string => {
         const projection = makeTaskProjection({
           rootDir: center,
@@ -202,19 +168,11 @@ function addSourceData(root: string, label: string, personId: string): void {
   git(gitRoot, "add", ".");
   git(gitRoot, "commit", "-qm", `add ${label} source data`);
 }
-function run(
-  root: string,
-  userRoot: string,
-  args: readonly string[],
-): Record<string, unknown> {
-  const result = spawnSync(
-    process.execPath,
-    [cli, "--root", root, "--json", ...args],
-    {
-      encoding: "utf8",
-      env: environment(root, userRoot),
-    },
-  );
+function run(root: string, userRoot: string, args: readonly string[]): Record<string, unknown> {
+  const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
+    encoding: "utf8",
+    env: environment(root, userRoot),
+  });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
@@ -228,14 +186,10 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
   };
 }
 function stop(userRoot: string, root: string): void {
-  spawnSync(
-    process.execPath,
-    [cli, "--root", root, "--json", "daemon", "stop"],
-    {
-      encoding: "utf8",
-      env: environment(root, userRoot),
-    },
-  );
+  spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], {
+    encoding: "utf8",
+    env: environment(root, userRoot),
+  });
 }
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();

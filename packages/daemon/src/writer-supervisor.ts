@@ -10,6 +10,7 @@ import {
   deserializeWriterError,
   serializeWriterError,
   type RepoWriterBootstrapV1,
+  type RepoWriterCancelV1,
   type RepoWriterCapabilityCallV1,
   type RepoWriterCapabilityResultV1,
   type RepoWriterControlV1,
@@ -19,6 +20,7 @@ import {
   type RuntimeProcessEventV1,
   type SerializableRepoCellBindingV1,
 } from "./repo-writer-protocol.ts";
+import { launchNative } from "./runtime-spawn-process.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
 
 export interface WriterSupervisor {
@@ -26,6 +28,7 @@ export interface WriterSupervisor {
     method: RepoWriterRequestV1["method"],
     payload: unknown,
     binding?: RepoCellBinding,
+    signal?: AbortSignal,
   ) => Promise<T>;
   readonly control: (command: RepoWriterControlV1["command"]) => Promise<void>;
   readonly status: () => RepoCellStatus;
@@ -53,7 +56,11 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
     ready: Promise<void>;
   const pending = new Map<
       string,
-      { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
+      {
+        readonly resolve: (value: unknown) => void;
+        readonly reject: (error: Error) => void;
+        readonly cleanup: () => void;
+      }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>();
 
@@ -62,9 +69,15 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
   opened = true;
 
   return {
-    request: async <T>(method: RepoWriterRequestV1["method"], payload: unknown, binding?: RepoCellBinding) => {
+    request: async <T>(
+      method: RepoWriterRequestV1["method"],
+      payload: unknown,
+      binding?: RepoCellBinding,
+      signal?: AbortSignal,
+    ) => {
       await ready;
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
+      if (signal?.aborted) throw abortError(signal);
       const requestId = randomUUID(),
         serializedBinding = binding ? serializableBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
@@ -78,12 +91,25 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
       return new Promise<T>((resolve, reject) => {
-        pending.set(requestId, { resolve: resolve as (value: unknown) => void, reject });
+        const cancel = () => {
+            const active = worker;
+            if (!active) return;
+            active.postMessage({
+              schema: "harness-repo-writer-cancel/v1",
+              protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+              requestId,
+            } satisfies RepoWriterCancelV1);
+          },
+          cleanup = () => signal?.removeEventListener("abort", cancel);
+        signal?.addEventListener("abort", cancel, { once: true });
+        pending.set(requestId, { resolve: resolve as (value: unknown) => void, reject, cleanup });
         try {
           worker!.postMessage(request);
+          if (signal?.aborted) cancel();
         } catch (error) {
           consumeKnownError(error);
           pending.delete(requestId);
+          cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           reject(error instanceof Error ? error : new Error(String(error)));
         }
@@ -103,7 +129,10 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         const active = worker;
         worker = null;
         if (active) await active.terminate();
-        for (const operation of pending.values()) operation.reject(new Error("RepoWriterCell closed"));
+        for (const operation of pending.values()) {
+          operation.cleanup();
+          operation.reject(new Error("RepoWriterCell closed"));
+        }
         pending.clear();
         status = { ...status, state: "closed", queueDepth: 0 };
       }
@@ -136,6 +165,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           const operation = pending.get(message.requestId);
           if (!operation) return;
           pending.delete(message.requestId);
+          operation.cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
@@ -215,13 +245,16 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         command,
       };
     return new Promise<void>((resolve, reject) => {
-      pending.set(requestId, { resolve: () => resolve(), reject });
+      pending.set(requestId, { resolve: () => resolve(), reject, cleanup: () => undefined });
       worker!.postMessage(control);
     });
   }
 
   function failActive(error: Error): void {
-    for (const operation of pending.values()) operation.reject(error);
+    for (const operation of pending.values()) {
+      operation.cleanup();
+      operation.reject(error);
+    }
     pending.clear();
   }
 
@@ -262,7 +295,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           input: Parameters<NonNullable<RepoCellOpenInput["runtimeLaunch"]>>[0];
           persistence: Parameters<NonNullable<RepoCellOpenInput["runtimeLaunch"]>>[1];
         };
-        const launched = input.runtimeLaunch!(payload.input, payload.persistence);
+        const launched = (input.runtimeLaunch ?? launchNative)(payload.input, payload.persistence);
         runtimeProcesses.set(payload.processId, launched);
         launched.onOutput((chunk, persisted) =>
           activePost({ processId: payload.processId, kind: "output", chunk, persisted }),
@@ -349,7 +382,9 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       runtimeInstances: input.runtimeInstances !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
-      runtimeLaunch: input.runtimeLaunch !== undefined,
+      // Runtime worker hosts belong to the daemon process, not the replaceable
+      // writer thread, so the daemon can reap them after a Cell restart.
+      runtimeLaunch: true,
       runtimeSignal: input.onRuntimeSignal !== undefined,
       fleetRoster: input.fleetRoster !== undefined,
       storeOpened: input.onStoreOpened !== undefined,
@@ -360,6 +395,12 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
 function serializableBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
   const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
   return serializable;
+}
+
+function abortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : Object.assign(new Error("RepoWriterCell request was aborted"), { name: "AbortError" });
 }
 
 function writerWorkerUrl(moduleUrl: string | URL = import.meta.url): URL {

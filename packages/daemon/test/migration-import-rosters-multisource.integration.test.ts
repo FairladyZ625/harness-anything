@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -56,7 +56,7 @@ test("a destination roster and a source roster both survive the migration withou
     await cell.close();
     cell = undefined;
     assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
-    const event = makeTaskEventStore({
+    const event = makeTaskEventReader({
       repoId: "migration-people-union",
       rootDir: destination,
     })
@@ -117,7 +117,7 @@ test("a roster the destination already covers is reported as covered rather than
     );
     assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), before);
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-people-covered",
         rootDir: destination,
       })
@@ -202,7 +202,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
     assert.match(String(result.summary), /Migration import batch \(2\/2 sources processed\)/u);
     assert.match(String(result.summary), /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u);
     assert.match(String(result.summary), /REMAP decision dec_SHARED -> dec_SHARED__[0-9a-f]{10}/u);
-    const events = makeTaskEventStore({
+    const events = makeTaskEventReader({
         repoId: "migration-multi-source-target",
         rootDir: destination,
       })
@@ -259,7 +259,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
       ["person_zeyu", "person_alpha", "person_beta"],
     );
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-multi-source-target",
         rootDir: destination,
       })
@@ -280,7 +280,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
     );
     await cell.close();
     cell = undefined;
-    const store = makeTaskEventStore({
+    const store = makeTaskEventReader({
         repoId: "migration-multi-source-target",
         rootDir: destination,
       }),
@@ -337,7 +337,7 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
       /not the committed authored Git snapshot.*Commit or discard every tracked and untracked authored change/u,
     );
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-git-validation",
         rootDir: destination,
       }).readHead()?.revision ?? 0,
