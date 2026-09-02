@@ -46,16 +46,8 @@ export interface RepoWriterRequestV1 {
     | "spawnRuntime"
     | "cancelRuntime"
     | "runtimeIngress"
-    | "read"
-    | "workspaceSummary"
-    | "observeTail"
-    | "verifyReadiness"
     | "settlePendingMaterialization"
-    | "replica"
-    | "catalog"
-    | "terminal"
-    | "runtime"
-    | "attach";
+    | "catalog";
   readonly payload: unknown;
   readonly binding?: SerializableRepoCellBindingV1;
   readonly writerEpoch: SerializableRepoCellBindingV1["writerEpochFence"] | null;

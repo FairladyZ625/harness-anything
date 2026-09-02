@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeGitEventStore } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -279,10 +279,13 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
       if (!parsed.ok) throw new Error(parsed.nextAction);
       return cell.run(parsed.command.action as Parameters<typeof cell.run>[0], binding);
     };
-    const eventFor = (opId: string) => makeTaskEventStore({ repoId: "agenda-pin-command", rootDir }).readEvent(opId),
+    const eventFor = async (opId: string) => {
+        await cell.settlePendingMaterialization("agenda event assertion");
+        return makeGitEventStore({ repoId: "agenda-pin-command", rootDir }).readEvent(opId);
+      },
       pin = await runCli(["task", "pin", "task_z"]);
     assert.equal(pin.outcome, "applied", JSON.stringify(pin));
-    const pinEvent = pinnedAmendEvent(eventFor(pin.opId));
+    const pinEvent = pinnedAmendEvent(await eventFor(pin.opId));
     assert.deepEqual(pinEvent, { type: "task_amended", command: "amend", fields: ["pinned"], pinned: true });
     assert.deepEqual(
       (await cell.read("repo.agenda.read")).dispatchable.map(({ taskId }) => taskId),
@@ -291,7 +294,7 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
 
     const unpin = await runCli(["task", "unpin", "task_z"]);
     assert.equal(unpin.outcome, "applied", JSON.stringify(unpin));
-    assert.deepEqual(pinnedAmendEvent(eventFor(unpin.opId)), {
+    assert.deepEqual(pinnedAmendEvent(await eventFor(unpin.opId)), {
       type: "task_amended",
       command: "amend",
       fields: ["pinned"],
@@ -306,7 +309,7 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
 
     const amend = await runCli(["task", "amend", "task_z", "--set", "pinned:true"]);
     assert.equal(amend.outcome, "applied", JSON.stringify(amend));
-    assert.deepEqual(pinnedAmendEvent(eventFor(amend.opId)), pinEvent);
+    assert.deepEqual(pinnedAmendEvent(await eventFor(amend.opId)), pinEvent);
   });
 });
 

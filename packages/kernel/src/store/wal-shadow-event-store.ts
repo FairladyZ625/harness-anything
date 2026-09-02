@@ -57,6 +57,8 @@ export interface WalFlushPolicy {
 }
 
 type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
+  /** Observational overlays reparse WAL bytes but cannot append, recover, flush, or checkpoint. */
+  readonly mutable?: boolean;
   readonly walFlushEvents?: number;
   readonly walFlushBytes?: number;
   readonly walFlushMs?: number;
@@ -103,7 +105,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let gitBaseline = readGitBaseline(ledger, git.currentCommit().sha);
   let gitStream: CanonicalEventStreamV1 | null = null;
   let mergedStream: CanonicalEventStreamV1 | null = null;
-  const wal = openWalEventLog(rootDir);
+  const mutable = options.mutable !== false;
+  const wal = openWalEventLog(rootDir, { mutable });
   const materializationConfig = {
     schema: "harness-wal-materialization-worker/v1",
     repoId: options.repoId,
@@ -484,6 +487,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     bundle: CanonicalWriteBundle,
     additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
+    assertMutableStore();
     if (additionalFiles.length > 0 || (bundle.preceding?.length ?? 0) > 0) {
       if (hasWalRecords()) {
         scheduleFlush();
@@ -628,6 +632,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const drain = async (): Promise<void> => {
     closed = true;
     clearSchedule();
+    if (!mutable) {
+      wal.close();
+      return;
+    }
     try {
       if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
       consecutiveFailures = 0;
@@ -655,6 +663,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     }
   };
   const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
+    assertMutableStore();
     clearSchedule();
     if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
     consecutiveFailures = 0;
@@ -670,6 +679,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       );
   };
   const beginBulkWrite = (): { readonly finish: () => Promise<void> } => {
+    assertMutableStore();
     if (closed || bulkWriteActive) throw new TaskEventStoreError("invalid_store", "a WAL bulk write is already active");
     bulkWriteActive = true;
     clearSchedule();
@@ -720,6 +730,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     readContentBlob: (sha256) => wal.readContentBlob(sha256) ?? git.readContentBlob(sha256),
     append,
     migrateLayout: (migration) => {
+      assertMutableStore();
       if (hasWalRecords()) {
         scheduleFlush();
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before a ledger layout migration");
@@ -729,25 +740,40 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       contentValidatedThrough = 0;
       return receipt;
     },
-    recover,
-    materialize: () =>
-      materializeVisible(ledger, wal, stream().events, gitBaseline.files, git.currentCommit(), (sha256) =>
+    recover: () => {
+      assertMutableStore();
+      return recover();
+    },
+    materialize: () => {
+      assertMutableStore();
+      return materializeVisible(ledger, wal, stream().events, gitBaseline.files, git.currentCommit(), (sha256) =>
         git.readContentBlob(sha256),
-      ),
+      );
+    },
     beginBulkWrite,
     settlePendingMaterialization: flushPending,
     configureWalFlushPolicy: (policy) => {
+      assertMutableStore();
       configuredFlushPolicy = policy;
       clearSchedule();
       scheduleFlush();
     },
     settleRecoveryMaterialization: async () => {
+      assertMutableStore();
       if (!recoveryMaterializationPending) return;
       await flushPending("recovery receipt");
       recoveryMaterializationPending = false;
     },
     drain,
   };
+
+  function assertMutableStore(): void {
+    if (!mutable) throw new TaskEventStoreError("invalid_store", "observational WAL stores are immutable");
+  }
+}
+
+export function makeWalShadowEventReader(options: Omit<StoreOptions, "mutable">): CanonicalEventStore {
+  return makeWalShadowEventStore({ ...options, mutable: false });
 }
 
 function makeVisible(

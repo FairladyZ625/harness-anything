@@ -2,6 +2,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
+import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import {
   normalizePersistedCanonicalEvent,
@@ -113,6 +114,23 @@ export function transaction<A>(db: DatabaseSync, run: () => A): A {
   } catch (error) {
     /* @gate-identity check-bypass-write-boundary/bypass-write-030 */
     db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
+  if (db.isTransaction) return run();
+  db.exec("BEGIN");
+  try {
+    const value = run();
+    db.exec("COMMIT");
+    return value;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch (rollbackError) {
+      consumeKnownError(rollbackError);
+    }
     throw error;
   }
 }

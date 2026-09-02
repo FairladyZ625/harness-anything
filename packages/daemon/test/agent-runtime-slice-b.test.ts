@@ -461,16 +461,15 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     );
     await cell.close();
     cell = undefined;
-    const runtime = fixtureAtRevision(
-      rootDir,
-      makeTaskEventStore({ repoId: "runtime-cas", rootDir }).read().revision + 1,
-    );
+    const eventStore = makeTaskEventStore({ repoId: "runtime-cas", rootDir }),
+      runtime = fixtureAtRevision(rootDir, eventStore.read().revision + 1);
     for (const event of runtime)
-      makeTaskEventStore({ repoId: "runtime-cas", rootDir }).append({
+      eventStore.append({
         event,
         plan: runtimeWritePlan(event),
         blobs: [],
       });
+    await eventStore.drain();
     cell = await openRepoCell({
       repoId: workspaceId("runtime-cas"),
       rootDir: canonicalRoot(rootDir),

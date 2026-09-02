@@ -277,6 +277,7 @@ export {
   createEntityStore,
   ledgerGitPath,
   makeGitEventStore,
+  makeTaskEventReader,
   openEntityStore,
   resolveLedgerGitLayout,
   resolveRetirableDocument,

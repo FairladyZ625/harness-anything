@@ -6,7 +6,10 @@ export {
   makeTaskEventStore as makeGitEventStore,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
-export { makeWalShadowEventStore as makeTaskEventStore } from "../store/wal-shadow-event-store.ts";
+export {
+  makeWalShadowEventReader as makeTaskEventReader,
+  makeWalShadowEventStore as makeTaskEventStore,
+} from "../store/wal-shadow-event-store.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";

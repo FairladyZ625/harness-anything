@@ -165,7 +165,7 @@ test("two actors contending for one Task fence reject the non-holder before Squa
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
 
-    const beforeEvents = makeTaskEventStore({ repoId, rootDir }).read().events.length,
+    const beforeEvents = makeTaskEventStore({ repoId, rootDir, mutable: false }).read().events.length,
       beforeRuns = (await cell.read("repo.squad.runs.list", {}, owner)).runs.length,
       rejected = await cell.run(
         {
@@ -177,7 +177,7 @@ test("two actors contending for one Task fence reject the non-holder before Squa
         },
         contender,
       ),
-      afterEvents = makeTaskEventStore({ repoId, rootDir }).read().events.length;
+      afterEvents = makeTaskEventStore({ repoId, rootDir, mutable: false }).read().events.length;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "lease_conflict");
     assert.deepEqual(rejected.unmetCriteria, [
@@ -216,9 +216,9 @@ async function assertRejectedWithoutEvent(
   run: () => ReturnType<Awaited<ReturnType<typeof openRepoCell>>["run"]>,
   criterionRef: string,
 ) {
-  const before = makeTaskEventStore({ repoId, rootDir }).read().events.length,
+  const before = makeTaskEventStore({ repoId, rootDir, mutable: false }).read().events.length,
     receipt = await run(),
-    after = makeTaskEventStore({ repoId, rootDir }).read().events.length;
+    after = makeTaskEventStore({ repoId, rootDir, mutable: false }).read().events.length;
   assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
   assert.deepEqual(
     receipt.unmetCriteria?.map(({ ref }) => ref),

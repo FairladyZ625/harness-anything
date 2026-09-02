@@ -43,7 +43,13 @@ import {
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
-import type { DaemonGuiReadHandlers, RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type {
+  DaemonGuiReadHandlers,
+  RepoCell,
+  RepoCellBinding,
+  RepoCellReadMethod,
+  RepoTaskAction,
+} from "./repo-cell-types.ts";
 import {
   authorizeDurableRepoCellAction,
   authorizeRepoCellAction,
@@ -126,7 +132,17 @@ export interface RepoCellApiContext {
   readonly lock: { readonly close: () => Promise<void> };
 }
 
-export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
+export const repoCellSynchronousRead = Symbol("repoCellSynchronousRead");
+
+export interface RepoCellSynchronousRead {
+  readonly [repoCellSynchronousRead]: <M extends RepoCellReadMethod>(
+    method: M,
+    payload?: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
+  ) => DaemonGuiReadResultMap[M];
+}
+
+export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
   let settlingRecovery: string | null = null;
   const run = async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
     if (context.state !== "attached")
@@ -539,7 +555,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
   // apply their new cut without yielding; long asynchronous preparation (for example a vertical
   // script) happens before publication. A read can therefore see the complete cut before or after
   // a write, never its partial state, without waiting behind the write tail.
-  const read: RepoCell["read"] = async (method, payload = {}, binding) => {
+  const readNow: RepoCellSynchronousRead[typeof repoCellSynchronousRead] = (method, payload = {}, binding) => {
     if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
     if (method === "repo.entity.actions.explain") {
       return readTaskActionExplanation(
@@ -549,6 +565,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     }
     return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
   };
+  const read: RepoCell["read"] = async (method, payload = {}, binding) => readNow(method, payload, binding);
   // Narrow/paged query payloads for the two wide GUI reads: an empty payload keeps the
   // unparameterized full result; any explicit facet takes the indexed narrow path.
   function taskListQueryFromPayload(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
@@ -880,6 +897,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     catalog: context.catalog,
     terminal: context.terminal,
     read,
+    [repoCellSynchronousRead]: readNow,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
     observeTail: (payload, daemon) => {
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());

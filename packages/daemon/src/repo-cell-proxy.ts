@@ -1,20 +1,30 @@
 import path from "node:path";
 import {
   makeGitEventStore,
+  makeTaskEventReader,
   makeTaskProjectionReader,
+  timestamp,
+  type TaskProjection,
   type TaskProjectionListQuery,
   type TaskProjectionQueries,
 } from "../../kernel/src/index.ts";
+import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
+import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
+import { dispatchRead } from "./repo-cell-command.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { operationId } from "./repo-cell-proof.ts";
+import { requiredCellText } from "./repo-cell-settlement.ts";
+import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
+import { listTasks, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { repoCellTaskQueryJudgments } from "./repo-cell.ts";
-import { makeTaskQueryReadModel } from "./task-query-read.ts";
+import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
@@ -75,12 +85,89 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
         ? `this workspace stays latched until its projection verifies: run ha daemon projection rebuild to repair the projection cause below; this command remains available while latched and re-attaches automatically once the projection verifies. Cause: ${cause}`
         : `this workspace stays latched until its ledger data verifies: repair the data-shape cause below, then rerun the command; the next attempt re-probes the ledger and re-attaches automatically once the data verifies. Cause: ${cause}`;
   };
-  const taskQueries = (projection: TaskProjectionQueries) =>
-    makeTaskQueryReadModel({
-      rootDir: input.rootDir,
-      projection: projection as never,
-      judgments: repoCellTaskQueryJudgments,
-    });
+  const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(
+    projection: TaskProjectionQueries,
+    method: M,
+    payload: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
+  ): Awaited<ReturnType<RepoCell["read"]>> => {
+    const writableProjection = projection as TaskProjection,
+      needsWalOverlay = (
+        [
+          "repo.entity.actions.explain",
+          "repo.agentRuntime.overview",
+          "repo.agentRuntime.sessionGroups",
+          "repo.agentRuntime.sessions.read",
+          "repo.agentRuntime.events.read",
+        ] as readonly string[]
+      ).includes(method),
+      readStore = needsWalOverlay
+        ? makeTaskEventReader({
+            repoId: input.repoId,
+            rootDir: input.rootDir,
+            authoredBranch: input.authoredBranch,
+          })
+        : git,
+      unsupportedWrite = async (): Promise<never> => {
+        throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
+      },
+      squadCoordinator = makeSquadCoordinator({
+        rootDir: input.rootDir,
+        projection: () => writableProjection,
+        store: () => readStore,
+        reacquireTaskLease: unsupportedWrite,
+        runtimeSpawner: () => ({ spawn: unsupportedWrite, cancel: unsupportedWrite }),
+      }),
+      runtimeReads = makeAgentRuntimeReadModel({
+        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(input.rootDir, runtimeSessionId),
+        readDispatch: (taskId, dispatchId) =>
+          readTaskDispatches({ rootDir: input.rootDir, projection: writableProjection, taskId }).dispatches.find(
+            (row) => row.dispatchId === dispatchId,
+          ) ?? null,
+        readDispatches: ({ sessions, events }) =>
+          readSessionGroupDispatches({ rootDir: input.rootDir, sessions, events }),
+        projection: writableProjection,
+        store: readStore,
+        stream: runtime,
+        runtimeInstances: input.runtimeInstances ?? (() => []),
+        ...(input.now ? { now: input.now } : {}),
+      }),
+      now = input.now ?? (() => new Date().toISOString()),
+      settings = makeRepoCellSettingsState({
+        rootDir: input.rootDir,
+        projection: writableProjection,
+        cellCodedError,
+        now,
+      } as never),
+      context = {
+        extracted: {},
+        mode: input.mode ?? "local",
+        fleetRoster: input.fleetRoster?.() ?? null,
+        input: {
+          repoId: input.repoId,
+          ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
+        },
+        state: "attached",
+        rootDir: input.rootDir,
+        store: readStore,
+        projection: writableProjection,
+        now,
+        settings,
+        squadCoordinator,
+        runtimeReads,
+        dispatchRead,
+        requiredCellText,
+        cellCodedError,
+        latched,
+      } as unknown as RepoCellApiContext;
+    try {
+      return createRepoCellApi(context)[repoCellSynchronousRead](method, payload, binding) as Awaited<
+        ReturnType<RepoCell["read"]>
+      >;
+    } finally {
+      if (needsWalOverlay) void readStore.drain();
+    }
+  };
   const run: RepoCell["run"] = async (action, binding) => {
     await Promise.resolve();
     if (closed)
@@ -121,12 +208,32 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
     },
     terminal,
     read: async (method, payload = {}, binding) => {
-      if (method === "repo.tasks.list")
-        return query((projection) => taskQueries(projection).guiTasks(taskListQuery(payload))) as never;
-      return supervisor.request("read", { method, payload }, binding);
+      return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
-    observeTail: (payload, daemon) => supervisor.request("observeTail", { payload, daemon }),
+    observeTail: (payload, daemon) => {
+      if (payload !== null && typeof payload === "object" && (payload as { kind?: unknown }).kind === "events")
+        return Promise.resolve(
+          query((projection) =>
+            readObserveEventTail({
+              repoId: input.repoId,
+              rootDir: input.rootDir,
+              mode: input.mode ?? "local",
+              projection: projection as TaskProjection,
+              payload,
+            }),
+          ),
+        );
+      return readObserveTail({
+        repoId: input.repoId,
+        rootDir: input.rootDir,
+        mode: input.mode ?? "local",
+        projection: {} as TaskProjection,
+        userRoot: daemon.userRoot,
+        daemonId: daemon.daemonId,
+        payload,
+      });
+    },
     replica,
     verifyReadiness: async () => {
       const status = supervisor.status();
@@ -159,82 +266,74 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
   };
 }
 
-function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
-  const status = typeof payload.status === "string" ? payload.status : undefined,
-    changedAfterRevision =
-      payload.changedAfterRevision === undefined ? undefined : Number(payload.changedAfterRevision),
-    updatedAfter = typeof payload.updatedAfter === "string" ? payload.updatedAfter : undefined,
-    updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
-    limit = payload.limit === undefined ? undefined : Number(payload.limit),
-    cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
-  if (changedAfterRevision !== undefined && (!Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0))
-    throw cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
-  return {
-    ...(status ? { status: status as TaskProjectionListQuery["status"] } : {}),
-    ...(changedAfterRevision === undefined ? {} : { changedAfterRevision }),
-    ...(updatedAfter ? { updatedAfter } : {}),
-    ...(updatedBefore ? { updatedBefore } : {}),
-    ...(limit === undefined ? {} : { limit }),
-    ...(cursor ? { cursor } : {}),
-  };
-}
-
 function legacyTaskList(
   projection: TaskProjectionQueries,
   action: RepoTaskAction,
   binding: RepoCellBinding,
   input: RepoCellOpenInput,
 ): Awaited<ReturnType<RepoCell["run"]>> {
-  const limit = action.limit === undefined ? undefined : Number(action.limit),
-    read = projection.readTaskIndex(),
-    rows = read.rows
-      .filter((row) => row.packageDisposition === "active")
-      .slice(0, limit === undefined || !Number.isSafeInteger(limit) ? undefined : limit)
-      .map((row) => ({
-        taskId: row.taskId,
-        status: row.status,
-        title: row.title,
-        pinned: row.pinned,
-        module: row.moduleKey ?? "",
-        updatedAt: row.updatedAt,
-        packagePath: row.packagePath,
-        packageDisposition: row.packageDisposition,
-        taskClass: row.taskClass,
-      })),
-    payload = {
-      schema: "task-list/v2",
-      mode: "flat",
-      rows,
-      count: rows.length,
-      warnings: read.warnings,
-      status: read.status,
-      watermark: read.watermark,
-      sourceRevision: read.sourceRevision,
-    },
-    opId = operationId(action, binding, input.repoId, read.sourceRevision),
-    base = {
+  const readResult: TaskQueryCell["readResult"] = (opId, value, revision, worktreeVisible, cut) => {
+    const base = {
       opId,
-      revision: read.sourceRevision,
-      evidence: JSON.stringify(payload),
+      revision,
+      evidence: JSON.stringify({
+        ...value,
+        status: cut?.status,
+        watermark: cut?.watermark,
+        sourceRevision: cut?.sourceRevision,
+      }),
       visibility: "center" as const,
       proof: {
-        committedRevision: read.sourceRevision,
-        appliedCut: read.watermark,
+        committedRevision: revision,
+        appliedCut: cut?.watermark ?? revision,
         durable: true,
-        canonicalVisible: read.status === "ready",
-        worktreeVisible: null,
+        canonicalVisible: cut?.status === "ready",
+        worktreeVisible,
       },
-      ...payload,
     };
-  return (
-    read.status === "ready"
+    return cut?.status === "ready"
       ? { outcome: "applied" as const, ...base }
       : {
           outcome: "pending" as const,
           ...base,
-          nextAction: `Retry after the task projection catches up from revision ${read.watermark} to ${read.sourceRevision}.`,
-        }
+          nextAction: `Retry after the task projection catches up from revision ${cut?.watermark ?? 0} to ${cut?.sourceRevision ?? revision}.`,
+        };
+  };
+  return listTasks(
+    {
+      input: { repoId: input.repoId },
+      rootDir: input.rootDir,
+      projection: projection as TaskProjection,
+      taskListQueryFromAction: legacyTaskListQuery,
+      operationId,
+      cellCodedError,
+      readResult,
+    } as never,
+    action,
+    binding,
   ) as never;
+}
+
+function legacyTaskListQuery(action: RepoTaskAction): TaskProjectionListQuery {
+  const status = typeof action.status === "string" ? action.status : undefined,
+    updatedAfter = typeof action.updatedAfter === "string" ? action.updatedAfter : undefined,
+    updatedBefore = typeof action.updatedBefore === "string" ? action.updatedBefore : undefined,
+    limit = action.limit === undefined ? undefined : Number(action.limit),
+    cursor = typeof action.cursor === "string" ? action.cursor : undefined;
+  if (status !== undefined && !["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status))
+    throw cellCodedError("invalid_command", "Query status is invalid for this read.");
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
+    throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
+  if (
+    [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
+    (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
+  )
+    throw cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
+  return {
+    ...(status ? { status: status as TaskProjectionListQuery["status"] } : {}),
+    ...(updatedAfter ? { updatedAfter } : {}),
+    ...(updatedBefore ? { updatedBefore } : {}),
+    ...(limit === undefined ? {} : { limit }),
+    ...(cursor ? { cursor } : {}),
+  };
 }

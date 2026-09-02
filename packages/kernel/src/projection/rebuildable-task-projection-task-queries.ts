@@ -24,9 +24,9 @@ import {
   readProjectionCut,
   watermark,
   parseEventJson,
+  queryTransaction,
   queryRow,
   queryRows,
-  transaction,
 } from "./rebuildable-task-projection-sql.ts";
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRows } from "./relation-entity-projection.ts";
@@ -316,7 +316,7 @@ export function taskQueryApi(
         throw new Error("replica basis revision must be a non-negative integer or null");
       const sourceRevision = eventStore.readHead()?.revision ?? 0;
       return withDatabase(projectionPath, readHead, (db) =>
-        transaction(db, () => {
+        queryTransaction(db, () => {
           const current = watermark(db),
             head =
               current === 0

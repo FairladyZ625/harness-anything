@@ -1,8 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import type { AgentRuntimeAttachSubscription } from "./agent-runtime-stream.ts";
-import type { TerminalAttachSubscription } from "./gui-s3-control.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -38,9 +36,7 @@ async function start(): Promise<void> {
       string,
       { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
     >(),
-    runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
-    runtimeSubscriptions = new Map<string, AgentRuntimeAttachSubscription>(),
-    terminalSubscriptions = new Map<string, TerminalAttachSubscription>();
+    runtimeProcesses = new Map<string, RuntimeProcessListeners>();
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
 
   parentPort.on("message", (message: unknown) => {
@@ -140,83 +136,12 @@ async function start(): Promise<void> {
             binding!,
           );
           break;
-        case "read": {
-          const payload = request.payload as {
-            method: Parameters<typeof cell.read>[0];
-            payload: Record<string, unknown>;
-          };
-          value = await cell.read(payload.method, payload.payload, binding);
-          break;
-        }
-        case "workspaceSummary":
-          value = cell.workspaceSummary();
-          break;
-        case "observeTail": {
-          const payload = request.payload as { payload: unknown; daemon: Parameters<typeof cell.observeTail>[1] };
-          value = await cell.observeTail(payload.payload, payload.daemon);
-          break;
-        }
-        case "verifyReadiness":
-          value = await cell.verifyReadiness();
-          break;
         case "settlePendingMaterialization":
           value = await cell.settlePendingMaterialization(String(request.payload));
           break;
-        case "replica": {
-          const payload = request.payload as { method: keyof typeof cell.replica; args: unknown[] };
-          value = await (cell.replica[payload.method] as (...args: unknown[]) => unknown)(...payload.args);
-          break;
-        }
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
           value = await (cell.catalog[payload.method] as (...args: unknown[]) => unknown)(...payload.args);
-          break;
-        }
-        case "terminal": {
-          const payload = request.payload as { method: string; args: unknown[]; subscriptionId?: string };
-          if (payload.method === "attach") {
-            const subscription = cell.terminal.attach(payload.args[0] as string, payload.args[1] as number),
-              subscriptionId = randomUUID();
-            terminalSubscriptions.set(subscriptionId, subscription);
-            value = { subscriptionId, initial: subscription.initial };
-          } else if (payload.method === "next")
-            value = await terminalSubscriptions.get(payload.subscriptionId!)?.next();
-          else if (payload.method === "detach") {
-            terminalSubscriptions.get(payload.subscriptionId!)?.detach();
-            terminalSubscriptions.delete(payload.subscriptionId!);
-            value = null;
-          } else
-            value = await (
-              cell.terminal[payload.method as keyof typeof cell.terminal] as (...args: unknown[]) => unknown
-            )(...payload.args, ...(binding ? [binding] : []));
-          break;
-        }
-        case "runtime": {
-          const payload = request.payload as {
-            method: "publish" | "issueWitnessToken" | "bindWitness";
-            args: unknown[];
-          };
-          value = (cell.runtime[payload.method] as (...args: unknown[]) => unknown)(...payload.args);
-          break;
-        }
-        case "attach": {
-          const payload = request.payload as {
-            runtimeSessionId?: string;
-            afterCursor?: string;
-            subscriptionId?: string;
-            op?: string;
-          };
-          if (payload.op === "next") value = await runtimeSubscriptions.get(payload.subscriptionId!)?.next();
-          else if (payload.op === "detach") {
-            runtimeSubscriptions.get(payload.subscriptionId!)?.detach();
-            runtimeSubscriptions.delete(payload.subscriptionId!);
-            value = null;
-          } else {
-            const subscription = await cell.attach(payload.runtimeSessionId!, payload.afterCursor!),
-              subscriptionId = randomUUID();
-            runtimeSubscriptions.set(subscriptionId, subscription);
-            value = { subscriptionId, initial: subscription.initial };
-          }
           break;
         }
       }
