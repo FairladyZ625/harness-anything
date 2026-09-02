@@ -258,7 +258,7 @@ function planDispatchDocument(
   const session = projection.readRuntimeSession(record.runtimeSessionId),
     settlement = leaseSettlement(projection, record);
   if (session !== null) {
-    if (!matchingTaskBinding(session, record)) return skipped(document, "session-binding-mismatch", record);
+    if (!sessionBindingMatchesRecord(session, record)) return skipped(document, "session-binding-mismatch", record);
     if (session.liveness === "exited" && session.outcome !== null)
       return settlement === null
         ? skipped(document, "already-settled", record)
@@ -461,7 +461,7 @@ function matchingDefinition(projection: TaskProjection, record: RuntimeDispatchR
   return unique.length === 1 ? { kind: "found", definition: unique[0]! } : { kind: "ambiguous" };
 }
 
-function matchingTaskBinding(session: RuntimeSession, record: RuntimeDispatchRecordV1): boolean {
+function sessionBindingMatchesRecord(session: RuntimeSession, record: RuntimeDispatchRecordV1): boolean {
   return session.taskBindings.some(
     ({ taskId, executionId }) => taskId === record.taskId && executionId === record.executionId,
   );
