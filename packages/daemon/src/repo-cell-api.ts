@@ -144,16 +144,28 @@ export interface RepoCellSynchronousRead {
 
 export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoCellSynchronousRead {
   let settlingRecovery: string | null = null;
+  const bindExecutorClaimAtWriterCut = async (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+  ): Promise<{ readonly action: RepoTaskAction; readonly binding: RepoCellBinding }> => {
+    if (!Object.hasOwn(action, "executor") || !(durablePolicyActions as readonly string[]).includes(action.kind))
+      return bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() });
+    context.queueDepth += 1;
+    const pending = chainRepoCellWrite(context.tail, () => {
+      context.queueDepth -= 1;
+      return bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() });
+    });
+    context.tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  };
   const run = async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
     try {
-      ({ action, binding } = bindVerifiedExecutorClaim({
-        action,
-        binding,
-        projection: context.projection,
-        now: context.now(),
-      }));
+      ({ action, binding } = await bindExecutorClaimAtWriterCut(action, binding));
     } catch (error) {
       const revision = context.store.readHead()?.revision ?? 0,
         actionId = context.operationId(action, binding, context.input.repoId, revision),
@@ -360,12 +372,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     );
   };
   const presetRun: RepoCell["presetRun"] = async (action, binding) => {
-    ({ action, binding } = bindVerifiedExecutorClaim({
-      action,
-      binding,
-      projection: context.projection,
-      now: context.now(),
-    }));
+    ({ action, binding } = await bindExecutorClaimAtWriterCut(action, binding));
     const command = commandDescriptorForAction(action.kind),
       authorizationDecision =
         action.kind === "preset-run-start"
@@ -821,13 +828,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     );
     return pending;
   };
-  const spawnRuntime: RepoCell["spawnRuntime"] = (payload, binding) => {
-    const verified = bindVerifiedExecutorClaim({
-      action: { kind: "runtime-spawn", ...payload },
-      binding,
-      projection: context.projection,
-      now: context.now(),
-    });
+  const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding) => {
+    const verified = await bindExecutorClaimAtWriterCut({ kind: "runtime-spawn", ...payload }, binding);
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     const action = { kind: "runtime-spawn", ...payload };
@@ -844,13 +846,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return context.runtimeSpawner.spawn(payload, authorizedBinding);
     });
   };
-  const cancelRuntime: RepoCell["cancelRuntime"] = (payload, binding) => {
-    const verified = bindVerifiedExecutorClaim({
-      action: { kind: "runtime-cancel", ...payload },
-      binding,
-      projection: context.projection,
-      now: context.now(),
-    });
+  const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding) => {
+    const verified = await bindExecutorClaimAtWriterCut({ kind: "runtime-cancel", ...payload }, binding);
     binding = verified.binding;
     payload = Object.fromEntries(Object.entries(verified.action).filter(([field]) => field !== "kind")) as JsonObject;
     return enqueueRuntimePublication(
