@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { explainEntityKind, getEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
+import { taskLifecycleReturnsForCommand } from "../../src/domain/task-lifecycle-contract-catalog.ts";
 
 const concurrencyFields = [
   "expectedVersion",
@@ -43,6 +44,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       action.id,
     );
     assert.equal(action.returns.schema, "action-result/v1");
+    assert.deepEqual(action.returns.guidance, []);
     assert.ok(action.explain.length > 0);
   }
   assert.deepEqual(explainEntityKind("task").transitions.available, [
@@ -59,6 +61,21 @@ test("all public Task writes are complete executable Action contracts", () => {
     "contract-migrate",
   ]);
   assert.deepEqual(explainEntityKind("agent").transitions.available, ["install", "validate", "list", "inspect"]);
+});
+
+test("task creation guidance is projected from the lifecycle transition catalog", () => {
+  assert.deepEqual(
+    taskLifecycleReturnsForCommand("CreateReplayTask")?.guidance.map(({ kind }) => kind),
+    [
+      "repository-diff-contract",
+      "task-create-publish",
+      "task-create-start",
+      "receipt-query",
+      "edit-plan",
+      "pin-agenda",
+      "ledger-managed",
+    ],
+  );
 });
 
 test("Agent-readable input and CLI facets share the same field declarations", () => {

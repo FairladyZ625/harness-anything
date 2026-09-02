@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 import { cliErrorMessage } from "./cli-error.ts";
 import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
-import {
-  cliDispatchError,
-  contractMigrationDryRunSummary,
-  humanError,
-  renderDispatchRow,
-  renderRuntimeBatchRow,
-} from "./cli-render.ts";
+import { cliDispatchError } from "./cli-render.ts";
 import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import {
   cliCommandDomains,
@@ -18,12 +12,8 @@ import {
   type ThinCommand,
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
-import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./cli/thin-command-schedule.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
-import {
-  renderEntityActionExplanation,
-  type EntityActionExplanationRenderInput,
-} from "./cli/entity-action-explain-render.ts";
+import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import {
   daemonAutostartFailureCode,
   daemonBuildStaleCode,
@@ -34,12 +24,6 @@ import {
 import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
-
-const repositoryDiffContract = [
-  "contract: repository-diff requires a committable public-repository diff, ",
-  "real CI, and a code-doc reconciliation witness. ",
-  "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
-].join("");
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   const command = firstCliCommand(argv),
@@ -136,87 +120,10 @@ export function materializeDecisionStdin(
 
 export function emit(receipt: Record<string, unknown>, json: boolean): void {
   if (json) console.log(JSON.stringify(receipt));
-  else if (receipt.schema === "entity-action-explanation/v1")
-    console.log(renderEntityActionExplanation(receipt as unknown as EntityActionExplanationRenderInput));
-  else if (receipt.command === "runtime-batch" && Array.isArray(receipt.dispatches))
-    console.log(
-      receipt.dispatches.length ? receipt.dispatches.map(renderRuntimeBatchRow).join("\n") : "No batch dispatches.",
-    );
-  else if (receipt.ok === true || (receipt.command === "migrate-import" && typeof receipt.summary === "string")) {
-    const summary = contractMigrationDryRunSummary(receipt);
-    const scheduleOutput = renderScheduleList(receipt) ?? renderScheduleShow(receipt) ?? renderScheduleRuns(receipt);
-    if (scheduleOutput !== null) console.log(scheduleOutput);
-    else if (
-      receipt.command === "task-create" &&
-      typeof receipt.presetId === "string" &&
-      typeof receipt.profileId === "string" &&
-      typeof receipt.outputShape === "string" &&
-      Array.isArray(receipt.completionGates) &&
-      typeof receipt.nextAction === "string"
-    )
-      console.log(renderTaskCreateReceipt(receipt));
-    else if (receipt.command === "preset-list") console.log(renderPresetListReceipt(receipt));
-    else if (Array.isArray(receipt.dispatches))
-      console.log(receipt.dispatches.length ? receipt.dispatches.map(renderDispatchRow).join("\n") : "No dispatches.");
-    else
-      console.log(
-        String(
-          summary ??
-            (receipt.command === "doc-show"
-              ? receipt.evidence
-              : receipt.command === "init"
-                ? [
-                    String(receipt.summary),
-                    `outcome: ${receipt.outcome ?? "applied"}`,
-                    ...["created", "updated", "preserved", "drifted"].map(
-                      (key) => `${key}: ${JSON.stringify(receipt[key] ?? [])}`,
-                    ),
-                    `commit: ${String(receipt.commit ?? "none")}`,
-                    `next: ${String(receipt.next ?? "")}`,
-                  ].join("\n")
-                : (receipt.summary ?? `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`)),
-        ),
-      );
-  } else {
-    const error = humanError(receipt);
-    console.error(`error code=${error.code} hint=${error.hint}`);
+  else {
+    const rendered = renderCliReceipt(receipt);
+    console[rendered.stream === "stderr" ? "error" : "log"](rendered.text);
   }
-}
-
-function renderTaskCreateReceipt(receipt: Record<string, unknown>): string {
-  const contract = receipt.outputShape === "repository-diff" ? [repositoryDiffContract] : [],
-    guidance =
-      receipt.dryRun !== true && typeof receipt.packagePath === "string" && typeof receipt.taskId === "string"
-        ? [
-            `plan: write the concrete plan at harness/${receipt.packagePath}/task_plan.md`,
-            `agenda: use ha task pin ${receipt.taskId} to pin it to the CEO agenda`,
-          ]
-        : [];
-  return [
-    String(receipt.summary),
-    `preset: ${String(receipt.presetId)}/${String(receipt.profileId)}`,
-    `outputShape: ${String(receipt.outputShape)}`,
-    `completionGates: ${JSON.stringify(receipt.completionGates)}`,
-    ...contract,
-    `next: ${String(receipt.nextAction)}`,
-    ...guidance,
-  ].join("\n");
-}
-
-function renderPresetListReceipt(receipt: Record<string, unknown>): string {
-  const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
-  return rows
-    .map((row) => {
-      const gates = Array.isArray(row.completionGates) ? JSON.stringify(row.completionGates) : "unavailable";
-      return [
-        `${String(row.id)} — ${String(row.title)} — ${String(row.description)}`,
-        `  validity: ${String(row.validity)}`,
-        `  defaultProfile: ${String(row.defaultProfile ?? "unavailable")}`,
-        `  outputShape: ${String(row.outputShape ?? "unavailable")}`,
-        `  completionGates: ${gates}`,
-      ].join("\n");
-    })
-    .join("\n");
 }
 
 function isCliEntrypoint(): boolean {

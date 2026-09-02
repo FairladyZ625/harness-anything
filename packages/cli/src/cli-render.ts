@@ -2,64 +2,11 @@ import type { RuntimeBatchResult } from "./cli-types.ts";
 import { cliErrorMessage } from "./cli-error.ts";
 import { consumeKnownError } from "./daemon/client.ts";
 
-type ReceiptFailure =
-  | { readonly _tag: "ReceiptFailure"; readonly errorCode: string; readonly hint: string }
-  | {
-      readonly _tag: "SquadLeaderFailure";
-      readonly errorCode: string;
-      readonly leader: { readonly code: string; readonly hint: string };
-    };
-
 type CliDispatchFailure =
   | { readonly _tag: "DirectDaemonFailure"; readonly errorCode: string; readonly message: string }
   | { readonly _tag: "DaemonResponseTimeout"; readonly errorCode: string; readonly message: string }
   | { readonly _tag: "DaemonUnavailable"; readonly errorCode: string; readonly message: string };
-
-export function humanError(receipt: Record<string, unknown>): {
-  readonly code: string;
-  readonly hint: string;
-} {
-  const outer = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : {},
-    code = typeof outer.code === "string" ? outer.code : typeof receipt.code === "string" ? receipt.code : "unknown",
-    baseHint =
-      typeof outer.hint === "string"
-        ? outer.hint
-        : typeof receipt.nextAction === "string"
-          ? receipt.nextAction
-          : typeof receipt.next === "string"
-            ? receipt.next
-            : "Command failed.",
-    criteria = Array.isArray(receipt.unmetCriteria)
-      ? receipt.unmetCriteria.flatMap((entry) =>
-          entry &&
-          typeof entry === "object" &&
-          typeof (entry as Record<string, unknown>).ref === "string" &&
-          typeof (entry as Record<string, unknown>).explain === "string"
-            ? [
-                `${String((entry as Record<string, unknown>).ref)} — ${String(
-                  (entry as Record<string, unknown>).explain,
-                )}`,
-              ]
-            : [],
-        )
-      : [],
-    hint = criteria.length > 0 ? `${baseHint} Unmet criteria: ${criteria.join("; ")}` : baseHint,
-    leader = receipt.leader && typeof receipt.leader === "object" ? (receipt.leader as Record<string, unknown>) : null,
-    nested = leader ? humanError(leader) : null,
-    failure: ReceiptFailure =
-      code === "squad_leader_failed" && nested && nested.code !== "unknown"
-        ? { _tag: "SquadLeaderFailure", errorCode: code, leader: nested }
-        : { _tag: "ReceiptFailure", errorCode: code, hint };
-  switch (failure._tag) {
-    case "ReceiptFailure":
-      return { code: failure.errorCode, hint: failure.hint };
-    case "SquadLeaderFailure":
-      return {
-        code: failure.errorCode,
-        hint: `Leader dispatch rejected: code=${failure.leader.code} hint=${failure.leader.hint}`,
-      };
-  }
-}
+export { humanError } from "./cli/guidance-plane.ts";
 
 export function cliDispatchError(input: {
   readonly error: unknown;

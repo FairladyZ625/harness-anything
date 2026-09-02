@@ -6,12 +6,19 @@ import { timestamp } from "./timestamp.ts";
 export { validateActorIdentity } from "./actor-identity.ts";
 export type { ActorIdentity } from "./actor-identity.ts";
 export { isNonEmptyString } from "./contract-validation.ts";
-export { receiptDetailRegistry, validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
+export {
+  isReceiptDiagnostic,
+  isReceiptGuidance,
+  receiptDetailRegistry,
+  validateWriteReceipt,
+  WRITE_RECEIPT_SCHEMA,
+} from "./receipt-domain-registry.ts";
 export type {
   AuthorizationDecision,
   DocSyncReceiptDetail,
   EntityActionUnmetCriterionV1,
   LedgerCutIdentity,
+  ReceiptDiagnostic,
   ReceiptProof,
   ReceiptJsonValue,
   ReceiptVisibility,

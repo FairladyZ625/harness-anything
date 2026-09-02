@@ -94,6 +94,7 @@ export {
 export {
   TASK_LIFECYCLE_COMMAND_CATALOG,
   TASK_LIFECYCLE_PROJECTION_FIELDS,
+  taskLifecycleReturnsForCommand,
   type TaskLifecycleCliCatalogEntry,
 } from "./task-lifecycle-contract-catalog.ts";
 export { default } from "./task-lifecycle-contract-catalog.ts";

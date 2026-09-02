@@ -8,6 +8,7 @@ import type {
   RelationCoverageRow,
   RelationFactRow,
   RelationGraphEdgeRow,
+  ReceiptDiagnostic,
   TaskProjection,
   SettingsV1,
   EntityActionExplanationSetV1,
@@ -825,4 +826,5 @@ export interface DaemonProtocolErrorResult {
   readonly evidence: string;
   readonly error: { readonly code: string; readonly hint: string };
   readonly nextAction: string;
+  readonly diagnostic?: ReceiptDiagnostic;
 }

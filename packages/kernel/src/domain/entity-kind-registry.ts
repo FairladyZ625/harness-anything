@@ -47,6 +47,7 @@ import { createRuntimeSessionActionCatalog } from "./runtime-session-action-cont
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
 import { createSquadActionCatalog } from "./squad-action-contract.ts";
+import type { ActionReturnsContract } from "./receipt-guidance.ts";
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 
 export type EntityStorageForm =
@@ -213,10 +214,7 @@ export interface EntityActionContract {
     readonly ref: string;
     readonly projection: string;
   }[];
-  readonly returns: {
-    readonly schema: "action-result/v1";
-    readonly fields: readonly string[];
-  };
+  readonly returns: ActionReturnsContract;
   readonly explain: string;
   readonly sdkExposure: EntitySdkExposure;
   readonly execution: EntityActionExecutionContract | null;
@@ -349,7 +347,9 @@ const actionResultContract = Object.freeze({
     "rejectionExplanation",
     "nextAction",
     "nextActions",
+    "guidance",
   ]),
+  guidance: Object.freeze([]),
 });
 const defaultConcurrency = (kind: string, refTemplate: string): EntityActionContract["concurrency"] =>
   Object.freeze({

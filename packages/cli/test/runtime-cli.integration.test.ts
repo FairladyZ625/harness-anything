@@ -241,15 +241,13 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       String(placeholderLease.receipt.nextAction),
       /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
     );
-    assert.match(
-      String(placeholderLease.receipt.nextAction),
-      /required-section diagnostics:\n- CI\/Gate Authority Stop Condition: 空/u,
-    );
+    assert.deepEqual(placeholderLease.receipt.diagnostic, {
+      kind: "missing-sections",
+      documentPath: automaticPlanPath,
+      diskDiffers: true,
+      missingSections: [{ section: "CI/Gate Authority Stop Condition", reason: "empty" }],
+    });
     assert.doesNotMatch(String(placeholderLease.receipt.nextAction), /missing required sections are: Brief/u);
-    assert.match(
-      String(placeholderLease.receipt.nextAction),
-      new RegExp(`ha doc sync --submit --path ${automaticPlanPath}`, "u"),
-    );
     writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
     const automaticPlanSync = run(root, env, ["doc", "sync", "--submit", "--path", automaticPlanPath]);
     const automaticLease = runMaybe(root, env, automaticArgs);

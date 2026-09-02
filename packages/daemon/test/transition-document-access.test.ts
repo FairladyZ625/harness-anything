@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { assessTransitionDocument } from "../../kernel/src/index.ts";
-import { missingSectionsHint } from "../src/transition-document-access.ts";
 
 const planHeadings = [
   "Brief",
@@ -22,7 +21,7 @@ const planHeadings = [
   "Verification",
 ] as const;
 
-test("transition-document hints explain scaffold, empty, and ready sections line by line", () => {
+test("transition-document readiness reports scaffold and empty sections as structured entries", () => {
   const template = readFileSync(
       new URL("../../preset/assets/software-coding/templates/task.plan/en-US.md", import.meta.url),
       "utf8",
@@ -36,35 +35,44 @@ test("transition-document hints explain scaffold, empty, and ready sections line
       {
         name: "all-template plan",
         body: template,
-        expectedFirst: "- Brief: 仍含模板句「One-line statement of the task objective and scope.」",
-        expectedLines: 15,
+        expectedFirst: {
+          section: "Brief",
+          reason: "scaffold",
+          retainedScaffold: "One-line statement of the task objective and scope.",
+        },
+        expectedEntries: 14,
       },
       {
         name: "partially realized plan",
         body: partial,
-        expectedFirst: "- Brief: 仍含模板句「One-line statement of the task objective and scope.」",
-        expectedLines: 2,
+        expectedFirst: {
+          section: "Brief",
+          reason: "scaffold",
+          retainedScaffold: "One-line statement of the task objective and scope.",
+        },
+        expectedEntries: 1,
       },
-      { name: "empty section", body: empty, expectedFirst: "- Verification: 空", expectedLines: 2 },
+      {
+        name: "empty section",
+        body: empty,
+        expectedFirst: { section: "Verification", reason: "empty" },
+        expectedEntries: 1,
+      },
       {
         name: "fully realized plan",
         body: realizedPlan(),
-        expectedFirst: "it has no missing required sections.",
-        expectedLines: 1,
+        expectedFirst: undefined,
+        expectedEntries: 0,
       },
     ] as const;
 
   for (const fixture of cases) {
-    const hint = missingSectionsHint(assessTransitionDocument("task.plan", fixture.body).missingSections);
-    assert.equal(hint.split("\n").length, fixture.expectedLines, fixture.name);
-    assert.match(hint, new RegExp(escapeRegExp(fixture.expectedFirst), "u"), fixture.name);
+    const missing = assessTransitionDocument("task.plan", fixture.body).missingSections;
+    assert.equal(missing.length, fixture.expectedEntries, fixture.name);
+    assert.deepEqual(missing[0], fixture.expectedFirst, fixture.name);
   }
 });
 
 function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

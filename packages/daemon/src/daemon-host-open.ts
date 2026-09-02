@@ -25,6 +25,7 @@ import {
   attachBudgetError,
   code,
   daemonErrorMessage,
+  diagnosticForError,
   failedConfigureVerify,
   hostCodedError,
   makeWarmingSettlement,
@@ -303,6 +304,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     code,
     daemonErrorMessage,
+    diagnosticForError,
     controls,
     get latestControl() {
       return latestControl;
@@ -422,6 +424,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     warmingMessage,
     code,
     daemonErrorMessage,
+    diagnosticForError,
     requiredCell,
     rejectPresetRun,
     recoverableRunId,

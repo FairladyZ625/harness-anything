@@ -673,9 +673,12 @@ async function openLockedRepoCell(
       ),
       started = await operationalContext.lifecycleAction(startAction, startBinding);
     if (started.outcome !== "applied")
-      throw cellCodedError(
-        started.code ?? "runtime_task_lease_required",
-        started.nextAction ?? `Task ${taskId} could not acquire a RuntimeSession execution lease.`,
+      throw Object.assign(
+        cellCodedError(
+          started.code ?? "runtime_task_lease_required",
+          started.nextAction ?? `Task ${taskId} could not acquire a RuntimeSession execution lease.`,
+        ),
+        started.diagnostic ? { diagnostic: started.diagnostic } : {},
       );
     return startBinding;
   };

@@ -13,6 +13,7 @@ import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
 import type { LeaseChangeReason, TaskEventType, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
+import type { ActionReturnsContract } from "./receipt-guidance.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
@@ -223,6 +224,7 @@ export interface Transition {
   readonly from: string;
   readonly proof: readonly string[];
   readonly eventType: TaskEventType;
+  readonly returns?: ActionReturnsContract;
   readonly matches: (command: TaskLifecycleCommand, snapshot: TaskLifecycleSnapshot) => boolean;
   readonly validate: (
     snapshot: TaskLifecycleSnapshot,

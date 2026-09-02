@@ -117,23 +117,19 @@ export function assertTaskTransitionDocumentReady(input: {
           document.source === "canonical projection"
             ? `canonical projection document at workspace revision ${document.workspaceRevision}`
             : `submitted candidate against canonical projection workspace revision ${document.workspaceRevision}`,
-        missing = missingSectionsHint(actionableMissing),
-        recovery = diskDiffers
-          ? `The on-disk harness/${document.path} differs; ${missing} ${
-              actionableMissing.length ? "Complete that content, then run" : "Run"
-            } ha doc sync --submit --path ${document.path}, then retry.`
-          : [
-              `${missing}`,
-              ` Edit harness/${document.path}, then run ha doc sync --submit --path ${document.path} and retry.`,
-            ].join("");
+        diagnosticSummary = actionableMissing.length
+          ? `${actionableMissing.length} required section` +
+            `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
+          : "No missing required sections were reported.";
       Object.assign(error, {
         documentPath: document.path,
+        diskDiffers,
         missingSections: actionableMissing,
         projectedMissingSections: projectedMissing,
         message: [
           `${String((error as { readonly code?: unknown }).code ?? "content_not_ready")}:`,
           `${kind} readiness judged the ${revision} (blob sha256 ${document.blobSha256}).`,
-          recovery,
+          diagnosticSummary,
         ].join(" "),
       });
     }
@@ -162,19 +158,6 @@ function transitionMissingSections(error: object): readonly TransitionDocumentMi
           (value.reason === "empty" || ("retainedScaffold" in value && typeof value.retainedScaffold === "string")),
       )
     : [];
-}
-
-export function missingSectionsHint(sections: readonly TransitionDocumentMissingSection[]): string {
-  return sections.length === 0
-    ? "it has no missing required sections."
-    : [
-        "required-section diagnostics:",
-        ...sections.map((entry) =>
-          entry.reason === "empty"
-            ? `- ${entry.section}: 空`
-            : `- ${entry.section}: 仍含模板句「${entry.retainedScaffold ?? ""}」`,
-        ),
-      ].join("\n");
 }
 
 function transitionDocumentAccessError(code: string, message: string): Error {

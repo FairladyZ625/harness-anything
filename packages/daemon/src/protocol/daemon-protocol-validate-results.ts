@@ -326,12 +326,10 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
 
 export function validateDaemonProtocolError(value: unknown): readonly string[] {
   const entityId = validationEntityId(value, ["command", "opId"], "protocol-error"),
-    shapeError = recordShapeError(
-      entityId,
-      value,
-      DAEMON_PROTOCOL_ERROR_SCHEMA.required,
-      isJsonObject(value) ? Object.keys(value) : DAEMON_PROTOCOL_ERROR_SCHEMA.required,
-    );
+    shapeError = recordShapeError(entityId, value, DAEMON_PROTOCOL_ERROR_SCHEMA.required, [
+      ...DAEMON_PROTOCOL_ERROR_SCHEMA.required,
+      "diagnostic",
+    ]);
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
   for (const [field, actual, valid, expectation] of [
@@ -355,6 +353,8 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     return [validationError(entityId, "error.hint", value.error.hint, "must be a non-empty string")];
   if (value.code !== value.error.code)
     return [validationError(entityId, "error.code", value.error.code, "must equal code")];
+  if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
+    return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   return [];
 }
 
@@ -376,6 +376,8 @@ export const writeReceiptFields = [
     "updatedProjection",
     "rejectionExplanation",
     "nextActions",
+    "guidance",
+    "diagnostic",
     "cut",
   ],
   guiReceiptExtensions = [
@@ -450,8 +452,12 @@ export function writeReceipt(value: JsonObject): string[] {
     return [validationError(entityId, "evidence", value.evidence, "must be a non-empty string")];
   if (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut))
     return [validationError(entityId, "proof", value.proof, "must prove durable canonical visibility at one cut")];
-  if (pending && !nonEmpty(value.nextAction))
-    return [validationError(entityId, "nextAction", value.nextAction, "must be a non-empty string")];
+  if (pending && !nonEmpty(value.nextAction) && (!Array.isArray(value.guidance) || value.guidance.length === 0))
+    return [validationError(entityId, "guidance", value.guidance, "must include nextAction or structured guidance")];
+  if (value.guidance !== undefined && (!Array.isArray(value.guidance) || !value.guidance.every(isStructuredGuidance)))
+    return [validationError(entityId, "guidance", value.guidance, "must be structured receipt guidance")];
+  if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
+    return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   if (noChanges) {
     for (const field of ["code", "origin", "nextAction"] as const)
       if (!nonEmpty(value[field]))
@@ -541,7 +547,13 @@ export const serializeDaemonTaskSnapshotList = (value: unknown): string =>
   serializeDaemonTaskDispatches = (value: unknown): string => serializeSchema(value, validateDaemonTaskDispatches),
   serializeDaemonProtocolError = (value: unknown): string => serializeSchema(value, validateDaemonProtocolError);
 
-export function daemonProtocolError(command: string, code: string, hint: string): DaemonProtocolErrorResult {
+export function daemonProtocolError(
+  command: string,
+  code: string,
+  hint: string,
+  explicitDiagnostic?: DaemonProtocolErrorResult["diagnostic"],
+): DaemonProtocolErrorResult {
+  const diagnostic = explicitDiagnostic ?? validationDiagnostic(hint);
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -553,5 +565,33 @@ export function daemonProtocolError(command: string, code: string, hint: string)
     evidence: `rejection:${code}`,
     error: { code, hint },
     nextAction: hint,
+    ...(diagnostic ? { diagnostic } : {}),
   };
+}
+
+function validationDiagnostic(hint: string) {
+  const match = hint.match(/^entity=(.+?) field=(\S+) (.+); actual=(.*)$/u);
+  return match
+    ? {
+        kind: "validation" as const,
+        entity: match[1]!,
+        field: match[2]!,
+        expectation: match[3]!,
+        actual: match[4]!,
+      }
+    : null;
+}
+
+// Transport validates shape only; the kernel receipt registry owns the guidance kind vocabulary.
+function isStructuredGuidance(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    nonEmpty(value.kind) &&
+    isJsonObject(value.args) &&
+    (value.when === undefined || isJsonObject(value.when))
+  );
+}
+
+function isStructuredDiagnostic(value: unknown): boolean {
+  return isJsonObject(value) && nonEmpty(value.kind);
 }

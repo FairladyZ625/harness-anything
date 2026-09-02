@@ -2,6 +2,7 @@ import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
+import { RECEIPT_GUIDANCE_KINDS, type ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
 
 export interface EntityActionUnmetCriterionV1 {
@@ -9,6 +10,30 @@ export interface EntityActionUnmetCriterionV1 {
   readonly failureCode: string;
   readonly explain: string;
 }
+
+export type ReceiptDiagnostic =
+  | {
+      readonly kind: "missing-sections";
+      readonly documentPath: string;
+      readonly diskDiffers: boolean;
+      readonly missingSections: readonly {
+        readonly section: string;
+        readonly reason: "empty" | "scaffold";
+        readonly retainedScaffold?: string;
+      }[];
+    }
+  | {
+      readonly kind: "validation";
+      readonly entity: string;
+      readonly field: string;
+      readonly actual: string;
+      readonly expectation: string;
+    }
+  | {
+      readonly kind: "workspace-boundary";
+      readonly field: string;
+      readonly workspaceRoot: string;
+    };
 
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
 export interface ReceiptProof {
@@ -112,6 +137,8 @@ export interface WriteReceiptDraft {
   } | null;
   readonly rejectionExplanation?: string | null;
   readonly nextActions?: readonly string[];
+  readonly guidance?: readonly ReceiptGuidanceContractEntry[];
+  readonly diagnostic?: ReceiptDiagnostic;
   readonly cut?: {
     readonly repoId: string;
     readonly revision: number;
@@ -142,6 +169,8 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "updatedProjection",
     "rejectionExplanation",
     "nextActions",
+    "guidance",
+    "diagnostic",
     "cut",
   ]),
 });
@@ -166,6 +195,13 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     (!Array.isArray(value.nextActions) || value.nextActions.some((entry) => !isNonEmptyString(entry)))
   )
     errors.push("nextActions must be an array of commands or remediation steps");
+  if (
+    "guidance" in value &&
+    (!Array.isArray(value.guidance) || value.guidance.some((entry) => !isReceiptGuidance(entry)))
+  )
+    errors.push("guidance must be an array of structured guidance entries");
+  if ("diagnostic" in value && !isReceiptDiagnostic(value.diagnostic))
+    errors.push("diagnostic must be a structured receipt diagnostic");
   if ("effects" in value && (!Array.isArray(value.effects) || value.effects.some((entry) => !isNonEmptyString(entry))))
     errors.push("effects must be an array of effect references");
   if (
@@ -265,9 +301,11 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("no_changes requires code, origin, and nextAction");
   if (
     value.outcome === "pending" &&
-    (!cut(value.revision) || !isNonEmptyString(value.evidence) || !isNonEmptyString(value.nextAction))
+    (!cut(value.revision) ||
+      !isNonEmptyString(value.evidence) ||
+      (!isNonEmptyString(value.nextAction) && (!Array.isArray(value.guidance) || value.guidance.length === 0)))
   )
-    errors.push("pending requires committed evidence, revision, and nextAction");
+    errors.push("pending requires committed evidence, revision, and nextAction or guidance");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")
     for (const field of ["code", "origin", "nextAction"] as const)
       if (!isNonEmptyString(value[field])) errors.push(`${field} is required for ${value.outcome}`);
@@ -283,6 +321,53 @@ export function isEntityActionUnmetCriterion(value: unknown): value is EntityAct
     isNonEmptyString(value.ref) &&
     isNonEmptyString(value.failureCode) &&
     isNonEmptyString(value.explain)
+  );
+}
+export function isReceiptGuidance(value: unknown): value is ReceiptGuidanceContractEntry {
+  if (!isReceiptDomainRecord(value)) return false;
+  const fields = "when" in value ? ["kind", "args", "when"] : ["kind", "args"];
+  return (
+    exact(value, fields) &&
+    (RECEIPT_GUIDANCE_KINDS as readonly string[]).includes(String(value.kind)) &&
+    isReceiptDomainRecord(value.args) &&
+    Object.values(value.args).every(
+      (argument) =>
+        typeof argument === "string" ||
+        typeof argument === "number" ||
+        typeof argument === "boolean" ||
+        (Array.isArray(argument) && argument.every((item) => typeof item === "string")),
+    ) &&
+    (!("when" in value) ||
+      (isReceiptDomainRecord(value.when) &&
+        Object.values(value.when).every((entry) => ["string", "number", "boolean"].includes(typeof entry))))
+  );
+}
+export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic {
+  if (!isReceiptDomainRecord(value) || !isNonEmptyString(value.kind)) return false;
+  if (value.kind === "validation")
+    return (
+      exact(value, ["kind", "entity", "field", "actual", "expectation"]) &&
+      [value.entity, value.field, value.actual, value.expectation].every((field) => typeof field === "string")
+    );
+  if (value.kind === "workspace-boundary")
+    return (
+      exact(value, ["kind", "field", "workspaceRoot"]) &&
+      isNonEmptyString(value.field) &&
+      isNonEmptyString(value.workspaceRoot)
+    );
+  return (
+    value.kind === "missing-sections" &&
+    exact(value, ["kind", "documentPath", "diskDiffers", "missingSections"]) &&
+    isNonEmptyString(value.documentPath) &&
+    typeof value.diskDiffers === "boolean" &&
+    Array.isArray(value.missingSections) &&
+    value.missingSections.every(
+      (entry) =>
+        isReceiptDomainRecord(entry) &&
+        exact(entry, entry.reason === "scaffold" ? ["section", "reason", "retainedScaffold"] : ["section", "reason"]) &&
+        isNonEmptyString(entry.section) &&
+        (entry.reason === "empty" || (entry.reason === "scaffold" && isNonEmptyString(entry.retainedScaffold))),
+    )
   );
 }
 function validAuthorizationDecision(value: unknown): value is AuthorizationDecision {
