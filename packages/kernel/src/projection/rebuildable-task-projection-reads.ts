@@ -194,7 +194,7 @@ export function rebuildProjection(
   // Rebuild is a schema repair boundary as well as a data replay. Deleting the disposable
   // database ensures CREATE TABLE materializes current DDL instead of retaining any table
   // whose shape changed while its version metadata was stale or incorrect.
-  discardDatabase(projectionPath, readHead);
+  discardDatabase(projectionPath, eventStore);
   let transactions = 0,
     reducedItems = 0,
     maxBatchItems = 0;

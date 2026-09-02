@@ -8,7 +8,6 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isTaskEvent,
-  serializeCanonicalEvent,
 } from "../domain/doc-sync.contract.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
@@ -37,6 +36,7 @@ import {
   closeDatabase,
   discardDatabase,
   ProjectionIdentityMismatchError,
+  ProjectionSchemaMismatchError,
   withDatabase,
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
@@ -80,20 +80,7 @@ export function makeTaskProjection(options: {
   const limit = options.catchUpLimit ?? 4096,
     now = options.now ?? (() => new Date().toISOString()),
     onProgress = options.onProgress ?? (() => undefined),
-    sourceReadHead = options.eventStore.readHead;
-  let observedSourceHead = false,
-    hotAppliedHead: ReturnType<EventStreamPort["readHead"]> = null;
-  // `apply` is the synchronous projection of a just-published event. A headless in-memory
-  // source may not expose that event through readHead, but only this live instance may retain it.
-  // Once a real source head has been seen, a later null/lower head remains a history regression.
-  const readHead = () => {
-    const sourceHead = sourceReadHead();
-    if (sourceHead !== null) {
-      observedSourceHead = true;
-      return sourceHead;
-    }
-    return observedSourceHead ? null : hotAppliedHead;
-  };
+    readHead = options.eventStore.readHead;
   if (!Number.isInteger(limit) || limit < 1 || limit > 4096)
     throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
@@ -104,13 +91,14 @@ export function makeTaskProjection(options: {
         }),
       );
     } catch (error) {
-      if (!(error instanceof ProjectionIdentityMismatchError)) throw error;
-      if (readHead() === null) discardDatabase(projectionPath, readHead);
-      else consumeKnownError(error);
+      if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
+        consumeKnownError(error);
+        discardDatabase(projectionPath, options.eventStore);
+      } else if (error instanceof ProjectionIdentityMismatchError) consumeKnownError(error);
+      else throw error;
     }
   }
   const closeProjection = () => {
-    hotAppliedHead = null;
     closeDatabase(projectionPath, readHead);
   };
   const context: ProjectionContext = {
@@ -145,15 +133,9 @@ export function makeTaskProjection(options: {
       const receipt = withDatabase(projectionPath, readHead, (db) =>
         reduceBatch(db, [event], limit, options.eventStore.readContentBlob, readHead()?.revision ?? 0),
       );
-      if (!observedSourceHead)
-        hotAppliedHead = {
-          revision: event.workspaceRevision,
-          eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
-        };
       return receipt;
     },
     rebuild: () => {
-      hotAppliedHead = null;
       closeDatabase(projectionPath, readHead);
       return rebuildProjection(projectionPath, readHead, options.eventStore, limit);
     },
