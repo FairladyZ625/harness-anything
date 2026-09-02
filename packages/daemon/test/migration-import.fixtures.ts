@@ -331,7 +331,7 @@ export function buildProjectionOracle(root: string): void {
       "CREATE TABLE decision_option(decision_id TEXT NOT NULL, kind TEXT NOT NULL, option_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, rationale TEXT, workspace_revision INTEGER NOT NULL)",
       "CREATE TABLE decision_claim(decision_id TEXT NOT NULL, claim_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, load_bearing INTEGER NOT NULL, fulfillment TEXT, workspace_revision INTEGER NOT NULL)",
       "CREATE TABLE fact(fact_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
-      "CREATE TABLE relation_edge(relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, state TEXT NOT NULL, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
+      "CREATE TABLE relation_edge(relation_id TEXT PRIMARY KEY, source_ref TEXT NOT NULL, target_ref TEXT NOT NULL, relation_type TEXT NOT NULL, state TEXT NOT NULL, target_observed_version, owner_ref TEXT NOT NULL, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
       "CREATE TABLE entity_projection(entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
       "CREATE TABLE runtime_session(runtime_session_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
     ];
@@ -446,13 +446,14 @@ export function buildProjectionOracle(root: string): void {
       revision += 1;
       const current = { ...edge, state: edge.state === "retired" ? "edge_retired" : edge.state };
       database
-        .prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+        .prepare("INSERT INTO relation_edge VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run(
           current.relationId,
           current.sourceRef,
           current.targetRef,
           current.relationType,
           current.state,
+          current.targetObservedVersion,
           current.ownerRef,
           revision,
           JSON.stringify(current),

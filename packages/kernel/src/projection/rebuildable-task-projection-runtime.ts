@@ -17,6 +17,7 @@ import { validateTaskV2 } from "../domain/task.ts";
 import { canonicalJson, queryPreparedRows, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "./projection-reads.ts";
 import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "./task-projection-port.ts";
+import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -131,26 +132,17 @@ export function readSnapshot(db: DatabaseSync, taskId: string, now?: string): Ta
   const lease = now === undefined ? storedLease(db, taskId) : effectiveLease(db, taskId, now);
   // The stored snapshot is pure task-aggregate state; the decision relations this task is a
   // target of are stamped at read time as-of the applied cut, the same join the live lease uses.
-  const decisionRelations = (
-    queryRows(db, "SELECT row_json FROM relation_edge WHERE target_ref = ?", `task/${taskId}`) as readonly {
-      readonly row_json: string;
-    }[]
-  ).map((edge) => {
-    const parsed = JSON.parse(edge.row_json) as {
-      readonly relationId: string;
-      readonly sourceRef: string;
-      readonly targetRef: string;
-      readonly relationType: string;
-      readonly state: string;
-    };
-    return {
-      relationId: parsed.relationId,
-      sourceRef: parsed.sourceRef,
-      targetRef: parsed.targetRef,
-      relationType: parsed.relationType,
-      state: parsed.state,
-    };
-  });
+  const decisionRelations = readRelationProjectionRows(db)
+    .filter(({ targetRef }) => targetRef === `task/${taskId}`)
+    .map(({ relationId, sourceRef, targetRef, relationType, state, strength, freshness }) => ({
+      relationId,
+      sourceRef,
+      targetRef,
+      relationType,
+      state,
+      strength,
+      freshness,
+    }));
   return {
     ...snapshot,
     executions,

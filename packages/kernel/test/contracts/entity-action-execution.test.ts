@@ -23,6 +23,7 @@ const ingressKinds = [
   "fact-record",
   "fact-search",
   "fact-show",
+  "relation-reconfirm",
   "relation-relate",
   "relation-unrelate",
   "runtime_session_cancelled",

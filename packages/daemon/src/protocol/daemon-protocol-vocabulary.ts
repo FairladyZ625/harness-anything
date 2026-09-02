@@ -31,7 +31,8 @@ export const executionStateWords = ["active", "submitted", "changes_requested", 
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
 /** Wire copies of the Relation vocabulary; the status-vocabulary ratchet pins them to the kernel authority. */
-export const relationStateWords = ["active", "edge_retired", "deleted"] as const;
+export const relationStateWords = ["active", "retired"] as const;
+export const relationFreshnessWords = ["current", "suspect", "orphaned"] as const;
 export const relationTypeWords = [
   "supports",
   "supersedes",

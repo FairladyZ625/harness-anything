@@ -245,12 +245,22 @@ function relationEdgeInvalid(edge: unknown): boolean {
       "strength",
       "origin",
       "state",
+      "targetObservedVersion",
+      "currentTargetVersion",
+      "freshness",
       "rationale",
       "ownerRef",
       "sourcePath",
       "recordIndex",
     ]) ||
     !integer(edge.recordIndex) ||
+    (edge.targetObservedVersion !== null &&
+      typeof edge.targetObservedVersion !== "string" &&
+      !integer(edge.targetObservedVersion)) ||
+    (edge.currentTargetVersion !== null &&
+      typeof edge.currentTargetVersion !== "string" &&
+      !integer(edge.currentTargetVersion)) ||
+    !["current", "suspect", "orphaned"].includes(String(edge.freshness)) ||
     [
       "relationId",
       "sourceRef",

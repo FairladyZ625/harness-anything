@@ -1,7 +1,6 @@
 import {
   relationDirectionWords as relationDirections,
   relationOriginWords as relationOrigins,
-  relationStrengthWords as relationStrengths,
   relationTypeWords as relationTypes,
 } from "./daemon-protocol-vocabulary.ts";
 import { cliInput, defineCenterForwardWriteCommand } from "../../../preset/src/preset-command-contract.ts";
@@ -18,7 +17,7 @@ const expectedVersion = cliInput(
 export const relationProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "relation-relate",
-    phase: "Relation-G3c",
+    phase: "Governed-Entity-W1-D",
     path: ["relation", "relate"],
     summary: "Create a first-class Relation aggregate under its revision fence.",
     method: "repo.task.run",
@@ -29,7 +28,6 @@ export const relationProtocolCommands = Object.freeze([
         field: "relationType",
         enum: relationTypes,
       }),
-      cliInput("--strength", "single", false, invalid("Use strong or weak."), { enum: relationStrengths }),
       cliInput("--direction", "single", false, invalid("Use directed or undirected."), { enum: relationDirections }),
       cliInput("--origin", "single", false, invalid("Use a registered Relation origin."), { enum: relationOrigins }),
       cliInput("--rationale", "single", true, invalid("Supply a non-empty relation rationale.")),
@@ -38,10 +36,21 @@ export const relationProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "relation-unrelate",
-    phase: "Relation-G3c",
+    phase: "Governed-Entity-W1-D",
     path: ["relation", "unrelate", "<relation-id>"],
     summary: "Retire a Relation aggregate under its revision fence.",
     method: "repo.task.run",
     inputs: [cliInput("--reason", "single", true, invalid("Supply a non-empty retirement reason.")), expectedVersion],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "relation-reconfirm",
+    phase: "Governed-Entity-W1-D",
+    path: ["relation", "reconfirm", "<relation-id>"],
+    summary: "Reconfirm a Relation against the target version at the current canonical cut.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--rationale", "single", true, invalid("Supply a non-empty reconfirmation rationale.")),
+      expectedVersion,
+    ],
   }),
 ] as const);

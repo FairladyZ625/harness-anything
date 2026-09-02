@@ -2,7 +2,9 @@ import {
   consumeKnownError,
   deriveRelationId,
   isMigrationImportEvent,
+  normalizeLegacyRelationState,
   parseEntityRef,
+  relationStrengthForType,
   sha256Text,
   type ActorIdentity,
   type CanonicalEventStore,
@@ -92,10 +94,10 @@ export function reboundRelation(context: MigrationRelationsContext, row: Relatio
     target: resolvedTarget,
     type: row.relationType,
     direction: row.direction,
-    strength: row.strength,
+    strength: relationStrengthForType(row.relationType),
     origin: truthGap ? row.origin : "imported_snapshot",
     rationale: row.rationale,
-    state: truthGap || String(row.state) === "retired" ? "edge_retired" : row.state,
+    state: truthGap ? "retired" : normalizeLegacyRelationState(row.state),
   };
   const legacyRelationId = [...context.cold.legacyRelationIds.entries()].find(
     ([, canonicalId]) => canonicalId === row.relationId,

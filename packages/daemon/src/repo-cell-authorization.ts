@@ -167,6 +167,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "preset-run-start":
       return authorizeRepoCellAction(input);
+    case "relation-reconfirm":
+      return authorizeRepoCellAction(input);
     case "relation-relate":
       return authorizeRepoCellAction(input);
     case "relation-unrelate":

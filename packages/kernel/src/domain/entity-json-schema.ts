@@ -15,6 +15,10 @@ export type EntityJsonSchemaNode = (
       readonly description?: string;
     }
   | {
+      readonly type: readonly ("string" | "number" | "integer" | "boolean" | "null")[];
+      readonly description?: string;
+    }
+  | {
       readonly type: "array";
       readonly items: EntityJsonSchemaNode;
       readonly uniqueItems?: boolean;
@@ -100,6 +104,21 @@ function validateNode(schema: EntityJsonSchemaNode, value: unknown, path: string
 }
 
 function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
+  if (Array.isArray(schema.type)) {
+    const valid = schema.type.some((type) =>
+      type === "null"
+        ? value === null
+        : type === "string"
+          ? typeof value === "string"
+          : type === "boolean"
+            ? typeof value === "boolean"
+            : type === "integer"
+              ? Number.isSafeInteger(value)
+              : typeof value === "number" && Number.isFinite(value),
+    );
+    if (!valid) errors.push(`${path} must match one of ${schema.type.join(", ")}.`);
+    return;
+  }
   if (schema.type === "string") {
     if (typeof value !== "string") {
       errors.push(`${path} must be a string.`);

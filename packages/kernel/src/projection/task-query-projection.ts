@@ -4,9 +4,12 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
+import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
 import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
+import { readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
+import { relationFreshnessAtCut } from "../domain/entity-freshness.ts";
 
 /**
  * Narrow-query companions for the rebuildable task projection. Everything here
@@ -34,6 +37,7 @@ export interface TaskRelationQuery {
   readonly target?: string;
   readonly relationType?: string;
   readonly state?: string;
+  readonly freshness?: RelationFreshness;
   readonly updatedAfter?: string;
   readonly updatedBefore?: string;
   readonly limit?: number;
@@ -48,6 +52,9 @@ export interface TaskRelationProjectionRow {
   readonly strength: EntityRelationRecord["strength"];
   readonly origin: EntityRelationRecord["origin"];
   readonly state: EntityRelationRecord["state"];
+  readonly targetObservedVersion: EntityVersion | null;
+  readonly currentTargetVersion: EntityVersion | null;
+  readonly freshness: RelationFreshness;
   readonly rationale: string;
   readonly ownerRef: string;
   readonly sourcePath: string;
@@ -234,10 +241,19 @@ export function refreshTaskRelationProjection(
 
 /** Every task-owned edge, ordered by relation id — the event-side task rows of the converged relation graph. */
 export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationProjectionRow[] {
-  return queryRows(
+  return taskRelationRowsAtCut(
     db,
-    "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM task_relation ORDER BY relation_id",
-  ).map(taskRelationRow);
+    queryRows(
+      db,
+      [
+        "SELECT task_relation.relation_id, task_relation.source_ref, task_relation.target_ref,",
+        "task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin,",
+        "task_relation.state, relation_edge.target_observed_version, task_relation.rationale,",
+        "task_relation.owner_ref, task_relation.source_path, task_relation.record_index",
+        "FROM task_relation LEFT JOIN relation_edge USING(relation_id) ORDER BY task_relation.relation_id",
+      ].join(" "),
+    ),
+  );
 }
 
 /** One indexed lookup for every requested target. json_each keeps the statement shape and
@@ -251,16 +267,28 @@ export function readTaskRelationsByTargets(
   if (targetRefs.length === 0) return [];
   const sql = `WITH requested_targets(target_order, target_ref) AS MATERIALIZED (SELECT CAST(key AS INTEGER), value FROM json_each(?)),
     matching_rows AS (
-      SELECT requested_targets.target_order, task_relation.relation_id, task_relation.source_ref, task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin, task_relation.state, task_relation.rationale, task_relation.owner_ref, task_relation.source_path, task_relation.record_index
+      SELECT requested_targets.target_order, task_relation.relation_id, task_relation.source_ref,
+        task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength,
+        task_relation.origin, task_relation.state, NULL AS target_observed_version, task_relation.rationale,
+        task_relation.owner_ref, task_relation.source_path, task_relation.record_index
       FROM requested_targets CROSS JOIN task_relation INDEXED BY task_relation_target
       WHERE task_relation.target_ref = requested_targets.target_ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
       UNION ALL
-      SELECT requested_targets.target_order, relation_edge.relation_id, relation_edge.source_ref, relation_edge.target_ref, relation_edge.relation_type, json_extract(relation_edge.row_json, '$.direction'), json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'), relation_edge.state, json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref, json_extract(relation_edge.row_json, '$.sourcePath'), json_extract(relation_edge.row_json, '$.recordIndex')
+      SELECT requested_targets.target_order, relation_edge.relation_id, relation_edge.source_ref,
+        relation_edge.target_ref, relation_edge.relation_type,
+        json_extract(relation_edge.row_json, '$.direction'),
+        json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'),
+        relation_edge.state, relation_edge.target_observed_version,
+        json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref,
+        json_extract(relation_edge.row_json, '$.sourcePath'),
+        json_extract(relation_edge.row_json, '$.recordIndex')
       FROM requested_targets CROSS JOIN relation_edge INDEXED BY relation_edge_target
       WHERE relation_edge.target_ref = requested_targets.target_ref AND relation_edge.relation_type = ?
     )
-    SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM matching_rows ORDER BY target_order, relation_id`;
-  return queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType).map(taskRelationRow);
+    SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,
+      target_observed_version, rationale, owner_ref, source_path, record_index
+    FROM matching_rows ORDER BY target_order, relation_id`;
+  return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType));
 }
 
 /** Indexed transitive depends-on read. The path token prevents cycles from being traversed,
@@ -288,11 +316,22 @@ export function readTaskDependencyClosureRows(
       WHERE relation_edge.source_ref = dependency_walk.source_ref AND relation_edge.relation_type = 'depends-on' AND dependency_walk.depth < ?
         AND instr(dependency_walk.visited_path, char(31) || relation_edge.target_ref || char(31)) = 0
     ), dependency_rows AS (
-      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path, task_relation.relation_id, task_relation.source_ref, task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin, task_relation.state, task_relation.rationale, task_relation.owner_ref, task_relation.source_path, task_relation.record_index
+      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path,
+        task_relation.relation_id, task_relation.source_ref, task_relation.target_ref,
+        task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin,
+        task_relation.state, NULL AS target_observed_version, task_relation.rationale,
+        task_relation.owner_ref, task_relation.source_path, task_relation.record_index
       FROM dependency_walk CROSS JOIN task_relation INDEXED BY task_relation_source
       WHERE task_relation.source_ref = dependency_walk.source_ref AND task_relation.relation_type = 'depends-on' AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
       UNION ALL
-      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path, relation_edge.relation_id, relation_edge.source_ref, relation_edge.target_ref, relation_edge.relation_type, json_extract(relation_edge.row_json, '$.direction'), json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'), relation_edge.state, json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref, json_extract(relation_edge.row_json, '$.sourcePath'), json_extract(relation_edge.row_json, '$.recordIndex')
+      SELECT dependency_walk.seed_order, dependency_walk.depth, dependency_walk.visited_path,
+        relation_edge.relation_id, relation_edge.source_ref, relation_edge.target_ref, relation_edge.relation_type,
+        json_extract(relation_edge.row_json, '$.direction'),
+        json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'),
+        relation_edge.state, relation_edge.target_observed_version,
+        json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref,
+        json_extract(relation_edge.row_json, '$.sourcePath'),
+        json_extract(relation_edge.row_json, '$.recordIndex')
       FROM dependency_walk CROSS JOIN relation_edge INDEXED BY relation_edge_source
       WHERE relation_edge.source_ref = dependency_walk.source_ref AND relation_edge.relation_type = 'depends-on'
     ), dependency_overflow AS (
@@ -306,8 +345,12 @@ export function readTaskDependencyClosureRows(
         AND instr(dependency_walk.visited_path, char(31) || relation_edge.target_ref || char(31)) = 0
       LIMIT 1
     )
-    SELECT 0 AS overflow, seed_order, depth, visited_path, relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index FROM dependency_rows
-    UNION ALL SELECT 1, -1, -1, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL FROM dependency_overflow
+    SELECT 0 AS overflow, seed_order, depth, visited_path, relation_id, source_ref, target_ref, relation_type,
+      direction, strength, origin, state, target_observed_version, rationale, owner_ref, source_path, record_index
+    FROM dependency_rows
+    UNION ALL
+    SELECT 1, -1, -1, '', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+    FROM dependency_overflow
     ORDER BY overflow DESC, depth, seed_order, visited_path, relation_id`;
   const records = queryRows<ProjectionSqlRow & { readonly overflow: number }>(
     db,
@@ -320,11 +363,11 @@ export function readTaskDependencyClosureRows(
   );
   if (records[0]?.overflow === 1) throw new Error(`dependency closure depth limit ${maxDepth} exceeded`);
   const rows = new Map<string, TaskRelationProjectionRow>();
-  for (const record of records)
-    if (record.relation_id !== null) {
-      const row = taskRelationRow(record);
-      if (!rows.has(row.relationId)) rows.set(row.relationId, row);
-    }
+  for (const row of taskRelationRowsAtCut(
+    db,
+    records.filter((record) => record.relation_id !== null),
+  ))
+    if (!rows.has(row.relationId)) rows.set(row.relationId, row);
   return [...rows.values()];
 }
 
@@ -416,10 +459,25 @@ export function readTaskRelationPage(
 ): { readonly rows: readonly TaskRelationProjectionRow[]; readonly page: ProjectionPage | null } {
   // Task-owned rows carry their snapshot-write timestamp directly; decision/fact-owned
   // edges join the event that wrote them for the same "updated" semantics.
-  const taskRows =
-    "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state, rationale, owner_ref, source_path, record_index, workspace_revision, updated_at FROM task_relation WHERE NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)";
-  const eventRows =
-    "SELECT relation_id, source_ref, target_ref, relation_type, json_extract(row_json, '$.direction') AS direction, json_extract(row_json, '$.strength') AS strength, json_extract(row_json, '$.origin') AS origin, state, json_extract(row_json, '$.rationale') AS rationale, owner_ref, json_extract(row_json, '$.sourcePath') AS source_path, json_extract(row_json, '$.recordIndex') AS record_index, workspace_revision, (SELECT json_extract(event_json, '$.occurredAt') FROM event_index WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at FROM relation_edge";
+  const taskRows = [
+    "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,",
+    "NULL AS target_observed_version, rationale, owner_ref, source_path, record_index,",
+    "workspace_revision, updated_at FROM task_relation",
+    "WHERE NOT EXISTS (SELECT 1 FROM relation_edge",
+    "WHERE relation_edge.relation_id = task_relation.relation_id)",
+  ].join(" ");
+  const eventRows = [
+    "SELECT relation_id, source_ref, target_ref, relation_type,",
+    "json_extract(row_json, '$.direction') AS direction,",
+    "json_extract(row_json, '$.strength') AS strength,",
+    "json_extract(row_json, '$.origin') AS origin, state, target_observed_version,",
+    "json_extract(row_json, '$.rationale') AS rationale, owner_ref,",
+    "json_extract(row_json, '$.sourcePath') AS source_path,",
+    "json_extract(row_json, '$.recordIndex') AS record_index, workspace_revision,",
+    "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index",
+    "WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at",
+    "FROM relation_edge",
+  ].join(" ");
   const where: string[] = [],
     values: (string | number)[] = [];
   if (query.entity !== undefined) {
@@ -457,11 +515,24 @@ export function readTaskRelationPage(
   }
   const paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT * FROM (${taskRows} UNION ALL ${eventRows})${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY relation_id${pageLimit === null ? "" : " LIMIT ?"}`;
-  if (pageLimit !== null) values.push(pageLimit + 1);
-  const raw = queryRows(db, sql, ...values),
-    visible = pageLimit === null ? raw : raw.slice(0, pageLimit),
-    rows = visible.map(taskRelationRow);
+  const filterFreshness = query.freshness !== undefined,
+    sqlLimit = pageLimit === null || filterFreshness ? "" : " LIMIT ?",
+    sql = [
+      `SELECT * FROM (${taskRows} UNION ALL ${eventRows})`,
+      where.length ? ` WHERE ${where.join(" AND ")}` : "",
+      " ORDER BY relation_id",
+      sqlLimit,
+    ].join("");
+  if (pageLimit !== null && !filterFreshness) values.push(pageLimit + 1);
+  const selected = queryRows(db, sql, ...values),
+    witnesses = readEntityVersionWitnesses(
+      db,
+      selected.map((row) => String(row.target_ref)),
+    ),
+    raw = selected.map((row) => taskRelationRow(row, witnesses.get(String(row.target_ref))!)),
+    filtered = query.freshness === undefined ? raw : raw.filter((row) => row.freshness === query.freshness),
+    visible = pageLimit === null ? filtered : filtered.slice(0, pageLimit),
+    rows = visible;
   if (pageLimit === null) return { rows, page: null };
   const last = rows.at(-1);
   return {
@@ -469,21 +540,41 @@ export function readTaskRelationPage(
     page: {
       limit: pageLimit,
       cursor: query.cursor ?? null,
-      nextCursor: raw.length > pageLimit && last ? encodePageCursor([last.relationId]) : null,
+      nextCursor: filtered.length > pageLimit && last ? encodePageCursor([last.relationId]) : null,
     },
   };
 }
 
-function taskRelationRow(row: Record<string, unknown>): TaskRelationProjectionRow {
+function taskRelationRowsAtCut(
+  db: DatabaseSync,
+  rows: readonly Record<string, unknown>[],
+): readonly TaskRelationProjectionRow[] {
+  const witnesses = readEntityVersionWitnesses(
+    db,
+    rows.map((row) => String(row.target_ref)),
+  );
+  return rows.map((row) => taskRelationRow(row, witnesses.get(String(row.target_ref))!));
+}
+
+function taskRelationRow(row: Record<string, unknown>, target: EntityVersionWitness): TaskRelationProjectionRow {
+  const relationId = String(row.relation_id),
+    targetRef = String(row.target_ref),
+    targetObservedVersion =
+      typeof row.target_observed_version === "string" || typeof row.target_observed_version === "number"
+        ? row.target_observed_version
+        : null;
   return {
-    relationId: String(row.relation_id),
+    relationId,
     sourceRef: String(row.source_ref),
-    targetRef: String(row.target_ref),
+    targetRef,
     relationType: String(row.relation_type) as TaskRelationProjectionRow["relationType"],
     direction: String(row.direction) as TaskRelationProjectionRow["direction"],
     strength: String(row.strength) as TaskRelationProjectionRow["strength"],
     origin: String(row.origin) as TaskRelationProjectionRow["origin"],
     state: String(row.state) as TaskRelationProjectionRow["state"],
+    targetObservedVersion,
+    currentTargetVersion: target.currentVersion,
+    freshness: relationFreshnessAtCut({ target, targetObservedVersion }),
     rationale: String(row.rationale ?? ""),
     ownerRef: String(row.owner_ref),
     sourcePath: String(row.source_path),

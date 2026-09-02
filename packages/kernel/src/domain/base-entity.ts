@@ -2,6 +2,7 @@ import { packageDispositions, type PackageDisposition } from "./package-disposit
 import { timestamp } from "./timestamp.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
 import { isRecord, type WriteSource } from "./write-chain.contract.ts";
+import { entityFreshnesses, type EntityFreshness } from "./entity-freshness.ts";
 
 export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
 export const entityDispositions = packageDispositions;
@@ -51,6 +52,7 @@ export interface BaseEntity<
   readonly pinned: boolean;
   readonly relationEndpoint: RelationEndpointEligibility;
   readonly residency: R;
+  readonly freshness: EntityFreshness;
 }
 
 export type BaseEntityPinState = Pick<BaseEntity, "pinned">;
@@ -221,6 +223,7 @@ export function projectBaseEntityAtCut<E extends BaseEntity>(
     pinned: cut.pinned,
     relationEndpoint: contract.relationEndpoint,
     residency: contract.residency,
+    freshness: "current",
   }) as E;
   const issues = validateBaseEntity(contract, projected);
   if (issues.length) throw new Error(issues.join("; "));
@@ -252,6 +255,7 @@ export function validateBaseEntity<E extends BaseEntity>(
     "pinned",
     "relationEndpoint",
     "residency",
+    "freshness",
   ];
   if (required.some((field) => !Object.hasOwn(value, field))) return ["BaseEntity projection fields are incomplete"];
   const issues: string[] = [];
@@ -268,6 +272,8 @@ export function validateBaseEntity<E extends BaseEntity>(
   if (!entityDispositions.includes(value.disposition as EntityDisposition))
     issues.push("BaseEntity projection disposition is invalid");
   if (typeof value.pinned !== "boolean") issues.push("BaseEntity projection pinned must be a boolean");
+  if (!entityFreshnesses.includes(value.freshness as EntityFreshness))
+    issues.push("BaseEntity projection freshness is invalid");
   if (!isRecord(value.relationEndpoint) || value.relationEndpoint.eligible !== true)
     issues.push("BaseEntity projection relation endpoint eligibility is invalid");
   const residency = isRecord(value.residency) ? value.residency : null;

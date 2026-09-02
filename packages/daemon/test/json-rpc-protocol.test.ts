@@ -115,6 +115,7 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "decision-claim-add": "repo-write",
     "decision-claim-fulfill": "repo-write",
     "relation-relate": "repo-write",
+    "relation-reconfirm": "repo-write",
     "relation-unrelate": "repo-write",
     "decision-reckon": "repo-write",
     "decision-list": "repo-read",
@@ -230,7 +231,7 @@ test("replay receipts retain their event cut and upgrade pending commit identity
 // prettier-ignore
 
 test("relation graph contract accepts the materialized ledger row schema and rejects malformed rows", () => {
-  const cut = { status: "ready", watermark: 7, sourceRevision: 7 }, payload = { ok: true, ...cut, edges: [{ relationId: "rel_real", sourceRef: "decision/dec_REAL/C1", targetRef: "fact/F-REAL", relationType: "evidenced-by", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "Observed.", ownerRef: "decision/dec_REAL", sourcePath: "harness/decisions/decision-dec_REAL/decision.md", recordIndex: 0 }], coverageRows: [{ decisionRef: "decision/dec_REAL", claimRef: "decision/dec_REAL/C1", status: "covered", fulfillment: "standing-policy", relationPath: ["rel_real"] }], factAnchors: [{ factRef: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", sourcePath: "harness/facts/F-REAL.md" }], facts: [{ schema: "task-fact-row/v1", ref: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", statement: "Real observation.", source: "harness/facts/F-REAL.md", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] };
+  const cut = { status: "ready", watermark: 7, sourceRevision: 7 }, payload = { ok: true, ...cut, edges: [{ relationId: "rel_real", sourceRef: "decision/dec_REAL/C1", targetRef: "fact/F-REAL", relationType: "evidenced-by", direction: "directed", strength: "strong", origin: "declared", state: "active", targetObservedVersion: 6, currentTargetVersion: 6, freshness: "current", rationale: "Observed.", ownerRef: "decision/dec_REAL", sourcePath: "harness/decisions/decision-dec_REAL/decision.md", recordIndex: 0 }], coverageRows: [{ decisionRef: "decision/dec_REAL", claimRef: "decision/dec_REAL/C1", status: "covered", fulfillment: "standing-policy", relationPath: ["rel_real"] }], factAnchors: [{ factRef: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", sourcePath: "harness/facts/F-REAL.md" }], facts: [{ schema: "task-fact-row/v1", ref: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", statement: "Real observation.", source: "harness/facts/F-REAL.md", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] };
   assert.deepEqual(validateDaemonRelationGraph(payload), []);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, page: { limit: 25, cursor: null, nextCursor: "WyJyZWxfcmVhbCJd" } }), []);
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, page: { limit: 0, cursor: null, nextCursor: null } }), /relation-graph:full/u, "page");
@@ -266,8 +267,8 @@ test("wide GUI read contracts accept only their explicit narrow and page facets"
   const graph = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.triadic.relationGraph", { repo: { repoId: "alpha" }, payload });
   const decisions = (payload: Record<string, unknown>) => parseDaemonRpcParams("repo.decisions.list", { repo: { repoId: "alpha" }, payload });
   assert.equal(task({ status: "blocked", updatedAfter: "2026-08-01T00:00:00.000Z", updatedBefore: "2026-08-31T00:00:00.000Z", limit: 25, cursor: "WyJ0YXNrLTEiXQ" }).ok, true);
-  assert.equal(graph({ status: "edge_retired", limit: 25 }).ok, true);
-  assert.equal(task({ status: "edge_retired" }).ok, false);
+  assert.equal(graph({ status: "retired", limit: 25 }).ok, true);
+  assert.equal(task({ status: "retired" }).ok, false);
   assert.equal(graph({ status: "blocked" }).ok, false);
   assert.equal(task({ limit: 0 }).ok, false);
   assert.equal(graph({ updatedAfter: "later", updatedBefore: "earlier" }).ok, false);

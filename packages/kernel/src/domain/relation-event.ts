@@ -2,6 +2,8 @@ import { projectBaseEntityAtCut, requireEntityTypeContract, type BaseEntity } fr
 import {
   deriveRelationId,
   isAllowedRelationKindTriple,
+  normalizeLegacyRelationState,
+  relationStrengthForType,
   relationDirections,
   relationOrigins,
   relationStates,
@@ -9,6 +11,7 @@ import {
   relationTypes,
   type EntityRelationRecord,
 } from "./entity-relation.ts";
+import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import { factRef, type FactEventV1 } from "./fact-event.ts";
@@ -27,14 +30,23 @@ import {
 } from "./write-chain.contract.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 
-export const relationEventTypes = ["relation_created", "relation_retired", "relation_replaced"] as const;
+export const relationEventTypes = [
+  "relation_created",
+  "relation_retired",
+  "relation_replaced",
+  "relation_reconfirmed",
+] as const;
 export type RelationEventType = (typeof relationEventTypes)[number];
+
+export type RelationEventRecord = Omit<EntityRelationRecord, "strength"> & {
+  readonly targetObservedVersion: EntityVersion | null;
+};
 
 type RelationCreated = EventEnvelope<
   "relation-event/v1",
   "relation_created",
   ActorIdentity,
-  { readonly relation: EntityRelationRecord }
+  { readonly relation: RelationEventRecord }
 > & { readonly relationId: string };
 type RelationRetired = EventEnvelope<
   "relation-event/v1",
@@ -46,9 +58,19 @@ type RelationReplaced = EventEnvelope<
   "relation-event/v1",
   "relation_replaced",
   ActorIdentity,
-  { readonly previousRelationId: string; readonly relation: EntityRelationRecord; readonly reason: string }
+  { readonly previousRelationId: string; readonly relation: RelationEventRecord; readonly reason: string }
 > & { readonly relationId: string };
-export type RelationEventV1 = RelationCreated | RelationRetired | RelationReplaced;
+type RelationReconfirmed = EventEnvelope<
+  "relation-event/v1",
+  "relation_reconfirmed",
+  ActorIdentity,
+  {
+    readonly priorTargetVersion: EntityVersion | null;
+    readonly targetObservedVersion: EntityVersion;
+    readonly rationale: string;
+  }
+> & { readonly relationId: string };
+export type RelationEventV1 = RelationCreated | RelationRetired | RelationReplaced | RelationReconfirmed;
 export type RelationInitialEvent =
   | RelationCreated
   | Extract<MigrationImportEventV1, { readonly type: "entity_migrated" }>;
@@ -62,15 +84,19 @@ export interface RelationEntity extends BaseEntity<"relation"> {
   readonly origin: EntityRelationRecord["origin"];
   readonly state: EntityRelationRecord["state"];
   readonly rationale: string;
+  readonly targetObservedVersion: EntityVersion | null;
   readonly replacedBy?: string;
   readonly retirementReason?: string;
+  readonly reconfirmationRationale?: string;
 }
 
 export function isRelationEvent(event: { readonly schema: string }): event is RelationEventV1 {
   return event.schema === "relation-event/v1";
 }
 
-export function relationRecord(entity: RelationEntity): EntityRelationRecord {
+export function relationRecord(entity: RelationEntity): EntityRelationRecord & {
+  readonly targetObservedVersion: EntityVersion | null;
+} {
   return {
     relation_id: entity.id,
     source: entity.source,
@@ -81,6 +107,7 @@ export function relationRecord(entity: RelationEntity): EntityRelationRecord {
     origin: entity.origin,
     rationale: entity.rationale,
     state: entity.state,
+    targetObservedVersion: entity.targetObservedVersion,
   };
 }
 
@@ -93,7 +120,7 @@ export function reduceRelationEntity(
     throw new Error("Relation aggregate requires relation history");
   const relation =
     migrated?.kind === "relation"
-      ? migrated.relation
+      ? migrationRelationRecord(migrated.relation)
       : event.schema === "relation-event/v1" &&
           (event.type === "relation_created" || event.type === "relation_replaced")
         ? event.payload.relation
@@ -120,20 +147,32 @@ export function reduceRelationEntity(
   );
   if (event.schema === "relation-event/v1" && event.type === "relation_retired") {
     if (current === null) throw new Error(`Relation ${id} does not exist`);
-    return Object.freeze({ ...current, ...base, state: "edge_retired", retirementReason: event.payload.reason });
+    return Object.freeze({ ...current, ...base, state: "retired", retirementReason: event.payload.reason });
+  }
+  if (event.schema === "relation-event/v1" && event.type === "relation_reconfirmed") {
+    if (current === null) throw new Error(`Relation ${id} does not exist`);
+    if (current.targetObservedVersion !== event.payload.priorTargetVersion)
+      throw new Error(`Relation ${id} reconfirmation prior target version does not match its history`);
+    return Object.freeze({
+      ...current,
+      ...base,
+      targetObservedVersion: event.payload.targetObservedVersion,
+      reconfirmationRationale: event.payload.rationale,
+    });
   }
   if (relation === null) throw new Error(`Relation ${id} has no facet payload`);
-  assertRelationRecord(relation);
+  assertRelationEventRecord(relation);
   return Object.freeze({
     ...base,
     source: relation.source,
     target: relation.target,
     type: relation.type,
-    strength: relation.strength,
+    strength: relationStrengthForType(relation.type),
     direction: relation.direction,
     origin: relation.origin,
     state: relation.state,
     rationale: relation.rationale,
+    targetObservedVersion: relation.targetObservedVersion ?? null,
     ...(event.schema === "relation-event/v1" && event.type === "relation_replaced"
       ? { retirementReason: event.payload.reason }
       : {}),
@@ -187,11 +226,15 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
     return hasTextPayload(value.payload, ["reason"], allowUnknownFields)
       ? []
       : ["relation retirement payload is invalid"];
+  if (value.type === "relation_reconfirmed")
+    return validReconfirmationPayload(value.payload, allowUnknownFields)
+      ? []
+      : ["relation reconfirmation payload is invalid"];
   if (value.type === "relation_created") {
     if (!payloadFields(value.payload, ["relation"], allowUnknownFields) || !isRecord(value.payload.relation))
       return ["relation creation payload is invalid"];
     try {
-      assertRelationRecord(value.payload.relation as unknown as EntityRelationRecord);
+      assertRelationEventRecord(value.payload.relation, allowUnknownFields);
       return value.payload.relation.relation_id === value.relationId ? [] : ["relation event identity is inconsistent"];
     } catch (error) {
       return [error instanceof Error ? error.message : String(error)];
@@ -206,7 +249,7 @@ function validateRelationEventFields(value: unknown, allowUnknownFields: boolean
   )
     return ["relation replacement payload is invalid"];
   try {
-    assertRelationRecord(value.payload.relation as unknown as EntityRelationRecord);
+    assertRelationEventRecord(value.payload.relation, allowUnknownFields);
     return value.payload.relation.relation_id === value.relationId
       ? []
       : ["relation replacement identity is inconsistent"];
@@ -236,14 +279,14 @@ export function assertRelationEventWritePlan(event: RelationEventV1, plan: Froze
 }
 
 export function compileRelationCreatedEvent(input: {
-  readonly record: EntityRelationRecord;
+  readonly record: RelationEventRecord;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly opId: string;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
 }): RelationCreated {
-  assertRelationRecord(input.record);
+  assertRelationEventRecord(input.record);
   return {
     schema: "relation-event/v1",
     eventId: `event-${input.opId}`,
@@ -256,6 +299,38 @@ export function compileRelationCreatedEvent(input: {
     occurredAt: input.occurredAt,
     payload: { relation: input.record },
   };
+}
+
+export function compileRelationReconfirmedEvent(input: {
+  readonly relationId: string;
+  readonly priorTargetVersion: EntityVersion | null;
+  readonly targetObservedVersion: EntityVersion;
+  readonly rationale: string;
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly opId: string;
+  readonly occurredAt: string;
+  readonly workspaceRevision: number;
+}): RelationReconfirmed {
+  const event: RelationReconfirmed = {
+    schema: "relation-event/v1",
+    eventId: `event-${input.opId}`,
+    workspaceRevision: input.workspaceRevision,
+    opId: input.opId,
+    relationId: input.relationId,
+    type: "relation_reconfirmed",
+    actor: input.actor,
+    source: input.source,
+    occurredAt: input.occurredAt,
+    payload: {
+      priorTargetVersion: input.priorTargetVersion,
+      targetObservedVersion: input.targetObservedVersion,
+      rationale: input.rationale,
+    },
+  };
+  const issues = validateCurrentRelationEvent(event);
+  if (issues.length) throw new Error(issues.join("; "));
+  return event;
 }
 
 export function compileRelationRetiredEvent(input: {
@@ -330,7 +405,7 @@ export function embeddedRelationEventsForReplay(
       occurredAt: event.occurredAt,
       payload: {
         previousRelationId: event.payload.relationId,
-        relation: event.payload.replacement,
+        relation: eventRecord(event.payload.replacement),
         reason: event.payload.reason,
       },
     },
@@ -391,7 +466,7 @@ function replayCreatedEvent(
   record: EntityRelationRecord,
 ): RelationEventV1 {
   return compileRelationCreatedEvent({
-    record,
+    record: eventRecord(record),
     actor: event.actor,
     source: event.source,
     opId: event.opId,
@@ -411,12 +486,96 @@ export function assertRelationRecord(record: EntityRelationRecord): void {
     record.relation_id !== deriveRelationId(record) ||
     !relationTypes.includes(record.type) ||
     !relationStrengths.includes(record.strength) ||
+    record.strength !== relationStrengthForType(record.type) ||
     !relationDirections.includes(record.direction) ||
     !relationOrigins.includes(record.origin) ||
     !relationStates.includes(record.state) ||
     !record.rationale.trim()
   )
     throw new Error("Relation facet is invalid or inconsistent with its deterministic identity");
+}
+
+function assertRelationEventRecord(
+  record: unknown,
+  allowHistoricalFields = false,
+): asserts record is RelationEventRecord {
+  if (!isRecord(record)) throw new Error("Relation facet is invalid or inconsistent with its deterministic identity");
+  const fields = [
+    "relation_id",
+    "source",
+    "target",
+    "type",
+    "direction",
+    "origin",
+    "rationale",
+    "state",
+    "targetObservedVersion",
+  ];
+  const historicalFields = fields.filter((field) => field !== "targetObservedVersion");
+  if (
+    !(allowHistoricalFields
+      ? historicalFields.every((field) => Object.hasOwn(record, field))
+      : hasOnlyFields(record, fields))
+  )
+    throw new Error("Relation facet fields are invalid");
+  const source = parseEntityRef(String(record.source)),
+    target = parseEntityRef(String(record.target)),
+    targetObservedVersion = record.targetObservedVersion;
+  if (!source || source.externalHarness || !target || target.externalHarness)
+    throw new Error("Relation endpoints must be canonical registered Entity refs");
+  if (!isAllowedRelationKindTriple(source.kind, record.type as EntityRelationRecord["type"], target.kind))
+    throw new Error(`Relation type ${String(record.type)} is not writable for ${source.kind}->${target.kind}`);
+  if (
+    record.relation_id !== deriveRelationId(record as unknown as EntityRelationRecord) ||
+    !relationTypes.includes(record.type as EntityRelationRecord["type"]) ||
+    !relationDirections.includes(record.direction as EntityRelationRecord["direction"]) ||
+    !relationOrigins.includes(record.origin as EntityRelationRecord["origin"]) ||
+    !relationStates.includes(record.state as EntityRelationRecord["state"]) ||
+    (targetObservedVersion !== undefined &&
+      targetObservedVersion !== null &&
+      typeof targetObservedVersion !== "string" &&
+      !Number.isSafeInteger(targetObservedVersion)) ||
+    typeof record.rationale !== "string" ||
+    !record.rationale.trim()
+  )
+    throw new Error("Relation facet is invalid or inconsistent with its deterministic identity");
+}
+
+function eventRecord(record: EntityRelationRecord): RelationEventRecord {
+  return {
+    relation_id: record.relation_id,
+    source: record.source,
+    target: record.target,
+    type: record.type,
+    direction: record.direction,
+    origin: record.origin,
+    rationale: record.rationale,
+    state: record.state,
+    targetObservedVersion:
+      "targetObservedVersion" in record
+        ? ((record as EntityRelationRecord & { readonly targetObservedVersion: EntityVersion | null })
+            .targetObservedVersion ?? null)
+        : null,
+  };
+}
+
+function migrationRelationRecord(record: EntityRelationRecord): RelationEventRecord {
+  return {
+    ...eventRecord(record),
+    state: normalizeLegacyRelationState(record.state),
+  };
+}
+
+function validReconfirmationPayload(payload: Readonly<Record<string, unknown>>, allowUnknownFields: boolean): boolean {
+  const fields = ["priorTargetVersion", "targetObservedVersion", "rationale"],
+    validVersion = (value: unknown): boolean => typeof value === "string" || Number.isSafeInteger(value);
+  return (
+    payloadFields(payload, fields, allowUnknownFields) &&
+    (payload.priorTargetVersion === null || validVersion(payload.priorTargetVersion)) &&
+    validVersion(payload.targetObservedVersion) &&
+    typeof payload.rationale === "string" &&
+    Boolean(payload.rationale.trim())
+  );
 }
 
 function payloadFields(

@@ -89,16 +89,27 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       "No longer required.",
       "--expected-version",
       "17",
-    ]);
+    ]),
+    reconfirm = parseThinCommand([
+      "relation",
+      "reconfirm",
+      "rel_0123456789abcdef",
+      "--expected-version",
+      "18",
+      "--rationale",
+      "Reviewed the new target version.",
+    ]),
+    suspect = parseThinCommand(["relation", "list", "--freshness", "suspect"]);
   assert.equal(relate.ok, true);
   assert.equal(unrelate.ok, true);
+  assert.equal(reconfirm.ok, true);
+  assert.equal(suspect.ok, true);
   if (relate.ok)
     assert.deepEqual(relate.command.action, {
       kind: "relation-relate",
       sourceRef: "task/task-a",
       targetRef: "task/task-b",
       relationType: "depends-on",
-      strength: "strong",
       direction: "directed",
       origin: "declared",
       rationale: "A waits for B.",
@@ -111,6 +122,34 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
       reason: "No longer required.",
       expectedVersion: 17,
     });
+  if (reconfirm.ok)
+    assert.deepEqual(reconfirm.command.action, {
+      kind: "relation-reconfirm",
+      relationId: "rel_0123456789abcdef",
+      expectedVersion: 18,
+      rationale: "Reviewed the new target version.",
+    });
+  if (suspect.ok) assert.deepEqual(suspect.command.action, { kind: "relation-list", freshness: "suspect" });
+  assert.equal(parseThinCommand(["relation", "list", "--freshness", "unknown"]).ok, false);
+  assert.equal(
+    parseThinCommand([
+      "relation",
+      "relate",
+      "--source-ref",
+      "task/task-a",
+      "--target-ref",
+      "task/task-b",
+      "--type",
+      "relates",
+      "--strength",
+      "strong",
+      "--rationale",
+      "Caller must not choose strength.",
+      "--expected-version",
+      "0",
+    ]).ok,
+    false,
+  );
   assert.equal(parseThinCommand(["task", "relate", "task-a", "depends-on", "task-b"]).ok, false);
   assert.equal(parseThinCommand(["decision", "relate", "dec_a"]).ok, false);
 });

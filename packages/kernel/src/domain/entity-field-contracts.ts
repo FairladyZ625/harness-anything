@@ -198,8 +198,8 @@ export const relationFieldContracts = {
     projection("type", true),
     show("relation.type"),
   ),
-  strength: immutable(
-    "relation strength is provenance-bearing in the current write surface",
+  strength: derived(
+    "relation strength is derived by the kernel from relation type",
     projection("strength", true),
     show("relation.strength"),
   ),

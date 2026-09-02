@@ -7,11 +7,14 @@ import {
   getEntityKindContract,
   getExecutableEntityAction,
   relationEventWritePlan,
+  validateMigrationImportEvent,
   type MigrationImportEventV1,
 } from "../../src/index.ts";
+import { validateCurrentMigrationImportEvent } from "../../src/domain/migration-import-event.ts";
 import { type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import {
   compileRelationCreatedEvent,
+  compileRelationReconfirmedEvent,
   compileRelationRetiredEvent,
   reduceRelationEntity,
   type RelationEventV1,
@@ -23,6 +26,7 @@ import {
   readRelationProjectionRows,
   RELATION_PROJECTION_VERSION,
 } from "../../src/projection/relation-entity-projection.ts";
+import { markEntityProjectionMissing } from "../../src/projection/rebuildable-task-projection-entities.ts";
 
 const actor = {
   principal: { personId: "person-relation-contract" },
@@ -38,7 +42,7 @@ function record(
   return {
     relation_id: deriveRelationId(identity),
     ...identity,
-    strength: "strong",
+    strength: "weak",
     origin: "declared",
     rationale: "First-class Relation endpoint contract.",
     state: "active",
@@ -50,7 +54,7 @@ test("Relation kind and actions expose the BaseEntity and G1 concurrency contrac
   assert.equal(contract.id.refTemplate, "relation/{id}");
   assert.deepEqual(contract.residency, { history: "ledger", graph: "projection" });
   assert.equal(contract.relationEndpoint.eligible, true);
-  for (const ingress of ["relation-relate", "relation-unrelate"]) {
+  for (const ingress of ["relation-relate", "relation-unrelate", "relation-reconfirm"]) {
     const action = getExecutableEntityAction(ingress)!;
     assert.equal(action.target.kind, "relation");
     assert.equal(action.input.schema, "entity-action-input/v1");
@@ -70,7 +74,7 @@ test("Relation kind and actions expose the BaseEntity and G1 concurrency contrac
 test("native Relation history reduces and projects one versioned aggregate row", () => {
   const relation = record(),
     created = compileRelationCreatedEvent({
-      record: relation,
+      record: eventRecord(relation, 5),
       actor,
       source,
       opId: "relation-create-contract",
@@ -100,10 +104,12 @@ test("native Relation history reduces and projects one versioned aggregate row",
   assert.equal(first.revision, 7);
   assert.equal(first.createdAt, created.occurredAt);
   assert.equal(first.provenance.actor.executor?.id, "agent-relation-contract");
+  assert.equal(first.strength, "weak");
+  assert.equal(first.targetObservedVersion, 5);
   assert.equal(second.createdAt, first.createdAt);
   assert.equal(second.updatedAt, retired.occurredAt);
   assert.equal(second.revision, 9);
-  assert.equal(second.state, "edge_retired");
+  assert.equal(second.state, "retired");
 
   const db = new DatabaseSync(":memory:");
   createRelationGraphProjectionTables(db);
@@ -132,15 +138,32 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
         generation: "v0",
         entity: {
           kind: "relation",
-          relation: { ...relation, origin: "imported_snapshot" },
+          relation: { ...relation, origin: "imported_snapshot", state: "edge_retired" as never },
           ownerRef: relation.source,
         },
       },
     };
+  assert.deepEqual(validateMigrationImportEvent(migrated), [], "the frozen migration remains a readable event");
+  assert.notDeepEqual(validateCurrentMigrationImportEvent(migrated), [], "new migration writes reject the old state");
   const entity = reduceRelationEntity(null, migrated);
   assert.equal(entity.id, relation.relation_id);
   assert.equal(entity.origin, "imported_snapshot");
+  assert.equal(entity.state, "retired", "only migration genesis upcasts the historical lifecycle word");
   assert.equal(entity.revision, 11);
+  assert.throws(
+    () =>
+      reduceRelationEntity(null, {
+        ...migrated,
+        payload: {
+          ...migrated.payload,
+          entity: {
+            ...migrated.payload.entity,
+            relation: { ...migrated.payload.entity.relation, state: "deleted" as never },
+          },
+        },
+      }),
+    /migration state is invalid/u,
+  );
 
   const replacementRecord = record("relation/rel_2222222222222222", "task/task_REPLACEMENT"),
     replacement: RelationEventV1 = {
@@ -155,7 +178,7 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
       occurredAt: "2026-08-31T04:00:00.000Z",
       payload: {
         previousRelationId: relation.relation_id,
-        relation: replacementRecord,
+        relation: eventRecord(replacementRecord, 11),
         reason: "Endpoint moved to the successor task.",
       },
     };
@@ -164,3 +187,92 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
   assert.equal(replaced.id, replacementRecord.relation_id);
   assert.equal(replaced.retirementReason, replacement.payload.reason);
 });
+
+test("relation_reconfirmed advances only the pinned target witness", () => {
+  const relation = record(),
+    created = compileRelationCreatedEvent({
+      record: eventRecord(relation, 7),
+      actor,
+      source,
+      opId: "relation-reconfirm-genesis",
+      occurredAt: "2026-08-31T05:00:00.000Z",
+      workspaceRevision: 13,
+    }),
+    reconfirmed = compileRelationReconfirmedEvent({
+      relationId: relation.relation_id,
+      priorTargetVersion: 7,
+      targetObservedVersion: 12,
+      rationale: "Reviewed the target changes.",
+      actor,
+      source,
+      opId: "relation-reconfirm-contract",
+      occurredAt: "2026-08-31T06:00:00.000Z",
+      workspaceRevision: 14,
+    }),
+    first = reduceRelationEntity(null, created),
+    second = reduceRelationEntity(first, reconfirmed);
+  assert.deepEqual(validateCurrentRelationEvent(reconfirmed), []);
+  assert.equal(second.targetObservedVersion, 12);
+  assert.equal(second.reconfirmationRationale, "Reviewed the target changes.");
+  assert.equal(second.strength, "weak");
+  assert.throws(
+    () => reduceRelationEntity({ ...first, targetObservedVersion: 8 }, reconfirmed),
+    /prior target version/u,
+  );
+});
+
+test("an entity_target_missing projection makes every inbound Relation orphaned at the same cut", () => {
+  const db = new DatabaseSync(":memory:");
+  createRelationGraphProjectionTables(db);
+  db.exec(
+    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT, " +
+      "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
+      "PRIMARY KEY(entity_kind, entity_id))",
+  );
+  db.prepare("INSERT INTO entity_projection VALUES ('runtime-session', 'target', NULL, 4, 'current', 4, '{}')").run();
+  const created = ["source-a", "source-b"].map((sourceId, index) => {
+    const identity = {
+      source: `agent/${sourceId}`,
+      target: "runtime-session/target",
+      type: "dispatches" as const,
+      direction: "directed" as const,
+    };
+    return compileRelationCreatedEvent({
+      record: {
+        relation_id: deriveRelationId(identity),
+        ...identity,
+        origin: "declared",
+        state: "active",
+        rationale: "The Agent dispatched the target session.",
+        targetObservedVersion: 4,
+      },
+      actor,
+      source,
+      opId: `relation-target-missing-${String(index)}`,
+      occurredAt: "2026-08-31T07:00:00.000Z",
+      workspaceRevision: 5 + index,
+    });
+  });
+  created.forEach((event) => applyRelationProjectionEvent(db, event));
+  assert.equal(
+    readRelationProjectionRows(db).every(({ freshness }) => freshness === "current"),
+    true,
+  );
+  markEntityProjectionMissing(db, "runtime-session", "target", 7);
+  const orphaned = readRelationProjectionRows(db);
+  assert.equal(orphaned.length, 2);
+  assert.equal(
+    orphaned.every(({ freshness }) => freshness === "orphaned"),
+    true,
+  );
+  assert.equal(
+    orphaned.every(({ currentTargetVersion }) => currentTargetVersion === null),
+    true,
+  );
+  db.close();
+});
+
+function eventRecord(relation: EntityRelationRecord, targetObservedVersion: number) {
+  const { strength: _strength, ...recordWithoutStrength } = relation;
+  return { ...recordWithoutStrength, targetObservedVersion };
+}

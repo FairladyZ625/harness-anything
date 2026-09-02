@@ -8,7 +8,6 @@ import {
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
   type WriteReceiptDraft as WriteReceipt,
-  type EntityStoreKindContract,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
@@ -22,7 +21,6 @@ import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
-import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -268,20 +266,16 @@ export async function executeAction(
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
-      kind = cell.requiredCellText(action.entityKind, "entityKind"),
-      entities = createEntityStore(
-        cell.store,
-        compiledArtifactKinds().map(({ entityKindContract }) => entityKindContract as EntityStoreKindContract),
-      );
+      kind = cell.requiredCellText(action.entityKind, "entityKind");
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),
-        { schema: "entity-list/v1", kind, entities: entities.list(kind) },
+        { schema: "entity-list/v1", kind, entities: cell.projection.listEntities(kind) },
         revision,
         null,
       );
     const entityId = cell.requiredCellText(action.entityId, "entityId"),
-      entity = entities.get(kind, entityId);
+      entity = cell.projection.getEntity(kind, entityId);
     if (entity === null) throw cell.cellCodedError("entity_not_found", `Entity ${kind}/${entityId} is not installed.`);
     const result = { schema: "entity-get/v1", kind, entity };
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);

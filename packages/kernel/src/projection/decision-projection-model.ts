@@ -8,6 +8,7 @@ import type {
 } from "../domain/decision-event.ts";
 import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
+import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { DecisionReadinessProjection } from "./decision-readiness-projection.ts";
 
 export interface DecisionBodyRow {
@@ -100,7 +101,10 @@ export interface DecisionRelationEdgeRow {
   readonly direction: EntityRelationRecord["direction"];
   readonly strength: EntityRelationRecord["strength"];
   readonly origin: EntityRelationRecord["origin"];
-  readonly state: "active" | "edge_retired";
+  readonly state: "active" | "retired";
+  readonly targetObservedVersion: EntityVersion | null;
+  readonly currentTargetVersion: EntityVersion | null;
+  readonly freshness: RelationFreshness;
   readonly rationale: string;
   readonly ownerRef: string;
   readonly sourcePath: string;

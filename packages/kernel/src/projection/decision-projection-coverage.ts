@@ -3,6 +3,7 @@ import { coverageOf } from "../domain/decision-coverage.ts";
 import type { DecisionFulfillmentMode } from "../domain/decision-event.ts";
 import type { DecisionCoverageRow, DecisionRelationEdgeRow } from "./decision-projection-model.ts";
 import { queryRow, queryRows } from "./rebuildable-task-projection-sql.ts";
+import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 export function decisionCoverage(
   db: DatabaseSync,
   edges: readonly DecisionRelationEdgeRow[],
@@ -37,20 +38,7 @@ export function decisionCoverage(
   const claimsByDecision = new Map<string, typeof claims>();
   for (const claim of claims)
     claimsByDecision.set(claim.decision_id, [...(claimsByDecision.get(claim.decision_id) ?? []), claim]);
-  const livenessEdges = queryRows<{
-    readonly relationId: string;
-    readonly sourceRef: string;
-    readonly targetRef: string;
-    readonly relationType: string;
-    readonly state: string;
-  }>(
-    db,
-    [
-      "SELECT relation_id AS relationId, source_ref AS sourceRef, target_ref AS targetRef,",
-      "relation_type AS relationType, state FROM relation_edge",
-      "WHERE relation_type='supersedes-fact' ORDER BY relation_id",
-    ].join(" "),
-  );
+  const livenessEdges = readRelationProjectionRows(db).filter((edge) => edge.relationType === "supersedes-fact");
   return coverageOf(
     decisions.map((decision) => {
       const ref = `decision/${decision.decision_id}`;

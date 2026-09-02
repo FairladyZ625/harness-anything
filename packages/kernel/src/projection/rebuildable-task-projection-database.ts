@@ -293,6 +293,8 @@ function createTables(db: DatabaseSync): void {
       entity_id TEXT NOT NULL,
       task_id TEXT,
       workspace_revision INTEGER NOT NULL,
+      freshness TEXT NOT NULL,
+      current_version,
       value_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, entity_id)
     );

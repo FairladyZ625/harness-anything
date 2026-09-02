@@ -176,7 +176,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "preset-validate",
     ],
     receipt: ["receipt-show"],
-    relation: ["relation-list", "relation-relate", "relation-unrelate"],
+    relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-unrelate"],
     runtime: [
       "runtime-batch",
       "runtime-cancel",

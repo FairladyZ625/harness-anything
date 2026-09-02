@@ -7,6 +7,7 @@ import {
   relationStrengths,
   relationTypes,
 } from "./entity-relation.ts";
+import { entityFreshnesses } from "./entity-freshness.ts";
 
 const relationIdentity = requireEntityTypeContract("relation").id;
 const opaqueObject = (): EntityJsonObjectSchema => ({
@@ -30,6 +31,7 @@ export const relationSchema: EntityDocumentJsonSchema = {
     disposition: { type: "string", enum: ["active", "archived", "tombstoned"] },
     provenance: opaqueObject(),
     pinned: { type: "boolean" },
+    freshness: { type: "string", enum: entityFreshnesses },
     relationEndpoint: opaqueObject(),
     residency: opaqueObject(),
     source: { type: "string", minLength: 1 },
@@ -40,8 +42,10 @@ export const relationSchema: EntityDocumentJsonSchema = {
     origin: { type: "string", enum: relationOrigins },
     state: { type: "string", enum: relationStates },
     rationale: { type: "string", minLength: 1 },
+    targetObservedVersion: { type: ["string", "integer", "null"] },
     replacedBy: { type: "string", pattern: relationIdentity.pattern },
     retirementReason: { type: "string", minLength: 1 },
+    reconfirmationRationale: { type: "string", minLength: 1 },
   },
   required: [
     "id",
@@ -53,6 +57,7 @@ export const relationSchema: EntityDocumentJsonSchema = {
     "disposition",
     "provenance",
     "pinned",
+    "freshness",
     "relationEndpoint",
     "residency",
     "source",
@@ -63,6 +68,7 @@ export const relationSchema: EntityDocumentJsonSchema = {
     "origin",
     "state",
     "rationale",
+    "targetObservedVersion",
   ],
   additionalProperties: false,
 };

@@ -1,3 +1,6 @@
+import { relationConsumability, type RelationStrength } from "./entity-relation.ts";
+import type { RelationFreshness } from "./entity-freshness.ts";
+
 export interface CoverageDecision {
   readonly ref: string;
   readonly state: string;
@@ -19,6 +22,8 @@ export interface CoverageRelation {
   readonly targetRef: string;
   readonly relationType: string;
   readonly state: string;
+  readonly strength: RelationStrength;
+  readonly freshness: RelationFreshness;
 }
 export interface CoverageResult {
   readonly decisionRef: string;
@@ -60,7 +65,7 @@ export function coverageOf(
   tasks: readonly CoverageTask[],
   relations: readonly CoverageRelation[],
 ): readonly CoverageResult[] {
-  const active = relations.filter(({ state }) => state === "active"),
+  const active = relations.filter((edge) => edge.state === "active" && relationConsumability(edge) !== "refuse"),
     superseded = new Set(
       active.filter(({ relationType }) => relationType === "supersedes-fact").map(({ targetRef }) => targetRef),
     ),

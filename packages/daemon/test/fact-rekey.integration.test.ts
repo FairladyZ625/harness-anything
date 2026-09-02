@@ -456,7 +456,7 @@ test("fact rekey migrates task-local documents, relations, and is idempotent", a
             direction: "directed",
             strength: "strong",
             origin: "imported_snapshot",
-            state: "edge_retired",
+            state: "retired",
             rationale: "Legacy vocabulary relation",
           },
         },

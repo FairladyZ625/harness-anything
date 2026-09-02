@@ -497,7 +497,7 @@ export async function runSingleMigrationImport(
       const expected = rebound.retirementReason
         ? {
             ...normalized,
-            relation: { ...normalized.relation, state: "edge_retired" as const },
+            relation: { ...normalized.relation, state: "retired" as const },
             retirementReason: rebound.retirementReason,
           }
         : normalized;

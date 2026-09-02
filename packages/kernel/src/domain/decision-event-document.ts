@@ -302,9 +302,7 @@ export function reduceDecisionDocument(
       ...revision,
       relations: [
         ...current.relations.map((relation) =>
-          relation.relation_id === event.payload.relationId
-            ? { ...relation, state: "edge_retired" as const }
-            : relation,
+          relation.relation_id === event.payload.relationId ? { ...relation, state: "retired" as const } : relation,
         ),
         event.payload.replacement,
       ].sort((a, b) => a.relation_id.localeCompare(b.relation_id)),
@@ -312,7 +310,7 @@ export function reduceDecisionDocument(
   return {
     ...revision,
     relations: current.relations.map((relation) =>
-      relation.relation_id === event.payload.relationId ? { ...relation, state: "edge_retired" } : relation,
+      relation.relation_id === event.payload.relationId ? { ...relation, state: "retired" } : relation,
     ),
   };
 }

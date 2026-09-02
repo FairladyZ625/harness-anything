@@ -157,7 +157,7 @@ export {
   getTaskActionForTransition,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityResidencyFacets, EntityStoreKindContract } from "./entity-kind-registry.ts";
+export type { EntityActionContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
 
 export { deriveUseCaseProjectionInputs } from "./use-case-projection-catalog.ts";
 export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
@@ -181,10 +181,12 @@ export {
   canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,
+  normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,
   relationStates,
   relationStrengths,
+  relationStrengthForType,
   relationTypes,
 } from "./entity-relation.ts";
 export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
@@ -198,6 +200,8 @@ export type {
   RelationStrength,
   RelationType,
 } from "./entity-relation.ts";
+export {} from "./entity-freshness.ts";
+export type {} from "./entity-freshness.ts";
 
 export { normalizeDomainError } from "./errors.ts";
 export type {

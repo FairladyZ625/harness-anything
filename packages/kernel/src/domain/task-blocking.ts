@@ -1,3 +1,6 @@
+import { relationConsumability, type RelationStrength } from "./entity-relation.ts";
+import type { RelationFreshness } from "./entity-freshness.ts";
+
 export interface BlockingTask {
   readonly taskId: string;
   readonly status: string;
@@ -9,6 +12,8 @@ export interface BlockingRelation {
   readonly relationType: string;
   readonly direction: string;
   readonly state: string;
+  readonly strength: RelationStrength;
+  readonly freshness: RelationFreshness;
   readonly rationale?: string;
 }
 export interface BlockingContributor {
@@ -55,10 +60,19 @@ export function blockingOf(
             : (projection.hardFailWarnings?.[0] ?? "relation projection hard-fail warning"),
       );
   for (const edge of relations.filter(({ relationType }) => relationType === "depends-on")) {
-    if (edge.state === "edge_retired" || edge.state === "deleted") continue;
+    if (edge.state === "retired") continue;
     const sourceId = taskId(edge.sourceRef),
       targetId = taskId(edge.targetRef),
       known = [sourceId, targetId].filter((id): id is string => Boolean(id && taskById.has(id)));
+    const consumability = relationConsumability(edge);
+    if (consumability === "refuse") {
+      for (const id of known.length ? known : tasks.map(({ taskId: candidate }) => candidate))
+        add(warnings, id, `blocking relation ${edge.relationId} is ${edge.freshness}`);
+      continue;
+    }
+    if (consumability === "warn")
+      for (const id of known.length ? known : tasks.map(({ taskId: candidate }) => candidate))
+        add(warnings, id, `weak blocking relation ${edge.relationId} is ${edge.freshness}`);
     if (
       edge.state !== "active" ||
       edge.direction !== "directed" ||

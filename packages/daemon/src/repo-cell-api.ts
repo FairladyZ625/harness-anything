@@ -645,6 +645,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       ...(typeof action.target === "string" ? { target: action.target } : {}),
       ...(typeof action.relationType === "string" ? { relationType: action.relationType } : {}),
       ...(typeof action.state === "string" ? { state: action.state } : {}),
+      ...(typeof action.freshness === "string"
+        ? { freshness: action.freshness as "current" | "suspect" | "orphaned" }
+        : {}),
       ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),
       ...(common.updatedBefore ? { updatedBefore: common.updatedBefore } : {}),
       ...(common.limit === undefined ? {} : { limit: common.limit }),

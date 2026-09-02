@@ -196,7 +196,7 @@ function parseRelationRouted(
       json,
       inputs,
       {},
-      { strength: "strong", direction: "directed", origin: "declared" },
+      { direction: "directed", origin: "declared" },
       route.method,
     );
   if (route.id === "relation-unrelate") {
@@ -206,6 +206,16 @@ function parseRelationRouted(
       : rejected(
           "invalid_field",
           "Use ha relation unrelate rel_<16-hex> --reason <text> --expected-version <n>.",
+          json,
+        );
+  }
+  if (route.id === "relation-reconfirm") {
+    const relationId = args[2];
+    return typeof relationId === "string" && /^rel_[0-9a-f]{16}$/u.test(relationId)
+      ? parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, { relationId }, {}, route.method)
+      : rejected(
+          "invalid_field",
+          "Use ha relation reconfirm rel_<16-hex> --expected-version <n> --rationale <text>.",
           json,
         );
   }

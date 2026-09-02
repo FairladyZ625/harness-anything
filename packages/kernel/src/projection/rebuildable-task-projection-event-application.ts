@@ -40,8 +40,8 @@ import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
 import {
-  advanceEntityProjectionRevision,
   deleteEntityProjectionRow,
+  markEntityProjectionMissing,
   projectEmbeddedCanonicalEntities,
   projectInterpretedEntityValue,
   projectRuntimeSessionCanonicalEntity,
@@ -139,7 +139,7 @@ export function applyEvent(
         event.workspaceRevision,
         eventJson,
       );
-      advanceEntityProjectionRevision(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
+      markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
     }
     const claim = event.payload.declarationDocumentClaim,
@@ -182,7 +182,15 @@ export function applyEvent(
       eventJson,
     );
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
-    projectInterpretedEntityValue(db, contract, entity, event.workspaceRevision, `event:${event.opId}`);
+    projectInterpretedEntityValue(
+      db,
+      contract,
+      entity,
+      event.workspaceRevision,
+      `event:${event.opId}`,
+      "current",
+      event.type === "entity_content_observed" ? event.payload.observedContentVersion : event.workspaceRevision,
+    );
     return;
   }
   if (isScheduleEvent(event)) {

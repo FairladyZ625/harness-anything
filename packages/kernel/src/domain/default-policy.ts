@@ -9,6 +9,7 @@ const repositoryWriteActions = Object.freeze([
   "decision-claim-fulfill",
   "decision-propose",
   "decision-reckon",
+  "relation-reconfirm",
   "relation-relate",
   "relation-unrelate",
   "decision-repin",

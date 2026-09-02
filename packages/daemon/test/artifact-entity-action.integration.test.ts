@@ -21,6 +21,16 @@ const kind = "software/coding/architecture-decision-record@1",
       source: "local" as const,
     },
     "repo-write",
+  ),
+  secondaryNodeBinding = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-artifact-import-secondary" },
+        executor: { kind: "agent" as const, id: "artifact-edge-secondary" },
+      },
+      source: "local" as const,
+    },
+    "repo-write",
   );
 
 test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuildable", async () => {
@@ -71,11 +81,13 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(preview.artifactOwner, `entity/${preview.entityId}/revision/${beforeEvents + 1}`);
 
     const first = await cell.run(request, binding),
-      replay = await cell.run(request, binding);
+      replay = await cell.run(request, secondaryNodeBinding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
     assert.equal(first.opId, replay.opId);
     assert.equal(first.opId, preview.operationId);
+    assert.equal(first.revision, beforeEvents + 1, "the first node advances the ledger by one revision");
+    assert.equal(replay.revision, first.revision, "the second node reuses that observation revision");
     assert.equal(
       (JSON.parse(String(replay.evidence)) as { sameResult: boolean }).sameResult,
       true,
@@ -93,6 +105,26 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
     assert.equal(updatedEvidence.preview.entityId, preview.entityId);
     assert.notEqual(updatedEvidence.preview.candidateContentVersion, preview.candidateContentVersion);
+
+    const eventsBeforeResolverFailure = observer.read().events.length,
+      unreadableLocator = "docs/unreadable-source";
+    mkdirSync(path.join(rootDir, unreadableLocator), { recursive: true });
+    const unavailable = await cell.run(
+      { kind: "entity-import", entityKind: kind, locator: unreadableLocator, expectedVersion: 0 },
+      binding,
+    );
+    assert.equal(unavailable.outcome, "op_rejected", JSON.stringify(unavailable));
+    assert.equal(unavailable.code, "source_resolution_failed");
+    assert.equal(observer.read().events.length, eventsBeforeResolverFailure, "resolver errors append no missing event");
+    const currentList = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      currentEntity = (
+        JSON.parse(String(currentList.evidence)) as {
+          entities: readonly { id: string; freshness: string; currentVersion: string | number | null }[];
+        }
+      ).entities[0];
+    assert.equal(currentEntity?.id, preview.entityId);
+    assert.equal(currentEntity?.freshness, "current");
+    assert.equal(currentEntity?.currentVersion, updatedEvidence.preview.candidateContentVersion);
 
     rmSync(absoluteSource);
     const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding);
@@ -112,11 +144,17 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
 
     const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
-      listedEntities = (JSON.parse(String(listed.evidence)) as { entities: readonly { id: string }[] }).entities;
+      listedEntities = (
+        JSON.parse(String(listed.evidence)) as {
+          entities: readonly { id: string; freshness: string; currentVersion: string | number | null }[];
+        }
+      ).entities;
     assert.deepEqual(
       listedEntities.map(({ id }) => id),
       [preview.entityId],
     );
+    assert.equal(listedEntities[0]?.freshness, "orphaned");
+    assert.equal(listedEntities[0]?.currentVersion, null);
     await cell.close();
     cell = undefined;
 
@@ -129,6 +167,8 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       assert.equal(row?.id, preview.entityId);
       assert.equal(row?.workspaceRevision, missing.revision);
       assert.equal(row?.value.contentVersion, updatedEvidence.preview.candidateContentVersion);
+      assert.equal(row?.freshness, "orphaned");
+      assert.equal(row?.currentVersion, null);
     } finally {
       rebuilt.close();
     }

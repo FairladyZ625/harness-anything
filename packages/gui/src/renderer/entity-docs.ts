@@ -159,10 +159,10 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [
       {
         field: "state",
-        words: ["active", "edge_retired", "deleted"],
+        words: ["active", "retired"],
       },
     ],
-    actions: ["relate", "unrelate"],
+    actions: ["relate", "unrelate", "reconfirm"],
   },
   review: {
     schemaId: "Review/v1",
@@ -480,7 +480,7 @@ const relationDoc: EntityKindDoc = {
     field("direction", true, "enum", "directed / undirected。"),
     field("origin", true, "enum", "declared / imported_snapshot / generated / inferred。"),
     field("rationale", true, "string", "为什么建这条边。"),
-    field("state", true, "enum", "active / edge_retired / deleted。"),
+    field("state", true, "enum", "active / retired。"),
   ],
   nestedFields: noNested,
   edges: [],
