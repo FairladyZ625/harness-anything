@@ -1,3 +1,4 @@
+/** @slice-activation PLT-Daemon W3 remote transport substrate is exported for daemon composition roots. */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { Duplex, type Readable } from "node:stream";
 import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";

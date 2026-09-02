@@ -166,7 +166,10 @@ export async function streamDaemonFacetAt(input: {
         function streamFail(error: Error): void {
           lastFailure = error.message;
           clearTimeout(watchdog);
-          if (!settled) reject(error);
+          // After the first successful attach, the close handler owns reconnect scheduling.
+          // Rejecting here as well causes the timer callback's catch path to schedule a duplicate
+          // retry when a socket emits error followed by close.
+          if (!settled && !everAttached) reject(error);
           candidate.destroy();
         }
       };
