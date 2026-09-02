@@ -117,24 +117,33 @@ async function main(argv) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const writeDiagnostic = console.log;
+  // 契约:stdout 只有最后那一个 JSON 对象。daemon 夹具(WAL materializer 等)直接写
+  // process.stdout,单靠改 console.log 拦不住,运行期间把 stdout.write 一并导到 stderr。
+  const writeDiagnostic = console.log,
+    writeStdout = process.stdout.write.bind(process.stdout);
   console.log = (...args) => console.error(...args);
+  process.stdout.write = (chunk, ...rest) => process.stderr.write(chunk, ...rest);
+  const emit = (line) => {
+    process.stdout.write = writeStdout;
+    writeStdout(`${line}\n`);
+  };
   try {
     const result = await main(process.argv.slice(2));
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    emit(JSON.stringify(result));
   } catch (error) {
-    process.stdout.write(
-      `${JSON.stringify({
+    emit(
+      JSON.stringify({
         schema: "gui-e2e-result/v1",
         outcome: "failed",
         runId: null,
         lanes: [],
         scenarios: [],
         message: error instanceof Error ? error.message : String(error),
-      })}\n`,
+      }),
     );
     process.exitCode = 1;
   } finally {
     console.log = writeDiagnostic;
+    process.stdout.write = writeStdout;
   }
 }
