@@ -10,7 +10,12 @@ const expectedMethods = Object.freeze([
   { method: "daemon.stop", requiresRepo: false },
   { method: "daemon.repo.bootstrap", requiresRepo: false },
   { method: "daemon.repo.register", requiresRepo: false },
+  { method: "daemon.repo.update", requiresRepo: false },
   { method: "daemon.repo.unregister", requiresRepo: false },
+  { method: "daemon.connection.register", requiresRepo: false },
+  { method: "daemon.connection.update", requiresRepo: false },
+  { method: "daemon.connection.unregister", requiresRepo: false },
+  { method: "daemon.connection.probe", requiresRepo: false },
   { method: "repo.task.run", requiresRepo: true },
   { method: "repo.task.read", requiresRepo: true },
 ]);
@@ -72,8 +77,9 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
       'request.method === "daemon.status"',
       'request.method === "daemon.stop"',
       'request.method === "daemon.repo.bootstrap"',
-      'request.method === "daemon.repo.register"',
-      'request.method === "daemon.repo.unregister"',
+      'case "daemon.repo.register":',
+      'case "daemon.repo.unregister":',
+      'case "daemon.connection.probe":',
     ]) {
       if (!server.includes(token)) violations.push(`${serverPath}: missing protocol closure token ${token}`);
     }
