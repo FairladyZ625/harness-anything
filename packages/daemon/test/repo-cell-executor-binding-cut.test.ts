@@ -93,11 +93,44 @@ test("executor binding still rejects a runtime session absent from the preceding
   assert.equal(context.observedActor, null);
 });
 
+test("executor-free actions reach the publication queue synchronously", async () => {
+  const context = contextFor(
+      Promise.resolve(),
+      () => null,
+      () => null,
+    ),
+    { executor: _executor, ...executorFreeAction } = action,
+    receipt = createRepoCellApi(context).run(executorFreeAction, binding);
+
+  assert.equal(context.tailAssignments, 1);
+  assert.equal((await receipt).outcome, "applied");
+  assert.equal(context.tailAssignments, 1);
+});
+
+test("empty executor markers do not add a writer-cut queue hop", async () => {
+  for (const executor of [null, undefined]) {
+    const context = contextFor(
+        Promise.resolve(),
+        () => null,
+        () => null,
+      ),
+      receipt = await createRepoCellApi(context).run({ ...action, executor }, binding);
+
+    assert.equal(receipt.outcome, "applied");
+    assert.equal(context.tailAssignments, 1, `executor=${String(executor)}`);
+  }
+});
+
 function contextFor(
   tail: Promise<void>,
   readRuntimeSession: () => RuntimeSession | null,
   currentLease: () => LeaseV1 | null,
-): RepoCellApiContext & { observedActor: RepoCellBinding["actor"] | null } {
+): RepoCellApiContext & {
+  readonly observedActor: RepoCellBinding["actor"] | null;
+  readonly tailAssignments: number;
+} {
+  let currentTail = tail,
+    tailAssignments = 0;
   const activeWriter = { workspaceId: "repository", generation: 1, ownerId: "daemon" },
     fixture = {
       extracted: {},
@@ -128,7 +161,16 @@ function contextFor(
       latched: () => "latched",
       latchWith: () => undefined,
       queueDepth: 0,
-      tail,
+      get tail() {
+        return currentTail;
+      },
+      set tail(value: Promise<void>) {
+        currentTail = value;
+        tailAssignments += 1;
+      },
+      get tailAssignments() {
+        return tailAssignments;
+      },
       activeWriter,
       writerToken: bindWriterGenerationToken(activeWriter),
       activeWriterEpochGuard: null,
@@ -163,5 +205,8 @@ function contextFor(
       },
       observedActor: null as RepoCellBinding["actor"] | null,
     };
-  return fixture as unknown as RepoCellApiContext & { observedActor: RepoCellBinding["actor"] | null };
+  return fixture as unknown as RepoCellApiContext & {
+    readonly observedActor: RepoCellBinding["actor"] | null;
+    readonly tailAssignments: number;
+  };
 }
