@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import process from "node:process";
+import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
 import { parseProductionDeclaration } from "./gates/production-delta.mjs";
+import { changedFiles, repoRoot } from "./gates/git.mjs";
 
 export const defaultThresholds = Object.freeze({
   minCjkChars: 20,
@@ -20,6 +22,9 @@ const ENGLISH_JUSTIFICATION_HEADING = /^## Architectural Justification\s*$/mu;
 const CHINESE_JUSTIFICATION_HEADING = /^## 架构辩护\s*$/mu;
 const DELETED_PRODUCTION_PATHS = /^Deleted-Production-Paths:[ \t]*(.*?)\s*$/gmu;
 const DELETED_GATES_FIXTURES = /^Deleted-Gates-Fixtures:[ \t]*(.*?)\s*$/gmu;
+const EVENT_MIGRATION = /^Event-Migration:[ \t]*(.*?)\s*$/gmu;
+const ACCEPTED_CANONICAL_EVENT_SAMPLE =
+  /^packages\/kernel\/fixtures\/canonical-events\/[^/]+\/accepted(?:-[^/]+)?\.json$/u;
 
 function isEmptyListDeclaration(value) {
   const normalized = value.trim();
@@ -62,6 +67,61 @@ export function checkGateHarvestDeclarations(body) {
     pathDeclarations,
     gateDeclarations,
     productionDeltaCount: productionDelta.declaration === null ? 0 : 1,
+    issues,
+  };
+}
+
+export function eventMigrationCommandNames(commands = agentProtocolCommands) {
+  return commands
+    .filter(({ path }) => path[0] === "migrate" && typeof path[1] === "string")
+    .map(({ path }) => path[1])
+    .sort();
+}
+
+export function checkEventMigrationDeclaration(body, { files = [], commandNames = eventMigrationCommandNames() } = {}) {
+  const acceptedSampleChanges = files.filter((file) => ACCEPTED_CANONICAL_EVENT_SAMPLE.test(file)),
+    declarations = [...body.matchAll(EVENT_MIGRATION)].map((match) => match[1].trim()),
+    required = acceptedSampleChanges.length > 0,
+    issues = [];
+  if (!required && declarations.length === 0)
+    return { ok: true, required, acceptedSampleChanges, declarations, migrationName: null, issues };
+  if (declarations.length !== 1) {
+    issues.push("Accepted canonical-event sample changes require exactly one Event-Migration declaration.");
+    issues.push("变更 canonical-event accepted 样本时，必须且只能填写一行 Event-Migration 声明。");
+    return { ok: false, required, acceptedSampleChanges, declarations, migrationName: null, issues };
+  }
+  const declaration = declarations[0],
+    migration = declaration.match(/^ha migrate ([a-z0-9][a-z0-9-]*)$/u);
+  if (migration) {
+    const migrationName = migration[1];
+    if (!commandNames.includes(migrationName)) {
+      issues.push(
+        `Event-Migration names unknown command \`ha migrate ${migrationName}\`; use a command from \`ha migrate --help\`.`,
+      );
+      issues.push(
+        `Event-Migration 声明了未知命令 \`ha migrate ${migrationName}\`；请使用 \`ha migrate --help\` 中的命令。`,
+      );
+    }
+    return {
+      ok: issues.length === 0,
+      required,
+      acceptedSampleChanges,
+      declarations,
+      migrationName,
+      issues,
+    };
+  }
+  const noMigrationReason = declaration.match(/^none(?:\s*[-—:]\s*|\s+)(.+)$/u)?.[1]?.trim();
+  if (!noMigrationReason) {
+    issues.push("Event-Migration must be `ha migrate <name>` or `none — <why no migration is required>`.");
+    issues.push("Event-Migration 必须是 `ha migrate <name>`，或 `none — <为什么不需要迁移>`。");
+  }
+  return {
+    ok: issues.length === 0,
+    required,
+    acceptedSampleChanges,
+    declarations,
+    migrationName: null,
     issues,
   };
 }
@@ -173,13 +233,15 @@ export function checkArchitectureJustification({
   return { ok: issues.length === 0, required, known: true, added, deleted, churn, net, issues };
 }
 
-export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
+export function checkPrBodyBilingual(body, thresholds = defaultThresholds, context = {}) {
   const blocks = splitPrBodyLanguageBlocks(body);
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
   const issues = [...blocks.issues];
   const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
   issues.push(...gateHarvest.issues);
+  const eventMigration = checkEventMigrationDeclaration(blocks.englishBlock, context.eventMigration);
+  issues.push(...eventMigration.issues);
   const architectureJustification = checkArchitectureJustification({
     englishBlock: blocks.englishBlock,
     chineseBlock: blocks.chineseBlock,
@@ -214,6 +276,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds) {
       chineseIndex: blocks.chineseIndex,
     },
     gateHarvest,
+    eventMigration,
     architectureJustification,
     issues,
   };
@@ -239,10 +302,12 @@ function readBodyFromArgs(argv) {
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
           "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures and exactly one CI-backed Production-Delta declaration are required.",
           "When the single Production-Delta declaration exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
+          "When an accepted canonical-event sample changes, Event-Migration must name an existing ha migrate command or explain why no migration is required.",
           "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
           "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
           "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures，并包含且仅包含一行由 CI 提供依据的 Production-Delta。",
           "当唯一的 Production-Delta 超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
+          "变更 canonical-event accepted 样本时，Event-Migration 必须声明现有 ha migrate 命令，或说明为什么不需要迁移。",
         ].join("\n"),
       );
       process.stdout.write("\n");
@@ -256,7 +321,10 @@ function readBodyFromArgs(argv) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
     const body = readBodyFromArgs(process.argv.slice(2));
-    const result = checkPrBodyBilingual(body);
+    const base = process.env.PR_BASE_SHA,
+      head = process.env.PR_HEAD_SHA,
+      files = base && head ? changedFiles(repoRoot(), base, head) : [],
+      result = checkPrBodyBilingual(body, defaultThresholds, { eventMigration: { files } });
     if (result.ok) {
       process.stdout.write(
         [

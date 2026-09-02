@@ -1,0 +1,27 @@
+---
+schema: decision-package/v1
+decision_id: dec_FIXTURE_DIGEST
+workspaceRevision: 10
+title: "Canonical Decision"
+state: proposed
+riskTier: medium
+urgency: medium
+vertical: "test"
+preset: "default"
+decisionClass: ordinary
+applies_to: {"modules":["kernel"],"productLines":[]}
+proposer: {"executor":null,"principal":{"personId":"person-fixture"}}
+arbiter: null
+proposedAt: "2026-08-13T00:00:00.000Z"
+decidedAt: null
+provenance: []
+question: "Is this event-backed?"
+chosen: [{"id":"CH1","text":"Use events"}]
+rejected: [{"id":"RJ1","text":"Use files","whyNot":"Files are not canonical."}]
+claims: []
+judgmentConsents: []
+---
+
+# Canonical Decision
+
+This fixture records concrete decision prose before exercising the canonical acceptance transition.

@@ -23,7 +23,7 @@ test("canonical event compatibility gate names a rejected frozen sample", () => 
   ]);
 
   assert.deepEqual(errors, [
-    "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json: task-event/v1 rejected frozen sample: legacy shape is no longer accepted",
+    "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json [sourceEventIds=unknown]: task-event/v1 rejected frozen sample: legacy shape is no longer accepted",
   ]);
 });
 
@@ -107,8 +107,38 @@ test("canonical event compatibility gate requires a projected historical sample 
 test("canonical event compatibility gate projects the locked history through production reads", () => {
   const result = validateFrozenDaemonReadside(repoRoot());
   assert.deepEqual(result.errors, []);
-  assert.equal(result.eventCount, 5);
+  assert.equal(result.eventCount, 8);
   assert.ok(result.durationMs < 8_000);
+});
+
+test("pre-#2158 relation strength history fails the production replay with its source event id", () => {
+  const result = validateFrozenDaemonReadside(repoRoot(), undefined, (event) => {
+    if (event.eventId !== "event-fixture-relation-created") return event;
+    const { targetObservedVersion: _targetObservedVersion, ...historical } = event.payload.relation;
+    return { ...event, payload: { relation: { ...historical, strength: "strong" } } };
+  });
+
+  assert.match(result.errors.join("\n"), /event-fixture-relation-created: historical replay failed/u);
+  assert.match(result.errors.join("\n"), /Relation facet fields are invalid/u);
+});
+
+test("dec_3EDA6CB3-era decision digest fails the production replay with its source event id", () => {
+  const historicalDigest = "sha256:dff93a59f31e53d26a1da857d137bde0c93824056ed7f641d97b189c4e1cc3fb",
+    result = validateFrozenDaemonReadside(repoRoot(), undefined, (event) =>
+      event.eventId === "event-fixture-decision-accepted"
+        ? {
+            ...event,
+            payload: {
+              ...event.payload,
+              judgmentConsent: { ...event.payload.judgmentConsent, machineDigest: historicalDigest },
+              contentPin: { ...event.payload.contentPin, digest: historicalDigest },
+            },
+          }
+        : event,
+    );
+
+  assert.match(result.errors.join("\n"), /event-fixture-decision-accepted: historical replay failed/u);
+  assert.match(result.errors.join("\n"), /machine content cut/u);
 });
 
 test("locked-history document reads replay through the rootDir-first production signature without a worktree", () => {
