@@ -7,10 +7,10 @@ import {
   taskBoardPlacement,
   taskCapabilities,
   taskVisibility,
-  type TaskBoardRowInput,
   type TaskProjection,
   type TaskProjectionListQuery,
 } from "../../kernel/src/index.ts";
+import type { TaskBoardRowInput } from "../../kernel/src/domain/task-board-projection.ts";
 import { canonicalRoot, validateDaemonTaskSnapshotList } from "../src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
