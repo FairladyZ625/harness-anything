@@ -24,7 +24,9 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import { listTasks, type TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { repoCellTaskQueryJudgments } from "./repo-cell.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
+import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
@@ -208,6 +210,14 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
     },
     terminal,
     read: async (method, payload = {}, binding) => {
+      if (method === "repo.tasks.list")
+        return query((projection) =>
+          makeTaskQueryReadModel({
+            rootDir: input.rootDir,
+            projection: projection as TaskProjection,
+            judgments: repoCellTaskQueryJudgments,
+          }).guiTasks(taskListQuery(payload)),
+        ) as never;
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
@@ -263,6 +273,36 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
         await lock.close();
       }
     },
+  };
+}
+
+function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
+  const status = typeof payload.status === "string" ? payload.status : undefined,
+    changedAfterRevision =
+      payload.changedAfterRevision === undefined ? undefined : Number(payload.changedAfterRevision),
+    updatedAfter = typeof payload.updatedAfter === "string" ? payload.updatedAfter : undefined,
+    updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
+    limit = payload.limit === undefined ? undefined : Number(payload.limit),
+    cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
+  if (status !== undefined && !["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status))
+    throw cellCodedError("invalid_command", "Query status is invalid for this read.");
+  if (changedAfterRevision !== undefined && (!Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0))
+    throw cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
+    throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
+  if (
+    [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
+    (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
+  )
+    throw cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
+  if (cursor !== undefined && !cursor) throw cellCodedError("invalid_command", "Query cursor is invalid.");
+  return {
+    ...(status ? { status: status as TaskProjectionListQuery["status"] } : {}),
+    ...(changedAfterRevision === undefined ? {} : { changedAfterRevision }),
+    ...(updatedAfter ? { updatedAfter } : {}),
+    ...(updatedBefore ? { updatedBefore } : {}),
+    ...(limit === undefined ? {} : { limit }),
+    ...(cursor ? { cursor } : {}),
   };
 }
 
