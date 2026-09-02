@@ -363,29 +363,35 @@ describe("task binding (searchable picker + open-from-task-detail)", () => {
     title: index === 42 ? "Fix xterm colour palette" : `Task number ${index}`,
   }));
 
-  it("filters thousands of tasks by title or id and binds the picked one to the custom launch", async () => {
+  it("binds a task picked from the tree popover (search hit + ancestor context) to the custom launch", async () => {
     const { bridge } = stubBridge([sessionRow()], null); // 已有会话 → 进页只附加,不自动 spawn。
-    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: manyTasks });
+    const tree = [
+      { taskId: "root", title: "Terminal milestone", status: "active" as const },
+      ...manyTasks.map((task) => ({ ...task, parentTaskId: "root", status: "planned" as const })),
+    ];
+    mountView({ repoId: "repo-a", daemonGeneration: null, tasks: tree });
     await flush();
-    // 启动选项收在侧栏的气泡里,先打开。
+    // 启动选项收在侧栏的气泡里,task 选择器又是它里面的大气泡:两层都要点开。
     act(() => container!.querySelector<HTMLButtonElement>('[data-testid="terminal-launch-options"]')!.click());
-    const picker = document.querySelector<HTMLInputElement>('[data-testid="terminal-task-picker"]')!;
-    act(() => picker.focus());
-    // 打开后只列前 40 条,余量用提示承接,几千个 option 不进 DOM。
-    expect(document.querySelectorAll('[role="option"]')).toHaveLength(41);
-    expect(document.body.textContent).toContain("260");
-    act(() => typeInto(picker, "colour"));
-    const options = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
-    expect(options.map((option) => option.textContent)).toEqual(["unbound", "Fix xterm colour palettetask_0042"]);
-    act(() => options[1].click());
-    expect(picker.value).toBe("Fix xterm colour palette");
-    expect(picker.title).toBe("task_0042");
-    act(() => typeInto(picker, "task_00"));
-    expect(document.querySelectorAll('[role="option"]')).toHaveLength(41);
-    act(() => picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(document.querySelector('[data-testid="terminal-task-picker-list"]')).toBeNull();
-    const form = picker.closest("form")!;
-    act(() => form.requestSubmit());
+    const trigger = document.querySelector<HTMLButtonElement>('[data-testid="terminal-task-tree"]')!;
+    expect(trigger.textContent).toBe("unbound");
+    act(() => trigger.click());
+    // 浏览模式:只列根,不把几百个子节点塞进 DOM。
+    expect(document.querySelectorAll('[role="treeitem"]')).toHaveLength(1);
+    act(() =>
+      typeInto(document.querySelector<HTMLInputElement>('[data-testid="terminal-task-tree-search"]')!, "colour"),
+    );
+    const rows = [...document.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+    expect(rows.map((row) => [row.dataset.taskId, row.dataset.hit])).toEqual([
+      ["root", "false"],
+      ["task_0042", "true"],
+    ]);
+    act(() => rows[1].querySelectorAll("button")[1].click());
+    expect(document.querySelector('[data-testid="terminal-task-tree-panel"]')).toBeNull();
+    expect(trigger.textContent).toBe("Fix xterm colour palette");
+    act(() =>
+      document.querySelector<HTMLFormElement>('[data-testid="terminal-launch-options-panel"] form')!.requestSubmit(),
+    );
     await flush();
     expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
     expect(bridge.spawnTerminal.mock.calls[0][0]).toMatchObject({ taskId: "task_0042" });

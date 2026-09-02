@@ -650,7 +650,13 @@ function AppShell() {
               <TerminalView
                 repoId={projectId}
                 daemonGeneration={activeRepo?.generation ?? null}
-                tasks={projectTasks.map(({ taskId, title }) => ({ taskId, title }))}
+                tasks={projectTasks.map(({ taskId, title, parentTaskId, coordinationStatus, createdAt }) => ({
+                  taskId,
+                  title,
+                  parentTaskId,
+                  status: coordinationStatus,
+                  createdAt,
+                }))}
                 launchTask={terminalLaunch}
                 repoRoot={activeRepo?.canonicalRoot ?? null}
                 onNavigateEntity={navigateToEntity}

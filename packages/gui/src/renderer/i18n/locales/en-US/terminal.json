@@ -51,8 +51,19 @@
   "terminal.view.dragHandleTitle": "Drag onto another pane to rearrange",
   "terminal.view.taskPickerPlaceholder": "Search task title or id…",
   "terminal.view.taskPickerEmpty": "No matching task",
-  "terminal.view.taskPickerMore": "{count} more — keep typing to narrow down",
   "terminal.view.launchOptions": "Launch options",
   "terminal.view.noAttachable": "No session to attach",
-  "terminal.view.sidebarResize": "Drag to resize the sidebar"
+  "terminal.view.sidebarResize": "Drag to resize the sidebar",
+  "terminal.view.taskTreeOpen": "Pick a task to bind",
+  "terminal.view.taskTreeCreatedWithin": "Created within",
+  "terminal.view.taskTreeAnyTime": "Any time",
+  "terminal.view.taskTreeDays": "Last {count} days",
+  "terminal.view.taskTreeStatus": "Status",
+  "terminal.view.taskTreeHits": "{hits} hits / {total} total",
+  "terminal.view.taskTreeTotal": "{total} tasks",
+  "terminal.view.taskTreeCrumbs": "Focus path",
+  "terminal.view.taskTreeAll": "All",
+  "terminal.view.taskTreeToggle": "Expand / collapse children",
+  "terminal.view.taskTreeFocus": "Focus this subtree",
+  "terminal.view.taskTreeTruncated": "Showing the first 300 rows — narrow down further"
 }

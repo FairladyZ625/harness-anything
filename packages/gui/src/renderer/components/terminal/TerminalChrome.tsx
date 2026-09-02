@@ -5,7 +5,8 @@ import type { TerminalPreferences } from "../../terminal-preferences.ts";
 import { t } from "../../i18n/index.tsx";
 import { isMacPlatform } from "../../platform.ts";
 import { Popover } from "../Popover.tsx";
-import { TerminalTaskPicker } from "./TerminalTaskPicker.tsx";
+import { TerminalTaskTreePicker } from "./TerminalTaskTreePicker.tsx";
+import type { TaskTreeNode } from "./task-tree.ts";
 
 const shellOptions = ["default", "zsh", "bash", "sh", "fish"] as const;
 const sidebarWidthKey = "harness:gui:terminal-sidebar-width";
@@ -76,7 +77,7 @@ export function TerminalChrome({
   readonly spawn: TerminalSpawnDraft;
   readonly onSpawnChange: (update: Partial<TerminalSpawnDraft>) => void;
   readonly onCreate: (event: FormEvent) => void;
-  readonly tasks: readonly { readonly taskId: string; readonly title: string }[];
+  readonly tasks: readonly TaskTreeNode[];
 }) {
   const attachable = sessions.filter((row) => row.attachable && !openSessionIds.includes(row.sessionId));
   const [width, setWidth] = useState(readSidebarWidth);
@@ -230,7 +231,7 @@ function LaunchOptions({
   readonly spawn: TerminalSpawnDraft;
   readonly onSpawnChange: (update: Partial<TerminalSpawnDraft>) => void;
   readonly onCreate: (event: FormEvent) => void;
-  readonly tasks: readonly { readonly taskId: string; readonly title: string }[];
+  readonly tasks: readonly TaskTreeNode[];
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -297,7 +298,7 @@ function LaunchOptions({
           </Field>
         </div>
         <Field label={t("terminal.view.task")}>
-          <TerminalTaskPicker tasks={tasks} value={spawn.taskId} onChange={(taskId) => onSpawnChange({ taskId })} />
+          <TerminalTaskTreePicker tasks={tasks} value={spawn.taskId} onChange={(taskId) => onSpawnChange({ taskId })} />
         </Field>
         <button className="self-start rounded border border-accent/60 bg-accent/10 px-3 py-1 text-[12px] text-text">
           {t("terminal.view.startCustom")}
