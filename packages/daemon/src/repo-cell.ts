@@ -26,7 +26,7 @@ import { scanAuthoredCandidateInventory, type AuthoredCandidateInventoryV1 } fro
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
-import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
@@ -58,6 +58,7 @@ export interface RepoCellCoreInput {
     readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
+    readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   };
   readonly rootDir: string;
   readonly authoredBranch?: string;
@@ -173,8 +174,25 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   });
   try {
     context.input.onStoreOpened?.(store);
+    context.input.onOpenProgress?.({
+      phase: "recovering",
+      applied: null,
+      total: null,
+      watermark: null,
+    });
     let recovery = store.recover();
-    projection = makeTaskProjection({ rootDir: context.rootDir, eventStore: store, now: context.now });
+    projection = makeTaskProjection({
+      rootDir: context.rootDir,
+      eventStore: store,
+      now: context.now,
+      onProgress: (progress) =>
+        context.input.onOpenProgress?.({
+          phase: "catching-up",
+          applied: progress.applied,
+          total: progress.total ?? null,
+          watermark: progress.watermark,
+        }),
+    });
     // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
     // writer events remain the authority and apply through the normal single-writer path.
     try {
@@ -191,6 +209,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         errorCode: cellErrorCode(error),
       };
     }
+    context.input.onOpenProgress?.({
+      phase: "opening",
+      applied: null,
+      total: null,
+      watermark: null,
+    });
     const deferredSettlement = pendingSettlement as {
       readonly actor: ActorIdentity;
       readonly inventory: unknown | null;

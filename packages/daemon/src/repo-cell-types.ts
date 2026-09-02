@@ -83,6 +83,13 @@ export type TaskProgressReceipt = WriteReceiptDraft & {
   readonly worktreeVisible: true;
 };
 
+export interface RepoCellAttachProgress {
+  readonly phase: "opening" | "recovering" | "catching-up";
+  readonly applied: number | null;
+  readonly total: number | null;
+  readonly watermark: number | null;
+}
+
 export interface RepoCellStatus {
   readonly repoId: string;
   readonly rootDir: string;
@@ -93,6 +100,7 @@ export interface RepoCellStatus {
   readonly lastError: string | null;
   readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
   readonly recoveryMs: number | null;
+  readonly attach?: RepoCellAttachProgress;
 }
 
 export type RepoCellReadMethod = Exclude<

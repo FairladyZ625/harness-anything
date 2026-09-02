@@ -3,7 +3,7 @@ import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError, type CanonicalEventStore } from "../../kernel/src/index.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
-import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
@@ -42,6 +42,15 @@ async function startRepoWriterWorker(): Promise<void> {
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null,
     writerStore: CanonicalEventStore | null = null,
     bulkWrite: ReturnType<NonNullable<CanonicalEventStore["beginBulkWrite"]>> | null = null;
+  let openingStatus = statusDuringOpen({
+    phase: "opening",
+    applied: null,
+    total: null,
+    watermark: null,
+  });
+  postStatus({ kind: "status", status: openingStatus });
+  const heartbeat = setInterval(() => postStatus({ kind: "status", status: openingStatus }), 4_000);
+  heartbeat.unref?.();
 
   parentPort.on("message", (message: unknown) => {
     if (isCapabilityResult(message)) {
@@ -70,7 +79,9 @@ async function startRepoWriterWorker(): Promise<void> {
 
   try {
     const config = bootstrap.config,
-      input: RepoCellOpenInput = {
+      input: RepoCellOpenInput & {
+        readonly onOpenProgress: (progress: RepoCellAttachProgress) => void;
+      } = {
         ...config,
         repoId: config.repoId as RepoCellOpenInput["repoId"],
         rootDir: config.rootDir as RepoCellOpenInput["rootDir"],
@@ -112,6 +123,11 @@ async function startRepoWriterWorker(): Promise<void> {
             }
           : {}),
         onBootstrap: (receipt) => notify("bootstrap", receipt),
+        onOpenProgress: (progress) => {
+          if (cell !== null) return;
+          openingStatus = statusDuringOpen(progress);
+          postStatus({ kind: "status", status: openingStatus });
+        },
         onRuntimeOutcome: (event) => notify("runtimeOutcome", event),
         onAttemptTerminal: (terminal) => notify("attemptTerminal", terminal),
         recordLifecycle: (record) => notify("lifecycle", record),
@@ -125,6 +141,23 @@ async function startRepoWriterWorker(): Promise<void> {
   } catch (error) {
     consumeKnownError(error);
     postStatus({ kind: "closed", error: serializeWriterError(error) });
+  } finally {
+    clearInterval(heartbeat);
+  }
+
+  function statusDuringOpen(attach: RepoCellAttachProgress): RepoCellStatus {
+    return {
+      repoId: bootstrap.config.repoId,
+      rootDir: bootstrap.config.rootDir,
+      mode: bootstrap.config.mode ?? "local",
+      state: "warming",
+      generation: null,
+      queueDepth: 0,
+      lastError: null,
+      causeClass: null,
+      recoveryMs: null,
+      attach,
+    };
   }
 
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
