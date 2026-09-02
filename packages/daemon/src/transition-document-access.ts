@@ -8,6 +8,7 @@ import {
   resolveHarnessLayout,
   sha256Text,
   type TaskProjection,
+  type TransitionDocumentMissingSection,
 } from "../../kernel/src/index.ts";
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
@@ -148,16 +149,32 @@ function readOnDiskBody(rootDir: string, documentPath: string): string | null {
     : null;
 }
 
-function transitionMissingSections(error: object): readonly string[] {
+function transitionMissingSections(error: object): readonly TransitionDocumentMissingSection[] {
   return "missingSections" in error && Array.isArray(error.missingSections)
-    ? error.missingSections.filter((value): value is string => typeof value === "string")
+    ? error.missingSections.filter(
+        (value): value is TransitionDocumentMissingSection =>
+          value !== null &&
+          typeof value === "object" &&
+          "section" in value &&
+          typeof value.section === "string" &&
+          "reason" in value &&
+          (value.reason === "empty" || value.reason === "scaffold") &&
+          (value.reason === "empty" || ("retainedScaffold" in value && typeof value.retainedScaffold === "string")),
+      )
     : [];
 }
 
-function missingSectionsHint(sections: readonly string[]): string {
+export function missingSectionsHint(sections: readonly TransitionDocumentMissingSection[]): string {
   return sections.length === 0
     ? "it has no missing required sections."
-    : `its missing required ${sections.length === 1 ? "section is" : "sections are"}: ${sections.join(", ")}.`;
+    : [
+        "required-section diagnostics:",
+        ...sections.map((entry) =>
+          entry.reason === "empty"
+            ? `- ${entry.section}: 空`
+            : `- ${entry.section}: 仍含模板句「${entry.retainedScaffold ?? ""}」`,
+        ),
+      ].join("\n");
 }
 
 function transitionDocumentAccessError(code: string, message: string): Error {

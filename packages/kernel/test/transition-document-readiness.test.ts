@@ -57,10 +57,20 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   const scaffold = assessTransitionDocument("task.plan", template);
   assert.equal(scaffold.ready, false);
   assert.equal(scaffold.code, "plan_placeholder");
-  assert.deepEqual(scaffold.missingSections, planHeadings);
+  assert.deepEqual(
+    scaffold.missingSections.map(({ section }) => section),
+    planHeadings,
+  );
+  assert.deepEqual(scaffold.missingSections[0], {
+    section: "Brief",
+    reason: "scaffold",
+    retainedScaffold: "One-line statement of the task objective and scope.",
+  });
 
   const emptyGoal = realizedPlan().replace("## Goal\n\nImplemented Goal.", "## Goal\n\n");
-  assert.deepEqual(assessTransitionDocument("task.plan", emptyGoal).missingSections, ["Goal"]);
+  assert.deepEqual(assessTransitionDocument("task.plan", emptyGoal).missingSections, [
+    { section: "Goal", reason: "empty" },
+  ]);
 
   const retainedScaffold = realizedPlan().replace(
     "## Brief\n\nImplemented Brief.",
@@ -71,7 +81,13 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
     "## Verification\n\nImplemented Verification.",
     "## Verification\n\nStop point = targeted tests for the surface you touched, green, plus a local commit.",
   );
-  assert.deepEqual(assessTransitionDocument("task.plan", pureScaffoldSection).missingSections, ["Verification"]);
+  assert.deepEqual(assessTransitionDocument("task.plan", pureScaffoldSection).missingSections, [
+    {
+      section: "Verification",
+      reason: "scaffold",
+      retainedScaffold: "Stop point = targeted tests for the surface you touched, gre",
+    },
+  ]);
   assert.equal(assessTransitionDocument("task.plan", realizedPlan()).ready, true);
 });
 
@@ -80,12 +96,18 @@ test("closeout uses the same required-section and scaffold rules", () => {
     new URL("../../preset/assets/software-coding/templates/task.closeout/zh-CN.md", import.meta.url),
     "utf8",
   );
-  assert.deepEqual(assessTransitionDocument("task.closeout", template).missingSections, [
-    "Summary",
-    "Verification",
-    "Residual Risk",
-    "Same Mechanism Elsewhere",
-  ]);
+  assert.deepEqual(
+    assessTransitionDocument("task.closeout", template).missingSections.map(({ section, reason }) => ({
+      section,
+      reason,
+    })),
+    [
+      { section: "Summary", reason: "scaffold" },
+      { section: "Verification", reason: "scaffold" },
+      { section: "Residual Risk", reason: "scaffold" },
+      { section: "Same Mechanism Elsewhere", reason: "scaffold" },
+    ],
+  );
   assert.equal(
     assessTransitionDocument(
       "task.closeout",
