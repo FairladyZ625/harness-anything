@@ -10,9 +10,11 @@ import {
   exactRecord,
   integer,
   nonEmpty,
-  recordWith,
   statusWord,
   stringArray,
+  validationEntityId,
+  validationError,
+  recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
 import {
   validateDaemonAgenda,
@@ -152,59 +154,95 @@ function scheduleListRow(value: unknown): value is ScheduleListRow {
 }
 
 export function validateDaemonDocumentRead(value: unknown): readonly string[] {
-  if (
-    !recordWith(value, DAEMON_DOCUMENT_READ_SCHEMA.required) ||
-    value.ok !== true ||
-    (value.status !== "ready" && value.status !== "pending") ||
-    !nonEmpty(value.taskId) ||
-    !nonEmpty(value.path) ||
-    typeof value.body !== "string" ||
-    (value.blobSha256 !== null &&
-      (typeof value.blobSha256 !== "string" || !/^[0-9a-f]{64}$/u.test(value.blobSha256))) ||
-    (value.worktreeBody !== null && typeof value.worktreeBody !== "string") ||
-    typeof value.uncommitted !== "boolean" ||
-    !integer(value.watermark) ||
-    !integer(value.sourceRevision)
-  )
-    return ["daemon document read is invalid"];
+  const entityId = validationEntityId(value, ["taskId"], "task:<unknown>"),
+    shapeError = recordShapeError(
+      entityId,
+      value,
+      DAEMON_DOCUMENT_READ_SCHEMA.required,
+      isJsonObject(value) ? Object.keys(value) : DAEMON_DOCUMENT_READ_SCHEMA.required,
+    );
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  for (const [field, actual, valid, expectation] of [
+    ["ok", value.ok, value.ok === true, "must be true"],
+    ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
+    ["taskId", value.taskId, nonEmpty(value.taskId), "must be a non-empty string"],
+    ["path", value.path, nonEmpty(value.path), "must be a non-empty string"],
+    ["body", value.body, typeof value.body === "string", "must be a string"],
+    [
+      "blobSha256",
+      value.blobSha256,
+      value.blobSha256 === null || (typeof value.blobSha256 === "string" && /^[0-9a-f]{64}$/u.test(value.blobSha256)),
+      "must be null or a 64-character SHA-256",
+    ],
+    [
+      "worktreeBody",
+      value.worktreeBody,
+      value.worktreeBody === null || typeof value.worktreeBody === "string",
+      "must be null or a string",
+    ],
+    ["uncommitted", value.uncommitted, typeof value.uncommitted === "boolean", "must be a boolean"],
+    ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
+    ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
   return [];
 }
 
 export function validateDaemonTaskDocumentList(value: unknown): readonly string[] {
-  if (
-    !recordWith(value, DAEMON_TASK_DOCUMENT_LIST_SCHEMA.required) ||
-    value.ok !== true ||
-    (value.status !== "ready" && value.status !== "pending") ||
-    !nonEmpty(value.taskId) ||
-    !Array.isArray(value.documents) ||
-    value.documents.some(
-      (row) =>
-        !exactRecord(row, ["path", "blobSha256", "size", "mediaType", "uncommitted"]) ||
-        !nonEmpty(row.path) ||
-        row.path.startsWith("/") ||
-        row.path.split("/").includes("..") ||
-        !/^[0-9a-f]{64}$/u.test(String(row.blobSha256)) ||
-        !integer(row.size) ||
-        !nonEmpty(row.mediaType) ||
-        typeof row.uncommitted !== "boolean",
-    ) ||
-    !integer(value.watermark) ||
-    !integer(value.sourceRevision)
-  )
-    return ["daemon task document list is invalid"];
+  const entityId = validationEntityId(value, ["taskId"], "task:<unknown>"),
+    shapeError = recordShapeError(
+      entityId,
+      value,
+      DAEMON_TASK_DOCUMENT_LIST_SCHEMA.required,
+      isJsonObject(value) ? Object.keys(value) : DAEMON_TASK_DOCUMENT_LIST_SCHEMA.required,
+    );
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  for (const [field, actual, valid, expectation] of [
+    ["ok", value.ok, value.ok === true, "must be true"],
+    ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
+    ["taskId", value.taskId, nonEmpty(value.taskId), "must be a non-empty string"],
+    ["documents", value.documents, Array.isArray(value.documents), "must be an array"],
+    ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
+    ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
+  if (!Array.isArray(value.documents)) return [];
+  const invalidIndex = value.documents.findIndex(
+    (row) =>
+      !exactRecord(row, ["path", "blobSha256", "size", "mediaType", "uncommitted"]) ||
+      !nonEmpty(row.path) ||
+      row.path.startsWith("/") ||
+      row.path.split("/").includes("..") ||
+      !/^[0-9a-f]{64}$/u.test(String(row.blobSha256)) ||
+      !integer(row.size) ||
+      !nonEmpty(row.mediaType) ||
+      typeof row.uncommitted !== "boolean",
+  );
+  if (invalidIndex >= 0)
+    return [
+      validationError(
+        entityId,
+        `documents[${invalidIndex}]`,
+        value.documents[invalidIndex],
+        "must be a valid document row",
+      ),
+    ];
   return [];
 }
 
 export function validateDaemonTaskDispatches(value: unknown): readonly string[] {
-  if (
-    !isJsonObject(value) ||
-    value.ok !== true ||
-    !["ready", "pending"].includes(String(value.status)) ||
-    !Array.isArray(value.dispatches) ||
-    !integer(value.watermark) ||
-    !integer(value.sourceRevision)
-  )
-    return ["daemon task dispatches is invalid"];
+  const entityId = validationEntityId(value, ["taskId"], "task-dispatches");
+  if (!isJsonObject(value)) return [validationError(entityId, "$", value, "must be an object")];
+  for (const [field, actual, valid, expectation] of [
+    ["ok", value.ok, value.ok === true, "must be true"],
+    ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
+    ["dispatches", value.dispatches, Array.isArray(value.dispatches), "must be an array"],
+    ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
+    ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
   const taskIds = Array.isArray(value.taskIds) ? value.taskIds : [],
     unavailableTaskIds = Array.isArray(value.unavailableTaskIds) ? value.unavailableTaskIds : [],
     single =
@@ -228,8 +266,17 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "watermark",
         "sourceRevision",
       ]);
-  if (!single && !batch) return ["daemon task dispatches is invalid"];
-  return value.dispatches.some(
+  if (!single && !batch)
+    return [
+      validationError(
+        validationEntityId(value, ["taskId"], validationEntityId({ taskId: taskIds[0] }, ["taskId"], entityId)),
+        "taskId|taskIds",
+        { taskId: value.taskId, taskIds: value.taskIds },
+        "must select one valid single or batch task scope",
+      ),
+    ];
+  if (!Array.isArray(value.dispatches)) return [];
+  const invalidIndex = value.dispatches.findIndex(
     (row) =>
       !isJsonObject(row) ||
       !nonEmpty(row.dispatchId) ||
@@ -264,26 +311,50 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
       (row.exitCode !== undefined && row.exitCode !== null && (!integer(row.exitCode) || Number(row.exitCode) < 0)) ||
       (row.dispatchPath !== undefined && row.dispatchPath !== null && !nonEmpty(row.dispatchPath)) ||
       (row.reportPath !== undefined && row.reportPath !== null && !nonEmpty(row.reportPath)),
-  )
-    ? ["daemon task dispatch row is invalid"]
+  );
+  return invalidIndex >= 0
+    ? [
+        validationError(
+          validationEntityId(value.dispatches[invalidIndex], ["dispatchId", "taskId", "runtimeSessionId"], entityId),
+          `dispatches[${invalidIndex}]`,
+          value.dispatches[invalidIndex],
+          "must be a valid dispatch row",
+        ),
+      ]
     : [];
 }
 
 export function validateDaemonProtocolError(value: unknown): readonly string[] {
-  if (
-    !recordWith(value, DAEMON_PROTOCOL_ERROR_SCHEMA.required) ||
-    value.schema !== "command-receipt/v2" ||
-    value.ok !== false ||
-    value.outcome !== "op_rejected" ||
-    value.opId !== "N/A" ||
-    value.origin !== "daemon" ||
-    !recordWith(value.error, ["code", "hint"]) ||
-    [value.command, value.code, value.evidence, value.nextAction, value.error.code, value.error.hint].some(
-      (item) => !nonEmpty(item),
-    ) ||
-    value.code !== value.error.code
-  )
-    return ["daemon protocol error is invalid"];
+  const entityId = validationEntityId(value, ["command", "opId"], "protocol-error"),
+    shapeError = recordShapeError(
+      entityId,
+      value,
+      DAEMON_PROTOCOL_ERROR_SCHEMA.required,
+      isJsonObject(value) ? Object.keys(value) : DAEMON_PROTOCOL_ERROR_SCHEMA.required,
+    );
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  for (const [field, actual, valid, expectation] of [
+    ["schema", value.schema, value.schema === "command-receipt/v2", "must match command-receipt/v2"],
+    ["ok", value.ok, value.ok === false, "must be false"],
+    ["outcome", value.outcome, value.outcome === "op_rejected", "must be op_rejected"],
+    ["opId", value.opId, value.opId === "N/A", "must be N/A"],
+    ["origin", value.origin, value.origin === "daemon", "must be daemon"],
+    ["command", value.command, nonEmpty(value.command), "must be a non-empty string"],
+    ["code", value.code, nonEmpty(value.code), "must be a non-empty string"],
+    ["evidence", value.evidence, nonEmpty(value.evidence), "must be a non-empty string"],
+    ["nextAction", value.nextAction, nonEmpty(value.nextAction), "must be a non-empty string"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
+  const errorShapeError = recordShapeError(entityId, value.error, ["code", "hint"], undefined, "error");
+  if (errorShapeError) return [errorShapeError];
+  if (!isJsonObject(value.error)) return [];
+  if (!nonEmpty(value.error.code))
+    return [validationError(entityId, "error.code", value.error.code, "must be a non-empty string")];
+  if (!nonEmpty(value.error.hint))
+    return [validationError(entityId, "error.hint", value.error.hint, "must be a non-empty string")];
+  if (value.code !== value.error.code)
+    return [validationError(entityId, "error.code", value.error.code, "must equal code")];
   return [];
 }
 
@@ -351,6 +422,7 @@ export const writeReceiptFields = [
 
 export function writeReceipt(value: JsonObject): string[] {
   const outcome = value.outcome,
+    entityId = validationEntityId(value, ["opId", "taskId", "decisionId", "command"], "receipt:<unknown>"),
     proof = isJsonObject(value.proof) ? value.proof : {},
     applied = outcome === "applied",
     pending = outcome === "pending",
@@ -363,37 +435,63 @@ export function writeReceipt(value: JsonObject): string[] {
       typeof proof.durable === "boolean" &&
       typeof proof.canonicalVisible === "boolean" &&
       (proof.worktreeVisible === null || typeof proof.worktreeVisible === "boolean");
-  return !statusWord(receiptOutcomeWords, outcome) ||
-    !nonEmpty(value.opId) ||
-    (value.revision !== undefined && (!integer(value.revision) || Number(value.revision) < 0)) ||
-    ((applied || pending || noChanges) &&
-      (!validProof || value.visibility !== "center" || !integer(value.revision) || !nonEmpty(value.evidence))) ||
-    (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut)) ||
-    (pending && !nonEmpty(value.nextAction)) ||
-    (noChanges && (![value.code, value.origin, value.nextAction].every(nonEmpty) || value.code !== "no_changes")) ||
-    (failed &&
-      (![value.code, value.origin, value.nextAction].every(nonEmpty) ||
-        (value.evidence !== undefined && !nonEmpty(value.evidence))))
-    ? ["write receipt is invalid"]
-    : [];
+  if (!statusWord(receiptOutcomeWords, outcome))
+    return [validationError(entityId, "outcome", outcome, "must be a declared receipt outcome")];
+  if (!nonEmpty(value.opId)) return [validationError(entityId, "opId", value.opId, "must be a non-empty string")];
+  if (value.revision !== undefined && (!integer(value.revision) || Number(value.revision) < 0))
+    return [validationError(entityId, "revision", value.revision, "must be a non-negative integer")];
+  if ((applied || pending || noChanges) && !validProof)
+    return [validationError(entityId, "proof", value.proof, "must be a valid committed proof")];
+  if ((applied || pending || noChanges) && value.visibility !== "center")
+    return [validationError(entityId, "visibility", value.visibility, "must be center")];
+  if ((applied || pending || noChanges) && !integer(value.revision))
+    return [validationError(entityId, "revision", value.revision, "must be an integer")];
+  if ((applied || pending || noChanges) && !nonEmpty(value.evidence))
+    return [validationError(entityId, "evidence", value.evidence, "must be a non-empty string")];
+  if (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut))
+    return [validationError(entityId, "proof", value.proof, "must prove durable canonical visibility at one cut")];
+  if (pending && !nonEmpty(value.nextAction))
+    return [validationError(entityId, "nextAction", value.nextAction, "must be a non-empty string")];
+  if (noChanges) {
+    for (const field of ["code", "origin", "nextAction"] as const)
+      if (!nonEmpty(value[field]))
+        return [validationError(entityId, field, value[field], "must be a non-empty string")];
+    if (value.code !== "no_changes") return [validationError(entityId, "code", value.code, "must be no_changes")];
+  }
+  if (failed) {
+    for (const field of ["code", "origin", "nextAction"] as const)
+      if (!nonEmpty(value[field]))
+        return [validationError(entityId, field, value[field], "must be a non-empty string")];
+    if (value.evidence !== undefined && !nonEmpty(value.evidence))
+      return [validationError(entityId, "evidence", value.evidence, "must be absent or non-empty")];
+  }
+  return [];
 }
 
 export function validateDaemonGuiCommandReceipt(value: unknown): readonly string[] {
-  if (!isJsonObject(value)) return ["GUI command receipt must be an object"];
+  const entityId = validationEntityId(
+    value,
+    ["opId", "taskId", "decisionId", "runtimeSessionId", "command"],
+    "receipt:<unknown>",
+  );
+  if (!isJsonObject(value)) return [validationError(entityId, "$", value, "must be an object")];
   const allowed = ["schema", "ok", "command", ...writeReceiptFields, ...guiReceiptExtensions],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
     ) as JsonObject,
     ok = value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes",
-    errors =
-      Object.keys(value).some((field) => !allowed.includes(field)) ||
-      value.schema !== "command-receipt/v2" ||
-      typeof value.ok !== "boolean" ||
-      value.ok !== ok ||
-      !nonEmpty(value.command) ||
-      !daemonGuiActionMethods.some(({ actionKind }) => actionKind === value.command)
-        ? ["GUI command receipt envelope is invalid"]
-        : writeReceipt(receipt);
+    unknown = Object.keys(value).find((field) => !allowed.includes(field)),
+    errors: string[] = [];
+  if (unknown) errors.push(validationError(entityId, unknown, value[unknown], "field is not declared"));
+  else if (value.schema !== "command-receipt/v2")
+    errors.push(validationError(entityId, "schema", value.schema, "must match command-receipt/v2"));
+  else if (typeof value.ok !== "boolean") errors.push(validationError(entityId, "ok", value.ok, "must be a boolean"));
+  else if (value.ok !== ok) errors.push(validationError(entityId, "ok", value.ok, `must be ${ok}`));
+  else if (!nonEmpty(value.command))
+    errors.push(validationError(entityId, "command", value.command, "must be a non-empty string"));
+  else if (!daemonGuiActionMethods.some(({ actionKind }) => actionKind === value.command))
+    errors.push(validationError(entityId, "command", value.command, "must name a declared GUI action"));
+  else errors.push(...writeReceipt(receipt));
   if (
     (value.ok === false &&
       (!exactRecord(value.error, ["code", "hint"]) ||
@@ -402,7 +500,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
         value.error.code !== value.code)) ||
     (value.ok === true && value.error !== undefined)
   )
-    errors.push("GUI command receipt error is invalid");
+    errors.push(validationError(entityId, "error", value.error, "must match the rejected receipt code"));
   const decisionFields = ["path", "commitSha", "documentSha256", "worktreeVisible", "consentId"],
     decision =
       (["decision-propose", "decision-accept", "decision-reject", "decision-defer"].includes(String(value.command)) &&
@@ -419,7 +517,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       value.worktreeVisible !== true ||
       (value.consentId !== null && !nonEmpty(value.consentId)))
   )
-    errors.push("decision receipt fidelity is invalid");
+    errors.push(validationError(entityId, "decisionReceipt", value, "must carry complete decision fidelity fields"));
   return errors;
 }
 

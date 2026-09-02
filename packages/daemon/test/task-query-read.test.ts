@@ -170,14 +170,11 @@ test("task snapshot list isolates an invalid row and continues serving valid row
     result.rows.map(({ taskId }) => taskId),
     ["task_valid"],
   );
-  assert.deepEqual(result.invalidRows, [
-    {
-      rowIndex: 1,
-      taskId: "task_invalid",
-      field: "rows[1].snapshot.codeDocWitnesses[0]",
-      message: "Task snapshot field is invalid.",
-    },
-  ]);
+  assert.deepEqual(
+    result.invalidRows.map(({ message: _message, ...diagnostic }) => diagnostic),
+    [{ rowIndex: 1, taskId: "task_invalid", field: "rows[1].snapshot.codeDocWitnesses[0]" }],
+  );
+  assert.match(result.invalidRows[0]!.message, /^actual=.*Task snapshot field is invalid\.$/u);
 });
 
 test("a surface fails closed instead of stitching mismatched projection cuts", () => {
@@ -201,12 +198,12 @@ test("task reads fail closed when event truth has no packageDisposition", () => 
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {
   const result = queryRead(process.cwd(), projectionStub()).relationGraph();
   assert.deepEqual(validateDaemonRelationGraph(result), []);
-  assert.deepEqual(
-    validateDaemonRelationGraph({ ...result, projection: { schema: "event-projection-cut/v1", ...readyCut } }),
-    ["daemon relation graph is invalid"],
+  assert.match(
+    validateDaemonRelationGraph({ ...result, projection: { schema: "event-projection-cut/v1", ...readyCut } })[0]!,
+    /entity=.*field=projection .*actual=/u,
   );
   const { sourceRevision: _sourceRevision, ...missingCut } = result;
-  assert.deepEqual(validateDaemonRelationGraph(missingCut), ["daemon relation graph is invalid"]);
+  assert.match(validateDaemonRelationGraph(missingCut)[0]!, /entity=.*field=sourceRevision .*actual=/u);
 });
 
 function queryRead(rootDir: string, projection: TaskProjection) {

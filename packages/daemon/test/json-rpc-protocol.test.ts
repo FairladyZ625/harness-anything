@@ -42,6 +42,13 @@ import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 
+function assertValidationDiagnostic(errors: readonly string[], entity: RegExp, field: string): void {
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]!, entity);
+  assert.match(errors[0]!, new RegExp(`field=${field.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?: |$)`, "u"));
+  assert.match(errors[0]!, /actual=/u);
+}
+
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const repoWriteBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
 
@@ -156,9 +163,15 @@ test("protocol hello accepts only runtime identity and executor-attribution vari
   const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
   assert.equal(hello().ok, true);
   assert.equal(hello({ CLAUDE_CODE_SESSION_ID: "claude-session", CODEX_THREAD_ID: "codex-thread", CODEX_SESSION_ID: "codex-thread", HARNESS_ACTOR: "agent:worker" }).ok, true);
-  assert.deepEqual(hello({ CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }), { ok: false, errors: ["session environment contains an unknown field \"CLAUDE_CODE_HOST_SESSION_ID\"; allowed fields: \"CLAUDE_CODE_SESSION_ID\", \"CODEX_THREAD_ID\", \"CODEX_SESSION_ID\", \"HARNESS_ACTOR\"."] });
-  assert.deepEqual(hello({ CODEX_THREAD_ID: " " }), { ok: false, errors: ["session environment values must be non-empty strings"] });
-  assert.deepEqual(hello({ HARNESS_ACTOR: "person:spoof" }), { ok: false, errors: ["session environment HARNESS_ACTOR must use agent:<id>"] });
+  for (const [input, field] of [
+    [{ CLAUDE_CODE_HOST_SESSION_ID: "local-wrong" }, "sessionEnvironment.CLAUDE_CODE_HOST_SESSION_ID"],
+    [{ CODEX_THREAD_ID: " " }, "sessionEnvironment.CODEX_THREAD_ID"],
+    [{ HARNESS_ACTOR: "person:spoof" }, "sessionEnvironment.HARNESS_ACTOR"],
+  ] as const) {
+    const result = hello(input);
+    assert.equal(result.ok, false);
+    if (!result.ok) assertValidationDiagnostic(result.errors, /entity=/u, field);
+  }
 });
 
 // prettier-ignore
@@ -211,15 +224,15 @@ test("relation graph contract accepts the materialized ledger row schema and rej
   const cut = { status: "ready", watermark: 7, sourceRevision: 7 }, payload = { ok: true, ...cut, edges: [{ relationId: "rel_real", sourceRef: "decision/dec_REAL/C1", targetRef: "fact/F-REAL", relationType: "evidenced-by", direction: "directed", strength: "strong", origin: "declared", state: "active", rationale: "Observed.", ownerRef: "decision/dec_REAL", sourcePath: "harness/decisions/decision-dec_REAL/decision.md", recordIndex: 0 }], coverageRows: [{ decisionRef: "decision/dec_REAL", claimRef: "decision/dec_REAL/C1", status: "covered", fulfillment: "standing-policy", relationPath: ["rel_real"] }], factAnchors: [{ factRef: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", sourcePath: "harness/facts/F-REAL.md" }], facts: [{ schema: "task-fact-row/v1", ref: "fact/F-REAL", taskId: "task_REAL", factId: "F-REAL", statement: "Real observation.", source: "harness/facts/F-REAL.md", observedAt: "2026-08-14T00:00:00.000Z", confidence: "high", memoryClass: "semantic", memoryTags: [], provenance: [], liveness: "standing" }], warnings: [] };
   assert.deepEqual(validateDaemonRelationGraph(payload), []);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, page: { limit: 25, cursor: null, nextCursor: "WyJyZWxfcmVhbCJd" } }), []);
-  assert.deepEqual(validateDaemonRelationGraph({ ...payload, page: { limit: 0, cursor: null, nextCursor: null } }), ["daemon relation graph is invalid"]);
-  assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], fulfillment: "standing_policy" }] }), ["daemon relation graph is invalid"]);
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, page: { limit: 0, cursor: null, nextCursor: null } }), /relation-graph:full/u, "page");
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], fulfillment: "standing_policy" }] }), /decision\/dec_REAL/u, "coverageRows[0]");
   // The optional uncovered-cause classification is accepted per registered word and
   // rejected on garbage; absence (older daemons, covered rows) stays valid.
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "fulfillment-undeclared" }] }), []);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "no-live-evidence" }] }), []);
   assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "refuted", refutingFactRefs: ["fact/F-REAL"] }] }), []);
-  assert.deepEqual(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "stale" }] }), ["daemon relation graph is invalid"]);
-  const { observedAt: _observedAt, ...missingObservedAt } = payload.facts[0]; assert.deepEqual(validateDaemonRelationGraph({ ...payload, facts: [missingObservedAt] }), ["daemon relation graph is invalid"]);
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, coverageRows: [{ ...payload.coverageRows[0], status: "uncovered", fulfillment: null, freshnessReason: "stale" }] }), /decision\/dec_REAL/u, "coverageRows[0]");
+  const { observedAt: _observedAt, ...missingObservedAt } = payload.facts[0]; assertValidationDiagnostic(validateDaemonRelationGraph({ ...payload, facts: [missingObservedAt] }), /F-REAL/u, "facts[0]");
   const empty = { edges: [], coverageRows: [], factAnchors: [], facts: [] };
   const facets = [
     { ok: true, ...cut, facet: "edges", ...empty, edges: payload.edges, warnings: [] },
@@ -228,10 +241,10 @@ test("relation graph contract accepts the materialized ledger row schema and rej
     { ok: true, ...cut, facet: "factAnchors", ...empty, factAnchors: payload.factAnchors, warnings: [] },
   ];
   for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph(facet), [], String(facet.facet));
-  assert.deepEqual(validateDaemonRelationGraph({ ...facets[0], facet: "unknown" }), ["daemon relation graph is invalid"]);
-  assert.deepEqual(validateDaemonRelationGraph({ ...facets[1], extra: true }), ["daemon relation graph is invalid"]);
-  assert.deepEqual(validateDaemonRelationGraph({ ...facets[2], facts: facets[1]!.facts }), ["daemon relation graph is invalid"]);
-  assert.deepEqual(validateDaemonRelationGraph({ ...facets[1], facts: [{ ...facets[1]!.facts[0], category: "semantic" }] }), ["daemon relation graph is invalid"]);
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[0], facet: "unknown" }), /relation-graph:unknown/u, "facet");
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[1], extra: true }), /relation-graph:facts/u, "extra");
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[2], facts: facets[1]!.facts }), /relation-graph:coverageRows/u, "facts");
+  assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[1], facts: [{ ...facets[1]!.facts[0], category: "semantic" }] }), /F-REAL/u, "facts[0]");
 });
 
 // prettier-ignore
@@ -1171,11 +1184,11 @@ test("decision readiness survives the wire when the canonical Git cut is unavail
   assert.deepEqual(validateDaemonDecisionList({ ...decisionList(noCut[0]!), projection: "full" }), []);
   const summary = { ok: true, projection: "summary", decisions: [{ decisionId: "dec_1", title: "Title", state: "in_effect", appliesTo: { modules: ["daemon"], productLines: ["gui"] } }], warnings: [] };
   assert.deepEqual(validateDaemonDecisionList(summary), []);
-  assert.deepEqual(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, readiness: noCut[0] }] }), ["daemon decision list is invalid"]);
-  assert.deepEqual(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, state: "unknown" }] }), ["daemon decision list is invalid"]);
+  assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, readiness: noCut[0] }] }), /dec_1/u, "decisions[0]");
+  assertValidationDiagnostic(validateDaemonDecisionList({ ...summary, decisions: [{ ...summary.decisions[0]!, state: "unknown" }] }), /dec_1/u, "decisions[0]");
 
   const verdictWithoutBasis = { ...noCut[0]!, appliesToDrift: { ...noCut[0]!.appliesToDrift, state: "clear" as const } };
-  assert.deepEqual(validateDaemonDecisionList(decisionList(verdictWithoutBasis)), ["daemon decision list is invalid"]);
+  assertValidationDiagnostic(validateDaemonDecisionList(decisionList(verdictWithoutBasis)), /dec_1/u, "decisions[0]");
 });
 
 // A flag can be declared on the init command, parsed by the CLI, and honored by the bootstrap
