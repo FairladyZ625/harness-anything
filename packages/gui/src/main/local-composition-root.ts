@@ -132,10 +132,8 @@ const SOCKET_ABSENT_CODES = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK", "EACC
 // daemon and must keep its own code, otherwise every failure prints the attach-only advice.
 function failure(method: string, prefix: string, error: unknown): JsonObject {
   const message = error instanceof Error ? error.message : String(error),
-    raw =
-      error instanceof Error && typeof (error as { code?: unknown }).code === "string"
-        ? (error as { code: string }).code
-        : null,
+    rawCode = error instanceof Error ? (error as { readonly code?: unknown }).code : undefined,
+    raw = typeof rawCode === "string" ? rawCode : null,
     code =
       message === "daemon_unavailable" || (raw !== null && SOCKET_ABSENT_CODES.has(raw))
         ? "daemon_unavailable"
