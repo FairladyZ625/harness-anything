@@ -7,6 +7,8 @@ import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import { deriveRelationId } from "../../src/domain/entity-relation.ts";
+import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
@@ -29,7 +31,9 @@ function initRepo(rootDir: string): void {
 test("projected snapshot.task never hosts legacy relations or longRunning fields", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "normalize-repo", rootDir }),
+    const canonicalEventStore = makeTaskEventStore({ repoId: "normalize-repo", rootDir });
+    let eventStreamHead: ReturnType<typeof canonicalEventStore.readHead> = null;
+    const eventStore = { ...canonicalEventStore, readHead: () => eventStreamHead },
       projection = makeTaskProjection({ rootDir, eventStore }),
       created = lifecycleFixture().events[0]!,
       relationIdentity = {
@@ -71,7 +75,13 @@ test("projected snapshot.task never hosts legacy relations or longRunning fields
         },
       },
     } as unknown as TaskEventV1;
-    projection.apply(event, taskLifecycleWritePlan(event));
+    const plan = taskLifecycleWritePlan(event);
+    eventStreamHead = {
+      revision: event.workspaceRevision,
+      opId: event.opId,
+      eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+    };
+    projection.apply(event, plan);
     const rows = projection.list().rows;
     assert.equal(rows.length, 1);
     const task = rows[0]!.snapshot.task as Record<string, unknown> | null;

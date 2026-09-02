@@ -135,6 +135,7 @@ test("Replay accepts a document today's renderer no longer reproduces, as long a
       },
     };
     fixture.blobs.set(legacySha, Buffer.from(legacyBody, "utf8"));
+    fixture.appendEvent(event);
     fixture.projection.apply(event, decisionWritePlan(event));
     assert.equal(
       fixture.projection.readDecision("dec_LEGACY_RENDER").decision?.decisionId,
