@@ -402,7 +402,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     payload.factRetirementAttestations !== undefined &&
     (!Array.isArray(payload.factRetirementAttestations) ||
       payload.factRetirementAttestations.length === 0 ||
-      payload.factRetirementAttestations.some((attestation) => !validFactStillHoldsAttestation(attestation)))
+      payload.factRetirementAttestations.some(
+        (attestation) => !validFactStillHoldsAttestation(attestation, allowUnknownFields),
+      ))
   )
     issues.push(invalidEventPayloadIssue("task completion Fact retirement attestations are invalid"));
   if (

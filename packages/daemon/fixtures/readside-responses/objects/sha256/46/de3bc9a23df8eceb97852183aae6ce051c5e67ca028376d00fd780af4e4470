@@ -1,0 +1,32 @@
+---
+schema: decision-package/v1
+decision_id: dec_FIXTURE_DIGEST
+workspaceRevision: 11
+title: "Canonical Decision"
+state: in_effect
+riskTier: medium
+urgency: medium
+vertical: "test"
+preset: "default"
+decisionClass: ordinary
+applies_to: {"modules":["kernel"],"productLines":[]}
+proposer: {"executor":null,"principal":{"personId":"person-fixture"}}
+arbiter: {"executor":null,"principal":{"personId":"person-fixture"}}
+proposedAt: "2026-08-13T00:00:00.000Z"
+decidedAt: "2026-08-13T00:00:01.000Z"
+provenance: []
+question: "Is this event-backed?"
+chosen: [{"id":"CH1","text":"Use events"}]
+rejected: [{"id":"RJ1","text":"Use files","whyNot":"Files are not canonical."}]
+claims: []
+judgmentConsents: [{"action":"accept","actor":{"executor":null,"principal":{"personId":"person-fixture"}},"consentId":"djc_d650ea008e91162b38e6f66cac","consentedAt":"2026-08-13T00:00:01.000Z","decisionId":"dec_FIXTURE_DIGEST","machineDigest":"sha256:07fdb858759592c6bb650efe10236e6d75e8fe8180f84961115fcfc5ee83fd64","schema":"decision-judgment-consent/v1","source":"local","targetState":"in_effect"}]
+contentPins: [{"action":"accept","actor":{"executor":null,"principal":{"personId":"person-fixture"}},"digest":"sha256:07fdb858759592c6bb650efe10236e6d75e8fe8180f84961115fcfc5ee83fd64","evidence":"Independent approval.","pinId":"dcp_d650ea008e91162b38e6f66cac","pinnedAt":"2026-08-13T00:00:01.000Z","schema":"decision-content-pin/v1","state":"in_effect"}]
+---
+
+# Canonical Decision
+
+This fixture records concrete decision prose before exercising the canonical acceptance transition.
+
+## Judgment-only acceptance
+
+Explicit judgment-only approval.

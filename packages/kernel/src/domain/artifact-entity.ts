@@ -230,8 +230,11 @@ export function artifactEntityContractSnapshot(input: {
   });
 }
 
-export function artifactEntityContractFromSnapshot(snapshot: unknown): EntityStoreKindContract {
-  const decoded = decodeArtifactEntityContractSnapshot(snapshot),
+export function artifactEntityContractFromSnapshot(
+  snapshot: unknown,
+  allowUnknownFields = false,
+): EntityStoreKindContract {
+  const decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
     identity = Object.freeze({
       field: "entityId",
       pattern: `^${decoded.idPrefix}-[a-f0-9]{16}$`,
@@ -260,11 +263,14 @@ export function artifactEntityContractFromSnapshot(snapshot: unknown): EntitySto
   });
 }
 
-export function decodeArtifactEntityContractSnapshot(value: unknown): ArtifactEntityContractSnapshot {
+export function decodeArtifactEntityContractSnapshot(
+  value: unknown,
+  allowUnknownFields = false,
+): ArtifactEntityContractSnapshot {
   const fields = ["schema", "typeIdentity", "descriptorSchemaRef", "idPrefix", "pathTemplate", "locatorKinds"];
   if (
     !isRecord(value) ||
-    Object.keys(value).some((field) => !fields.includes(field)) ||
+    (!allowUnknownFields && Object.keys(value).some((field) => !fields.includes(field))) ||
     fields.some((field) => !Object.hasOwn(value, field)) ||
     value.schema !== "artifact-entity-contract/v1" ||
     typeof value.typeIdentity !== "string" ||
