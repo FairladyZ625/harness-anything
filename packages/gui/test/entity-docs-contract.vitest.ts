@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   isAllowedRelationKindTriple,
@@ -7,8 +8,6 @@ import {
   type EntityRefKind,
   type RelationType,
 } from "../../kernel/src/index.ts";
-import decisionPackageSchema from "../../kernel/schemas/json/decision-package.schema.json";
-import factEventSchema from "../../kernel/schemas/json/fact-event.schema.json";
 import {
   checkEntityDocContract,
   explainEntityKind,
@@ -21,6 +20,13 @@ import {
   entityDocKinds,
 } from "../src/renderer/entity-docs.ts";
 import type { EntityFieldDoc } from "../src/renderer/entity-docs.ts";
+
+const decisionPackageSchema = JSON.parse(
+  readFileSync(new URL("../../kernel/schemas/json/decision-package.schema.json", import.meta.url), "utf8"),
+) as { $defs: Record<string, { required?: string[]; properties: Record<string, unknown> }> };
+const factEventSchema = JSON.parse(
+  readFileSync(new URL("../../kernel/schemas/json/fact-event.schema.json", import.meta.url), "utf8"),
+) as { properties: { payload: { required?: string[]; properties: Record<string, unknown> } } };
 
 /**
  * 实体说明面的内容契约:说明目录逐项对照 kernel 实况——字段名、必填位、

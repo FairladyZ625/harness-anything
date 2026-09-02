@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /**
  * Projects the machine half of the GUI entity explainer catalog from the kernel
  * entity kind registry.
