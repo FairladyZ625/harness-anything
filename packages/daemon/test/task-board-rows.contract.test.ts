@@ -205,6 +205,7 @@ const dependsOnEdge = {
   relationType: "depends-on" as const,
   direction: "directed" as const,
   strength: "strong" as const,
+  freshness: "current" as const,
   origin: "declared" as const,
   state: "active" as const,
   rationale: "Board fixture blocker",

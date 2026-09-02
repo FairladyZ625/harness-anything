@@ -42,7 +42,8 @@ function roleContext(role: string, roleActor = actor): AuthorizationContext {
 test("the default Policy covers the frozen durable inventory exactly once", () => {
   // 这个数字是有意手写的安全棘轮:durable inventory 就是授权面,它变大必须有人显式确认一次。
   // 从数组自算会退化成恒等式,任何新增 Action 都自动放行——那正是这条断言要防的事。
-  assert.equal(durablePolicyActions.length, 106);
+  // 2026-09-02 W1-D:Relation reconfirm 进入 durable inventory(CEO 确认),106 → 107。
+  assert.equal(durablePolicyActions.length, 107);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);
