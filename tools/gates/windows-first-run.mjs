@@ -96,9 +96,7 @@ export function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SETTLE_MS
       `daemon still answering ${stopSettleMs}ms after a successful stop`);
   } finally {
     harness(entry, repo, env, ["daemon", "stop"]);
-    // Windows may keep daemon-owned handles alive briefly after the stop receipt. Bounded
-    // retries make cleanup deterministic without hiding a failed product assertion above.
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    rmSync(root, { recursive: true, force: true });
   }
   return { ok: errors.length === 0, errors, checks };
 }
