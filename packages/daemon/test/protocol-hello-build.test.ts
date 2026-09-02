@@ -41,7 +41,7 @@ test("protocol.hello answers with the daemon's build stamp", async () => {
   }
 });
 
-test("protocol.hello keeps serving a drifted build to attach-only callers and steps aside only for a restarting caller", async () => {
+test("protocol.hello reports a drifted build and keeps serving while work drains", async () => {
   let shutdowns = 0;
   const server = createJsonRpcProtocolServer({
     host: {} as never,
@@ -60,30 +60,36 @@ test("protocol.hello keeps serving a drifted build to attach-only callers and st
     requestShutdown: () => {
       shutdowns += 1;
     },
+    buildDrainStatus: () => ({ liveRuntimeSessions: 2, pendingWrites: 1, attachingRepositories: 1 }),
   });
   try {
-    const attachOnly = await server.handle({
+    const hello = await server.handle({
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
       params: { protocolVersion: currentDaemonProtocolVersion },
     });
     assert.equal(
-      (attachOnly as { readonly result: { readonly ok: boolean } }).result.ok,
+      (hello as { readonly result: { readonly ok: boolean } }).result.ok,
       true,
-      "the GUI never restarts the daemon, so drift must not make the daemon leave it",
+      "build drift is diagnostic state, not a rejected handshake",
     );
+    const warning = (
+      hello as {
+        readonly result: {
+          readonly warning: {
+            readonly code: string;
+            readonly liveRuntimeSessions: number;
+            readonly pendingWrites: number;
+          };
+        };
+      }
+    ).result.warning;
+    assert.equal(warning.code, "daemon_build_stale");
+    assert.equal(warning.liveRuntimeSessions, 2);
+    assert.equal(warning.pendingWrites, 1);
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(shutdowns, 0);
-    const restarting = await server.handle({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion, restartStaleDaemon: true },
-    });
-    assert.equal((restarting as { readonly result: { readonly code: string } }).result.code, "daemon_build_stale");
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(shutdowns, 1);
+    assert.equal(shutdowns, 0, "the handshake must never stop a daemon with work still in flight");
   } finally {
     server.close();
   }

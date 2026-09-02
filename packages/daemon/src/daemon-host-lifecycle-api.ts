@@ -26,6 +26,9 @@ export function createDaemonHostLifecycleApi(
             lastError: null,
             causeClass: null,
           })),
+        attachedRepos = context.cells.size + context.unavailable.size,
+        attachTotal = attachedRepos + context.warming.size,
+        attachProgress = context.warming.size > 0 ? ` attaching ${String(attachedRepos)}/${String(attachTotal)}` : "",
         base = [
           "daemon status: pid=",
           `${process.pid}`,
@@ -35,7 +38,7 @@ export function createDaemonHostLifecycleApi(
           entry,
           " commit=",
           build.commit ?? "unknown",
-          "",
+          attachProgress,
         ].join(""),
         summary = observedBuild.drifted
           ? [
@@ -45,8 +48,9 @@ export function createDaemonHostLifecycleApi(
               `${observedBuild.loadedBuildId ?? "missing"}`,
               " while disk has ",
               `${observedBuild.diskBuildId ?? "missing"}`,
-              "; it will keep serving the loaded build. Run `ha daemon stop`; the next ",
-              "command will autostart the disk build.",
+              "; it will keep serving the loaded build until live runtime sessions and ",
+              "queued writes drain, then exit; no `ha daemon stop` is required. ",
+              "The next command will autostart the disk build.",
             ].join("")
           : base;
       return {

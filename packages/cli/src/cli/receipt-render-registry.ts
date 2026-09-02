@@ -35,6 +35,17 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
 
 export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliReceipt {
+  const rendered = renderCliReceiptBase(receipt),
+    daemonBuild =
+      receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
+        ? (receipt.daemonBuild as Record<string, unknown>)
+        : null;
+  return daemonBuild?.code === "daemon_build_stale" && typeof daemonBuild.message === "string"
+    ? { ...rendered, text: `${rendered.text}\nwarning: ${daemonBuild.message}` }
+    : rendered;
+}
+
+function renderCliReceiptBase(receipt: Record<string, unknown>): RenderedCliReceipt {
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt) };
   const preOutcomeRenderer =

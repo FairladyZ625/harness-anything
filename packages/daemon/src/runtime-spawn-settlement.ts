@@ -188,16 +188,6 @@ export async function publishExit(
         `${active.dispatchOpId}-exited`,
         terminalBinding,
       );
-    context.input.recordLifecycle?.({
-      event: "runtime_exit",
-      runtimeSessionId: active.runtimeSessionId,
-      dispatchId: active.dispatchId,
-      pid: active.process.pid,
-      exitCode: active.lossExitCode ?? (cancelled ? null : code),
-      signal: active.lossSignal,
-      outcome: active.lossReason ? "lost" : outcome,
-      reason: active.lossReason,
-    });
     const outcomeEvent = await context.publishRuntimeEvent(
       "runtime_session_outcome_observed",
       {
@@ -213,6 +203,18 @@ export async function publishExit(
       body,
     );
     context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+    // This lifecycle boundary is the daemon's drain signal, so it follows the terminal outcome
+    // write rather than merely the native process exit.
+    context.input.recordLifecycle?.({
+      event: "runtime_exit",
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      pid: active.process.pid,
+      exitCode: active.lossExitCode ?? (cancelled ? null : code),
+      signal: active.lossSignal,
+      outcome: active.lossReason ? "lost" : outcome,
+      reason: active.lossReason,
+    });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")

@@ -304,7 +304,7 @@ async function status(
     resolved = null;
   }
   const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
-    result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
+    result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, undefined, undefined, true);
   const target = {
       endpoint,
       daemonId,
