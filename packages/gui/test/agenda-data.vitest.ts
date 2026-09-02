@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readAgenda } from "../src/renderer/agenda-data.ts";
+import { AGENDA_REFRESH_INTERVAL_MS, agendaQuery, readAgenda } from "../src/renderer/agenda-data.ts";
 import { harnessClient, type AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaRead } from "../src/api/renderer-dto.ts";
 
@@ -92,5 +92,18 @@ describe("agenda read discipline", () => {
     );
     const pending = await readAgenda("repo-a");
     expect(pending.status).toBe("pending");
+  });
+});
+
+describe("agenda refresh cadence", () => {
+  it("polls only to finish an open cursor window; a settled agenda waits for the ledger cut", () => {
+    const interval = agendaQuery("repo-a").refetchInterval as (query: {
+      readonly state: { readonly data?: Partial<AgendaSuccess> };
+    }) => number | false;
+    expect(interval({ state: { data: { page: { nextCursor: "c2" } } as Partial<AgendaSuccess> } })).toBe(
+      AGENDA_REFRESH_INTERVAL_MS,
+    );
+    expect(interval({ state: { data: { page: { nextCursor: null } } as Partial<AgendaSuccess> } })).toBe(false);
+    expect(interval({ state: {} })).toBe(false);
   });
 });

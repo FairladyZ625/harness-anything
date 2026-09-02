@@ -61,7 +61,9 @@ describe("GUI S3 R1 repository isolation", () => {
       await observer.refetch();
       await vi.advanceTimersByTimeAsync(20_000);
       expect(read).toHaveBeenCalledTimes(1);
-      expect(options.refetchOnWindowFocus).toBe("always");
+      // Focus refetches past staleTime only; an immediate refresh on focus comes through the ledger
+      // probe (taskListQuery is "always") advancing the cut, not from every read re-probing itself.
+      expect(options.refetchOnWindowFocus).toBe(true);
     } finally {
       unsubscribe();
       client.clear();

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
+import { runtimeQueryKeys } from "./agent-runtime-client.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 export const LEDGER_REFRESH_INTERVAL_MS = 2_000;
@@ -19,6 +20,9 @@ export function taskListQuery(repoId: string) {
     queryFn: () => readTaskList(repoId),
     staleTime: 10_000,
     refetchInterval: LEDGER_REFRESH_INTERVAL_MS,
+    // This list is the one ledger probe: its interval and an immediate re-probe on focus are what
+    // advance the cut, and a changed cut fans out to every dependent read (invalidateLedgerDependents).
+    // Dependent reads therefore need neither their own timer nor an unconditional focus refetch.
     refetchOnWindowFocus: "always" as const,
   };
 }
@@ -125,6 +129,8 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     queryClient.invalidateQueries({ queryKey: ["triadic", repoId], refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.dispatchesAll(repoId), refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.overviewAll(repoId), refetchType: "active" }),
   ]);
 }
 

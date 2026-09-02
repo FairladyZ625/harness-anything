@@ -15,8 +15,11 @@ export function agendaQuery(repoId: string) {
     queryKey: agendaQueryKeys.read(repoId),
     queryFn: () => readAgenda(repoId),
     staleTime: 10_000,
-    refetchInterval: AGENDA_REFRESH_INTERVAL_MS,
-    refetchOnWindowFocus: "always" as const,
+    // The interval only carries an unfinished cursor read to completion; a settled agenda is
+    // refetched by the ledger cut (invalidateLedgerDependents), not by its own timer.
+    refetchInterval: (query: { readonly state: { readonly data?: AgendaSuccess } }) =>
+      query.state.data?.page?.nextCursor ? AGENDA_REFRESH_INTERVAL_MS : false,
+    refetchOnWindowFocus: true,
   };
 }
 

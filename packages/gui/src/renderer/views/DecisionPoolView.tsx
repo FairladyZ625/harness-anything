@@ -233,7 +233,7 @@ export function DecisionPoolView({
         ...(productLineFilter !== "all" ? { productLine: productLineFilter } : {}),
       }),
     enabled: remoteEnabled,
-    staleTime: 0,
+    staleTime: 4_000,
   });
   const remoteIds = remote.data?.status === "ready" ? new Set(remote.data.decisionIds) : null;
   const currentGroup = summary.groups.find((group) => group.id === tab) ?? summary.groups[0]!;
