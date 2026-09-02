@@ -171,7 +171,19 @@ export async function performOpenRegistered(
 
 export async function refreshRegistry(context: DaemonHostRegistryContext): Promise<void> {
   const registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
-    enabled = new Map(registry.repos.filter((repo) => repo.state === "enabled").map((repo) => [repo.repoId, repo])),
+    enabledRepos = registry.repos.filter(
+      (
+        repo,
+      ): repo is typeof repo & {
+        readonly canonicalRoot: string;
+        readonly authoredBranch: string;
+      } =>
+        repo.state === "enabled" &&
+        repo.mode !== "remote-proxy" &&
+        repo.canonicalRoot !== null &&
+        repo.authoredBranch !== null,
+    ),
+    enabled = new Map(enabledRepos.map((repo) => [repo.repoId, repo])),
     invalid = new Map(
       registry.invalidRepos
         .filter((repo) => repo.state !== "disabled")

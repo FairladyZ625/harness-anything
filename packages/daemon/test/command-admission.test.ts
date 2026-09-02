@@ -49,6 +49,7 @@ test("observe.tail declares direct admission and named source residency for ever
   const command = observeTailReadMethod;
   assert.deepEqual(command.admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "direct",
     "remote-edge": "direct",
   });
@@ -59,7 +60,11 @@ test("observe.tail declares direct admission and named source residency for ever
     dispatch: "runtime-local",
   });
   for (const mode of daemonRepoModeWords)
-    assert.equal(admitRepoMode(mode, command, localSource).ok, true, `observe.tail ${mode} direct fixture`);
+    assert.equal(
+      admitRepoMode(mode, command, localSource).ok,
+      mode !== "remote-proxy",
+      `observe.tail ${mode} ${mode === "remote-proxy" ? "rejected locally" : "direct"} fixture`,
+    );
 });
 
 test("Schedule descriptors derive all three mode routes without a CLI mode branch", () => {
@@ -67,17 +72,20 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
   for (const id of ["schedule-create", "schedule-update", "schedule-delete", "schedule-enable", "schedule-disable"])
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
+      "remote-proxy": "rejected",
       "remote-center": "via-assignment",
       "remote-edge": "via-center-forward",
     });
   for (const id of ["schedule-list", "schedule-runs", "schedule-show"])
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
+      "remote-proxy": "rejected",
       "remote-center": "direct",
       "remote-edge": "via-center-forward",
     });
   assert.deepEqual(byId.get("schedule-run-now")?.admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "via-assignment",
     "remote-edge": "direct",
   });
@@ -89,11 +97,13 @@ test("Settings CLI read uses the common read topology while update forwards from
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
   assert.deepEqual(byId.get("settings-read")?.admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "direct",
     "remote-edge": "direct",
   });
   assert.deepEqual(byId.get("settings-update")?.admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "direct",
     "remote-edge": "via-center-forward",
   });
@@ -105,6 +115,7 @@ test("Artifact import forwards edge observations into the center single-writer q
   const command = daemonProtocolCommands.find(({ id }) => id === "entity-import");
   assert.deepEqual(command?.admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "via-assignment",
     "remote-edge": "via-center-forward",
   });
@@ -115,6 +126,7 @@ test("Settings locale-only updates use local admission while repository fields k
   const descriptor = new Map(daemonProtocolCommands.map((command) => [command.id, command])).get("settings-update")!;
   assert.deepEqual(entityActionCommandTopology(descriptor, { kind: "settings-update", locale: "zh-CN" }).admission, {
     local: "direct",
+    "remote-proxy": "rejected",
     "remote-center": "direct",
     "remote-edge": "direct",
   });
@@ -144,6 +156,7 @@ test("People mutations are admin Actions and forward from an edge", () => {
   ]) {
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
+      "remote-proxy": "rejected",
       "remote-center": "direct",
       "remote-edge": "via-center-forward",
     });

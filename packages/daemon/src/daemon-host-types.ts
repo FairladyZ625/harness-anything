@@ -13,8 +13,10 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { type RepoCell, type RepoCellStatus, type RepoTaskAction, type RuntimeIngressAction } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import type { RemoteProxyManager } from "./remote-proxy.ts";
 
 export interface DaemonHost {
+  readonly remoteProxy: RemoteProxyManager;
   readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
   readonly presetRun: (
     repoId: string,
@@ -95,11 +97,38 @@ export interface DaemonHost {
     request:
       | {
           readonly kind: "register";
-          readonly rootDir: string;
+          readonly rootDir?: string;
           readonly repoId: string;
+          readonly displayName?: string;
           readonly mode?: DaemonRepoMode;
+          readonly endpoint?: string;
+          readonly connectionId?: string;
         }
-      | { readonly kind: "unregister"; readonly repoId: string },
+      | {
+          readonly kind: "update";
+          readonly repoId: string;
+          readonly displayName?: string;
+          readonly mode?: DaemonRepoMode;
+          readonly endpoint?: string;
+          readonly connectionId?: string;
+          readonly state?: "enabled" | "disabled";
+        }
+      | { readonly kind: "unregister"; readonly repoId: string }
+      | {
+          readonly kind: "connection-register";
+          readonly connectionId?: string;
+          readonly displayName?: string;
+          readonly endpoint: string;
+        }
+      | {
+          readonly kind: "connection-update";
+          readonly connectionId: string;
+          readonly displayName?: string;
+          readonly endpoint?: string;
+          readonly state?: "enabled" | "disabled";
+        }
+      | { readonly kind: "connection-unregister"; readonly connectionId: string }
+      | { readonly kind: "connection-probe"; readonly endpoint: string },
     auth: DaemonAuthenticationContext,
   ) => Promise<Record<string, unknown>>;
   readonly fleet: {
@@ -113,6 +142,13 @@ export interface DaemonHost {
     readonly startedAt: string;
     readonly entry: DaemonBuildStatus["entry"];
     readonly build: Omit<DaemonBuildStatus, "entry"> & { readonly version: string };
+    readonly connections: readonly {
+      readonly id: string;
+      readonly kind: "local" | "remote-endpoint" | "fleet-center";
+      readonly displayName: string;
+      readonly state: "enabled" | "disabled";
+      readonly endpoint?: string;
+    }[];
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };

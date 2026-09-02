@@ -16,7 +16,8 @@ test("a registered repo whose root no longer exists does not break routing for o
   writeFileSync(
     path.join(userRoot, "registry.json"),
     JSON.stringify({
-      schema: "harness-daemon-registry/v1",
+      schema: "harness-daemon-registry/v2",
+      connections: [],
       repos: [
         { repoId: "dead-disabled", canonicalRoot: "/nonexistent/parent/dead-one", state: "disabled", mode: "local" },
         { repoId: "dead-enabled", canonicalRoot: "/nonexistent/parent/dead-two", state: "enabled", mode: "local" },

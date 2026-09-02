@@ -23,9 +23,11 @@ import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
-import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
 import { runGuiLaunch } from "../cli/gui-launch.ts";
+import { runDaemonConnectionControl } from "./connection-control.ts";
+import { daemonFailure, daemonOption } from "./control-support.ts";
+import { runDaemonRepoControl } from "./repo-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -62,36 +64,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return finish(result, result.ok === true ? 0 : 1);
     }
     if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
-    if (command === "repo" && subcommand === "register") {
-      const root = daemonOption(argv, "--root"),
-        repoId = daemonOption(argv, "--repo-id"),
-        mode = daemonOption(argv, "--mode");
-      if (!root || !repoId)
-        return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2);
-      if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number]))
-        return finish(
-          daemonFailure("daemon-repo-register", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`),
-          2,
-        );
-      const result = await requestDaemonJsonRpcAt(
-        localUserDaemonEndpoint(userRoot, daemonId),
-        "daemon.repo.register",
-        { rootDir: path.resolve(root), repoId, ...(mode ? { mode } : {}) },
-        75,
-      );
-      return finish(result, result.ok === true ? 0 : 1);
+    if (command === "repo") {
+      const result = await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
+      if (result !== undefined) return result;
     }
-    if (command === "repo" && subcommand === "unregister") {
-      const repoId = daemonOption(argv, "--repo-id");
-      if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
-      const result = await requestDaemonJsonRpcAt(
-        localUserDaemonEndpoint(userRoot, daemonId),
-        "daemon.repo.unregister",
-        { repoId },
-        75,
-      );
-      return finish(result, result.ok === true ? 0 : 1);
-    }
+    if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
     if (command === "serve") {
       const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
@@ -123,7 +100,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       daemonFailure(
         "daemon",
         "unsupported_command",
-        "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop.",
+        [
+          "Use daemon projection rebuild, daemon repo register|update|unregister,",
+          "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
+          "start --service, status, or stop.",
+        ].join(" "),
       ),
       2,
     );
@@ -476,24 +457,6 @@ async function waitForDaemonStop(userRoot: string, daemonId: string, pid: number
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return false;
-}
-function daemonOption(argv: readonly string[], name: string): string | undefined {
-  const at = argv.indexOf(name);
-  return at < 0 ? undefined : argv[at + 1];
-}
-function daemonFailure(command: string, errorCode: string, nextAction: string): Record<string, unknown> {
-  return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command,
-    outcome: "op_rejected",
-    opId: "N/A",
-    origin: "cli",
-    code: errorCode,
-    evidence: `rejection:${errorCode}`,
-    error: { code: errorCode, hint: nextAction },
-    nextAction,
-  };
 }
 function finishControlReceipt(
   renderReceipt: ReceiptEmitter,

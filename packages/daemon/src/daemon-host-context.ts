@@ -17,6 +17,7 @@ import type { RuntimeDaemonRoute } from "./runtime-spawn.ts";
 import type { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
+import type { RemoteProxyManager } from "./remote-proxy.ts";
 
 export interface DaemonPoint extends JsonObject {
   readonly daemonId: string;
@@ -103,11 +104,12 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   fleetRoster: FleetRoster | null;
   initialAttachments: Promise<void> | null;
   readonly attachInitial: () => Promise<void>;
-  readonly repos: ReturnType<typeof import("../../kernel/src/index.ts").readDaemonRegistry>["repos"];
+  readonly repos: readonly (RegisteredRepoInput & { readonly registeredAt: string })[];
   closing: boolean;
 }
 
 export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionContext {
+  readonly remoteProxy: RemoteProxyManager;
   readonly runtimePorts: DaemonRuntimePorts;
   readonly failedConfigureVerify: typeof import("./daemon-host-errors.ts").failedConfigureVerify;
   readonly hostCodedError: typeof import("./daemon-host-errors.ts").hostCodedError;

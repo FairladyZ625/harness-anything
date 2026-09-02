@@ -2,9 +2,13 @@
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
+  registerDaemonConnection,
   registerDaemonRepo,
+  removeDaemonConnection,
   resolveHarnessLayout,
   unregisterDaemonRepo,
+  updateDaemonConnection,
+  updateDaemonRepo,
 } from "../../kernel/src/index.ts";
 import {
   compileRepoRepositoryScaffold,
@@ -163,8 +167,12 @@ export function createDaemonHostRepositoryApi(
       }
     },
     admin: async (request, auth) => {
+      context.localOnly(auth);
       if (request.kind === "register") {
-        const adminBinding = await context.binding(request.rootDir, auth),
+        const remoteProxy = request.mode === "remote-proxy",
+          adminBinding = remoteProxy
+            ? localDefaultBinding(auth)
+            : await context.binding(context.requiredText(request.rootDir, "rootDir"), auth),
           authorizationDecision = requireAuthorizedHostAction({
             kind: "daemon-repo-register",
             binding: adminBinding,
@@ -172,7 +180,18 @@ export function createDaemonHostRepositoryApi(
             evaluatedAtCut: "daemon-registry:current",
             now: context.now(),
           });
-        const result = await context.attach(request.rootDir, request.repoId, request.mode);
+        const result = remoteProxy
+          ? registerDaemonRepo({
+              repoId: request.repoId,
+              displayName: request.displayName,
+              mode: "remote-proxy",
+              connectionId: request.connectionId,
+              endpoint: request.endpoint,
+              userRoot: context.input.userRoot,
+              createConvenienceLinks: false,
+            })
+          : await context.attach(request.rootDir!, request.repoId, request.mode);
+        if (remoteProxy) await context.refreshRegistry();
         return {
           schema: "command-receipt/v2",
           ok: true,
@@ -185,7 +204,7 @@ export function createDaemonHostRepositoryApi(
             "repo register: repoId=",
             `${result.repo.repoId}`,
             " canonicalRoot=",
-            `${result.repo.canonicalRoot}`,
+            `${result.repo.canonicalRoot ?? "none"}`,
             " mode=",
             `${result.repo.mode}`,
             " changed=",
@@ -194,13 +213,98 @@ export function createDaemonHostRepositoryApi(
           ].join(""),
         };
       }
+      if (request.kind === "update") {
+        const existing = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+            (repo) => repo.repoId === request.repoId,
+          ),
+          adminBinding =
+            existing?.canonicalRoot === null || existing === undefined
+              ? localDefaultBinding(auth)
+              : await context.binding(existing.canonicalRoot, auth),
+          authorizationDecision = requireAuthorizedHostAction({
+            kind: "daemon-repo-register",
+            binding: adminBinding,
+            actionId: `daemon-repo-update:${request.repoId}`,
+            evaluatedAtCut: "daemon-registry:current",
+            now: context.now(),
+          }),
+          result = updateDaemonRepo({
+            ...request,
+            userRoot: context.input.userRoot,
+            createConvenienceLinks: false,
+          });
+        await context.refreshRegistry();
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "daemon-repo-update",
+          outcome: "applied",
+          repo: result.repo,
+          changed: result.changed,
+          authorizationDecision,
+          summary: `repo update: repoId=${result.repo.repoId} changed=${result.changed}`,
+        };
+      }
+      if (
+        request.kind === "connection-register" ||
+        request.kind === "connection-update" ||
+        request.kind === "connection-unregister" ||
+        request.kind === "connection-probe"
+      ) {
+        const removing = request.kind === "connection-unregister",
+          connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
+          command =
+            request.kind === "connection-register"
+              ? "daemon-connection-add"
+              : request.kind === "connection-update"
+                ? "daemon-connection-update"
+                : request.kind === "connection-unregister"
+                  ? "daemon-connection-remove"
+                  : "daemon-connection-probe",
+          authorizationDecision = requireAuthorizedHostAction({
+            kind: removing ? "daemon-repo-unregister" : "daemon-repo-register",
+            binding: localDefaultBinding(auth),
+            actionId: `${command}:${connectionSubject}`,
+            evaluatedAtCut: "daemon-registry:current",
+            now: context.now(),
+          });
+        if (request.kind === "connection-probe")
+          return { ...(await context.remoteProxy.probe(request.endpoint)), command, authorizationDecision };
+        const result =
+          request.kind === "connection-register"
+            ? registerDaemonConnection({
+                id: request.connectionId,
+                displayName: request.displayName,
+                endpoint: request.endpoint,
+                userRoot: context.input.userRoot,
+              })
+            : request.kind === "connection-update"
+              ? updateDaemonConnection({
+                  id: request.connectionId,
+                  displayName: request.displayName,
+                  endpoint: request.endpoint,
+                  state: request.state,
+                  userRoot: context.input.userRoot,
+                })
+              : removeDaemonConnection(request.connectionId, { userRoot: context.input.userRoot });
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command,
+          outcome: "applied",
+          connection: result.connection,
+          changed: result.changed,
+          authorizationDecision,
+          summary: `connection ${request.kind}: connectionId=${result.connection.id} changed=${result.changed}`,
+        };
+      }
       const registry = readDaemonRegistry({ userRoot: context.input.userRoot }),
         known =
           registry.repos.some((repo) => repo.repoId === request.repoId) ||
           registry.invalidRepos.some((repo) => repo.repoId === request.repoId);
       if (!known) throw context.hostCodedError("repo_namespace_unknown", `Unknown repo namespace: ${request.repoId}.`);
       const registeredRepo = registry.repos.find((repo) => repo.repoId === request.repoId),
-        adminBinding = registeredRepo
+        adminBinding = registeredRepo?.canonicalRoot
           ? await context.binding(registeredRepo.canonicalRoot, auth)
           : localDefaultBinding(auth),
         authorizationDecision = requireAuthorizedHostAction({

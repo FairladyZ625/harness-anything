@@ -89,9 +89,26 @@ export const daemonProtocolMethods = Object.freeze([
     method: "daemon.repo.register",
     requiresRepo: false,
     params: shape({
-      rootDir: "string",
+      rootDir: "string?",
       repoId: "string",
+      displayName: "string?",
       mode: optionalEnum(daemonRepoModeWords),
+      endpoint: "string?",
+      connectionId: "string?",
+    }),
+  },
+  {
+    id: "daemon.repo.update",
+    phase: "PLT-EdgeGUI-W2",
+    method: "daemon.repo.update",
+    requiresRepo: false,
+    params: shape({
+      repoId: "string",
+      displayName: "string?",
+      mode: optionalEnum(daemonRepoModeWords),
+      endpoint: "string?",
+      connectionId: "string?",
+      state: optionalEnum(["enabled", "disabled"] as const),
     }),
   },
   {
@@ -100,6 +117,39 @@ export const daemonProtocolMethods = Object.freeze([
     method: "daemon.repo.unregister",
     requiresRepo: false,
     params: shape({ repoId: "string" }),
+  },
+  {
+    id: "daemon.connection.register",
+    phase: "PLT-EdgeGUI-W2",
+    method: "daemon.connection.register",
+    requiresRepo: false,
+    params: shape({ connectionId: "string?", displayName: "string?", endpoint: "string" }),
+  },
+  {
+    id: "daemon.connection.update",
+    phase: "PLT-EdgeGUI-W2",
+    method: "daemon.connection.update",
+    requiresRepo: false,
+    params: shape({
+      connectionId: "string",
+      displayName: "string?",
+      endpoint: "string?",
+      state: optionalEnum(["enabled", "disabled"] as const),
+    }),
+  },
+  {
+    id: "daemon.connection.unregister",
+    phase: "PLT-EdgeGUI-W2",
+    method: "daemon.connection.unregister",
+    requiresRepo: false,
+    params: shape({ connectionId: "string" }),
+  },
+  {
+    id: "daemon.connection.probe",
+    phase: "PLT-EdgeGUI-W2",
+    method: "daemon.connection.probe",
+    requiresRepo: false,
+    params: shape({ endpoint: "string" }),
   },
   {
     id: "repo.task.run",
@@ -513,10 +563,17 @@ export interface DaemonStatusResult {
     readonly diskBuildId: string | null;
     readonly drifted: boolean;
   };
+  readonly connections: readonly {
+    readonly id: string;
+    readonly kind: "local" | "remote-endpoint" | "fleet-center";
+    readonly displayName: string;
+    readonly state: "enabled" | "disabled";
+    readonly endpoint?: string;
+  }[];
   readonly repos: readonly {
     readonly repoId: string;
     readonly rootDir: string;
-    readonly mode: "local" | "remote-center" | "remote-edge" | null;
+    readonly mode: "local" | "remote-proxy" | "remote-center" | "remote-edge" | null;
     readonly state: "warming" | "attached" | "unavailable" | "closed";
     readonly generation: number | null;
     readonly queueDepth: number | null;
@@ -623,6 +680,7 @@ export default Object.freeze({
     "PLT-Ontology-4.1",
     "Governed-Entity-W1-B",
     "Ontology-4.1b",
+    "PLT-EdgeGUI-W2",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

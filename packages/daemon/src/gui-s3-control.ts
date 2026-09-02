@@ -179,8 +179,10 @@ export function validateSystemStatus(value: unknown): readonly string[] {
         {
           repoId: "string",
           displayName: "string",
-          canonicalRoot: "string",
-          authoredBranch: "string",
+          canonicalRoot: "null-string",
+          authoredBranch: "null-string",
+          connectionId: "string",
+          mode: "string",
           registrationState: "string",
           cellState: "string",
           generation: "null-number",

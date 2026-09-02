@@ -397,7 +397,8 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
   writeFileSync(
     path.join(userRoot, "registry.json"),
     JSON.stringify({
-      schema: "harness-daemon-registry/v1",
+      schema: "harness-daemon-registry/v2",
+      connections: [],
       repos: [{ repoId: "runtime-wait", canonicalRoot: root, state: "enabled", mode: "local" }],
     }),
   );

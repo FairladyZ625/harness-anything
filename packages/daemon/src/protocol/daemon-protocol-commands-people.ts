@@ -28,6 +28,7 @@ const peopleWriteTopology = {
     commandClass: "admin" as const,
     admission: {
       local: "direct" as const,
+      "remote-proxy": "rejected" as const,
       "remote-center": "direct" as const,
       "remote-edge": "via-center-forward" as const,
     },
