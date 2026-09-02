@@ -43,7 +43,7 @@ import {
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
 import { executeArtifactEntityImport } from "./artifact-entity-action.ts";
-import { executeRelationAction } from "./entity-action-relation.ts";
+import { executeRelationAction, publicationKillpoints } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -961,9 +961,4 @@ function reject(
   message: string,
 ): never {
   throw Object.assign(new Error(message), { code });
-}
-function publicationKillpoints(killpoint: ((point: EventPublicationKillpoint) => void) | undefined): void {
-  killpoint?.("after_sqlite_commit");
-  killpoint?.("before_response_write");
-  killpoint?.("after_response_write");
 }
