@@ -60,6 +60,7 @@ export interface DaemonHostAdmissionContext {
   readonly point: () => DaemonPoint;
   readonly code: (error: unknown) => string;
   readonly daemonErrorMessage: (error: unknown) => string;
+  readonly diagnosticForError: typeof import("./daemon-host-errors.ts").diagnosticForError;
   readonly controls: Map<string, DaemonControlReceipt>;
   latestControl: DaemonControlReceipt | null;
 }

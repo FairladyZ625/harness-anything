@@ -12,7 +12,7 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
     throw portError(`${field} must be a readable UTF-8 file.`);
   }
   if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`))
-    throw portError(`${field} must stay inside the workspace.`);
+    throw portError(`${field} is outside the workspace boundary.`, { field, workspaceRoot: root });
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
@@ -20,8 +20,13 @@ export function readWorkspaceText(rootDir: string, requested: string, field: str
   }
 }
 
-function portError(message: string): Error {
-  const error = new Error(message) as Error & { readonly code: "invalid_command" };
+function portError(message: string, boundary?: { readonly field: string; readonly workspaceRoot: string }): Error {
+  const error = new Error(message) as Error & {
+    readonly code: "invalid_command";
+    readonly field?: string;
+    readonly workspaceRoot?: string;
+  };
   Object.defineProperty(error, "code", { value: "invalid_command", enumerable: true });
+  if (boundary) Object.assign(error, boundary);
   return error;
 }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
 import {
+  daemonProtocolError,
   validateDaemonAgenda,
   validateDaemonDecisionList,
   validateDaemonDocumentRead,
@@ -296,4 +297,20 @@ test("task snapshot isolated-row diagnostics require an actual-value summary", (
     warnings: [],
   });
   assert.match(errors[0]!, /task-isolated-contract.*field=invalidRows\[0\].*actual=/u);
+});
+
+test("protocol validation failures preserve entity, field, and actual as structured diagnostics", () => {
+  const receipt = daemonProtocolError(
+    "repo.task.create",
+    "invalid_request",
+    "entity=task-a field=status must be planned; actual='weird'",
+  );
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: "task-a",
+    field: "status",
+    expectation: "must be planned",
+    actual: "'weird'",
+  });
+  assert.deepEqual(validateDaemonProtocolError(receipt), []);
 });

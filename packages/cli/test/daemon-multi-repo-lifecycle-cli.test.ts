@@ -78,6 +78,9 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
           "real CI, and a code-doc reconciliation witness. For a task-package-only " +
           "report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",
+        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md",
+        "agenda: use ha task pin task-alpha to pin it to the CEO agenda",
+        "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n"),
     );
     const alpha = run(fixture.alpha, fixture.userRoot, [

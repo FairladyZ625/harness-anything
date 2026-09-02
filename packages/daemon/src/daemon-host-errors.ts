@@ -1,8 +1,18 @@
-import { normalizeDomainError, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
+import {
+  normalizeDomainError,
+  type ReceiptDiagnostic,
+  type WriteReceiptDraft as WriteReceipt,
+} from "../../kernel/src/index.ts";
+export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell.ts";
 
-export function rejectHostAction(action: RepoTaskAction, errorCode: string, nextAction: string): WriteReceipt {
+export function rejectHostAction(
+  action: RepoTaskAction,
+  errorCode: string,
+  nextAction: string,
+  diagnostic?: ReceiptDiagnostic,
+): WriteReceipt {
   return {
     outcome: "op_rejected",
     opId: `rejected:${action.kind}`,
@@ -10,6 +20,7 @@ export function rejectHostAction(action: RepoTaskAction, errorCode: string, next
     origin: "daemon",
     evidence: `rejection:${errorCode}`,
     nextAction,
+    ...(diagnostic ? { diagnostic } : {}),
   };
 }
 

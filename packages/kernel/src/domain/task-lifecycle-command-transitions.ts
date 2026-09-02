@@ -14,6 +14,7 @@ import type {
 import { isSameExecution } from "./actor-domain-services.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
+import { taskCreateReturnsContract } from "./receipt-guidance.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type {
   CreateReplayTaskCommand,
@@ -43,6 +44,7 @@ export const create: Transition = {
   from: "missing",
   proof: ["taskIdUnique", "actorBinding", "validGraph"],
   eventType: "task_created",
+  returns: taskCreateReturnsContract,
   matches: (command) => command.type === "CreateReplayTask",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as CreateReplayTaskCommand,

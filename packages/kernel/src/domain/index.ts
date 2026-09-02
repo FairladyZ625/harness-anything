@@ -17,6 +17,12 @@ export type {
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
+export type {
+  ActionReturnsContract,
+  ReceiptGuidanceArgument,
+  ReceiptGuidanceContractEntry,
+  ReceiptGuidanceWhen,
+} from "./receipt-guidance.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
@@ -30,7 +36,11 @@ export type {
   Sha256Fingerprint,
 } from "./task.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
-export { TASK_LIFECYCLE_COMMAND_CATALOG, TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
+export {
+  TASK_LIFECYCLE_COMMAND_CATALOG,
+  TASK_LIFECYCLE_TRANSITIONS,
+  taskLifecycleReturnsForCommand,
+} from "./task-lifecycle.contract.ts";
 export type {
   CompleteTaskCommand,
   CreateReplayTaskCommand,

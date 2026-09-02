@@ -13,10 +13,14 @@ export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(
       from: value.from,
       proof: value.proof,
       eventType: value.eventType,
+      returns: value.returns ?? null,
     }),
   ),
 );
 export type TaskLifecycleCliCatalogEntry = (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
+export function taskLifecycleReturnsForCommand(commandType: string) {
+  return TASK_LIFECYCLE_COMMAND_CATALOG.find((entry) => entry.commandType === commandType)?.returns ?? null;
+}
 export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({
   task: TASK_V2_SCHEMA.required,
   execution: EXECUTION_V1_SCHEMA.required,

@@ -8,6 +8,7 @@ import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../.
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { taskCreateGuidance } from "./receipt-guidance.ts";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -208,7 +209,7 @@ export function createTask(
       event,
       plan: taskBootstrapWritePlan(event),
     },
-    common = {
+    commonFields = {
       taskId,
       status: "planned" as const,
       packagePath: compiled.packagePath,
@@ -220,7 +221,8 @@ export function createTask(
       outputShape: compiled.snapshot.profile.outputShape,
       completionGates: compiled.snapshot.profile.completionGateIds,
       dryRun,
-    };
+    },
+    common = commonFields;
   if (dryRun) {
     const preview: TaskCreateReceipt = {
       outcome: "pending",
@@ -236,9 +238,16 @@ export function createTask(
         worktreeVisible: false,
       },
       ...common,
+      guidance: taskCreateGuidance({
+        taskId,
+        packagePath: compiled.packagePath,
+        outputShape: compiled.snapshot.profile.outputShape,
+        dryRun,
+        opId,
+        canonicalVisible: false,
+      }),
       commitSha: null,
       summary: `would create task ${taskId} at ${compiled.packagePath}`,
-      nextAction: "remove --dry-run to publish this exact resolved scaffold",
     };
     return preview;
   }
@@ -260,14 +269,19 @@ export function createTask(
     visibility: "center",
     proof,
     ...common,
+    guidance: taskCreateGuidance({
+      taskId,
+      packagePath: compiled.packagePath,
+      outputShape: compiled.snapshot.profile.outputShape,
+      dryRun,
+      opId,
+      canonicalVisible: proof.canonicalVisible,
+    }),
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible
       ? `created task ${taskId} at ${compiled.packagePath}`
       : `task ${taskId} is awaiting exact canonical settlement`,
-    nextAction: proof.canonicalVisible
-      ? `edit ${compiled.packagePath}/task_plan.md, then run ha task start ${taskId} --execution-id <id>`
-      : `ha receipt show ${opId}`,
   };
   cell.input.killpoint?.("before_response_write");
   cell.input.killpoint?.("after_response_write");

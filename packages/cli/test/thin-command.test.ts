@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
@@ -320,7 +321,16 @@ test("human preset and task receipts print resolved completion contracts byte-fo
           profileId: "baseline",
           outputShape: "repository-diff",
           completionGates: ["ci", "code-doc-reconciliation"],
-          nextAction: "edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
+          dryRun: false,
+          proof: { canonicalVisible: true },
+          guidance: taskCreateGuidance({
+            taskId: "task-one",
+            packagePath: "tasks/task-one",
+            outputShape: "repository-diff",
+            dryRun: false,
+            opId: "op-one",
+            canonicalVisible: true,
+          }),
         },
         false,
       ),
@@ -339,6 +349,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
       "next: edit tasks/task-one/task_plan.md, then run ha task start task-one --execution-id <id>",
       "plan: write the concrete plan at harness/tasks/task-one/task_plan.md",
       "agenda: use ha task pin task-one to pin it to the CEO agenda",
+      "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
     ].join("\n");
   assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));
 

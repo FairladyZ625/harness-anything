@@ -15,6 +15,7 @@ import {
 } from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
+import { diagnosticForError } from "./receipt-guidance.ts";
 
 export function completionApplied(
   receipt: WriteReceipt,
@@ -134,8 +135,10 @@ export function failed(
               : cellErrorMessage(error),
         }
       : rejected(opId, code, cellErrorMessage(error));
-  const criterionFailure = actionCriterionFailure(error);
-  if (criterionFailure === null) return receipt;
+  const diagnostic = diagnosticForError(error),
+    diagnosed = diagnostic ? { ...receipt, diagnostic } : receipt,
+    criterionFailure = actionCriterionFailure(error);
+  if (criterionFailure === null) return diagnosed;
   if (!contract || !action)
     throw cellCodedError(
       "invalid_store",
@@ -154,7 +157,7 @@ export function failed(
       `Action ${contract.target.kind}.${contract.id} does not declare criterion ${criterionFailure.criterionRef}.`,
     );
   return {
-    ...receipt,
+    ...diagnosed,
     evidence: `criterion:${criterion.ref}`,
     unmetCriteria: [criterion],
     rejectionExplanation: criterion.explain,

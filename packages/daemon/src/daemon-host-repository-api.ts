@@ -279,7 +279,12 @@ export function createDaemonHostRepositoryApi(
           await context.scheduleScheduler.refresh();
         return receipt;
       } catch (error) {
-        return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
+        return context.rejectHostAction(
+          action,
+          context.code(error),
+          context.daemonErrorMessage(error),
+          context.diagnosticForError(error),
+        );
       }
     },
     replica: (repoId) => context.requiredCell(context.cells, context.warming, context.unavailable, repoId).replica,
