@@ -79,8 +79,11 @@ export function resolveLocalDaemonTarget(input: {
         )
         .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
   if (!repo || repo.state !== "enabled")
-    throw new Error(
-      `workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`,
+    throw Object.assign(
+      new Error(
+        `workspace is not registered; run ha daemon repo register --repo-id <id> --root ${JSON.stringify(path.resolve(input.rootDir))}`,
+      ),
+      { code: "workspace_not_registered" },
     );
   const socketPath = resolveLocalDaemonEndpoint({
     userRoot,
