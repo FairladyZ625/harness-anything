@@ -331,7 +331,7 @@ test("repository modes close local, center-assignment, and edge command families
         ["local", "local"],
       ],
     );
-    assert.match(host.status().summary, /repos=3$/u);
+    assert.match(host.status().summary, /repos=3 entry=(?:source|dist) commit=[0-9a-f]{40}$/u);
     assert.equal(
       (await host.run("local", { kind: "task-create", taskId: "task-local", title: "Local" }, auth)).outcome,
       "applied",
