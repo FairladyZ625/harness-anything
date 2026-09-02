@@ -321,14 +321,14 @@ export interface EventEntry {
 }
 
 export const isExternal = (t: TaskRow) => t.origin === "external" || (t.origin === undefined && t.engine !== "local");
-/** 终态由投影的看板列回答(kernel `terminalDomainStatuses`),renderer 不再自己列终态词。 */
-export const isTerminal = (task: Pick<TaskRow, "board">) => task.board.columnId === "terminal";
-
 /** 行级能力投影:某个动作对这一行是否可做,以及不可做的原因码(不是文案)。 */
 export type TaskCapability = TaskSnapshotProjectionRow["capabilities"][number];
 export type TaskCapabilityId = TaskCapability["id"];
 /** 不可用时的原因码(可用时是 null),渲染侧据此选措辞。 */
 export type TaskCapabilityReasonKey = NonNullable<TaskCapability["reason"]>;
+
+/** 终态由投影的看板列回答(kernel `terminalDomainStatuses`),renderer 不再自己列终态词。 */
+export const isTerminal = (task: Pick<TaskRow, "board">) => task.board.columnId === "terminal";
 
 export const taskCapabilityOf = (
   task: Pick<TaskRow, "capabilities">,
