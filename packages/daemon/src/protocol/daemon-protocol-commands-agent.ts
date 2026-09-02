@@ -88,6 +88,42 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
+  defineLedgerWriteCommand({
+    id: "relation-events-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "relation-events"],
+    summary:
+      "Upcast historical relation events to the current record shape: derived strength, active|retired state, " +
+      "target witness at the event cut. Stop daemon writers first; --dry-run reports the rewrites.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "decision-digests-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "decision-digests"],
+    summary:
+      "Restamp historical decision consent and content-pin machine digests under the current projection " +
+      "derivation. Stop daemon writers first; --dry-run reports the rewrites.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
   defineRuntimeLocalWriteCommand({
     id: "agent-create",
     phase: "Runtime-B",

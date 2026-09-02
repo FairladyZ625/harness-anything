@@ -3,10 +3,12 @@ import {
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   createEntityStore,
+  eventShapeMigrations,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
+  runEventShapeMigration,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -49,6 +51,14 @@ export async function executeAction(
       now: cell.now,
     });
   }
+  if (action.kind === "relation-events-migrate" || action.kind === "decision-digests-migrate")
+    return runEventShapeMigration(eventShapeMigrations[action.kind], {
+      dryRun: action.dryRun === true,
+      actor: binding.actor,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      now: cell.now,
+    });
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),

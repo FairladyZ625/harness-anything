@@ -379,7 +379,7 @@ function decisionAmendment(
     amendedAt: event.occurredAt,
   };
 }
-function decisionContentPin(
+export function decisionContentPin(
   current: DecisionDocumentState,
   event: Extract<
     DecisionEventDraftV1 | DecisionEventV1,

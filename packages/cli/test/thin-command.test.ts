@@ -163,7 +163,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
     init: ["repo-bootstrap"],
-    migrate: ["fact-rekey", "ledger-migrate", "migrate-import"],
+    migrate: ["decision-digests-migrate", "fact-rekey", "ledger-migrate", "migrate-import", "relation-events-migrate"],
     preset: [
       "preset-audit",
       "preset-check",

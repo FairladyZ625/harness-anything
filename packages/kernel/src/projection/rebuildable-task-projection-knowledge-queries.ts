@@ -19,6 +19,7 @@ import {
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
+import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { catchUpRound } from "./rebuildable-task-projection-catch-up.ts";
 import { readProjectionCut } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -37,6 +38,7 @@ export function knowledgeQueryApi(
   | "readFactGraph"
   | "admitDecision"
   | "readDecision"
+  | "readDecisionDocumentState"
   | "readDecisions"
   | "listDecisions"
   | "listDecisionAgendaPage"
@@ -118,6 +120,8 @@ export function knowledgeQueryApi(
           );
         assertDecisionAdmission(db, event);
       }),
+    readDecisionDocumentState: (decisionId) =>
+      withDatabase(projectionPath, readHead, (db) => readDecisionDocumentState(db, decisionId)),
     readDecision: (decisionId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
