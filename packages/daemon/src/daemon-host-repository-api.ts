@@ -253,18 +253,23 @@ export function createDaemonHostRepositoryApi(
       ) {
         const removing = request.kind === "connection-unregister",
           connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
+          command =
+            request.kind === "connection-register"
+              ? "daemon-connection-add"
+              : request.kind === "connection-update"
+                ? "daemon-connection-update"
+                : request.kind === "connection-unregister"
+                  ? "daemon-connection-remove"
+                  : "daemon-connection-probe",
           authorizationDecision = requireAuthorizedHostAction({
             kind: removing ? "daemon-repo-unregister" : "daemon-repo-register",
             binding: localDefaultBinding(auth),
-            actionId:
-              request.kind === "connection-probe"
-                ? `daemon-connection-probe:${request.endpoint}`
-                : `daemon-${request.kind}:${connectionSubject}`,
+            actionId: `${command}:${connectionSubject}`,
             evaluatedAtCut: "daemon-registry:current",
             now: context.now(),
           });
         if (request.kind === "connection-probe")
-          return { ...(await context.remoteProxy.probe(request.endpoint)), authorizationDecision };
+          return { ...(await context.remoteProxy.probe(request.endpoint)), command, authorizationDecision };
         const result =
           request.kind === "connection-register"
             ? registerDaemonConnection({
@@ -285,7 +290,7 @@ export function createDaemonHostRepositoryApi(
         return {
           schema: "command-receipt/v2",
           ok: true,
-          command: `daemon-${request.kind}`,
+          command,
           outcome: "applied",
           connection: result.connection,
           changed: result.changed,

@@ -102,10 +102,18 @@ test(
         assert.equal(exit, 0, `${args.join(" ")}: ${JSON.stringify(receipts)}`);
         return receipts[0]!;
       };
-      await runCli(["connection", "add", "--connection", "server-b", "--endpoint", tcpB.endpoint]);
-      await runCli(["connection", "update", "--connection", "server-b", "--display-name", "Server B"]);
-      assert.equal((await runCli(["connection", "probe", "--endpoint", tcpB.endpoint])).ok, true);
-      await runCli(["connection", "remove", "--connection", "server-b"]);
+      const add = await runCli(["connection", "add", "--connection", "server-b", "--endpoint", tcpB.endpoint]),
+        update = await runCli(["connection", "update", "--connection", "server-b", "--display-name", "Server B"]),
+        probe = await runCli(["connection", "probe", "--endpoint", tcpB.endpoint]),
+        remove = await runCli(["connection", "remove", "--connection", "server-b"]);
+      assert.deepEqual(
+        [add.command, update.command, probe.command, remove.command],
+        ["daemon-connection-add", "daemon-connection-update", "daemon-connection-probe", "daemon-connection-remove"],
+      );
+      for (const result of [add, update, probe, remove]) {
+        assert.equal(result.ok, true);
+        assert.equal((result.authorizationDecision as Record<string, unknown>).outcome, "allowed");
+      }
       await runCli(["connection", "add", "--connection", "server-b", "--endpoint", tcpB.endpoint]);
       const receipt = await runCli([
         "repo",
