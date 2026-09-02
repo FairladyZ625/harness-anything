@@ -235,7 +235,7 @@ function runtimeSessionBundles(
   session: RuntimeSession,
   startedAt: string,
   outcome: {
-    readonly result: { readonly sha256: string; readonly size: number; readonly mediaType: string };
+    readonly result: { readonly sha256: string; readonly size: number; readonly mediaType: string } | null;
     readonly reasonCode?: string;
   } | null,
   initialRevision: number,
@@ -307,8 +307,23 @@ function runtimeSessionBundles(
       occurredAt: session.lastObservedAt,
       payload: { runtimeSessionId: session.runtimeSessionId, liveness: session.liveness },
     });
-  if (session.outcome !== null) {
-    if (outcome === null) throw new Error("runtime outcome projection has no source result claim");
+  if (session.outcome !== null && outcome === null)
+    throw new Error("runtime outcome projection has no source result claim");
+  if (session.outcome !== null && outcome?.result === null)
+    specs.push({
+      suffix: "outcome",
+      type: "runtime_session_outcome_observed",
+      occurredAt: session.lastObservedAt,
+      payload: {
+        runtimeSessionId: session.runtimeSessionId,
+        outcome: session.outcome,
+        exitCode: session.exitCode,
+        resultRef: session.resultRef,
+        result: null,
+        ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
+      },
+    });
+  if (session.outcome !== null && outcome !== null && outcome.result !== null) {
     if (
       outcome.result.sha256 !== session.resultRef?.slice("artifact:runtime-result/sha256/".length) ||
       outcome.result.mediaType !== "text/plain; charset=utf-8"

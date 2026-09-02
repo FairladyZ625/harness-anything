@@ -17,6 +17,7 @@ import {
   runDispatchRecordMigration,
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
+  runtimeEventContentClaims,
   sha256Text,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
@@ -730,7 +731,7 @@ test("dispatch migration retries a lease settlement that failed after terminal e
   }
 });
 
-test("dispatch migration skips unproven bindings and selects the latest definition effective at dispatch time", async (context) => {
+test("dispatch migration safely plans missing executions, result blobs, bindings, and definitions", async (context) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-dispatch-safe-planning-")),
     repoId = "dispatch-safe-planning",
     binding: RepoCellBinding = { actor: { principal: actor.principal, executor: null }, source },
@@ -748,6 +749,7 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
     }),
     definitionLatest = syntheticDispatchRecord("1", { instanceId: "definition-history" }),
     definitionAmbiguous = syntheticDispatchRecord("2", { instanceId: "definition-ambiguous" }),
+    settledWithoutExecution = syntheticDispatchRecord("3", { instanceId: "definition-common" }),
     records = [
       executionMissing,
       bindingMismatch,
@@ -757,6 +759,7 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
       resultMissing,
       definitionLatest,
       definitionAmbiguous,
+      settledWithoutExecution,
     ];
   let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
   try {
@@ -776,7 +779,7 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
       await realizeTaskPlanFixture(scratch, String(created.packagePath), (planPath) =>
         cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
       );
-      if (record !== executionMissing) {
+      if (record !== executionMissing && record !== settledWithoutExecution) {
         const started = await cell.run(
           { kind: "task-start", taskId: record.taskId, executionId: record.executionId },
           binding,
@@ -813,7 +816,12 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
     appendDefinitionCandidate(store, ambiguousLeft, "2026-09-02T00:40:00.000Z", "ambiguous-left");
     appendDefinitionCandidate(store, ambiguousRight, "2026-09-02T00:40:00.000Z", "ambiguous-right");
     appendMismatchedRuntimeSession(store, bindingMismatch, bindingDefinition);
+    appendSettledRuntimeSession(store, settledWithoutExecution, common);
     await store.drain();
+    assert.equal(
+      store.readContentBlob(definitionLatest.resultRef.slice("artifact:runtime-result/sha256/".length)),
+      null,
+    );
 
     cell = await openBootstrappedRepoCell({
       repoId: workspaceId(repoId),
@@ -830,17 +838,18 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
     assert.deepEqual(report.categories, {
       "skip:execution-not-found": 1,
       "skip:session-binding-mismatch": 1,
-      "import-full": 2,
+      "import-full": 3,
       "skip:duplicate-session": 1,
       "skip:definition-not-found": 1,
-      "skip:result-content-missing": 1,
       "skip:definition-ambiguous": 1,
+      "skip:already-settled": 1,
     });
     assert.equal(byDispatch.get(executionMissing.dispatchId)?.action, "skip:execution-not-found");
     assert.equal(byDispatch.get(bindingMismatch.dispatchId)?.action, "skip:session-binding-mismatch");
     assert.equal(byDispatch.get(duplicateSecond.dispatchId)?.action, "skip:duplicate-session");
     assert.equal(byDispatch.get(definitionMissing.dispatchId)?.action, "skip:definition-not-found");
     assert.equal(byDispatch.get(definitionAmbiguous.dispatchId)?.action, "skip:definition-ambiguous");
+    assert.equal(byDispatch.get(settledWithoutExecution.dispatchId)?.action, "skip:already-settled");
     assert.deepEqual(
       {
         action: byDispatch.get(resultMissing.dispatchId)?.action,
@@ -849,18 +858,20 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
         resultBlobMissing: byDispatch.get(resultMissing.dispatchId)?.resultBlobMissing,
       },
       {
-        action: "skip:result-content-missing",
+        action: "import-full",
         sourceResultRef: resultMissing.resultRef,
         recoveredResultRef: null,
         resultBlobMissing: true,
       },
     );
     assert.equal(byDispatch.get(definitionLatest.dispatchId)?.resultBlobMissing, false);
+    assert.equal(report.resultBlobMissing, 1);
     context.diagnostic(
       `dispatch-records safe planning ${JSON.stringify({
         categories: report.categories,
         missingResultRef: byDispatch.get(resultMissing.dispatchId)?.sourceResultRef,
         resultBlobMissing: byDispatch.get(resultMissing.dispatchId)?.resultBlobMissing,
+        matchingResultMaterialized: byDispatch.get(definitionLatest.dispatchId)?.resultBlobMissing === false,
       })}`,
     );
 
@@ -893,8 +904,16 @@ test("dispatch migration skips unproven bindings and selects the latest definiti
       historyNew.installationId,
     );
     assert.equal(duplicateStarts.length, 1);
-    assert.equal(missingOutcomes.length, 0);
+    assert.equal(missingOutcomes.length, 1);
+    assert.equal(missingOutcomes[0]?.payload.resultRef, resultMissing.resultRef);
+    assert.equal(missingOutcomes[0]?.payload.result, null);
     assert.equal(reader.readContentBlob("0".repeat(64)), null);
+    assert.equal(
+      Buffer.from(
+        reader.readContentBlob(definitionLatest.resultRef.slice("artifact:runtime-result/sha256/".length)) ?? [],
+      ).toString("utf8"),
+      normalizedReportBody(definitionLatest),
+    );
     const projection = makeTaskProjection({
       rootDir: scratch,
       eventStore: reader,
@@ -964,7 +983,9 @@ async function addDispatchArtifacts(
 }
 
 function rawReportBody(record: DispatchRecordFixture): string {
-  const ending = record.dispatchId === "dispatch_58d3d4f10a20791ac746e2e9" ? "\r\n" : "\n";
+  const windowsArchive =
+      record.dispatchId === "dispatch_58d3d4f10a20791ac746e2e9" || record.dispatchId === `dispatch_${"1".repeat(24)}`,
+    ending = windowsArchive ? "\r\n" : "\n";
   return `Recovered report for ${record.dispatchId}.${ending}`;
 }
 
@@ -1115,6 +1136,88 @@ function appendMismatchedRuntimeSession(
   });
 }
 
+function appendSettledRuntimeSession(
+  store: ReturnType<typeof makeTaskEventStore>,
+  record: DispatchRecordFixture,
+  definition: AgentDefinitionSnapshot,
+): void {
+  const artifact = runtimeDefinitionSnapshotArtifact(definition),
+    base = `fixture-settled-${record.dispatchId}`,
+    resultBody = normalizedReportBody(record),
+    result = {
+      sha256: sha256Text(resultBody),
+      size: Buffer.byteLength(resultBody),
+      mediaType: "text/plain; charset=utf-8" as const,
+    };
+  appendRuntimeFixtureEvent(
+    store,
+    {
+      type: "runtime_dispatch_requested",
+      opId: base,
+      occurredAt: record.startedAt,
+      payload: {
+        dispatchId: record.dispatchId,
+        runtimeSessionId: record.runtimeSessionId,
+        instanceId: definition.instanceId,
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        idempotencyKey: base,
+        definitionSnapshotRef: artifact.ref,
+        definitionSnapshot: definition,
+      },
+    },
+    artifact.body,
+  );
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_session_started",
+    opId: `${base}-started`,
+    occurredAt: record.startedAt,
+    payload: {
+      runtimeSessionId: record.runtimeSessionId,
+      instanceId: definition.instanceId,
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      definitionSnapshotRef: artifact.ref,
+      launchGeneration: 1,
+      attachable: true,
+    },
+  });
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_session_task_bound",
+    opId: `${base}-task`,
+    occurredAt: record.startedAt,
+    payload: {
+      runtimeSessionId: record.runtimeSessionId,
+      taskId: record.taskId,
+      executionId: record.executionId,
+      providerSessionId: record.providerSessionId,
+      transcriptRef: record.eventStreamRef,
+    },
+  });
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_session_exited",
+    opId: `${base}-exited`,
+    occurredAt: record.endedAt,
+    payload: { runtimeSessionId: record.runtimeSessionId },
+  });
+  appendRuntimeFixtureEvent(
+    store,
+    {
+      type: "runtime_session_outcome_observed",
+      opId: `${base}-outcome`,
+      occurredAt: record.endedAt,
+      payload: {
+        runtimeSessionId: record.runtimeSessionId,
+        outcome: record.outcome,
+        exitCode: record.exitCode,
+        resultRef: record.resultRef,
+        result,
+      },
+    },
+    resultBody,
+  );
+}
+
 async function appendRuntimeMigrationBaseline(
   rootDir: string,
   repoId: string,
@@ -1253,10 +1356,7 @@ function appendRuntimeFixtureEvent(
       occurredAt: fixture.occurredAt,
       payload: fixture.payload,
     } as AgentRuntimeEventV1,
-    claims =
-      event.type === "runtime_dispatch_requested"
-        ? [runtimeDefinitionSnapshotArtifact(event.payload.definitionSnapshot).claim]
-        : [];
+    claims = runtimeEventContentClaims(event);
   store.append({
     event,
     plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
@@ -1288,6 +1388,7 @@ function migrationDispatchOpId(record: DispatchRecordFixture): string {
 function dispatchMigrationReport(receipt: Record<string, unknown>): {
   readonly categories: Record<string, number>;
   readonly plannedLeaseReleases: number;
+  readonly resultBlobMissing: number;
   readonly appliedEvents?: number;
   readonly releasedLeases?: number;
   readonly dispatches: readonly {

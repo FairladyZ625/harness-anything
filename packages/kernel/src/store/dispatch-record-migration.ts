@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
+  runtimeEventContentClaims,
   validateCurrentAgentRuntimeEvent,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
@@ -253,8 +254,6 @@ function planDispatchDocument(
   };
   const task = projection.read(record.taskId).snapshot;
   if (!task.task) return skipped(document, "task-not-found", record);
-  if (!task.executions.some(({ executionId }) => executionId === record.executionId))
-    return skipped(document, "execution-not-found", record);
   const session = projection.readRuntimeSession(record.runtimeSessionId),
     settlement = leaseSettlement(projection, record);
   if (session !== null) {
@@ -272,37 +271,39 @@ function planDispatchDocument(
             recoveredResultRef: null,
             resultBlobMissing: store.readContentBlob(resultHash(record)) === null,
           };
+    if (!task.executions.some(({ executionId }) => executionId === record.executionId))
+      return skipped(document, "execution-not-found", record);
     if (session.liveness !== "unknown" || session.outcome !== null)
       return skipped(document, "session-not-settleable", record);
     const result = recoveredResult(store, projection, document.sourcePath, record);
-    if (result === null) return skipped(document, "result-content-missing", record, true);
     return {
       ...document,
       ...identity,
       action: "settle-tail",
       events: terminalEvents(record, actor, result),
       settlement,
-      sourceResultRef: result.sourceRef,
-      recoveredResultRef: result.sourceRef,
-      resultBlobMissing: false,
+      sourceResultRef: record.resultRef,
+      recoveredResultRef: result?.sourceRef ?? null,
+      resultBlobMissing: result === null,
     };
   }
+  if (!task.executions.some(({ executionId }) => executionId === record.executionId))
+    return skipped(document, "execution-not-found", record);
   const definitionMatch = matchingDefinition(projection, record);
   if (definitionMatch.kind !== "found") return skipped(document, `definition-${definitionMatch.kind}`, record);
   const definition = definitionMatch.definition,
     definitionArtifact = runtimeDefinitionSnapshotArtifact(definition.snapshot);
   if (definitionArtifact.ref !== definition.ref) return skipped(document, "runtime-definition-content-invalid", record);
   const result = recoveredResult(store, projection, document.sourcePath, record);
-  if (result === null) return skipped(document, "result-content-missing", record, true);
   return {
     ...document,
     ...identity,
     action: "import-full",
     events: fullEvents(record, actor, definition, definitionArtifact.body, result),
     settlement,
-    sourceResultRef: result.sourceRef,
-    recoveredResultRef: result.sourceRef,
-    resultBlobMissing: false,
+    sourceResultRef: record.resultRef,
+    recoveredResultRef: result?.sourceRef ?? null,
+    resultBlobMissing: result === null,
   };
 }
 
@@ -494,7 +495,7 @@ function fullEvents(
   actor: ActorIdentity,
   definition: { readonly ref: string; readonly snapshot: AgentDefinitionSnapshot },
   definitionBody: string,
-  recovered: RecoveredResult,
+  recovered: RecoveredResult | null,
 ): readonly PlannedRuntimeEvent[] {
   const base = dispatchOpId(record),
     dispatcher = { principal: actor.principal, executor: null } as const,
@@ -548,7 +549,7 @@ function fullEvents(
 function terminalEvents(
   record: RuntimeDispatchRecordV1,
   actor: ActorIdentity,
-  recovered: RecoveredResult,
+  recovered: RecoveredResult | null,
 ): readonly PlannedRuntimeEvent[] {
   const base = dispatchOpId(record),
     terminalActor = {
@@ -577,10 +578,10 @@ function terminalEvents(
         runtimeSessionId: record.runtimeSessionId,
         outcome: record.outcome,
         exitCode: record.exitCode,
-        resultRef: recovered.sourceRef,
-        result: recovered.claim,
+        resultRef: record.resultRef,
+        result: recovered?.claim ?? null,
       },
-      recovered.body,
+      recovered?.body,
     ),
   ];
 }
@@ -623,12 +624,7 @@ function appendRuntimeEvent(input: DispatchRecordMigrationInput, planned: Planne
     } as AgentRuntimeEventV1,
     errors = validateCurrentAgentRuntimeEvent(event);
   if (errors.length) throw new Error(`Recovered runtime event ${planned.opId} is invalid: ${errors.join("; ")}`);
-  const claims =
-      event.type === "runtime_dispatch_requested"
-        ? [runtimeDefinitionSnapshotArtifact(event.payload.definitionSnapshot).claim]
-        : event.type === "runtime_session_outcome_observed"
-          ? [event.payload.result]
-          : [],
+  const claims = runtimeEventContentClaims(event),
     blobs = claims.map((claim) => ({ ...claim, body: planned.body ?? "" }));
   input.store.append({
     event,
@@ -715,6 +711,7 @@ function dispatchRecordMigrationReport(headRevision: number, gitRevision: number
     dispatchRecords: planned.length,
     plannedEvents: planned.reduce((total, entry) => total + entry.events.length, 0),
     plannedLeaseReleases: planned.filter(({ settlement }) => settlement !== null).length,
+    resultBlobMissing: planned.filter((entry) => entry.resultBlobMissing).length,
     categories: counts,
     dispatches: planned.map((entry) => ({
       sourcePath: entry.sourcePath,
