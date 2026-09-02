@@ -28,7 +28,22 @@ test("fleet task routing requires both edge config and remote-edge registry mode
   const registry = (mode: "local" | "remote-edge", canonicalRoot = root) =>
     writeFileSync(
       path.join(userRoot, "registry.json"),
-      `${JSON.stringify({ schema: "harness-daemon-registry/v2", connections: [], repos: [{ repoId: "route-repo", canonicalRoot, state: "enabled", mode }] })}\n`,
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
+        repos: [
+          {
+            repoId: "route-repo",
+            canonicalRoot,
+            displayName: "Route Repo",
+            authoredBranch: "main",
+            mode,
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-07-07T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
     );
   const command = (method: string, action: Record<string, unknown>, rootDir = root) =>
     ({ rootDir, method, action }) as never;

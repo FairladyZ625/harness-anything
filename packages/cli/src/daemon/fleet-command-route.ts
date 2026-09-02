@@ -45,7 +45,7 @@ export async function fleetEdgeRegistration(
 ): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const commandRoot = canonicalRoot(command.rootDir),
-    registered = readRegisteredRepos(daemonUserRoot(env))
+    registered = (await readRegisteredRepos(daemonUserRoot(env)))
       // 只解析 enabled 条目,且解析不了根目录的(已删除的 e2e 残留登记)直接丢弃:
       // 它们不可能是本命令的根,不能让一条死登记把所有命令的路由一起炸掉。
       .filter((repo) => repo.state === "enabled")

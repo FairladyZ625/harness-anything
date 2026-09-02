@@ -64,12 +64,12 @@ export function runtimeDaemonStartRefusal(
     ].join(" "),
   };
 }
-export function daemonHostStartRefusal(input: {
+export async function daemonHostStartRefusal(input: {
   readonly invokingRoot: string;
   readonly userRoot: string;
-}): { readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null {
+}): Promise<{ readonly code: "daemon_start_noncanonical_checkout"; readonly hint: string } | null> {
   const invokingCheckout = daemonCheckoutRoot(input.invokingRoot),
-    registered = readRegisteredRepos(input.userRoot)
+    registered = (await readRegisteredRepos(input.userRoot))
       .filter((repo) => repo.state === "enabled")
       .map((repo) => daemonCheckoutRoot(repo.canonicalRoot))
       .find(
@@ -126,7 +126,7 @@ export async function ensureLocalDaemonRunning(input: {
     launched = input.launch();
     const target = daemonLaunchTarget(launched);
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
-    const refusal = daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
+    const refusal = await daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
     if (refusal) return { ok: false, ...refusal, attempts: 0 };
     flight = await acquireDaemonAutostartFlight(target);
     // The probe belongs inside the claim: another caller may have bound the
