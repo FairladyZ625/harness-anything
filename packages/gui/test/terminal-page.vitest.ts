@@ -367,21 +367,23 @@ describe("task binding (searchable picker + open-from-task-detail)", () => {
     const { bridge } = stubBridge([sessionRow()], null); // 已有会话 → 进页只附加,不自动 spawn。
     mountView({ repoId: "repo-a", daemonGeneration: null, tasks: manyTasks });
     await flush();
-    const picker = container!.querySelector<HTMLInputElement>('[data-testid="terminal-task-picker"]')!;
+    // 启动选项收在侧栏的气泡里,先打开。
+    act(() => container!.querySelector<HTMLButtonElement>('[data-testid="terminal-launch-options"]')!.click());
+    const picker = document.querySelector<HTMLInputElement>('[data-testid="terminal-task-picker"]')!;
     act(() => picker.focus());
     // 打开后只列前 40 条,余量用提示承接,几千个 option 不进 DOM。
-    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(41);
-    expect(container!.textContent).toContain("260");
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(41);
+    expect(document.body.textContent).toContain("260");
     act(() => typeInto(picker, "colour"));
-    const options = [...container!.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+    const options = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
     expect(options.map((option) => option.textContent)).toEqual(["unbound", "Fix xterm colour palettetask_0042"]);
     act(() => options[1].click());
     expect(picker.value).toBe("Fix xterm colour palette");
     expect(picker.title).toBe("task_0042");
     act(() => typeInto(picker, "task_00"));
-    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(41);
+    expect(document.querySelectorAll('[role="option"]')).toHaveLength(41);
     act(() => picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(container!.querySelector('[data-testid="terminal-task-picker-list"]')).toBeNull();
+    expect(document.querySelector('[data-testid="terminal-task-picker-list"]')).toBeNull();
     const form = picker.closest("form")!;
     act(() => form.requestSubmit());
     await flush();

@@ -51,5 +51,8 @@
   "terminal.view.dragHandleTitle": "拖动到别的 pane 上换位",
   "terminal.view.taskPickerPlaceholder": "搜索 task 标题或 id…",
   "terminal.view.taskPickerEmpty": "无匹配 task",
-  "terminal.view.taskPickerMore": "还有 {count} 个,继续输入缩小范围"
+  "terminal.view.taskPickerMore": "还有 {count} 个,继续输入缩小范围",
+  "terminal.view.launchOptions": "启动选项",
+  "terminal.view.noAttachable": "没有可附加的会话",
+  "terminal.view.sidebarResize": "拖动调整侧栏宽度"
 }
