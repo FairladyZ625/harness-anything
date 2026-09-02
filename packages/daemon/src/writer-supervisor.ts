@@ -142,7 +142,8 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           return;
         }
         if (isStatus(message)) {
-          if (message.status && typeof message.status === "object") status = message.status as RepoCellStatus;
+          const published = message.status;
+          if (published && typeof published === "object") status = published as RepoCellStatus;
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;
             input.onBootstrap?.(message.bootstrapReceipt as never);
