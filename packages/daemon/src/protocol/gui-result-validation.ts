@@ -18,6 +18,7 @@ import {
   validateSquadEntityDetail,
 } from "../agent-entities.contract.ts";
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
+import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateSchedulesList } from "./schedules-gui-contract.ts";
 import { validateScheduleRuns } from "../schedule-runs-read.ts";
@@ -59,14 +60,31 @@ import {
   type DaemonProtocolErrorResult,
 } from "./daemon-protocol.contract.ts";
 type ResultValidator = (value: unknown) => readonly string[];
-const validateDaemonSettingsRead: ResultValidator = (value) =>
+export const validateDaemonSettingsRead: ResultValidator = (value) =>
   isJsonObject(value) &&
   Object.keys(value).length === 3 &&
   value.schema === "daemon.settings-read/v1" &&
   value.ok === true &&
   validateSettingsV1(value.settings).length === 0
     ? []
-    : ["daemon settings read is invalid"];
+    : [
+        validationError(
+          "settings",
+          isJsonObject(value) && value.schema !== "daemon.settings-read/v1"
+            ? "schema"
+            : isJsonObject(value) && value.ok !== true
+              ? "ok"
+              : "settings",
+          isJsonObject(value)
+            ? value.schema !== "daemon.settings-read/v1"
+              ? value.schema
+              : value.ok !== true
+                ? value.ok
+                : value.settings
+            : value,
+          "must be a valid daemon settings read",
+        ),
+      ];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,

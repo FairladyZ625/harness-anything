@@ -81,13 +81,10 @@ test("task snapshot protocol isolates a malformed field with its source row iden
     result = { ...list, ...isolated };
 
   assert.deepEqual(isolated.rows, [row]);
-  assert.deepEqual(isolated.invalidRows, [
-    {
-      rowIndex: 1,
-      taskId: "task-invalid",
-      field: "rows[1].snapshot.codeDocWitnesses[0]",
-      message: "Task snapshot field is invalid.",
-    },
-  ]);
+  assert.deepEqual(
+    isolated.invalidRows.map(({ message: _message, ...diagnostic }) => diagnostic),
+    [{ rowIndex: 1, taskId: "task-invalid", field: "rows[1].snapshot.codeDocWitnesses[0]" }],
+  );
+  assert.match(isolated.invalidRows[0]!.message, /^actual=.*Task snapshot field is invalid\.$/u);
   assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
 });

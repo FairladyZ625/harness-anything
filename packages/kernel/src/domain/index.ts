@@ -73,6 +73,7 @@ export {
   assertTransitionDocumentReady,
   requireTransitionDocumentKind,
 } from "./transition-document-readiness.ts";
+export type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
 export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";

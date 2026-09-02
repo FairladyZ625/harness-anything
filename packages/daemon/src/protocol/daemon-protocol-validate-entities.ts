@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import {
   executionStateWords,
   executionV1StateWords,
@@ -36,6 +37,66 @@ export const sha = (value: unknown): boolean => typeof value === "string" && /^[
 export const statusWord = (vocabulary: readonly string[], value: unknown): boolean =>
   vocabulary.includes(String(value));
 
+const validationValueLimit = 120;
+
+export function validationValueSummary(value: unknown): string {
+  const rendered = inspect(value, {
+    breakLength: Infinity,
+    compact: true,
+    depth: 3,
+    maxArrayLength: 20,
+    maxStringLength: 100,
+  });
+  const characters = [...rendered];
+  return characters.length <= validationValueLimit
+    ? rendered
+    : `${characters.slice(0, validationValueLimit - 1).join("")}…`;
+}
+
+export function validationError(entityId: string, field: string, actual: unknown, expectation: string): string {
+  return (
+    `entity=${validationValueSummary(entityId)} field=${field} ${expectation}; ` +
+    `actual=${validationValueSummary(actual)}`
+  );
+}
+
+export function validationEntityId(value: unknown, fields: readonly string[], fallback: string): string {
+  if (isJsonObject(value)) {
+    for (const field of fields) if (nonEmpty(value[field])) return value[field];
+  }
+  return fallback;
+}
+
+export function recordShapeError(
+  entityId: string,
+  value: unknown,
+  required: readonly string[],
+  allowed: readonly string[] = required,
+  prefix = "",
+): string | null {
+  const root = prefix || "$";
+  if (!isJsonObject(value)) return validationError(entityId, root, value, "must be an object");
+  const missing = required.find((field) => !Object.hasOwn(value, field));
+  if (missing) return validationError(entityId, joinValidationPath(prefix, missing), undefined, "field is required");
+  const unknown = Object.keys(value).find((field) => !allowed.includes(field));
+  return unknown
+    ? validationError(entityId, joinValidationPath(prefix, unknown), value[unknown], "field is not declared")
+    : null;
+}
+
+export function validationValueAtPath(value: unknown, field: string): unknown {
+  let current = value;
+  for (const segment of field.match(/[^.[\]]+/gu) ?? []) {
+    if (!isJsonObject(current) && !Array.isArray(current)) return undefined;
+    current = (current as unknown as Readonly<Record<string, unknown>>)[segment];
+  }
+  return current;
+}
+
+function joinValidationPath(prefix: string, field: string): string {
+  return prefix ? `${prefix}.${field}` : field;
+}
+
 export function actor(value: unknown): boolean {
   return (
     exactRecord(value, ["principal", "executor"]) &&
@@ -70,8 +131,7 @@ export function sessionProvenance(value: unknown): boolean {
 }
 
 export function validateGuiSubmission(value: unknown): readonly string[] {
-  if (
-    !exactRecord(value, [
+  const fields = [
       "completionClaim",
       "deliverables",
       "outputs",
@@ -79,19 +139,19 @@ export function validateGuiSubmission(value: unknown): readonly string[] {
       "knownGaps",
       "residualRisks",
       "commitSha",
-    ])
-  )
-    return [
-      [
-        "SubmissionV1 requires exactly: completionClaim, deliverables, outputs, ",
-        "verificationNotes, knownGaps, residualRisks, commitSha",
-      ].join(""),
-    ];
+    ],
+    entityId = validationEntityId(value, ["commitSha"], "submission:<unknown>"),
+    shapeError = recordShapeError(entityId, value, fields);
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
   const errors: string[] = [];
-  if (!nonEmpty(value.completionClaim)) errors.push("completionClaim must be a non-empty string");
+  if (!nonEmpty(value.completionClaim))
+    errors.push(validationError(entityId, "completionClaim", value.completionClaim, "must be a non-empty string"));
   for (const field of ["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const)
-    if (!stringArray(value[field])) errors.push(`${field} must be an array of non-empty strings`);
-  if (!sha(value.commitSha)) errors.push("commitSha must be a native 40-character commit SHA");
+    if (!stringArray(value[field]))
+      errors.push(validationError(entityId, field, value[field], "must be an array of non-empty strings"));
+  if (!sha(value.commitSha))
+    errors.push(validationError(entityId, "commitSha", value.commitSha, "must be a native 40-character commit SHA"));
   return errors;
 }
 

@@ -45,7 +45,7 @@ test("GUI main reports every isolated task snapshot row with field-level context
           rowIndex: 4,
           taskId: "task-invalid",
           field: "rows[4].snapshot.codeDocWitnesses[0]",
-          message: "Task snapshot field is invalid.",
+          message: "actual={ witnessId: '' }: Task snapshot field is invalid.",
         },
       ],
     },
@@ -54,7 +54,7 @@ test("GUI main reports every isolated task snapshot row with field-level context
 
   assert.deepEqual(messages, [
     "[repo.tasks.list] isolated invalid task snapshot row rowIndex=4 taskId=task-invalid " +
-      "field=rows[4].snapshot.codeDocWitnesses[0]: Task snapshot field is invalid.",
+      "field=rows[4].snapshot.codeDocWitnesses[0]: actual={ witnessId: '' }: Task snapshot field is invalid.",
   ]);
 });
 

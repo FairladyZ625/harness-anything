@@ -68,6 +68,15 @@ export function resultErrorCode(result: object): string | null {
   const error = "error" in result ? result.error : undefined;
   return isJsonObject(error) && typeof error.code === "string" ? error.code : null;
 }
+export function resultErrorDetail(result: object): string | null {
+  if (resultOk(result)) return null;
+  const error = "error" in result ? result.error : undefined,
+    detail =
+      (isJsonObject(error) && typeof error.hint === "string" ? error.hint : null) ??
+      ("nextAction" in result && typeof result.nextAction === "string" ? result.nextAction : null) ??
+      ("evidence" in result && typeof result.evidence === "string" ? result.evidence : null);
+  return detail?.split(/;\s*/u, 1)[0]?.slice(0, 500) ?? "Unknown request failure.";
+}
 export function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code: errorCode, message } };
 }

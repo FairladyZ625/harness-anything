@@ -21,10 +21,16 @@ const transitionDocumentBindings: readonly TransitionDocumentBinding[] = Object.
   { transition: "squad.install", documentKind: "squad.roster" },
 ]);
 
+export interface TransitionDocumentMissingSection {
+  readonly section: string;
+  readonly reason: "empty" | "scaffold";
+  readonly retainedScaffold?: string;
+}
+
 interface TransitionDocumentReadiness {
   readonly ready: boolean;
   readonly code: TransitionDocumentPlaceholderCode;
-  readonly missingSections: readonly string[];
+  readonly missingSections: readonly TransitionDocumentMissingSection[];
 }
 
 type MarkdownDocumentContract = {
@@ -135,10 +141,8 @@ export function assessTransitionDocument(kind: TransitionDocumentKind, body: str
         : kind === "decision.body"
           ? meaningfulMarkdown(body)
             ? []
-            : ["body"]
-          : declarationTextReady(kind, body)
-            ? []
-            : [kind === "agent.instructions" ? "instructions" : "roster"];
+            : [{ section: "body", reason: "empty" } as const]
+          : declarationMissingSection(kind, body);
   return Object.freeze({
     ready: missingSections.length === 0,
     code: placeholderCodes[kind],
@@ -155,16 +159,19 @@ export function requireTransitionDocumentKind(transition: string): TransitionDoc
 export function assertTransitionDocumentReady(kind: TransitionDocumentKind, body: string): void {
   const assessment = assessTransitionDocument(kind, body);
   if (assessment.ready) return;
-  const sections = assessment.missingSections.join(", "),
+  const sections = assessment.missingSections.map(({ section }) => section).join(", "),
     error = new Error(
       `${assessment.code}: ${kind} has empty or scaffold-equivalent required content: ${sections}.`,
-    ) as Error & { code: TransitionDocumentPlaceholderCode; missingSections: readonly string[] };
+    ) as Error & {
+      code: TransitionDocumentPlaceholderCode;
+      missingSections: readonly TransitionDocumentMissingSection[];
+    };
   error.code = assessment.code;
   error.missingSections = assessment.missingSections;
   throw error;
 }
 
-function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): string[] {
+function missingMarkdownSections(body: string, contract: MarkdownDocumentContract): TransitionDocumentMissingSection[] {
   const sections = markdownSections(body),
     untouchedScaffold = contract.requiredSections.every((heading) => {
       const content = sections.get(normalizeHeading(heading));
@@ -175,16 +182,21 @@ function missingMarkdownSections(body: string, contract: MarkdownDocumentContrac
         )
       );
     });
-  return contract.requiredSections.filter((heading) => {
+  return contract.requiredSections.flatMap((heading): readonly TransitionDocumentMissingSection[] => {
     const content = sections.get(normalizeHeading(heading));
-    if (!content?.trim()) return true;
+    if (!content?.trim()) return [{ section: heading, reason: "empty" }];
     const scaffolds = contract.scaffoldBySection[heading] ?? [],
       normalized = normalizeText(content),
       retained = scaffolds.filter((scaffold) => normalized.includes(normalizeText(scaffold)));
-    if (retained.length === 0) return false;
-    if (untouchedScaffold) return true;
+    if (retained.length === 0) return [];
+    const issue = (): TransitionDocumentMissingSection => ({
+      section: heading,
+      reason: "scaffold",
+      retainedScaffold: clipScaffold(retained[0]!),
+    });
+    if (untouchedScaffold) return [issue()];
     const remainder = retained.reduce((value, scaffold) => value.replaceAll(normalizeText(scaffold), " "), normalized);
-    return !/[\p{L}\p{N}]/u.test(remainder);
+    return /[\p{L}\p{N}]/u.test(remainder) ? [] : [issue()];
   });
 }
 
@@ -211,6 +223,23 @@ function meaningfulMarkdown(body: string): boolean {
 function declarationTextReady(kind: "agent.instructions" | "squad.roster", body: string): boolean {
   const normalized = normalizeText(body);
   return normalized.length > 0 && !declarationScaffolds[kind].some((value) => normalized === normalizeText(value));
+}
+
+function declarationMissingSection(
+  kind: "agent.instructions" | "squad.roster",
+  body: string,
+): readonly TransitionDocumentMissingSection[] {
+  if (declarationTextReady(kind, body)) return [];
+  const section = kind === "agent.instructions" ? "instructions" : "roster",
+    normalized = normalizeText(body),
+    retained = declarationScaffolds[kind].find((value) => normalized === normalizeText(value));
+  return retained
+    ? [{ section, reason: "scaffold", retainedScaffold: clipScaffold(retained) }]
+    : [{ section, reason: "empty" }];
+}
+
+function clipScaffold(value: string): string {
+  return [...value].slice(0, 60).join("");
 }
 
 function stripFrontmatter(body: string): string {

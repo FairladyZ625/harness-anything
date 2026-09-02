@@ -19,7 +19,12 @@ import {
   statusWord,
   stringArray,
   task,
+  validationEntityId,
+  validationError,
+  validationValueAtPath,
+  validationValueSummary,
   warningArray,
+  recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
 import {
   decisionStateWords,
@@ -27,7 +32,7 @@ import {
   relationStateWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
-import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
+import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 import type { DaemonTaskSnapshotInvalidRow } from "./daemon-protocol-gui-types.ts";
 
 export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesses"] as const,
@@ -58,13 +63,16 @@ function validateProjectedTaskActionInput(
   record: Readonly<Record<string, unknown>>,
 ): readonly string[] {
   const allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field)]),
+    entityId = validationEntityId(record, ["taskId", "executionId"], `action:${ingress}`),
     errors = Object.keys(record)
       .filter((field) => !allowed.has(field))
-      .map((field) => `${ingress}.${field} is not declared by the Action input schema`);
+      .map((field) =>
+        validationError(entityId, `action.${field}`, record[field], "is not declared by the Action input schema"),
+      );
   for (const field of input.fields) {
     const item = record[field.field];
     if (field.required && (item === undefined || item === "")) {
-      errors.push(`${ingress}.${field.field} is required`);
+      errors.push(validationError(entityId, `action.${field.field}`, item, "field is required"));
       continue;
     }
     if (item === undefined) continue;
@@ -82,32 +90,49 @@ function validateProjectedTaskActionInput(
             typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
             typeof (entry as { readonly rationale?: unknown }).rationale === "string",
         ));
-    if (!valid) errors.push(`${ingress}.${field.field} must be ${field.type}`);
+    if (!valid) errors.push(validationError(entityId, `action.${field.field}`, item, `must be ${field.type}`));
     if (field.enum && !field.enum.includes(String(item)))
-      errors.push(`${ingress}.${field.field} must be one of ${field.enum.join(", ")}`);
+      errors.push(validationError(entityId, `action.${field.field}`, item, `must be one of ${field.enum.join(", ")}`));
     if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))
-      errors.push(`${ingress}.${field.field} does not match its Action input pattern`);
+      errors.push(validationError(entityId, `action.${field.field}`, item, "does not match its Action input pattern"));
   }
   for (const group of input.exactlyOneOf) {
     const present = group.filter((field) => record[field] !== undefined);
-    if (present.length !== 1) errors.push(`${ingress} requires exactly one of ${group.join(", ")}`);
+    if (present.length !== 1)
+      errors.push(
+        validationError(
+          entityId,
+          `action.[${group.join("|")}]`,
+          Object.fromEntries(group.map((field) => [field, record[field]])),
+          "requires exactly one declared field",
+        ),
+      );
   }
   return errors;
 }
 
 export function validateSessionEnvironment(value: unknown): string[] {
   if (value === undefined) return [];
-  if (!isJsonObject(value)) return ["session environment must be an object"];
+  const entityId = validationEntityId(
+    value,
+    ["HARNESS_ACTOR", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CLAUDE_CODE_SESSION_ID"],
+    "session:<unknown>",
+  );
+  if (!isJsonObject(value)) return [validationError(entityId, "sessionEnvironment", value, "must be an object")];
   const allowed = ["CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "HARNESS_ACTOR"],
-    unknown = unknownFieldViolation(value, allowed);
-  if (unknown) return [`session environment contains an ${unknown}`];
-  if (!Object.values(value).every((item) => typeof item === "string" && item.trim().length > 0))
-    return ["session environment values must be non-empty strings"];
+    unknown = Object.keys(value).find((field) => !allowed.includes(field));
+  if (unknown)
+    return [validationError(entityId, `sessionEnvironment.${unknown}`, value[unknown], "field is not declared")];
+  const invalidValue = Object.entries(value).find(([, item]) => typeof item !== "string" || item.trim().length === 0);
+  if (invalidValue)
+    return [
+      validationError(entityId, `sessionEnvironment.${invalidValue[0]}`, invalidValue[1], "must be a non-empty string"),
+    ];
   if (
     typeof value.HARNESS_ACTOR === "string" &&
     !/^agent:[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(value.HARNESS_ACTOR.trim())
   )
-    return ["session environment HARNESS_ACTOR must use agent:<id>"];
+    return [validationError(entityId, "sessionEnvironment.HARNESS_ACTOR", value.HARNESS_ACTOR, "must use agent:<id>")];
   return [];
 }
 
@@ -217,23 +242,39 @@ export function queryPageRow(value: unknown): boolean {
 }
 
 export function validateDaemonTaskSnapshotList(value: unknown): readonly string[] {
-  if (!recordWith(value, DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required)) return ["daemon task snapshot list is invalid"];
-  if (
-    Object.keys(value).some((field) => ![...DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required, "page"].includes(field)) ||
-    value.ok !== true ||
-    (value.status !== "ready" && value.status !== "pending") ||
-    !integer(value.watermark) ||
-    !integer(value.sourceRevision) ||
-    !warningArray(value.warnings) ||
-    (value.page !== undefined && !queryPageRow(value.page)) ||
-    !Array.isArray(value.rows) ||
-    !Array.isArray(value.invalidRows) ||
-    !value.invalidRows.every(invalidTaskSnapshotRow)
-  )
-    return ["daemon task snapshot list is invalid"];
-  return isolateDaemonTaskSnapshotRows(value.rows).invalidRows.length === 0
-    ? []
-    : ["daemon task snapshot list contains an unisolated invalid row"];
+  const entityId = taskSnapshotListEntityId(value),
+    shapeError = recordShapeError(entityId, value, DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required, [
+      ...DAEMON_TASK_SNAPSHOT_LIST_SCHEMA.required,
+      "page",
+    ]);
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  for (const [field, actual, valid, expectation] of [
+    ["ok", value.ok, value.ok === true, "must be true"],
+    ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
+    ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
+    ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
+    ["warnings", value.warnings, warningArray(value.warnings), "must contain valid warnings"],
+    ["page", value.page, value.page === undefined || queryPageRow(value.page), "must be a valid query page"],
+    ["rows", value.rows, Array.isArray(value.rows), "must be an array"],
+    ["invalidRows", value.invalidRows, Array.isArray(value.invalidRows), "must be an array"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
+  if (!Array.isArray(value.invalidRows) || !Array.isArray(value.rows)) return [];
+  const invalidRowIndex = value.invalidRows.findIndex((row) => !invalidTaskSnapshotRow(row));
+  if (invalidRowIndex >= 0)
+    return [
+      validationError(
+        validationEntityId(value.invalidRows[invalidRowIndex], ["taskId"], entityId),
+        `invalidRows[${invalidRowIndex}]`,
+        value.invalidRows[invalidRowIndex],
+        "must be a valid isolated-row diagnostic",
+      ),
+    ];
+  const unisolated = isolateDaemonTaskSnapshotRows(value.rows).invalidRows[0];
+  return unisolated
+    ? [`entity=${validationValueSummary(unisolated.taskId)} field=${unisolated.field} ${unisolated.message}`]
+    : [];
 }
 
 export function isolateDaemonTaskSnapshotRows<T>(values: readonly T[]): {
@@ -272,9 +313,15 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
       rowIndex: index,
       taskId,
       field: `rows[${index}]${field ? `.${field}` : ""}`,
-      message: "Task snapshot field is invalid.",
+      message:
+        `actual=${validationValueSummary(field ? validationValueAtPath(value, field) : value)}: ` +
+        "Task snapshot field is invalid.",
     });
-  if (!exactRecord(value, taskSnapshotListRowFields)) return [error("")];
+  if (!isJsonObject(value)) return [error("")];
+  const missing = taskSnapshotListRowFields.find((field) => !Object.hasOwn(value, field));
+  if (missing) return [error(missing)];
+  const unknown = Object.keys(value).find((field) => !taskSnapshotListRowFields.includes(field as never));
+  if (unknown) return [error(unknown)];
   const errors: DaemonTaskSnapshotInvalidRow[] = [];
   if (!nonEmpty(value.taskId)) errors.push(error("taskId"));
   if (value.packagePath !== null && !nonEmpty(value.packagePath)) errors.push(error("packagePath"));
@@ -303,7 +350,8 @@ function invalidTaskSnapshotRow(value: unknown): boolean {
     Number(value.rowIndex) < 0 ||
     !nonEmpty(value.taskId) ||
     !nonEmpty(value.field) ||
-    !nonEmpty(value.message)
+    !nonEmpty(value.message) ||
+    !value.message.startsWith("actual=")
   )
     return false;
   const rowPath = `rows[${value.rowIndex}]`;
@@ -363,48 +411,89 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
 }
 
 export function validateDaemonWorkspaceSummary(value: unknown): readonly string[] {
-  if (
-    !exactRecord(value, DAEMON_WORKSPACE_SUMMARY_SCHEMA.required) ||
-    value.schema !== DAEMON_WORKSPACE_SUMMARY_SCHEMA.id ||
-    value.ok !== true ||
-    (value.status !== "ready" && value.status !== "pending") ||
-    !integer(value.watermark) ||
-    !integer(value.sourceRevision) ||
-    !warningArray(value.warnings)
-  )
-    return ["daemon workspace summary is invalid"];
+  const entityId = "workspace",
+    shapeError = recordShapeError(entityId, value, DAEMON_WORKSPACE_SUMMARY_SCHEMA.required);
+  if (shapeError) return [shapeError];
+  if (!isJsonObject(value)) return [];
+  for (const [field, actual, valid, expectation] of [
+    ["schema", value.schema, value.schema === DAEMON_WORKSPACE_SUMMARY_SCHEMA.id, "must match the workspace schema"],
+    ["ok", value.ok, value.ok === true, "must be true"],
+    ["status", value.status, value.status === "ready" || value.status === "pending", "must be ready or pending"],
+    ["watermark", value.watermark, integer(value.watermark), "must be an integer"],
+    ["sourceRevision", value.sourceRevision, integer(value.sourceRevision), "must be an integer"],
+    ["warnings", value.warnings, warningArray(value.warnings), "must contain valid warnings"],
+  ] as const)
+    if (!valid) return [validationError(entityId, field, actual, expectation)];
   const taskStatuses = [...taskStatusWords, "unknown"],
     tasks = value.tasks,
     decisions = value.decisions;
-  if (!exactRecord(tasks, ["total", "byStatus"]) || !integer(tasks.total) || Number(tasks.total) < 0)
-    return ["daemon workspace task summary is invalid"];
+  const tasksShapeError = recordShapeError(entityId, tasks, ["total", "byStatus"], undefined, "tasks");
+  if (tasksShapeError) return [tasksShapeError];
+  if (!isJsonObject(tasks)) return [];
+  if (!integer(tasks.total) || Number(tasks.total) < 0)
+    return [validationError(entityId, "tasks.total", tasks.total, "must be a non-negative integer")];
   const byStatus = tasks.byStatus;
-  if (
-    !exactRecord(byStatus, taskStatuses) ||
-    taskStatuses.some((status) => !integer(byStatus[status]) || Number(byStatus[status]) < 0) ||
-    taskStatuses.reduce((sum, status) => sum + Number(byStatus[status]), 0) !== tasks.total
-  )
-    return ["daemon workspace task summary is invalid"];
-  if (
-    !exactRecord(decisions, ["total", "inboxCount", "byState", "groups"]) ||
-    !integer(decisions.total) ||
-    Number(decisions.total) < 0 ||
-    !integer(decisions.inboxCount) ||
-    Number(decisions.inboxCount) < 0 ||
-    !Array.isArray(decisions.groups)
-  )
-    return ["daemon workspace decision summary is invalid"];
+  const statusShapeError = recordShapeError(entityId, byStatus, taskStatuses, undefined, "tasks.byStatus");
+  if (statusShapeError) return [statusShapeError];
+  if (!isJsonObject(byStatus)) return [];
+  const invalidTaskStatus = taskStatuses.find((status) => !integer(byStatus[status]) || Number(byStatus[status]) < 0);
+  if (invalidTaskStatus)
+    return [
+      validationError(
+        entityId,
+        `tasks.byStatus.${invalidTaskStatus}`,
+        byStatus[invalidTaskStatus],
+        "must be a non-negative integer",
+      ),
+    ];
+  if (taskStatuses.reduce((sum, status) => sum + Number(byStatus[status]), 0) !== tasks.total)
+    return [validationError(entityId, "tasks.total", tasks.total, "must equal the by-status sum")];
+  const decisionsShapeError = recordShapeError(
+    entityId,
+    decisions,
+    ["total", "inboxCount", "byState", "groups"],
+    undefined,
+    "decisions",
+  );
+  if (decisionsShapeError) return [decisionsShapeError];
+  if (!isJsonObject(decisions)) return [];
+  if (!integer(decisions.total) || Number(decisions.total) < 0)
+    return [validationError(entityId, "decisions.total", decisions.total, "must be a non-negative integer")];
+  if (!integer(decisions.inboxCount) || Number(decisions.inboxCount) < 0)
+    return [validationError(entityId, "decisions.inboxCount", decisions.inboxCount, "must be a non-negative integer")];
+  if (!Array.isArray(decisions.groups))
+    return [validationError(entityId, "decisions.groups", decisions.groups, "must be an array")];
   const byDecisionState = decisions.byState;
-  if (
-    !exactRecord(byDecisionState, decisionStateWords) ||
-    decisionStateWords.some((state) => !integer(byDecisionState[state]) || Number(byDecisionState[state]) < 0) ||
-    decisionStateWords.reduce((sum, state) => sum + Number(byDecisionState[state]), 0) !== decisions.total
-  )
-    return ["daemon workspace decision summary is invalid"];
+  const stateShapeError = recordShapeError(
+    entityId,
+    byDecisionState,
+    decisionStateWords,
+    undefined,
+    "decisions.byState",
+  );
+  if (stateShapeError) return [stateShapeError];
+  if (!isJsonObject(byDecisionState)) return [];
+  const invalidDecisionState = decisionStateWords.find(
+    (state) => !integer(byDecisionState[state]) || Number(byDecisionState[state]) < 0,
+  );
+  if (invalidDecisionState)
+    return [
+      validationError(
+        entityId,
+        `decisions.byState.${invalidDecisionState}`,
+        byDecisionState[invalidDecisionState],
+        "must be a non-negative integer",
+      ),
+    ];
+  if (decisionStateWords.reduce((sum, state) => sum + Number(byDecisionState[state]), 0) !== decisions.total)
+    return [validationError(entityId, "decisions.total", decisions.total, "must equal the by-state sum")];
   const groupIds = ["proposed", "in_effect", "rejected", "deferred", "retired"],
     decisionIds: string[] = [],
     states: string[] = [];
-  if (decisions.groups.length !== groupIds.length) return ["daemon workspace decision groups are invalid"];
+  if (decisions.groups.length !== groupIds.length)
+    return [
+      validationError(entityId, "decisions.groups.length", decisions.groups.length, `must be ${groupIds.length}`),
+    ];
   for (const [index, group] of decisions.groups.entries()) {
     if (
       !exactRecord(group, ["id", "states", "count", "decisionIds"]) ||
@@ -418,7 +507,14 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
       new Set(group.decisionIds).size !== group.decisionIds.length ||
       group.count !== group.decisionIds.length
     )
-      return ["daemon workspace decision groups are invalid"];
+      return [
+        validationError(
+          validationEntityId(group, ["id"], `decision-group:${index}`),
+          `decisions.groups[${index}]`,
+          group,
+          "must be a valid decision group",
+        ),
+      ];
     states.push(...group.states.map(String));
     decisionIds.push(...group.decisionIds.map(String));
   }
@@ -429,6 +525,16 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
     decisions.total !== decisionIds.length ||
     decisions.inboxCount !== decisions.groups[0].count
   )
-    return ["daemon workspace decision totals are invalid"];
+    return [
+      validationError(entityId, "decisions.total", decisions.total, "must match unique grouped decisions and inbox"),
+    ];
   return [];
+}
+
+function taskSnapshotListEntityId(value: unknown): string {
+  if (isJsonObject(value) && Array.isArray(value.rows)) {
+    const rowId = validationEntityId(value.rows[0], ["taskId"], "");
+    if (rowId) return rowId;
+  }
+  return "task-snapshot-list";
 }

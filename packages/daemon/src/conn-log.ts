@@ -40,6 +40,7 @@ export interface DaemonTrafficLogEntry {
   readonly durationMs: number;
   readonly ok: boolean;
   readonly code: string | null;
+  readonly detail: string | null;
 }
 
 export interface DaemonConnLog {
@@ -147,6 +148,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         durationMs: entry.durationMs,
         ok: entry.ok,
         code: entry.code,
+        ...(!entry.ok ? { detail: entry.detail ?? "Unknown request failure." } : {}),
       });
     },
     settle: async () => {

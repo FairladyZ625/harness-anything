@@ -25,6 +25,7 @@ import {
   protocolErrorMessage,
   repoIdFromParams,
   resultErrorCode,
+  resultErrorDetail,
   resultOk,
   rpcError,
   rpcServerErrorCode,
@@ -90,11 +91,12 @@ export function createJsonRpcProtocolServer(options: {
         Date.now(),
         false,
         "-32600",
+        "Invalid Request",
       );
       return rpcError(id, -32600, "Invalid Request");
     }
     if (!isContractedDaemonRpcMethod(request.method)) {
-      traffic(request.method, frameReceivedAt, startedAt, Date.now(), false, "-32601");
+      traffic(request.method, frameReceivedAt, startedAt, Date.now(), false, "-32601", "Method not found");
       return rpcError(id, -32601, "Method not found");
     }
     const reply = <Method extends DaemonRpcMethod>(
@@ -104,7 +106,15 @@ export function createJsonRpcProtocolServer(options: {
       const repliedAt = Date.now(),
         serviceMs = repliedAt - startedAt;
       recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
-      traffic(method, frameReceivedAt, startedAt, repliedAt, resultOk(result), resultErrorCode(result));
+      traffic(
+        method,
+        frameReceivedAt,
+        startedAt,
+        repliedAt,
+        resultOk(result),
+        resultErrorCode(result),
+        resultErrorDetail(result),
+      );
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
     const parsed = parseDaemonRpcParams(request.method, request.params);
@@ -517,6 +527,7 @@ export function createJsonRpcProtocolServer(options: {
     repliedAt: number,
     ok: boolean,
     code: string | null,
+    detail: string | null,
   ): void {
     if (!options.recordTraffic) return;
     options.recordTraffic({
@@ -532,6 +543,7 @@ export function createJsonRpcProtocolServer(options: {
       durationMs: Math.max(0, repliedAt - handlerStartedAt),
       ok,
       code,
+      detail,
     });
   }
 }
