@@ -25,9 +25,10 @@ import type { TaskProjection } from "../projection/task-projection-port.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import type { CanonicalEventStore, PublicationFile } from "./task-event-store-types.ts";
 
-// One-shot history upcasts. A migrating replay walks the ledger one revision at a time into a
-// scratch projection; each event is rewritten against the projection state at its own cut and
-// the rewritten event is what the scratch projection applies. The rewrites are then published
+// One-shot history upcasts. A migrating replay walks the ledger into a scratch projection:
+// candidates (`matches`) are replayed alone so each is rewritten against the projection state at
+// its own cut, everything between them is caught up in bulk rounds, and the rewritten event is
+// what the scratch projection applies. The rewrites are then published
 // atomically as rewritten event objects alongside a migration marker, the same publication
 // shape `fact-rekey` uses, so the ledger head and commit are produced by the store. The live
 // projection is left alone: every rewrite is, by construction, what the projection already
@@ -43,6 +44,10 @@ export interface EventShapeRewrite {
 export type EventShapeCut = Pick<TaskProjection, "readEntityVersionWitness" | "readDecisionDocumentState">;
 export interface EventShapeMigrationSpec {
   readonly name: EventShapeMigrationName;
+  // Pure on the event: true for every event whose `rewrite` reads the cut. Only these are replayed
+  // one revision at a time; every other event is rewritten inside bulk rounds, so a rewrite may
+  // touch `cut` only when `matches` is true for that event.
+  readonly matches: (event: CanonicalEventV1) => boolean;
   readonly rewrite: (event: CanonicalEventV1, cut: EventShapeCut) => EventShapeRewrite | null;
 }
 export interface EventShapeMigrationInput {
@@ -55,6 +60,12 @@ export interface EventShapeMigrationInput {
 
 const relationEventsMigration: EventShapeMigrationSpec = {
   name: "relation-events",
+  // Only a missing target witness needs the projection at the event's cut; dropping strength and
+  // normalising the state word are pure on the event.
+  matches: (event) =>
+    isRelationEvent(event) &&
+    (event.type === "relation_created" || event.type === "relation_replaced") &&
+    !Object.hasOwn(event.payload.relation, "targetObservedVersion"),
   rewrite: (event, cut) => {
     if (isMigrationImportEvent(event)) {
       const entity = event.payload.entity;
@@ -99,6 +110,11 @@ const relationEventsMigration: EventShapeMigrationSpec = {
 
 const decisionDigestsMigration: EventShapeMigrationSpec = {
   name: "decision-digests",
+  matches: (event) => {
+    if (event.schema !== "decision-event/v1") return false;
+    const payload = (event as DecisionEventV1).payload as Readonly<Record<string, unknown>>;
+    return payload.judgmentConsent !== undefined || payload.contentPin !== undefined;
+  },
   rewrite: (event, cut) => {
     if (event.schema !== "decision-event/v1") return null;
     const decision = event as DecisionEventV1,
@@ -243,6 +259,8 @@ export async function runEventShapeMigration(
   };
 }
 
+const BULK_ROUND_LIMIT = 4096;
+
 function replayRewrites(
   spec: EventShapeMigrationSpec,
   input: EventShapeMigrationInput,
@@ -250,33 +268,62 @@ function replayRewrites(
   head: ReturnType<CanonicalEventStore["readHead"]>,
 ): readonly EventShapeRewrite[] {
   const rewrites: EventShapeRewrite[] = [],
-    scratchPath = path.join(tmpdir(), `ha-${spec.name}-${process.pid}-${Date.now()}.sqlite`);
+    scratchPath = path.join(tmpdir(), `ha-${spec.name}-${process.pid}-${Date.now()}.sqlite`),
+    pending: CanonicalEventV1[] = [];
   let cap = 0,
     cursor: string | null = null,
+    exhausted = false,
+    prefetchContent: ReturnType<CanonicalEventStore["readBatch"]>["prefetchContent"],
     projection: TaskProjection | null = null;
+  // Read ahead from the real store until the buffer holds a full bulk round or the stream ends.
+  const fill = (): void => {
+    while (!exhausted && pending.length < BULK_ROUND_LIMIT) {
+      const batch = input.store.readBatch(cursor, BULK_ROUND_LIMIT);
+      pending.push(...batch.events);
+      cursor = batch.cursor;
+      exhausted = batch.done;
+      if (batch.prefetchContent) prefetchContent = batch.prefetchContent;
+    }
+  };
+  // Every migration's rewrite is applied to the scratch projection so it stays valid past shapes
+  // the other migrations own (a decision digest is derived over rewritten relations, and the
+  // strict reducer rejects both legacy shapes); only the requested migration's rewrites are
+  // reported and published.
+  const migrations = Object.values(eventShapeMigrations);
+  // A round ends at the next candidate when it is the next event (so its rewrite sees the
+  // projection at revision-1), otherwise right before it or after a full bulk round; with no
+  // events left it ends at the head.
+  const nextCap = (): number => {
+    fill();
+    if (pending.length === 0) return headRevision;
+    const candidate = pending.findIndex((event) => migrations.some((migration) => migration.matches(event))),
+      count = candidate === 0 ? 1 : Math.min(candidate === -1 ? pending.length : candidate, BULK_ROUND_LIMIT);
+    return pending[count - 1]!.workspaceRevision;
+  };
   const stream = {
     readHead: () =>
       cap >= headRevision
         ? head
         : { revision: cap, eventDigest: `sha256:${sha256Text(`event-shape-migration:${cap}`)}` as `sha256:${string}` },
     readBatch: () => {
-      const batch = input.store.readBatch(cursor, 1);
-      cursor = batch.cursor;
-      const events = batch.events
-        .filter((event) => event.workspaceRevision <= cap)
-        .map((event) => {
-          const rewrite = spec.rewrite(event, projection!);
-          if (rewrite === null) return event;
-          rewrites.push(rewrite);
-          return rewrite.event;
+      const beyond = pending.findIndex((event) => event.workspaceRevision > cap),
+        events = pending.splice(0, beyond === -1 ? pending.length : beyond).map((event) => {
+          let current = event;
+          for (const migration of migrations) {
+            const rewrite = migration.rewrite(current, projection!);
+            if (rewrite === null) continue;
+            if (migration === spec) rewrites.push(rewrite);
+            current = rewrite.event;
+          }
+          return current;
         });
       return {
         sourceRevision: cap,
         events,
         cursor: null,
         done: true,
-        accessedItems: batch.accessedItems,
-        ...(batch.prefetchContent ? { prefetchContent: batch.prefetchContent } : {}),
+        accessedItems: events.length,
+        ...(prefetchContent ? { prefetchContent } : {}),
       };
     },
     readContentBlob: (sha256: string) => input.store.readContentBlob(sha256),
@@ -285,13 +332,16 @@ function replayRewrites(
     rootDir: input.rootDir,
     eventStore: stream,
     projectionPath: scratchPath,
-    catchUpLimit: 1,
+    catchUpLimit: BULK_ROUND_LIMIT,
   });
   try {
-    for (cap = 1; cap <= headRevision; cap += 1) {
+    let watermark = 0;
+    while (watermark < headRevision) {
+      cap = nextCap();
       const round = projection.catchUp!();
       if (round.watermark !== cap)
         throw new Error(`${spec.name} migrating replay stalled at revision ${round.watermark} before ${cap}`);
+      watermark = cap;
     }
   } finally {
     projection.close();
