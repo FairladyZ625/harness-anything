@@ -111,7 +111,8 @@ export interface DaemonHost {
     readonly daemonId: string;
     readonly pid: number;
     readonly startedAt: string;
-    readonly build: DaemonBuildStatus & { readonly version: string };
+    readonly entry: DaemonBuildStatus["entry"];
+    readonly build: Omit<DaemonBuildStatus, "entry"> & { readonly version: string };
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };

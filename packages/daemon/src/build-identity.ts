@@ -7,7 +7,9 @@ import { runProcessText } from "./process-port.ts";
 export interface DaemonBuildStamp {
   readonly commit: string | null;
 }
+export type DaemonEntry = "source" | "dist";
 export interface DaemonBuildStatus extends DaemonBuildStamp {
+  readonly entry: DaemonEntry;
   readonly loadedBuildId: string | null;
   readonly diskBuildId: string | null;
   readonly drifted: boolean;
@@ -30,12 +32,13 @@ export function daemonBuildStamp(): DaemonBuildStamp {
 }
 export function observeDaemonBuild(runtimeFile?: string): DaemonBuildObserver {
   const markerPath = runtimeFile === undefined ? processMarkerPath : buildMarkerPath(runtimeFile),
+    entry: DaemonEntry = markerPath === null ? "source" : "dist",
     loadedBuildId =
       runtimeFile === undefined ? processLoadedBuildId : markerPath === null ? null : readBuildId(markerPath);
   return {
     status: () => {
       const diskBuildId = markerPath === null ? null : readBuildId(markerPath);
-      return { ...daemonBuildStamp(), loadedBuildId, diskBuildId, drifted: loadedBuildId !== diskBuildId };
+      return { ...daemonBuildStamp(), entry, loadedBuildId, diskBuildId, drifted: loadedBuildId !== diskBuildId };
     },
   };
 }

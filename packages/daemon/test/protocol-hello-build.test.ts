@@ -27,7 +27,7 @@ test("protocol.hello rejects a stale dist fingerprint and requests one restart",
   const server = createJsonRpcProtocolServer({
     host: {} as never,
     build: { commit: "loaded" },
-    buildObserver: { status: () => ({ commit: "loaded", loadedBuildId: "build-a", diskBuildId: "build-b", drifted: true }) },
+    buildObserver: { status: () => ({ commit: "loaded", entry: "dist", loadedBuildId: "build-a", diskBuildId: "build-b", drifted: true }) },
     authContext: { transportKind: "unix-socket" } as DaemonAuthenticationContext,
     emit: async () => undefined,
     requestShutdown: () => { shutdowns += 1; },

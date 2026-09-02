@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
+import type { DaemonEntry } from "./build-identity.ts";
 
 export const DAEMON_LIFECYCLE_LOG_SCHEMA = Object.freeze({ id: "daemon-lifecycle/v1" });
 const defaultMaxBytes = 4 * 1024 * 1024;
@@ -49,6 +50,7 @@ export interface DaemonLifecycleEntry {
   readonly signal?: string | null;
   readonly reason?: string | null;
   readonly commit?: string | null;
+  readonly entry?: DaemonEntry;
   readonly loadedBuildId?: string | null;
   readonly diskBuildId?: string | null;
   readonly drifted?: boolean;
