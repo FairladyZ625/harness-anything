@@ -57,13 +57,14 @@ test("entity import wire input is exact and projected from its executable Action
   );
 });
 
-test("ADR migration wire input accepts only its registry and occurrence fences", () => {
+test("ADR migration wire input accepts its fences and optional expected count", () => {
   const payload = {
     payload: {
       action: {
         kind: "entity-migrate-adrs",
         registryRevision: `sha256:${"a".repeat(64)}`,
         migrationOpId: "w1e-adr-cutover",
+        expectCount: 30,
         dryRun: true,
       },
     },
@@ -74,6 +75,12 @@ test("ADR migration wire input accepts only its registry and occurrence fences",
       payload: { action: { ...payload.payload.action, locator: "harness/adr" } },
     } as JsonObject).join("\n"),
     /action\.locator.*not declared/u,
+  );
+  assert.match(
+    validateCatalogActionPayload({
+      payload: { action: { ...payload.payload.action, expectCount: "30" } },
+    } as JsonObject).join("\n"),
+    /action\.expectCount.*must be number/u,
   );
 });
 

@@ -125,6 +125,8 @@ test("ADR migration projects its registry and occurrence fences into one center 
       revision,
       "--op-id",
       "w1e-adr-cutover-20260902",
+      "--expect-count",
+      "30",
       "--dry-run",
     ]);
   assert.equal(parsed.ok, true);
@@ -134,6 +136,7 @@ test("ADR migration projects its registry and occurrence fences into one center 
     kind: "entity-migrate-adrs",
     registryRevision: revision,
     migrationOpId: "w1e-adr-cutover-20260902",
+    expectCount: 30,
     dryRun: true,
   });
 });

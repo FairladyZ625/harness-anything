@@ -1,3 +1,8 @@
+/**
+ * One-time ADR Artifact Entity migration for the software/coding vertical. `Decision 锚` is that
+ * vertical's authored Markdown convention, not a generic Artifact Entity field. After the canonical
+ * migration is executed and recorded as a Fact, a follow-up task must delete this command.
+ */
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
@@ -9,6 +14,7 @@ import {
   migrationImportWritePlan,
   normalizeRelativeDocumentPath,
   relationStrengthForType,
+  resolveHarnessLayout,
   sha256Text,
   stableStringify,
   type AuthorizationDecision,
@@ -27,7 +33,13 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const ADR_KIND = "software/coding/architecture-decision-record@1";
 const ADR_FILE = /^(ADR-[0-9]{4})-[A-Za-z0-9][A-Za-z0-9._-]*\.md$/u;
-const DECISION_ANCHOR = /Decision 锚\s*[:：]\s*`(dec_ADR_[A-Za-z0-9_]+)`/gu;
+const DECISION_ANCHOR_LINE = /Decision 锚(?:\*\*)?\s*[:：][^\r\n]*/gu;
+const DECISION_REF = /\bdec_[A-Za-z0-9_]+\b/gu;
+
+interface AdrDecisionAnchor {
+  readonly decisionId: string;
+  readonly decisionPackageExists: boolean;
+}
 
 interface AdrCandidate {
   readonly adrId: string;
@@ -35,8 +47,9 @@ interface AdrCandidate {
   readonly entityId: string;
   readonly expectedVersion: number;
   readonly candidateContentVersion: string;
-  readonly decisionId: string | null;
-  readonly decisionPackageExists: boolean;
+  readonly resolvedFreshness: "current";
+  readonly operationId: string;
+  readonly decisionAnchors: readonly AdrDecisionAnchor[];
 }
 
 interface AdrRelationCandidate {
@@ -44,6 +57,17 @@ interface AdrRelationCandidate {
   readonly locator: string;
   readonly decisionId: string;
   readonly record: EntityRelationRecord;
+}
+
+interface AdrScan {
+  readonly candidates: readonly AdrCandidate[];
+  readonly nonNumberedFiles: readonly string[];
+}
+
+interface AdrSkippedRelation {
+  readonly adrId: string;
+  readonly decisionId: string | null;
+  readonly reason: "no-decision-anchor" | "decision-package-absent";
 }
 
 interface AdrMigrationReport {
@@ -54,7 +78,8 @@ interface AdrMigrationReport {
   readonly dryRun: boolean;
   readonly scan: {
     readonly numberedMarkdownCount: number;
-    readonly readmePreserved: boolean;
+    readonly expectedCount: number | null;
+    readonly nonNumberedFiles: readonly string[];
     readonly locators: readonly string[];
   };
   readonly reconciliation: {
@@ -76,7 +101,11 @@ interface AdrMigrationReport {
       readonly target: string;
       readonly relationId: string;
     }[];
-    readonly skipped: readonly { readonly adrId: string; readonly reason: string }[];
+    readonly skipped: readonly {
+      readonly adrId: string;
+      readonly decisionId: string | null;
+      readonly reason: "no-decision-anchor" | "decision-package-absent";
+    }[];
   };
 }
 
@@ -121,14 +150,13 @@ export async function runAdrEntityMigration(input: {
       ]),
       direction,
     }),
-    candidates = await scanCandidates(input, contract),
+    scan = await scanCandidates(input, contract),
+    candidates = scan.candidates,
     relations = relationCandidates(candidates),
     skipped = skippedRelations(candidates),
     batchDigest = migrationBatchDigest(registryRevision, input.repositoryId, candidates, relations),
     markerRef = `adr-cutover:${batchDigest}`,
     markerRelation = relations[0];
-  if (!markerRelation)
-    migrationError("adr_migration_reconciliation_failed", "ADR migration requires at least one qualified relation.");
   const preflight = reconcileAdrMigration(input.rootDir, input.projection, candidates, false);
   assertReconciled(preflight);
   if (input.action.dryRun === true) {
@@ -138,34 +166,13 @@ export async function runAdrEntityMigration(input: {
       registryRevision,
       batchDigest,
       candidates,
+      nonNumberedFiles: scan.nonNumberedFiles,
       relations,
       skipped,
       reconciliation: preflight,
       dryRun: true,
     });
     return previewAdrMigrationReceipt(report, input.store, input.authorizationDecision);
-  }
-  const existingMarker = input.store.readEvent(migrationOpId);
-  if (existingMarker) {
-    assertMigrationEvent(existingMarker, markerRef, markerRelation.record, registry);
-    input.projection.catchUp?.();
-    const reconciliation = reconcileAdrMigration(input.rootDir, input.projection, candidates, true);
-    assertReconciled(reconciliation);
-    return appliedReceipt(
-      reportFor({
-        input,
-        migrationOpId,
-        registryRevision,
-        batchDigest,
-        candidates,
-        relations,
-        skipped,
-        reconciliation,
-        dryRun: false,
-      }),
-      existingMarker,
-      input.authorizationDecision,
-    );
   }
   for (const candidate of candidates)
     await runArtifactEntityImport({
@@ -188,7 +195,9 @@ export async function runAdrEntityMigration(input: {
   assertReconciled(postImport);
   for (const relation of relations.slice(1))
     appendRelationMigration(input, relation.record, registry, `${markerRef}/relation/${relation.record.relation_id}`);
-  const marker = appendRelationMigration(input, markerRelation.record, registry, markerRef, migrationOpId);
+  const marker = markerRelation
+    ? appendRelationMigration(input, markerRelation.record, registry, markerRef)
+    : descriptorMarker(input.store, candidates, batchDigest);
   const finalReconciliation = reconcileAdrMigration(input.rootDir, input.projection, candidates, true);
   assertReconciled(finalReconciliation);
   return appliedReceipt(
@@ -198,6 +207,7 @@ export async function runAdrEntityMigration(input: {
       registryRevision,
       batchDigest,
       candidates,
+      nonNumberedFiles: scan.nonNumberedFiles,
       relations,
       skipped,
       reconciliation: finalReconciliation,
@@ -211,20 +221,26 @@ export async function runAdrEntityMigration(input: {
 async function scanCandidates(
   input: Parameters<typeof runAdrEntityMigration>[0],
   contract: CompiledArtifactKindContract,
-): Promise<readonly AdrCandidate[]> {
-  const adrDir = path.join(input.rootDir, "harness", "adr"),
-    names = readdirSync(adrDir, { withFileTypes: true })
+): Promise<AdrScan> {
+  const layout = resolveHarnessLayout(input.rootDir),
+    adrDir = path.join(layout.authoredRoot, "adr"),
+    decisionsDir = path.join(layout.authoredRoot, "decisions"),
+    entries = readdirSync(adrDir, { withFileTypes: true }),
+    names = entries
       .filter((entry) => entry.isFile() && ADR_FILE.test(entry.name))
       .map(({ name }) => name)
       .sort(),
-    duplicateIds = duplicateValues(names.map((name) => ADR_FILE.exec(name)![1]!));
-  if (names.length !== 30)
+    nonNumberedFiles = entries
+      .filter((entry) => entry.isFile() && !ADR_FILE.test(entry.name))
+      .map(({ name }) => name)
+      .sort(),
+    duplicateIds = duplicateValues(names.map((name) => ADR_FILE.exec(name)![1]!)),
+    expectedCount = optionalExpectedCount(input.action.expectCount);
+  if (expectedCount !== null && names.length !== expectedCount)
     migrationError(
       "adr_migration_reconciliation_failed",
-      `ADR migration requires exactly 30 numbered Markdown files; found ${names.length}.`,
+      `ADR migration expected ${expectedCount} numbered Markdown files; found ${names.length}.`,
     );
-  if (!isRegularFile(path.join(adrDir, "README.md")))
-    migrationError("adr_migration_reconciliation_failed", "harness/adr/README.md must remain a regular file.");
   if (duplicateIds.length)
     migrationError(
       "adr_migration_reconciliation_failed",
@@ -232,15 +248,11 @@ async function scanCandidates(
     );
   const candidates: AdrCandidate[] = [];
   for (const name of names) {
-    const locator = normalizeRelativeDocumentPath(`harness/adr/${name}`),
+    const sourcePath = path.join(adrDir, name),
+      locator = repositoryLocator(input.rootDir, sourcePath),
       adrId = ADR_FILE.exec(name)![1]!,
-      body = readFileSync(path.join(input.rootDir, locator), "utf8"),
-      anchors = [...new Set([...body.matchAll(DECISION_ANCHOR)].map((match) => match[1]!))];
-    if (anchors.length > 1)
-      migrationError(
-        "adr_migration_reconciliation_failed",
-        `${locator} has multiple Decision anchor candidates: ${anchors.join(", ")}.`,
-      );
+      body = readFileSync(sourcePath, "utf8"),
+      anchors = decisionAnchors(body);
     const sourceIdentity = canonicalSourceIdentity({
         kind: "repository-path",
         repositoryId: input.repositoryId,
@@ -272,56 +284,58 @@ async function scanCandidates(
       evidence = JSON.parse(String(preview.evidence)) as {
         readonly candidateContentVersion: string | null;
         readonly entityId: string;
+        readonly eventType: string;
+        readonly operationId: string;
       },
-      decisionId = anchors[0] ?? null;
-    if (!evidence.candidateContentVersion || evidence.entityId !== entityId)
+      resolution = freshnessFromResolvedPreview(evidence, locator);
+    if (evidence.entityId !== entityId)
       migrationError("adr_migration_reconciliation_failed", `${locator} did not resolve to an observed descriptor.`);
     candidates.push({
       adrId,
       locator,
       entityId,
       expectedVersion: current?.workspaceRevision ?? 0,
-      candidateContentVersion: evidence.candidateContentVersion,
-      decisionId,
-      decisionPackageExists:
-        decisionId !== null && isDirectory(path.join(input.rootDir, "harness", "decisions", `decision-${decisionId}`)),
+      candidateContentVersion: resolution.contentVersion,
+      resolvedFreshness: resolution.freshness,
+      operationId: evidence.operationId,
+      decisionAnchors: anchors.map((decisionId) => ({
+        decisionId,
+        decisionPackageExists: isDirectory(path.join(decisionsDir, `decision-${decisionId}`)),
+      })),
     });
   }
-  return candidates;
+  return { candidates, nonNumberedFiles };
 }
 
 function relationCandidates(candidates: readonly AdrCandidate[]): readonly AdrRelationCandidate[] {
-  return candidates
-    .filter(
-      (candidate): candidate is AdrCandidate & { readonly decisionId: string } =>
-        candidate.decisionId !== null && candidate.decisionPackageExists,
-    )
-    .map((candidate) => {
-      const source = `${ADR_KIND}/${candidate.entityId}`,
-        target = `decision/${candidate.decisionId}`,
-        identity = { source, target, type: "relates" as const, direction: "directed" as const },
-        record: EntityRelationRecord = {
-          relation_id: deriveRelationId(identity),
-          ...identity,
-          strength: relationStrengthForType("relates"),
-          origin: "imported_snapshot",
-          rationale: `Imported from Decision anchor in ${candidate.locator}.`,
-          state: "active",
-        };
-      return { adrId: candidate.adrId, locator: candidate.locator, decisionId: candidate.decisionId, record };
-    });
+  return candidates.flatMap((candidate) =>
+    candidate.decisionAnchors
+      .filter(({ decisionPackageExists }) => decisionPackageExists)
+      .map(({ decisionId }) => {
+        const source = `${ADR_KIND}/${candidate.entityId}`,
+          target = `decision/${decisionId}`,
+          identity = { source, target, type: "relates" as const, direction: "directed" as const },
+          record: EntityRelationRecord = {
+            relation_id: deriveRelationId(identity),
+            ...identity,
+            strength: relationStrengthForType("relates"),
+            origin: "imported_snapshot",
+            rationale: `Imported from Decision anchor in ${candidate.locator}.`,
+            state: "active",
+          };
+        return { adrId: candidate.adrId, locator: candidate.locator, decisionId, record };
+      }),
+  );
 }
 
 function skippedRelations(candidates: readonly AdrCandidate[]) {
-  return candidates
-    .filter(({ decisionId, decisionPackageExists }) => decisionId === null || !decisionPackageExists)
-    .map(({ adrId, decisionId }) => ({
-      adrId,
-      reason:
-        decisionId === null
-          ? "no qualifying dec_ADR_ Decision anchor"
-          : `Decision package harness/decisions/decision-${decisionId}/ is absent`,
-    }));
+  const skipped: AdrSkippedRelation[] = [];
+  for (const { adrId, decisionAnchors } of candidates) {
+    if (decisionAnchors.length === 0) skipped.push({ adrId, decisionId: null, reason: "no-decision-anchor" });
+    for (const { decisionId, decisionPackageExists } of decisionAnchors)
+      if (!decisionPackageExists) skipped.push({ adrId, decisionId, reason: "decision-package-absent" });
+  }
+  return skipped;
 }
 
 function reconcileAdrMigration(
@@ -346,7 +360,7 @@ function reconcileAdrMigration(
       locator: candidate.locator,
       freshness: applied
         ? (projection.getEntity(ADR_KIND, candidate.entityId)?.freshness ?? "unknown")
-        : ("current" as const),
+        : candidate.resolvedFreshness,
     });
   const values = [...descriptors.values()],
     candidateLocators = new Set(candidates.map(({ locator }) => locator)),
@@ -410,9 +424,8 @@ function appendRelationMigration(
   record: EntityRelationRecord,
   registry: GovernedRelationRegistryWitness,
   migratedFrom: string,
-  markerOpId?: string,
 ): MigrationImportEventV1 {
-  const opId = markerOpId ?? `w1e-adr-rel-${sha256Text(`${migratedFrom}\0${record.relation_id}`).slice(0, 32)}`,
+  const opId = `w1e-adr-rel-${sha256Text(`${migratedFrom}\0${record.relation_id}`).slice(0, 32)}`,
     existing = input.store.readEvent(opId);
   if (existing) {
     assertMigrationEvent(existing, migratedFrom, record, registry);
@@ -488,8 +501,9 @@ function reportFor(input: {
   readonly registryRevision: string;
   readonly batchDigest: `sha256:${string}`;
   readonly candidates: readonly AdrCandidate[];
+  readonly nonNumberedFiles: readonly string[];
   readonly relations: readonly AdrRelationCandidate[];
-  readonly skipped: readonly { readonly adrId: string; readonly reason: string }[];
+  readonly skipped: ReturnType<typeof skippedRelations>;
   readonly reconciliation: ReturnType<typeof reconcileAdrMigration>;
   readonly dryRun: boolean;
 }): AdrMigrationReport {
@@ -501,7 +515,8 @@ function reportFor(input: {
     dryRun: input.dryRun,
     scan: {
       numberedMarkdownCount: input.candidates.length,
-      readmePreserved: isRegularFile(path.join(input.input.rootDir, "harness", "adr", "README.md")),
+      expectedCount: optionalExpectedCount(input.input.action.expectCount),
+      nonNumberedFiles: input.nonNumberedFiles,
       locators: input.candidates.map(({ locator }) => locator),
     },
     reconciliation: {
@@ -554,7 +569,7 @@ function previewAdrMigrationReceipt(
 
 function appliedReceipt(
   report: AdrMigrationReport,
-  marker: MigrationImportEventV1,
+  marker: { readonly opId: string; readonly workspaceRevision: number },
   authorizationDecision: AuthorizationDecision,
 ): WriteReceipt {
   return {
@@ -590,6 +605,52 @@ function requiredRegistryRevision(value: unknown): `sha256:${string}` {
   if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value))
     migrationError("invalid_command", "registryRevision must be sha256:<64 lowercase hex>.");
   return value as `sha256:${string}`;
+}
+
+function optionalExpectedCount(value: unknown): number | null {
+  if (value === undefined) return null;
+  if (!Number.isSafeInteger(value) || Number(value) < 0)
+    migrationError("invalid_command", "expectCount must be a non-negative integer when supplied.");
+  return Number(value);
+}
+
+function decisionAnchors(body: string): readonly string[] {
+  return [
+    ...new Set(
+      [...body.matchAll(DECISION_ANCHOR_LINE)].flatMap((line) =>
+        [...line[0].matchAll(DECISION_REF)].map((match) => match[0]),
+      ),
+    ),
+  ];
+}
+
+function repositoryLocator(rootDir: string, target: string): string {
+  return normalizeRelativeDocumentPath(path.relative(rootDir, target).split(path.sep).join("/"));
+}
+
+function freshnessFromResolvedPreview(
+  preview: { readonly candidateContentVersion: string | null; readonly eventType: string },
+  locator: string,
+): { readonly freshness: "current"; readonly contentVersion: string } {
+  if (!preview.candidateContentVersion || preview.eventType !== "entity_content_observed")
+    migrationError("adr_migration_reconciliation_failed", `${locator} did not resolve to current content.`);
+  return { freshness: "current", contentVersion: preview.candidateContentVersion };
+}
+
+function descriptorMarker(
+  store: CanonicalEventStore,
+  candidates: readonly AdrCandidate[],
+  batchDigest: `sha256:${string}`,
+): { readonly opId: string; readonly workspaceRevision: number } {
+  const operationId = candidates[candidates.length - 1]?.operationId;
+  if (!operationId)
+    return {
+      opId: `w1e-adr-batch-${batchDigest.slice("sha256:".length, "sha256:".length + 32)}`,
+      workspaceRevision: store.readHead()?.revision ?? 0,
+    };
+  const event = store.readEvent(operationId);
+  if (!event) migrationError("adr_migration_reconciliation_failed", `Descriptor operation ${operationId} is absent.`);
+  return event;
 }
 
 function duplicateValues(values: readonly string[]): readonly string[] {

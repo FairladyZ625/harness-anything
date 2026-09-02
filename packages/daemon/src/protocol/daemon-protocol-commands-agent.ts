@@ -279,6 +279,13 @@ export const agentProtocolCommands = Object.freeze([
         { field: "migrationOpId", regex: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
       ),
       cliInput(
+        "--expect-count",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use a non-negative integer --expect-count or omit the check." },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+      cliInput(
         "--dry-run",
         "boolean",
         false,

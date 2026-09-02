@@ -34,7 +34,7 @@ const kind = "software/coding/architecture-decision-record@1",
     "repo-write",
   );
 
-test("ADR migration imports 30 descriptors and nine anchored Decision relations once", async () => {
+test("ADR migration imports descriptors and every existing Decision anchor once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adr-migration-")),
     repoId = workspaceId("adr-migration"),
     sourceBodies = seedAdrSources(rootDir);
@@ -53,6 +53,7 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
         kind: "entity-migrate-adrs",
         registryRevision: adrMigrationRegistryRevision(),
         migrationOpId,
+        expectCount: 30,
       } as const;
     const firstLocator = sourceBodies.keys().next().value as string,
       firstPath = path.join(rootDir, firstLocator),
@@ -66,9 +67,10 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
     assert.equal(store().read().events.length, initialCount);
     renameSync(hiddenFirstPath, firstPath);
     renameSync(readmePath, hiddenReadmePath);
-    const missingReadme = await cell.run(request, binding);
-    assert.equal(missingReadme.outcome, "op_rejected", JSON.stringify(missingReadme));
-    assert.equal(missingReadme.code, "adr_migration_reconciliation_failed");
+    const noReadme = await cell.run({ ...request, dryRun: true }, binding),
+      noReadmeReport = migrationReport(noReadme);
+    assert.equal(noReadme.outcome, "pending", JSON.stringify(noReadme));
+    assert.deepEqual(noReadmeReport.scan.nonNumberedFiles, ["README.md.disabled"]);
     assert.equal(store().read().events.length, initialCount);
     renameSync(hiddenReadmePath, readmePath);
     const duplicatePath = path.join(rootDir, "harness", "adr", "ADR-0001-duplicate.md");
@@ -88,9 +90,10 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
     assert.equal(previewReport.dryRun, true);
     assert.equal(previewReport.scan.numberedMarkdownCount, 30);
-    assert.equal(previewReport.scan.readmePreserved, true);
+    assert.equal(previewReport.scan.expectedCount, 30);
+    assert.deepEqual(previewReport.scan.nonNumberedFiles, ["README.md"]);
     assert.equal(previewReport.descriptors.count, 30);
-    assert.equal(previewReport.relations.count, 9);
+    assert.equal(previewReport.relations.count, 10);
     assert.deepEqual(previewReport.reconciliation, emptyReconciliation());
     assert.equal(store().read().events.length, initialCount, "dry-run must not append migration events");
 
@@ -99,14 +102,14 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
       replayReport = migrationReport(replay);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     assert.equal(replay.outcome, "applied", JSON.stringify(replay));
-    assert.equal(first.opId, migrationOpId);
+    assert.match(first.opId, /^w1e-adr-rel-[0-9a-f]{32}$/u);
     assert.equal(replay.opId, first.opId);
     assert.equal(replay.revision, first.revision);
     assert.deepEqual(replayReport, firstReport);
     assert.equal(firstReport.dryRun, false);
     assert.deepEqual(firstReport.reconciliation, emptyReconciliation());
     assert.equal(firstReport.relations.skipped.length, 21);
-    assert.equal(store().read().events.length, initialCount + 39);
+    assert.equal(store().read().events.length, initialCount + 40);
     const migrationEvents = store().read().events.slice(initialCount);
     assert.equal(
       migrationEvents.filter((event) => event.schema === "entity-event/v1" && event.type === "entity_content_observed")
@@ -117,12 +120,24 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
       migrationEvents.filter(
         (event) => event.schema === "migration-import-event/v1" && event.payload.entity.kind === "relation",
       ).length,
-      9,
+      10,
     );
-    assert.match(
-      firstReport.relations.skipped.find(({ adrId }) => adrId === "ADR-0008")?.reason ?? "",
-      /decision-dec_ADR_0008_MISSING.*absent/u,
+    assert.deepEqual(
+      firstReport.relations.skipped.find(({ adrId }) => adrId === "ADR-0008"),
+      {
+        adrId: "ADR-0008",
+        decisionId: "dec_ADR_0008_MISSING",
+        reason: "decision-package-absent",
+      },
     );
+    const eventCountBeforeNewCaller = store().read().events.length,
+      differentCaller = await cell.run({ ...request, migrationOpId: "w1e-adr-cutover-other-caller" }, secondBinding),
+      differentCallerReport = migrationReport(differentCaller);
+    assert.equal(differentCaller.outcome, "applied", JSON.stringify(differentCaller));
+    assert.equal(differentCaller.opId, first.opId);
+    assert.equal(differentCallerReport.migrationOpId, "w1e-adr-cutover-other-caller");
+    assert.equal(differentCallerReport.batchDigest, firstReport.batchDigest);
+    assert.equal(store().read().events.length, eventCountBeforeNewCaller, "a new caller opId must append zero events");
 
     const entityReceipt = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
       entities = (
@@ -151,12 +166,12 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
       entities.some(({ value }) => value.locator.value === "harness/adr/README.md"),
       false,
     );
-    assert.equal(onlineRelations.length, 9);
+    assert.equal(onlineRelations.length, 10);
     assert.equal(
       onlineRelations.every(
         ({ sourceRef, targetRef, relationType, strength, origin }) =>
           sourceRef.startsWith(`${kind}/ADR-`) &&
-          targetRef.startsWith("decision/dec_ADR_") &&
+          targetRef.startsWith("decision/dec_") &&
           relationType === "relates" &&
           strength === "weak" &&
           origin === "imported_snapshot",
@@ -166,7 +181,12 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
     assert.equal(
       onlineRelations.some(({ targetRef }) => targetRef.includes("SCAFFOLD_SELFDOC")),
       false,
-      "a non-dec_ADR Decision anchor must not become an edge",
+      "a Decision anchor without a package must not become an edge",
+    );
+    assert.equal(
+      onlineRelations.some(({ targetRef }) => targetRef === "decision/dec_LEDGER_SECOND_TEST"),
+      true,
+      "multiple references on one Decision anchor line must each become an edge",
     );
     for (const [locator, body] of sourceBodies) assert.equal(readFileSync(path.join(rootDir, locator), "utf8"), body);
 
@@ -197,6 +217,73 @@ test("ADR migration imports 30 descriptors and nine anchored Decision relations 
   }
 });
 
+test("ADR migration uses configured authoredRoot and allows a descriptor-only batch", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adr-authored-root-")),
+    repoId = workspaceId("adr-custom-authored-root"),
+    ignoredBodies = seedCustomAuthoredRoot(rootDir);
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "adr-custom-root-center",
+      now: () => "2026-09-03T02:00:00.000Z",
+    });
+    const store = () => makeTaskEventReader({ repoId, rootDir }),
+      initialCount = store().read().events.length,
+      request = {
+        kind: "entity-migrate-adrs",
+        registryRevision: adrMigrationRegistryRevision(),
+        migrationOpId: "custom-authored-root-first",
+      } as const,
+      preview = await cell.run({ ...request, dryRun: true }, binding),
+      previewReport = migrationReport(preview);
+    assert.equal(preview.outcome, "pending", JSON.stringify(preview));
+    assert.equal(previewReport.scan.numberedMarkdownCount, 2);
+    assert.equal(previewReport.scan.expectedCount, null);
+    assert.deepEqual(previewReport.scan.nonNumberedFiles, ["ADR-not-numbered.md", "README.md"]);
+    assert.equal(previewReport.descriptors.count, 2);
+    assert.equal(previewReport.relations.count, 0);
+    assert.equal(previewReport.relations.skipped.length, 2);
+    assert.equal(
+      previewReport.relations.skipped.every(({ reason }) => reason === "no-decision-anchor"),
+      true,
+    );
+    assert.deepEqual(previewReport.reconciliation, emptyReconciliation());
+    assert.equal(store().read().events.length, initialCount);
+
+    const first = await cell.run(request, binding),
+      firstReport = migrationReport(first);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.equal(store().read().events.length, initialCount + 2);
+    assert.equal(firstReport.relations.count, 0);
+    assert.deepEqual(firstReport.reconciliation, emptyReconciliation());
+
+    const beforeReplay = store().read().events.length,
+      replay = await cell.run({ ...request, migrationOpId: "custom-authored-root-second" }, secondBinding),
+      replayReport = migrationReport(replay);
+    assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+    assert.equal(replay.opId, first.opId);
+    assert.equal(replayReport.batchDigest, firstReport.batchDigest);
+    assert.equal(store().read().events.length, beforeReplay, "descriptor-only replay must append zero events");
+
+    const entities = entityRows(await cell.run({ kind: "entity-list", entityKind: kind }, binding));
+    assert.equal(entities.length, 2);
+    assert.equal(
+      entities.every(({ freshness }) => freshness === "current"),
+      true,
+    );
+    assert.equal(
+      entities.every(({ value }) => value.locator.value.startsWith("records/adr/")),
+      true,
+    );
+    for (const [locator, body] of ignoredBodies) assert.equal(readFileSync(path.join(rootDir, locator), "utf8"), body);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function seedAdrSources(rootDir: string): ReadonlyMap<string, string> {
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness", "adr"), { recursive: true });
@@ -213,11 +300,15 @@ function seedAdrSources(rootDir: string): ReadonlyMap<string, string> {
       anchor =
         number === 8
           ? "\nDecision 锚：`dec_ADR_0008_MISSING`\n"
-          : number === 21
-            ? "\nDecision 锚：`dec_SCAFFOLD_SELFDOC_AGENTS_LAYERING`\n"
-            : relationAdrNumbers.has(number)
-              ? `\nDecision 锚：\`${decisionId}\`\n`
-              : "",
+          : number === 2
+            ? `\n- **Decision 锚**：\`${decisionId}\`\n`
+            : number === 21
+              ? "\nDecision 锚：`dec_SCAFFOLD_SELFDOC_AGENTS_LAYERING`\n"
+              : number === 20
+                ? `\nDecision 锚：\`${decisionId}\`, \`dec_LEDGER_SECOND_TEST\`\n`
+                : relationAdrNumbers.has(number)
+                  ? `\nDecision 锚：\`${decisionId}\`\n`
+                  : "",
       body = `# ${adrId} test decision\n${anchor}\nBody ${number}.\n`;
     writeFileSync(path.join(rootDir, locator), body);
     bodies.set(locator, body);
@@ -226,23 +317,71 @@ function seedAdrSources(rootDir: string): ReadonlyMap<string, string> {
       mkdirSync(decisionDir, { recursive: true });
       writeFileSync(path.join(decisionDir, "decision.md"), `# ${decisionId}\n`);
     }
+    if (number === 20) {
+      const secondDecisionDir = path.join(rootDir, "harness", "decisions", "decision-dec_LEDGER_SECOND_TEST");
+      mkdirSync(secondDecisionDir, { recursive: true });
+      writeFileSync(path.join(secondDecisionDir, "decision.md"), "# dec_LEDGER_SECOND_TEST\n");
+    }
   }
   git(rootDir, "add", ".");
   git(rootDir, "commit", "-qm", "seed ADR migration fixture");
   return bodies;
 }
 
+function seedCustomAuthoredRoot(rootDir: string): ReadonlyMap<string, string> {
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  mkdirSync(path.join(rootDir, "records", "adr"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: records\n  localRoot: .harness\n",
+  );
+  for (const number of [1, 2]) {
+    const adrId = `ADR-${String(number).padStart(4, "0")}`;
+    writeFileSync(path.join(rootDir, "records", "adr", `${adrId}-custom.md`), `# ${adrId} custom root\n`);
+  }
+  const ignoredBodies = new Map([
+    ["records/adr/README.md", "# Untouched index\n"],
+    ["records/adr/ADR-not-numbered.md", "# Untouched non-numbered file\n"],
+  ]);
+  for (const [locator, body] of ignoredBodies) writeFileSync(path.join(rootDir, locator), body);
+  git(rootDir, "add", ".");
+  git(rootDir, "commit", "-qm", "seed custom authored root fixture");
+  return ignoredBodies;
+}
+
 function migrationReport(receipt: { readonly evidence?: unknown }) {
   return JSON.parse(String(receipt.evidence)) as {
+    readonly migrationOpId: string;
+    readonly batchDigest: string;
     readonly dryRun: boolean;
-    readonly scan: { readonly numberedMarkdownCount: number; readonly readmePreserved: boolean };
+    readonly scan: {
+      readonly numberedMarkdownCount: number;
+      readonly expectedCount: number | null;
+      readonly nonNumberedFiles: readonly string[];
+    };
     readonly reconciliation: ReturnType<typeof emptyReconciliation>;
     readonly descriptors: { readonly count: number };
     readonly relations: {
       readonly count: number;
-      readonly skipped: readonly { readonly adrId: string; readonly reason: string }[];
+      readonly skipped: readonly {
+        readonly adrId: string;
+        readonly decisionId: string | null;
+        readonly reason: string;
+      }[];
     };
   };
+}
+
+function entityRows(receipt: { readonly evidence?: unknown }) {
+  return (
+    JSON.parse(String(receipt.evidence)) as {
+      readonly entities: readonly {
+        readonly freshness: string;
+        readonly value: { readonly locator: { readonly value: string } };
+      }[];
+    }
+  ).entities;
 }
 
 function emptyReconciliation() {

@@ -9,7 +9,7 @@
 
 - Context lives under `harness/context/`.
 - Standards live only under `harness/governance/standards/`.
-- ADR projections live under `harness/adr/`, milestone documents under `harness/milestones/`, and canonical decision packages under `harness/decisions/`.
+- Artifact source documents are located through generic entity descriptors; milestone documents and canonical decision packages remain under the configured authored root.
 - Read each folder's README instead of duplicating its rules here.
 
 ## Architecture-aware Changes
