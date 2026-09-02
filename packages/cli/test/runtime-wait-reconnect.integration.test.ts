@@ -398,8 +398,19 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
     path.join(userRoot, "registry.json"),
     JSON.stringify({
       schema: "harness-daemon-registry/v2",
-      connections: [],
-      repos: [{ repoId: "runtime-wait", canonicalRoot: root, state: "enabled", mode: "local" }],
+      connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
+      repos: [
+        {
+          repoId: "runtime-wait",
+          canonicalRoot: root,
+          displayName: "Runtime Wait",
+          authoredBranch: "main",
+          mode: "local",
+          connectionId: "local",
+          state: "enabled",
+          registeredAt: "2026-07-07T00:00:00.000Z",
+        },
+      ],
     }),
   );
   writeFileSync(daemonPidPath(userRoot, daemonId), `${process.pid}\n`);

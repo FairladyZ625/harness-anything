@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,19 +10,40 @@ import { createPresetProcessService } from "../../preset/src/index.ts";
 import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 
-test("local daemon target rejects v1 registries with re-registration guidance", () => {
+test("local daemon target resolves a v1 workspace after the shared registry reader upgrades it", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-v1-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
     userRoot = path.join(fixtureRoot, "user");
   try {
+    mkdirSync(workspaceRoot);
     mkdirSync(userRoot);
     writeFileSync(
       path.join(userRoot, "registry.json"),
-      `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [] })}\n`,
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v1",
+        repos: [
+          {
+            repoId: "legacy",
+            canonicalRoot: workspaceRoot,
+            displayName: "Legacy",
+            authoredBranch: "main",
+            state: "enabled",
+            registeredAt: "2026-07-07T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
     );
-    assert.throws(
-      () => resolveLocalDaemonTarget({ rootDir: fixtureRoot, userRoot, env: {} }),
-      /unsupported daemon registry v1.*re-register/u,
-    );
+
+    const target = resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: {} });
+    const persisted = JSON.parse(readFileSync(path.join(userRoot, "registry.json"), "utf8")) as {
+      schema: string;
+      repos: Record<string, unknown>[];
+    };
+
+    assert.equal(target.repoId, "legacy");
+    assert.equal(target.canonicalRoot, realpathSync.native(workspaceRoot));
+    assert.equal(persisted.schema, "harness-daemon-registry/v2");
+    assert.equal(persisted.repos[0]?.connectionId, "local");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

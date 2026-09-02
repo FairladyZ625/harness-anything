@@ -9,7 +9,9 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -106,16 +108,102 @@ test("daemon registry persists explicit workspace modes and rejects rows that om
   });
 });
 
-test("daemon registry rejects v1 without compatibility or migration", () => {
+test("daemon registry upgrades v1 repos and invalid rows to v2 exactly once", () => {
   withTempDir((root) => {
-    const userRoot = path.join(root, "user-harness");
+    const userRoot = path.join(root, "user-harness"),
+      registryPath = path.join(userRoot, "registry.json"),
+      registeredAt = "2026-07-07T00:00:00.000Z",
+      legacyRoot = path.join(root, "legacy"),
+      brokenRoot = path.join(root, "broken");
     mkdirSync(userRoot, { recursive: true });
     writeFileSync(
-      path.join(userRoot, "registry.json"),
-      `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [] })}\n`,
+      registryPath,
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v1",
+        repos: [
+          {
+            repoId: "legacy",
+            canonicalRoot: legacyRoot,
+            displayName: "Legacy",
+            authoredBranch: "main",
+            state: "enabled",
+            registeredAt,
+          },
+          {
+            repoId: "broken",
+            canonicalRoot: brokenRoot,
+            authoredBranch: "main",
+            state: "disabled",
+            registeredAt,
+          },
+        ],
+      })}\n`,
       "utf8",
     );
-    assert.throws(() => readDaemonRegistry({ userRoot }), /unsupported daemon registry v1.*re-register/u);
+
+    const upgraded = readDaemonRegistry({ userRoot });
+
+    assert.deepEqual(upgraded.connections, [localConnection]);
+    assert.deepEqual(upgraded.repos, [
+      {
+        repoId: "legacy",
+        canonicalRoot: legacyRoot,
+        displayName: "Legacy",
+        authoredBranch: "main",
+        mode: "local",
+        connectionId: "local",
+        state: "enabled",
+        registeredAt,
+      },
+    ]);
+    assert.equal(upgraded.invalidRepos.length, 1);
+    assert.deepEqual(upgraded.invalidRepos[0]?.raw, {
+      repoId: "broken",
+      canonicalRoot: brokenRoot,
+      authoredBranch: "main",
+      mode: "local",
+      connectionId: "local",
+      state: "disabled",
+      registeredAt,
+    });
+    const persisted = JSON.parse(readFileSync(registryPath, "utf8")) as {
+      schema: string;
+      connections: unknown[];
+      repos: Record<string, unknown>[];
+    };
+    assert.equal(persisted.schema, daemonRegistrySchema);
+    assert.deepEqual(persisted.connections, [localConnection]);
+    assert.equal(
+      persisted.repos.every((repo) => repo.mode === "local" && repo.connectionId === "local"),
+      true,
+    );
+
+    const oldTime = new Date("2000-01-01T00:00:00.000Z");
+    utimesSync(registryPath, oldTime, oldTime);
+    const beforeSecondRead = statSync(registryPath).mtimeMs;
+    assert.deepEqual(readDaemonRegistry({ userRoot }), upgraded);
+    assert.equal(statSync(registryPath).mtimeMs, beforeSecondRead);
+  });
+});
+
+test("daemon registry leaves the v1 file intact when its atomic upgrade cannot write the temp file", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness"),
+      registryPath = path.join(userRoot, "registry.json"),
+      timestamp = 1_788_000_000_000,
+      tempPath = `${registryPath}.${process.pid}.${timestamp}.tmp`,
+      originalNow = Date.now,
+      original = `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [] })}\n`;
+    mkdirSync(userRoot, { recursive: true });
+    writeFileSync(registryPath, original, "utf8");
+    mkdirSync(tempPath);
+    Date.now = () => timestamp;
+    try {
+      assert.throws(() => readDaemonRegistry({ userRoot }));
+      assert.equal(readFileSync(registryPath, "utf8"), original);
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readDaemonRegistry, type DaemonRegistryRepo } from "../../../kernel/src/index.ts";
 import {
   canonicalRoot as bindCanonicalRoot,
   endpointIdentity,
@@ -106,23 +106,9 @@ export function readRegisteredRepos(userRoot: string): readonly {
   readonly state: string;
   readonly mode?: string;
 }[] {
-  const registryPath = path.join(userRoot, "registry.json");
-  if (!existsSync(registryPath)) return [];
-  const value: unknown = JSON.parse(readFileSync(registryPath, "utf8"));
-  if (daemonRegistryRecord(value) && value.schema === "harness-daemon-registry/v1")
-    throw new Error(`unsupported daemon registry v1 at ${registryPath}; remove it and re-register repositories`);
-  if (!daemonRegistryRecord(value) || value.schema !== "harness-daemon-registry/v2" || !Array.isArray(value.repos))
-    throw new Error(`invalid daemon registry at ${registryPath}`);
-  return value.repos.filter(
-    (repo): repo is { repoId: string; canonicalRoot: string; state: string; mode?: string } =>
-      daemonRegistryRecord(repo) &&
-      typeof repo.repoId === "string" &&
-      typeof repo.canonicalRoot === "string" &&
-      typeof repo.state === "string",
+  return readDaemonRegistry({ userRoot }).repos.filter(
+    (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
   );
-}
-function daemonRegistryRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function localDaemonTargetHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);

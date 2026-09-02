@@ -53,7 +53,22 @@ test("a worktree is refused before spawn while the registered canonical checkout
     writeFileSync(path.join(canonical, ".git", "worktrees", "feature", "commondir"), "../..\n", "utf8");
     writeFileSync(
       path.join(userRoot, "registry.json"),
-      `${JSON.stringify({ schema: "harness-daemon-registry/v2", connections: [], repos: [{ repoId: "canonical", canonicalRoot: canonical, state: "enabled" }] })}\n`,
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v2",
+        connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
+        repos: [
+          {
+            repoId: "canonical",
+            canonicalRoot: canonical,
+            displayName: "Canonical",
+            authoredBranch: "main",
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: "2026-07-07T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
       "utf8",
     );
     assert.equal(daemonHostStartRefusal({ invokingRoot: path.join(canonical, "packages"), userRoot }), null);
