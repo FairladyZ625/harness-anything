@@ -188,7 +188,7 @@ export function serializeWriterError(error: unknown): SerializedWriterErrorV1 {
     message: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? (error.stack ?? null) : null,
     code: typeof record?.code === "string" ? record.code : null,
-    data: isJsonRecord(record?.data) ? (record.data as JsonObject) : null,
+    data: isWriterJsonRecord(record?.data) ? (record.data as JsonObject) : null,
     diagnostic: diagnosticForError(error) ?? null,
   };
 }
@@ -203,6 +203,6 @@ export function deserializeWriterError(error: SerializedWriterErrorV1): Error {
   });
 }
 
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
+function isWriterJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
