@@ -1,5 +1,6 @@
 import { projectBaseEntityAtCut, requireEntityTypeContract, type BaseEntity } from "./base-entity.ts";
 import {
+  assertGovernedRelationRecord,
   deriveRelationId,
   isAllowedRelationKindTriple,
   relationStrengthForType,
@@ -9,6 +10,7 @@ import {
   relationStrengths,
   relationTypes,
   type EntityRelationRecord,
+  type GovernedRelationRegistryWitness,
 } from "./entity-relation.ts";
 import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
@@ -160,7 +162,7 @@ export function reduceRelationEntity(
     });
   }
   if (relation === null) throw new Error(`Relation ${id} has no facet payload`);
-  assertRelationEventRecord(relation);
+  assertRelationEventRecord(relation, false, migrated?.kind === "relation" ? migrated.registry : undefined);
   return Object.freeze({
     ...base,
     source: relation.source,
@@ -497,6 +499,7 @@ export function assertRelationRecord(record: EntityRelationRecord): void {
 function assertRelationEventRecord(
   record: unknown,
   allowHistoricalFields = false,
+  registry?: GovernedRelationRegistryWitness,
 ): asserts record is RelationEventRecord {
   if (!isRecord(record)) throw new Error("Relation facet is invalid or inconsistent with its deterministic identity");
   const fields = [
@@ -517,13 +520,23 @@ function assertRelationEventRecord(
       : hasOnlyFields(record, fields))
   )
     throw new Error("Relation facet fields are invalid");
-  const source = parseEntityRef(String(record.source)),
-    target = parseEntityRef(String(record.target)),
-    targetObservedVersion = record.targetObservedVersion;
-  if (!source || source.externalHarness || !target || target.externalHarness)
-    throw new Error("Relation endpoints must be canonical registered Entity refs");
-  if (!isAllowedRelationKindTriple(source.kind, record.type as EntityRelationRecord["type"], target.kind))
-    throw new Error(`Relation type ${String(record.type)} is not writable for ${source.kind}->${target.kind}`);
+  const targetObservedVersion = record.targetObservedVersion;
+  if (registry)
+    assertGovernedRelationRecord(
+      {
+        ...(record as unknown as EntityRelationRecord),
+        strength: relationStrengthForType(record.type as EntityRelationRecord["type"]),
+      },
+      registry,
+    );
+  else {
+    const source = parseEntityRef(String(record.source)),
+      target = parseEntityRef(String(record.target));
+    if (!source || source.externalHarness || !target || target.externalHarness)
+      throw new Error("Relation endpoints must be canonical registered Entity refs");
+    if (!isAllowedRelationKindTriple(source.kind, record.type as EntityRelationRecord["type"], target.kind))
+      throw new Error(`Relation type ${String(record.type)} is not writable for ${source.kind}->${target.kind}`);
+  }
   if (
     record.relation_id !== deriveRelationId(record as unknown as EntityRelationRecord) ||
     !relationTypes.includes(record.type as EntityRelationRecord["type"]) ||

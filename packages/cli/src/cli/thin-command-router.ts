@@ -99,6 +99,8 @@ export function parseRouted(
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") {
+    if (route.id === "entity-migrate-adrs")
+      return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
     if (route.id === "entity-import") return parseEntityImportRouted(route, args, rootDir, repoId, json, inputs);
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);

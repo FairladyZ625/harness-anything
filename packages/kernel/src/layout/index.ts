@@ -23,7 +23,6 @@ export interface HarnessLayout {
   readonly tasksRoot: string;
   readonly decisionsRoot: string;
   readonly sessionsRoot: string;
-  readonly adrRoot: string;
   readonly milestonesRoot: string;
   readonly legacyRoot: string;
   readonly legacyTasksRoot: string;
@@ -72,7 +71,6 @@ interface HarnessLayoutConfig {
   readonly localRoot?: string;
   readonly contextRoot?: string;
   readonly governanceRoot?: string;
-  readonly adrRoot?: string;
   readonly milestonesRoot?: string;
   readonly tasksRoot?: string;
   readonly generatedRoot?: string;
@@ -85,7 +83,6 @@ interface HarnessLayoutSettings {
   readonly localRootSetting: string;
   readonly contextRootSetting?: string;
   readonly governanceRootSetting?: string;
-  readonly adrRootSetting?: string;
   readonly milestonesRootSetting?: string;
   readonly tasksRootSetting?: string;
   readonly generatedRootSetting?: string;
@@ -120,7 +117,6 @@ function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutS
     localRootSetting: config.localRoot ?? defaultLocalRoot,
     contextRootSetting: config.contextRoot,
     governanceRootSetting: config.governanceRoot,
-    adrRootSetting: config.adrRoot,
     milestonesRootSetting: config.milestonesRoot,
     tasksRootSetting: config.tasksRoot,
     generatedRootSetting: config.generatedRoot,
@@ -138,7 +134,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     localRootSetting,
     contextRootSetting,
     governanceRootSetting,
-    adrRootSetting,
     milestonesRootSetting,
     tasksRootSetting,
     generatedRootSetting,
@@ -157,9 +152,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const governanceRoot = governanceRootSetting
     ? resolveRootRelativePath(resolvedRoot, governanceRootSetting, "layout.governanceRoot")
     : path.join(authoredRoot, "governance");
-  const adrRoot = adrRootSetting
-    ? resolveRootRelativePath(resolvedRoot, adrRootSetting, "layout.adrRoot")
-    : path.join(authoredRoot, "adr");
   const milestonesRoot = milestonesRootSetting
     ? resolveRootRelativePath(resolvedRoot, milestonesRootSetting, "layout.milestonesRoot")
     : path.join(authoredRoot, "milestones");
@@ -176,7 +168,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     tasksRoot,
     decisionsRoot,
     sessionsRoot,
-    adrRoot,
     milestonesRoot,
     legacyRoot,
     legacyTasksRoot: path.join(legacyRoot, "tasks"),
@@ -277,7 +268,6 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
   let localRoot: string | undefined;
   let contextRoot: string | undefined;
   let governanceRoot: string | undefined;
-  let adrRoot: string | undefined;
   let milestonesRoot: string | undefined;
   let tasksRoot: string | undefined;
   let generatedRoot: string | undefined;
@@ -300,7 +290,6 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
     if (section === "layout" && key === "localRoot") localRoot = value;
     if (section === "layout" && key === "contextRoot") contextRoot = value;
     if (section === "layout" && key === "governanceRoot") governanceRoot = value;
-    if (section === "layout" && key === "adrRoot") adrRoot = value;
     if (section === "layout" && key === "milestonesRoot") milestonesRoot = value;
     if (section === "tasks" && key === "root") tasksRoot = value;
     if (section === "structure" && key === "harnessRoot") authoredRoot = structureRelativePath(location, value);
@@ -308,7 +297,7 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
     if (section === "structure" && key === "generatedRoot") generatedRoot = structureRelativePath(location, value);
   }
 
-  return { authoredRoot, localRoot, contextRoot, governanceRoot, adrRoot, milestonesRoot, tasksRoot, generatedRoot };
+  return { authoredRoot, localRoot, contextRoot, governanceRoot, milestonesRoot, tasksRoot, generatedRoot };
 }
 
 function structureRelativePath(location: HarnessConfigLocation, value: string): string {

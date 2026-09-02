@@ -164,7 +164,7 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
-export { compileVerticalContract } from "./vertical-contract.ts";
+export { compileVerticalContract, compiledRelationDirections } from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export type {
   EntityActionCriterionFailure,
@@ -178,6 +178,8 @@ export type { RuntimeSessionActionDraft } from "./runtime-session-action-contrac
 export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
+  assertGovernedRelationRecord,
+  assertGovernedRelationRegistryWitness,
   canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,
@@ -194,6 +196,7 @@ export type {
   EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
+  GovernedRelationRegistryWitness,
   RelationDirection,
   RelationOrigin,
   RelationState,

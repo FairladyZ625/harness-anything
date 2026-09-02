@@ -69,7 +69,6 @@ export function prepareBuiltinVerticalScriptExecution(input: {
       tasksRoot: layout.tasksRoot,
       decisionsRoot: layout.decisionsRoot,
       sessionsRoot: layout.sessionsRoot,
-      adrRoot: layout.adrRoot,
       milestonesRoot: layout.milestonesRoot,
       generatedRoot: layout.generatedRoot,
       localRoot: layout.localRoot,

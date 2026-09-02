@@ -120,6 +120,9 @@ test("Artifact import forwards edge observations into the center single-writer q
     "remote-edge": "via-center-forward",
   });
   assert.equal(command?.commandClass, "repo-write");
+  const migration = daemonProtocolCommands.find(({ id }) => id === "entity-migrate-adrs");
+  assert.deepEqual(migration?.admission, command?.admission);
+  assert.equal(migration?.commandClass, "repo-write");
 });
 
 test("Settings locale-only updates use local admission while repository fields keep center routing", () => {

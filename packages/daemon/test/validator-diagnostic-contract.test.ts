@@ -57,6 +57,26 @@ test("entity import wire input is exact and projected from its executable Action
   );
 });
 
+test("ADR migration wire input accepts only its registry and occurrence fences", () => {
+  const payload = {
+    payload: {
+      action: {
+        kind: "entity-migrate-adrs",
+        registryRevision: `sha256:${"a".repeat(64)}`,
+        migrationOpId: "w1e-adr-cutover",
+        dryRun: true,
+      },
+    },
+  } as JsonObject;
+  assert.deepEqual(validateCatalogActionPayload(payload), []);
+  assert.match(
+    validateCatalogActionPayload({
+      payload: { action: { ...payload.payload.action, locator: "harness/adr" } },
+    } as JsonObject).join("\n"),
+    /action\.locator.*not declared/u,
+  );
+});
+
 const relationGraph = {
     ok: true,
     status: "ready",

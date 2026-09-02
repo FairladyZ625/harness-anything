@@ -147,7 +147,6 @@ export function createDaemonHostRepositoryApi(
               contextRoot: layout.contextRoot,
               governanceRoot: layout.governanceRoot,
               standardsRoot: layout.standardsRoot,
-              adrRoot: layout.adrRoot,
               milestonesRoot: layout.milestonesRoot,
             },
             requiredSlots: reparsed.documents.map(({ slot, path: target }) => ({

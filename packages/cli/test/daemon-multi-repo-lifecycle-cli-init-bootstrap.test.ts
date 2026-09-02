@@ -46,7 +46,6 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       "harness/governance/standards/README.md",
       "harness/governance/standards/repository-governance.md",
       "harness/governance/standards/decision-writing.md",
-      "harness/adr/README.md",
       "harness/milestones/README.md",
       "harness/governance/walls/walls.json",
       "harness/governance/walls/run-walls.mjs",
@@ -74,7 +73,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.equal(plan.projectOverlayDigest, null);
     assert.deepEqual(
       plan.documents.map(({ disposition }) => disposition),
-      Array(15).fill("created"),
+      Array(14).fill("created"),
     );
     assert.equal((initialized.publication as { ok: boolean }).ok, true);
     for (const target of initialized.created as string[])
@@ -85,7 +84,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       architecture = readFileSync(path.join(fixture.repo, "harness/context/architecture/README.md"), "utf8");
     assert.match(
       defaultConfig,
-      /contextRoot: harness\/context\n  governanceRoot: harness\/governance\n  adrRoot: harness\/adr\n  milestonesRoot: harness\/milestones/u,
+      /contextRoot: harness\/context\n  governanceRoot: harness\/governance\n  milestonesRoot: harness\/milestones/u,
     );
     assert.match(
       defaultConfig,
@@ -102,7 +101,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     );
     assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/manifest.json")), false);
     assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/model")), false);
-    assert.match(readFileSync(path.join(fixture.repo, "harness/adr/README.md"), "utf8"), /decision.*projection/isu);
+    assert.equal(existsSync(path.join(fixture.repo, "harness/adr/README.md")), false);
     assert.match(
       readFileSync(path.join(fixture.repo, "harness/milestones/README.md"), "utf8"),
       /does not create.*status/isu,

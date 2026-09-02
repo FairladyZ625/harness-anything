@@ -116,6 +116,28 @@ test("dispatch record migration projects its dry-run flag into the daemon Action
   assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
 });
 
+test("ADR migration projects its registry and occurrence fences into one center Action", () => {
+  const revision = `sha256:${"a".repeat(64)}`,
+    parsed = parseThinCommand([
+      "entity",
+      "migrate-adrs",
+      "--registry-revision",
+      revision,
+      "--op-id",
+      "w1e-adr-cutover-20260902",
+      "--dry-run",
+    ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, {
+    kind: "entity-migrate-adrs",
+    registryRevision: revision,
+    migrationOpId: "w1e-adr-cutover-20260902",
+    dryRun: true,
+  });
+});
+
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
@@ -166,7 +188,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-get", "entity-import", "entity-list"],
+    entity: ["entity-get", "entity-import", "entity-list", "entity-migrate-adrs"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],

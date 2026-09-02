@@ -55,7 +55,6 @@
     "dirs": [
       { "path": "{{paths.standardsRoot}}", "create": "init" },
       { "path": "{{paths.authoredRoot}}/context", "create": "init" },
-      { "path": "{{paths.adrRoot}}", "create": "init" },
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [

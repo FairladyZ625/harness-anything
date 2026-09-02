@@ -3,6 +3,7 @@ import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
 import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
+import { isRecord } from "./write-chain.contract.ts";
 
 export const relationTypes = [
   "supports",
@@ -49,6 +50,17 @@ export interface EntityRelationRecord {
   readonly origin: RelationOrigin;
   readonly rationale: string;
   readonly state: RelationState;
+}
+
+export interface GovernedRelationRegistryWitness {
+  readonly schema: "governed-relation-registry-witness/v1";
+  readonly registryRevision: `sha256:${string}`;
+  readonly artifactEndpoints: readonly {
+    readonly kind: string;
+    readonly idPattern: string;
+    readonly refTemplate: string;
+  }[];
+  readonly direction: CanonicalRelationDirection;
 }
 
 export function relationStrengthForType(type: RelationType): RelationStrength {
@@ -219,6 +231,99 @@ export function isAllowedRelationRecord(
       direction.targetKind === targetKind &&
       (direction.strength === undefined || direction.strength === record.strength),
   );
+}
+
+export function assertGovernedRelationRecord(
+  record: EntityRelationRecord,
+  witness: GovernedRelationRegistryWitness,
+): void {
+  assertGovernedRelationRegistryWitness(witness);
+  const sourceKind = governedRelationEndpointKind(record.source, witness),
+    targetKind = governedRelationEndpointKind(record.target, witness);
+  if (!sourceKind || !targetKind)
+    throw new Error("Governed Relation endpoints must match the witnessed registry revision");
+  if (!isAllowedRelationRecord(record, sourceKind, targetKind, [witness.direction]))
+    throw new Error(`Governed Relation ${sourceKind} --${record.type}--> ${targetKind} is not witnessed`);
+}
+
+export function assertGovernedRelationRegistryWitness(
+  value: unknown,
+): asserts value is GovernedRelationRegistryWitness {
+  if (!isRecord(value)) throw new Error("Governed Relation registry witness is invalid");
+  const witness = value as unknown as GovernedRelationRegistryWitness,
+    direction = witness.direction;
+  if (
+    Object.keys(witness).some(
+      (field) => !["schema", "registryRevision", "artifactEndpoints", "direction"].includes(field),
+    ) ||
+    witness.schema !== "governed-relation-registry-witness/v1" ||
+    !/^sha256:[0-9a-f]{64}$/u.test(witness.registryRevision) ||
+    !Array.isArray(witness.artifactEndpoints) ||
+    witness.artifactEndpoints.some((endpoint) => !validGovernedArtifactEndpoint(endpoint)) ||
+    new Set(witness.artifactEndpoints.map(({ kind }) => kind)).size !== witness.artifactEndpoints.length ||
+    !isRecord(direction) ||
+    typeof direction.sourceKind !== "string" ||
+    !direction.sourceKind ||
+    typeof direction.targetKind !== "string" ||
+    !direction.targetKind ||
+    !relationTypes.includes(direction.type) ||
+    typeof direction.reads !== "string" ||
+    !direction.reads.trim() ||
+    direction.registration !== "ratified" ||
+    direction.strength === undefined ||
+    !relationStrengths.includes(direction.strength) ||
+    !validGovernedRelationApproval(direction.governance)
+  )
+    throw new Error("Governed Relation registry witness is invalid");
+}
+
+function validGovernedRelationApproval(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    /^decision\/dec_[A-Za-z0-9_-]+\/(?:CH|C)[1-9][0-9]*$/u.test(String(value.decisionClaimRef)) &&
+    /^sha256:[0-9a-f]{64}$/u.test(String(value.decisionContentPin))
+  );
+}
+
+function governedRelationEndpointKind(ref: string, witness: GovernedRelationRegistryWitness): string | null {
+  const builtin = parseEntityRef(ref);
+  if (builtin && !builtin.externalHarness) return builtin.kind;
+  for (const endpoint of witness.artifactEndpoints) {
+    const [prefix, suffix] = endpoint.refTemplate.split("{id}"),
+      trailing = suffix ?? "";
+    if (
+      prefix === undefined ||
+      !ref.startsWith(prefix) ||
+      !ref.endsWith(trailing) ||
+      ref.length <= prefix.length + trailing.length
+    )
+      continue;
+    const id = ref.slice(prefix.length, trailing ? -trailing.length : undefined);
+    if (new RegExp(endpoint.idPattern, "u").test(id)) return endpoint.kind;
+  }
+  return null;
+}
+
+function validGovernedArtifactEndpoint(
+  value: unknown,
+): value is GovernedRelationRegistryWitness["artifactEndpoints"][number] {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((field) => !["kind", "idPattern", "refTemplate"].includes(field)) ||
+    typeof value.kind !== "string" ||
+    !value.kind ||
+    typeof value.idPattern !== "string" ||
+    !value.idPattern ||
+    typeof value.refTemplate !== "string" ||
+    value.refTemplate.split("{id}").length !== 2
+  )
+    return false;
+  try {
+    new RegExp(value.idPattern, "u");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function requiresRationale(record: EntityRelationRecord): boolean {

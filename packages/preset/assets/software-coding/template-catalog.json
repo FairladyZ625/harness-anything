@@ -212,34 +212,6 @@
       ]
     },
     {
-      "id": "repository/adr-index",
-      "version": "1",
-      "documentKind": "repository-adr-index",
-      "slot": "repository.adr.index",
-      "materializeAs": "{{paths.adrRoot}}/README.md",
-      "frontmatterSchema": "none",
-      "requiredAnchors": ["## Decision Projection Boundary", "## Navigation"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Decision Projection Boundary", "## Navigation"], "bodyPath": "templates/repository.adr.index/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Decision Projection Boundary", "## Navigation"], "bodyPath": "templates/repository.adr.index/en-US.md" }
-      ]
-    },
-    {
-      "id": "repository/adr-template",
-      "version": "1",
-      "documentKind": "adr-template",
-      "slot": "repository.adr.template",
-      "materializeAs": "{{paths.adrRoot}}/0000-template.md",
-      "frontmatterSchema": "none",
-      "requiredAnchors": ["## Status", "## Context", "## Decision", "## Consequences"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "bodyPath": "templates/repository.adr.template/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Status", "## Context", "## Decision", "## Consequences"], "bodyPath": "templates/repository.adr.template/en-US.md" }
-      ]
-    },
-    {
       "id": "repository/milestones-index",
       "version": "1",
       "documentKind": "repository-milestones-index",

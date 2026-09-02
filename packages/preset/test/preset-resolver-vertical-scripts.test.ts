@@ -306,7 +306,6 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     { path: "{{paths.standardsRoot}}", create: "init" },
     { path: "{{paths.contextRoot}}", create: "init" },
     { path: "{{paths.contextRoot}}/architecture", create: "init" },
-    { path: "{{paths.adrRoot}}", create: "init" },
     { path: "{{paths.milestonesRoot}}", create: "init" },
     { path: "{{paths.sessionsRoot}}", create: "lazy" },
   ]);
@@ -324,8 +323,6 @@ test("software coding declaration closes lifecycle, repository, projection, and 
       "vertical:software-coding:architecture-snapshot",
       "vertical:software-coding:architecture-check",
       "vertical:software-coding:repository-audit",
-      "vertical:software-coding:adr-seed",
-      "vertical:software-coding:adr-render",
       "vertical:software-coding:decision-conformance",
     ],
   );
@@ -343,7 +340,6 @@ test("software coding declaration closes lifecycle, repository, projection, and 
   for (const id of [
     "repository/agent-base",
     "repository/agent-overlay",
-    "repository/adr-template",
     "repository/architecture-manifest",
     "repository/architecture-likec4-config",
     "repository/architecture-likec4-model",
@@ -364,14 +360,14 @@ test("software coding declaration closes lifecycle, repository, projection, and 
 
 test("builtin script preparation binds one declared command and rejects undeclared or out-of-scope plans", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-prepare-"));
-  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
+  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  contextRoot: harness/context\n");
   try {
     const action = {
         schema: "vertical-script-action/v1",
         kind: "script-run",
-        scriptId: "vertical:software-coding:adr-seed",
+        scriptId: "vertical:software-coding:architecture-init",
         taskId: null,
-        inputs: { locale: "zh-CN" },
+        inputs: {},
         dryRun: true,
       } as const,
       prepared = prepareBuiltinVerticalScriptExecution({
@@ -379,13 +375,13 @@ test("builtin script preparation binds one declared command and rejects undeclar
         action,
         commitSha: "a".repeat(40),
       });
-    assert.equal(path.basename(prepared.command), "adr-seed.mjs");
+    assert.equal(path.basename(prepared.command), "architecture-init.mjs");
     assert.equal(
       prepared.readRoots.some((root) => root.endsWith(path.join("packages", "preset", "assets", "software-coding"))),
       true,
     );
-    assert.deepEqual(prepared.writePatterns, ["decisions/adrs/**"]);
-    assert.deepEqual(prepared.producePatterns, ["decisions/adrs/README.md", "decisions/adrs/0000-template.md"]);
+    assert.deepEqual(prepared.writePatterns, ["context/architecture/**"]);
+    assert.deepEqual(prepared.producePatterns, ["context/architecture/**"]);
     const accepted = acceptBuiltinVerticalScriptPlan(
       prepared,
       JSON.stringify({
@@ -397,9 +393,9 @@ test("builtin script preparation binds one declared command and rejects undeclar
         warnings: [],
         changes: [
           {
-            path: "decisions/adrs/0000-template.md",
-            body: "# ADR\n",
-            mediaType: "text/markdown",
+            path: "context/architecture/architecture-manifest.json",
+            body: "{}\n",
+            mediaType: "application/json",
             disposition: "create",
           },
         ],
@@ -434,11 +430,11 @@ test("builtin script preparation binds one declared command and rejects undeclar
   }
 });
 
-test("all seven declared builtin script assets emit accepted deterministic plans", () => {
+test("all five declared builtin script assets emit accepted deterministic plans", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-assets-")),
     taskId = "task_01KZXSYDTJ3K1YE88294X33QNW",
     commitSha = "b".repeat(40);
-  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  adrRoot: harness/decisions/adrs\n");
+  write(path.join(rootDir, "harness/harness.yaml"), "layout:\n  contextRoot: harness/context\n");
   write(
     path.join(rootDir, `harness/tasks/${taskId}/INDEX.md`),
     `---\nschema: task-package/v2\ntask_id: ${taskId}\n---\n# Script task\n`,
@@ -493,14 +489,6 @@ test("all seven declared builtin script assets emit accepted deterministic plans
     const audit = execute("repository-audit");
     assert.equal(audit.status, "conformant");
     assert.deepEqual(audit.changes, []);
-    const seed = execute("adr-seed", null, { locale: "zh-CN" });
-    assert.equal(seed.changes.length, 2);
-    materialize(seed);
-    const adr = execute("adr-render", null, { decisionId: "dec_SCRIPT" });
-    assert.deepEqual(
-      adr.changes.map(({ path: target }) => target),
-      ["decisions/adrs/dec_SCRIPT.md"],
-    );
     const conformance = execute("decision-conformance");
     assert.equal(conformance.status, "conformant");
     assert.deepEqual(conformance.changes, []);
