@@ -30,6 +30,14 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
+const TASK_STATUS_FILTERS = Object.freeze(["planned", "active", "blocked", "in_review", "done", "cancelled"]);
+const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
+const writerServing = (cell: { readonly state: string }): boolean =>
+  cell.state === "attached" || cell.state === "unavailable";
+const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
+const validTaskStatusFilter = (value: string | undefined): boolean =>
+  value === undefined || TASK_STATUS_FILTERS.includes(value);
+
 /** Host-side RepoCell boundary: admission/proxy plus completed-cut projection reads only. */
 export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
@@ -92,7 +100,7 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
-    if (status.state !== "attached" && status.state !== "unavailable")
+    if (!writerServing(status))
       throw cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready.");
     // An unavailable writer never causes a repair from a serving read. SQLite either
     // returns the last completed transaction or an explicit read error.
@@ -279,14 +287,14 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
     replica,
     verifyReadiness: async () => {
       const status = supervisor.status();
-      if (status.state !== "attached") throw cellCodedError("repo_unavailable", latched());
+      if (!writerAttached(status)) throw cellCodedError("repo_unavailable", latched());
       const read = query((projection) => projection.readCut());
-      if (read.status !== "ready") throw cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
+      if (!projectionReady(read)) throw cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
       return { cellState: "attached", l2State: "ready" } as const;
     },
     attach: async (runtimeSessionId, afterCursor) => {
       const status = supervisor.status();
-      if (status.state !== "attached") throw cellCodedError("repo_unavailable", latched());
+      if (!writerAttached(status)) throw cellCodedError("repo_unavailable", latched());
       return runtime.attach(runtimeSessionId, afterCursor);
     },
     runtime,
@@ -316,8 +324,7 @@ function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjecti
     updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
     limit = payload.limit === undefined ? undefined : Number(payload.limit),
     cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-  if (status !== undefined && !["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status))
-    throw cellCodedError("invalid_command", "Query status is invalid for this read.");
+  if (!validTaskStatusFilter(status)) throw cellCodedError("invalid_command", "Query status is invalid for this read.");
   if (changedAfterRevision !== undefined && (!Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0))
     throw cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
@@ -395,8 +402,7 @@ function legacyTaskListQuery(action: RepoTaskAction): TaskProjectionListQuery {
     updatedBefore = typeof action.updatedBefore === "string" ? action.updatedBefore : undefined,
     limit = action.limit === undefined ? undefined : Number(action.limit),
     cursor = typeof action.cursor === "string" ? action.cursor : undefined;
-  if (status !== undefined && !["planned", "active", "blocked", "in_review", "done", "cancelled"].includes(status))
-    throw cellCodedError("invalid_command", "Query status is invalid for this read.");
+  if (!validTaskStatusFilter(status)) throw cellCodedError("invalid_command", "Query status is invalid for this read.");
   if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
     throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
   if (
