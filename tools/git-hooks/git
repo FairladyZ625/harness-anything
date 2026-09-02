@@ -12,7 +12,26 @@ for entry in ${PATH:-}; do
 done
 IFS=$old_ifs
 
-repo_root=$(PATH=$filtered_path command git rev-parse --show-toplevel 2>/dev/null || true)
+# Resolve the repository git itself would operate on: honour leading -C <dir>
+# globals instead of the shell cwd, so a worker touching another repo via -C is
+# not misattributed to the canonical root.
+resolve_repo_root() {
+  value_of=
+  for argument in "$@"; do
+    if [ -n "$value_of" ]; then
+      if [ "$value_of" = "-C" ] && [ -n "$argument" ]; then cd -- "$argument" 2>/dev/null || return 0; fi
+      value_of=
+      continue
+    fi
+    case "$argument" in
+      (-C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env) value_of=$argument ;;
+      (-*) ;;
+      (*) break ;;
+    esac
+  done
+  PATH=$filtered_path command git rev-parse --show-toplevel 2>/dev/null || true
+}
+repo_root=$(resolve_repo_root "$@")
 canonical_root=${HARNESS_CANONICAL_ROOT:-}
 if [ -n "$repo_root" ] && [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; then
   canonical_root=$(cd "$canonical_root" && pwd -P)

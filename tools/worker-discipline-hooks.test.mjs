@@ -55,6 +55,15 @@ test("canonical hooks reject worker commit and checkout", (context) => {
   });
   assert.equal(commit.status, 1, commit.stderr);
   assert.match(commit.stderr, /Refusing a worker git commit in the canonical repository root/u);
+  const other = makeRepo(context, "hook-other-repo-");
+  writeFileSync(path.join(other, "source.txt"), "other change\n");
+  git(other, "add", "source.txt");
+  const commitElsewhere = spawnSync(
+    "git",
+    ["-C", other, "-c", "core.hooksPath=/dev/null", "commit", "--quiet", "-m", "elsewhere"],
+    { cwd: root, encoding: "utf8", env },
+  );
+  assert.equal(commitElsewhere.status, 0, commitElsewhere.stderr);
   const checkoutViaGit = spawnSync("git", ["-C", root, "checkout", "-b", "worker-branch"], {
     cwd: root,
     encoding: "utf8",
