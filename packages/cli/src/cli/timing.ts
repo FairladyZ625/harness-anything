@@ -1,8 +1,7 @@
 // Phase-resolved timing for one CLI invocation, rebuilt from zero after the reset removed the
-// previous HA_TIMING surface. Off unless HA_CLI_TIMING=1, and off is the path every ordinary
-// invocation takes: each entry point below returns after reading one module-level boolean, so a
-// disabled run allocates nothing, opens nothing, and writes nothing. process.env is read exactly
-// once, while the module graph loads, and never again.
+// previous HA_TIMING surface. Off unless HA_CLI_TIMING=1: the disabled state is null, so an
+// ordinary invocation allocates no phase object, request array, record, sink line, or daemon
+// transport wrapper and performs no timing clock read or write.
 //
 // Every boundary is anchored on an action the measured process itself takes -- entry into main,
 // return from the parser, return from the transport, return from the renderer. Nothing here
@@ -30,10 +29,6 @@ const enabled = process.env.HA_CLI_TIMING === "1",
   roundTrips: CliDaemonRoundTrip[] | null = enabled ? [] : null;
 let startedAtEpochMs = 0;
 
-export function cliTimingEnabled(): boolean {
-  return enabled;
-}
-
 // performance.now() is measured from process start, so the value read on entry to main IS the
 // spawn phase: interpreter boot plus the thin entry's static module graph. It is read, not
 // scheduled.
@@ -52,16 +47,14 @@ export function cliPhaseEnd(phase: CliTimingPhase, startedAt: number): void {
   phases[phase] += performance.now() - startedAt;
 }
 
-// Returns the transport function itself when timing is off, so a disabled run pays one call and
-// one boolean read at dispatch time and carries no wrapper on the hot path at all. Every daemon
-// branch of runCommandThroughDaemon goes through the single returned reference, so a command that
-// makes three round trips accumulates three, and the polling loop of a preset run accumulates one
-// per poll.
+// daemonRequestTimer is undefined when timing is off, so client.ts keeps the original transport
+// reference and creates no wrapper. When enabled, every daemon branch uses the returned reference,
+// so a command that makes three round trips accumulates three.
 export function timedDaemonRequest<Args extends unknown[], Result>(
   request: (...args: Args) => Promise<Result>,
-  methodOf: (args: Args) => string,
 ): (...args: Args) => Promise<Result> {
-  if (roundTrips === null || phases === null) return request;
+  const activePhases = phases!,
+    activeRoundTrips = roundTrips!;
   return async (...args: Args): Promise<Result> => {
     const startedAt = performance.now(),
       startedAtEpoch = Date.now();
@@ -69,9 +62,9 @@ export function timedDaemonRequest<Args extends unknown[], Result>(
       return await request(...args);
     } finally {
       const roundTripMs = performance.now() - startedAt;
-      phases.daemonRoundTrip += roundTripMs;
-      roundTrips.push({
-        method: methodOf(args),
+      activePhases.daemonRoundTrip += roundTripMs;
+      activeRoundTrips.push({
+        method: String(args[1] ?? "unknown"),
         startedAtEpochMs: startedAtEpoch,
         endedAtEpochMs: Date.now(),
         roundTripMs: round(roundTripMs),
@@ -79,6 +72,8 @@ export function timedDaemonRequest<Args extends unknown[], Result>(
     }
   };
 }
+
+export const daemonRequestTimer: typeof timedDaemonRequest | undefined = enabled ? timedDaemonRequest : undefined;
 
 // `ha task show task-1 --json` is the same measured command as `ha task show task-2 --json`; the
 // label is the command surface, not the arguments, so a measurement can group samples. The domain

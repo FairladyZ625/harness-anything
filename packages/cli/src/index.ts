@@ -12,7 +12,7 @@ import {
   type ThinCommand,
   unsupportedCommandHint,
 } from "./cli/thin-command.ts";
-import { beginCliTiming, cliPhaseEnd, cliPhaseStart, finishCliTiming } from "./cli/timing.ts";
+import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishCliTiming } from "./cli/timing.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import {
@@ -20,6 +20,7 @@ import {
   daemonBuildStaleCode,
   daemonResponseTimeoutCode,
   daemonTargetFailureCode,
+  consumeKnownError,
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
 import { readFileSync, realpathSync } from "node:fs";
@@ -28,9 +29,14 @@ export { resolveCliVersion } from "./cli-meta.ts";
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   beginCliTiming();
-  const exitCode = await runThinCli(argv);
-  finishCliTiming(argv, exitCode);
-  return exitCode;
+  try {
+    const exitCode = await runThinCli(argv);
+    finishTimingWithoutChangingOutcome(argv, exitCode);
+    return exitCode;
+  } catch (error) {
+    finishTimingWithoutChangingOutcome(argv, 1);
+    throw error;
+  }
 }
 
 async function runThinCli(argv: readonly string[]): Promise<number> {
@@ -103,7 +109,12 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   try {
     const receipt = isRuntimeFacadeCommand(typedCommand)
       ? await runRuntimeFacadeCommand(typedCommand)
-      : await runCommandThroughDaemon(typedCommand, (phase) => emit(phase, typedCommand.json));
+      : await runCommandThroughDaemon(
+          typedCommand,
+          (phase) => emit(phase, typedCommand.json),
+          undefined,
+          daemonRequestTimer,
+        );
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
@@ -126,6 +137,16 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     const failure = cliDispatchError({ error, directCode: direct, timeoutCode });
     emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;
+  }
+}
+
+function finishTimingWithoutChangingOutcome(argv: readonly string[], exitCode: number): void {
+  try {
+    finishCliTiming(argv, exitCode);
+  } catch (error) {
+    // Instrumentation must never replace the command's receipt or exit outcome. In particular, a
+    // stale HA_CLI_TIMING_FILE path is an observability failure, not a command failure.
+    consumeKnownError(error);
   }
 }
 

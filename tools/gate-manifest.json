@@ -4260,7 +4260,7 @@
     },
     {
       "id": "cli-command-timing",
-      "command": "node tools/measure-cli-command-timing.mjs --out tmp/cli-command-timing/measurement.json && node tools/gates/cli-command-timing.mjs --measurement tmp/cli-command-timing/measurement.json --mode ratchet",
+      "command": "node tools/measure-cli-command-timing.mjs --out tmp/cli-command-timing/measurement.json && node tools/gates/cli-command-timing.mjs --base HEAD^ --measurement tmp/cli-command-timing/measurement.json --mode ratchet",
       "category": "local-consistency",
       "tier": "nightly-only",
       "tierReason": "Per-command CLI latency is host-sensitive, so the limits are paired same-round ratios against the compiled CLI help no-op and the lane runs on the nightly schedule only. dec_9B75595FC45E01DDFD0938FE95/CH4 lands a new lane as non-required first; promotion is a separate governance step after it is green on main.",
@@ -4329,7 +4329,7 @@
         "status": "covered",
         "evidence": [
           "tools/gates/test/cli-command-timing.test.mjs rejects a raised limit and a measurement over the committed limit, and accepts a lowered one",
-          "A temporary extra real repo.task.read round trip injected into runCommandThroughDaemon moved task-list from 1.009x to 2.008x and failed the 1.4x limit; removing it restored 1.006x green"
+          "The task artifact timing-gate-report.md records the rebase-head baseline pass and a temporary raised-limit control that failed the shrink-only comparison"
         ]
       }
     },

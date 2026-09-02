@@ -21,10 +21,8 @@ import {
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
-import { timedDaemonTransport } from "./timed-transport.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 export { fleetScheduleRoute } from "./fleet-command-route.ts";
-
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -152,9 +150,12 @@ export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
+  timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
-  const requestLocalDaemonJsonRpcForTarget = await timedDaemonTransport(),
+  const transport = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
+    requestLocalDaemonJsonRpcForTarget =
+      timeRequest?.(transport.requestLocalDaemonJsonRpcForTarget) ?? transport.requestLocalDaemonJsonRpcForTarget,
     autostart = options.autostart ?? command.action.kind !== "receipt-show",
     env = options.env ?? process.env;
   if (command.action.kind === "repo-bootstrap") {

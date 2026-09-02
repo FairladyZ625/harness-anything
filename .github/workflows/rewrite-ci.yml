@@ -288,6 +288,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The timing ratchet compares committed limits with the immediately preceding revision.
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -298,7 +301,7 @@ jobs:
       # entry has the real ones.
       - run: npm run build -w @harness-anything/cli
       - name: Measure per-command CLI timing and enforce the committed ratio ratchet
-        run: node tools/measure-cli-command-timing.mjs --out tmp/cli-command-timing/measurement.json && node tools/gates/cli-command-timing.mjs --measurement tmp/cli-command-timing/measurement.json --mode ratchet
+        run: node tools/measure-cli-command-timing.mjs --out tmp/cli-command-timing/measurement.json && node tools/gates/cli-command-timing.mjs --base HEAD^ --measurement tmp/cli-command-timing/measurement.json --mode ratchet
       - name: Preserve the measurement whether or not the ratchet held
         if: always()
         uses: actions/upload-artifact@v4
