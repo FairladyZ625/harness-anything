@@ -1,0 +1,143 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { initRepo } from "./task-surface.fixtures.ts";
+
+const kind = "software/coding/architecture-decision-record@1",
+  binding = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-artifact-import" },
+        executor: { kind: "agent" as const, id: "artifact-edge" },
+      },
+      source: "local" as const,
+    },
+    "repo-write",
+  );
+
+test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuildable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-import-")),
+    sourcePath = "docs/adr-0001.md",
+    absoluteSource = path.join(rootDir, sourcePath),
+    repoId = workspaceId("artifact-import");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.dirname(absoluteSource), { recursive: true });
+    writeFileSync(absoluteSource, "# Adopt the event ledger\n\nFirst observation.\n");
+    git(rootDir, "add", sourcePath);
+    git(rootDir, "commit", "-qm", "add artifact source");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "artifact-import-center",
+      now: () => "2026-09-02T02:00:00.000Z",
+    });
+    const explained = await cell.read(
+      "repo.entity.actions.explain",
+      { schema: "entity-action-explain-request/v1", mode: "catalog", entityKind: kind, refs: [] },
+      binding,
+    );
+    assert.deepEqual(
+      explained.subjects[0]?.actions.map(({ action }) => action.id),
+      ["import"],
+    );
+    assert.equal(explained.subjects[0]?.actions[0]?.available, null);
+
+    const observer = makeTaskEventStore({ repoId, rootDir }),
+      beforeEvents = observer.read().events.length,
+      beforeStatus = git(rootDir, "status", "--porcelain=v1"),
+      request = { kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
+      previewReceipt = await cell.run({ ...request, dryRun: true }, binding);
+    assert.equal(previewReceipt.outcome, "pending", JSON.stringify(previewReceipt));
+    const preview = JSON.parse(String(previewReceipt.evidence)) as {
+      entityId: string;
+      candidateContentVersion: string;
+      artifactOwner: string;
+      operationId: string;
+    };
+    assert.equal(observer.read().events.length, beforeEvents, "dry-run must not append an event");
+    assert.equal(git(rootDir, "status", "--porcelain=v1"), beforeStatus, "dry-run must not touch the worktree");
+    assert.match(preview.entityId, /^ADR-[a-f0-9]{16}$/u);
+    assert.match(preview.candidateContentVersion, /^sha256:[a-f0-9]{64}$/u);
+    assert.equal(preview.artifactOwner, `entity/${preview.entityId}/revision/${beforeEvents + 1}`);
+
+    const first = await cell.run(request, binding),
+      replay = await cell.run(request, binding);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
+    assert.equal(first.opId, replay.opId);
+    assert.equal(first.opId, preview.operationId);
+    assert.equal(
+      (JSON.parse(String(replay.evidence)) as { sameResult: boolean }).sameResult,
+      true,
+      "the second edge must receive the original same-result operation",
+    );
+
+    writeFileSync(absoluteSource, "# Adopt the event ledger\n\nSecond observation.\n");
+    const stale = await cell.run(request, binding);
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "revision_conflict");
+    const updated = await cell.run({ ...request, expectedVersion: first.revision }, binding),
+      updatedEvidence = JSON.parse(String(updated.evidence)) as {
+        preview: { entityId: string; candidateContentVersion: string };
+      };
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    assert.equal(updatedEvidence.preview.entityId, preview.entityId);
+    assert.notEqual(updatedEvidence.preview.candidateContentVersion, preview.candidateContentVersion);
+
+    rmSync(absoluteSource);
+    const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding);
+    assert.equal(missing.outcome, "applied", JSON.stringify(missing));
+    const missingReplay = await cell.run({ kind: "receipt-show", opId: missing.opId }, binding);
+    assert.equal(
+      (JSON.parse(String(missingReplay.evidence)) as { eventType: string }).eventType,
+      "entity_target_missing",
+    );
+    assert.equal(missingReplay.proof?.worktreeVisible, false);
+    const artifactEvents = makeTaskEventStore({ repoId, rootDir })
+      .read()
+      .events.filter((event) => event.schema === "entity-event/v1" && event.payload.entityKind === kind);
+    assert.deepEqual(
+      artifactEvents.map(({ type }) => type),
+      ["entity_content_observed", "entity_content_observed", "entity_target_missing"],
+    );
+
+    const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      listedEntities = (JSON.parse(String(listed.evidence)) as { entities: readonly { id: string }[] }).entities;
+    assert.deepEqual(
+      listedEntities.map(({ id }) => id),
+      [preview.entityId],
+    );
+    await cell.close();
+    cell = undefined;
+
+    const rebuildStore = makeTaskEventStore({ repoId, rootDir }),
+      rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-02T02:01:00.000Z" });
+    try {
+      const receipt = rebuilt.rebuild(),
+        row = rebuilt.getEntity(kind, preview.entityId);
+      assert.equal(receipt.watermark, rebuildStore.readHead()?.revision);
+      assert.equal(row?.id, preview.entityId);
+      assert.equal(row?.workspaceRevision, missing.revision);
+      assert.equal(row?.value.contentVersion, updatedEvidence.preview.candidateContentVersion);
+    } finally {
+      rebuilt.close();
+    }
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function git(rootDir: string, ...args: readonly string[]): string {
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}

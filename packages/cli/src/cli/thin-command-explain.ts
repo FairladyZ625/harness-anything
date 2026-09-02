@@ -3,7 +3,7 @@ import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin
 import type { ThinHelpOverlayRoute, ThinParseResult } from "./thin-command-types.ts";
 
 const explainUsage =
-  "Use ha explain task|person|squad for a catalog, or ha explain <entity-ref> [<entity-ref>...] for 1..500 objects.";
+  "Use ha explain task|person|squad|<artifact-type@version> for a catalog, or ha explain <entity-ref>... for objects.";
 
 export function taskExplainHelpOverlay(argv: readonly string[]): ThinHelpOverlayRoute | undefined {
   const args = stripGlobals(argv);
@@ -43,7 +43,13 @@ export function parseExplain(
   method: string,
 ): ThinParseResult {
   const targets = args.slice(1);
-  if (targets.length === 1 && (targets[0] === "task" || targets[0] === "person" || targets[0] === "squad"))
+  if (
+    targets.length === 1 &&
+    (targets[0] === "task" ||
+      targets[0] === "person" ||
+      targets[0] === "squad" ||
+      /^[a-z0-9][a-z0-9/-]*\/[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/u.test(targets[0] ?? ""))
+  )
     return accepted(
       rootDir,
       repoId,

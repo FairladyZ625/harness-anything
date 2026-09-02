@@ -6,8 +6,9 @@ import {
   type VerticalDefinition,
 } from "../schemas/vertical-definition.ts";
 import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } from "./base-entity.ts";
-import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
 import {
+  artifactEntityActionCatalog,
   entityKindContracts,
   genericAuthoring,
   genericEntityStore,
@@ -92,7 +93,7 @@ export function compileVerticalContract(source: unknown): CompiledVerticalContra
       ),
       entityKindContract: EntityKindContract = Object.freeze({
         ...entityTypeContract,
-        schema: descriptorSchema(artifact, typeIdentity),
+        schema: artifactDescriptorSchema(artifact, typeIdentity),
         relations: Object.freeze({ directions: Object.freeze([]), edges: Object.freeze([]) }),
         canonicalProjection: Object.freeze({
           embeddedEvents: Object.freeze([]),
@@ -105,7 +106,7 @@ export function compileVerticalContract(source: unknown): CompiledVerticalContra
               ]),
             }
           : {}),
-        actionCatalog: null,
+        actionCatalog: artifactEntityActionCatalog(typeIdentity, identity),
         entityStore: genericEntityStore(artifact.store.pathTemplate),
         authoring: genericAuthoring,
         sdkExposure: noSdkExposure,
@@ -242,37 +243,6 @@ function builtinIdPrefixes(): Set<string> {
   return prefixes;
 }
 
-function descriptorSchema(artifact: ArtifactEntityKindDefinition, typeIdentity: string): EntityDocumentJsonSchema {
-  const properties: EntityDocumentJsonSchema["properties"] = {
-    schema: { type: "string", const: artifact.descriptorSchemaRef },
-    typeIdentity: { type: "string", const: typeIdentity },
-    entityId: { type: "string", pattern: `^${artifact.idPrefix}-[a-f0-9]{16}$` },
-    title: { type: "string", minLength: 1 },
-    locator: {
-      type: "object",
-      properties: {
-        kind: { type: "string", enum: artifact.locatorKinds },
-        value: { type: "string", minLength: 1 },
-      },
-      required: ["kind", "value"],
-      additionalProperties: false,
-    },
-    contentVersion: { type: "string", minLength: 1 },
-    source: { type: "string", minLength: 1 },
-    ...(artifact.maturityVocabulary
-      ? { maturity: { type: "string" as const, enum: artifact.maturityVocabulary } }
-      : {}),
-  };
-  return deepFreeze({
-    $schema: "https://json-schema.org/draft/2020-12/schema",
-    $id: `${artifact.descriptorSchemaRef}#${typeIdentity}`,
-    type: "object",
-    properties,
-    required: ["schema", "typeIdentity", "entityId", "title", "locator", "contentVersion", "source"],
-    additionalProperties: false,
-  });
-}
-
 function assertUniqueValues(values: readonly string[], label: string): void {
   if (new Set(values).size !== values.length) {
     throw new VerticalContractError(`${label} must not contain duplicates.`);
@@ -281,12 +251,4 @@ function assertUniqueValues(values: readonly string[], label: string): void {
 
 function duplicate(field: string, value: string): never {
   throw new VerticalContractError(`Duplicate artifact ${field}: ${value}.`);
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value && typeof value === "object" && !Object.isFrozen(value)) {
-    for (const child of Object.values(value)) deepFreeze(child);
-    Object.freeze(value);
-  }
-  return value;
 }

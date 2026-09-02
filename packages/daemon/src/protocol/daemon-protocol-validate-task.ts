@@ -2,6 +2,7 @@ import {
   generatedTaskActionProtocolDeclarations,
   type GeneratedTaskActionProtocolDeclaration,
 } from "./daemon-protocol-commands-task.ts";
+import type { artifactEntityImportActionInput } from "../../../kernel/src/index.ts";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA, DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,
@@ -46,6 +47,21 @@ export const availabilityFields = ["consents", "codeDocWitnesses", "gateWitnesse
     "decisionRelations",
   ] as const;
 
+const artifactEntityImportProtocolInput = Object.freeze({
+  schema: "entity-action-input/v1",
+  fields: Object.freeze([
+    { field: "entityKind", type: "string", required: true },
+    { field: "locator", type: "string", required: true },
+    { field: "expectedVersion", type: "number", required: true },
+    { field: "title", type: "string", required: false },
+    { field: "entityId", type: "string", required: false },
+    { field: "sourceIdentity", type: "string", required: false },
+    { field: "idempotencyKey", type: "string", required: false },
+    { field: "dryRun", type: "boolean", required: false },
+  ]),
+  exactlyOneOf: Object.freeze([]),
+} as const satisfies typeof artifactEntityImportActionInput);
+
 const taskActionProtocolByIngress: ReadonlyMap<string, GeneratedTaskActionProtocolDeclaration> = new Map(
   generatedTaskActionProtocolDeclarations.map((action) => [action.execution.ingress, action] as const),
 );
@@ -54,7 +70,10 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   const action = (value.payload as JsonObject).action;
   if (!isJsonObject(action) || typeof action.kind !== "string") return [];
   const declaration = taskActionProtocolByIngress.get(action.kind);
-  return declaration ? validateProjectedTaskActionInput(action.kind, declaration.input, action) : [];
+  if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
+  return action.kind === "entity-import"
+    ? validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action)
+    : [];
 }
 
 function validateProjectedTaskActionInput(

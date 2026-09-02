@@ -2,7 +2,7 @@ import {
   isEntityEvent,
   isTaskEvent,
   isTaskProgressEvent,
-  requireEntityKindContract,
+  contractForDeclarationEvent,
   type CanonicalEventV1,
   type TaskProgressEventV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -87,13 +87,31 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
       worktreeVisible: isTaskEvent(event) || event.schema === "decision-event/v1" ? true : null,
     };
   if (isEntityEvent(event)) {
+    if (event.type !== "entity_upserted")
+      return cell.canonicalSettlement(
+        {
+          outcome: visible ? "applied" : "pending",
+          opId,
+          revision: event.workspaceRevision,
+          evidence: JSON.stringify({
+            schema: event.schema,
+            eventId: event.eventId,
+            entityId: event.payload.entityId,
+            eventType: event.type,
+          }),
+          visibility: "center",
+          proof: { ...proof, worktreeVisible: event.type === "entity_content_observed" },
+          ...(!visible ? { nextAction: `Retry after the projection records observation ${opId}.` } : {}),
+        },
+        event,
+      );
     const claim = event.payload.declarationDocumentClaim,
       declarationProof = { ...proof, worktreeVisible: true },
       detail = {
         kind: "entity_upsert" as const,
         entityKind: event.payload.entityKind,
         entityId: event.payload.entityId,
-        schemaId: requireEntityKindContract(event.payload.entityKind).schema.$id,
+        schemaId: contractForDeclarationEvent(event).schema.$id,
         path: claim.path,
       };
     return visible

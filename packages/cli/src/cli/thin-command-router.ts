@@ -94,6 +94,7 @@ export function parseRouted(
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") {
+    if (route.id === "entity-import") return parseEntityImportRouted(route, args, rootDir, repoId, json, inputs);
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
     if (!nonEmpty(entityKind))
@@ -118,6 +119,28 @@ const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object
   "people-revoke-delegation": ["--token-id"],
   "people-remove": ["--person-id"],
 });
+
+function parseEntityImportRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const projected = parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (!projected.ok) return projected;
+  const action = projected.command.action,
+    hasEntityId = typeof action.entityId === "string",
+    hasSourceIdentity = typeof action.sourceIdentity === "string";
+  return hasEntityId === hasSourceIdentity
+    ? projected
+    : rejected(
+        "invalid_field",
+        "Use --entity-id and --source-identity together for an explicit relink, or omit both.",
+        json,
+      );
+}
 
 function parsePeople(
   route: ProtocolCommand,

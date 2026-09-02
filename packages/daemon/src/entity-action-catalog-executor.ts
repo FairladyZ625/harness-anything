@@ -8,6 +8,7 @@ import {
   entityUpsertWritePlan,
   factWritePlan,
   getExecutableEntityAction,
+  isEntityDeclarationEvent,
   isRelationEvent,
   isSameExecution,
   relationEventWritePlan,
@@ -22,7 +23,6 @@ import {
   type EntityActionDraft,
   type EntityActionExecutionContract,
   type EntityActionUnmetCriterionV1,
-  type EntityEventV1,
   type EntityUpsertBundle,
   type EventPublicationKillpoint,
   type FactConfidence,
@@ -44,6 +44,7 @@ import {
   matchingRuntimeSessionReplayBundle,
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
+import { executeArtifactEntityImport } from "./artifact-entity-action.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -68,6 +69,8 @@ export interface EntityActionCatalogRuntimes {
 }
 
 export function makeEntityActionCatalogExecutor(input: {
+  readonly rootDir?: string;
+  readonly repositoryId?: string;
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
@@ -111,6 +114,19 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
     runtimes: EntityActionCatalogRuntimes = {},
   ): WriteReceipt | Promise<WriteReceipt> => {
+    if (action.kind === "entity-import") {
+      const authorizationDecision = decisionAuthorization(action, binding, opId, input);
+      return executeArtifactEntityImport({
+        rootDir: input.rootDir ?? process.cwd(),
+        repositoryId: input.repositoryId ?? "repository",
+        action,
+        binding,
+        store: input.store,
+        projection: input.projection,
+        now: input.now,
+        authorizationDecision,
+      }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
+    }
     const contract = executableAction(action.kind),
       prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
@@ -603,13 +619,18 @@ function matchingReplayBundle(
   const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
   if (contract.target.kind === "runtime-session" && existing !== null)
     return matchingRuntimeSessionReplayBundle(store, contract, action, existing);
-  if (existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind) {
+  if (
+    existing?.schema === "entity-event/v1" &&
+    existing.type === "entity_upserted" &&
+    isEntityDeclarationEvent(existing) &&
+    existing.payload.entityKind === contract.target.kind
+  ) {
     const claim = existing.payload.declarationDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
     if (!bytes) reject("content_not_ready", `Entity content for ${claim.path} is unavailable.`);
     return {
       event: existing,
-      plan: entityUpsertWritePlan(existing as EntityEventV1),
+      plan: entityUpsertWritePlan(existing),
       blobs: [
         {
           sha256: claim.sha256,

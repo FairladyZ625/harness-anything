@@ -1,4 +1,4 @@
-import { assertEntityUpsertInputs, isEntityEvent } from "../domain/entity-event.ts";
+import { assertEntityEventInputs, isEntityEvent } from "../domain/entity-event.ts";
 import {
   assertDocSyncWritePlan,
   isDecisionEvent,
@@ -68,11 +68,11 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     );
   if (isEntityEvent(event))
     try {
-      assertEntityUpsertInputs(event, plan as FrozenWritePlan<"EntityUpsert">, blobs);
+      assertEntityEventInputs(event, plan, blobs);
     } catch {
       throw new TaskEventStoreError(
         "invalid_write_plan",
-        "entity upsert must carry a schema-valid declaration and exact write plan",
+        "entity event must carry schema-valid evidence and an exact write plan",
       );
     }
   if (isScheduleEvent(event))

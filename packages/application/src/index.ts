@@ -14,6 +14,18 @@ export type {
 export { makeDecisionService } from "./decision-service.ts";
 export { FactServiceError, makeFactService } from "./fact-service.ts";
 export type { FactRecordResult, FactWriteBundle } from "./fact-service.ts";
+export {
+  ArtifactEntityServiceError,
+  makeArtifactEntityService,
+  readArtifactDescriptor,
+} from "./artifact-entity-service.ts";
+export type {
+  ArtifactEntityCurrent,
+  ArtifactEntityImportPreview,
+  ArtifactEntityImportRequest,
+  ArtifactSourceResolution,
+  PreparedArtifactEntityImport,
+} from "./artifact-entity-service.ts";
 export { makeTaskActionExplanationService } from "./task-action-explanation-service.ts";
 export { makePersonActionExplanationService } from "./person-action-explanation-service.ts";
 export { makeSquadActionExplanationService } from "./squad-action-explanation-service.ts";

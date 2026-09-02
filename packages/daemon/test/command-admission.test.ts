@@ -40,8 +40,7 @@ test("all daemon commands close every repo-mode admission cell", () => {
 test("legacy repo reads have no descriptor left on the serialized write method", () => {
   const legacyReadIds = ["task-list", "task-show", "doc-status", "settings-read"];
   for (const command of daemonProtocolCommands)
-    if (command.commandClass === "repo-read")
-      assert.notEqual(command.method, "repo.task.run", command.id);
+    if (command.commandClass === "repo-read") assert.notEqual(command.method, "repo.task.run", command.id);
   for (const id of legacyReadIds)
     assert.equal(daemonProtocolCommands.find((command) => command.id === id)?.method, "repo.task.read", id);
 });
@@ -100,6 +99,16 @@ test("Settings CLI read uses the common read topology while update forwards from
   });
   assert.equal(byId.get("settings-read")?.commandClass, "repo-read");
   assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
+});
+
+test("Artifact import forwards edge observations into the center single-writer queue", () => {
+  const command = daemonProtocolCommands.find(({ id }) => id === "entity-import");
+  assert.deepEqual(command?.admission, {
+    local: "direct",
+    "remote-center": "via-assignment",
+    "remote-edge": "via-center-forward",
+  });
+  assert.equal(command?.commandClass, "repo-write");
 });
 
 test("Settings locale-only updates use local admission while repository fields keep center routing", () => {

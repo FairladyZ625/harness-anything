@@ -8,6 +8,7 @@ import { parseThinCommand } from "../src/cli/thin-command.ts";
 test("explain parser selects catalog/object mode without duplicating EntityRef validation", () => {
   const catalog = parseThinCommand(["explain", "task", "--json"]),
     squadCatalog = parseThinCommand(["explain", "squad", "--json"]),
+    artifactCatalog = parseThinCommand(["explain", "software/coding/architecture-decision-record@1", "--json"]),
     objects = parseThinCommand(["explain", "task/task-one", "fact/F-ABCDEFGH", "not-a-ref"]),
     fiveHundredRefs = Array.from({ length: 500 }, (_, index) => `task/task-${index}`),
     maximum = parseThinCommand(["explain", ...fiveHundredRefs]),
@@ -18,6 +19,7 @@ test("explain parser selects catalog/object mode without duplicating EntityRef v
 
   assert.equal(catalog.ok, true);
   assert.equal(squadCatalog.ok, true);
+  assert.equal(artifactCatalog.ok, true);
   assert.equal(objects.ok, true);
   assert.equal(maximum.ok, true);
   assert.equal(empty.ok, false);
@@ -40,6 +42,14 @@ test("explain parser selects catalog/object mode without duplicating EntityRef v
     schema: "entity-action-explain-request/v1",
     mode: "catalog",
     entityKind: "squad",
+    refs: [],
+  });
+  if (!artifactCatalog.ok) return;
+  assert.deepEqual(artifactCatalog.command.action, {
+    kind: "entity-action-explain",
+    schema: "entity-action-explain-request/v1",
+    mode: "catalog",
+    entityKind: "software/coding/architecture-decision-record@1",
     refs: [],
   });
   const personCatalog = parseThinCommand(["explain", "person"]);

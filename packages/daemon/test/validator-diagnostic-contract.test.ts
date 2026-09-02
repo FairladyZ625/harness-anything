@@ -30,6 +30,33 @@ interface ValidatorCase {
   readonly validate: () => readonly string[];
 }
 
+test("entity import wire input is exact and projected from its executable Action contract", () => {
+  const payload = {
+    payload: {
+      action: {
+        kind: "entity-import",
+        entityKind: "software/coding/architecture-decision-record@1",
+        locator: "docs/adr.md",
+        expectedVersion: 0,
+        dryRun: true,
+      },
+    },
+  } as JsonObject;
+  assert.deepEqual(validateCatalogActionPayload(payload), []);
+  assert.match(
+    validateCatalogActionPayload({
+      payload: { action: { ...payload.payload.action, body: "must not cross the descriptor boundary" } },
+    } as JsonObject).join("\n"),
+    /action\.body.*not declared/u,
+  );
+  assert.match(
+    validateCatalogActionPayload({
+      payload: { action: { ...payload.payload.action, expectedVersion: -1 } },
+    } as JsonObject).join("\n"),
+    /action\.expectedVersion.*must be number/u,
+  );
+});
+
 const relationGraph = {
     ok: true,
     status: "ready",
