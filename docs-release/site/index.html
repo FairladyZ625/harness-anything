@@ -1233,13 +1233,13 @@
             <figcaption><span lang="en">one daemon, many repos, opt-in</span><span lang="zh">一个 daemon，多个仓库，opt-in</span></figcaption>
 <pre><span class="c"># register as many repos as you want, then start one daemon</span>
 <span class="c">$</span> ha daemon repo register <span class="k">--repo-id</span> A <span class="k">--root</span> /path/to/A
-<span class="c">$</span> ha daemon start
-<span class="c"># route a command at a specific repo by id</span>
-<span class="c">$</span> HARNESS_DAEMON_MODE=local ha <span class="k">--repo</span> A task list</pre>
+<span class="c">$</span> ha daemon start <span class="k">--service</span>
+<span class="c"># launch the attached GUI</span>
+<span class="c">$</span> ha gui</pre>
           </figure>
           <p>
-            <span lang="en">Two honest boundaries on this. The CLI defaults to <em>direct, in-process</em> mode — the daemon is opt-in, not imposed on you. And the daemon is strictly local: it listens on a Unix socket (a Windows named pipe on Windows) and nothing else. New repositories can be registered while the daemon is already running and are picked up within about a second — but if you wanted to reach a daemon on another machine, that is, deliberately, a non-feature today.</span>
-            <span lang="zh">这里有两个诚实的边界。CLI 默认是<em>直接、进程内</em>模式——daemon 是 opt-in 的，不强加给你。而 daemon 严格只本地：它监听一个 Unix socket（Windows 上是命名管道），仅此而已。新仓库可以在 daemon 已经运行时注册，大约一秒内被接进来——但如果你想连另一台机器上的 daemon，今天这刻意不是一项功能。</span>
+            <span lang="en">The local daemon uses a Unix socket (a Windows named pipe on Windows). For view-only display of a server repository, forward its socket to a local endpoint, add and probe that endpoint, then register the repository in <code>remote-proxy</code> mode. The local machine has no workspace in that mode; develop by SSHing to the server.</span>
+            <span lang="zh">本地 daemon 使用 Unix socket（Windows 上为命名管道）。要纯展示服务器仓库，可将其 socket 转发为本地 endpoint，添加并探测该 endpoint，再以 <code>remote-proxy</code> 模式注册仓库。此模式下本机没有工作区；开发请 SSH 到服务器。</span>
           </p>
         </section>
 
