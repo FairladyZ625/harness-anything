@@ -99,10 +99,10 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
               return;
             }
             if (method === "repo.agentRuntime.attach" && Array.isArray(value.events)) {
-              for (const event of value.events) if (isJsonRecord(event)) enqueue(event);
+              for (const event of value.events) if (isJsonRecord(event)) pushValue(event);
               return;
             }
-            enqueue(value);
+            pushValue(value);
           },
           onClosed: () => closeQueue(),
         });
@@ -130,7 +130,7 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
         streamDetachers.delete(detach);
         for (const waiter of waiters.splice(0)) waiter(null);
       }
-      function enqueue(value: JsonObject): void {
+      function pushValue(value: JsonObject): void {
         const waiter = waiters.shift();
         if (waiter) waiter(value);
         else values.push(value);
