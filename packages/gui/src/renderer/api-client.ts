@@ -26,6 +26,9 @@ import type {
 import { isFactDomainTypeSummaryRow, isRendererRecord, type FactDomainTypeSummaryRow } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { isGuiConnectionInfo } from "./gui-connection.ts";
+export type { GuiConnectionInfo } from "./gui-connection.ts";
+import type { GuiConnectionInfo } from "./gui-connection.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -195,13 +198,6 @@ export interface DaemonPoint {
   readonly daemonId: string;
   readonly pid: number;
   readonly startedAt: string;
-}
-export interface GuiConnectionInfo {
-  readonly kind: "local" | "ssh";
-  /** The endpoint the GUI actually uses, never the private key or SSH command. */
-  readonly endpoint: string;
-  readonly user?: string;
-  readonly hostKeyAlias?: string;
 }
 export interface SystemStatusSuccess {
   readonly schema: "gui-system-status/v1";
@@ -947,15 +943,6 @@ function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
         ["enabled", "disabled"].includes(String(repo.registrationState)) &&
         ["warming", "attached", "unavailable", "not_loaded"].includes(String(repo.cellState)),
     )
-  );
-}
-function isGuiConnectionInfo(value: unknown): value is GuiConnectionInfo {
-  return (
-    isRendererRecord(value) &&
-    ["local", "ssh"].includes(String(value.kind)) &&
-    typeof value.endpoint === "string" &&
-    (value.user === undefined || typeof value.user === "string") &&
-    (value.hostKeyAlias === undefined || typeof value.hostKeyAlias === "string")
   );
 }
 function isDaemonControlReceipt(value: unknown): value is DaemonControlReceipt {

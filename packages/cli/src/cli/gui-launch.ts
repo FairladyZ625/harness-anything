@@ -215,17 +215,6 @@ function parseGuiLaunch(
   let root: string | undefined;
   let remote = false;
   const options: Record<string, string> = {};
-  const optionNames = new Set([
-    "--remote-host",
-    "--remote-port",
-    "--remote-user",
-    "--identity-file",
-    "--host-key-alias",
-    "--ssh-config-host",
-    "--ssh-command",
-    "--remote-daemon-id",
-    "--remote-command-json",
-  ]);
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "gui" || value === "--json") continue;
@@ -242,7 +231,7 @@ function parseGuiLaunch(
       index += 1;
       continue;
     }
-    if (optionNames.has(value)) {
+    if (isGuiRemoteOption(value)) {
       const supplied = argv[index + 1];
       if (!supplied || supplied.startsWith("-"))
         return { ok: false, code: "missing_field", hint: `Add a value after ${value}.` };
@@ -274,6 +263,22 @@ function parseGuiLaunch(
     }
   }
   return { ok: true, rootDir: path.resolve(root ?? process.cwd()), remote, options };
+}
+function isGuiRemoteOption(value: string): boolean {
+  switch (value) {
+    case "--remote-host":
+    case "--remote-port":
+    case "--remote-user":
+    case "--identity-file":
+    case "--host-key-alias":
+    case "--ssh-config-host":
+    case "--ssh-command":
+    case "--remote-daemon-id":
+    case "--remote-command-json":
+      return true;
+    default:
+      return false;
+  }
 }
 function guiLaunchEnvironment(launch: { readonly rootDir: string; readonly remote: boolean; readonly options: Record<string, string> }): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: launch.rootDir };

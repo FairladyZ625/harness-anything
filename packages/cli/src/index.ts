@@ -68,8 +68,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
   const daemonConnectCommand = command === "daemon" && argv.includes("connect");
   if (command === "gui" && argv.includes("--help")) {
-    console.log("Usage: ha gui [--remote] [remote connection options]");
-    console.log("Launch the desktop GUI. Remote mode uses an existing local SSH endpoint.");
+    console.log("Usage: ha gui [--root <path>] [--remote] [remote connection options]");
+    console.log("Launch the desktop GUI from the canonical CLI installation; the GUI never stops the daemon.");
+    console.log("Remote mode uses an existing local SSH endpoint and never falls back to a local daemon.");
     console.log("  --remote                                      Enable SSH-backed GUI mode.");
     console.log("  --ssh-config-host <alias>                    Use a local OpenSSH config alias.");
     console.log("  --remote-host <host> --remote-port <port>    Use a direct local endpoint.");

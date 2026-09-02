@@ -161,20 +161,17 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),
-    packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined,
     remoteProfile = resolveRemoteGuiProfile(),
     bridge = remoteProfile
       ? createRemoteGuiServiceBridge(remoteProfile)
-      : createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}),
+      : createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()),
     controlled = remoteProfile
       ? addRemoteMainControls({ bridge })
       : addLocalMainControls({
           bridge,
-          invokingRoot: rootDir,
           target: async (repoId) =>
             resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
           clientBuildCommit: daemonBuildStamp().commit,
-          ...(packaged ? { packaged } : {}),
         }),
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
@@ -215,7 +212,7 @@ export async function startGuiApp(): Promise<void> {
               "remote_bootstrap_unsupported",
               "Repository bootstrap is not available from remote daemon mode.",
             ) as unknown as Record<string, unknown>
-        : (input) => bootstrapLocalRepository(input, packaged),
+        : (input) => bootstrapLocalRepository(input),
     },
     trustPolicy,
   );

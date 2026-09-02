@@ -334,7 +334,7 @@ test("remote GUI launch requires an endpoint or OpenSSH config alias", async () 
       ),
     );
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
-    assert.equal(output.status, 1);
+    assert.equal(output.status, 2);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_remote_config_missing");
     assert.equal(receipt.error.code, "gui_remote_config_missing");
@@ -356,7 +356,7 @@ test("remote GUI launch rejects an invalid direct endpoint port", async () => {
       ),
     );
     const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
-    assert.equal(output.status, 1);
+    assert.equal(output.status, 2);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_remote_port_invalid");
     assert.equal(receipt.error.code, "gui_remote_port_invalid");
