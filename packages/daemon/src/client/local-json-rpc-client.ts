@@ -50,6 +50,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
   target: {
     readonly socketPath: string;
     readonly repoId?: string;
+    readonly restartStaleDaemon?: boolean;
     readonly canonicalRoot?: string;
     readonly userRoot?: string;
     readonly daemonId?: string;
@@ -67,6 +68,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
     timeoutMs,
     responseTimeoutMs,
     target.sessionEnvironment,
+    target.restartStaleDaemon === true,
   );
 }
 
@@ -77,6 +79,7 @@ export async function requestDaemonJsonRpcAt(
   timeoutMs = 75,
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
+  restartStaleDaemon = false,
 ): Promise<JsonObject> {
   return requestWithSocket(
     await connectSocket(socketPath, timeoutMs),
@@ -84,6 +87,7 @@ export async function requestDaemonJsonRpcAt(
     params,
     responseTimeoutMs,
     sessionEnvironment,
+    restartStaleDaemon,
   );
 }
 
@@ -164,8 +168,7 @@ export class JsonRpcLineClient {
   }
   private onClosed(): void {
     this.closed = true;
-    for (const waiter of this.waiters.splice(0))
-      waiter.reject(daemonClosedError(waiter.id));
+    for (const waiter of this.waiters.splice(0)) waiter.reject(daemonClosedError(waiter.id));
   }
 }
 
@@ -175,6 +178,7 @@ async function requestWithSocket(
   params: JsonObject,
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
+  restartStaleDaemon = false,
 ): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
   try {
@@ -185,15 +189,15 @@ async function requestWithSocket(
         ...(sessionEnvironment && Object.keys(sessionEnvironment).length > 0
           ? { sessionEnvironment: sessionEnvironment as JsonObject }
           : {}),
+        ...(restartStaleDaemon ? { restartStaleDaemon: true } : {}),
       },
       responseTimeoutMs,
     );
-    const staleError = hello.error && typeof hello.error === "object" && !Array.isArray(hello.error)
-      ? hello.error as JsonObject
-      : null,
-      staleHint = staleError && typeof staleError.hint === "string"
-      ? staleError.hint
-      : undefined;
+    const staleError =
+        hello.error && typeof hello.error === "object" && !Array.isArray(hello.error)
+          ? (hello.error as JsonObject)
+          : null,
+      staleHint = staleError && typeof staleError.hint === "string" ? staleError.hint : undefined;
     if (hello.ok === false && hello.code === "daemon_build_stale")
       throw Object.assign(new Error(String(hello.nextAction ?? staleHint ?? "daemon_build_stale")), {
         code: "daemon_build_stale",

@@ -48,7 +48,11 @@ export const daemonProtocolMethods = Object.freeze([
     phase: "W3",
     method: "protocol.hello",
     requiresRepo: false,
-    params: shape({ protocolVersion: shape({ major: "number", minor: "number" }), sessionEnvironment: "json?" }),
+    params: shape({
+      protocolVersion: shape({ major: "number", minor: "number" }),
+      sessionEnvironment: "json?",
+      restartStaleDaemon: "boolean?",
+    }),
   },
   {
     id: "daemon.status",
@@ -451,6 +455,8 @@ type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
+    /** Only a caller that will autostart the daemon again may ask a drifted daemon to stop. */
+    readonly restartStaleDaemon?: boolean;
   };
   readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
   readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
