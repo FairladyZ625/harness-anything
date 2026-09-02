@@ -302,14 +302,10 @@ export type {
   TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionQueries,
-  TaskProjectionReader,
-  TaskProjectionWriter,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
   WalMaterializationFenceV1,
-  WalMaterializationRequestV1,
-  WalMaterializationWorkerConfig,
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,

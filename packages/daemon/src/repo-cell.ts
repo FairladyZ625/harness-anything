@@ -156,7 +156,8 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         };
       } catch (error) {
         console.warn(
-          `[wal-materializer] authored candidate inventory failed: ${error instanceof Error ? error.message : String(error)}`,
+          "[wal-materializer] authored candidate inventory failed: " +
+            (error instanceof Error ? error.message : String(error)),
         );
         consumeKnownError(error);
         return { ...response, settlementIntent: null };

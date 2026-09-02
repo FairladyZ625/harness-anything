@@ -282,7 +282,11 @@ export function makeTaskProjectionReader(options: {
         if (observedSchema !== taskProjectionSchemaVersion)
           throw Object.assign(
             new Error(
-              `kernel projection schema ${observedSchema ?? "missing"} does not match supported schema ${taskProjectionSchemaVersion}; writer recovery must publish a compatible generation`,
+              [
+                `kernel projection schema ${observedSchema ?? "missing"}`,
+                `does not match supported schema ${taskProjectionSchemaVersion};`,
+                "writer recovery must publish a compatible generation",
+              ].join(" "),
             ),
             { code: "kernel_schema_mismatch" },
           );

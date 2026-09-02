@@ -56,7 +56,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>();
 
-  ready = start();
+  ready = startWriterWorker();
   await ready;
 
   return {
@@ -131,7 +131,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
     },
   };
 
-  function start(): Promise<void> {
+  function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
     return new Promise((resolve, reject) => {
       const candidate = new Worker(writerWorkerUrl(), {
@@ -197,7 +197,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           ready = new Promise((restartResolve, restartReject) => {
             const timer = setTimeout(() => {
               if (closed) restartResolve();
-              else start().then(restartResolve, restartReject);
+              else startWriterWorker().then(restartResolve, restartReject);
             }, delay);
             timer.unref?.();
           });
@@ -368,14 +368,14 @@ function respondCapability(
 }
 
 function isReceipt(value: unknown): value is RepoWriterReceiptV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-receipt/v1";
+  return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-receipt/v1";
 }
 function isStatus(value: unknown): value is RepoWriterStatusV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-status/v1";
+  return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-status/v1";
 }
 function isCapabilityCall(value: unknown): value is RepoWriterCapabilityCallV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-capability-call/v1";
+  return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-capability-call/v1";
 }
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isWriterSupervisorMessageRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }

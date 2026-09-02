@@ -82,10 +82,22 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
     const status = supervisor.status(),
       cause = status.lastError ?? "RepoCell is unavailable.";
     return status.causeClass === "infrastructure"
-      ? `this workspace stays latched until its Git or lock infrastructure recovers: repair the infrastructure cause below, then rerun the command; the next attempt re-probes the workspace and re-attaches automatically once it verifies. Cause: ${cause}`
+      ? [
+          "this workspace stays latched until its Git or lock infrastructure recovers:",
+          "repair the infrastructure cause below, then rerun the command; the next attempt re-probes the workspace",
+          `and re-attaches automatically once it verifies. Cause: ${cause}`,
+        ].join(" ")
       : status.causeClass === "projection"
-        ? `this workspace stays latched until its projection verifies: run ha daemon projection rebuild to repair the projection cause below; this command remains available while latched and re-attaches automatically once the projection verifies. Cause: ${cause}`
-        : `this workspace stays latched until its ledger data verifies: repair the data-shape cause below, then rerun the command; the next attempt re-probes the ledger and re-attaches automatically once the data verifies. Cause: ${cause}`;
+        ? [
+            "this workspace stays latched until its projection verifies:",
+            "run ha daemon projection rebuild to repair the projection cause below; this command remains available",
+            `while latched and re-attaches automatically once the projection verifies. Cause: ${cause}`,
+          ].join(" ")
+        : [
+            "this workspace stays latched until its ledger data verifies:",
+            "repair the data-shape cause below, then rerun the command; the next attempt re-probes the ledger",
+            `and re-attaches automatically once the data verifies. Cause: ${cause}`,
+          ].join(" ");
   };
   const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(
     projection: TaskProjectionQueries,
@@ -336,7 +348,10 @@ function legacyTaskList(
       : {
           outcome: "pending" as const,
           ...base,
-          nextAction: `Retry after the task projection catches up from revision ${cut?.watermark ?? 0} to ${cut?.sourceRevision ?? revision}.`,
+          nextAction: [
+            `Retry after the task projection catches up from revision ${cut?.watermark ?? 0}`,
+            `to ${cut?.sourceRevision ?? revision}.`,
+          ].join(" "),
         };
   };
   return listTasks(

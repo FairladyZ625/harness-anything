@@ -23,9 +23,9 @@ import { assertWriterEpochFenceDescriptor, withWriterEpochFenceDescriptor } from
 
 const bootstrap = workerData as RepoWriterBootstrapV1;
 
-if (!isMainThread) void start();
+if (!isMainThread) void startRepoWriterWorker();
 
-async function start(): Promise<void> {
+async function startRepoWriterWorker(): Promise<void> {
   if (
     bootstrap?.schema !== "harness-repo-writer-bootstrap/v1" ||
     bootstrap.protocolVersion !== REPO_WRITER_PROTOCOL_VERSION ||
@@ -290,17 +290,17 @@ function postStatus(status: Omit<RepoWriterStatusV1, "schema" | "protocolVersion
 }
 
 function isWriterRequest(value: unknown): value is RepoWriterRequestV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-request/v1";
+  return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-request/v1";
 }
 function isWriterControl(value: unknown): value is RepoWriterControlV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-control/v1";
+  return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-control/v1";
 }
 function isCapabilityResult(value: unknown): value is RepoWriterCapabilityResultV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-capability-result/v1";
+  return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-capability-result/v1";
 }
 function isRuntimeProcessEvent(value: unknown): value is RuntimeProcessEventV1 {
-  return isRecord(value) && value.schema === "harness-repo-writer-runtime-process-event/v1";
+  return isWriterWorkerMessageRecord(value) && value.schema === "harness-repo-writer-runtime-process-event/v1";
 }
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isWriterWorkerMessageRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
