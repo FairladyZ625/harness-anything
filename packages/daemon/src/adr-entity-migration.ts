@@ -129,7 +129,7 @@ export async function runAdrEntityMigration(input: {
     markerRelation = relations[0];
   if (!markerRelation)
     migrationError("adr_migration_reconciliation_failed", "ADR migration requires at least one qualified relation.");
-  const preflight = reconcile(input.rootDir, input.projection, candidates, false);
+  const preflight = reconcileAdrMigration(input.rootDir, input.projection, candidates, false);
   assertReconciled(preflight);
   if (input.action.dryRun === true) {
     const report = reportFor({
@@ -143,13 +143,13 @@ export async function runAdrEntityMigration(input: {
       reconciliation: preflight,
       dryRun: true,
     });
-    return previewReceipt(report, input.store, input.authorizationDecision);
+    return previewAdrMigrationReceipt(report, input.store, input.authorizationDecision);
   }
   const existingMarker = input.store.readEvent(migrationOpId);
   if (existingMarker) {
     assertMigrationEvent(existingMarker, markerRef, markerRelation.record, registry);
     input.projection.catchUp?.();
-    const reconciliation = reconcile(input.rootDir, input.projection, candidates, true);
+    const reconciliation = reconcileAdrMigration(input.rootDir, input.projection, candidates, true);
     assertReconciled(reconciliation);
     return appliedReceipt(
       reportFor({
@@ -184,12 +184,12 @@ export async function runAdrEntityMigration(input: {
       now: input.now,
       authorizationDecision: input.authorizationDecision,
     });
-  const postImport = reconcile(input.rootDir, input.projection, candidates, true);
+  const postImport = reconcileAdrMigration(input.rootDir, input.projection, candidates, true);
   assertReconciled(postImport);
   for (const relation of relations.slice(1))
     appendRelationMigration(input, relation.record, registry, `${markerRef}/relation/${relation.record.relation_id}`);
   const marker = appendRelationMigration(input, markerRelation.record, registry, markerRef, migrationOpId);
-  const finalReconciliation = reconcile(input.rootDir, input.projection, candidates, true);
+  const finalReconciliation = reconcileAdrMigration(input.rootDir, input.projection, candidates, true);
   assertReconciled(finalReconciliation);
   return appliedReceipt(
     reportFor({
@@ -324,7 +324,12 @@ function skippedRelations(candidates: readonly AdrCandidate[]) {
     }));
 }
 
-function reconcile(rootDir: string, projection: TaskProjection, candidates: readonly AdrCandidate[], applied: boolean) {
+function reconcileAdrMigration(
+  rootDir: string,
+  projection: TaskProjection,
+  candidates: readonly AdrCandidate[],
+  applied: boolean,
+) {
   const descriptors = new Map(
     projection.listEntities(ADR_KIND).map((row) => [
       row.id,
@@ -385,7 +390,7 @@ function duplicateDescriptorIds(
   return duplicateValues(ids);
 }
 
-function assertReconciled(result: ReturnType<typeof reconcile>): void {
+function assertReconciled(result: ReturnType<typeof reconcileAdrMigration>): void {
   const failures = [
     ...result.markdownMissingFromDescriptors.map((locator) => `missing descriptor:${locator}`),
     ...result.unresolvableDescriptorLocators.map((locator) => `unresolvable locator:${locator}`),
@@ -485,7 +490,7 @@ function reportFor(input: {
   readonly candidates: readonly AdrCandidate[];
   readonly relations: readonly AdrRelationCandidate[];
   readonly skipped: readonly { readonly adrId: string; readonly reason: string }[];
-  readonly reconciliation: ReturnType<typeof reconcile>;
+  readonly reconciliation: ReturnType<typeof reconcileAdrMigration>;
   readonly dryRun: boolean;
 }): AdrMigrationReport {
   return {
@@ -523,7 +528,7 @@ function reportFor(input: {
   };
 }
 
-function previewReceipt(
+function previewAdrMigrationReceipt(
   report: AdrMigrationReport,
   store: CanonicalEventStore,
   authorizationDecision: AuthorizationDecision,

@@ -17,7 +17,6 @@ import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
 import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
-import { runAdrEntityMigration } from "./adr-entity-migration.ts";
 import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
@@ -187,21 +186,7 @@ export async function executeAction(
       ),
     );
   }
-  if (action.kind === "entity-migrate-adrs") {
-    if (!binding.authorizationDecision)
-      throw cell.cellCodedError("authorization_denied", "ADR migration requires a center authorization decision.");
-    return runAdrEntityMigration({
-      rootDir: cell.rootDir,
-      repositoryId: cell.input.repoId,
-      action,
-      binding,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-      authorizationDecision: binding.authorizationDecision,
-    });
-  }
-  if (action.kind === "entity-import")
+  if (action.kind === "entity-import" || action.kind === "entity-migrate-adrs")
     return cell.entityActionExecutor.run(
       action,
       binding,

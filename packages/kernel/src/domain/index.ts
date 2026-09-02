@@ -178,8 +178,6 @@ export type { RuntimeSessionActionDraft } from "./runtime-session-action-contrac
 export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
-  assertGovernedRelationRecord,
-  assertGovernedRelationRegistryWitness,
   canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,

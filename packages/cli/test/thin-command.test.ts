@@ -119,8 +119,8 @@ test("dispatch record migration projects its dry-run flag into the daemon Action
 test("ADR migration projects its registry and occurrence fences into one center Action", () => {
   const revision = `sha256:${"a".repeat(64)}`,
     parsed = parseThinCommand([
-      "entity",
-      "migrate-adrs",
+      "migrate",
+      "adrs",
       "--registry-revision",
       revision,
       "--op-id",
@@ -188,7 +188,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-get", "entity-import", "entity-list", "entity-migrate-adrs"],
+    entity: ["entity-get", "entity-import", "entity-list"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
@@ -196,6 +196,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     migrate: [
       "decision-digests-migrate",
       "dispatch-records-migrate",
+      "entity-migrate-adrs",
       "fact-rekey",
       "ledger-migrate",
       "migrate-import",

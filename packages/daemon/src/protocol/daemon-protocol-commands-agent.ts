@@ -257,7 +257,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "entity-migrate-adrs",
     phase: "Governed-Entity-W1-E",
-    path: ["entity", "migrate-adrs"],
+    path: ["migrate", "adrs"],
     summary: "Import numbered repository ADRs and their qualified Decision anchors through one center migration.",
     method: "repo.task.run",
     inputs: [
