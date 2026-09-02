@@ -226,8 +226,11 @@ test("a migrating replay that batches non-candidates still witnesses each candid
 
     const store = makeTaskEventStore({ repoId, rootDir: scratch });
     await store.settlePendingMaterialization?.("fixture");
-    const layout = store.layout(),
-      witnessOf = (opId: string) =>
+    const layout = store.layout();
+    // Release the seeding store's mutable WAL ownership before the cell reopens below and
+    // opens its own handle onto the same `.harness/wal`.
+    await store.drain();
+    const witnessOf = (opId: string) =>
         (
           JSON.parse(
             readFileSync(
@@ -284,7 +287,7 @@ test("a migrating replay that batches non-candidates still witnesses each candid
     const coldPath = path.join(scratch, ".harness/cache/cold-batched.sqlite"),
       cold = makeTaskProjection({
         rootDir: scratch,
-        eventStore: makeTaskEventStore({ repoId, rootDir: scratch }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: scratch }),
         projectionPath: coldPath,
       });
     assert.equal(cold.rebuild().watermark, applied.revision);
