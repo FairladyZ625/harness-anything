@@ -8,9 +8,8 @@
 // schedules a timer or waits for a wall-clock instant, which is what
 // dec_9B75595FC45E01DDFD0938FE95 forbids for observed intermediate state.
 //
-// The record leaves on stderr (or HA_CLI_TIMING_FILE), never stdout, so a --json invocation still
+// The record leaves on stderr, never stdout, so a --json invocation still
 // prints exactly one receipt line whether timing is on or off.
-import { appendFileSync } from "node:fs";
 import { firstCliCommandIndex } from "./thin-command-help.ts";
 
 export type CliTimingPhase = "spawn" | "parse" | "dispatch" | "daemonRoundTrip" | "render";
@@ -23,7 +22,6 @@ export type CliDaemonRoundTrip = {
 };
 
 const enabled = process.env.HA_CLI_TIMING === "1",
-  sinkPath = enabled ? (process.env.HA_CLI_TIMING_FILE ?? null) : null,
   sha = enabled ? (process.env.HA_CLI_TIMING_SHA ?? null) : null,
   phases = enabled ? { spawn: 0, parse: 0, dispatch: 0, daemonRoundTrip: 0, render: 0 } : null,
   roundTrips: CliDaemonRoundTrip[] | null = enabled ? [] : null;
@@ -124,8 +122,7 @@ export function finishCliTiming(argv: readonly string[], exitCode: number): void
       endedAtEpochMs: Date.now(),
     },
     line = `${JSON.stringify(record)}\n`;
-  if (sinkPath === null) process.stderr.write(line);
-  else appendFileSync(sinkPath, line);
+  process.stderr.write(line);
 }
 
 function round(value: number): number {

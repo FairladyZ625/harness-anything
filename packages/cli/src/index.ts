@@ -144,8 +144,8 @@ function finishTimingWithoutChangingOutcome(argv: readonly string[], exitCode: n
   try {
     finishCliTiming(argv, exitCode);
   } catch (error) {
-    // Instrumentation must never replace the command's receipt or exit outcome. In particular, a
-    // stale HA_CLI_TIMING_FILE path is an observability failure, not a command failure.
+    // Instrumentation must never replace the command's receipt or exit outcome: a failed stderr
+    // write is an observability failure, not a command failure.
     consumeKnownError(error);
   }
 }
