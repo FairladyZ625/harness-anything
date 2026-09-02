@@ -68,6 +68,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return lease;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
+    readerAuth = (assignment: FleetAssignmentRecord) => ({
+      transportKind: "fleet-tls" as const,
+      assignmentBinding: assignment,
+    }),
     writerAuth = (assignment: FleetAssignmentRecord) => {
       const lease = ownedEpochFor(assignment.repoId);
       return {
@@ -204,7 +208,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await assignment(nodeId, frame.assignmentId),
-        receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, auth(a));
+        receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),

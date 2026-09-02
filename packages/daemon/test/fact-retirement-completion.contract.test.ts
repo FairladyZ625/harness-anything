@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -118,7 +118,7 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
       new RegExp(`${factRef} via decision/${decisionId}/C1`, "u"),
     );
     assert.equal(
-      makeTaskEventStore({ repoId, rootDir })
+      makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.some((event) => event.type === "task_completed"),
       false,
@@ -135,7 +135,7 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
         binding,
       )) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(completed.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(completed.opId));
     assert.equal(event?.type, "task_completed");
     if (event?.type === "task_completed")
       assert.deepEqual(event.payload.factRetirementAttestations, [{ factRef, rationale }]);

@@ -5,7 +5,7 @@ import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import {
   makeTaskEventStore,
@@ -116,6 +116,43 @@ test("task/doc reducers share one SQLite transaction and L2 rebuild restores exa
     const rebuilt = projection.rebuild();
     assert.equal(rebuilt.watermark, 2);
     assert.deepEqual(projection.readDocument("context/notes.md").document, first.document);
+  });
+});
+
+test("query-only reader sessions keep one completed projection cut while the writer advances", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const eventStore = makeTaskEventStore({ repoId: "projection-reader", rootDir }),
+      writer = makeTaskProjection({ rootDir, eventStore }),
+      template = lifecycleFixture().events[0]!;
+    if (template.type !== "task_created") throw new Error("lifecycle fixture must begin with task_created");
+    const second: TaskEventV1 = {
+      ...template,
+      eventId: "projection-reader-event-2",
+      opId: "projection-reader-op-2",
+      taskId: "projection-reader-task-2",
+      workspaceRevision: 2,
+      payload: {
+        ...template.payload,
+        task: { ...template.payload.task, taskId: "projection-reader-task-2", title: "Second task" },
+      },
+    };
+    eventStore.append(taskBundle(template));
+    writer.apply(template, taskLifecycleWritePlan(template));
+    const reader = makeTaskProjectionReader({ rootDir });
+    reader.withSession((queries) => {
+      assert.equal("apply" in queries, false);
+      assert.equal(queries.list().rows.length, 1);
+      eventStore.append(taskBundle(second));
+      writer.apply(second, taskLifecycleWritePlan(second));
+      assert.equal(queries.list().rows.length, 1, "one request stays on its original SQLite snapshot");
+    });
+    assert.equal(
+      reader.withSession((queries) => queries.list().rows.length),
+      2,
+    );
+    reader.close();
+    writer.close();
   });
 });
 
@@ -963,7 +1000,8 @@ test("projection catch-up processes at most one bounded round and never reports 
     );
     assert.deepEqual(before.catchUp, { maxItems: 2, reducedItems: 0, sqliteTransactions: 0 });
 
-    const catchUp = projection.catchUp!(), read = projection.read("task-1");
+    const catchUp = projection.catchUp!(),
+      read = projection.read("task-1");
     assert.equal(catchUp.metrics.maxBatchItems <= 2, true);
     assert.equal(catchUp.metrics.reducedItems, 6);
     assert.deepEqual(

@@ -68,6 +68,7 @@ export interface WalEventLog {
   readonly checkpointCut: (cut: WalDurableCutDescriptor) => void;
   readonly reseed: (events: readonly CanonicalEventV1[]) => void;
   readonly audit: (gitEvents: readonly CanonicalEventV1[], gitRevision: number) => WalAuditReceipt;
+  readonly close: () => void;
 }
 
 export interface WalAuditReceipt {
@@ -78,28 +79,34 @@ export interface WalAuditReceipt {
   readonly divergence: string | null;
 }
 
-export function openWalEventLog(rootDir: string): WalEventLog {
-  const walRoot = path.join(path.resolve(rootDir), ".harness", "wal");
+const mutableWalOwners = new Set<string>();
+
+export function openWalEventLog(rootDir: string, options: { readonly mutable?: boolean } = {}): WalEventLog {
+  const normalizedRoot = fileSystem.realpath(path.resolve(rootDir));
+  const walRoot = path.join(normalizedRoot, ".harness", "wal");
   const segmentPath = path.join(walRoot, WAL_SEGMENT);
   const objectsRoot = path.join(walRoot, "objects");
+  const mutable = options.mutable !== false;
+  if (mutable && mutableWalOwners.has(walRoot))
+    throw new Error(`mutable WAL owner already exists for ${walRoot}; close it before opening a replacement`);
+  if (mutable) mutableWalOwners.add(walRoot);
+  let closed = false;
   let cached: WalEventRecord[] | null = null;
   let cachedByOpId: Map<string, WalEventRecord> | null = null;
   let cachedHead: WalHead | null = null;
 
   const ensureRoot = (): void => {
+    assertMutable();
     fileSystem.mkdirp(walRoot);
     fileSystem.mkdirp(objectsRoot);
   };
-  const readRecords = (): readonly WalEventRecord[] => {
-    if (cached !== null) return cached;
+  const readDiskRecords = (): WalEventRecord[] => {
     if (!fileSystem.exists(segmentPath)) {
-      cached = [];
-      cachedByOpId = new Map();
-      return cached;
+      return [];
     }
     const raw = fileSystem.readText(segmentPath);
     const complete = raw.endsWith("\n") ? raw : raw.slice(0, raw.lastIndexOf("\n") + 1);
-    if (complete !== raw) fileSystem.replace(segmentPath, complete);
+    if (complete !== raw && mutable) fileSystem.replace(segmentPath, complete);
     const rows = complete
       .split("\n")
       .filter(Boolean)
@@ -110,9 +117,13 @@ export function openWalEventLog(rootDir: string): WalEventLog {
       if (current.revision !== previous.revision + 1 || current.previousDigest !== previous.eventDigest)
         throw new Error(`WAL revision or digest chain is not contiguous at revision ${current.revision}`);
     }
-    cached = rows;
-    cachedByOpId = new Map(rows.map((record) => [record.opId, record] as const));
     return rows;
+  };
+  const readRecords = (): readonly WalEventRecord[] => {
+    if (cached !== null) return cached;
+    cached = readDiskRecords();
+    cachedByOpId = new Map(cached.map((record) => [record.opId, record] as const));
+    return cached;
   };
   const readHead = (): WalHead => {
     if (cachedHead !== null) return cachedHead;
@@ -137,6 +148,7 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     return cachedHead;
   };
   const writeHead = (head: WalHead): void => {
+    assertMutable();
     fileSystem.replace(path.join(walRoot, "head.json"), `${stableStringify(head)}\n`);
     cachedHead = head;
   };
@@ -191,8 +203,16 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     return record;
   };
   const checkpoint = (throughRevision: number): void => {
-    const remaining = readRecords().filter((record) => record.revision > throughRevision);
-    if (remaining.length === readRecords().length) return;
+    assertMutable();
+    checkpointDiskRecords(readDiskRecords(), throughRevision);
+  };
+  const checkpointDiskRecords = (diskRecords: readonly WalEventRecord[], throughRevision: number): void => {
+    const remaining = diskRecords.filter((record) => record.revision > throughRevision);
+    if (remaining.length === diskRecords.length) {
+      cached = [...diskRecords];
+      cachedByOpId = new Map(diskRecords.map((record) => [record.opId, record] as const));
+      return;
+    }
     const body = remaining.map((record) => `${stableStringify(record)}\n`).join("");
     if (body.length === 0) {
       if (fileSystem.exists(segmentPath)) fileSystem.replace(segmentPath, "");
@@ -223,11 +243,16 @@ export function openWalEventLog(rootDir: string): WalEventLog {
         if (!referenced.has(name)) fileSystem.remove(path.join(objectsRoot, name));
   };
   const checkpointCut = (cut: WalDurableCutDescriptor): void => {
+    assertMutable();
     assertDurablePrefix(segmentPath, cut);
-    const record = readRecords().find((candidate) => candidate.revision === cut.throughRevision);
+    // A checkpoint replaces the whole segment. Reparse the current disk bytes at the
+    // destructive boundary so an older instance cache can never erase a suffix appended
+    // after the materialized cut was captured.
+    const diskRecords = readDiskRecords();
+    const record = diskRecords.find((candidate) => candidate.revision === cut.throughRevision);
     if (record?.eventDigest !== cut.headDigest)
       throw new Error(`WAL checkpoint cut ${cut.throughRevision} does not match durable head ${cut.headDigest}`);
-    checkpoint(cut.throughRevision);
+    checkpointDiskRecords(diskRecords, cut.throughRevision);
   };
   const reseed = (events: readonly CanonicalEventV1[]): void => {
     ensureRoot();
@@ -286,7 +311,17 @@ export function openWalEventLog(rootDir: string): WalEventLog {
     checkpointCut,
     reseed,
     audit: (gitEvents, gitRevision) => auditRecords(readRecords(), gitEvents, gitRevision),
+    close: () => {
+      if (closed) return;
+      closed = true;
+      if (mutable) mutableWalOwners.delete(walRoot);
+    },
   };
+
+  function assertMutable(): void {
+    if (closed) throw new Error(`WAL owner for ${walRoot} is closed`);
+    if (!mutable) throw new Error(`WAL reader for ${walRoot} is immutable`);
+  }
 }
 
 export function captureWalDurableCut(wal: WalEventLog): WalDurableCutDescriptor | null {

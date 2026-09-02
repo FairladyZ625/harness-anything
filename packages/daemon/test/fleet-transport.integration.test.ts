@@ -8,7 +8,7 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import {
-  makeTaskEventStore,
+  makeTaskEventReader,
   sha256Bytes,
   type AgentDefinitionSnapshot,
   type LedgerCutIdentity,
@@ -690,7 +690,7 @@ test(
     });
     await taskReleaseBarrier.started;
     await delay(5_100);
-    const settlingEvents = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+    const settlingEvents = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
       .read()
       .events.filter(
         (event) =>
@@ -719,7 +719,7 @@ test(
       return status;
     };
     assert.equal((await waitForOutcome(receipt.runtimeSessionId))?.session.activity.outcome, "succeeded");
-    const settledEvents = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read()
+    const settledEvents = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo }).read()
         .events,
       leaseReleaseIndex = settledEvents.findIndex(
         (event) => event.type === "lease_released" && event.taskId === fixture.assignment.taskId,
@@ -788,7 +788,7 @@ test(
           assignmentId: "assignment-two",
           viewId: "node-two_task-fleet",
         },
-        events = makeTaskEventStore({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+        events = makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
           .read()
           .events.filter(
             (event) =>

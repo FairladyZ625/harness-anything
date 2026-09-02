@@ -11,6 +11,7 @@ import {
   makeTaskEventStore,
   reduceTaskEvent,
   REPLAY_TASK_GRAPH,
+  runWalMaterializationRequest,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -35,12 +36,22 @@ function probeRepo(root: string): string {
   probeGit(repo, "commit", "-qm", "harness");
   return repo;
 }
-const probeBinding = (assertWriterEpoch: () => void) =>
+const probeBinding = (
+  assertWriterEpoch: () => void,
+  writerEpochFence: {
+    readonly schema: "harness-writer-epoch-fence/v1";
+    readonly stateRoot: string;
+    readonly repoId: string;
+    readonly epoch: number;
+    readonly holderId: string;
+  },
+) =>
   withRoleBinding(
     {
       actor: { principal: { personId: "writer" }, executor: { kind: "agent" as const, id: "probe" } },
       source: { kind: "assignment" as const, nodeId: "node", assignmentId: "assignment" },
       assertWriterEpoch,
+      writerEpochFence,
     },
     "repo-write",
   );
@@ -163,7 +174,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
   }
 });
 
-test("the materialization worker verifies the writer epoch inside Git ref finalization", async () => {
+test("RepoWriterCell verifies the writer epoch inside Git ref finalization", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-worker-fence-")),
     repo = probeRepo(root),
     stateRoot = path.join(root, "state"),
@@ -181,7 +192,10 @@ test("the materialization worker verifies the writer epoch inside Git ref finali
   const store = makeTaskEventStore({
     repoId: "probe-repo",
     rootDir: repo,
-    walMaterializationWorkerUrl: new URL("../src/wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterialize: (config, request) =>
+      runWalMaterializationRequest(config, request, {
+        withFinalizeFence: (descriptor, operation) => withWriterEpochFenceDescriptor(descriptor, operation),
+      }),
     walMaterializationFence: () => fence,
   });
   const baselineCommit = probeGit(repo, "rev-parse", "refs/ha/canonical");
@@ -309,7 +323,7 @@ test("restoring an older state file cannot reuse a historical epoch", () => {
   }
 });
 
-test("append rechecks the epoch after a successor is allocated", async () => {
+test("append rechecks the epoch descriptor after worker dequeue", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-append-gap-")),
     repo = probeRepo(root),
     stateRoot = path.join(root, "state");
@@ -328,14 +342,35 @@ test("append rechecks the epoch after a successor is allocated", async () => {
       killpoint: (point) => {
         if (point === "before_event_write" && !triggered) {
           triggered = true;
-          successorEpoch = newAuthority.acquire("probe-repo").epoch;
+          successorEpoch = oldLease.epoch + 1;
+          writeFileSync(
+            path.join(stateRoot, "writer-epochs.json"),
+            `${JSON.stringify({
+              schema: "fleet-writer-epoch/v1",
+              repos: {
+                "probe-repo": {
+                  repoId: "probe-repo",
+                  holderId: "new-center",
+                  epoch: successorEpoch,
+                  version: successorEpoch,
+                  issuedAt: "2026-09-02T00:00:00.000Z",
+                },
+              },
+            })}\n`,
+          );
         }
       },
     });
     const before = Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical"));
     const receipt = await cell.run(
       { kind: "task-create", taskId: "task_probe_epoch", title: "stale append window" },
-      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId)),
+      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: oldLease.epoch,
+        holderId: oldLease.holderId,
+      }),
     );
     assert.equal(successorEpoch, 2);
     assert.equal(receipt.outcome, "op_rejected");
@@ -368,19 +403,25 @@ test("remote-center recovery leaves no legacy prepared publication after fencing
       killpoint: (point) => {
         if (point === "after_head_write" && !triggered) {
           triggered = true;
-          newAuthority.acquire("probe-repo");
           throw new Error("simulated process death after prepared event");
         }
       },
     });
     const failed = await oldCell.run(
       { kind: "task-create", taskId: "task_probe_prepared", title: "prepared stale recovery" },
-      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId)),
+      probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: oldLease.epoch,
+        holderId: oldLease.holderId,
+      }),
     );
     assert.equal(failed.outcome, "op_rejected");
     assert.equal(failed.code, "service_rejected");
     assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
-    await oldCell.close();
+    newAuthority.acquire("probe-repo");
+    await assert.rejects(oldCell.close(), /writer epoch 1.*stale|WAL drain exhausted/u);
     oldCell = undefined;
     recoveryCell = await openRepoCell({
       repoId: "probe-repo" as never,

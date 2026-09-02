@@ -104,6 +104,26 @@ export function openPersistentWriterEpoch(options: {
 }
 
 export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
+  validateWriterEpochFenceDescriptor(descriptor);
+  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
+  try {
+    return authority.withAppendFence(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
+  } finally {
+    authority.close();
+  }
+}
+
+export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {
+  validateWriterEpochFenceDescriptor(descriptor);
+  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
+  try {
+    authority.assert(descriptor.repoId, descriptor.epoch, descriptor.holderId);
+  } finally {
+    authority.close();
+  }
+}
+
+function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {
   if (
     descriptor.schema !== "harness-writer-epoch-fence/v1" ||
     !descriptor.stateRoot ||
@@ -113,12 +133,6 @@ export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDe
     descriptor.epoch < 1
   )
     throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
-  const authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
-  try {
-    return authority.withAppendFence(descriptor.repoId, descriptor.epoch, descriptor.holderId, operation);
-  } finally {
-    authority.close();
-  }
 }
 
 function readState(file: string): EpochState {

@@ -15,11 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../src/protocol/daemon-protocol.contract.ts";
+import { makeTaskEventReader, sha256Text } from "../../kernel/src/index.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 
 import {
@@ -34,8 +31,7 @@ test("a different destination document at the same path requires a decision and 
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-repo-conflict-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new"),
-    sourceBody =
-      "# Field observation\n\nUnknown directories are ordinary authored content.\n",
+    sourceBody = "# Field observation\n\nUnknown directories are ordinary authored content.\n",
     destinationBody = "# Existing target\n\nKeep this version.\n";
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -59,16 +55,10 @@ test("a different destination document at the same path requires a decision and 
     assert.equal(result.exitCode, 1, JSON.stringify(result));
     assert.equal(result.outcome, "op_rejected");
     assert.equal(readFileSync(target, "utf8"), destinationBody);
+    assert.match(String(result.summary), /REQUIRED field-notes\/2024\/xyz\.md/u);
     assert.match(
       String(result.summary),
-      /REQUIRED field-notes\/2024\/xyz\.md/u,
-    );
-    assert.match(
-      String(result.summary),
-      new RegExp(
-        `source sha256=${sha256Text(sourceBody)}.*destination sha256=${sha256Text(destinationBody)}`,
-        "u",
-      ),
+      new RegExp(`source sha256=${sha256Text(sourceBody)}.*destination sha256=${sha256Text(destinationBody)}`, "u"),
     );
     const resolution = ["harness/field-notes/2024/xyz.md=source"],
       preview = (await cell.run(
@@ -82,14 +72,10 @@ test("a different destination document at the same path requires a decision and 
       )) as Record<string, unknown>;
     assert.equal(preview.exitCode, 0, JSON.stringify(preview));
     assert.equal(preview.outcome, "pending");
-    assert.equal(
-      (preview.proof as { readonly canonicalVisible: boolean })
-        .canonicalVisible,
-      false,
-    );
+    assert.equal((preview.proof as { readonly canonicalVisible: boolean }).canonicalVisible, false);
     assert.match(String(preview.summary), /resolved: source/u);
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-repo-conflict-target",
         rootDir: destination,
       }).readHead()?.revision ?? 0,
@@ -107,12 +93,10 @@ test("a different destination document at the same path requires a decision and 
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     assert.equal(readFileSync(target, "utf8"), sourceBody);
     assert.equal(
-      readdirSync(path.dirname(target)).some((name) =>
-        name.includes(".conflict-"),
-      ),
+      readdirSync(path.dirname(target)).some((name) => name.includes(".conflict-")),
       false,
     );
-    const event = makeTaskEventStore({
+    const event = makeTaskEventReader({
       repoId: "migration-repo-conflict-target",
       rootDir: destination,
     })
@@ -123,15 +107,11 @@ test("a different destination document at the same path requires a decision and 
           candidate.payload.migratedFrom === "field-notes/2024/xyz.md",
       )!;
     assert.equal(event.payload.entity.kind, "repo-document");
-    assert.deepEqual(
-      (event.payload.entity as { readonly destinationPreimage?: unknown })
-        .destinationPreimage,
-      {
-        nodeKind: "file",
-        sha256: sha256Text(destinationBody),
-        size: Buffer.byteLength(destinationBody),
-      },
-    );
+    assert.deepEqual((event.payload.entity as { readonly destinationPreimage?: unknown }).destinationPreimage, {
+      nodeKind: "file",
+      sha256: sha256Text(destinationBody),
+      size: Buffer.byteLength(destinationBody),
+    });
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -139,9 +119,7 @@ test("a different destination document at the same path requires a decision and 
 });
 
 test("destination resolution keeps the visible target and explicitly accounts for the discarded source", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-destination-resolution-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-destination-resolution-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new"),
     sourceBody = "# Legacy\n",
@@ -152,10 +130,7 @@ test("destination resolution keeps the visible target and explicitly accounts fo
     initRepo(destination);
     const target = path.join(destination, "harness/field-notes/2024/xyz.md");
     mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(
-      path.join(source, "harness/field-notes/2024/xyz.md"),
-      sourceBody,
-    );
+    writeFileSync(path.join(source, "harness/field-notes/2024/xyz.md"), sourceBody);
     writeFileSync(target, destinationBody);
     git(destination, "add", ".");
     git(destination, "commit", "-qm", "initialized target");
@@ -180,15 +155,14 @@ test("destination resolution keeps the visible target and explicitly accounts fo
       /\| field-notes\/2024\/xyz\.md \| excluded \| 1 \| PASS \| resolved: destination; discarded source kind=file, source sha256=[0-9a-f]{64}, source bytes=9; kept destination kind=file, destination sha256=[0-9a-f]{64}, destination bytes=14 \|/u,
     );
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-destination-resolution",
         rootDir: destination,
       })
         .read()
         .events.some(
           (event) =>
-            event.schema === "migration-import-event/v1" &&
-            event.payload.migratedFrom === "field-notes/2024/xyz.md",
+            event.schema === "migration-import-event/v1" && event.payload.migratedFrom === "field-notes/2024/xyz.md",
         ),
       false,
     );
@@ -201,15 +175,10 @@ test("destination resolution keeps the visible target and explicitly accounts fo
 test(
   "source resolution replaces a committed symbolic link without dereferencing or hiding its preimage",
   {
-    skip:
-      process.platform === "win32"
-        ? "requires POSIX file-symbolic-link semantics"
-        : false,
+    skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false,
   },
   async () => {
-    const scratch = mkdtempSync(
-        path.join(tmpdir(), "ha-migrate-link-resolution-"),
-      ),
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-link-resolution-")),
       source = path.join(scratch, "legacy"),
       destination = path.join(scratch, "new"),
       sourceTarget = "../legacy.md",
@@ -248,7 +217,7 @@ test(
         String(result.summary),
         /resolved: source; kept source kind=symbolic-link[\s\S]*source link target="\.\.\/legacy\.md"[\s\S]*destination link target="\.\.\/initialized\.md"/u,
       );
-      const event = makeTaskEventStore({
+      const event = makeTaskEventReader({
         repoId: "migration-link-resolution",
         rootDir: destination,
       })
@@ -258,15 +227,11 @@ test(
             candidate.schema === "migration-import-event/v1" &&
             candidate.payload.migratedFrom === "field-notes/latest.md",
         )!;
-      assert.deepEqual(
-        (event.payload.entity as { readonly destinationPreimage?: unknown })
-          .destinationPreimage,
-        {
-          nodeKind: "symbolic-link",
-          sha256: sha256Text(destinationTarget),
-          size: Buffer.byteLength(destinationTarget),
-        },
-      );
+      assert.deepEqual((event.payload.entity as { readonly destinationPreimage?: unknown }).destinationPreimage, {
+        nodeKind: "symbolic-link",
+        sha256: sha256Text(destinationTarget),
+        size: Buffer.byteLength(destinationTarget),
+      });
     } finally {
       await cell?.close();
       rmSync(scratch, { recursive: true, force: true });
@@ -277,15 +242,10 @@ test(
 test(
   "source resolution can replace a committed destination link with a regular file",
   {
-    skip:
-      process.platform === "win32"
-        ? "requires POSIX file-symbolic-link semantics"
-        : false,
+    skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false,
   },
   async () => {
-    const scratch = mkdtempSync(
-        path.join(tmpdir(), "ha-migrate-file-over-link-"),
-      ),
+    const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-file-over-link-")),
       source = path.join(scratch, "legacy"),
       destination = path.join(scratch, "new"),
       destinationTarget = "../initialized.md";
@@ -331,9 +291,7 @@ test(
 );
 
 test("a destination directory can be kept but cannot be replaced by =source", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-directory-resolution-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-directory-resolution-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -375,10 +333,7 @@ test("a destination directory can be kept but cannot be replaced by =source", as
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(kept.exitCode, 0, JSON.stringify(kept));
-    assert.match(
-      String(kept.summary),
-      /resolved: destination[\s\S]*destination kind=directory/u,
-    );
+    assert.match(String(kept.summary), /resolved: destination[\s\S]*destination kind=directory/u);
     assert.equal(statSync(target).isDirectory(), true);
   } finally {
     await cell?.close();
@@ -387,9 +342,7 @@ test("a destination directory can be kept but cannot be replaced by =source", as
 });
 
 test("resolution declarations reject traversal, duplicates, and paths that are not current conflicts", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-invalid-resolution-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-invalid-resolution-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -415,16 +368,10 @@ test("resolution declarations reject traversal, duplicates, and paths that are n
     for (const [values, pattern] of [
       [["../outside.md=source"], /normalized repository-relative path/u],
       [
-        [
-          "harness/field-notes/2024/xyz.md=source",
-          "harness/field-notes/2024/xyz.md=destination",
-        ],
+        ["harness/field-notes/2024/xyz.md=source", "harness/field-notes/2024/xyz.md=destination"],
         /Duplicate --resolve path/u,
       ],
-      [
-        ["harness/field-notes/2024/xyz.md=source"],
-        /is not currently a destination conflict/u,
-      ],
+      [["harness/field-notes/2024/xyz.md=source"], /is not currently a destination conflict/u],
     ] as const) {
       const result = (await run(values)) as Record<string, unknown>;
       assert.equal(result.outcome, "op_rejected");
@@ -437,9 +384,7 @@ test("resolution declarations reject traversal, duplicates, and paths that are n
 });
 
 test("resolution cannot bypass a repository document that is semantically uncarryable", async () => {
-  const scratch = mkdtempSync(
-      path.join(tmpdir(), "ha-migrate-invalid-content-resolution-"),
-    ),
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-migrate-invalid-content-resolution-")),
     source = path.join(scratch, "legacy"),
     destination = path.join(scratch, "new"),
     relative = "field-notes/2024/xyz.md",
@@ -479,10 +424,7 @@ test("resolution cannot bypass a repository document that is semantically uncarr
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected");
-    assert.match(
-      String(rejected.nextAction),
-      /not currently a destination conflict/u,
-    );
+    assert.match(String(rejected.nextAction), /not currently a destination conflict/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

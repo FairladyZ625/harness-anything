@@ -184,6 +184,7 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
     });
     assert.equal(compiled.changedPaths.includes(plan), false);
     store.append(compiled);
+    await store.drain();
     projection.close();
     cell = await openRepoCell({
       repoId,

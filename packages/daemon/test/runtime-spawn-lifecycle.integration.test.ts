@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   consumeKnownError,
-  makeTaskEventStore,
+  makeTaskEventReader,
   makeTaskProjection,
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
@@ -107,7 +107,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         prompt: request.prompt,
       }),
       runtimeLaunch: (input, persistence) => {
-        intentWasDurable = makeTaskEventStore({
+        intentWasDurable = makeTaskEventReader({
           repoId: "runtime-spawn",
           rootDir: root,
         })
@@ -116,7 +116,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         launched = input;
         const observer = makeTaskProjection({
             rootDir: root,
-            eventStore: makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }),
+            eventStore: makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }),
           }),
           thisLaunch = launchCount++;
         observerSawUnknown ||= observer.readRuntimeSessions().some((candidate) => candidate.liveness === "unknown");
@@ -201,7 +201,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         prompt: "Inspect the repository",
       });
       await eventually(() =>
-        makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root })
+        makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root })
           .read()
           .events.some(
             (candidate) =>
@@ -210,7 +210,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
               candidate.payload.liveness === "live",
           ),
       );
-      const events = makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).read().events,
+      const events = makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }).read().events,
         observed = events.find((candidate) => candidate.type === "runtime_installation_observed"),
         dispatch = events.find((candidate) => candidate.type === "runtime_dispatch_requested"),
         started = events.find((candidate) => candidate.type === "runtime_session_started"),
@@ -249,7 +249,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       );
       assert.equal(
         Buffer.from(
-          makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root }).readContentBlob(
+          makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }).readContentBlob(
             definitionArtifact.claim.sha256,
           )!,
         ).toString("utf8"),
@@ -297,7 +297,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       assert.ok(firstExit, "runtime exit listener must be attached before the provider exits");
       firstExit(0);
       await eventually(() =>
-        makeTaskEventStore({ repoId: "runtime-spawn", rootDir: root })
+        makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root })
           .read()
           .events.some(
             (candidate) =>
@@ -540,7 +540,7 @@ test("attached task runtime settlement releases its execution lease before publi
       );
       const claimedProjection = makeTaskProjection({
         rootDir: root,
-        eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
+        eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
       });
       try {
         assert.deepEqual(
@@ -584,7 +584,7 @@ test("attached task runtime settlement releases its execution lease before publi
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);
       await eventually(() => {
-        const events = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+        const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
         return (
           events.some(
             (event) =>
@@ -599,7 +599,7 @@ test("attached task runtime settlement releases its execution lease before publi
           )
         );
       });
-      const events = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+      const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
         outcomeIndex = events.findIndex(
           (event) =>
             event.type === "runtime_session_outcome_observed" &&
@@ -614,7 +614,7 @@ test("attached task runtime settlement releases its execution lease before publi
         projection = makeTaskProjection({
           rootDir: root,
           projectionPath: path.join(root, ".harness/cache/runtime-attached-tail-observer.sqlite"),
-          eventStore: makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }),
+          eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
         });
       projection.catchUp();
       const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!,
@@ -699,7 +699,7 @@ test("attached task runtime settlement releases its execution lease before publi
       assert.ok(exit, "failed-settlement runtime must attach its exit listener");
       exit(0);
       await eventually(() => {
-        const terminal = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root })
+        const terminal = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root })
           .read()
           .events.find(
             (event) =>
@@ -708,7 +708,7 @@ test("attached task runtime settlement releases its execution lease before publi
           );
         return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
       });
-      const failedEvents = makeTaskEventStore({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+      const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
         failedExitIndex = failedEvents.findIndex(
           (event) =>
             event.type === "runtime_session_exited" &&
@@ -724,8 +724,11 @@ test("attached task runtime settlement releases its execution lease before publi
             event.type === "runtime_session_outcome_observed" &&
             event.payload.runtimeSessionId === failedReceipt.runtimeSessionId,
         ),
-        failedStatus = await cell.read("repo.agentRuntime.sessions.read", {
-          runtimeSessionId: failedReceipt.runtimeSessionId,
+        failedStatus = await eventuallyValue(async () => {
+          const status = await cell.read("repo.agentRuntime.sessions.read", {
+            runtimeSessionId: failedReceipt.runtimeSessionId,
+          });
+          return status.session.activity.outcome === "failed" ? status : null;
         });
       assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
       assert.equal(
@@ -877,7 +880,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);
       await eventually(() =>
-        makeTaskEventStore({ repoId: "runtime-lease-generation", rootDir: root })
+        makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root })
           .read()
           .events.some(
             (event) =>
@@ -887,7 +890,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
       );
       const projection = makeTaskProjection({
           rootDir: root,
-          eventStore: makeTaskEventStore({ repoId: "runtime-lease-generation", rootDir: root }),
+          eventStore: makeTaskEventReader({ repoId: "runtime-lease-generation", rootDir: root }),
         }),
         lease = projection.read(taskId).snapshot.lease;
       projection.close();
@@ -1024,7 +1027,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     const liveProjection = makeTaskProjection({
       rootDir: root,
       projectionPath: path.join(parent, "runtime-re-adopt-live-before-exit.sqlite"),
-      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
     });
     liveProjection.catchUp();
     const adopted = liveProjection.readRuntimeSession(String(receipt.runtimeSessionId))!;
@@ -1033,7 +1036,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     assert.doesNotThrow(() => process.kill(reAdoptHostPid, 0), "adopted runtime worker must still be alive");
     writeFileSync(release, "release");
     await eventually(() =>
-      makeTaskEventStore({ repoId, rootDir: root })
+      makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
           (event) =>
@@ -1044,7 +1047,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     const projection = makeTaskProjection({
       rootDir: root,
       projectionPath: path.join(parent, "runtime-re-adopt-live-observer.sqlite"),
-      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
     });
     projection.catchUp();
     const settled = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
@@ -1108,7 +1111,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     );
     cell = await open("re-adopt-dead");
     await eventually(() =>
-      makeTaskEventStore({ repoId, rootDir: root })
+      makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
           (event) =>
@@ -1119,7 +1122,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     const reopenedProjection = makeTaskProjection({
       rootDir: root,
       projectionPath: path.join(parent, "runtime-re-adopt-dead-observer.sqlite"),
-      eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
     });
     reopenedProjection.catchUp();
     const daemonlessSettlement = reopenedProjection.readRuntimeSession(String(absentReceipt.runtimeSessionId))!;
@@ -1197,7 +1200,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     });
     cell = await open("re-adopt-lost");
     await eventually(() =>
-      makeTaskEventStore({ repoId, rootDir: root })
+      makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
           (event) =>
@@ -1210,7 +1213,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       lostRow = lostDispatches.dispatches.find((row) => row.dispatchId === lostDispatchId),
       lostProjection = makeTaskProjection({
         rootDir: root,
-        eventStore: makeTaskEventStore({ repoId, rootDir: root }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
       });
     lostProjection.catchUp();
     const lostSession = lostProjection.readRuntimeSession(String(lostReceipt.runtimeSessionId))!;

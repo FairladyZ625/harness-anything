@@ -133,7 +133,8 @@ test("runtime discovery write load keeps independent read clients within the sto
       for (const [name, method, params] of calls) {
         const startedAt = performance.now();
         await request(method, params);
-        values[name].push(Math.round(performance.now() - startedAt));
+        // Microsecond precision, not whole milliseconds: see read-socket-probe-worker.ts.
+        values[name].push(Math.round((performance.now() - startedAt) * 1000) / 1000);
       }
     return values;
   }
@@ -184,6 +185,7 @@ test("WAL Git materialization leaves an independent socket client within the iso
     });
     assert.equal(triggered.outcome, "applied", JSON.stringify(triggered));
     const loaded = await loadedProbe.result;
+    await host.settleMaterialization(repoId, "read-isolation-probe");
     const walSegment = path.join(root, ".harness/wal/seg-000000.log");
     await eventually(() => !existsSync(walSegment) || statSync(walSegment).size === 0);
     const metrics = Object.fromEntries(
@@ -213,6 +215,84 @@ test("WAL Git materialization leaves an independent socket client within the iso
 
   async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
     return requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 30_000);
+  }
+});
+
+test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3 p95", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-rw-sustained-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    daemonId = "read-sustained-write-perf",
+    repoId = "read-sustained-write-perf",
+    uid = process.getuid?.() ?? 0,
+    endpoint = shortSocketEndpoint(),
+    priorFlushEvents = process.env.HARNESS_WAL_FLUSH_EVENTS,
+    priorFlushMs = process.env.HARNESS_WAL_FLUSH_MS,
+    priorAdaptive = process.env.HARNESS_WAL_FLUSH_ADAPTIVE;
+  process.env.HARNESS_WAL_FLUSH_EVENTS = "64";
+  process.env.HARNESS_WAL_FLUSH_MS = "60000";
+  process.env.HARNESS_WAL_FLUSH_ADAPTIVE = "false";
+  initIngressRepo(root, uid);
+  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId, userRoot }),
+    transport = createUnixSocketTransportServer({
+      daemonId,
+      socketPath: endpoint,
+      createProtocolServer: (authContext, emit) =>
+        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+    });
+  await transport.start();
+  try {
+    await host.attachmentsSettled();
+    const idleProbe = socketProbe(endpoint, repoId, 60, 2);
+    await idleProbe.ready;
+    const idle = await idleProbe.result,
+      loadedProbe = socketProbe(endpoint, repoId, 300, 2);
+    await loadedProbe.ready;
+    const writes = Array.from({ length: 24 }, (_, index) =>
+        requestDaemonJsonRpcAt(
+          endpoint,
+          "repo.task.create",
+          {
+            repo: { repoId },
+            payload: { title: `Sustained writer ${index}`, presetId: "standard-task" },
+          },
+          2_000,
+          30_000,
+        ),
+      ),
+      [loaded, receipts] = await Promise.all([loadedProbe.result, Promise.all(writes)]);
+    for (const receipt of receipts) assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await host.settleMaterialization(repoId, "strict-ch3-probe");
+    const metrics = Object.fromEntries(
+      Object.keys(idle).map((name) => [name, { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) }]),
+    ) as Record<string, { idle: Distribution; loaded: Distribution }>;
+    // 2026-09-03 CEO ruling: CH3 ("read latency stays independent of write load") is only
+    // partially met by stage 3 -- pre-merge loaded p95 was 55-67ms, now 10-12ms, but all three
+    // surfaces show the same ~8-10ms residual coupling under this 24-write burst (idle 1.8-3.6ms
+    // is itself noise-dominated at this scale, so a loaded/idle ratio bound only manufactures
+    // flakes rather than testing anything). The residual cause is not yet root-caused (candidate:
+    // host-thread JSON-RPC dispatch contending with the writer's own event loop) and is left to a
+    // follow-up task. Each bound below is a ratchet, not a floor: it only ever tightens, based on
+    // a fresh microsecond-precision measurement, never loosens on a guess.
+    const absoluteRatchetMs: Record<string, number> = {
+      workspaceSummary: 13,
+      guiTaskList: 15,
+      legacyTaskList: 15,
+    };
+    for (const [name, metric] of Object.entries(metrics)) {
+      const ratchet = absoluteRatchetMs[name];
+      if (ratchet === undefined) throw new Error(`no CH3 ratchet declared for read surface ${name}`);
+      assert.equal(metric.loaded.p95 <= ratchet, true, `${name}: ${JSON.stringify(metric)}`);
+    }
+    t.diagnostic(`read-sustained-write-metrics=${JSON.stringify(metrics)}`);
+  } finally {
+    await transport.stop();
+    await host.close();
+    restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
+    restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
+    restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

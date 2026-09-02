@@ -114,6 +114,7 @@ export const localRuntimeStateFileSystem = {
 // objects have crossed this fsync boundary.
 export const localWalFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),
+  realpath: (inputPath: string) => realpathSync.native(inputPath),
   mkdirp: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-060 */
     mkdirSync(inputPath, { recursive: true }),

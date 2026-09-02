@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -153,7 +153,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
       nextAction,
     );
     assert.equal(
-      makeTaskEventStore({ repoId: "milestone-lineage", rootDir })
+      makeTaskEventReader({ repoId: "milestone-lineage", rootDir })
         .read()
         .events.some((event) => event.type === "task_completed"),
       false,
@@ -199,7 +199,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
       unknown
     >;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const store = makeTaskEventStore({ repoId: "milestone-lineage", rootDir }),
+    const store = makeTaskEventReader({ repoId: "milestone-lineage", rootDir }),
       completedEvent = store.read().events.find((event) => event.type === "task_completed");
     assert.notEqual(completedEvent, undefined);
     const shown = (await cell.run({ kind: "task-show", taskId }, binding)) as unknown as Record<string, unknown>;
@@ -230,7 +230,7 @@ test("a standard task still completes with no decision relations at all", async 
     )) as unknown as Record<string, unknown>;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     assert.equal(
-      makeTaskEventStore({ repoId: "standard-lineage", rootDir })
+      makeTaskEventReader({ repoId: "standard-lineage", rootDir })
         .read()
         .events.some((event) => event.type === "task_completed"),
       true,

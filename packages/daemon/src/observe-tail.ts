@@ -45,21 +45,7 @@ export async function readObserveTail(input: {
       direction: payload.direction,
     };
   if (payload.kind === "events") {
-    if (input.mode === "remote-edge")
-      return {
-        ...base,
-        status: "unavailable",
-        items: [],
-        historyCursor: null,
-        liveCursor: null,
-        sourceCursor: null,
-        done: false,
-        unavailable: {
-          reason: "edge-mirror-has-no-events",
-          centerRevision: edgeCenterRevision(input.rootDir, input.repoId),
-        },
-      };
-    return { ...base, ...readEventTail(input.projection, payload) };
+    return buildObserveEventTail(input, payload, { ...base, kind: "events" });
   }
   if (payload.kind === "dispatch") {
     const page = await readJsonlTail(
@@ -91,6 +77,60 @@ export async function readObserveTail(input: {
       : () => daemonLogFiles(input.userRoot, input.daemonId),
   );
   return { ...base, ...page };
+}
+
+/** Synchronous event-tail facet so a query-only SQLite transaction cannot escape its session. */
+export function readObserveEventTail(input: {
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly mode: DaemonRepoMode;
+  readonly projection: TaskProjection;
+  readonly payload: unknown;
+}): ObserveTailResult {
+  const payload = parseObserveTailPayload(input.payload);
+  if (payload.kind !== "events") throw observeError("invalid_request", "Expected an events observe-tail payload.");
+  return buildObserveEventTail(input, payload, {
+    schema: DAEMON_OBSERVE_TAIL_SCHEMA.id,
+    ok: true,
+    repoId: input.repoId,
+    mode: input.mode,
+    kind: payload.kind,
+    direction: payload.direction,
+  });
+}
+
+function buildObserveEventTail(
+  input: {
+    readonly repoId: string;
+    readonly rootDir: string;
+    readonly mode: DaemonRepoMode;
+    readonly projection: TaskProjection;
+  },
+  payload: Extract<ObserveTailPayload, { readonly kind: "events" }>,
+  base: {
+    readonly schema: typeof DAEMON_OBSERVE_TAIL_SCHEMA.id;
+    readonly ok: true;
+    readonly repoId: string;
+    readonly mode: DaemonRepoMode;
+    readonly kind: "events";
+    readonly direction: ObserveTailPayload["direction"];
+  },
+): ObserveTailResult {
+  if (input.mode === "remote-edge")
+    return {
+      ...base,
+      status: "unavailable",
+      items: [],
+      historyCursor: null,
+      liveCursor: null,
+      sourceCursor: null,
+      done: false,
+      unavailable: {
+        reason: "edge-mirror-has-no-events",
+        centerRevision: edgeCenterRevision(input.rootDir, input.repoId),
+      },
+    };
+  return { ...base, ...readEventTail(input.projection, payload) };
 }
 
 function readEventTail(

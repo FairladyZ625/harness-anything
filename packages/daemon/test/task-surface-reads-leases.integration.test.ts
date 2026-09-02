@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -99,7 +99,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       unknown
     >;
     assert.equal(legacy.outcome, "applied", JSON.stringify(legacy));
-    const eventCount = makeTaskEventStore({
+    const eventCount = makeTaskEventReader({
       repoId: "task-read-surface",
       rootDir,
     }).read().events.length;
@@ -138,7 +138,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     assert.equal(startPreview.proof?.canonicalVisible, false);
     assert.equal(relationPreview.outcome, "op_rejected");
     assert.equal(relationPreview.code, "invalid_command");
-    assert.equal(makeTaskEventStore({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
+    assert.equal(makeTaskEventReader({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
     await cell.run(
       {
         kind: "relation-relate",
@@ -276,7 +276,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     )) as Record<string, unknown>;
     assert.equal(superseded.outcome, "applied", JSON.stringify(superseded));
     assert.equal(typeof superseded.replacementTaskId, "string");
-    const replay = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
+    const replay = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId, rootDir }) });
     assert.equal(replay.read("task_source").snapshot.task?.packageDisposition, "archived");
     replay.close();
   } finally {
@@ -529,7 +529,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
     // Replay is the real contract: a cold rebuild from the event log must not grow a duplicate execution.
     await cell.close();
     cell = undefined;
-    const store = makeTaskEventStore({ repoId: "task-round-reenter", rootDir }),
+    const store = makeTaskEventReader({ repoId: "task-round-reenter", rootDir }),
       replay = makeTaskProjection({ rootDir, eventStore: store });
     replay.close();
     rmSync(replay.path, { force: true });

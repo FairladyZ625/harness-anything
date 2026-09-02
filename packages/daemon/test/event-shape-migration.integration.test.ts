@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   deriveRelationId,
   eventObjectRelativePath,
+  makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
   relationEventWritePlan,
@@ -98,12 +99,15 @@ test("relation_created history in the pre-derived-strength shape cold-rebuilds o
     legacyRelationBytes(scratch, layout, second);
     execFileSync("git", ["-C", scratch, "commit", "-qam", "legacy relation shape"], { stdio: "ignore" });
     execFileSync("git", ["-C", scratch, "update-ref", "refs/ha/canonical", "HEAD"], { stdio: "ignore" });
+    // Release the seeding store's mutable WAL ownership before the cell (and the read-only
+    // cold-rebuild projection below) open their own handles onto the same `.harness/wal`.
+    await store.drain();
 
     const coldPath = path.join(scratch, ".harness/cache/cold.sqlite"),
       cold = () =>
         makeTaskProjection({
           rootDir: scratch,
-          eventStore: makeTaskEventStore({ repoId: "event-shape-fixture", rootDir: scratch }),
+          eventStore: makeTaskEventReader({ repoId: "event-shape-fixture", rootDir: scratch }),
           projectionPath: coldPath,
         });
     assert.throws(() => cold().rebuild(), /Relation facet fields are invalid/u);
@@ -222,8 +226,11 @@ test("a migrating replay that batches non-candidates still witnesses each candid
 
     const store = makeTaskEventStore({ repoId, rootDir: scratch });
     await store.settlePendingMaterialization?.("fixture");
-    const layout = store.layout(),
-      witnessOf = (opId: string) =>
+    const layout = store.layout();
+    // Release the seeding store's mutable WAL ownership before the cell reopens below and
+    // opens its own handle onto the same `.harness/wal`.
+    await store.drain();
+    const witnessOf = (opId: string) =>
         (
           JSON.parse(
             readFileSync(
@@ -280,7 +287,7 @@ test("a migrating replay that batches non-candidates still witnesses each candid
     const coldPath = path.join(scratch, ".harness/cache/cold-batched.sqlite"),
       cold = makeTaskProjection({
         rootDir: scratch,
-        eventStore: makeTaskEventStore({ repoId, rootDir: scratch }),
+        eventStore: makeTaskEventReader({ repoId, rootDir: scratch }),
         projectionPath: coldPath,
       });
     assert.equal(cold.rebuild().watermark, applied.revision);

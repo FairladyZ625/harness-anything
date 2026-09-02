@@ -18,7 +18,11 @@ import { createPresetProcessService, presetUserRoot } from "../../preset/src/ind
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { prepareAgentEntityInstall, readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import {
+  makeAgentRuntimeStreamHub,
+  type AgentRuntimeNativeSignal,
+  type AgentRuntimeStreamHub,
+} from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -124,7 +128,7 @@ export async function reacquireSquadTaskLease(input: {
     );
 }
 
-export async function openRepoCell(input: {
+export interface RepoCellOpenInput {
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
@@ -153,6 +157,8 @@ export async function openRepoCell(input: {
       { readonly type: "runtime_session_outcome_observed" }
     >,
   ) => void;
+  /** Relays validated live provider frames to the host-side read-only stream hub. */
+  readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Test seam for controlling WAL materialization without wall-clock scheduling. */
   readonly onStoreOpened?: (store: CanonicalEventStore) => void;
@@ -164,18 +170,15 @@ export async function openRepoCell(input: {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   readonly fleetRoster?: () => FleetRoster | null;
-}): Promise<RepoCell> {
-  const lock = await acquireWorkspaceLock(input.rootDir);
-  try {
-    return await openLockedRepoCell(input, lock);
-  } catch (error) {
-    await lock.close();
-    throw error;
-  }
 }
 
-async function openLockedRepoCell(
-  input: Parameters<typeof openRepoCell>[0],
+export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
+  const { openRepoCellProxy } = await import("./repo-cell-proxy.ts");
+  return openRepoCellProxy(input);
+}
+
+export async function openRepoWriterCell(
+  input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
 ): Promise<RepoCell> {
   const rootDir = input.rootDir,
@@ -203,13 +206,21 @@ async function openLockedRepoCell(
     userRoot: presetUserRoot(rootDir),
     readSettings: () => readSettings(),
   });
-  const runtimeStream = makeAgentRuntimeStreamHub({
-    readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
-    canAttach: (session) =>
-      session.attachable &&
-      Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
-    now: () => new Date(now()),
-  });
+  const workerRuntimeStream = makeAgentRuntimeStreamHub({
+      readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
+      canAttach: (session) =>
+        session.attachable &&
+        Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
+      now: () => new Date(now()),
+    }),
+    runtimeStream: AgentRuntimeStreamHub = {
+      ...workerRuntimeStream,
+      publish: (runtimeSessionId, signal) => {
+        const event = workerRuntimeStream.publish(runtimeSessionId, signal);
+        input.onRuntimeSignal?.(runtimeSessionId, signal);
+        return event;
+      },
+    };
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   let activeWriterEpochGuard: (() => void) | null = null,
@@ -244,9 +255,9 @@ async function openLockedRepoCell(
         return pending;
       },
     });
-  let core: ReturnType<typeof initialize>;
+  let core: Awaited<ReturnType<typeof initialize>>;
   try {
-    core = initialize();
+    core = await initialize();
   } catch (error) {
     runtimeStream.close();
     await presetProcess.close();
@@ -304,37 +315,83 @@ async function openLockedRepoCell(
   // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
   // with the replayed cause. Probes are throttled so frequent read retries cannot hot-loop them,
   // and every fresh latch earns one immediate probe.
-  const attemptRecovery = (): void => {
+  let coreClosedForReplacement = false;
+  let recoveryReplacement: Promise<void> | null = null;
+  const attemptRecovery = async (force = false): Promise<void> => {
     if (state !== "unavailable") return;
-    if (!recoveryProbe.begin(Date.parse(now()))) return;
-    let candidate: ReturnType<typeof initialize> | undefined;
-    try {
-      candidate = initialize();
-      const probeIndeterminate = candidate.recovery.status === "indeterminate";
-      if (probeIndeterminate)
-        throw cellCodedError(
-          candidate.recovery.errorCode ?? "publication_indeterminate",
-          candidate.recovery.error ??
-            `startup recovery ${candidate.recovery.status} after ${candidate.recovery.elapsedMs.toFixed(3)}ms`,
-        );
-      candidate.projection.list();
-      replica.close();
-      projection.close();
-      ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
-      knownTaskIds = null;
-      state = "attached";
-      lastError = null;
-      causeClass = null;
-      recoveryUncertain = false;
-      recoveryProbe.clear();
-    } catch (error) {
-      consumeKnownError(error);
-      candidate?.replica.close();
-      candidate?.projection.close();
-      if (candidate) recoveryUncertain = true;
-      lastError = cellErrorMessage(error);
-      causeClass = causeClassOf(error);
-    }
+    if (recoveryReplacement !== null) return recoveryReplacement;
+    if (!force && !recoveryProbe.begin(Date.parse(now()))) return;
+    if (force) recoveryProbe.begin(Date.parse(now()));
+    recoveryReplacement = (async () => {
+      let candidate: Awaited<ReturnType<typeof initialize>> | undefined;
+      let adoptedIndeterminate = false;
+      try {
+        // A replacement is a single-owner lifecycle transaction. Quiesce and close the
+        // old mutable WAL owner before a candidate can even be initialized, then publish
+        // only a candidate whose recovery and projection probe both completed.
+        if (!coreClosedForReplacement) {
+          try {
+            await store.drain();
+          } catch (error) {
+            // The durable WAL remains the recovery source. A failed materialization must
+            // not keep the stale owner alive; the candidate will retry from disk.
+            consumeKnownError(error);
+          } finally {
+            replica.close();
+            projection.close();
+            coreClosedForReplacement = true;
+          }
+        }
+        candidate = await initialize();
+        // Adopt the candidate's store as soon as it opens: the quiesce above already closed
+        // the prior store, so this is the only live store left, and a store-only recovery
+        // command (relation-events-migrate, decision-digests-migrate, projection-rebuild's own
+        // store.readHead(), ...) must be able to run against it even while the probes below
+        // stay indeterminate -- repairing that indeterminate state is what those commands exist
+        // to do. Only `state` gates on the probes; the store is live regardless.
+        ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
+        candidate = undefined;
+        coreClosedForReplacement = false;
+        knownTaskIds = null;
+        const probeIndeterminate = recovery.status === "indeterminate";
+        adoptedIndeterminate = probeIndeterminate;
+        if (probeIndeterminate)
+          throw cellCodedError(
+            recovery.errorCode ?? "publication_indeterminate",
+            recovery.error ?? `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`,
+          );
+        // Opening a reader generation is also a structural probe: a watermark can be current
+        // while a persisted snapshot row is corrupt.
+        projection.list();
+        state = "attached";
+        lastError = null;
+        causeClass = null;
+        recoveryUncertain = false;
+        recoveryProbe.clear();
+      } catch (error) {
+        consumeKnownError(error);
+        if (candidate) {
+          // initialize() itself threw before a store ever opened: nothing to adopt.
+          candidate.replica.close();
+          candidate.projection.close();
+          try {
+            await candidate.store.drain();
+          } catch (cleanupError) {
+            consumeKnownError(cleanupError);
+          }
+          recoveryUncertain = true;
+        } else if (!adoptedIndeterminate) {
+          // The adopted candidate's post-catch-up structural probe (projection.list()) failed:
+          // a stronger signal than the plain indeterminate recovery.status above.
+          recoveryUncertain = true;
+        }
+        lastError = cellErrorMessage(error);
+        causeClass = causeClassOf(error);
+      }
+    })().finally(() => {
+      recoveryReplacement = null;
+    });
+    return recoveryReplacement;
   };
   const schedule = (work: () => void | Promise<void>): void => {
     queueDepth += 1;
@@ -536,7 +593,6 @@ async function openLockedRepoCell(
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
     const admission = admitRepoMode(mode, ledgerWriteCommandTopology, binding.source);
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
-    if (state !== "attached") attemptRecovery();
     if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
   };
   const terminal: RepoCellTerminal = {

@@ -165,3 +165,28 @@ export interface TaskProjection {
   readonly readSquadRun: (squadRunId: string) => SquadRunProjectionRow | null;
   readonly readSquadRuns: () => readonly SquadRunProjectionRow[];
 }
+
+export type TaskProjectionWriter = TaskProjection;
+
+export type TaskProjectionQueries = Omit<
+  TaskProjection,
+  | "close"
+  | "apply"
+  | "rebuild"
+  | "catchUp"
+  | "admitFact"
+  | "admitDecision"
+  | "reserveLease"
+  | "activateLease"
+  | "renewLease"
+  | "releaseLease"
+  | "replaceSquadRuns"
+  | "markSquadRunProjectionDirty"
+  | "upsertSquadRun"
+>;
+
+export interface TaskProjectionReader {
+  readonly path: string;
+  readonly withSession: <A>(read: (queries: TaskProjectionQueries) => A) => A;
+  readonly close: () => void;
+}

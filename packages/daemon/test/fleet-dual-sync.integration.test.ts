@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Bytes } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
@@ -31,7 +31,7 @@ process.env.HARNESS_WAL_FLUSH_MS = "250";
 // Git commit counts: a background idle flush may materialize earlier events between two
 // measurements without any new append. Read the flush-timing-invariant revision instead.
 function ledgerRevision(fixture: Fixture): number {
-  return makeTaskEventStore({ repoId: "dual-repo", rootDir: path.join(fixture.root, "repo") }).read().revision;
+  return makeTaskEventReader({ repoId: "dual-repo", rootDir: path.join(fixture.root, "repo") }).read().revision;
 }
 
 const replicaQuota = 64 * 1024 * 1024,

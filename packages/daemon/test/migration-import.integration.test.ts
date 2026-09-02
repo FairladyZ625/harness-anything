@@ -4,7 +4,13 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { compileFactWrite, makeTaskEventStore, serializeCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
+import {
+  compileFactWrite,
+  makeTaskEventReader,
+  makeTaskEventStore,
+  serializeCanonicalEvent,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 
 type FactEventDraftV1 = Parameters<typeof compileFactWrite>[0]["event"];
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -39,7 +45,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
       now: () => "2026-06-01T00:00:00.000Z",
     });
     const before =
-        makeTaskEventStore({
+        makeTaskEventReader({
           repoId: "migration-target",
           rootDir: destination,
         }).readHead()?.revision ?? 0,
@@ -50,7 +56,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
     const commitsBeforeApply = Number(git(destination, "rev-list", "--count", "HEAD"));
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.equal(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-target",
         rootDir: destination,
       }).readHead()?.revision ?? 0,
@@ -71,7 +77,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
     assert.match(String(applied.summary), /Authored directory audit \(informational\): complete/u);
     assert.deepEqual(snapshot(source), sourceBefore);
     assert.ok(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-target",
         rootDir: destination,
       }).readHead()!.revision > before,
@@ -98,7 +104,7 @@ test("authored audit preserves ordinary documents and leaves source-only runtime
       now: () => "2026-06-01T00:00:00.000Z",
     });
     const before =
-        makeTaskEventStore({
+        makeTaskEventReader({
           repoId: "migration-coverage-target",
           rootDir: destination,
         }).readHead()?.revision ?? 0,
@@ -109,7 +115,7 @@ test("authored audit preserves ordinary documents and leaves source-only runtime
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
     assert.ok(
-      makeTaskEventStore({
+      makeTaskEventReader({
         repoId: "migration-coverage-target",
         rootDir: destination,
       }).readHead()!.revision > before,
@@ -218,6 +224,7 @@ test(
       );
       rmSync(target);
       store.materialize();
+      await store.drain();
       assert.equal(lstatSync(target).isSymbolicLink(), true);
       assert.equal(readlinkSync(target), linkTarget);
     } finally {
@@ -252,7 +259,7 @@ test("an authored document in an unfamiliar directory migrates as a repo documen
       readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"),
       "# Field observation\n\nUnknown directories are ordinary authored content.\n",
     );
-    const event = makeTaskEventStore({
+    const event = makeTaskEventReader({
       repoId: "migration-repo-document-target",
       rootDir: destination,
     })
@@ -325,7 +332,7 @@ test("migration imports a taskless Fact without inventing an owner relation", as
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
-    const events = makeTaskEventStore({ repoId: "migration-taskless-fact-target", rootDir: destination })
+    const events = makeTaskEventReader({ repoId: "migration-taskless-fact-target", rootDir: destination })
         .read()
         .events.filter((candidate) => candidate.schema === "migration-import-event/v1"),
       migratedFact = events.find((candidate) => candidate.payload.entity.kind === "fact");
@@ -400,7 +407,7 @@ test("same-id legacy Facts under different tasks are deterministically re-keyed 
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.match(String(result.summary), /REMAP fact fact\/task-beta\/F-DEADBEEF -> fact\/F-[0-9A-HJKMNP-TV-Z]{8}/u);
-    const factEvents = makeTaskEventStore({ repoId: "migration-same-id-facts-target", rootDir: destination })
+    const factEvents = makeTaskEventReader({ repoId: "migration-same-id-facts-target", rootDir: destination })
       .read()
       .events.filter(
         (candidate) => candidate.schema === "migration-import-event/v1" && candidate.payload.entity.kind === "fact",

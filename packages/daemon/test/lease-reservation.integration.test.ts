@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -116,7 +116,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
     );
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     await eventually(() =>
-      makeTaskEventStore({ repoId, rootDir: root })
+      makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
           (event) =>
@@ -139,7 +139,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
     const released = await host.run(repoId, { kind: "task-release", taskId }, auth);
     assert.equal(released.outcome, "op_rejected", JSON.stringify(released));
     assert.equal(released.code, "lease_not_found", JSON.stringify(released));
-    const events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+    const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
       sequence = events.map((event) => event.type),
       started = sequence.indexOf("execution_started"),
       bound = sequence.indexOf("runtime_session_task_bound"),

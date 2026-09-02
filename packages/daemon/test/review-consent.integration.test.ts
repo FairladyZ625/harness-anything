@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, reviewDigest } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, reviewDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -54,7 +54,7 @@ test("review-consent derives the recorded Review digests without a packet and st
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "consent-derived" });
-    const store = () => makeTaskEventStore({ repoId, rootDir });
+    const store = () => makeTaskEventReader({ repoId, rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Derived consent" }, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),

@@ -6,7 +6,10 @@ export {
   makeTaskEventStore as makeGitEventStore,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
-export { makeWalShadowEventStore as makeTaskEventStore } from "../store/wal-shadow-event-store.ts";
+export {
+  makeWalShadowEventReader as makeTaskEventReader,
+  makeWalShadowEventStore as makeTaskEventStore,
+} from "../store/wal-shadow-event-store.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";
@@ -19,12 +22,15 @@ export type {
   EventPublicationKillpoint,
   PublicationFile,
 } from "../store/task-event-store.ts";
-export { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
+export { makeTaskProjection, makeTaskProjectionReader } from "../projection/rebuildable-task-projection.ts";
 export type {
   ProjectionPage,
   ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskProjectionQueries,
+  TaskProjectionReader,
+  TaskProjectionWriter,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
@@ -42,4 +48,4 @@ export {
   type WalMaterializationRequestV1,
   type WalMaterializationWorkerConfig,
 } from "../store/wal-materialization-protocol.ts";
-export { runWalMaterializationRequest, WAL_MATERIALIZATION_WORKER_KIND } from "../store/wal-materialization-worker.ts";
+export { runWalMaterializationRequest } from "../store/wal-materialization-worker.ts";

@@ -42,7 +42,13 @@
       { "value": "bypass-write-037", "api": "sqlite.prepare", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Reads a disposable canonical operation row." },
       { "value": "bypass-write-038", "api": "sqlite.prepare", "ref": "task_01KZRMKPA7XGF0NGBE961MCGET", "reason": "Reads a disposable canonical operation row before typed task dispatch." },
       { "value": "bypass-write-039", "api": "sqlite.prepare", "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB", "reason": "Resolves the projected package owner for document routing." },
-      { "value": "bypass-write-098", "api": "sqlite.prepare", "ref": "task_6d847ff57bf88357cfd7c64f8e", "reason": "Checks that a migration task-document owner snapshot exists without loading the whole task snapshot and relation graph." }
+      { "value": "bypass-write-098", "api": "sqlite.prepare", "ref": "task_6d847ff57bf88357cfd7c64f8e", "reason": "Checks that a migration task-document owner snapshot exists without loading the whole task snapshot and relation graph." },
+      { "value": "bypass-write-104", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Begins a read-only transaction over the disposable projection cache." },
+      { "value": "bypass-write-105", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Commits the read-only transaction over the disposable projection cache." },
+      { "value": "bypass-write-106", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Rolls back the read-only transaction over the disposable projection cache." },
+      { "value": "bypass-write-107", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Begins a query transaction over the disposable projection cache." },
+      { "value": "bypass-write-108", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Commits a query transaction over the disposable projection cache." },
+      { "value": "bypass-write-109", "api": "sqlite.exec", "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63", "reason": "Rolls back a query transaction over the disposable projection cache." }
     ],
     "coordinatedCore": [
       { "value": "bypass-write-043", "api": "rmSync", "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN", "reason": "RepoCell-owned recovery removes only an abandoned prepared artifact." },

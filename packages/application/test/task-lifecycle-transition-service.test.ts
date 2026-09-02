@@ -926,7 +926,7 @@ async function independentWrite(rootDir: string, revision: number, label: string
   );
   const receipt = await service.execute(create, { taskIdUnique: true, actorBinding: actor });
   projection.close();
-  return {
+  const result = {
     elapsedMs: performance.now() - started,
     storeInitMs: storeReady - started,
     ...phase,
@@ -936,6 +936,8 @@ async function independentWrite(rootDir: string, revision: number, label: string
     initialWatermark,
     initialSourceRevision,
   };
+  await eventStore.drain();
+  return result;
 }
 
 test("transition service replays reject through a new Execution before completion", async () => {

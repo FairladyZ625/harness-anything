@@ -5,11 +5,13 @@ import {
   hasCloseoutEvidence,
   isTaskEvent,
   type EventPublicationKillpoint,
+  type TaskProjectionQueries,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 
 export function publishCiWitness(
   cell: RepoCellActionContext,
@@ -103,11 +105,20 @@ export function completionKillpoint(cell: RepoCellActionContext, point: EventPub
 }
 
 export async function showTask(cell: RepoCellActionContext, taskId: string): Promise<WriteReceipt> {
-  const read = await cell.service.read(cell.requiredCellText(taskId, "taskId")),
-    projected = cell.projection.read(taskId),
-    progress = cell.projection.readProgress(taskId),
-    rootSetting = resolveTaskRootThreshold(cell.rootDir),
-    directChildCount = cell.directChildCounts().get(taskId) ?? 0,
+  await cell.service.read(cell.requiredCellText(taskId, "taskId"));
+  return taskShowFromProjection(cell.rootDir, cell.projection, taskId, cell.directChildCounts().get(taskId) ?? 0);
+}
+
+export function taskShowFromProjection(
+  rootDir: string,
+  projection: TaskProjectionQueries,
+  taskId: string,
+  directChildCount = projection.list().rows.filter((row) => row.snapshot.task?.metadata?.parentTaskId === taskId)
+    .length,
+): WriteReceipt {
+  const read = projection.read(taskId),
+    progress = projection.readProgress(taskId),
+    rootSetting = resolveTaskRootThreshold(rootDir),
     task = read.snapshot.task,
     rootAssessment = task
       ? deriveTaskRoot(
@@ -123,15 +134,17 @@ export async function showTask(cell: RepoCellActionContext, taskId: string): Pro
           rootSetting.threshold,
         )
       : null,
+    payload = {
+      ...read.snapshot,
+      packagePath: read.packagePath,
+      rootAssessment,
+      progress: progress.rows,
+    },
     receipt = {
       opId: `read:${taskId}`,
       revision: read.sourceRevision,
-      evidence: JSON.stringify({
-        ...read.snapshot,
-        packagePath: projected.packagePath,
-        rootAssessment,
-        progress: progress.rows,
-      }),
+      evidence: JSON.stringify(payload),
+      summary: renderEvidencePayload(payload),
       visibility: "center" as const,
       proof: {
         committedRevision: read.sourceRevision,

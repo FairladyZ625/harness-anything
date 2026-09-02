@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -62,7 +62,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
-    const observer = makeTaskEventStore({ repoId, rootDir }),
+    const observer = makeTaskEventReader({ repoId, rootDir }),
       beforeEvents = observer.read().events.length,
       beforeStatus = git(rootDir, "status", "--porcelain=v1"),
       request = { kind: "entity-import", entityKind: kind, locator: sourcePath, expectedVersion: 0 },
@@ -135,7 +135,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       "entity_target_missing",
     );
     assert.equal(missingReplay.proof?.worktreeVisible, false);
-    const artifactEvents = makeTaskEventStore({ repoId, rootDir })
+    const artifactEvents = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.filter((event) => event.schema === "entity-event/v1" && event.payload.entityKind === kind);
     assert.deepEqual(
@@ -158,7 +158,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     await cell.close();
     cell = undefined;
 
-    const rebuildStore = makeTaskEventStore({ repoId, rootDir }),
+    const rebuildStore = makeTaskEventReader({ repoId, rootDir }),
       rebuilt = makeTaskProjection({ rootDir, eventStore: rebuildStore, now: () => "2026-09-02T02:01:00.000Z" });
     try {
       const receipt = rebuilt.rebuild(),

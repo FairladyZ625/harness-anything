@@ -277,6 +277,7 @@ export {
   createEntityStore,
   ledgerGitPath,
   makeGitEventStore,
+  makeTaskEventReader,
   openEntityStore,
   resolveLedgerGitLayout,
   resolveRetirableDocument,
@@ -284,8 +285,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   runEventShapeMigration,
+  makeTaskProjectionReader,
   runWalMaterializationRequest,
-  WAL_MATERIALIZATION_WORKER_KIND,
 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
@@ -300,12 +301,11 @@ export type {
   ReplicaProjectionBasis,
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskProjectionQueries,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
   WalMaterializationFenceV1,
-  WalMaterializationRequestV1,
-  WalMaterializationWorkerConfig,
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,

@@ -46,6 +46,9 @@ export function createDaemonHostRepositoryApi(
   return {
     bootstrap: async (request, auth) => {
       const prepared = resolveRepoBootstrap(request, auth);
+      await context.waitForWarming(prepared.repoId);
+      if (context.warming.has(prepared.repoId))
+        throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));
       await context.cells.get(prepared.repoId)?.close();
       context.cells.delete(prepared.repoId);
       context.unavailable.delete(prepared.repoId);

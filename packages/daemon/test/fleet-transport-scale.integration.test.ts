@@ -51,6 +51,7 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     assert.equal(
       results.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"),
       true,
+      JSON.stringify(results),
     );
     await Promise.all(
       results.map((result, index) =>

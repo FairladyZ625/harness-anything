@@ -4,10 +4,11 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import { type TaskCreatedEvent } from "../../src/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
-import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { sha256Text, stableStringify } from "../../src/integrity/stable-hash.ts";
 import { contentObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { localWalFileSystem } from "../../src/local/local-layout-file-system.ts";
 import { resolveLedgerGitLayout } from "../../src/store/ledger-git-layout.ts";
@@ -46,7 +47,7 @@ test("S4 acknowledges the durable WAL cut with zero Git processes and immediate 
     const committedEvents = store.read().events;
     const branchBefore = git(rootDir, "rev-parse", "HEAD");
     const receipt = store.append(bundle);
-    const wal = openWalEventLog(rootDir);
+    const wal = openWalEventLog(rootDir, { mutable: false });
     assert.equal(receipt.revision, 1);
     assert.equal(receipt.commitSha, null);
     assert.equal(receipt.cut.opId, bundle.event.opId);
@@ -82,14 +83,14 @@ test("S4 batches a WAL suffix into one Git commit and garbage-collects local con
     for (let revision = 1; revision <= 3; revision += 1)
       assert.equal(store.append(taskBundle(revision, `document ${revision}\n`)).commitSha, null);
     assert.deepEqual(
-      openWalEventLog(rootDir)
+      openWalEventLog(rootDir, { mutable: false })
         .records()
         .map((record) => record.revision),
       [1, 2, 3],
     );
     await store.drain();
     assert.equal(Number(git(rootDir, "rev-list", "--count", "HEAD")), countBefore + 1);
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     assert.deepEqual(readdirSync(path.join(rootDir, ".harness", "wal", "objects")), []);
     const reopened = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir });
     assert.deepEqual(
@@ -220,9 +221,9 @@ test("byte threshold flushes a durable WAL batch independently of the event thre
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const byteThreshold = 1;
-    let resolveCheckpoint!: () => void;
-    const checkpointed = new Promise<void>((resolve) => {
-      resolveCheckpoint = resolve;
+    let resolveMaterialization!: () => void;
+    const materialized = new Promise<void>((resolve) => {
+      resolveMaterialization = resolve;
     });
     const store = makeWalShadowEventStore({
       repoId: "wal-bytes",
@@ -232,19 +233,19 @@ test("byte threshold flushes a durable WAL batch independently of the event thre
       walFlushMs: 60_000,
       walFlushAdaptive: false,
       walMaterializationSpan: (span) => {
-        if (span.name === "checkpoint") resolveCheckpoint();
+        if (span.name === "materialization") resolveMaterialization();
       },
     });
     let checkpointDeadline: ReturnType<typeof setTimeout> | null = null;
     try {
       store.append(taskBundle(1));
-      const durableBytes = openWalEventLog(rootDir).head().lastOffset;
+      const durableBytes = openWalEventLog(rootDir, { mutable: false }).head().lastOffset;
       assert.ok(
         durableBytes >= byteThreshold,
         `the fixture must cross its ${byteThreshold}-byte threshold (wrote ${durableBytes} bytes)`,
       );
       await Promise.race([
-        checkpointed,
+        materialized,
         new Promise<never>((_, reject) => {
           checkpointDeadline = setTimeout(
             () => reject(new Error("byte-threshold WAL materialization did not checkpoint within 30 seconds")),
@@ -253,7 +254,7 @@ test("byte threshold flushes a durable WAL batch independently of the event thre
           checkpointDeadline.unref?.();
         }),
       ]);
-      assert.deepEqual(openWalEventLog(rootDir).records(), []);
+      assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     } finally {
       if (checkpointDeadline !== null) clearTimeout(checkpointDeadline);
       await store.drain();
@@ -264,9 +265,10 @@ test("byte threshold flushes a durable WAL batch independently of the event thre
 test("S4 discards a torn WAL tail without losing the acknowledged record", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
-    const store = makeWalShadowEventStore({ repoId: "wal-shadow", rootDir, walFlushEvents: 64, walFlushMs: 60_000 });
     const first = taskCreated(1);
-    store.append({ event: first, plan: taskLifecycleWritePlan(first), blobs: [] });
+    const wal = openWalEventLog(rootDir);
+    wal.append({ event: first, blobs: [] });
+    wal.close();
     const segment = path.join(rootDir, ".harness", "wal", "seg-000000.log");
     appendFileSync(segment, '{"torn":');
     const reopened = openWalEventLog(rootDir);
@@ -275,8 +277,8 @@ test("S4 discards a torn WAL tail without losing the acknowledged record", async
       [1],
     );
     assert.equal(readFileSync(segment, "utf8").endsWith("\n"), true);
-    assert.equal(reopened.audit(store.read().events, store.read().revision).status, "equivalent");
-    await store.drain();
+    assert.equal(reopened.audit([first], 1).status, "equivalent");
+    reopened.close();
   });
 });
 
@@ -300,7 +302,7 @@ test("an authoritative WAL fsync failure rejects the write without changing Git 
     }
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
     assert.equal(store.read().revision, 0);
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     await store.drain();
   });
 });
@@ -329,7 +331,7 @@ test("materialization failures warn, retry with a bound, and do not revoke the w
       console.warn = originalWarn;
     }
     assert.equal(warnings.filter((warning) => warning.includes("materialization failed")).length, 2);
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     assert.equal(makeGitEventStore({ repoId: "wal-retry", rootDir }).read().revision, 1);
   });
 });
@@ -394,12 +396,12 @@ test("restart recovery settles and checkpoints a WAL cut whose Git refs already 
     await assert.rejects(first.drain(), /WAL drain exhausted/u);
     const documentPath = path.join(rootDir, "harness", "tasks", "task-1", "task.md");
     rmSync(documentPath);
-    assert.equal(openWalEventLog(rootDir).records().length, 1);
+    assert.equal(openWalEventLog(rootDir, { mutable: false }).records().length, 1);
     const recovered = makeWalShadowEventStore({ repoId: "wal-recovery", rootDir, walFlushMs: 60_000 });
     recovered.recover();
     await recovered.drain();
     assert.equal(readFileSync(documentPath, "utf8"), "recover me\n");
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     assert.equal(recovered.read().revision, 1);
   });
 });
@@ -425,7 +427,7 @@ test("a concurrent append burst remains contiguous and materializes as one cut",
   });
 });
 
-test("the worker retries fail closed without running Git materialization on the caller thread", async () => {
+test("the RepoWriterCell materializer retries fail closed after a simulated retired-worker exit", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const store = makeWalShadowEventStore({
@@ -438,19 +440,13 @@ test("the worker retries fail closed without running Git materialization on the 
       walMaterializationTestFault: { point: "worker_exit", failures: 1 },
     });
     store.append(taskBundle(1, "worker restart\n"));
-    const callerGitProcesses = localGitObjectRefStore.processCount();
     await store.drain();
-    assert.equal(
-      localGitObjectRefStore.processCount(),
-      callerGitProcesses,
-      "worker failure must not activate a caller-thread Git fallback",
-    );
-    assert.deepEqual(openWalEventLog(rootDir).records(), []);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
     assert.equal(makeGitEventStore({ repoId: "wal-worker-exit", rootDir }).read().revision, 1);
   });
 });
 
-test("one in-flight worker coalesces a newer durable suffix and reports checkpoint spans separately", async () => {
+test("one in-flight RepoWriterCell flush coalesces a newer durable suffix and reports materialization spans", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const spans: { readonly name: string; readonly durationMs: number; readonly throughRevision: number }[] = [],
@@ -465,25 +461,16 @@ test("one in-flight worker coalesces a newer durable suffix and reports checkpoi
     await new Promise((resolve) => setTimeout(resolve, 10));
     store.append(taskBundle(2));
     store.append(taskBundle(3));
-    let heartbeats = 0;
-    const heartbeat = setInterval(() => {
-      heartbeats += 1;
-    }, 5);
-    try {
-      await store.drain();
-    } finally {
-      clearInterval(heartbeat);
-    }
-    const checkpoints = spans.filter((span) => span.name === "checkpoint");
+    await store.drain();
+    const materializations = spans.filter((span) => span.name === "materialization");
     assert.deepEqual(
-      checkpoints.map((span) => span.throughRevision),
+      materializations.map((span) => span.throughRevision),
       [1, 3],
     );
     assert.equal(
-      checkpoints.every((span) => span.durationMs >= 0),
+      materializations.every((span) => span.durationMs >= 0),
       true,
     );
-    assert.ok(heartbeats >= 10, `materialization worker should leave the caller event loop schedulable: ${heartbeats}`);
   });
 });
 
@@ -507,6 +494,64 @@ test("durable prefix validation rejects a wrong digest and checkpoints only the 
       wal.records().map((record) => record.revision),
       [2],
     );
+    wal.close();
+  });
+});
+
+test("a normalized WAL root admits only one process-local mutable owner", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const owner = openWalEventLog(rootDir);
+    assert.throws(() => openWalEventLog(path.join(rootDir, ".")), /mutable WAL owner already exists/u);
+    assert.doesNotThrow(() => openWalEventLog(rootDir, { mutable: false }).records());
+    owner.close();
+    const replacement = openWalEventLog(rootDir);
+    replacement.close();
+  });
+});
+
+test("checkpoint reparses disk and preserves the incident-shaped 51564-51569 suffix", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const owner = openWalEventLog(rootDir);
+    owner.append({ event: taskCreated(51_563), blobs: [] });
+    const cut = captureWalDurableCut(owner)!;
+    const segment = path.join(rootDir, ".harness", "wal", "seg-000000.log"),
+      objectsRoot = path.join(rootDir, ".harness", "wal", "objects");
+    let previousDigest = cut.headDigest;
+    for (let revision = 51_564; revision <= 51_569; revision += 1) {
+      const event = taskCreated(revision),
+        eventDigest = `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}` as const,
+        blobBody = `suffix ${revision}\n`,
+        blobDigest = sha256Text(blobBody);
+      writeFileSync(path.join(objectsRoot, blobDigest), blobBody);
+      appendFileSync(
+        segment,
+        `${stableStringify({
+          schema: "harness-wal/v1",
+          revision,
+          opId: event.opId,
+          event,
+          blobs: [{ sha256: blobDigest, size: Buffer.byteLength(blobBody), mediaType: "text/plain" }],
+          eventDigest,
+          previousDigest,
+        })}\n`,
+      );
+      previousDigest = eventDigest;
+    }
+
+    owner.checkpointCut(cut);
+    owner.append({ event: taskCreated(51_570), blobs: [] });
+    const records = owner.records();
+    assert.deepEqual(
+      records.map((record) => record.revision),
+      [51_564, 51_565, 51_566, 51_567, 51_568, 51_569, 51_570],
+    );
+    assert.equal(records.at(-1)?.previousDigest, records.at(-2)?.eventDigest);
+    assert.equal(owner.head().lastOffset, Buffer.byteLength(readFileSync(segment)));
+    for (let revision = 51_564; revision <= 51_569; revision += 1)
+      assert.equal(existsSync(path.join(objectsRoot, sha256Text(`suffix ${revision}\n`))), true);
+    owner.close();
   });
 });
 

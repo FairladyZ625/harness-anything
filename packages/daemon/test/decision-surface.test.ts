@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
 // Cold-rebuild internals are intentionally not part of the public kernel barrel.
 // eslint-disable-next-line no-restricted-imports
 import { readColdRebuildSource } from "../../kernel/src/projection/cold-rebuild-source.ts";
@@ -125,7 +125,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         ?.anchorRefs.includes(`decision/${decisionId}/C2`),
       true,
     );
-    const beforePreviewRevision = makeTaskEventStore({ repoId: "decision-surface", rootDir }).read().revision,
+    const beforePreviewRevision = makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().revision,
       preview = await cell.run(
         {
           kind: "decision-amend",
@@ -142,7 +142,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(preview.outcome, "pending");
     assert.equal(preview.proof?.canonicalVisible, false);
     assert.equal((receiptJson(preview) as { dryRun: boolean }).dryRun, true);
-    assert.equal(makeTaskEventStore({ repoId: "decision-surface", rootDir }).read().revision, beforePreviewRevision);
+    assert.equal(makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().revision, beforePreviewRevision);
     assert.equal(
       readFileSync(path.join(rootDir, "harness", "decisions/decision-" + decisionId + "/decision.md"), "utf8"),
       body,
@@ -262,7 +262,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(promoted.outcome, "applied", JSON.stringify(promoted));
     assert.equal((promoted as Record<string, unknown>).factId, "F-DEADBEEF");
     assert.match(readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8"), /### F-DEADBEEF/u);
-    const events = makeTaskEventStore({ repoId: "decision-surface", rootDir }).read().events,
+    const events = makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().events,
       decisionEvents = events.filter((event) => event.schema === "decision-event/v1"),
       relationEvents = events.filter((event) => event.schema === "relation-event/v1");
     assert.equal(decisionEvents.filter((event) => event.type === "decision_amended").length, 2);

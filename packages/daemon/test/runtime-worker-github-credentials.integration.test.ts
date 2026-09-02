@@ -6,7 +6,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -147,7 +147,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     assert.notEqual(spawnSync("git", ["-C", remote, "show-ref", "--verify", "refs/heads/main"]).status, 0);
 
     const shown = instances.command({ kind: "runtime-instance-show", instanceId }),
-      events = makeTaskEventStore({ repoId, rootDir: root }).read().events,
+      events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
       stream = readFileSync(
         path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
         "utf8",
@@ -221,7 +221,7 @@ function installGitHelpers(root: string): void {
 async function runtimeOutcome(root: string, repoId: string, runtimeSessionId: string): Promise<void> {
   for (let attempt = 0; attempt < 300; attempt += 1) {
     if (
-      makeTaskEventStore({ repoId, rootDir: root })
+      makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.some(
           (event) =>

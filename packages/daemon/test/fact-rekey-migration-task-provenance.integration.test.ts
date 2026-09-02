@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   REPLAY_TASK_GRAPH,
   eventObjectRelativePath,
+  makeTaskEventReader,
   makeTaskEventStore,
   migrationImportWritePlan,
   serializeEventHead,
@@ -25,7 +26,7 @@ test("fact rekey restates legacy migration task provenance and is idempotent", a
   const fixture = await legacyMigrationTaskFixture("missing-provenance");
   let cell: RepoCell | undefined;
   try {
-    const unreadable = makeTaskEventStore({ repoId: fixture.repoId, rootDir: fixture.rootDir });
+    const unreadable = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.rootDir });
     assert.throws(() => unreadable.read(), /migration task entity is invalid/u);
 
     cell = await openRepoCell({
@@ -53,7 +54,7 @@ test("fact rekey restates legacy migration task provenance and is idempotent", a
     assert.equal(cell.status().state, "attached");
     assert.equal((await cell.run({ kind: "task-list" }, fixture.binding)).outcome, "applied");
 
-    const repairedStore = makeTaskEventStore({ repoId: fixture.repoId, rootDir: fixture.rootDir }),
+    const repairedStore = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.rootDir }),
       repaired = repairedStore.readEvent(fixture.event.opId);
     assert.equal(repaired?.schema, "migration-import-event/v1");
     if (repaired?.schema === "migration-import-event/v1" && repaired.payload.entity.kind === "task") {

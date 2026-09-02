@@ -1,6 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { consumeKnownError } from "../error-consumption.ts";
 import { localEventFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { createDecisionProjectionTables } from "./decision-event-projection.ts";
 import { createFactProjectionTables } from "./fact-event-projection.ts";
@@ -39,6 +40,12 @@ export class ProjectionSchemaMismatchError extends Error {
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
+const projectionBusyTimeoutMs = 250;
+let queryOnlySession: {
+  readonly projectionPath: string;
+  readonly readHead: EventStreamPort["readHead"];
+  readonly db: DatabaseSync;
+} | null = null;
 
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
@@ -67,7 +74,50 @@ export function withDatabase<A>(
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
 ): A {
+  if (
+    queryOnlySession?.projectionPath === canonicalProjectionPath(projectionPath) &&
+    queryOnlySession.readHead === readHead
+  )
+    return use(queryOnlySession.db);
   return projectionDatabaseOwner(projectionPath, readHead).use(use);
+}
+
+export function withQueryOnlyDatabaseSession<A>(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+  use: (db: DatabaseSync) => A,
+): A {
+  if (queryOnlySession !== null) throw new Error("projection query-only sessions cannot be nested");
+  const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
+  if (!localRuntimeStateFileSystem.exists(resolvedProjectionPath))
+    throw new Error(`projection is unavailable at ${resolvedProjectionPath}`);
+  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(
+    resolvedProjectionPath,
+    { readOnly: true },
+  );
+  try {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-104 */
+    db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON; BEGIN`);
+    queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
+    const value = use(db);
+    if (value !== null && typeof value === "object" && "then" in value)
+      throw new Error("projection reader sessions must complete synchronously inside one SQLite transaction");
+    /* @gate-identity check-bypass-write-boundary/bypass-write-105 */
+    db.exec("COMMIT");
+    return value;
+  } catch (error) {
+    try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-106 */
+      db.exec("ROLLBACK");
+    } catch (rollbackError) {
+      consumeKnownError(rollbackError);
+      // Opening/schema failures can happen before BEGIN establishes a transaction.
+    }
+    throw error;
+  } finally {
+    queryOnlySession = null;
+    db.close();
+  }
 }
 export function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
   projectionDatabaseOwner(projectionPath, readHead).discard();
@@ -94,7 +144,9 @@ function projectionDatabaseOwner(
   if (known !== undefined) return known;
   const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
   let db: DatabaseSync | null = null,
-    fingerprint: string | null = null;
+    fingerprint: string | null = null,
+    schemaChecked = false,
+    useDepth = 0;
   let unregister = (): void => undefined;
   const register = (): void => {
     if (projectionClosers.get(resolvedProjectionPath)?.has(close)) return;
@@ -121,12 +173,13 @@ function projectionDatabaseOwner(
     fingerprint = projectionFileFingerprint(projectionPath);
   };
   const discard = () => {
+    schemaChecked = false;
     closeProjectionHandlesAt(resolvedProjectionPath);
     localRuntimeStateFileSystem.remove(projectionPath);
   };
   const initialize = () => {
     open();
-    const observed = projectionSchemaVersion(db!);
+    let observed = projectionSchemaVersion(db!);
     if (observed !== null && observed > taskProjectionSchemaVersion) {
       close();
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
@@ -134,17 +187,34 @@ function projectionDatabaseOwner(
     if (observed !== null && observed !== taskProjectionSchemaVersion) {
       discard();
       open();
+      observed = null;
     }
-    createTables(db!);
+    if (!schemaChecked || observed === null) createTables(db!);
+    schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
-    if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
-    if (db === null) initialize();
-    const observed = projectionSchemaVersion(db!);
-    if (observed !== null && observed > taskProjectionSchemaVersion)
-      throw new ProjectionSchemaMismatchError(observed, projectionPath);
-    if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
-    return operation(db!);
+    // A query operation can call back into this same owner while its own `operation` is still
+    // running (an event-shape migration's rewrite reads the scratch projection it is replaying
+    // into, mid-round). useDepth makes that reentrant: only the outermost call opens or closes
+    // the handle, so a nested call reuses the still-open connection instead of closing it out
+    // from under the frame that is still using it.
+    if (useDepth === 0) {
+      if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
+      if (db === null) initialize();
+    }
+    useDepth += 1;
+    try {
+      const observed = projectionSchemaVersion(db!);
+      if (observed !== null && observed > taskProjectionSchemaVersion)
+        throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
+      return operation(db!);
+    } finally {
+      useDepth -= 1;
+      // A completed writer operation publishes the main projection file, not SQLite's
+      // process-local WAL index. Query readers keep their own short-lived snapshot open.
+      if (useDepth === 0) close();
+    }
   };
   const owner = { use, discard, close };
   owners.set(projectionPath, owner);
@@ -190,7 +260,7 @@ function openDatabase(projectionPath: string): DatabaseSync {
 }
 function configureDatabase(db: DatabaseSync): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-008 */
-  db.exec("PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON");
+  db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON`);
 }
 
 function createTables(db: DatabaseSync): void {

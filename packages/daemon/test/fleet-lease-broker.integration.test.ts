@@ -196,11 +196,25 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
     commitCount,
     assignmentFor: (nodeId: string): FleetAssignmentRecord => byId.get(`assignment-${nodeId}`)!,
     close: async () => {
-      for (const target of centers.splice(0)) await target.close();
-      for (const target of hosts.splice(0)) await target.close();
+      const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
+        hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
+        results = [...centerResults, ...hostResults];
       rmSync(root, { recursive: true, force: true });
+      const unexpected = results
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map(({ reason }) => reason)
+        .filter((reason) => !isExpectedStaleWriterClose(reason));
+      if (unexpected.length > 0) throw new AggregateError(unexpected, "fleet lease fixture cleanup failed");
     },
   };
+}
+
+function isExpectedStaleWriterClose(reason: unknown): boolean {
+  return (
+    reason instanceof Error &&
+    "code" in reason &&
+    (reason as Error & { readonly code?: unknown }).code === "writer_epoch_stale"
+  );
 }
 
 test(

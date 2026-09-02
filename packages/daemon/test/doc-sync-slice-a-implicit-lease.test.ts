@@ -429,6 +429,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
 test("the named release-and-re-enter recovery terminates for a bound runtime session", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-recovery-terminates-"));
   initRepo(rootDir);
+  let store: ReturnType<typeof makeTaskEventStore> | undefined;
   const runtimeActor = {
       principal: { personId: "person-owner" },
       executor: { kind: "agent", id: "runtime-session:recovery" },
@@ -438,6 +439,8 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
     logical = "tasks/task-recover-x/artifacts/r.md";
   try {
     write(rootDir, logical, "# Recoverable\n");
+    store = makeTaskEventStore({ repoId: "recovery-terminates", rootDir });
+    const eventStore = store;
     let phase: "held" | "orphaned" = "orphaned";
     const lease = {
       schema: "lease/v1",
@@ -522,11 +525,10 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
           sourceRevision: 0,
         }),
       } as unknown as TaskProjection,
-      store = makeTaskEventStore({ repoId: "recovery-terminates", rootDir }),
       action = { kind: "doc-submit", paths: [logical] } as const,
       baseBinding = withRoleBinding({ actor: runtimeActor, source }, "owner"),
       authorizedBinding = () => {
-        const revision = store.readHead()?.revision ?? 0;
+        const revision = eventStore.readHead()?.revision ?? 0;
         return {
           ...baseBinding,
           authorizationDecision: authorizeRepoCellAction({
@@ -543,7 +545,7 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
       binding: authorizedBinding(),
       workspaceId: workspaceId("recovery-terminates"),
       rootDir,
-      store,
+      store: eventStore,
       projection,
       now: () => now,
     })) as { outcome?: string; code?: string; nextAction?: string };
@@ -562,16 +564,14 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
       binding: authorizedBinding(),
       workspaceId: workspaceId("recovery-terminates"),
       rootDir,
-      store,
+      store: eventStore,
       projection,
       now: () => now,
     })) as { outcome?: string; opId?: string };
     assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
-    assert.equal(
-      makeTaskEventStore({ repoId: "recovery-terminates", rootDir }).readEvent(String(recovered.opId))?.schema,
-      "doc-event/v1",
-    );
+    assert.equal(eventStore.readEvent(String(recovered.opId))?.schema, "doc-event/v1");
   } finally {
+    await store?.drain();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
