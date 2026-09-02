@@ -6,7 +6,6 @@ import {
 import {
   validateAgentRuntimeEvents,
   validateAgentRuntimeOverview,
-  validateAgentRuntimeSessionGroups,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
 import { validateEntityActionExplanationSet, validateSettingsV1 } from "../../../kernel/src/index.ts";
@@ -20,8 +19,7 @@ import {
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
-import { validateSchedulesList } from "./schedules-gui-contract.ts";
-import { validateScheduleRuns } from "../schedule-runs-read.ts";
+import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
@@ -90,6 +88,7 @@ const resultValidators = {
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotList,
+  "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.ci.observatory.read": validateCiObservatoryRead,
@@ -101,7 +100,6 @@ const resultValidators = {
   "repo.tasks.documents.list": validateDaemonTaskDocumentList,
   "repo.artifacts.list": validateArtifactsList,
   "repo.agentRuntime.overview": validateAgentRuntimeOverview,
-  "repo.agentRuntime.sessionGroups": validateAgentRuntimeSessionGroups,
   "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,
   "repo.agentRuntime.events.read": validateAgentRuntimeEvents,
   "repo.task.dispatches": validateDaemonTaskDispatches,
@@ -112,8 +110,6 @@ const resultValidators = {
   "repo.squad.entity.read": validateSquadEntityDetail,
   "repo.squad.runs.list": validateSquadRunsList,
   "repo.squad.run.read": validateSquadRunRead,
-  "repo.schedules.list": validateSchedulesList,
-  "repo.schedules.runs": validateScheduleRuns,
   "repo.gui.catalog.snapshot": validateCatalogSnapshot,
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,

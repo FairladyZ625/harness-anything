@@ -1,0 +1,1 @@
+{"schema":"daemon.use-case-projection/v1","ok":true,"name":"schedule-plane","facet":"plane","version":1,"inputs":{"entityKinds":["schedule","task"],"relationTypes":[]},"projection":{"ok":true,"status":"ready","repoId":"projection-contract","repoMode":"local","viewerNodeId":"local","schedules":[],"watermark":1,"sourceRevision":1}}

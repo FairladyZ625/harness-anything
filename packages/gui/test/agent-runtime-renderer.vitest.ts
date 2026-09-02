@@ -713,31 +713,37 @@ describe("agent runtime renderer", () => {
     expect(claude).toContain('data-testid="runtime-instance-isolation"');
     expect(agy).not.toContain('data-testid="runtime-instance-permissions"');
   });
-  it("rejects a malformed session-groups bridge result instead of rendering it", async () => {
-    const getAgentRuntimeSessionGroups = vi.fn(async () => ({ ok: true, groups: "not-an-array" })),
+  it("rejects a malformed session-groups projection instead of rendering it", async () => {
+    const readUseCaseProjection = vi.fn(async () => sessionGroupsEnvelope({ ok: true, groups: "not-an-array" })),
       stub = {
         getAgentRuntimeOverview: vi.fn(),
-        getAgentRuntimeSessionGroups,
+        readUseCaseProjection,
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
       };
     vi.stubGlobal("window", { harness: stub });
     await expect(agentRuntimeClient.sessionGroups("repo-a", { groupBy: "task" })).rejects.toThrow(/invalid result/u);
-    expect(getAgentRuntimeSessionGroups).toHaveBeenCalledWith({ repoId: "repo-a", groupBy: "task" });
+    expect(readUseCaseProjection).toHaveBeenCalledWith({
+      repoId: "repo-a",
+      name: "runtime-session-groups",
+      groupBy: "task",
+    });
   });
-  it("sends the grouping, range and query to the daemon in one session-groups read", async () => {
-    const getAgentRuntimeSessionGroups = vi.fn(async () => ({
-        ok: true,
-        status: "ready",
-        groups: [],
-        totals: { groups: 0, sessions: 0 },
-        truncated: false,
-        watermark: 1,
-        sourceRevision: 1,
-      })),
+  it("sends the grouping, range and query to the daemon in one session-groups projection read", async () => {
+    const readUseCaseProjection = vi.fn(async () =>
+        sessionGroupsEnvelope({
+          ok: true,
+          status: "ready",
+          groups: [],
+          totals: { groups: 0, sessions: 0 },
+          truncated: false,
+          watermark: 1,
+          sourceRevision: 1,
+        }),
+      ),
       stub = {
         getAgentRuntimeOverview: vi.fn(),
-        getAgentRuntimeSessionGroups,
+        readUseCaseProjection,
         getAgentRuntimeSession: vi.fn(),
         getAgentRuntimeEvents: vi.fn(),
       };
@@ -748,8 +754,10 @@ describe("agent runtime renderer", () => {
       query: "terra",
     });
     expect(result.totals).toEqual({ groups: 0, sessions: 0 });
-    expect(getAgentRuntimeSessionGroups).toHaveBeenCalledWith({
+    // The selector reaches the daemon under the projection name; the field names are unchanged.
+    expect(readUseCaseProjection).toHaveBeenCalledWith({
       repoId: "repo-a",
+      name: "runtime-session-groups",
       groupBy: "task",
       since: "2026-08-26T00:00:00.000Z",
       query: "terra",
@@ -840,3 +848,16 @@ describe("agent runtime renderer", () => {
     await expect(squadRunsClient.read("repo-a", squadRunId)).rejects.toThrow(/invalid result/u);
   });
 });
+
+/** The wire envelope the `runtime-session-groups` use-case projection arrives in. */
+function sessionGroupsEnvelope(projection: unknown) {
+  return {
+    schema: "daemon.use-case-projection/v1",
+    ok: true,
+    name: "runtime-session-groups",
+    facet: "groups",
+    version: 1,
+    inputs: {},
+    projection,
+  };
+}

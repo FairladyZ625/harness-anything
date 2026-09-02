@@ -1,5 +1,6 @@
 import {
   assertCurrentWriter,
+  deriveUseCaseProjectionInputs,
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
@@ -22,6 +23,10 @@ import { type PresetRunReceiptV1, type createPresetProcessService } from "../../
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
+import {
+  admitUseCaseProjectionSelector,
+  type DaemonUseCaseProjectionResult,
+} from "./protocol/daemon-protocol-gui-types.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "./doc-sync-actions.ts";
 import { readArtifactsGui } from "./artifacts-gui-read.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
@@ -429,16 +434,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     }),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
+    "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
-    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
-      readTaskDispatches({
-        rootDir: context.rootDir,
-        projection: context.projection,
-        ...taskDispatchesPayloadFromCell(payload),
-      }),
     "repo.agent.entities.list": () =>
       readAgentEntityGuiProjection({
         kind: "agent-list",
@@ -469,13 +469,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
     "repo.squad.runs.list": (payload: Readonly<Record<string, unknown>>) => context.squadCoordinator.list(payload),
     "repo.squad.run.read": (payload: Readonly<Record<string, unknown>>) =>
       context.squadCoordinator.read(context.requiredCellText(payload.squadRunId, "squadRunId")),
-    "repo.schedules.list": () => readSchedulesGui(context),
-    "repo.schedules.runs": (payload: Readonly<Record<string, unknown>>) =>
-      readScheduleRuns(
-        context,
-        context.requiredCellText(payload.scheduleId, "scheduleId"),
-        payload.limit === undefined ? 50 : Number(payload.limit),
-      ),
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.document.read": (payload) => readProjectedDocument(context.rootDir, context.projection, payload),
     "repo.tasks.documents.list": (payload) => listProjectedTaskDocuments(context.rootDir, context.projection, payload),
@@ -485,9 +478,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
         payload,
       ),
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
-    "repo.agentRuntime.sessionGroups": (payload) => context.runtimeReads.sessionGroups(payload),
     "repo.agentRuntime.sessions.read": (payload) => context.runtimeReads.session(payload),
     "repo.agentRuntime.events.read": (payload) => context.runtimeReads.events(payload),
+    "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
+      readTaskDispatches({
+        rootDir: context.rootDir,
+        projection: context.projection,
+        ...taskDispatchesPayloadFromCell(payload),
+      }),
   } satisfies DaemonGuiReadHandlers;
   function decisionListFromPayload(payload: Readonly<Record<string, unknown>>): DaemonDecisionListResult {
     if (
@@ -573,6 +571,41 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell {
       ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
       ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
     };
+  }
+  /**
+   * The single serving point for every named use-case projection. Selector admission happens once,
+   * in `admitUseCaseProjectionSelector`, so an unknown name, an inadmissible facet and a smuggled
+   * field all fail closed here instead of being honoured by one layer and dropped by the next.
+   * The inner projection shapes are unchanged from the reads they replaced (CH4: the boundary is
+   * authority and visibility, not field renaming), and `inputs` is derived from the kind registry.
+   */
+  function useCaseProjection(payload: Readonly<Record<string, unknown>>): DaemonUseCaseProjectionResult {
+    const admitted = admitUseCaseProjectionSelector(payload);
+    if (typeof admitted === "string") throw context.cellCodedError("invalid_command", admitted);
+    const { name, facet } = admitted;
+    // `name` and `facet` route the projection; they are not part of any inner read's selector, so
+    // they are stripped before delegation. Leaving them on would trip the inner reads' own closed
+    // field checks — one of which (agent-runtime-read.ts) is a fifth copy of the same vocabulary.
+    const { name: _name, facet: _facet, ...selector } = payload;
+    const envelope = {
+      schema: "daemon.use-case-projection/v1" as const,
+      ok: true as const,
+      name,
+      facet,
+      version: 1,
+      inputs: deriveUseCaseProjectionInputs(name),
+    };
+    if (name === "schedule-plane") return { ...envelope, projection: readSchedulesGui(context) };
+    if (name === "schedule-run-history")
+      return {
+        ...envelope,
+        projection: readScheduleRuns(
+          context,
+          context.requiredCellText(selector.scheduleId, "scheduleId"),
+          selector.limit === undefined ? 50 : Number(selector.limit),
+        ),
+      };
+    return { ...envelope, projection: context.runtimeReads.sessionGroups(selector) };
   }
   function taskDispatchesPayloadFromCell(payload: Readonly<Record<string, unknown>>): DaemonTaskDispatchesPayload {
     if (!Array.isArray(payload.taskIds)) return { taskId: context.requiredCellText(payload.taskId, "taskId") };

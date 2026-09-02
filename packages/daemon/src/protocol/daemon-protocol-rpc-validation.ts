@@ -1,6 +1,7 @@
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import {
+  admitUseCaseProjectionSelector,
   validateShape,
   validateObserveTailPayload,
   type DaemonGuiActionMethod,
@@ -82,8 +83,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agentRuntime.sessions.read")
     errors.push(...validateRuntimeSessionReadPayload((value.params as JsonObject).payload));
-  if (!errors.length && value.method === "repo.agentRuntime.sessionGroups")
-    errors.push(...validateRuntimeSessionGroupsPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.projection.read")
+    errors.push(...validateUseCaseProjectionPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.runs.list")
     errors.push(...validateSquadRunListPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.run.read")
@@ -111,6 +112,21 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
     return ["runtime session read cannot mix runtimeSessionId with taskId or dispatchId"];
   return [];
+}
+
+/**
+ * Request-side half of the single selector boundary. `admitUseCaseProjectionSelector` decides the
+ * name, the facet and the closed field set; only facet-specific value rules live below it. Before
+ * this, the same vocabulary was restated in the request validator, the handler, the result
+ * validator and the preload allowlist, so a selector added to one of them failed asymmetrically.
+ */
+function validateUseCaseProjectionPayload(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["use-case projection payload must be an object"];
+  const admitted = admitUseCaseProjectionSelector(value);
+  if (typeof admitted === "string") return [admitted];
+  if (admitted.name === "schedule-run-history" && !nonEmpty(value.scheduleId))
+    return ["schedule run history requires a scheduleId"];
+  return admitted.facet === "groups" ? validateRuntimeSessionGroupsPayload(value) : [];
 }
 
 function validateRuntimeSessionGroupsPayload(value: unknown): string[] {

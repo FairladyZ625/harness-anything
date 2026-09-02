@@ -6,13 +6,11 @@ import type {
 } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { readUseCaseProjection } from "./use-case-projection-client.ts";
 
 type RuntimeBridge = {
   readonly getAgentRuntimeOverview: (
     payload: DaemonGuiReadPayloadMap["repo.agentRuntime.overview"],
-  ) => Promise<unknown>;
-  readonly getAgentRuntimeSessionGroups: (
-    payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessionGroups"],
   ) => Promise<unknown>;
   readonly getAgentRuntimeSession: (
     payload: DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"],
@@ -24,16 +22,11 @@ type RuntimeBridge = {
 type RepoScope = { readonly repoId: string };
 const bridge = (): RuntimeBridge => {
   const value = window.harness as unknown as Partial<RuntimeBridge> | undefined;
-  if (
-    !value?.getAgentRuntimeOverview ||
-    !value.getAgentRuntimeSessionGroups ||
-    !value.getAgentRuntimeSession ||
-    !value.getAgentRuntimeEvents
-  )
+  if (!value?.getAgentRuntimeOverview || !value.getAgentRuntimeSession || !value.getAgentRuntimeEvents)
     throw new Error("Agent runtime contract bridge is unavailable.");
   return value as RuntimeBridge;
 };
-/** The sessions page list read: grouping, range and text query all happen daemon-side. */
+/** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
 export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
   readonly since?: string;
@@ -59,10 +52,7 @@ export const agentRuntimeClient = {
     ) as AgentRuntimeOverviewResult,
   sessionGroups: async (repoId: string, query: SessionGroupsQuery = {}): Promise<AgentRuntimeSessionGroupsResult> =>
     checkedSessionGroups(
-      await bridge().getAgentRuntimeSessionGroups({
-        repoId,
-        ...query,
-      } as DaemonGuiReadPayloadMap["repo.agentRuntime.sessionGroups"] & RepoScope),
+      await readUseCaseProjection({ repoId, name: "runtime-session-groups", ...query }),
     ) as AgentRuntimeSessionGroupsResult,
   session: async (repoId: string, runtimeSessionId: string): Promise<AgentRuntimeSessionResult> =>
     checked(

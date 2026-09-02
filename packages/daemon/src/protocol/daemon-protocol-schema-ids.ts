@@ -1,4 +1,5 @@
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
+import { useCaseProjectionNameWords } from "./daemon-protocol-vocabulary.ts";
 
 export const DAEMON_TASK_SNAPSHOT_LIST_SCHEMA = Object.freeze({
   id: "daemon.task-snapshot-list/v1",
@@ -172,6 +173,11 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
     required: Object.freeze(["ok", "status", "repoId", "kind", "artifacts", "counts", "watermark", "sourceRevision"]),
   });
 
+export const DAEMON_USE_CASE_PROJECTION_SCHEMA = Object.freeze({
+  id: "daemon.use-case-projection/v1",
+  required: Object.freeze(["schema", "ok", "name", "facet", "version", "inputs", "projection"]),
+});
+
 export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
     id: "gui-system-status/v1",
   }),
@@ -197,6 +203,25 @@ export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
   TERMINAL_ATTACH_EVENT_SCHEMA = Object.freeze({
     id: "terminal-attach-event/v1",
   });
+
+/**
+ * The unified use-case projection read (dec_5B135F46 CH4 layer two). One closed shape lists every
+ * selector any projection may carry; which subset a given (name, facet) admits is decided in the
+ * single boundary `admitUseCaseProjectionSelector`, not restated here. The precedent's lesson —
+ * an opaque `json?` payload let an injected field through the declared boundary — is why this is
+ * enumerated rather than opaque.
+ */
+export const daemonUseCaseProjectionPayloadShape = shape({
+  name: { values: useCaseProjectionNameWords, optional: false },
+  facet: optionalEnum(["plane", "runs", "groups"]),
+  scheduleId: "string?",
+  groupBy: optionalEnum(["task", "squad", "agent", "day"]),
+  agentId: "string?",
+  squadId: "string?",
+  since: "string?",
+  query: "string?",
+  limit: "number?",
+});
 
 export const daemonTaskQueryPayloadShape = shape({
   status: "string?",

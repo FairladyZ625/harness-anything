@@ -192,13 +192,32 @@ test("repo and empty scopes are derived when a GUI contract grows", () => {
   assert.equal(deriveEmptyRepoMethods(facets).has("futureRepoReadWithInput"), false);
 });
 
-// Schedule actions (S4) take exactly the retry-stable claim trio; the GUI read is an
-// empty repo read, so extra fields never survive the preload boundary.
+// Schedule actions (S4) take exactly the retry-stable claim trio; the schedule read is now the
+// `schedule-plane` use-case projection, admitted at the preload by the very function the daemon
+// request validator and repo-cell handler call, so extra fields never survive the boundary.
 test("schedule read and action payloads stay closed at the preload boundary", () => {
-  assert.equal(assertPreloadPayload("listSchedules", { repoId: "repo-a" }), true);
+  assert.equal(assertPreloadPayload("readUseCaseProjection", { repoId: "repo-a", name: "schedule-plane" }), true);
   assert.throws(
-    () => assertPreloadPayload("listSchedules", { repoId: "repo-a", scheduleId: "heartbeat-probe" }),
-    /not allowed/u,
+    () =>
+      assertPreloadPayload("readUseCaseProjection", {
+        repoId: "repo-a",
+        name: "schedule-plane",
+        scheduleId: "heartbeat-probe",
+      }),
+    /does not accept scheduleId/u,
+  );
+  // The run-history projection does take a scheduleId — the closure is per projection, not global.
+  assert.equal(
+    assertPreloadPayload("readUseCaseProjection", {
+      repoId: "repo-a",
+      name: "schedule-run-history",
+      scheduleId: "heartbeat-probe",
+    }),
+    true,
+  );
+  assert.throws(
+    () => assertPreloadPayload("readUseCaseProjection", { repoId: "repo-a", name: "repo.schedules.list" }),
+    /name is unknown/u,
   );
   for (const method of ["enableSchedule", "disableSchedule", "runScheduleNow"]) {
     assert.equal(

@@ -3,17 +3,14 @@ import type {
   ScheduleGuiRowDto,
   SchedulesListResult,
 } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
-import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { readUseCaseProjection } from "./use-case-projection-client.ts";
 
-type RepoScope = { readonly repoId: string };
-
-// Renderer client for the Schedule plane (S4). One `repo.schedules.list` read returns
+// Renderer client for the Schedule plane (S4). The `schedule-plane` use-case projection returns
 // the complete joined DTO — cadence/timezone/nextRun/mode/availability are daemon
 // facts, and this file never recomputes them. The three actions return command
 // receipts; enablement comes from the DTO facets, not from local mode branching.
 type SchedulesBridge = {
-  readonly listSchedules: (payload: DaemonGuiReadPayloadMap["repo.schedules.list"]) => Promise<unknown>;
   readonly createSchedule: (payload: unknown) => Promise<unknown>;
   readonly updateSchedule: (payload: unknown) => Promise<unknown>;
   readonly deleteSchedule: (payload: unknown) => Promise<unknown>;
@@ -24,8 +21,7 @@ type SchedulesBridge = {
 const bridge = (): SchedulesBridge => {
   const value = window.harness as unknown as Partial<SchedulesBridge> | undefined;
   if (
-    !value?.listSchedules ||
-    !value.createSchedule ||
+    !value?.createSchedule ||
     !value.updateSchedule ||
     !value.deleteSchedule ||
     !value.enableSchedule ||
@@ -144,8 +140,7 @@ export interface ScheduleDefinitionInput {
 
 export const schedulesClient = {
   list: async (repoId: string): Promise<SchedulesListResult> => {
-    const value = await bridge().listSchedules({ repoId } as DaemonGuiReadPayloadMap["repo.schedules.list"] &
-      RepoScope);
+    const value = await readUseCaseProjection({ repoId, name: "schedule-plane" });
     if (
       !isRendererRecord(value) ||
       value.ok !== true ||
@@ -157,18 +152,13 @@ export const schedulesClient = {
     return value as unknown as SchedulesListResult;
   },
   /**
-   * `repo.schedules.runs(id)` — the occurrence run-history read (M3). The bridge
-   * method only exists once the backend task lands the projection; until then
-   * this throws and the Runs surface falls back to the occurrences the list read
-   * already projects (activeRun / lastRun / missed aggregate), with the boundary
+   * The `schedule-run-history` use-case projection: the occurrence run history (M3). When the
+   * projection bridge is absent the Runs surface still falls back to the occurrences the plane
+   * projection already carries (activeRun / lastRun / missed aggregate), with the boundary
    * labeled in the UI instead of fabricated rows.
    */
   runs: async (repoId: string, scheduleId: string): Promise<ScheduleRunsResult> => {
-    const method = (
-      window.harness as unknown as Partial<{ listScheduleRuns: (payload: unknown) => Promise<unknown> }> | undefined
-    )?.listScheduleRuns;
-    if (!method) throw new Error("Schedule runs bridge is unavailable.");
-    const value = await method({ repoId, scheduleId });
+    const value = await readUseCaseProjection({ repoId, name: "schedule-run-history", scheduleId });
     if (
       !isRendererRecord(value) ||
       value.ok !== true ||

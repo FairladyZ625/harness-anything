@@ -132,9 +132,11 @@ test("main process registers one IPC handler for each preload allowlist method",
                 }
               : method === "deleteSchedule"
                 ? { repoId: "repo-a", scheduleId: "heartbeat-probe", idempotencyKey: "once" }
-                : routeByMethod.get(method)?.requiresRepo
-                  ? { repoId: "repo-a" }
-                  : null;
+                : method === "readUseCaseProjection"
+                  ? { repoId: "repo-a", name: "schedule-plane" }
+                  : routeByMethod.get(method)?.requiresRepo
+                    ? { repoId: "repo-a" }
+                    : null;
     assert.deepEqual(await handlers.get(`harness:${method}`)?.(trustedEvent, payload), { ok: true, method, payload });
   }
   await assert.rejects(

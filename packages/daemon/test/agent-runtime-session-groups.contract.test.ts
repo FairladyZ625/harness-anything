@@ -13,9 +13,33 @@ import {
   type TaskDispatchRow,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
+import type { AgentRuntimeSessionGroupsResult } from "../src/agent-runtime-contract.ts";
 
-test("session group facet is contracted and validates bounded daemon-side filters", () => {
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.agentRuntime.sessionGroups");
+/** Parse a session-groups read the way the GUI now receives it: inside the projection envelope. */
+function parseSessionGroupsProjection(projection: AgentRuntimeSessionGroupsResult): AgentRuntimeSessionGroupsResult {
+  const envelope = parseDaemonGuiReadResult("repo.projection.read", {
+    schema: "daemon.use-case-projection/v1",
+    ok: true,
+    name: "runtime-session-groups",
+    facet: "groups",
+    version: 1,
+    inputs: deriveUseCaseProjectionInputs("runtime-session-groups"),
+    projection,
+  });
+  return envelope.projection as AgentRuntimeSessionGroupsResult;
+}
+
+test("session groups are contracted as a use-case projection with bounded daemon-side filters", () => {
+  // `repo.agentRuntime.sessionGroups` is replaced by the `runtime-session-groups` projection; the
+  // bounded-filter contract below is unchanged, which is the point — CH4 moves the boundary, not
+  // the field names.
+  assert.equal(
+    daemonGuiReadMethods.some(({ method }) => method === "repo.agentRuntime.sessionGroups"),
+    false,
+    "repo.agentRuntime.sessionGroups must no longer be a read method",
+  );
+  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.projection.read");
   assert.deepEqual(
     facet && {
       phase: facet.phase,
@@ -24,16 +48,16 @@ test("session group facet is contracted and validates bounded daemon-side filter
       outputSchemaId: facet.outputSchemaId,
     },
     {
-      phase: "Runtime-B",
-      method: "repo.agentRuntime.sessionGroups",
-      serviceMethod: "readAgentRuntimeSessionGroups",
-      outputSchemaId: "daemon.agent-runtime-session-groups/v1",
+      phase: "PLT-Ontology-4.1",
+      method: "repo.projection.read",
+      serviceMethod: "readUseCaseProjection",
+      outputSchemaId: "daemon.use-case-projection/v1",
     },
   );
   const call = (payload: Readonly<Record<string, unknown>>) =>
     validateDaemonRpcCall({
-      method: "repo.agentRuntime.sessionGroups",
-      params: { repo: { repoId: "runtime-groups" }, payload },
+      method: "repo.projection.read",
+      params: { repo: { repoId: "runtime-groups" }, payload: { name: "runtime-session-groups", ...payload } },
     });
   assert.deepEqual(call({}), []);
   assert.deepEqual(
@@ -63,7 +87,7 @@ test("session groups default to active plus 24h and group/filter/limit before re
         return dispatches.filter(({ taskId }) => taskIds.includes(taskId));
       },
     }),
-    defaultResult = parseDaemonGuiReadResult("repo.agentRuntime.sessionGroups", reads.sessionGroups({}));
+    defaultResult = parseSessionGroupsProjection(reads.sessionGroups({}));
   assert.deepEqual(
     defaultResult.groups.map(({ key }) => key),
     ["task-c", "task-a", "unattributed"],
