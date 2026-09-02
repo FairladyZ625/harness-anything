@@ -427,9 +427,14 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
     }
     for (const logical of prosePaths) {
       write(rootDir, logical, "# Removed\n");
-      const blocked = await blockedRow(cell, logical);
-      assert.equal(blocked[0], logical);
-      assert.match(String(blocked[1]), /missing|forbidden/u);
+      const replaced = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+      assert.equal(replaced.outcome, "applied", JSON.stringify(replaced));
+      rmSync(path.join(rootDir, "harness", logical));
+      const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
+        row = rows(status.evidence)[0];
+      assert.equal(row?.path, logical);
+      assert.equal(row?.state, "deletion");
+      assert.match(String(row?.reason), /canonical document is missing/u);
     }
   } finally {
     await cell.close();
@@ -570,18 +575,6 @@ async function reachGreenInReview(
   assert.equal(consented.outcome, "applied", JSON.stringify(consented));
 }
 
-async function blockedRow(
-  cell: Awaited<ReturnType<typeof openRepoCell>>,
-  logical: string,
-): Promise<readonly unknown[]> {
-  const dry = (await cell.run({ kind: "doc-dry-run", paths: [logical] }, { actor, source: "local" })) as Record<
-    string,
-    unknown
-  >;
-  const row = rows(String(dry.evidence)).find((candidate) => candidate.path === logical);
-  assert.equal(row?.state, "blocked", JSON.stringify(row));
-  return [row?.path, row?.reason];
-}
 function rows(evidence: string): readonly {
   readonly path: string;
   readonly state: string;

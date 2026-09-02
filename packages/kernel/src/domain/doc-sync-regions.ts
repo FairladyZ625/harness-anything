@@ -52,11 +52,12 @@ export function additiveProof(
       next: rightById.get(region.id),
       nextOrder: right.regions.findIndex((candidateRegion) => candidateRegion.id === region.id),
     })),
-    missing = indexed.filter(({ next }) => !next).map(({ region }) => region),
+    guarded = indexed.filter(({ region }) => region.mode === "equal"),
+    missing = guarded.filter(({ next }) => !next).map(({ region }) => region),
     reordered = new Map<string, Region>();
   let order = -1,
     orderedAfter: Region | null = null;
-  for (const entry of indexed) {
+  for (const entry of guarded) {
     if (!entry.next) continue;
     if (entry.nextOrder < order) reordered.set(entry.region.id, orderedAfter!);
     else {
@@ -82,7 +83,7 @@ export function additiveProof(
     unresolved: DocSyncUnresolvedTouch[] = [];
   for (const { region, next } of indexed) {
     if (!next) {
-      unresolved.push(touch(path, region.id, missingReason, "refresh-region-policy"));
+      if (region.mode === "equal") unresolved.push(touch(path, region.id, missingReason, "refresh-region-policy"));
       continue;
     }
     if (reordered.has(region.id)) {

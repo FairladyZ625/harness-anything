@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -79,26 +79,17 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       ],
     );
     write(rootDir, "context/a.md", "# Renamed\n\nfirst\n");
-    const acceptedCut = git(rootDir, "rev-parse", "HEAD"),
-      blocked = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding);
-    assert.equal(rows(blocked.evidence)[0]?.state, "blocked");
-    assert.match(
-      blocked.detail?.nextAction ?? "",
-      /resolve context\/a\.md through refresh-region-policy: base region is missing: "# A"/u,
-    );
-    assert.doesNotMatch(blocked.detail?.nextAction ?? "", /ha doc status/u);
-    assert.doesNotMatch(blocked.detail?.nextAction ?? "", /doc retire|conflict scratch/iu);
-    const rejected = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
-    assert.equal(rejected.outcome, "op_rejected");
-    assert.equal(rejected.code, "preview_blocked");
-    assert.equal(git(rootDir, "rev-parse", "HEAD"), acceptedCut);
+    const renamed = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding);
+    assert.equal(rows(renamed.evidence)[0]?.state, "eligible");
+    const accepted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("blocked-only submit names the scanner-first closeout recovery", async () => {
+test("blocked-only submit names the scanner-first machine-region recovery", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-blocked-closeout-"));
   initRepo(rootDir);
   const repoId = workspaceId("blocked-closeout"),
@@ -110,28 +101,15 @@ test("blocked-only submit names the scanner-first closeout recovery", async () =
     binding = { actor, source: "local" as const },
     laterBlocked = "tmp/z-blocked.md";
   try {
-    write(rootDir, laterBlocked, "# Stable\n\nbase\n");
+    write(rootDir, laterBlocked, "---\nowner: stable\n---\n# Stable\n\nbase\n");
     assert.equal((await cell.run({ kind: "doc-submit", paths: [laterBlocked] }, binding)).outcome, "applied");
-    const created = (await cell.run(
-      {
-        kind: "task-create",
-        taskId: "task_CLOSEOUTRECOVERY0000AAAAA",
-        title: "closeout recovery receipt",
-      },
-      binding,
-    )) as { outcome?: string; packagePath?: string };
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const closeout = `${created.packagePath}/closeout.md`,
-      closeoutTarget = path.join(rootDir, "harness", closeout);
-    write(rootDir, closeout, readFileSync(closeoutTarget, "utf8").replace("# Closeout", "# Removed"));
-    write(rootDir, laterBlocked, "# Removed\n\nbase\n");
+    write(rootDir, laterBlocked, "---\nowner: changed\n---\n# Removed\n\nbase\n");
     const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "preview_blocked");
-    assert.match(String(rejected.nextAction), new RegExp(closeout.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-    assert.match(String(rejected.nextAction), /refresh-region-policy/u);
-    assert.match(String(rejected.nextAction), /base region is missing: "# Closeout"/u);
-    assert.equal(String(rejected.nextAction).includes(laterBlocked), false);
+    assert.match(String(rejected.nextAction), /typed-machine-writer/u);
+    assert.match(String(rejected.nextAction), /machine region changed/u);
+    assert.equal(String(rejected.nextAction).includes(laterBlocked), true);
     assert.doesNotMatch(String(rejected.nextAction), /ha doc status/u);
   } finally {
     await cell.close();

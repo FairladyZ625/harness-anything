@@ -92,7 +92,7 @@ test("the first authored write on a migrated document upgrades its policy one-wa
   if (native.accepted) assert.equal("policyUpgrade" in native.event.payload.changes[0]!, false);
 });
 
-test("an upgraded write still runs the full region differ and heading preservation", () => {
+test("an upgraded write still allows authored prose heading reordering", () => {
   const base = "# One\nA\n# Two\nB\n",
     reordered = "# Two\nB\n# One\nA\n",
     result = decide(
@@ -105,18 +105,7 @@ test("an upgraded write still runs the full region differ and heading preservati
       { ...state(base), policyId: MIGRATION_DOCUMENT_POLICY_ID },
       Buffer.from(reordered),
     );
-  assert.equal(result.accepted, false, JSON.stringify(result));
-  if (!result.accepted) {
-    assert.equal(result.code, "unresolved_touch");
-    assert.equal(
-      result.detail.unresolvedTouches.some(
-        ({ reason }) =>
-          reason ===
-          'base regions are reordered: candidate places "# Two" before "# One"; expected "# One" before "# Two"',
-      ),
-      true,
-    );
-  }
+  assert.equal(result.accepted, true, JSON.stringify(result));
 });
 
 test("receipt detail registry rejects unregistered or open-ended detail shapes", () => {

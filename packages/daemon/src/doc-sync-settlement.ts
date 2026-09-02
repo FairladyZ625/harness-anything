@@ -84,7 +84,6 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
           (code === "lease_conflict"
             ? "refresh status and submit through the matching execution or repository prose channel"
             : null)),
-    headingRestore = taskPlanHeadingRestore(input, scan),
     blocked = scan.rows.find((row) => row.state === "blocked");
   return {
     kind: "doc_sync",
@@ -137,7 +136,6 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
           )
         : (executionChoice ??
           leaseConflict ??
-          headingRestore ??
           (blocked
             ? blockedCandidateNextAction(blocked)
             : scan.rows.some((row) => row.state === "eligible")
@@ -201,32 +199,6 @@ export function leaseConflictNextAction(input: Input, scan: DocCandidateScan): s
     "non-runtime principal may rerun ha doc sync --submit through the ",
     "repository prose channel)",
   ].join("");
-}
-
-// The base-region guard keeps a task plan's H1 pinned to the ledger title;
-// when the missing base region IS that title heading, the fix is mechanical
-// and the receipt can name it exactly. A region that matches the pre-amended
-// title instead (the base predates ha task amend) deliberately keeps the
-// generic guidance here — that shape is resolved on the typed route, not by
-// prose edits.
-export function taskPlanHeadingRestore(input: Input, scan: DocCandidateScan): string | null {
-  for (const row of scan.rows) {
-    if (row.state !== "blocked" || row.requiredRoute !== "refresh-region-policy" || !row.path.endsWith("/task_plan.md"))
-      continue;
-    const taskId = input.projection.taskIdForDocumentPath(row.path),
-      task = taskId === null ? null : input.projection.read(taskId).snapshot.task;
-    if (task !== null && row.regionId === `heading/${task.title.toLowerCase()}`)
-      return [
-        "restore the H1 of ",
-        `${row.path}`,
-        ' to the task title verbatim ("# ',
-        `${task.title}`,
-        '"), then rerun ha doc sync --submit --path ',
-        `${row.path}`,
-        "",
-      ].join("");
-  }
-  return null;
 }
 
 export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
