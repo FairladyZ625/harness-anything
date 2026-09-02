@@ -165,7 +165,7 @@ export function validateVerticalDefinition(vertical: VerticalDefinition): Extens
       );
       continue;
     }
-    if (!entity.contractEntity) {
+    if (!("contractEntity" in entity) || !entity.contractEntity) {
       issues.push(
         extensionIssue(
           "vertical_contract_entity_disabled",
@@ -405,9 +405,42 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
   validateEntityFieldExtensionsShape(input.entityFieldExtensions, `${path}.entityFieldExtensions`, issues);
   if (Array.isArray(input.entityKinds)) {
     for (const [index, entity] of input.entityKinds.entries()) {
+      const entityPath = `${path}.entityKinds[${index}]`;
+      if (isExtensionRecord(entity) && entity.entityType === "artifact") {
+        validateObjectKeys(
+          entity,
+          entityPath,
+          [
+            "id",
+            "entityType",
+            "version",
+            "idPrefix",
+            "display",
+            "descriptorSchemaRef",
+            "store",
+            "locatorKinds",
+            "relations",
+            "maturityVocabulary",
+          ],
+          issues,
+        );
+        validateObjectKeys(entity.display, `${entityPath}.display`, ["singular", "plural"], issues);
+        validateObjectKeys(entity.store, `${entityPath}.store`, ["pathTemplate"], issues);
+        if (Array.isArray(entity.relations)) {
+          for (const [relationIndex, relation] of entity.relations.entries()) {
+            validateObjectKeys(
+              relation,
+              `${entityPath}.relations[${relationIndex}]`,
+              ["type", "sourceKind", "targetKind", "decisionClaimRef"],
+              issues,
+            );
+          }
+        }
+        continue;
+      }
       validateObjectKeys(
         entity,
-        `${path}.entityKinds[${index}]`,
+        entityPath,
         ["id", "entityType", "packageKind", "schemaRef", "contractEntity"],
         issues,
       );

@@ -1,8 +1,4 @@
-import {
-  assertCanonicalVertical,
-  loadCanonicalAssets,
-  packageCatalog,
-} from "./preset-assets.ts";
+import { assertCanonicalVertical, loadCanonicalAssets, packageCatalog } from "./preset-assets.ts";
 import { effectiveCatalog } from "./preset-catalog.ts";
 import { catalogRecovery, listCatalog } from "./preset-discovery.ts";
 import {
@@ -45,45 +41,28 @@ import path from "node:path";
 
 export function createRuntime(options: PresetResolverOptions): {
   readonly resolver: CanonicalPresetResolver;
-  readonly resolveInternal: (
-    request: ResolvePresetRequestV1,
-  ) => InternalPresetResolution;
+  readonly resolveInternal: (request: ResolvePresetRequestV1) => InternalPresetResolution;
 } {
   const bundledRoot = path.resolve(options.bundledRoot ?? defaultBundled),
     userRoot = path.resolve(options.userRoot),
     assetsRoot = path.resolve(options.assetsRoot ?? defaultAssets),
     kernelVersion = options.kernelVersion ?? "1.0.0";
   let cachedAssets: CanonicalAssets | undefined;
-  const resolveInternal = (
-    request: ResolvePresetRequestV1,
-  ): InternalPresetResolution => {
+  const resolveInternal = (request: ResolvePresetRequestV1): InternalPresetResolution => {
     const assets = (cachedAssets ??= loadCanonicalAssets(assetsRoot)),
       inventory = effectiveCatalog(bundledRoot, userRoot),
       selected = inventory.get(key(request.verticalId, request.presetId));
     if (selected && !selected.decoded)
-      throw (
-        selected.error ??
-        presetFailure(
-          "shadow_invalid",
-          `User shadow ${request.presetId} is invalid.`,
-        )
-      );
+      throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
     assertCanonicalVertical(assets, request.verticalId);
-    if (!selected)
-      throw presetFailure(
-        "preset_not_found",
-        `Preset ${request.presetId} is not installed.`,
-      );
+    if (!selected) throw presetFailure("preset_not_found", `Preset ${request.presetId} is not installed.`);
     const ancestry = resolveAncestry(inventory, selected, request.verticalId),
       manifests = ancestry.map((item) => item.decoded!.manifest);
     for (const manifest of manifests)
       if (
         compareVersion(kernelVersion, manifest.kernelVersionRange.min) < 0 ||
         (manifest.kernelVersionRange.maxExclusive &&
-          compareVersion(
-            kernelVersion,
-            manifest.kernelVersionRange.maxExclusive,
-          ) >= 0)
+          compareVersion(kernelVersion, manifest.kernelVersionRange.maxExclusive) >= 0)
       )
         throw presetFailure(
           "incompatible_kernel",
@@ -92,10 +71,7 @@ export function createRuntime(options: PresetResolverOptions): {
     const leaf = ancestry.at(-1)!.decoded!,
       leafManifest = manifests.at(-1)!,
       profiles = manifests.map((manifest, index) =>
-        profileFor(
-          manifest,
-          index === manifests.length - 1 ? request.profileId : undefined,
-        ),
+        profileFor(manifest, index === manifests.length - 1 ? request.profileId : undefined),
       ),
       profile = profiles.at(-1)!,
       imports = manifests.flatMap((manifest, index) => [
@@ -107,13 +83,8 @@ export function createRuntime(options: PresetResolverOptions): {
     const missingProviderIds: string[] = [];
     for (const imported of imports) {
       const provider = providerMap.get(imported.id);
-      if (
-        !provider ||
-        provider.kind !== imported.kind ||
-        provider.version !== imported.version
-      ) {
-        if (!("required" in imported) || imported.required)
-          missingProviderIds.push(imported.id);
+      if (!provider || provider.kind !== imported.kind || provider.version !== imported.version) {
+        if (!("required" in imported) || imported.required) missingProviderIds.push(imported.id);
         continue;
       }
       requiredTaskClass = provider.requiredTaskClass ?? requiredTaskClass;
@@ -124,14 +95,10 @@ export function createRuntime(options: PresetResolverOptions): {
         `Capability providers ${missingProviderIds.join(", ")} are unavailable.`,
         missingProviderIds,
       );
-    const taskPackageScaffold = assets.vertical.packageScaffolds.find(
+    const taskPackageScaffold = assets.compiledVertical.definition.packageScaffolds.find(
       (item) => item.entityKind === "task",
     );
-    if (!taskPackageScaffold)
-      throw presetFailure(
-        "invalid_vertical",
-        "Vertical task package scaffold is unavailable.",
-      );
+    if (!taskPackageScaffold) throw presetFailure("invalid_vertical", "Vertical task package scaffold is unavailable.");
     const selections = new Map<string, ResolverScaffoldSelection>(
         taskPackageScaffold.templateSelections.map((selection) => [
           selection.slot,
@@ -139,18 +106,14 @@ export function createRuntime(options: PresetResolverOptions): {
             selection,
             owner: "doc-sync",
             source: assets.catalog,
-            requiredAnchors: catalogAnchors(
-              assets.catalog,
-              selection.templateRef,
-            ),
+            requiredAnchors: catalogAnchors(assets.catalog, selection.templateRef),
           },
         ]),
       ),
       overlay = mergeScaffoldOverlay(
         {
           target: options.projectScaffold,
-          templateRoot:
-            options.projectRoot ?? path.dirname(options.projectScaffold ?? ""),
+          templateRoot: options.projectRoot ?? path.dirname(options.projectScaffold ?? ""),
           schema: "task-scaffold/v1",
           errorCode: "invalid_task_scaffold",
           pathAllowed: taskOverlayPath,
@@ -164,20 +127,12 @@ export function createRuntime(options: PresetResolverOptions): {
           : assets.catalog;
       for (const selection of selectedProfile.templateSelections) {
         const previous = selections.get(selection.slot);
-        if (
-          previous &&
-          previous.selection.templateRef !== selection.templateRef
-        ) {
+        if (previous && previous.selection.templateRef !== selection.templateRef) {
           const allowed = imports.some(
-            (item) =>
-              providerMap.get(item.id)?.templateOverrides?.[selection.slot] ===
-              selection.templateRef,
+            (item) => providerMap.get(item.id)?.templateOverrides?.[selection.slot] === selection.templateRef,
           );
           if (!allowed)
-            throw presetFailure(
-              "slot_conflict",
-              `Template slot ${selection.slot} conflicts without a provider.`,
-            );
+            throw presetFailure("slot_conflict", `Template slot ${selection.slot} conflicts without a provider.`);
         }
         selections.set(selection.slot, {
           selection,
@@ -187,46 +142,29 @@ export function createRuntime(options: PresetResolverOptions): {
         });
       }
     }
-    const documents = materializeSelections(
-        [...selections.values()],
-        normalizeLocale(request.locale),
-      ),
+    const documents = materializeSelections([...selections.values()], normalizeLocale(request.locale)),
       catalogDigests = [
-        ...new Set(
-          [...selections.values()].flatMap((item) =>
-            item.source ? [item.source.sha256] : [],
-          ),
-        ),
+        ...new Set([...selections.values()].flatMap((item) => (item.source ? [item.source.sha256] : []))),
       ].sort(),
       templateCatalogSha256 =
-        catalogDigests.length === 1
-          ? catalogDigests[0]!
-          : resolverContentHash(canonicalPresetBytes(catalogDigests));
+        catalogDigests.length === 1 ? catalogDigests[0]! : resolverContentHash(canonicalPresetBytes(catalogDigests));
     const entrypoints: Record<string, OwnedEntrypoint> = Object.assign(
       {},
       ...ancestry.map((item, index) =>
         Object.fromEntries(
-          Object.entries(manifests[index]!.entrypoints ?? {}).map(
-            ([name, definition]) => [
-              name,
-              {
-                definition,
-                root: item.decoded!.root,
-                packageDigest: item.decoded!.packageDigest,
-              },
-            ],
-          ),
+          Object.entries(manifests[index]!.entrypoints ?? {}).map(([name, definition]) => [
+            name,
+            {
+              definition,
+              root: item.decoded!.root,
+              packageDigest: item.decoded!.packageDigest,
+            },
+          ]),
         ),
       ),
     );
-    if (
-      request.purpose === "script-run" &&
-      (!request.entrypoint || !entrypoints[request.entrypoint])
-    )
-      throw presetFailure(
-        "entrypoint_not_found",
-        `Entrypoint ${request.entrypoint ?? "<missing>"} is not declared.`,
-      );
+    if (request.purpose === "script-run" && (!request.entrypoint || !entrypoints[request.entrypoint]))
+      throw presetFailure("entrypoint_not_found", `Entrypoint ${request.entrypoint ?? "<missing>"} is not declared.`);
     for (const [name, owned] of Object.entries(entrypoints)) {
       const command = path.resolve(owned.root, owned.definition.command);
       if (
@@ -235,22 +173,11 @@ export function createRuntime(options: PresetResolverOptions): {
         !lstatSync(command).isFile() ||
         lstatSync(command).isSymbolicLink()
       )
-        throw presetFailure(
-          "missing_script",
-          `Entrypoint ${name} command is missing or unsafe.`,
-        );
-      const missing = [
-        ...owned.definition.requires,
-        ...owned.definition.produces,
-        ...owned.definition.sideEffects,
-      ]
+        throw presetFailure("missing_script", `Entrypoint ${name} command is missing or unsafe.`);
+      const missing = [...owned.definition.requires, ...owned.definition.produces, ...owned.definition.sideEffects]
         .filter((capability) => {
           const provider = providerMap.get(capability.id);
-          return (
-            !provider ||
-            provider.kind !== capability.kind ||
-            provider.version !== capability.version
-          );
+          return !provider || provider.kind !== capability.kind || provider.version !== capability.version;
         })
         .map(({ id }) => id);
       if (missing.length)
@@ -310,27 +237,22 @@ export function createRuntime(options: PresetResolverOptions): {
           },
         })),
         entrypoints: Object.fromEntries(
-          Object.entries(entrypoints).map(
-            ([name, { definition: item, root }]) => {
-              const commandBody = requiredRegularFile(
-                path.resolve(root, item.command),
-                "missing_script",
-              );
-              return [
-                name,
-                {
-                  type: "script" as const,
-                  intent: item.intent,
-                  inputs: item.inputs,
-                  requires: item.requires,
-                  produces: item.produces,
-                  sideEffects: item.sideEffects,
-                  commandRef: item.command,
-                  commandSha256: resolverContentHash(commandBody),
-                },
-              ];
-            },
-          ),
+          Object.entries(entrypoints).map(([name, { definition: item, root }]) => {
+            const commandBody = requiredRegularFile(path.resolve(root, item.command), "missing_script");
+            return [
+              name,
+              {
+                type: "script" as const,
+                intent: item.intent,
+                inputs: item.inputs,
+                requires: item.requires,
+                produces: item.produces,
+                sideEffects: item.sideEffects,
+                commandRef: item.command,
+                commandSha256: resolverContentHash(commandBody),
+              },
+            ];
+          }),
         ),
         provenance: {
           manifestSha256: leaf.manifestSha256,
@@ -341,12 +263,9 @@ export function createRuntime(options: PresetResolverOptions): {
           ancestry: ancestry.map((item) => item.id),
         },
       },
-      digest =
-        `sha256:${resolverContentHash(canonicalPresetBytes(withoutDigest))}` as const;
+      digest = `sha256:${resolverContentHash(canonicalPresetBytes(withoutDigest))}` as const;
     const executablePackage =
-      request.purpose === "script-run" && request.entrypoint
-        ? entrypoints[request.entrypoint]!
-        : leaf;
+      request.purpose === "script-run" && request.entrypoint ? entrypoints[request.entrypoint]! : leaf;
     return {
       manifest: leaf.manifest,
       document: leaf.document,
@@ -360,10 +279,7 @@ export function createRuntime(options: PresetResolverOptions): {
         requiredAnchors: item.requiredAnchors,
         templateRef: item.selection.templateRef,
       })),
-      scripts:
-        request.purpose === "task-create"
-          ? presetPackageScripts(leaf.root)
-          : [],
+      scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.root) : [],
       ...(requiredTaskClass ? { requiredTaskClass } : {}),
       packageRoot: executablePackage.root,
       packageDigest: executablePackage.packageDigest,
@@ -382,33 +298,28 @@ export function createRuntime(options: PresetResolverOptions): {
   };
   const resolver: CanonicalPresetResolver = {
     list: async ({ verticalId }) =>
-      listCatalog(effectiveCatalog(bundledRoot, userRoot), verticalId).map(
-        (entry) => {
-          if (entry.validity !== "valid") return entry;
-          try {
-            resolveInternal({
-              presetId: entry.id,
-              verticalId,
-              locale: "en-US",
-              purpose: "inspect",
-            });
-            return entry;
-          } catch (error) {
-            const known = asFailure(error);
-            return {
-              ...entry,
-              validity:
-                known.code === "missing_provider"
-                  ? ("unavailable" as const)
-                  : ("blocked" as const),
-              errorCode: known.code,
-              issues: [{ code: known.code, message: known.message }],
-              issueCount: 1,
-              ...catalogRecovery(entry, known),
-            };
-          }
-        },
-      ),
+      listCatalog(effectiveCatalog(bundledRoot, userRoot), verticalId).map((entry) => {
+        if (entry.validity !== "valid") return entry;
+        try {
+          resolveInternal({
+            presetId: entry.id,
+            verticalId,
+            locale: "en-US",
+            purpose: "inspect",
+          });
+          return entry;
+        } catch (error) {
+          const known = asFailure(error);
+          return {
+            ...entry,
+            validity: known.code === "missing_provider" ? ("unavailable" as const) : ("blocked" as const),
+            errorCode: known.code,
+            issues: [{ code: known.code, message: known.message }],
+            issueCount: 1,
+            ...catalogRecovery(entry, known),
+          };
+        }
+      }),
     resolve: async (request): Promise<PresetResolveResultV1> => {
       try {
         const resolved = resolveInternal(request);
@@ -443,35 +354,22 @@ export function createRuntime(options: PresetResolverOptions): {
 export function profileFor(manifest: PresetTaskManifestV3, requested?: string) {
   const id = requested ?? manifest.defaultProfile,
     profile = manifest.profiles.find((item) => item.id === id);
-  if (!profile)
-    throw presetFailure("missing_profile", `Profile ${id} is unavailable.`);
+  if (!profile) throw presetFailure("missing_profile", `Profile ${id} is unavailable.`);
   return profile;
 }
 
-export function resolveAncestry(
-  catalog: Map<string, Candidate>,
-  selected: Candidate,
-  verticalId: string,
-): Candidate[] {
+export function resolveAncestry(catalog: Map<string, Candidate>, selected: Candidate, verticalId: string): Candidate[] {
   const ancestry: Candidate[] = [],
     seen = new Set<string>();
   let current: Candidate | undefined = selected;
   while (current) {
-    if (seen.has(current.id))
-      throw presetFailure(
-        "extends_cycle",
-        `Preset extends cycle includes ${current.id}.`,
-      );
+    if (seen.has(current.id)) throw presetFailure("extends_cycle", `Preset extends cycle includes ${current.id}.`);
     seen.add(current.id);
     ancestry.unshift(current);
     const parentId = current.decoded!.manifest.extends;
     if (!parentId) break;
     const parent = catalog.get(key(verticalId, parentId));
-    if (!parent?.decoded)
-      throw presetFailure(
-        "missing_parent",
-        `Preset parent ${parentId} is missing or invalid.`,
-      );
+    if (!parent?.decoded) throw presetFailure("missing_parent", `Preset parent ${parentId} is missing or invalid.`);
     current = parent;
   }
   return ancestry;

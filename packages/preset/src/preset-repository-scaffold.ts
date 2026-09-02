@@ -1,15 +1,6 @@
-import {
-  normalizeRelativeDocumentPath,
-  resolveHarnessLayout,
-} from "../../kernel/src/index.ts";
-import {
-  assertCanonicalVertical,
-  loadCanonicalAssets,
-} from "./preset-assets.ts";
-import {
-  catalogAnchors,
-  materializeSelections,
-} from "./preset-materialization.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { assertCanonicalVertical, loadCanonicalAssets } from "./preset-assets.ts";
+import { catalogAnchors, materializeSelections } from "./preset-materialization.ts";
 import {
   defaultAssets,
   isWithinPresetAssetRoot,
@@ -37,29 +28,22 @@ export function compileRepositoryScaffold(input: {
 }): RepositoryScaffoldPlan {
   const rootDir = path.resolve(input.rootDir),
     layout = resolveHarnessLayout(rootDir),
-    assets = loadCanonicalAssets(
-      path.resolve(input.assetsRoot ?? defaultAssets),
-    ),
+    assets = loadCanonicalAssets(path.resolve(input.assetsRoot ?? defaultAssets)),
     locale = normalizeLocale(input.locale);
   assertCanonicalVertical(assets, input.verticalId);
-  const overlayTarget = input.projectScaffold
-    ? path.resolve(input.projectScaffold)
-    : undefined;
-  if (
-    overlayTarget &&
-    !isWithinPresetAssetRoot(layout.authoredRoot, overlayTarget)
-  )
+  const overlayTarget = input.projectScaffold ? path.resolve(input.projectScaffold) : undefined;
+  if (overlayTarget && !isWithinPresetAssetRoot(layout.authoredRoot, overlayTarget))
     throw presetFailure(
       "invalid_repository_scaffold",
       "settings.scaffolds.repository must remain inside the authored root.",
     );
   const agents = composeAgentsSelection(assets, locale),
     baseSlots = new Set([
-      ...assets.vertical.repositoryScaffold.seededDocs.map(({ slot }) => slot),
+      ...assets.compiledVertical.definition.repositoryScaffold.seededDocs.map(({ slot }) => slot),
       ...(agents ? [agents.selection.slot] : []),
     ]),
     selections = new Map<string, ResolverScaffoldSelection>([
-      ...assets.vertical.repositoryScaffold.seededDocs.map(
+      ...assets.compiledVertical.definition.repositoryScaffold.seededDocs.map(
         (selection) =>
           [
             selection.slot,
@@ -67,11 +51,7 @@ export function compileRepositoryScaffold(input: {
               selection,
               owner: "doc-sync" as const,
               source: assets.catalog,
-              requiredAnchors: catalogAnchors(
-                assets.catalog,
-                selection.templateRef,
-                "invalid_vertical",
-              ),
+              requiredAnchors: catalogAnchors(assets.catalog, selection.templateRef, "invalid_vertical"),
             },
           ] as const,
       ),
@@ -84,9 +64,7 @@ export function compileRepositoryScaffold(input: {
         schema: "repository-scaffold/v1",
         errorCode: "invalid_repository_scaffold",
         pathAllowed: repositoryOverlayPath,
-        replaceAllowed: (slot) =>
-          !slot.startsWith("repository.walls.") &&
-          slot !== "repository.agent.entry",
+        replaceAllowed: (slot) => !slot.startsWith("repository.walls.") && slot !== "repository.agent.entry",
       },
       selections,
     ),
@@ -116,15 +94,10 @@ export function compileRepositoryScaffold(input: {
         disposition: "created",
       };
     if (!lstatSync(absolute).isFile() || lstatSync(absolute).isSymbolicLink())
-      throw presetFailure(
-        "reserved_path",
-        `Repository scaffold path ${target} is not a regular file.`,
-      );
+      throw presetFailure("reserved_path", `Repository scaffold path ${target} is not a regular file.`);
     const existing = readFileSync(absolute, "utf8"),
       existingSha256 = resolverContentHash(existing),
-      disposition = item.requiredAnchors.every((anchor) =>
-        existing.includes(anchor),
-      )
+      disposition = item.requiredAnchors.every((anchor) => existing.includes(anchor))
         ? ("preserved" as const)
         : ("drifted" as const);
     return {
@@ -143,11 +116,11 @@ export function compileRepositoryScaffold(input: {
   const plan = {
       schema: "repository-scaffold-plan/v1" as const,
       rootDir,
-      verticalId: assets.vertical.id,
-      verticalVersion: assets.vertical.version,
+      verticalId: assets.compiledVertical.definition.id,
+      verticalVersion: assets.compiledVertical.definition.version,
       verticalDigest: `sha256:${assets.verticalSha256}` as const,
       baseScaffoldDigest:
-        `sha256:${resolverContentHash(canonicalPresetBytes(assets.vertical.repositoryScaffold))}` as const,
+        `sha256:${resolverContentHash(canonicalPresetBytes(assets.compiledVertical.definition.repositoryScaffold))}` as const,
       projectOverlayPath:
         overlayTarget && existsSync(overlayTarget)
           ? path.relative(rootDir, overlayTarget).split(path.sep).join("/")
@@ -170,7 +143,7 @@ export function composeAgentsSelection(
   assets: CanonicalAssets,
   locale: "zh-CN" | "en-US",
 ): ResolverScaffoldSelection | undefined {
-  const entry = assets.vertical.repositoryScaffold.agentsEntry;
+  const entry = assets.compiledVertical.definition.repositoryScaffold.agentsEntry;
   if (!entry) return undefined;
   const layer = (slot: string, templateRef: string) =>
       materializeSelections(
@@ -184,11 +157,7 @@ export function composeAgentsSelection(
             },
             owner: "doc-sync",
             source: assets.catalog,
-            requiredAnchors: catalogAnchors(
-              assets.catalog,
-              templateRef,
-              "invalid_vertical",
-            ),
+            requiredAnchors: catalogAnchors(assets.catalog, templateRef, "invalid_vertical"),
           },
         ],
         locale,
@@ -208,9 +177,7 @@ export function composeAgentsSelection(
       localePolicy: entry.localePolicy,
     },
     owner: "doc-sync",
-    requiredAnchors: [
-      ...new Set([...base.requiredAnchors, ...overlay.requiredAnchors, anchor]),
-    ],
+    requiredAnchors: [...new Set([...base.requiredAnchors, ...overlay.requiredAnchors, anchor])],
     project: {
       body,
       mediaType: "text/markdown",
@@ -219,30 +186,21 @@ export function composeAgentsSelection(
   };
 }
 
-export function assertRepositoryScaffoldPlanCurrent(
-  plan: RepositoryScaffoldPlan,
-): void {
+export function assertRepositoryScaffoldPlanCurrent(plan: RepositoryScaffoldPlan): void {
   for (const document of plan.documents) {
     const target = path.join(plan.rootDir, ...document.path.split("/"));
     if (document.existingSha256 === null) {
       if (existsSync(target))
-        throw presetFailure(
-          "repository_plan_changed",
-          `${document.path} appeared after repository planning.`,
-        );
+        throw presetFailure("repository_plan_changed", `${document.path} appeared after repository planning.`);
       continue;
     }
     if (
       !existsSync(target) ||
       !lstatSync(target).isFile() ||
       lstatSync(target).isSymbolicLink() ||
-      resolverContentHash(readFileSync(target, "utf8")) !==
-        document.existingSha256
+      resolverContentHash(readFileSync(target, "utf8")) !== document.existingSha256
     )
-      throw presetFailure(
-        "repository_plan_changed",
-        `${document.path} changed after repository planning.`,
-      );
+      throw presetFailure("repository_plan_changed", `${document.path} changed after repository planning.`);
   }
 }
 
@@ -257,8 +215,7 @@ export function repositoryPath(
   used: Set<string>,
   base: boolean,
 ): string {
-  const relative = (target: string) =>
-      path.relative(rootDir, target).split(path.sep).join("/"),
+  const relative = (target: string) => path.relative(rootDir, target).split(path.sep).join("/"),
     authored = relative(layout.authoredRoot),
     context = relative(layout.contextRoot),
     substitutions = {
@@ -269,19 +226,13 @@ export function repositoryPath(
       "{{paths.adrRoot}}": relative(layout.adrRoot),
       "{{paths.milestonesRoot}}": relative(layout.milestonesRoot),
     };
-  let expanded = value
-    .replaceAll("{{paths.rootDir}}/", "")
-    .replaceAll("{{paths.rootDir}}", "");
-  for (const [token, target] of Object.entries(substitutions))
-    expanded = expanded.replaceAll(token, target);
+  let expanded = value.replaceAll("{{paths.rootDir}}/", "").replaceAll("{{paths.rootDir}}", "");
+  for (const [token, target] of Object.entries(substitutions)) expanded = expanded.replaceAll(token, target);
   let normalized: string;
   try {
     normalized = normalizeRelativeDocumentPath(expanded);
   } catch {
-    throw presetFailure(
-      "reserved_path",
-      `Repository scaffold path ${value} is unsafe.`,
-    );
+    throw presetFailure("reserved_path", `Repository scaffold path ${value} is unsafe.`);
   }
   const folded = normalized.toLocaleLowerCase("en-US"),
     forbidden = [
@@ -291,26 +242,16 @@ export function repositoryPath(
       `${authored}/objects`,
       `${context}/architecture/architecture-manifest.json`,
       `${context}/architecture/model`,
-      ...(base
-        ? []
-        : [
-            relative(layout.standardsRoot),
-            relative(path.join(layout.governanceRoot, "walls")),
-          ]),
+      ...(base ? [] : [relative(layout.standardsRoot), relative(path.join(layout.governanceRoot, "walls"))]),
     ].map((target) => target.toLocaleLowerCase("en-US"));
   if (
     expanded !== normalized ||
     used.has(folded) ||
     !repositoryOverlayPath(normalized) ||
     (!base && /(?:^|\/)standards(?:\/|$)/iu.test(normalized)) ||
-    forbidden.some(
-      (target) => folded === target || folded.startsWith(`${target}/`),
-    )
+    forbidden.some((target) => folded === target || folded.startsWith(`${target}/`))
   )
-    throw presetFailure(
-      "reserved_path",
-      `Repository scaffold path ${value} is unsafe or duplicated.`,
-    );
+    throw presetFailure("reserved_path", `Repository scaffold path ${value} is unsafe or duplicated.`);
   used.add(folded);
   return normalized;
 }

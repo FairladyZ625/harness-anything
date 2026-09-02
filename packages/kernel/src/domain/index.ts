@@ -154,13 +154,26 @@ export {
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
+export type { EntityActionContract, EntityKindContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
 
 export { deriveUseCaseProjectionInputs } from "./use-case-projection-catalog.ts";
 export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
-export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
-export type { BaseEntity } from "./base-entity.ts";
+export { baseEntityActionIds, projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
+export type { BaseEntity, EntityTypeContract } from "./base-entity.ts";
+export {
+  acceptVerticalRegistryCandidate,
+  COMPILED_VERTICAL_CONTRACT_SCHEMA,
+  compileVerticalContract,
+  emptyCompiledVerticalRegistry,
+  VerticalContractError,
+} from "./vertical-contract.ts";
+export type {
+  CompiledArtifactKindContract,
+  CompiledArtifactRelationRequest,
+  CompiledVerticalContract,
+  CompiledVerticalRegistry,
+} from "./vertical-contract.ts";
 export type {
   EntityActionCriterionFailure,
   EntityActionCompileInput,

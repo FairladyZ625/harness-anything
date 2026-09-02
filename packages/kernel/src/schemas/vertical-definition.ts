@@ -1,7 +1,9 @@
 import { Schema } from "effect";
+import { RelationTypeSchema } from "./entity-relations.ts";
 
 const LocaleSchema = Schema.Literal("zh-CN", "en-US");
 const StringArray = Schema.Array(Schema.String);
+const NonBlankStringSchema = Schema.String.pipe(Schema.pattern(/\S/u));
 
 const TemplateSelectionSchema = Schema.Struct({
   slot: Schema.String,
@@ -9,12 +11,14 @@ const TemplateSelectionSchema = Schema.Struct({
   materializeAs: Schema.String,
   localePolicy: Schema.Struct({
     prefer: Schema.Literal("project", "preset", "explicit"),
-    fallback: LocaleSchema
+    fallback: LocaleSchema,
   }),
-  requiredWhen: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.String
-  }))
+  requiredWhen: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.String,
+    }),
+  ),
 });
 
 const RepositoryScaffoldCreateModeSchema = Schema.Literal("init", "lazy");
@@ -25,13 +29,15 @@ const RepositorySeededDocSchema = Schema.Struct({
   materializeAs: Schema.String,
   localePolicy: Schema.Struct({
     prefer: Schema.Literal("project", "preset", "explicit"),
-    fallback: LocaleSchema
+    fallback: LocaleSchema,
   }),
-  requiredWhen: Schema.optional(Schema.Record({
-    key: Schema.String,
-    value: Schema.String
-  })),
-  overwrite: Schema.optional(Schema.Boolean)
+  requiredWhen: Schema.optional(
+    Schema.Record({
+      key: Schema.String,
+      value: Schema.String,
+    }),
+  ),
+  overwrite: Schema.optional(Schema.Boolean),
 });
 
 // AGENTS.md three-layer composite slot (ADR-0021 D2/D5).
@@ -44,26 +50,30 @@ const AgentsEntrySchema = Schema.Struct({
   materializeAs: Schema.String,
   localePolicy: Schema.Struct({
     prefer: Schema.Literal("project", "preset", "explicit"),
-    fallback: LocaleSchema
+    fallback: LocaleSchema,
   }),
   baseRef: Schema.String,
   overlayRef: Schema.String,
   repoSpecificsAnchor: Schema.optional(Schema.String),
-  overwrite: Schema.optional(Schema.Boolean)
+  overwrite: Schema.optional(Schema.Boolean),
 });
 
 const RepositoryScaffoldSchema = Schema.Struct({
-  entityRoots: Schema.Array(Schema.Struct({
-    entityKind: Schema.String,
-    path: Schema.String,
-    create: RepositoryScaffoldCreateModeSchema
-  })),
-  dirs: Schema.Array(Schema.Struct({
-    path: Schema.String,
-    create: RepositoryScaffoldCreateModeSchema
-  })),
+  entityRoots: Schema.Array(
+    Schema.Struct({
+      entityKind: Schema.String,
+      path: Schema.String,
+      create: RepositoryScaffoldCreateModeSchema,
+    }),
+  ),
+  dirs: Schema.Array(
+    Schema.Struct({
+      path: Schema.String,
+      create: RepositoryScaffoldCreateModeSchema,
+    }),
+  ),
   seededDocs: Schema.Array(RepositorySeededDocSchema),
-  agentsEntry: Schema.optional(AgentsEntrySchema)
+  agentsEntry: Schema.optional(AgentsEntrySchema),
 });
 
 const VerticalScriptSchema = Schema.Struct({
@@ -74,15 +84,15 @@ const VerticalScriptSchema = Schema.Struct({
   writes: StringArray,
   inputs: Schema.Record({
     key: Schema.String,
-    value: Schema.String
+    value: Schema.String,
   }),
   metadata: Schema.Struct({
     description: Schema.String,
     purpose: Schema.Literal("scaffold", "generate", "transform", "audit"),
     kind: Schema.optional(Schema.Literal("action", "check")),
     contractVersion: Schema.Literal("script-entry/v1"),
-    produces: StringArray
-  })
+    produces: StringArray,
+  }),
 });
 
 const EntityFieldExtensionSchema = Schema.Struct({
@@ -94,9 +104,36 @@ const EntityFieldExtensionSchema = Schema.Struct({
   mutability: Schema.Literal("amendable"),
   projection: Schema.Struct({
     column: Schema.String,
-    queryable: Schema.Boolean
+    queryable: Schema.Boolean,
   }),
-  reason: Schema.String
+  reason: Schema.String,
+});
+
+export const artifactLocatorKinds = Object.freeze(["repository-path", "url", "external-key"] as const);
+
+const ArtifactRelationSchema = Schema.Struct({
+  type: RelationTypeSchema,
+  sourceKind: NonBlankStringSchema,
+  targetKind: NonBlankStringSchema,
+  decisionClaimRef: NonBlankStringSchema,
+});
+
+const ArtifactEntityKindSchema = Schema.Struct({
+  id: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u)),
+  entityType: Schema.Literal("artifact"),
+  version: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
+  idPrefix: Schema.String.pipe(Schema.pattern(/^[A-Z][A-Z0-9]{0,15}$/u)),
+  display: Schema.Struct({
+    singular: NonBlankStringSchema,
+    plural: NonBlankStringSchema,
+  }),
+  descriptorSchemaRef: Schema.String.pipe(Schema.pattern(/^schema:\/\/[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u)),
+  store: Schema.Struct({
+    pathTemplate: NonBlankStringSchema,
+  }),
+  locatorKinds: Schema.Array(Schema.Literal(...artifactLocatorKinds)).pipe(Schema.minItems(1)),
+  relations: Schema.optional(Schema.Array(ArtifactRelationSchema)),
+  maturityVocabulary: Schema.optional(Schema.Array(NonBlankStringSchema).pipe(Schema.minItems(1))),
 });
 
 export const VerticalDefinitionSchema = Schema.Struct({
@@ -105,31 +142,50 @@ export const VerticalDefinitionSchema = Schema.Struct({
   title: Schema.String,
   version: Schema.String,
   entityFieldExtensions: Schema.optional(Schema.Array(EntityFieldExtensionSchema)),
-  entityKinds: Schema.Array(Schema.Union(
-    Schema.Struct({
-      id: Schema.String,
-      entityType: Schema.Literal("lifecycle"),
-      packageKind: Schema.String,
-      contractEntity: Schema.Boolean
-    }),
-    Schema.Struct({
-      id: Schema.String,
-      entityType: Schema.Literal("schema"),
-      schemaRef: Schema.String,
-      contractEntity: Schema.Boolean
-    })
-  )).pipe(Schema.minItems(1)),
+  entityKinds: Schema.Array(
+    Schema.Union(
+      Schema.Struct({
+        id: Schema.String,
+        entityType: Schema.Literal("lifecycle"),
+        packageKind: Schema.String,
+        contractEntity: Schema.Boolean,
+      }),
+      Schema.Struct({
+        id: Schema.String,
+        entityType: Schema.Literal("schema"),
+        schemaRef: Schema.String,
+        contractEntity: Schema.Boolean,
+      }),
+      ArtifactEntityKindSchema,
+    ),
+  ).pipe(Schema.minItems(1)),
   contractEntityKinds: StringArray,
-  packageScaffolds: Schema.Array(Schema.Struct({
-    entityKind: Schema.String,
-    templateSelections: Schema.Array(TemplateSelectionSchema)
-  })),
+  packageScaffolds: Schema.Array(
+    Schema.Struct({
+      entityKind: Schema.String,
+      templateSelections: Schema.Array(TemplateSelectionSchema),
+    }),
+  ),
   repositoryScaffold: RepositoryScaffoldSchema,
   scripts: Schema.Array(VerticalScriptSchema),
   templateSelections: Schema.Array(TemplateSelectionSchema),
   checkerProfile: Schema.String,
-  projectionSchemas: Schema.Array(Schema.Struct({
-    id: Schema.String,
-    schemaRef: Schema.String
-  }))
+  projectionSchemas: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      schemaRef: Schema.String,
+    }),
+  ),
 });
+
+export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
+export type ArtifactEntityKindDefinition = Extract<
+  VerticalDefinition["entityKinds"][number],
+  { readonly entityType: "artifact" }
+>;
+export type ArtifactRelationDefinition = NonNullable<ArtifactEntityKindDefinition["relations"]>[number];
+
+/** Decode once, fail closed on every unknown field, and preserve that exact value for compilation consumers. */
+export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
+  return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
+}

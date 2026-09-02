@@ -33,6 +33,22 @@
       "entityType": "schema",
       "schemaRef": "schema://fact-event",
       "contractEntity": true
+    },
+    {
+      "id": "architecture-decision-record",
+      "entityType": "artifact",
+      "version": 1,
+      "idPrefix": "ADR",
+      "display": {
+        "singular": "Architecture Decision Record",
+        "plural": "Architecture Decision Records"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/architecture-decision-records/{id}.json"
+      },
+      "locatorKinds": ["repository-path"],
+      "relations": []
     }
   ],
   "contractEntityKinds": ["task", "decision", "fact"],
@@ -169,6 +185,7 @@
   "projectionSchemas": [
     { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
     { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
-    { "id": "fact-event", "schemaRef": "schema://fact-event" }
+    { "id": "fact-event", "schemaRef": "schema://fact-event" },
+    { "id": "artifact-descriptor", "schemaRef": "schema://artifact-descriptor" }
   ]
 }

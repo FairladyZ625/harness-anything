@@ -20,10 +20,10 @@ import {
   compileRepositoryScaffold,
   createRuntime,
   installPresetPackage,
-  runBuiltinDiscoveryAction,
+  runVerticalDiscoveryAction,
   seedPresetPackages,
   uninstallPresetPackage,
-  validateBuiltinVertical,
+  validateVerticalSource,
   validatePresetPackage,
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
@@ -45,9 +45,9 @@ export async function runPresetAction(input: {
   const action = input.action,
     dryRun = action.dryRun === true;
   if (action.kind === "vertical-validate")
-    return validateBuiltinVertical({ source: optionalActionText(action.verticalSource) });
+    return validateVerticalSource({ source: optionalActionText(action.verticalSource), rootDir: input.rootDir });
   if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
-    return runBuiltinDiscoveryAction(action);
+    return runVerticalDiscoveryAction(action);
   if (action.kind === "preset-validate")
     return validatePresetPackage({
       source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")),

@@ -168,7 +168,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
   }
 });
 
-test("builtin vertical validation is closed while custom verticals stay explicitly unavailable", async () => {
+test("vertical validation reports builtin success and missing custom sources", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-validate-"));
   try {
     const builtin = (await runPresetAction({
@@ -209,7 +209,7 @@ test("builtin vertical validation is closed while custom verticals stay explicit
     assert.equal(custom.valid, false);
     assert.deepEqual(
       custom.issues.map(({ code }) => code),
-      ["custom_vertical_unavailable"],
+      ["missing_vertical"],
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -266,6 +266,22 @@ test("software coding declaration closes lifecycle, repository, projection, and 
       schemaRef: "schema://fact-event",
       contractEntity: true,
     },
+    {
+      id: "architecture-decision-record",
+      entityType: "artifact",
+      version: 1,
+      idPrefix: "ADR",
+      display: {
+        singular: "Architecture Decision Record",
+        plural: "Architecture Decision Records",
+      },
+      descriptorSchemaRef: "schema://artifact-descriptor",
+      store: {
+        pathTemplate: "entities/architecture-decision-records/{id}.json",
+      },
+      locatorKinds: ["repository-path"],
+      relations: [],
+    },
   ]);
   assert.deepEqual(vertical.contractEntityKinds, ["task", "decision", "fact"]);
   assert.deepEqual(
@@ -308,6 +324,7 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     { id: "task-frontmatter", schemaRef: "schema://task-frontmatter" },
     { id: "decision-frontmatter", schemaRef: "schema://decision-frontmatter" },
     { id: "fact-event", schemaRef: "schema://fact-event" },
+    { id: "artifact-descriptor", schemaRef: "schema://artifact-descriptor" },
   ]);
   const catalog = JSON.parse(
       readFileSync(new URL("../assets/software-coding/template-catalog.json", import.meta.url), "utf8"),

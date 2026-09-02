@@ -20,12 +20,13 @@ type PresetCatalogDisplayEntry = PresetCatalogEntryV1 & {
   readonly profiles?: readonly { readonly id: string; readonly title: string }[];
 };
 
-export function runBuiltinDiscoveryAction(
+export function runVerticalDiscoveryAction(
   action: Readonly<Record<string, unknown>> & { readonly kind: string },
   assetsRoot = defaultAssets,
 ): unknown {
   const assets = loadCanonicalAssets(path.resolve(assetsRoot)),
-    source = `builtin:${assets.vertical.id}`;
+    vertical = assets.compiledVertical.definition,
+    source = `vertical:${vertical.id}`;
   if (action.kind === "template-list")
     return assets.catalog.catalog.documents
       .map((document) => ({
@@ -74,7 +75,7 @@ export function runBuiltinDiscoveryAction(
       digest: `sha256:${resolverContentHash(rendered.body)}`,
     };
   }
-  const scripts = [...assets.vertical.scripts].sort((left, right) => left.id.localeCompare(right.id));
+  const scripts = [...vertical.scripts].sort((left, right) => left.id.localeCompare(right.id));
   if (action.kind === "script-list")
     return scripts.map(({ id, type, metadata }) => ({
       id,
@@ -98,7 +99,7 @@ export function runBuiltinDiscoveryAction(
       },
     };
   }
-  throw presetFailure("unsupported_command", `No builtin discovery contract exists for ${action.kind}.`);
+  throw presetFailure("unsupported_command", `No vertical discovery contract exists for ${action.kind}.`);
 }
 
 export function listCatalog(catalog: Map<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
