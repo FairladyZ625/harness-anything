@@ -58,7 +58,7 @@ export function DocReader({
               <pre
                 className={
                   "my-4 overflow-x-auto rounded-md border border-border bg-surface p-3 " +
-                  "font-mono text-[12px] text-text-muted"
+                  "font-mono ui-meta text-text-muted"
                 }
               >
                 <code>{String(childProps.children ?? "").trim()}</code>
@@ -97,17 +97,17 @@ export function DocReader({
     >
       <div className="flex min-h-10 flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
         <div className="flex w-56 max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
-          <MagnifyingGlass weight="bold" className="shrink-0 text-[12px] text-text-faint" />
+          <MagnifyingGlass weight="bold" className="shrink-0 ui-meta text-text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="文档内搜索…"
             aria-label="文档内搜索"
-            className="w-full bg-transparent text-[12px] text-text outline-none placeholder:text-text-faint"
+            className="w-full bg-transparent ui-meta text-text outline-none placeholder:text-text-faint"
           />
         </div>
         {matchCount !== null && (
-          <span className={`shrink-0 font-mono text-[11px] ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
+          <span className={`shrink-0 font-mono ui-micro ${matchCount > 0 ? "text-text-muted" : "text-text-faint"}`}>
             {matchCount} 处匹配
           </span>
         )}
@@ -129,7 +129,7 @@ export function DocReader({
                 type="button"
                 aria-pressed={layout === value}
                 onClick={() => setLayout(value)}
-                className={`rounded px-2 py-1 text-[11px] ${
+                className={`rounded px-2 py-1 ui-micro ${
                   layout === value ? "bg-accent text-accent-fg" : "text-text-muted hover:text-text"
                 }`}
               >
@@ -141,7 +141,7 @@ export function DocReader({
             aria-label="文档字体"
             value={font}
             onChange={(event) => setFont(event.target.value as ReaderFont)}
-            className="h-7 rounded-md border border-border bg-surface px-1.5 text-[11px] text-text"
+            className="h-7 rounded-md border border-border bg-surface px-1.5 ui-micro text-text"
           >
             <option value="sans">无衬线</option>
             <option value="serif">衬线</option>
@@ -153,13 +153,13 @@ export function DocReader({
             disabled={fontSize <= 13}
             onClick={() => setFontSize((size) => Math.max(13, size - 1))}
             className={[
-              "grid size-7 place-items-center rounded-md text-[15px] text-text-muted",
+              "grid size-7 place-items-center rounded-md ui-prose text-text-muted",
               "hover:bg-surface hover:text-text disabled:opacity-35",
             ].join(" ")}
           >
             −
           </button>
-          <span className="w-8 text-center font-mono text-[10px] text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
+          <span className="w-8 text-center font-mono ui-micro text-text-faint" aria-label={`字号 ${fontSize} 像素`}>
             {fontSize}
           </span>
           <button
@@ -168,7 +168,7 @@ export function DocReader({
             disabled={fontSize >= 19}
             onClick={() => setFontSize((size) => Math.min(19, size + 1))}
             className={[
-              "grid size-7 place-items-center rounded-md text-[15px] text-text-muted",
+              "grid size-7 place-items-center rounded-md ui-prose text-text-muted",
               "hover:bg-surface hover:text-text disabled:opacity-35",
             ].join(" ")}
           >

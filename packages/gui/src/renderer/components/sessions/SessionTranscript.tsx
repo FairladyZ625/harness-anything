@@ -10,10 +10,7 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { Badge, Btn, LiveDot } from "../runtime/parts.tsx";
 
-type DispatchCursorValue = Extract<
-  NonNullable<ObserveTailRead["historyCursor"]>,
-  { readonly kind: "dispatch" }
->;
+type DispatchCursorValue = Extract<NonNullable<ObserveTailRead["historyCursor"]>, { readonly kind: "dispatch" }>;
 type DispatchCursor = DispatchCursorValue | null;
 
 export function SessionTranscript({
@@ -152,16 +149,16 @@ export function SessionTranscript({
   }, [dispatchId, historyCursor, historyDone, loadingHistory, repoId]);
 
   const turns = sessionTranscriptTurns(records);
-  if (!initialized) return <p className="px-2.5 py-2 text-[10.5px] text-text-faint">{t("agentRuntime.loading")}</p>;
+  if (!initialized) return <p className="px-2.5 py-2 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>;
   if (error)
     return (
-      <p role="alert" className="px-2.5 py-2 text-[10.5px] text-status-blocked">
+      <p role="alert" className="px-2.5 py-2 ui-micro text-status-blocked">
         {error}
       </p>
     );
   if (turns.length === 0)
     return (
-      <p data-testid="session-transcript-empty" className="px-2.5 py-2 text-[10.5px] text-text-faint">
+      <p data-testid="session-transcript-empty" className="px-2.5 py-2 ui-micro text-text-faint">
         {t("agentRuntime.transcriptNoRecord")}
       </p>
     );
@@ -170,7 +167,7 @@ export function SessionTranscript({
       ref={scrollRef}
       data-testid="session-transcript"
       onScroll={(event) => onTranscriptScroll(event, loadOlder)}
-      className="max-h-[30rem] overflow-y-auto rounded border border-border"
+      className="min-h-0 flex-1 overflow-y-auto rounded border border-border"
     >
       {!historyDone && (
         <div className="border-b border-border px-2.5 py-1.5 text-center">
@@ -182,8 +179,7 @@ export function SessionTranscript({
       <SessionTranscriptTurns turns={turns} />
       <div
         className={
-          "flex items-center gap-1.5 border-t border-border px-2.5 py-1.5 " +
-          "font-mono text-[10px] text-text-faint"
+          "flex items-center gap-1.5 border-t border-border px-2.5 py-1.5 " + "font-mono ui-micro text-text-faint"
         }
       >
         {live ? <span className="rt-pulse" /> : <LiveDot state="idle" />}
@@ -195,40 +191,36 @@ export function SessionTranscript({
 
 export function SessionTranscriptTurns({ turns }: { readonly turns: readonly SessionTranscriptTurn[] }) {
   return turns.map((turn, index) => (
-        <details key={turn.key} data-testid="session-transcript-turn" className="border-b border-border last:border-0">
-          <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 text-[11px] hover:bg-panel-soft">
-            <span className="font-mono text-[9px] text-text-faint">
-              {t("agentRuntime.transcriptTurn", { n: index + 1 })}
-            </span>
-            <Badge status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}>
-              {turn.status}
-            </Badge>
-            <span className="min-w-0 flex-1 truncate text-text-muted">{turn.items.at(-1)?.summary}</span>
-            <span className="font-mono text-[9px] text-text-faint">{turn.items.length}</span>
-          </summary>
-          <div className="border-t border-border bg-panel-soft/35">
-            {turn.items.map((item) => (
-              <details
-                key={item.key}
-                data-testid={`session-transcript-${item.type}`}
-                className="border-b border-border/70 last:border-0"
-              >
-                <summary className="grid cursor-pointer grid-cols-[82px_minmax(0,1fr)] gap-2 px-3 py-1.5 text-[10.5px]">
-                  <span className={`font-mono uppercase ${ITEM_TONE[item.type]}`}>
-                    {t(ITEM_LABEL[item.type])}
-                  </span>
-                  <span className="min-w-0 truncate">
-                    {item.label === item.type ? item.summary : `${item.label} · ${item.summary}`}
-                  </span>
-                </summary>
-                <pre className="rt-pre mx-3 mb-2 max-h-72 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
-                  {item.detail}
-                </pre>
-              </details>
-            ))}
-          </div>
-        </details>
-      ));
+    <details key={turn.key} data-testid="session-transcript-turn" className="border-b border-border last:border-0">
+      <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 ui-micro hover:bg-panel-soft">
+        <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.transcriptTurn", { n: index + 1 })}</span>
+        <Badge status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}>
+          {turn.status}
+        </Badge>
+        <span className="min-w-0 flex-1 truncate text-text-muted">{turn.items.at(-1)?.summary}</span>
+        <span className="font-mono ui-micro text-text-faint">{turn.items.length}</span>
+      </summary>
+      <div className="border-t border-border bg-panel-soft/35">
+        {turn.items.map((item) => (
+          <details
+            key={item.key}
+            data-testid={`session-transcript-${item.type}`}
+            className="border-b border-border/70 last:border-0"
+          >
+            <summary className="grid cursor-pointer grid-cols-[82px_minmax(0,1fr)] gap-2 px-3 py-1.5 ui-micro">
+              <span className={`font-mono uppercase ${ITEM_TONE[item.type]}`}>{t(ITEM_LABEL[item.type])}</span>
+              <span className="min-w-0 truncate">
+                {item.label === item.type ? item.summary : `${item.label} · ${item.summary}`}
+              </span>
+            </summary>
+            <pre className="rt-pre mx-3 mb-2 max-h-72 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {item.detail}
+            </pre>
+          </details>
+        ))}
+      </div>
+    </details>
+  ));
 }
 
 const ITEM_LABEL: Record<SessionTranscriptItemType, Parameters<typeof t>[0]> = {

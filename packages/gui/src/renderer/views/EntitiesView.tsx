@@ -46,9 +46,9 @@ export function EntitiesView({
         <div className="flex flex-wrap items-center gap-2">
           <BookOpen className="text-text-faint" />
           <h1 className="ui-title font-semibold">实体说明</h1>
-          <span className="font-mono text-[11px] text-text-faint">{repoId}</span>
+          <span className="font-mono ui-micro text-text-faint">{repoId}</span>
         </div>
-        <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-text-faint">
+        <p className="mt-1 max-w-3xl ui-meta leading-relaxed text-text-faint">
           这套内核由三元语构成:task 做什么、decision 为什么、fact 看到了什么,relation 把它们连成语义网。
           每个实体是什么、字段什么含义、彼此什么关系,都在这里说清楚;受控词表与合法写入动作也在这里可见——
           这一页既是防止乱写的限制面,也是这个产品对外的自我介绍。
@@ -58,8 +58,8 @@ export function EntitiesView({
         {ENTITY_DOC_GROUPS.map((group) => (
           <section key={group.id} data-testid={`entity-doc-group-${group.id}`}>
             <div className="mb-2 flex items-baseline gap-2">
-              <h2 className="text-[13px] font-semibold">{group.title}</h2>
-              <span className="text-[11px] text-text-faint">{group.summary}</span>
+              <h2 className="ui-body font-semibold">{group.title}</h2>
+              <span className="ui-micro text-text-faint">{group.summary}</span>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-2">
               {group.docs.map((doc) => (
@@ -100,26 +100,26 @@ function EntityDocCard({
       ].join(" ")}
     >
       <div className="flex min-w-0 items-center gap-2">
-        <b className="font-mono text-[13px]">{doc.kind}</b>
-        {doc.refTemplate && <code className="shrink-0 font-mono text-[10px] text-text-faint">{doc.refTemplate}</code>}
+        <b className="font-mono ui-body">{doc.kind}</b>
+        {doc.refTemplate && <code className="shrink-0 font-mono ui-micro text-text-faint">{doc.refTemplate}</code>}
         {live ? (
-          <span title="本仓活行数" className="ml-auto shrink-0 font-mono text-[10px] text-text-muted">
+          <span title="本仓活行数" className="ml-auto shrink-0 font-mono ui-micro text-text-muted">
             {liveLabel(live)}
           </span>
         ) : null}
       </div>
-      <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-text-muted">{doc.definition}</p>
+      <p className="mt-1 line-clamp-2 ui-meta leading-relaxed text-text-muted">{doc.definition}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
         {doc.schemaId && (
-          <span className="rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint">
+          <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
             {doc.schemaId}
           </span>
         )}
-        <span className="rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint">
+        <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
           {doc.fields.length} 字段
         </span>
         {doc.edges.length > 0 && (
-          <span className="rounded border border-border px-1 py-px font-mono text-[10px] text-text-faint">
+          <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
             {doc.edges.length} 关系
           </span>
         )}

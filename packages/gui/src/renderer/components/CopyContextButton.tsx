@@ -48,13 +48,13 @@ export function CopyContextButton({
     <button
       onClick={onCopy}
       title={copied ? "已复制到剪贴板" : "复制 agent 可用的上下文包(粘贴给你自己的 coding agent)"}
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors ${
+      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ui-meta font-medium transition-colors ${
         copied
           ? "border-success/40 bg-success/10 text-success"
           : "border-border bg-surface-raised text-text-muted hover:border-border-strong hover:text-text"
       }`}
     >
-      {copied ? <Check weight="bold" className="text-[12px]" /> : <Clipboard weight="bold" className="text-[12px]" />}
+      {copied ? <Check weight="bold" className="ui-meta" /> : <Clipboard weight="bold" className="ui-meta" />}
       {compact ? (copied ? "已复制" : label) : copied ? "已复制" : label}
     </button>
   );

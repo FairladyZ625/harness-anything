@@ -361,8 +361,8 @@ function GraphViewInner({
         data-testid="triadic-graph-empty-state"
         className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
       >
-        <div className="text-[14px] font-semibold text-text">暂无三元语关系数据</div>
-        <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
+        <div className="ui-body font-semibold text-text">暂无三元语关系数据</div>
+        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
           当前 ledger 没有可投影的 task、decision 或 fact。记录出现后,领地与聚光灯会自动显示真实节点与 kernel relation
           边。
         </div>
@@ -384,7 +384,7 @@ function GraphViewInner({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2 text-[11px] text-text-muted">
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2 ui-micro text-text-muted">
         <span className="font-mono text-text-faint">
           {viewMode === "territory"
             ? `领地 · ${territory?.zones.length ?? 0} 块`
@@ -401,7 +401,7 @@ function GraphViewInner({
             <button
               data-testid="territory-archive-toggle"
               onClick={() => setShowArchived((v) => !v)}
-              className="rounded px-1 text-[11px] text-text hover:bg-surface"
+              className="rounded px-1 ui-micro text-text hover:bg-surface"
             >
               {showArchived ? "显示" : "隐藏"}
             </button>
@@ -490,14 +490,14 @@ function GraphViewInner({
                 zoomable
               />
               <Panel position="top-left">
-                <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-[11px] text-text-muted">
+                <div className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 ui-micro text-text-muted">
                   <span>折叠块:</span>
                   <button
                     onClick={() => {
                       const all = new Set(territory?.zones.map((z) => z.zoneId) ?? []);
                       setExpandedZones((cur) => (cur.size === all.size ? new Set() : all));
                     }}
-                    className="rounded px-1 font-mono text-[11px] hover:bg-surface"
+                    className="rounded px-1 font-mono ui-micro hover:bg-surface"
                   >
                     {territory && expandedZones.size > 0 && expandedZones.size >= territory.zones.length
                       ? "全部折叠"

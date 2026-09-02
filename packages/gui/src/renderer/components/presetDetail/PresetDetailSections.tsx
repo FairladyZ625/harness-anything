@@ -15,7 +15,7 @@ export function PresetBadge({ value, tone = "muted" }: { readonly value: string;
   return (
     <span
       data-testid="preset-badge"
-      className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+      className={`rounded border px-1.5 py-0.5 font-mono ui-micro ${
         tone === "accent" ? "border-accent/60 text-accent" : "border-border text-text-muted"
       }`}
     >
@@ -27,7 +27,7 @@ export function PresetBadge({ value, tone = "muted" }: { readonly value: string;
 export function PresetMetaField({ name, value }: { readonly name: string; readonly value: string }) {
   return (
     <div data-testid="preset-meta-field">
-      <dt className="font-mono text-[10px] uppercase text-text-faint">{name}</dt>
+      <dt className="font-mono ui-micro uppercase text-text-faint">{name}</dt>
       <dd className="break-all text-text-muted">{value}</dd>
     </div>
   );
@@ -39,7 +39,7 @@ export function PresetShaField({ name, value }: { readonly name: string; readonl
   const short = value.length > 22 ? `${value.slice(0, 14)}…${value.slice(-6)}` : value;
   return (
     <div data-testid="preset-sha-field" data-field={name}>
-      <dt className="font-mono text-[10px] uppercase text-text-faint">{name}</dt>
+      <dt className="font-mono ui-micro uppercase text-text-faint">{name}</dt>
       <dd className="flex min-w-0 items-center gap-1.5">
         <button
           title={value}
@@ -47,13 +47,13 @@ export function PresetShaField({ name, value }: { readonly name: string; readonl
             void navigator.clipboard?.writeText(value).then(() => setCopied(true));
           }}
           className={[
-            "min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left font-mono text-[11px] text-text-muted",
+            "min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left font-mono ui-micro text-text-muted",
             "hover:bg-surface-raised hover:text-text",
           ].join(" ")}
         >
           {short}
         </button>
-        <span className={`shrink-0 font-mono text-[10px] text-status-done ${copied ? "" : "hidden"}`}>
+        <span className={`shrink-0 font-mono ui-micro text-status-done ${copied ? "" : "hidden"}`}>
           {t("views.presetsView.copied")}
         </span>
       </dd>
@@ -94,14 +94,11 @@ export function PresetProvenanceFields({ provenance }: { readonly provenance: Re
         }
       />
       <div>
-        <dt className="font-mono text-[10px] uppercase text-text-faint">{t("views.presetsView.provenanceAncestry")}</dt>
+        <dt className="font-mono ui-micro uppercase text-text-faint">{t("views.presetsView.provenanceAncestry")}</dt>
         <dd className="mt-0.5 flex flex-wrap gap-1" data-testid="preset-ancestry">
           {ancestry.length > 0 ? (
             ancestry.map((id) => (
-              <span
-                key={id}
-                className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
-              >
+              <span key={id} className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted">
                 {id}
               </span>
             ))
@@ -142,9 +139,9 @@ function SectionHeading({
 }) {
   return (
     <header>
-      <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">{eyebrow}</p>
-      <h2 className="mt-0.5 text-[15px] font-semibold leading-5 text-text">{title}</h2>
-      {description ? <p className="mt-1 text-[12px] leading-5 text-text-muted">{description}</p> : null}
+      <p className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">{eyebrow}</p>
+      <h2 className="mt-0.5 ui-prose font-semibold leading-5 text-text">{title}</h2>
+      {description ? <p className="mt-1 ui-meta leading-5 text-text-muted">{description}</p> : null}
     </header>
   );
 }
@@ -169,7 +166,7 @@ export function PresetOverviewTab({
           title={t("views.presetDetailView.overviewManifest")}
           description={row?.description ?? t("views.presetsView.unknownNotProjected")}
         />
-        <dl className="mt-4 grid gap-3 text-[12px] sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-manifest-fields">
+        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-manifest-fields">
           <PresetMetaField name="id" value={detail.preset.id} />
           <PresetMetaField name={t("views.presetsView.vertical")} value={detail.preset.verticalId} />
           <PresetMetaField name="extends" value={detail.preset.extends ?? t("views.presetsView.none")} />
@@ -205,7 +202,7 @@ export function PresetOverviewTab({
           {gates.length > 0 ? (
             gates.map((gate) => <PresetBadge key={gate} value={gate} tone="accent" />)
           ) : (
-            <span className="text-[12px] text-text-faint">{t("views.presetsView.none")}</span>
+            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
           )}
         </div>
       </section>
@@ -220,7 +217,7 @@ export function PresetOverviewTab({
           {imports.length > 0 ? (
             imports.map((item, index) => <PresetBadge key={index} value={capabilityImportRow(item)} />)
           ) : (
-            <span className="text-[12px] text-text-faint">{t("views.presetsView.none")}</span>
+            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
           )}
         </div>
       </section>
@@ -231,10 +228,7 @@ export function PresetOverviewTab({
           title={t("views.presetDetailView.overviewProvenance")}
           description={t("views.presetDetailView.provenanceDescription")}
         />
-        <dl
-          className="mt-4 grid gap-3 text-[12px] sm:grid-cols-2 xl:grid-cols-3"
-          data-testid="preset-provenance-fields"
-        >
+        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-provenance-fields">
           <PresetProvenanceFields provenance={detail.resolved.provenance} />
         </dl>
       </section>
@@ -245,7 +239,7 @@ export function PresetOverviewTab({
           title={t("views.presetsView.templatesTab")}
           description={t("views.presetDetailView.templatesDescription", { count: String(templates.length) })}
         />
-        <dl className="mt-4 grid gap-3 text-[12px] sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-template-fields">
+        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-template-fields">
           {templates.map((template, index) => {
             const record = template as Record<string, unknown>,
               slot = typeof record.slot === "string" ? record.slot : `#${index + 1}`,
@@ -255,16 +249,16 @@ export function PresetOverviewTab({
                 typeof record.locale === "string" ? record.locale : t("views.presetsView.unknownNotProjected");
             return (
               <div key={`${slot}:${index}`} className="rounded-lg border border-border bg-surface p-3">
-                <b className="font-mono text-[12px] text-text">{slot}</b>
-                <p className="mt-1 break-all font-mono text-[11px] text-text-muted">{path}</p>
-                <p className="mt-1 font-mono text-[10px] text-text-faint">
+                <b className="font-mono ui-meta text-text">{slot}</b>
+                <p className="mt-1 break-all font-mono ui-micro text-text-muted">{path}</p>
+                <p className="mt-1 font-mono ui-micro text-text-faint">
                   {owner} · {templateLocale}
                 </p>
               </div>
             );
           })}
           {templates.length === 0 ? (
-            <span className="text-[12px] text-text-faint">{t("views.presetsView.none")}</span>
+            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
           ) : null}
         </dl>
       </section>
@@ -291,11 +285,11 @@ export function PresetDocumentSidebar({
       ].join(" ")}
       data-testid="preset-document-sidebar"
     >
-      <p className="mb-2 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-text-faint">
+      <p className="mb-2 px-1 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
         {t("views.presetDetailView.packageDocuments")}
       </p>
       {documents.length === 0 ? (
-        <p className="border border-dashed border-border px-2 py-3 text-[12px] leading-5 text-text-faint">
+        <p className="border border-dashed border-border px-2 py-3 ui-meta leading-5 text-text-faint">
           {t("views.presetDetailView.noDocuments")}
         </p>
       ) : (
@@ -313,8 +307,8 @@ export function PresetDocumentSidebar({
                     active ? "bg-accent/10 text-text" : "text-text-muted hover:bg-surface-raised hover:text-text",
                   ].join(" ")}
                 >
-                  <span className="block truncate font-mono text-[11px]">{document.slot}</span>
-                  <span className="block truncate font-mono text-[10px] text-text-faint">{document.path}</span>
+                  <span className="block truncate font-mono ui-micro">{document.slot}</span>
+                  <span className="block truncate font-mono ui-micro text-text-faint">{document.path}</span>
                 </button>
               </li>
             );
@@ -330,9 +324,9 @@ export function PresetDocumentPanel({ document }: { readonly document: CatalogPr
   return (
     <section className="min-w-0" data-testid="preset-document-panel">
       <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3">
-        <span className="font-mono text-[11px] text-text-faint">{document.slot}</span>
-        <span className="font-mono text-[10px] text-text-faint">→</span>
-        <span className="font-mono text-[11px] text-text-muted">{document.path}</span>
+        <span className="font-mono ui-micro text-text-faint">{document.slot}</span>
+        <span className="font-mono ui-micro text-text-faint">→</span>
+        <span className="font-mono ui-micro text-text-muted">{document.path}</span>
         <PresetBadge value={document.templateRef} />
         <PresetBadge value={document.mediaType} />
         <PresetBadge value={`${t("views.presetDetailView.owner")}: ${document.owner}`} />
@@ -343,7 +337,7 @@ export function PresetDocumentPanel({ document }: { readonly document: CatalogPr
         <pre
           className={[
             "overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-surface p-4",
-            "font-mono text-[12px] leading-5 text-text-muted",
+            "font-mono ui-meta leading-5 text-text-muted",
           ].join(" ")}
         >
           {document.body}

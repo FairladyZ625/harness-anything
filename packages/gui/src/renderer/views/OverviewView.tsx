@@ -88,12 +88,12 @@ export function OverviewView({
       <header className="shrink-0 border-b border-border bg-surface/40 px-5 py-4">
         <div className="flex items-baseline gap-2">
           <h1 className="ui-title font-mono font-semibold">{project.name}</h1>
-          <span className="truncate font-mono text-[12px] text-text-faint">{project.path}</span>
-          <span className="ml-auto shrink-0 font-mono text-[12px] text-text-faint">
+          <span className="truncate font-mono ui-meta text-text-faint">{project.path}</span>
+          <span className="ml-auto shrink-0 font-mono ui-meta text-text-faint">
             投影 @ {timeOf(project.watermarkAt)}
           </span>
         </div>
-        <p className="mt-1 text-[12px] text-text-muted">{t("views.overviewView.tagline")}</p>
+        <p className="mt-1 ui-meta text-text-muted">{t("views.overviewView.tagline")}</p>
       </header>
 
       <div

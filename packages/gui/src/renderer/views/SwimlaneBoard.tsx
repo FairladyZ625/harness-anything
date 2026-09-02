@@ -68,7 +68,7 @@ function LaneCard({
       ].join(" ")}
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        {external && <Lock weight="bold" className="shrink-0 text-[13px] text-text-faint" />}
+        {external && <Lock weight="bold" className="shrink-0 ui-body text-text-faint" />}
         {onSetPin ? (
           <button
             type="button"
@@ -79,14 +79,14 @@ function LaneCard({
             }}
             title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
             aria-pressed={task.pinned === true}
-            className={`inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
               task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
             }`}
           >
             <PushPin weight={task.pinned === true ? "fill" : "bold"} />
           </button>
         ) : task.pinned === true ? (
-          <PushPin weight="fill" className="shrink-0 text-[13px] text-accent" />
+          <PushPin weight="fill" className="shrink-0 ui-body text-accent" />
         ) : null}
         <button
           type="button"
@@ -95,19 +95,19 @@ function LaneCard({
             onToggleFavorite(task.taskId);
           }}
           title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
             isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
           <Star weight={isFavorite ? "fill" : "bold"} />
         </button>
       </div>
-      <p className="mt-2 line-clamp-3 text-[15px] leading-snug text-text">{task.title}</p>
+      <p className="mt-2 line-clamp-3 ui-prose leading-snug text-text">{task.title}</p>
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
         {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-          <span className="font-mono text-[11px] text-status-blocked">canonical {task.canonicalStatus}</span>
+          <span className="font-mono ui-micro text-status-blocked">canonical {task.canonicalStatus}</span>
         )}
-        {task.blocking === "unknown" && <span className="text-[11px] text-stale">阻塞关系未能确定</span>}
+        {task.blocking === "unknown" && <span className="ui-micro text-stale">阻塞关系未能确定</span>}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
         <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
@@ -132,7 +132,7 @@ function LaneCell({
   const meta = STATUS_META[status];
   if (cellTasks.length === 0) {
     return (
-      <div className="min-h-[62px] rounded-lg border border-border/60 bg-surface/30 px-3 py-2 text-center text-[14px] text-text-faint">
+      <div className="min-h-[62px] rounded-lg border border-border/60 bg-surface/30 px-3 py-2 text-center ui-body text-text-faint">
         -
       </div>
     );
@@ -153,7 +153,7 @@ function LaneCell({
     >
       <span className="flex items-center gap-2">
         <span
-          className="inline-flex min-w-8 justify-center rounded-md px-2 py-0.5 font-mono text-[16px] font-semibold"
+          className="inline-flex min-w-8 justify-center rounded-md px-2 py-0.5 font-mono ui-title font-semibold"
           style={{
             color: meta.color,
             background: `color-mix(in oklch, ${meta.color} 14%, transparent)`,
@@ -161,10 +161,10 @@ function LaneCell({
         >
           {cellTasks.length}
         </span>
-        <span className="min-w-0 text-[13px] font-semibold text-text">{meta.label}</span>
-        {selected && <CaretRight weight="bold" className="ml-auto shrink-0 text-[13px] text-text-faint" />}
+        <span className="min-w-0 ui-body font-semibold text-text">{meta.label}</span>
+        {selected && <CaretRight weight="bold" className="ml-auto shrink-0 ui-body text-text-faint" />}
       </span>
-      <span className="mt-1.5 block truncate text-[12px] text-text-muted">{preview.title}</span>
+      <span className="mt-1.5 block truncate ui-meta text-text-muted">{preview.title}</span>
     </button>
   );
 }
@@ -192,8 +192,8 @@ function DrilldownPanel({
 }) {
   if (!active) {
     return (
-      <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
-        <div className="h-full rounded-lg border border-dashed border-border px-4 py-5 text-[15px] text-text-faint">
+      <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
+        <div className="h-full rounded-lg border border-dashed border-border px-4 py-5 ui-prose text-text-faint">
           选择上方泳道单元格后，在这里查看该组任务。
         </div>
       </section>
@@ -210,22 +210,22 @@ function DrilldownPanel({
   const laneLabel = groupLabelOf(active.lane, groupBy, allTasks);
 
   return (
-    <section className="min-h-[320px] shrink-0 bg-bg px-4 py-3">
+    <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[12px] uppercase tracking-wide text-text-faint">下钻结果</span>
-        <span className="font-mono text-[15px] font-semibold text-text">
+        <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">下钻结果</span>
+        <span className="font-mono ui-prose font-semibold text-text">
           {groupBy}: {laneLabel}
         </span>
-        <span className="inline-flex items-center gap-1.5 text-[15px] font-semibold">
+        <span className="inline-flex items-center gap-1.5 ui-prose font-semibold">
           <span style={{ color: meta.color }} className="text-base">
             {meta.icon}
           </span>
           {meta.label}
         </span>
-        <span className="font-mono text-[13px] text-text-faint">{tasks.length} tasks</span>
+        <span className="font-mono ui-body text-text-faint">{tasks.length} tasks</span>
       </div>
 
-      <div className="max-h-[280px] overflow-auto pr-1">
+      <div className="min-h-0 flex-1 overflow-auto pr-1">
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
           {sorted.map((t) => (
             <LaneCard
@@ -242,7 +242,7 @@ function DrilldownPanel({
       </div>
 
       {tasks.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border px-3 py-4 text-[15px] text-text-faint">
+        <div className="rounded-lg border border-dashed border-border px-3 py-4 ui-prose text-text-faint">
           该单元格暂无任务
         </div>
       )}
@@ -309,10 +309,10 @@ export function SwimlaneBoard({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="max-h-[48vh] shrink-0 overflow-auto border-b border-border">
+      <div className="max-h-[48vh] overflow-auto border-b border-border">
         <div className="min-w-max px-4 pb-4">
           <div className={`sticky top-0 z-10 grid ${GRID_COLS} gap-2 border-b border-border bg-bg py-2`}>
-            <div className="self-center px-1.5 font-mono text-[12px] uppercase tracking-wide text-text-faint">
+            <div className="self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
               {groupBy}
             </div>
             {BOARD_COLUMNS.map((status) => {
@@ -323,8 +323,8 @@ export function SwimlaneBoard({
                   <span style={{ color: meta.color }} className="text-base">
                     {meta.icon}
                   </span>
-                  <span className="text-[14px] font-semibold">{meta.label}</span>
-                  <span className="font-mono text-[13px] text-text-faint">{total}</span>
+                  <span className="ui-body font-semibold">{meta.label}</span>
+                  <span className="font-mono ui-body text-text-faint">{total}</span>
                 </div>
               );
             })}
@@ -340,12 +340,12 @@ export function SwimlaneBoard({
               >
                 <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
                   <span
-                    className="font-mono text-[15px] font-semibold text-text"
+                    className="font-mono ui-prose font-semibold text-text"
                     title={groupBy === "root" ? lane : undefined}
                   >
                     {laneLabel}
                   </span>
-                  <span className="font-mono text-[13px] text-text-faint">{laneTasks.length}</span>
+                  <span className="font-mono ui-body text-text-faint">{laneTasks.length}</span>
                 </div>
                 {BOARD_COLUMNS.map((status) => {
                   const key = cellKey(lane, status);
@@ -365,7 +365,7 @@ export function SwimlaneBoard({
             );
           })}
           {lanes.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-[15px] text-text-faint">
+            <div className="rounded-lg border border-dashed border-border px-4 py-8 ui-prose text-text-faint">
               当前筛选下没有可展示的泳道任务。
             </div>
           )}

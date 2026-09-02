@@ -36,7 +36,7 @@ export function ProviderRail({
     <nav
       data-testid="runtime-rail"
       aria-label={t("agentRuntime.railLabel")}
-      className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex basis-1/5 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
     >
       <Segment
         segment="runtimes"
@@ -59,8 +59,8 @@ export function ProviderRail({
               onSelect={() => onSelect(instance.instanceId)}
             >
               <KindDot kind={instance.kindId} />
-              <span className="min-w-0 flex-1 truncate text-[12px]">{instance.name}</span>
-              <span className="shrink-0 font-mono text-[10px] text-text-faint">{instance.defaultModel}</span>
+              <span className="min-w-0 flex-1 truncate ui-meta">{instance.name}</span>
+              <span className="shrink-0 font-mono ui-micro text-text-faint">{instance.defaultModel}</span>
               <CapDot state={auth.cap} tip={authTip} size={9} />
               <LiveDot
                 state={
@@ -101,7 +101,7 @@ export function IdentityRail({
     <nav
       data-testid="runtime-rail"
       aria-label={t("agentRuntime.railLabel")}
-      className="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex basis-1/5 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
     >
       <Segment
         segment="agents"
@@ -121,10 +121,10 @@ export function IdentityRail({
             onSelect={() => onSelect({ type: "agent", id: agent.id })}
           >
             <Avatar id={agent.id} />
-            <span className="min-w-0 flex-1 truncate text-[12px]">{agent.name}</span>
+            <span className="min-w-0 flex-1 truncate ui-meta">{agent.name}</span>
             <span
               data-tip={t("agentRuntime.layerTip", { layer: agent.layer })}
-              className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] tracking-[0.04em] text-text-faint"
+              className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono ui-micro tracking-[0.04em] text-text-faint"
             >
               {agent.layer}
             </span>
@@ -150,14 +150,14 @@ export function IdentityRail({
             onSelect={() => onSelect({ type: "squad", id: squad.id })}
           >
             <KindDot kind="any" />
-            <span className="min-w-0 flex-1 truncate text-[12px]">{squad.name}</span>
-            <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono text-[9px] text-text-faint">
+            <span className="min-w-0 flex-1 truncate ui-meta">{squad.name}</span>
+            <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono ui-micro text-text-faint">
               {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
             </span>
           </Row>
         ))}
       </Segment>
-      <details className="px-2.5 py-2 text-[10px] leading-[1.5] text-text-faint">
+      <details className="px-2.5 py-2 ui-micro leading-[1.5] text-text-faint">
         <summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary>
         <p className="mt-1">{t("agentRuntime.thesisBody")}</p>
       </details>
@@ -195,20 +195,20 @@ function Segment({
         >
           <span
             aria-hidden
-            className={`shrink-0 text-[8px] text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
+            className={`shrink-0 ui-micro text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
           >
             ▶
           </span>
-          <span className="text-[10.5px] font-bold uppercase tracking-[0.09em] text-text-faint">{title}</span>
-          <span className="truncate text-[10px] text-text-faint">{sub}</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">{count}</span>
+          <span className="ui-micro font-bold uppercase tracking-[0.09em] text-text-faint">{title}</span>
+          <span className="truncate ui-micro text-text-faint">{sub}</span>
+          <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">{count}</span>
         </button>
         {onNew && (
           <button
             type="button"
             data-testid={`runtime-new-${segment}`}
             onClick={onNew}
-            className="shrink-0 rounded border border-border px-1.5 text-[10.5px] text-text-faint hover:border-accent hover:text-accent"
+            className="shrink-0 rounded border border-border px-1.5 ui-micro text-text-faint hover:border-accent hover:text-accent"
           >
             {t("agentRuntime.new")}
           </button>

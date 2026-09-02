@@ -30,10 +30,10 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
         onClick={() => setOpen((value) => !value)}
         title="图例:实体着色 / 语义轴 / 关系线型 / claim 兑现形态"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 rounded px-1 font-mono text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+        className="inline-flex items-center gap-1 rounded px-1 font-mono ui-micro text-text-muted hover:bg-surface-raised hover:text-text"
       >
         图例
-        {open ? <CaretUp weight="bold" className="text-[10px]" /> : <CaretDown weight="bold" className="text-[10px]" />}
+        {open ? <CaretUp weight="bold" className="ui-micro" /> : <CaretDown weight="bold" className="ui-micro" />}
       </button>
       {open && (
         <div data-testid="graph-legend-body" className="flex w-full basis-full flex-col gap-x-4 gap-y-1 pt-1">
@@ -72,7 +72,7 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
                       strokeLinecap="round"
                     />
                   </svg>
-                  <span className="font-mono text-[10px] text-text-muted">{KIND_LABEL[kind] ?? kind}</span>
+                  <span className="font-mono ui-micro text-text-muted">{KIND_LABEL[kind] ?? kind}</span>
                 </span>
               );
             })}

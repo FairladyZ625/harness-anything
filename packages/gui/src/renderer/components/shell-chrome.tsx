@@ -44,7 +44,7 @@ export function NavButton({
     <button
       onClick={onClick}
       title={label}
-      className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[15px] leading-snug transition-colors duration-100 ${
+      className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left ui-prose leading-snug transition-colors duration-100 ${
         active
           ? "bg-surface-raised font-medium text-text"
           : "text-text-muted hover:bg-surface-raised/60 hover:text-text"
@@ -53,7 +53,7 @@ export function NavButton({
       <span className="shrink-0 text-base">{icon}</span>
       <span className="min-w-0 truncate">{label}</span>
       {badge !== undefined && badge > 0 && (
-        <span className="ml-auto shrink-0 rounded bg-accent px-1.5 font-mono text-[11px] font-semibold tabular-nums text-accent-fg">
+        <span className="ml-auto shrink-0 rounded bg-accent px-1.5 font-mono ui-micro font-semibold tabular-nums text-accent-fg">
           {badge}
         </span>
       )}
@@ -82,11 +82,11 @@ export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; 
         <FolderSimple weight="duotone" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block break-words text-[15px] font-semibold text-text">{repo.displayName}</span>
-        <span className="block font-mono text-[13px] text-text-faint [overflow-wrap:anywhere]">
+        <span className="block break-words ui-prose font-semibold text-text">{repo.displayName}</span>
+        <span className="block font-mono ui-body text-text-faint [overflow-wrap:anywhere]">
           {repo.repoId} · {repo.registrationState} / {repo.cellState}
         </span>
-        <span className="mt-1 flex flex-wrap gap-1.5 font-mono text-[12px] tabular-nums">
+        <span className="mt-1 flex flex-wrap gap-1.5 font-mono ui-meta tabular-nums">
           <span className={repo.cellState === "attached" ? "text-status-done" : "text-status-blocked"}>
             {repo.cellState}
           </span>
@@ -94,13 +94,13 @@ export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; 
           <span className="text-text-faint">lock {repo.lockState}</span>
         </span>
         {repo.cellState !== "attached" && (
-          <span className="mt-1 block break-words text-[11px] text-status-blocked">
+          <span className="mt-1 block break-words ui-micro text-status-blocked">
             {repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}
           </span>
         )}
       </span>
       {active && (
-        <CheckCircle weight="fill" className="mt-0.5 shrink-0 text-[15px]" style={{ color: "var(--color-accent)" }} />
+        <CheckCircle weight="fill" className="mt-0.5 shrink-0 ui-prose" style={{ color: "var(--color-accent)" }} />
       )}
     </button>
   );

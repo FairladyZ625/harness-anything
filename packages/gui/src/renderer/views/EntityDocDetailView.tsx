@@ -36,7 +36,7 @@ export function EntityDocDetailView({
             type="button"
             onClick={onBack}
             className={[
-              "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-text-muted",
+              "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta text-text-muted",
               "hover:border-border-strong hover:text-text",
             ].join(" ")}
           >
@@ -44,7 +44,7 @@ export function EntityDocDetailView({
             {fromViewLabel}
           </button>
         </header>
-        <p className="p-6 text-[13px] text-status-blocked">
+        <p className="p-6 ui-body text-status-blocked">
           未知实体 kind:{kind}。说明目录只收录已登记的实体,不猜测未登记的种类。
         </p>
       </div>
@@ -65,7 +65,7 @@ export function EntityDocDetailView({
             <ArrowLeft weight="bold" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
+            <div className="flex min-w-0 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
                 {projectName}
               </button>
@@ -74,10 +74,10 @@ export function EntityDocDetailView({
                 {fromViewLabel}
               </button>
               <CaretRight weight="bold" className="shrink-0" />
-              <span className="truncate font-mono text-[9px] leading-3 text-text-muted">{doc.kind}</span>
+              <span className="truncate font-mono ui-micro leading-3 text-text-muted">{doc.kind}</span>
             </div>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="truncate font-mono text-[16px] font-semibold leading-5 tracking-[-0.01em] text-text">
+              <h1 className="truncate font-mono ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
                 {doc.kind}
               </h1>
               {doc.schemaId && <DocBadge value={doc.schemaId} />}
@@ -91,7 +91,7 @@ export function EntityDocDetailView({
               onClick={() => onOpenView(doc.guiEntry!.view)}
               title={doc.guiEntry.note}
               className={[
-                "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 text-[12px]",
+                "inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 ui-meta",
                 "text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text",
               ].join(" ")}
             >
@@ -104,19 +104,19 @@ export function EntityDocDetailView({
 
       <main className="min-h-0 flex-1 px-4 py-4" data-testid="entity-doc-detail-content">
         <section className="max-w-3xl">
-          <p className="text-[13px] leading-relaxed text-text">{doc.definition}</p>
-          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
-            <dt className="font-mono text-[10px] uppercase tracking-wide text-text-faint">存放</dt>
+          <p className="ui-body leading-relaxed text-text">{doc.definition}</p>
+          <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 ui-meta">
+            <dt className="font-mono ui-micro uppercase tracking-wide text-text-faint">存放</dt>
             <dd className="text-text-muted">{doc.storage}</dd>
             {doc.guiEntry && (
               <>
-                <dt className="font-mono text-[10px] uppercase tracking-wide text-text-faint">GUI 入口</dt>
+                <dt className="font-mono ui-micro uppercase tracking-wide text-text-faint">GUI 入口</dt>
                 <dd className="text-text-muted">{doc.guiEntry.note}</dd>
               </>
             )}
             {!doc.guiEntry && (
               <>
-                <dt className="font-mono text-[10px] uppercase tracking-wide text-text-faint">GUI 入口</dt>
+                <dt className="font-mono ui-micro uppercase tracking-wide text-text-faint">GUI 入口</dt>
                 <dd className="text-text-muted">当前没有专页;写入走 CLI,如实标注不硬造入口。</dd>
               </>
             )}
@@ -127,9 +127,7 @@ export function EntityDocDetailView({
           <FieldTable fields={doc.fields} />
           {doc.nestedFields.map((nested) => (
             <div key={nested.container} className="mt-3">
-              <h4 className="mb-1.5 font-mono text-[10px] uppercase tracking-wide text-text-faint">
-                {nested.container}
-              </h4>
+              <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-wide text-text-faint">{nested.container}</h4>
               <FieldTable fields={nested.fields} />
             </div>
           ))}
@@ -139,13 +137,13 @@ export function EntityDocDetailView({
           <DetailSection title="状态词表" testId="entity-doc-statuses">
             {doc.statuses.map((status) => (
               <div key={status.field} className="mb-2 last:mb-0">
-                <code className="font-mono text-[11px] text-text-muted">{status.field}</code>
+                <code className="font-mono ui-micro text-text-muted">{status.field}</code>
                 <div className="mt-1 flex flex-wrap gap-1">
                   {status.words.map((word) => (
                     <span
                       key={word}
                       data-testid={`entity-status-word-${word}`}
-                      className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+                      className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted"
                     >
                       {word}
                     </span>
@@ -153,7 +151,7 @@ export function EntityDocDetailView({
                 </div>
               </div>
             ))}
-            <p className="mt-2 text-[11px] leading-relaxed text-text-faint">
+            <p className="mt-2 ui-micro leading-relaxed text-text-faint">
               词表逐字来自内核注册表;这里的每个词都是合法值,不在词表里的状态写不进台账。
             </p>
           </DetailSection>
@@ -165,7 +163,7 @@ export function EntityDocDetailView({
               {doc.edges.map((edge) => (
                 <li
                   key={`${edge.sourceKind}-${edge.type}-${edge.targetKind}`}
-                  className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono text-[11px]"
+                  className="flex min-w-0 flex-wrap items-center gap-1.5 font-mono ui-micro"
                 >
                   <span className={edge.sourceKind === doc.kind ? "font-semibold text-text" : "text-text-muted"}>
                     {edge.sourceKind}
@@ -179,7 +177,7 @@ export function EntityDocDetailView({
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-[11px] leading-relaxed text-text-faint">
+            <p className="mt-2 ui-micro leading-relaxed text-text-faint">
               加粗端是本实体。方向注册表规定哪种(源, 动词, 目标)三元组合法;未注册的组合写不进台账。
             </p>
           </DetailSection>
@@ -191,13 +189,13 @@ export function EntityDocDetailView({
               {doc.actions.map((action) => (
                 <span
                   key={action}
-                  className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+                  className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted"
                 >
                   {action}
                 </span>
               ))}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-text-faint">
+            <p className="mt-2 ui-micro leading-relaxed text-text-faint">
               动作目录来自内核;不在此列的写入路径不存在。GUI 是视图消费者,写操作与 CLI 同面。
             </p>
           </DetailSection>
@@ -221,7 +219,7 @@ function DetailSection({
 }) {
   return (
     <section data-testid={testId} className="mt-6 max-w-3xl border-t border-border pt-4">
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-muted">{title}</h3>
+      <h3 className="mb-2 ui-meta font-semibold uppercase tracking-wide text-text-muted">{title}</h3>
       {children}
     </section>
   );
@@ -229,9 +227,9 @@ function DetailSection({
 
 function FieldTable({ fields }: { readonly fields: readonly EntityFieldDoc[] }) {
   return (
-    <table className="w-full border-collapse text-[12px]">
+    <table className="w-full border-collapse ui-meta">
       <thead>
-        <tr className="border-b border-border text-left font-mono text-[10px] uppercase tracking-wide text-text-faint">
+        <tr className="border-b border-border text-left font-mono ui-micro uppercase tracking-wide text-text-faint">
           <th className="py-1 pr-3 font-normal">字段</th>
           <th className="py-1 pr-3 font-normal">必填</th>
           <th className="py-1 pr-3 font-normal">形状</th>
@@ -241,15 +239,15 @@ function FieldTable({ fields }: { readonly fields: readonly EntityFieldDoc[] }) 
       <tbody>
         {fields.map((field) => (
           <tr key={field.name} className="border-b border-border/60 align-top">
-            <td className="py-1.5 pr-3 font-mono text-[11px] text-text">{field.name}</td>
-            <td className="py-1.5 pr-3 font-mono text-[10px]">
+            <td className="py-1.5 pr-3 font-mono ui-micro text-text">{field.name}</td>
+            <td className="py-1.5 pr-3 font-mono ui-micro">
               {field.required ? (
                 <span className="text-accent">必填</span>
               ) : (
                 <span className="text-text-faint">可选</span>
               )}
             </td>
-            <td className="py-1.5 pr-3 font-mono text-[10px] text-text-faint">{field.shape}</td>
+            <td className="py-1.5 pr-3 font-mono ui-micro text-text-faint">{field.shape}</td>
             <td className="py-1.5 leading-relaxed text-text-muted">{field.meaning}</td>
           </tr>
         ))}
@@ -260,7 +258,7 @@ function FieldTable({ fields }: { readonly fields: readonly EntityFieldDoc[] }) 
 
 function DocBadge({ value }: { readonly value: string }) {
   return (
-    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted">
       {value}
     </span>
   );
@@ -271,7 +269,7 @@ function LiveCountBadge({ doc, liveCounts }: { readonly doc: EntityKindDoc; read
   const live = liveCounts[doc.liveCount];
   const label = live.state === "ready" ? `本仓 ${live.count} 条` : live.state === "error" ? "读取失败" : "读取中…";
   return (
-    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
+    <span className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted">
       {label}
     </span>
   );
@@ -289,13 +287,11 @@ function FactTypeVocabulary({ stats }: { readonly stats: ReturnType<typeof useFa
       className="mt-6 max-w-3xl rounded-lg border border-border bg-surface p-4"
     >
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-[12px] font-semibold uppercase tracking-wide text-text-muted">Fact Type 受控词表</h3>
-        <span className="rounded border border-accent/60 px-1.5 py-0.5 font-mono text-[10px] text-accent">配置区</span>
-        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
-          投影实况
-        </span>
+        <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">Fact Type 受控词表</h3>
+        <span className="rounded border border-accent/60 px-1.5 py-0.5 font-mono ui-micro text-accent">配置区</span>
+        <span className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-faint">投影实况</span>
       </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-text-muted">
+      <p className="mt-2 ui-meta leading-relaxed text-text-muted">
         裁决 {FACT_TYPE_VOCABULARY.decisionId}:Type 不允许自由文本——随手写会把「分面检索」退化成它要解决的 混乱。一个
         Type 值必须经一次显式登记才可使用;一条 fact 可同时归属多个 Type;已记录的 fact
         允许重新归类,以新事件表达并保留审计轨迹。
@@ -304,18 +300,18 @@ function FactTypeVocabulary({ stats }: { readonly stats: ReturnType<typeof useFa
         className="mt-3 rounded-md border border-dashed border-border px-3 py-3"
         data-testid="fact-type-registered-list"
       >
-        <div className="font-mono text-[10px] uppercase tracking-wide text-text-faint">已登记 Type</div>
-        {stats.state === "pending" ? <p className="mt-1 text-[12px] text-text-faint">正在读取已登记 Type…</p> : null}
-        {stats.state === "error" ? <p className="mt-1 text-[12px] text-status-blocked">Type 词表读取失败。</p> : null}
+        <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">已登记 Type</div>
+        {stats.state === "pending" ? <p className="mt-1 ui-meta text-text-faint">正在读取已登记 Type…</p> : null}
+        {stats.state === "error" ? <p className="mt-1 ui-meta text-status-blocked">Type 词表读取失败。</p> : null}
         {stats.state === "ready" && stats.domainTypes.length === 0 ? (
-          <p className="mt-1 text-[12px] leading-relaxed text-text-faint">
+          <p className="mt-1 ui-meta leading-relaxed text-text-faint">
             空——本仓尚未登记 Fact Type。这里展示真实投影结果,不用示例词冒充词表。
           </p>
         ) : null}
         {stats.state === "ready" && stats.domainTypes.length > 0 ? (
           <ul className="mt-2 space-y-1">
             {stats.domainTypes.map((entry) => (
-              <li key={entry.domainType} className="flex items-center gap-2 text-[12px]">
+              <li key={entry.domainType} className="flex items-center gap-2 ui-meta">
                 <code className="font-mono text-text">{entry.domainType}</code>
                 <span className="text-text-faint">由 fact/{entry.registeredByFactId} 登记</span>
               </li>
@@ -330,16 +326,16 @@ function FactTypeVocabulary({ stats }: { readonly stats: ReturnType<typeof useFa
 function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof useFactFacetStats> }) {
   return (
     <section data-testid="fact-facet-live" className="mt-4 max-w-3xl border-t border-border pt-4">
-      <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-text-muted">本仓实况</h3>
-      {stats.state === "pending" && <p className="text-[12px] text-text-faint">正在读取事实切面…</p>}
-      {stats.state === "error" && <p className="text-[12px] text-status-blocked">事实切面读取失败。</p>}
+      <h3 className="mb-2 ui-meta font-semibold uppercase tracking-wide text-text-muted">本仓实况</h3>
+      {stats.state === "pending" && <p className="ui-meta text-text-faint">正在读取事实切面…</p>}
+      {stats.state === "error" && <p className="ui-meta text-status-blocked">事实切面读取失败。</p>}
       {stats.state === "ready" && (
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <div className="flex flex-wrap items-center gap-2 ui-meta">
           <span className="font-mono text-text">{stats.total} 条 fact</span>
           {stats.byCategory.map((entry) => (
             <span
               key={entry.category}
-              className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted"
+              className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted"
             >
               {entry.category} · {entry.count}
             </span>
@@ -347,7 +343,7 @@ function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof useFactFac
         </div>
       )}
       {stats.state === "ready" && (
-        <p className="mt-2 text-[11px] leading-relaxed text-text-faint">
+        <p className="mt-2 ui-micro leading-relaxed text-text-faint">
           来自既有 facts 切面读(与 ⌘K 面板同一条,共享缓存)。category 是 memoryClass 在读面上的折叠:
           semantic→lesson、procedural→progress、episodic→finding。Type 轴的分布等登记面合入后在此并列。
         </p>

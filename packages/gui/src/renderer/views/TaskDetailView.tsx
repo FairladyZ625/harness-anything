@@ -129,9 +129,9 @@ export function TaskDetailView({
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             ].join(" ")}
           >
-            <ArrowLeft weight="bold" className="text-[12px]" />
+            <ArrowLeft weight="bold" className="ui-meta" />
           </button>
-          <div className="flex min-w-0 flex-1 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
+          <div className="flex min-w-0 flex-1 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
             <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
               {projectName}
             </button>
@@ -144,7 +144,7 @@ export function TaskDetailView({
               entityRef={`task/${task.taskId}`}
               onNavigate={onNavigateEntity}
               title={task.taskId}
-              className="truncate font-mono text-[9px] leading-3 text-text-muted hover:text-accent hover:underline"
+              className="truncate font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
             />
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -158,7 +158,7 @@ export function TaskDetailView({
                 onClick={() => onOpenTerminal(task)}
                 title={t("views.taskDetailView.openTerminal")}
                 className={[
-                  "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px]",
+                  "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono ui-micro",
                   "text-text-faint hover:border-border-strong hover:text-text-muted",
                 ].join(" ")}
               >
@@ -174,7 +174,7 @@ export function TaskDetailView({
                 aria-pressed={pinned}
                 title={pinned ? t("views.taskDetailView.unpinTitle") : t("views.taskDetailView.pinTitle")}
                 className={[
-                  "flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 font-mono text-[10px]",
+                  "flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 font-mono ui-micro",
                   pinned
                     ? "border-accent/50 bg-accent/10 text-accent"
                     : "border-border text-text-faint hover:border-border-strong hover:text-text-muted",
@@ -189,7 +189,7 @@ export function TaskDetailView({
                   data-testid="task-detail-pinned-marker"
                   className={[
                     "flex shrink-0 items-center gap-1 rounded-md border",
-                    "border-accent/50 bg-accent/10 px-1.5 py-1 font-mono text-[10px] text-accent",
+                    "border-accent/50 bg-accent/10 px-1.5 py-1 font-mono ui-micro text-accent",
                   ].join(" ")}
                 >
                   <PushPin weight="fill" />
@@ -200,7 +200,7 @@ export function TaskDetailView({
             <details className="group relative shrink-0">
               <summary
                 className={[
-                  "list-none rounded-md border border-border px-2 py-1 font-mono text-[10px] text-text-muted",
+                  "list-none rounded-md border border-border px-2 py-1 font-mono ui-micro text-text-muted",
                   "hover:border-border-strong hover:bg-surface-raised hover:text-text",
                   "[&::-webkit-details-marker]:hidden",
                 ].join(" ")}
@@ -259,7 +259,7 @@ export function TaskDetailView({
               data-testid="task-open-sessions"
               onClick={() => onNavigateEntity(`tasksessions/${task.taskId}`)}
               className={
-                "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[10px] " +
+                "flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 font-mono ui-micro " +
                 "text-text-faint hover:text-accent"
               }
             >
@@ -271,10 +271,7 @@ export function TaskDetailView({
         </div>
         <div className="flex min-h-0 items-center gap-3 px-3 pb-1.5 lg:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <h1
-              title={task.title}
-              className="truncate text-[14px] font-semibold leading-6 tracking-[-0.01em] text-text"
-            >
+            <h1 title={task.title} className="truncate ui-body font-semibold leading-6 tracking-[-0.01em] text-text">
               {task.title}
             </h1>
             <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
@@ -303,12 +300,12 @@ export function TaskDetailView({
                   onClick={() => selectTab(tab.id)}
                   onKeyDown={(event) => navigateTabs(event, index, selectTab)}
                   className={[
-                    "flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium",
+                    "flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 ui-micro font-medium",
                     "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
                     active ? "bg-surface-raised text-text" : "text-text-faint hover:text-text-muted",
                   ].join(" ")}
                 >
-                  <Icon weight={active ? "bold" : "regular"} className="text-[11px]" />
+                  <Icon weight={active ? "bold" : "regular"} className="ui-micro" />
                   {t(tab.labelKey)}
                 </button>
               );
@@ -387,8 +384,8 @@ interface IdentityItemProps {
 function IdentityItem({ label, value, detail, wide = false, onClick }: IdentityItemProps) {
   return (
     <div className={`min-w-0 border-r border-b border-border/70 px-3 py-2 ${wide ? "sm:col-span-2" : ""}`}>
-      <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
-      <dd title={value} className="mt-1 min-w-0 truncate font-mono text-[11px] text-text-muted">
+      <dt className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
+      <dd title={value} className="mt-1 min-w-0 truncate font-mono ui-micro text-text-muted">
         {onClick ? (
           <button type="button" onClick={onClick} className="text-accent hover:underline">
             {value}

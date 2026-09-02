@@ -111,11 +111,11 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
         data-testid="focus-switcher-item"
         onMouseEnter={() => setActiveIndex(i)}
         onClick={() => selectHit(hit)}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] ${focused ? "bg-surface-raised text-text" : "text-text-muted hover:bg-surface-raised"}`}
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ui-meta ${focused ? "bg-surface-raised text-text" : "text-text-muted hover:bg-surface-raised"}`}
       >
-        <span className="w-14 shrink-0 truncate font-mono text-[10px] uppercase text-text-faint">{hit.entity}</span>
+        <span className="w-14 shrink-0 truncate font-mono ui-micro uppercase text-text-faint">{hit.entity}</span>
         <span className="min-w-0 flex-1 truncate">{hit.label}</span>
-        {hit.sub ? <span className="shrink-0 truncate font-mono text-[10px] text-text-faint">{hit.sub}</span> : null}
+        {hit.sub ? <span className="shrink-0 truncate font-mono ui-micro text-text-faint">{hit.sub}</span> : null}
       </button>
     </li>
   );
@@ -123,7 +123,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
   return (
     <aside data-testid="focus-switcher" className="flex w-64 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-text-muted">
+        <span className="font-mono ui-micro uppercase tracking-wide text-text-muted">
           {t("components.focusSwitcher.focusSwitch")}
         </span>
       </div>
@@ -137,7 +137,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={t("components.focusSwitcher.searchEntityPlaceholder")}
-            className="flex-1 bg-transparent text-[12px] text-text placeholder:text-text-faint focus:outline-none"
+            className="flex-1 bg-transparent ui-meta text-text placeholder:text-text-faint focus:outline-none"
             autoComplete="off"
             spellCheck={false}
           />
@@ -146,7 +146,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
             onClick={onOpenPalette}
             data-testid="focus-switcher-palette-trigger"
             title={t("components.focusSwitcher.openPalette")}
-            className="shrink-0 rounded font-mono text-[10px] text-text-faint transition-colors hover:text-text"
+            className="shrink-0 rounded font-mono ui-micro text-text-faint transition-colors hover:text-text"
           >
             ⌘K
           </button>
@@ -155,7 +155,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isSearching ? (
           searchHits.length === 0 ? (
-            <div className="px-3 py-3 text-[12px] leading-relaxed text-text-faint">
+            <div className="px-3 py-3 ui-meta leading-relaxed text-text-faint">
               {t("components.focusSwitcher.noResults")}
             </div>
           ) : (
@@ -166,10 +166,10 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
         ) : recent.length > 0 ? (
           <>
             <div className="flex items-center justify-between px-3 pb-1 pt-1">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("components.focusSwitcher.recent")}
               </span>
-              <span className="font-mono text-[10px] text-text-faint">
+              <span className="font-mono ui-micro text-text-faint">
                 {t("components.focusSwitcher.recentCount", { count: recent.length })}
               </span>
             </div>
@@ -179,13 +179,13 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
           </>
         ) : (
           <>
-            <div className="px-3 pb-1 pt-1 text-[12px] leading-relaxed text-text-faint">
+            <div className="px-3 pb-1 pt-1 ui-meta leading-relaxed text-text-faint">
               {t("components.focusSwitcher.recentEmptyHint")}
             </div>
             {suggested.length > 0 && (
               <>
                 <div className="px-3 pb-1 pt-2">
-                  <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                  <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                     {t("components.focusSwitcher.suggested")}
                   </span>
                 </div>

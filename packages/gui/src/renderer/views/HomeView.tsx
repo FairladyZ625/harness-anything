@@ -15,9 +15,9 @@ export function HomeView({
       <header className="border-b border-border px-4 py-3">
         <div className="flex items-baseline gap-2">
           <h1 className="ui-title font-semibold">项目</h1>
-          <span className="font-mono text-[11px] text-text-faint">{repos.length}</span>
+          <span className="font-mono ui-micro text-text-faint">{repos.length}</span>
         </div>
-        <p className="mt-1 text-[12px] text-text-faint">
+        <p className="mt-1 ui-meta text-text-faint">
           来自 resident daemon registry；每个 repo 的投影、历史、选择与收藏相互隔离。
         </p>
       </header>
@@ -33,24 +33,24 @@ export function HomeView({
             >
               <div className="flex items-center gap-2">
                 <FolderSimple className="text-text-muted" />
-                <b className="truncate text-[14px]">{repo.displayName}</b>
-                <span className="ml-auto font-mono text-[10px] text-text-faint">{repo.repoId}</span>
+                <b className="truncate ui-body">{repo.displayName}</b>
+                <span className="ml-auto font-mono ui-micro text-text-faint">{repo.repoId}</span>
               </div>
-              <p className="mt-2 truncate font-mono text-[11px] text-text-faint">{repo.canonicalRoot}</p>
-              <div className="mt-3 flex flex-wrap gap-1.5 font-mono text-[10px]">
+              <p className="mt-2 truncate font-mono ui-micro text-text-faint">{repo.canonicalRoot}</p>
+              <div className="mt-3 flex flex-wrap gap-1.5 font-mono ui-micro">
                 <Badge value={repo.registrationState} />
                 <Badge value={repo.cellState} />
                 <Badge value={`lock:${repo.lockState}`} />
                 <Badge value={`queue:${repo.queueDepth ?? "unknown"}`} />
               </div>
               {repo.cellState !== "attached" && (
-                <p className="mt-2 inline-flex items-start gap-1 text-[11px] text-status-blocked">
+                <p className="mt-2 inline-flex items-start gap-1 ui-micro text-status-blocked">
                   <WarningCircle className="mt-0.5 shrink-0" />
                   {repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}
                 </p>
               )}
               {!enabled && (
-                <p className="mt-2 inline-flex items-center gap-1 text-[11px] text-text-faint">
+                <p className="mt-2 inline-flex items-center gap-1 ui-micro text-text-faint">
                   <LockKey />
                   disabled repo 仅解释，不可进入
                 </p>

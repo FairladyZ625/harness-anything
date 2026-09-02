@@ -82,7 +82,7 @@ export function DispatchDialog({
       onClose={onCancel}
       footer={
         <>
-          <p className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px] text-text-faint">
+          <p className="mb-2 flex flex-wrap items-center gap-1.5 ui-micro text-text-faint">
             <span>{t("agentRuntime.produces")}</span>
             <Chip tone="mono">artifacts/missions/&lt;dispatchId&gt;.md</Chip>
             <Chip tone="mono">artifacts/dispatches/&lt;dispatchId&gt;.json</Chip>
@@ -90,7 +90,7 @@ export function DispatchDialog({
           </p>
           <div className="flex items-center gap-2">
             {notice && (
-              <span role="status" className="min-w-0 flex-1 truncate font-mono text-[11px] text-stale">
+              <span role="status" className="min-w-0 flex-1 truncate font-mono ui-micro text-stale">
                 {notice}
               </span>
             )}
@@ -113,7 +113,7 @@ export function DispatchDialog({
         onOpen={setOpen}
         locked
       >
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        <div className="flex flex-wrap items-center gap-2 ui-meta">
           {subject.kind === "agent" ? (
             <>
               <Avatar id={subject.agent.agentId} />
@@ -133,7 +133,7 @@ export function DispatchDialog({
             </>
           )}
         </div>
-        <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.twoAxes")}</p>
+        <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.twoAxes")}</p>
       </Step>
 
       <Step
@@ -146,7 +146,7 @@ export function DispatchDialog({
         onOpen={setOpen}
       >
         {tasks.length === 0 ? (
-          <p className="text-[11px] text-text-faint">{t("agentRuntime.noTasks")}</p>
+          <p className="ui-micro text-text-faint">{t("agentRuntime.noTasks")}</p>
         ) : (
           tasks.map((option) => (
             <button
@@ -164,16 +164,16 @@ export function DispatchDialog({
                 tip={option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
               />
               <span className="min-w-0">
-                <span className="block truncate text-[12px]">{option.title}</span>
-                <span className="block truncate font-mono text-[10px] text-text-faint">{option.taskId}</span>
+                <span className="block truncate ui-meta">{option.title}</span>
+                <span className="block truncate font-mono ui-micro text-text-faint">{option.taskId}</span>
               </span>
-              <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
+              <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
                 {option.heldLease ? t("agentRuntime.leaseHeld") : t("agentRuntime.leaseFree")}
               </span>
             </button>
           ))
         )}
-        <p className="mt-1 text-[11px] text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
+        <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.leaseAutoAcquire")}</p>
       </Step>
 
       <Step
@@ -192,7 +192,7 @@ export function DispatchDialog({
           onChange={(event) => setMission(event.target.value)}
           rows={6}
           placeholder={t("agentRuntime.missionPlaceholder")}
-          className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono text-[11.5px] text-text outline-none focus-visible:border-accent"
+          className="w-full resize-y rounded border border-border-strong bg-surface px-2 py-1.5 font-mono ui-micro text-text outline-none focus-visible:border-accent"
         />
         {prompts.length > 0 && (
           <div className="mt-2">
@@ -207,7 +207,7 @@ export function DispatchDialog({
             </div>
           </div>
         )}
-        <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.missionFiling")}</p>
+        <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.missionFiling")}</p>
       </Step>
 
       <Step
@@ -236,7 +236,7 @@ export function DispatchDialog({
           <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
         </div>
         {runtimeMode === "manual" && (
-          <label className="mt-2 grid gap-1 text-[11px] text-text-muted">
+          <label className="mt-2 grid gap-1 ui-micro text-text-muted">
             {t("agentRuntime.instance")}
             <select
               data-testid="dispatch-instance"
@@ -258,7 +258,7 @@ export function DispatchDialog({
         )}
         {instance && (
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <label className="grid gap-1 text-[11px] text-text-muted">
+            <label className="grid gap-1 ui-micro text-text-muted">
               {t("agentRuntime.model")}
               <select value={model} onChange={(event) => setModel(event.target.value)} className="control">
                 <option value="">
@@ -272,7 +272,7 @@ export function DispatchDialog({
               </select>
             </label>
             {(instance.kindId === "codex" || instance.kindId === "agy") && (
-              <label className="grid gap-1 text-[11px] text-text-muted">
+              <label className="grid gap-1 ui-micro text-text-muted">
                 {t("agentRuntime.effort")}
                 <input
                   value={effort}
@@ -289,7 +289,7 @@ export function DispatchDialog({
           </div>
         )}
         <div className="mt-2 grid gap-2 sm:grid-cols-[180px_minmax(0,1fr)]">
-          <label className="grid gap-1 text-[11px] text-text-muted">
+          <label className="grid gap-1 ui-micro text-text-muted">
             {t("agentRuntime.cwdScope")}
             <select
               value={cwdScope}
@@ -301,7 +301,7 @@ export function DispatchDialog({
             </select>
           </label>
           {cwdScope === "repo-relative" && (
-            <div className="grid gap-1 text-[11px] text-text-muted">
+            <div className="grid gap-1 ui-micro text-text-muted">
               {t("agentRuntime.cwdPath")}
               <TextInput
                 label={t("agentRuntime.cwdPath")}
@@ -348,14 +348,14 @@ function Step({
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left"
       >
         <span
-          className={`flex size-[18px] shrink-0 items-center justify-center rounded-full border font-mono text-[10px] ${locked ? "border-transparent bg-accent text-accent-fg" : "border-border-strong text-text-muted"}`}
+          className={`flex size-[18px] shrink-0 items-center justify-center rounded-full border font-mono ui-micro ${locked ? "border-transparent bg-accent text-accent-fg" : "border-border-strong text-text-muted"}`}
         >
           {no}
         </span>
-        <b className="text-[12px] font-[650]">{title}</b>
+        <b className="ui-meta font-[650]">{title}</b>
         <Hint>{hint}</Hint>
         {current && (
-          <span className={`ml-auto max-w-[46%] truncate text-[11px] ${expanded ? "text-text-muted" : "text-accent"}`}>
+          <span className={`ml-auto max-w-[46%] truncate ui-micro ${expanded ? "text-text-muted" : "text-accent"}`}>
             {current}
           </span>
         )}

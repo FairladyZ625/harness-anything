@@ -40,16 +40,12 @@ export function SquadRunDetail({
 }) {
   if (error !== null)
     return (
-      <p
-        role="alert"
-        data-testid="squad-run-detail-error"
-        className="px-4 py-4 font-mono text-[11px] text-status-blocked"
-      >
+      <p role="alert" data-testid="squad-run-detail-error" className="px-4 py-4 font-mono ui-micro text-status-blocked">
         {t("agentRuntime.readFailed", { error })}
       </p>
     );
   if (pending || detail === null)
-    return <p className="px-4 py-4 text-[11.5px] text-text-faint">{t("agentRuntime.loading")}</p>;
+    return <p className="px-4 py-4 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>;
   const run = detail.run;
   return (
     <div data-testid="squad-run-detail" className="flex flex-col gap-4 px-4 pt-3.5 pb-6">
@@ -59,8 +55,8 @@ export function SquadRunDetail({
             state={run.currentLeaderRuntimeSessionId === null ? "idle" : "live"}
             tip={t("agentRuntime.squadRunPhaseLeaderRunning")}
           />
-          <b className="min-w-0 truncate text-[14px]">{squadName ?? run.squadId}</b>
-          <span className="shrink-0 font-mono text-[10px] text-text-faint" title={run.squadRunId}>
+          <b className="min-w-0 truncate ui-body">{squadName ?? run.squadId}</b>
+          <span className="shrink-0 font-mono ui-micro text-text-faint" title={run.squadRunId}>
             {run.squadRunId}
           </span>
           <EntityRefLink
@@ -68,28 +64,28 @@ export function SquadRunDetail({
             onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
             title={run.taskId}
             className={[
-              "shrink-0 rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted",
+              "shrink-0 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted",
               "hover:border-accent hover:text-accent",
             ].join(" ")}
           >
             {t("agentRuntime.sessionsTaskDetail")} ↗
           </EntityRefLink>
         </span>
-        <p data-testid="squad-run-detail-mission" className="text-[11.5px] text-text-muted">
+        <p data-testid="squad-run-detail-mission" className="ui-micro text-text-muted">
           {run.mission}
         </p>
         {run.error !== null && (
-          <p className="font-mono text-[10.5px] text-status-blocked" data-testid="squad-run-detail-run-error">
+          <p className="font-mono ui-micro text-status-blocked" data-testid="squad-run-detail-run-error">
             {run.error}
           </p>
         )}
       </header>
       <section>
-        <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+        <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
           {t("agentRuntime.squadRunLeaderTurnsSection", { count: run.leaderTurns.length })}
         </h3>
         {run.leaderTurns.length === 0 ? (
-          <p className="text-[11px] text-text-faint">{t("agentRuntime.squadRunNoTurns")}</p>
+          <p className="ui-micro text-text-faint">{t("agentRuntime.squadRunNoTurns")}</p>
         ) : (
           run.leaderTurns.map((turn) => (
             <TurnSection
@@ -121,20 +117,20 @@ function TurnSection({
   return (
     <section data-testid={`squad-run-turn-${turn.turnId}`} className={`cv-auto-2r rounded border px-2 py-1 ${frame}`}>
       <div className="flex items-center gap-2">
-        <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{turn.turnId}</span>
+        <span className="shrink-0 font-mono ui-micro text-text-faint">{turn.turnId}</span>
         <StatusWord status={turn.status} />
-        <span className="min-w-0 flex-1 truncate text-[11.5px]">
+        <span className="min-w-0 flex-1 truncate ui-micro">
           {triggerLabel(turn.trigger)}
-          <span className="ml-1.5 text-[10px] text-text-muted">{decisionLabel(turn.decision)}</span>
+          <span className="ml-1.5 ui-micro text-text-muted">{decisionLabel(turn.decision)}</span>
         </span>
-        <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+        <span className="shrink-0 font-mono ui-micro text-text-faint">
           {turn.startedAt === null ? "—" : (formatTime(turn.startedAt, { style: "time" }) ?? "—")}
         </span>
         <EntityRefLink
           entityRef={`session/${turn.runtimeSessionId}`}
           onNavigate={onSelectEntity}
           title={turn.runtimeSessionId}
-          className="shrink-0 font-mono text-[9.5px] text-accent hover:underline"
+          className="shrink-0 font-mono ui-micro text-accent hover:underline"
         >
           {shortRef(turn.runtimeSessionId, 12)}
         </EntityRefLink>
@@ -142,14 +138,14 @@ function TurnSection({
       <details className="mt-1 rounded border border-border bg-surface px-1.5 py-1">
         <summary
           data-testid={`squad-run-receipt-${turn.turnId}`}
-          className="cursor-pointer font-mono text-[9.5px] text-text-faint"
+          className="cursor-pointer font-mono ui-micro text-text-faint"
         >
           {t("agentRuntime.squadRunReceipt")}
         </summary>
         {turn.resultText === null ? (
-          <p className="mt-1 text-[10.5px] text-text-faint">{t("agentRuntime.squadRunNoReceipt")}</p>
+          <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.squadRunNoReceipt")}</p>
         ) : (
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-[10.5px] text-text">
+          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
             {turn.resultText}
           </pre>
         )}
@@ -177,20 +173,20 @@ function AttemptRow({
       data-testid={`squad-run-attempt-${attempt.attemptId}`}
       className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-surface-raised"
     >
-      <span aria-hidden className="shrink-0 font-mono text-[9px] text-text-faint">
+      <span aria-hidden className="shrink-0 font-mono ui-micro text-text-faint">
         ├─
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{attempt.attemptId}</span>
+      <span className="shrink-0 font-mono ui-micro text-text-faint">{attempt.attemptId}</span>
       <StatusWord status={attempt.status} />
-      <span className="min-w-0 flex-1 truncate text-[11.5px]">
+      <span className="min-w-0 flex-1 truncate ui-micro">
         {attempt.workerId}
         {attempt.rejection !== null && (
-          <span className="ml-1.5 text-[10px] text-status-blocked" title={attempt.rejection}>
+          <span className="ml-1.5 ui-micro text-status-blocked" title={attempt.rejection}>
             {t("agentRuntime.squadRunRejection", { reason: attempt.rejection })}
           </span>
         )}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {attempt.startedAt === null ? "—" : (formatTime(attempt.startedAt, { style: "time" }) ?? "—")}
       </span>
       {attempt.runtimeSessionId !== null ? (
@@ -198,12 +194,12 @@ function AttemptRow({
           entityRef={`session/${attempt.runtimeSessionId}`}
           onNavigate={onSelectEntity}
           title={attempt.runtimeSessionId}
-          className="shrink-0 font-mono text-[9.5px] text-accent hover:underline"
+          className="shrink-0 font-mono ui-micro text-accent hover:underline"
         >
           {shortRef(attempt.runtimeSessionId, 12)}
         </EntityRefLink>
       ) : (
-        <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{t("agentRuntime.squadRunNoDispatch")}</span>
+        <span className="shrink-0 font-mono ui-micro text-text-faint">{t("agentRuntime.squadRunNoDispatch")}</span>
       )}
     </div>
   );
@@ -211,11 +207,9 @@ function AttemptRow({
 
 function StatusWord({ status }: { readonly status: SessionStatus | null }) {
   if (status === null)
-    return (
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{t("agentRuntime.squadRunNoDispatch")}</span>
-    );
+    return <span className="shrink-0 font-mono ui-micro text-text-faint">{t("agentRuntime.squadRunNoDispatch")}</span>;
   return (
-    <span className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[status]}`}>
+    <span className={`shrink-0 font-mono ui-micro ${sessionStatusTone[status]}`}>
       <LiveDot state={sessionStatusDot[status]} tip={t(sessionStatusKey[status] as never)} />{" "}
       {t(sessionStatusKey[status] as never)}
     </span>

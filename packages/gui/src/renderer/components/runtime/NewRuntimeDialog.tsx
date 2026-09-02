@@ -124,11 +124,11 @@ export function NewRuntimeDialog({
         <Hint>{t(`agentRuntime.plane_${form.kindId}` as never)}</Hint>
       </CfgRow>
 
-      <h3 className="mt-3 mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+      <h3 className="mt-3 mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
         {t("agentRuntime.witnessedInstallations")}
       </h3>
       {witnessed.length === 0 ? (
-        <p className="rounded border border-dashed border-status-blocked/50 px-2.5 py-2 text-[11px] text-status-blocked">
+        <p className="rounded border border-dashed border-status-blocked/50 px-2.5 py-2 ui-micro text-status-blocked">
           {t("agentRuntime.noWitnessedInstallation", { kind: form.kindId })}
         </p>
       ) : (
@@ -141,23 +141,23 @@ export function NewRuntimeDialog({
           >
             <KindDot kind={row.kindId} />
             <span className="min-w-0">
-              <span className="block text-[11.5px]">
+              <span className="block ui-micro">
                 {t("agentRuntime.witnessed", { kind: row.kindId, version: row.version })}
               </span>
-              <span className="block truncate font-mono text-[10.5px] text-text-muted">{row.installationId}</span>
+              <span className="block truncate font-mono ui-micro text-text-muted">{row.installationId}</span>
             </span>
-            <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">
+            <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
               {formatTime(row.observedAt, { style: "date" }) ?? "—"}
             </span>
           </button>
         ))
       )}
 
-      <h3 className="mt-3 mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+      <h3 className="mt-3 mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
         {t("agentRuntime.callPath")}
       </h3>
       {plane.authShape === "subscription-only" && (
-        <p className="text-[11px] text-text-faint">{t("agentRuntime.callPathAgy")}</p>
+        <p className="ui-micro text-text-faint">{t("agentRuntime.callPathAgy")}</p>
       )}
       {plane.authShape === "separate" && (
         <div className="flex flex-wrap items-center gap-2">
@@ -183,12 +183,12 @@ export function NewRuntimeDialog({
                 setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))
               }
             />
-            <b className="text-[11px]">{t("agentRuntime.apiOverride")}</b>
+            <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
             <Badge status={apiOn ? "active" : "planned"}>
               {t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
             </Badge>
           </div>
-          <p className="mt-1 text-[11px] text-text-faint">{t("agentRuntime.callPathClaude")}</p>
+          <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.callPathClaude")}</p>
         </div>
       )}
 
@@ -202,9 +202,7 @@ export function NewRuntimeDialog({
             onChange={(instanceId) => patch({ instanceId })}
             placeholder="claude-work"
           />
-          {duplicate && (
-            <span className="text-[10px] text-status-blocked">{t("agentRuntime.duplicateInstanceId")}</span>
-          )}
+          {duplicate && <span className="ui-micro text-status-blocked">{t("agentRuntime.duplicateInstanceId")}</span>}
         </Labelled>
         <Labelled label={t("agentRuntime.name")}>
           <TextInput
@@ -286,7 +284,7 @@ export function NewRuntimeDialog({
           <Labelled label={t("agentRuntime.fast")} hint={t("agentRuntime.fastHint")}>
             <span
               data-testid="new-runtime-fast"
-              className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted"
+              className="inline-flex min-h-8 items-center gap-2 ui-micro text-text-muted"
             >
               <Toggle checked={form.fast} onChange={(fast) => patch({ fast })} label={t("agentRuntime.fast")} />
               {t("agentRuntime.fastDescription")}
@@ -338,7 +336,7 @@ export function NewRuntimeDialog({
         )}
       </div>
       {form.kindId === "codex" && apiOn && (
-        <label className="mt-2 flex items-center gap-1.5 font-mono text-[10px] uppercase text-text-faint">
+        <label className="mt-2 flex items-center gap-1.5 font-mono ui-micro uppercase text-text-faint">
           <input
             type="checkbox"
             checked={form.requiresOpenAiAuth}
@@ -364,9 +362,9 @@ function Labelled({
 }) {
   return (
     <div className="grid min-w-0 gap-0.5">
-      <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">{label}</span>
+      <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">{label}</span>
       {children}
-      {hint && <span className="text-[10px] text-text-faint">{hint}</span>}
+      {hint && <span className="ui-micro text-text-faint">{hint}</span>}
     </div>
   );
 }

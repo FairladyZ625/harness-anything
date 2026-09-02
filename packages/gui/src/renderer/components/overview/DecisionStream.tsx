@@ -79,8 +79,8 @@ export function DecisionStream({
               <Scales weight="bold" className="shrink-0 text-accent" />
               <RiskTierBadge tier={decision.riskTier} />
               <UrgencyBadge urgency={decision.urgency} />
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{decision.title}</span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+              <span className="min-w-0 flex-1 truncate ui-body font-medium text-text">{decision.title}</span>
+              <span className="shrink-0 font-mono ui-micro tabular-nums text-text-faint">
                 {streamTime(decision.proposedAt)}
               </span>
             </button>

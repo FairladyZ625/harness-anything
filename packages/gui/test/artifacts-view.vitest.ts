@@ -307,11 +307,8 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(host?.classList.contains("flex-1")).toBe(true);
     expect(host?.classList.contains("min-h-0")).toBe(true);
     const styles = readFileSync("src/renderer/styles.css", "utf8");
-    const webviewRule = styles.match(/\.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
-    const fillRule = styles.match(/\.html-artifact-preview-fill \.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
-    expect(webviewRule).toContain("height: 100%");
-    expect(webviewRule).toContain("max-width: 100%");
-    expect(fillRule).toContain("min-height: 0");
+    expect(styles).not.toMatch(/\.html-artifact-webview\s*\{/u);
+    expect(styles).not.toMatch(/\.html-artifact-preview-fill \.html-artifact-webview\s*\{/u);
   });
 
   it("renders a Markdown artifact with the shared markdown reader, not a webview", async () => {

@@ -40,20 +40,18 @@ export function RelationRow({
   const clickable = isTask ? Boolean(onSelect) : canNavigateEntity;
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
-      <span className="shrink-0 rounded bg-surface-raised px-1 py-px text-[11px] text-text-muted">
-        {label}
-      </span>
+    <div className="flex min-w-0 items-center gap-1.5 ui-micro">
+      <span className="shrink-0 rounded bg-surface-raised px-1 py-px ui-micro text-text-muted">{label}</span>
       {clickable ? (
         <button
           onClick={handleClick}
-          className="shrink-0 font-mono text-[11px] text-accent hover:underline"
+          className="shrink-0 font-mono ui-micro text-accent hover:underline"
           title={isTask ? "跳转到 task" : isDecision ? "跳转到 decision" : "跳转到 fact"}
         >
           {peer}
         </button>
       ) : (
-        <span className="shrink-0 font-mono text-[11px] text-text-muted">{peer}</span>
+        <span className="shrink-0 font-mono ui-micro text-text-muted">{peer}</span>
       )}
       <span className="min-w-0 truncate text-text-faint">{title}</span>
       {provenance === "external-engine" && (

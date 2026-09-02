@@ -56,10 +56,10 @@ export function SessionGroupList({
     <nav
       data-testid="sessions-group-list"
       aria-label={t("agentRuntime.segSessions")}
-      className="flex w-[380px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex basis-1/4 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
     >
       {groups.length === 0 ? (
-        <p className="px-3 py-3 text-[11px] text-text-faint">
+        <p className="px-3 py-3 ui-micro text-text-faint">
           {t(query === "" ? "agentRuntime.noSessions" : "agentRuntime.sessionsNoMatches")}
         </p>
       ) : (
@@ -82,7 +82,7 @@ export function SessionGroupList({
       {truncated && (
         <p
           data-testid="sessions-groups-truncated"
-          className="border-t border-border px-3 py-2 text-[10.5px] text-text-faint"
+          className="border-t border-border px-3 py-2 ui-micro text-text-faint"
         >
           {t("agentRuntime.sessionsGroupsTruncated", { count: groups.length })}
         </p>
@@ -139,20 +139,20 @@ function GroupSection({
         {expandable && (
           <span
             aria-hidden
-            className={`shrink-0 text-[7px] text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
+            className={`shrink-0 ui-micro text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
           >
             ▶
           </span>
         )}
         <LiveDot state={sessionStatusDot[group.latestStatus]} tip={t(sessionStatusKey[group.latestStatus] as never)} />
-        <b className="min-w-0 flex-1 truncate text-[12px]">
+        <b className="min-w-0 flex-1 truncate ui-meta">
           {group.kind === "unattributed" ? t("agentRuntime.unattributed") : group.label}
         </b>
         {expandable && group.taskId && (
-          <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{shortRef(group.taskId, 11)}</span>
+          <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.taskId, 11)}</span>
         )}
       </span>
-      <span className="flex min-w-0 items-center gap-1.5 pl-[15px] text-[10.5px] text-text-muted">
+      <span className="flex min-w-0 items-center gap-1.5 pl-[15px] ui-micro text-text-muted">
         <span className={sessionStatusTone[group.latestStatus]}>
           {t(sessionStatusKey[group.latestStatus] as never)}
         </span>
@@ -165,7 +165,7 @@ function GroupSection({
           </>
         )}
         {group.latestRound?.agentName && <span className="truncate">· {group.latestRound.agentName}</span>}
-        <span className="ml-auto shrink-0 font-mono text-[9.5px] text-text-faint">
+        <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
           {relativeTime(group.latestActivityAt)}
         </span>
       </span>
@@ -188,12 +188,10 @@ function GroupSection({
       )}
       {open && (
         <div className="cv-auto-10r px-1.5 pb-2">
-          {rows === undefined && (
-            <p className="px-1.5 py-1 text-[10.5px] text-text-faint">{t("agentRuntime.loading")}</p>
-          )}
-          {rows?.pending && <p className="px-1.5 py-1 text-[10.5px] text-text-faint">{t("agentRuntime.loading")}</p>}
+          {rows === undefined && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
+          {rows?.pending && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
           {rows?.error && (
-            <p role="alert" className="px-1.5 py-1 font-mono text-[10px] text-status-blocked">
+            <p role="alert" className="px-1.5 py-1 font-mono ui-micro text-status-blocked">
               {t("agentRuntime.readFailed", { error: rows.error })}
             </p>
           )}
@@ -206,7 +204,7 @@ function GroupSection({
             />
           ))}
           {visibleOrphans.length > 0 && (
-            <p className="mt-1 px-1.5 font-mono text-[9.5px] uppercase tracking-[0.06em] text-text-faint">
+            <p className="mt-1 px-1.5 font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
               {t("agentRuntime.sessionsNoDispatch", { count: visibleOrphans.length })}
             </p>
           )}
@@ -225,7 +223,7 @@ function GroupSection({
                 onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
                 title={t("agentRuntime.openTask")}
                 className={
-                  "rounded border border-border px-1.5 py-0.5 text-[10.5px] text-text-muted " +
+                  "rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted " +
                   "hover:border-accent hover:text-accent"
                 }
               >
@@ -238,7 +236,7 @@ function GroupSection({
                   onNavigate={onSelectEntity}
                   title={decisionRef}
                   className={
-                    "rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted " +
+                    "rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted " +
                     "hover:border-accent hover:text-accent"
                   }
                 >
@@ -285,22 +283,22 @@ function RoundRow({
         selected ? "border-accent/40 bg-accent/[0.14]" : "border-transparent hover:bg-surface-raised"
       }`}
     >
-      <span className="shrink-0 font-mono text-[9px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex })}
       </span>
       <LiveDot state={sessionStatusDot[row.status]} tip={t(sessionStatusKey[row.status] as never)} />
-      <span className="min-w-0 flex-1 truncate text-[11.5px]">
+      <span className="min-w-0 flex-1 truncate ui-micro">
         {row.agentName ?? row.instanceId}
-        <span className="ml-1.5 font-mono text-[9.5px] text-text-faint">{shortRef(row.instanceId, 14)}</span>
-        {row.delegation && <span className="ml-1.5 text-[10px] text-text-muted">{row.delegation}</span>}
+        <span className="ml-1.5 font-mono ui-micro text-text-faint">{shortRef(row.instanceId, 14)}</span>
+        {row.delegation && <span className="ml-1.5 ui-micro text-text-muted">{row.delegation}</span>}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{shortRef(row.dispatchId, 14)}</span>
+      <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(row.dispatchId, 14)}</span>
       <span
         data-testid={`runtime-outcome-${row.runtimeSessionId}`}
-        className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[row.status]}`}
+        className={`shrink-0 font-mono ui-micro ${sessionStatusTone[row.status]}`}
       >
         {t(sessionStatusKey[row.status] as never)}
       </span>
@@ -328,14 +326,14 @@ function OrphanRow({
       }`}
     >
       <KindDot kind="any" />
-      <span className="min-w-0 flex-1 truncate text-[11.5px]">
+      <span className="min-w-0 flex-1 truncate ui-micro">
         {row.instanceId}
-        <span className="ml-1.5 font-mono text-[9.5px] text-text-faint">{t("agentRuntime.sessionsNoDispatchTag")}</span>
+        <span className="ml-1.5 font-mono ui-micro text-text-faint">{t("agentRuntime.sessionsNoDispatchTag")}</span>
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
       </span>
-      <span className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[row.status]}`}>
+      <span className={`shrink-0 font-mono ui-micro ${sessionStatusTone[row.status]}`}>
         {t(sessionStatusKey[row.status] as never)}
       </span>
     </button>

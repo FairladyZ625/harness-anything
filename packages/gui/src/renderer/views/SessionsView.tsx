@@ -281,7 +281,7 @@ export function SessionsView({
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="text-[13px] tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
@@ -340,11 +340,11 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "w-[280px] rounded border border-border-strong bg-surface px-2 py-1 text-[11.5px] text-text " +
+            "w-[280px] rounded border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
             "outline-none focus-visible:border-accent"
           }
         />
-        <span className="ml-auto truncate font-mono text-[10px] text-text-faint">
+        <span className="ml-auto truncate font-mono ui-micro text-text-faint">
           {segment === "sessions"
             ? t("agentRuntime.sessionsCounts", {
                 range: rangeLabel[range],
@@ -358,7 +358,7 @@ export function SessionsView({
         <p
           role="alert"
           data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px]
+          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro
         text-status-blocked"
         >
           {t("agentRuntime.readFailed", {
@@ -370,7 +370,7 @@ export function SessionsView({
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${
+          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro ${
             workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"
           }`}
         >

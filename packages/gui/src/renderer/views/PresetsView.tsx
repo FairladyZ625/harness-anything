@@ -57,19 +57,19 @@ export function PresetsView({
         <div className="flex flex-wrap items-center gap-2">
           <Stack className="text-text-faint" />
           <h1 className="ui-title font-semibold">{t("views.presetsView.catalogPreset")}</h1>
-          <span className="font-mono text-[11px] text-text-faint">
+          <span className="font-mono ui-micro text-text-faint">
             {repoId} · {data.status} · {data.catalogDigest.slice(0, 18)}…
           </span>
           <button
             disabled={reread.isPending}
             onClick={() => reread.mutate()}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-text-muted hover:border-border-strong disabled:opacity-50"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta text-text-muted hover:border-border-strong disabled:opacity-50"
           >
             <ArrowClockwise />
             {t("views.presetsView.reread")}
           </button>
         </div>
-        <p className="mt-1 text-[12px] text-text-faint">
+        <p className="mt-1 ui-meta text-text-faint">
           {t("views.presetsView.activationDescription")} <span className="font-mono text-text-muted">{locale}</span>
           {data.observedAt ? (
             <>
@@ -83,7 +83,7 @@ export function PresetsView({
           ) : null}
         </p>
         {reread.data && (
-          <p className={`mt-1 font-mono text-[11px] ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
+          <p className={`mt-1 font-mono ui-micro ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
             {t("views.presetsView.operationId")} {reread.data.operationId} · {reread.data.outcome} ·{" "}
             {formatTime(reread.data.observedAt, { style: "date-time-seconds" }) ?? reread.data.observedAt} ·{" "}
             {reread.data.beforeDigest.slice(0, 14)} → {reread.data.afterDigest.slice(0, 14)}
@@ -96,7 +96,7 @@ export function PresetsView({
           <button
             key={item}
             onClick={() => setTab(item)}
-            className={`rounded-md px-3 py-1 text-[12px] ${tab === item ? "bg-surface-raised font-semibold text-text" : "text-text-muted hover:text-text"}`}
+            className={`rounded-md px-3 py-1 ui-meta ${tab === item ? "bg-surface-raised font-semibold text-text" : "text-text-muted hover:text-text"}`}
           >
             {t(
               `views.presetsView.${item}Tab` as
@@ -117,28 +117,28 @@ export function PresetsView({
               className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-left hover:border-border-strong"
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <b className="shrink-0 text-[13px]">{preset.title}</b>
-                <code className="shrink-0 font-mono text-[11px] text-text-faint">{preset.id}</code>
+                <b className="shrink-0 ui-body">{preset.title}</b>
+                <code className="shrink-0 font-mono ui-micro text-text-faint">{preset.id}</code>
                 <PresetBadge value={preset.sourceKind} />
                 <PresetBadge value={preset.validity} />
                 {preset.id === data.defaults.presetId && (
                   <PresetBadge value={t("views.presetsView.default")} tone="accent" />
                 )}
-                <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">
+                <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
                   {preset.verticalId} · {t("views.presetsView.version")}{" "}
                   {preset.version ?? t("views.presetsView.unknownNotProjected")}
                 </span>
               </div>
-              <p className="mt-0.5 truncate text-[12px] text-text-muted">
+              <p className="mt-0.5 truncate ui-meta text-text-muted">
                 {preset.description || t("views.presetsView.unknownNotProjected")}
               </p>
               {preset.shadows && (
-                <p className="mt-0.5 text-[11px] text-stale">
+                <p className="mt-0.5 ui-micro text-stale">
                   {t("views.presetsView.shadowBundled")}：{preset.shadows.title}
                 </p>
               )}
               {preset.issues.length > 0 && (
-                <pre className="mt-1.5 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 text-[11px] text-status-blocked">
+                <pre className="mt-1.5 overflow-auto whitespace-pre-wrap rounded bg-surface-raised p-2 ui-micro text-status-blocked">
                   {JSON.stringify(preset.issues, null, 2)}
                 </pre>
               )}
@@ -149,7 +149,7 @@ export function PresetsView({
             <article key={vertical.id} className="rounded-lg border border-border bg-surface p-3">
               <div className="flex items-center gap-2">
                 <b>{vertical.title}</b>
-                <code className="text-[11px] text-text-faint">
+                <code className="ui-micro text-text-faint">
                   {vertical.id}@{vertical.version}
                 </code>
                 <PresetBadge value={vertical.valid ? t("views.presetsView.valid") : t("views.presetsView.invalid")} />
@@ -157,11 +157,11 @@ export function PresetsView({
                   value={vertical.available ? t("views.presetsView.available") : t("views.presetsView.unavailable")}
                 />
               </div>
-              <p className="mt-1 font-mono text-[11px] text-text-faint">
+              <p className="mt-1 font-mono ui-micro text-text-faint">
                 {t("views.presetsView.source")} {vertical.source}
               </p>
               {vertical.issues.length > 0 && (
-                <pre className="mt-2 whitespace-pre-wrap text-[11px] text-status-blocked">
+                <pre className="mt-2 whitespace-pre-wrap ui-micro text-status-blocked">
                   {JSON.stringify(vertical.issues, null, 2)}
                 </pre>
               )}
@@ -173,11 +173,11 @@ export function PresetsView({
               key={`${template.slot}:${template.templateRef}`}
               className="rounded-lg border border-border bg-surface p-3"
             >
-              <b className="text-[13px]">{template.slot}</b>
-              <p className="mt-1 break-all font-mono text-[11px] text-text-muted">
+              <b className="ui-body">{template.slot}</b>
+              <p className="mt-1 break-all font-mono ui-micro text-text-muted">
                 {template.templateRef} → {template.materializeAs}
               </p>
-              <p className="mt-1 text-[11px] text-text-faint">
+              <p className="mt-1 ui-micro text-text-faint">
                 {t("views.presetsView.locale")}：
                 {template.locales.join(", ") || t("views.presetsView.unknownNotProjected")} ·{" "}
                 {t("views.presetsView.snapshotDefault")} {data.defaults.locale}
@@ -189,5 +189,5 @@ export function PresetsView({
   );
 }
 function State({ text, danger = false }: { readonly text: string; readonly danger?: boolean }) {
-  return <div className={`p-6 text-[13px] ${danger ? "text-status-blocked" : "text-text-faint"}`}>{text}</div>;
+  return <div className={`p-6 ui-body ${danger ? "text-status-blocked" : "text-text-faint"}`}>{text}</div>;
 }

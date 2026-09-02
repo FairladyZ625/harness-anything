@@ -67,8 +67,8 @@ export function SquadCockpit({
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <Avatar id={squad.leader} size="lg" />
         <div className="min-w-0">
-          <b className="block truncate text-[13px]">{squad.name}</b>
-          <span className="block truncate font-mono text-[10px] text-text-faint">{squad.id}</span>
+          <b className="block truncate ui-body">{squad.name}</b>
+          <span className="block truncate font-mono ui-micro text-text-faint">{squad.id}</span>
         </div>
         <Badge>{t("agentRuntime.cockpitCommanderRuns", { count: model.commanderRuns.length })}</Badge>
         <Badge>{t("agentRuntime.cockpitWorkers", { count: workerCount })}</Badge>
@@ -78,11 +78,11 @@ export function SquadCockpit({
         </Btn>
       </header>
       <div className="px-3 py-2.5">
-        <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+        <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
           {t("agentRuntime.cockpitCommanderLane")}
         </h3>
         {model.commanderRuns.length === 0 ? (
-          <p data-testid="squad-cockpit-empty-commander" className="py-1 text-[11px] text-text-faint">
+          <p data-testid="squad-cockpit-empty-commander" className="py-1 ui-micro text-text-faint">
             {t("agentRuntime.cockpitNoCommander")}
           </p>
         ) : (
@@ -90,11 +90,11 @@ export function SquadCockpit({
             <div key={run.row.runtimeSessionId} className="mb-2.5" data-testid="squad-commander-run">
               <CockpitLane row={run.row} role="commander" onOpenSession={onOpenSession} />
               <div className="mt-1.5 ml-6 border-l-2 border-border pl-3">
-                <h4 className="mb-1 font-mono text-[9.5px] uppercase tracking-[0.07em] text-text-faint">
+                <h4 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
                   {t("agentRuntime.cockpitWorkersOf", { name: run.row.agentName ?? run.row.agentId ?? "" })}
                 </h4>
                 {run.children.length === 0 ? (
-                  <p data-testid="squad-cockpit-no-workers" className="text-[11px] text-text-faint">
+                  <p data-testid="squad-cockpit-no-workers" className="ui-micro text-text-faint">
                     {t("agentRuntime.cockpitNoWorkers")}
                   </p>
                 ) : (
@@ -115,7 +115,7 @@ export function SquadCockpit({
         )}
         {model.unboundWorkers.length > 0 && (
           <div className="mt-2 border-t border-border pt-2">
-            <h4 className="mb-1.5 font-mono text-[9.5px] uppercase tracking-[0.07em] text-text-faint">
+            <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
               {t("agentRuntime.cockpitUnboundWorkers")}
               <Hint>{t("agentRuntime.cockpitUnboundWorkersHint")}</Hint>
             </h4>
@@ -152,19 +152,19 @@ function CockpitLane({
       <LiveDot state={sessionStatusDot[row.status as SessionStatus] ?? "idle"} tip={row.status} />
       <Avatar id={row.agentId ?? row.instanceId} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px]">
+        <span className="block truncate ui-meta">
           {row.agentName ?? row.instanceId}
           {role === "commander" ? (
-            <span className="ml-1.5 font-mono text-[9.5px] text-accent">{t("agentRuntime.roleCommander")}</span>
+            <span className="ml-1.5 font-mono ui-micro text-accent">{t("agentRuntime.roleCommander")}</span>
           ) : null}
         </span>
-        <span className="block truncate font-mono text-[10px] text-text-faint">
+        <span className="block truncate font-mono ui-micro text-text-faint">
           {delegation ?? row.taskTitle ?? row.runtimeSessionId}
         </span>
       </span>
       <span className="shrink-0 text-right">
-        <span className="block font-mono text-[10px] text-text-faint">{row.status}</span>
-        <span className="block font-mono text-[9.5px] text-text-faint">
+        <span className="block font-mono ui-micro text-text-faint">{row.status}</span>
+        <span className="block font-mono ui-micro text-text-faint">
           {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
         </span>
       </span>

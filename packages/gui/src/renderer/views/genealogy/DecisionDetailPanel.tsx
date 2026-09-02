@@ -30,7 +30,7 @@ export function DecisionDetailPanel({
       className={`flex w-[26rem] shrink-0 flex-col overflow-y-auto ${side === "left" ? "border-l" : "border-r"} border-border bg-surface`}
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-        <span className="font-mono text-[11px] text-text-muted">决策详情</span>
+        <span className="font-mono ui-micro text-text-muted">决策详情</span>
         {onClose && (
           <button
             onClick={onClose}
@@ -41,21 +41,21 @@ export function DecisionDetailPanel({
         )}
       </div>
       <div className="flex flex-col gap-3 px-3 py-3">
-        <p className="text-[13px] font-semibold leading-snug text-text">{decision.title}</p>
+        <p className="ui-body font-semibold leading-snug text-text">{decision.title}</p>
         <div className="flex flex-wrap items-center gap-1.5">
           <DecisionStateBadge state={decision.state} />
           <RiskTierBadge tier={decision.riskTier} />
           <UrgencyBadge urgency={decision.urgency} />
         </div>
         <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-          <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">问题</span>
-          <p className="mt-1 text-[12px] font-medium text-text">{decision.question}</p>
+          <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">问题</span>
+          <p className="mt-1 ui-meta font-medium text-text">{decision.question}</p>
         </div>
         {decision.chosen.length > 0 && (
           <div className="rounded-md border border-accent/30 bg-accent/5 px-2.5 py-2">
-            <span className="font-mono text-[11px] uppercase tracking-wide text-accent">已选策略</span>
+            <span className="font-mono ui-micro uppercase tracking-wide text-accent">已选策略</span>
             {decision.chosen.map((c) => (
-              <p key={c.id} className="mt-1 text-[12px] text-text">
+              <p key={c.id} className="mt-1 ui-meta text-text">
                 {c.text}
               </p>
             ))}
@@ -63,19 +63,19 @@ export function DecisionDetailPanel({
         )}
         {decision.rejected.length > 0 && (
           <div className="rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2">
-            <span className="font-mono text-[11px] uppercase tracking-wide text-danger">已否决(why-not)</span>
+            <span className="font-mono ui-micro uppercase tracking-wide text-danger">已否决(why-not)</span>
             {decision.rejected.map((c) => (
               <div key={c.id} className="mt-1.5">
-                <p className="text-[12px] text-text line-through opacity-70">{c.text}</p>
-                {c.whyNot && <p className="mt-0.5 font-mono text-[11px] text-text-muted">→ {c.whyNot}</p>}
+                <p className="ui-meta text-text line-through opacity-70">{c.text}</p>
+                {c.whyNot && <p className="mt-0.5 font-mono ui-micro text-text-muted">→ {c.whyNot}</p>}
               </div>
             ))}
           </div>
         )}
         {decision.claims.length > 0 && (
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-            <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">承重论点</span>
-            <ul className="mt-1 list-inside list-disc text-[12px] text-text-muted">
+            <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">承重论点</span>
+            <ul className="mt-1 list-inside list-disc ui-meta text-text-muted">
               {decision.claims.map((c) => (
                 <li key={c.id}>{c.text}</li>
               ))}
@@ -86,9 +86,9 @@ export function DecisionDetailPanel({
           {onOpenPool && (
             <button
               onClick={onOpenPool}
-              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+              className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 ui-micro text-text-muted hover:border-border-strong hover:text-text"
             >
-              <ArrowsOutSimple weight="bold" className="text-[11px]" />
+              <ArrowsOutSimple weight="bold" className="ui-micro" />
               在决策池查看
             </button>
           )}
@@ -96,7 +96,7 @@ export function DecisionDetailPanel({
             entityRef={`decision/${decision.decisionId}`}
             onFocusGraph={onFocusGraph}
             testId="decision-panel-view-in-graph"
-            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 text-[11px] text-text-muted hover:border-border-strong hover:text-text"
+            className="inline-flex items-center gap-1 rounded border border-border px-2 py-1.5 ui-micro text-text-muted hover:border-border-strong hover:text-text"
           />
         </div>
       </div>

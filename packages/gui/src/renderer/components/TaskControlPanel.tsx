@@ -64,12 +64,12 @@ export function TaskControlPanel({
 
   return (
     <section className="rounded-md border border-border bg-bg/50 p-2.5" data-testid="task-control-panel">
-      <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+      <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
         {t("components.taskControlPanel.title")}
       </div>
       {task.blocking && (
         <p
-          className={`mt-1 text-[11px] ${task.blocking === "unknown" ? "text-stale" : task.blocking === "blocked" ? "text-status-blocked" : "text-text-faint"}`}
+          className={`mt-1 ui-micro ${task.blocking === "unknown" ? "text-stale" : task.blocking === "blocked" ? "text-status-blocked" : "text-text-faint"}`}
         >
           {task.blockingLabel}
           {task.blockers?.length
@@ -78,20 +78,20 @@ export function TaskControlPanel({
         </p>
       )}
       {task.blockingWarnings?.map((warning) => (
-        <p key={warning} className="mt-1 text-[11px] text-stale">
+        <p key={warning} className="mt-1 ui-micro text-stale">
           {t("components.taskControlPanel.warning", { warning })}
         </p>
       ))}
       {task.blockers?.map((blocker) => (
         <div
           key={blocker.relationId}
-          className="mt-1 rounded border border-status-blocked/20 px-2 py-1 font-mono text-[11px] text-text-muted"
+          className="mt-1 rounded border border-status-blocked/20 px-2 py-1 font-mono ui-micro text-text-muted"
         >
           {blocker.relationId} · {blocker.sourceTaskId} --{blocker.kind}→ {blocker.targetTaskId}
-          {blocker.rationale && <p className="mt-0.5 font-sans text-[11px]">{blocker.rationale}</p>}
+          {blocker.rationale && <p className="mt-0.5 font-sans ui-micro">{blocker.rationale}</p>}
         </div>
       ))}
-      {reason && <p className="mt-2 text-[11px] leading-relaxed text-text-muted">{reason}</p>}
+      {reason && <p className="mt-2 ui-micro leading-relaxed text-text-muted">{reason}</p>}
       {
         /* @gate-identity check-gui-status-judgments/gui-status-014 */
         task.canonicalStatus === "active" &&
@@ -100,11 +100,11 @@ export function TaskControlPanel({
           /* @gate-identity check-gui-status-judgments/gui-status-015 */
           task.packageDisposition === "active" && (
             <div className="mt-2 space-y-2">
-              <p className="font-mono text-[11px] text-text-faint">
+              <p className="font-mono ui-micro text-text-faint">
                 {t("components.taskControlPanel.lease", { executionId: task.activeExecutionId })}
               </p>
               <details className="rounded border border-border bg-surface p-2">
-                <summary className="cursor-pointer text-[12px] font-medium text-text">
+                <summary className="cursor-pointer ui-meta font-medium text-text">
                   {t("components.taskControlPanel.addProgress")}
                 </summary>
                 <form
@@ -125,23 +125,23 @@ export function TaskControlPanel({
                     name="text"
                     required
                     placeholder={t("components.taskControlPanel.progressOriginal")}
-                    className="min-h-20 w-full rounded border border-border bg-bg px-2 py-1.5 text-[12px] text-text"
+                    className="min-h-20 w-full rounded border border-border bg-bg px-2 py-1.5 ui-meta text-text"
                   />
                   <textarea
                     name="evidence"
                     placeholder={t("components.taskControlPanel.evidencePlaceholder")}
-                    className="min-h-16 w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] text-text"
+                    className="min-h-16 w-full rounded border border-border bg-bg px-2 py-1.5 font-mono ui-micro text-text"
                   />
                   <button
                     disabled={pending}
-                    className="rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
+                    className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
                   >
                     {t("components.taskControlPanel.writeProgress")}
                   </button>
                 </form>
               </details>
               <details className="rounded border border-border bg-surface p-2">
-                <summary className="cursor-pointer text-[12px] font-medium text-text">
+                <summary className="cursor-pointer ui-meta font-medium text-text">
                   {t("components.taskControlPanel.requestReview")}
                 </summary>
                 <form
@@ -165,7 +165,7 @@ export function TaskControlPanel({
                     name="completionClaim"
                     required
                     placeholder={t("components.taskControlPanel.completionClaim")}
-                    className="w-full rounded border border-border bg-bg px-2 py-1.5 text-[12px] text-text"
+                    className="w-full rounded border border-border bg-bg px-2 py-1.5 ui-meta text-text"
                   />
                   {(["deliverables", "outputs", "verificationNotes", "knownGaps", "residualRisks"] as const).map(
                     (name) => (
@@ -174,7 +174,7 @@ export function TaskControlPanel({
                         name={name}
                         required
                         placeholder={t("components.taskControlPanel.eachLineOneItem", { name })}
-                        className="min-h-14 w-full rounded border border-border bg-bg px-2 py-1.5 text-[11px] text-text"
+                        className="min-h-14 w-full rounded border border-border bg-bg px-2 py-1.5 ui-micro text-text"
                       />
                     ),
                   )}
@@ -183,11 +183,11 @@ export function TaskControlPanel({
                     required
                     pattern="[0-9a-f]{40}"
                     placeholder={t("components.taskControlPanel.commitSha")}
-                    className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono text-[11px] text-text"
+                    className="w-full rounded border border-border bg-bg px-2 py-1.5 font-mono ui-micro text-text"
                   />
                   <button
                     disabled={pending}
-                    className="rounded-md bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
+                    className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
                   >
                     {t("components.taskControlPanel.submitReview")}
                   </button>
@@ -196,11 +196,11 @@ export function TaskControlPanel({
             </div>
           )
       }
-      {localError && <p className="mt-2 text-[11px] text-danger">{localError}</p>}
+      {localError && <p className="mt-2 ui-micro text-danger">{localError}</p>}
       {feedback && (
         <div
           data-testid="task-mutation-feedback"
-          className={`mt-2 rounded border px-2 py-1.5 text-[11px] ${feedback.state === "error" ? "border-danger/40 text-danger" : feedback.state === "pending" ? "border-stale/40 text-stale" : "border-status-done/40 text-text-muted"}`}
+          className={`mt-2 rounded border px-2 py-1.5 ui-micro ${feedback.state === "error" ? "border-danger/40 text-danger" : feedback.state === "pending" ? "border-stale/40 text-stale" : "border-status-done/40 text-text-muted"}`}
         >
           <span className="font-mono">
             {feedback.kind} · {feedback.state} · opId={feedback.opId}

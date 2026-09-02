@@ -56,8 +56,8 @@ export function HtmlArtifactPreview({
           "border-b border-border bg-surface-raised px-3 py-2",
         ].join(" ")}
       >
-        <span className="min-w-0 truncate font-mono text-[11px] text-text-muted">{path}</span>
-        <span className="shrink-0 font-mono text-[10px] text-text-faint">{ISOLATION_BADGE}</span>
+        <span className="min-w-0 truncate font-mono ui-micro text-text-muted">{path}</span>
+        <span className="shrink-0 font-mono ui-micro text-text-faint">{ISOLATION_BADGE}</span>
       </header>
       <div
         ref={hostRef}

@@ -115,11 +115,11 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
             {events.map((event, index) => (
               <li key={`${event.at}-${event.summary}-${index}`} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-3">
                 <div className="flex flex-col items-center">
-                  <Circle weight="fill" className="mt-1 text-[9px] text-accent" />
+                  <Circle weight="fill" className="mt-1 ui-micro text-accent" />
                   {index < events.length - 1 ? <span className="min-h-8 w-px flex-1 bg-border" /> : null}
                 </div>
                 <div className="pb-5">
-                  <p className="text-[13px] leading-5 text-text">{event.summary}</p>
+                  <p className="ui-body leading-5 text-text">{event.summary}</p>
                   <Timestamp value={event.at} />
                 </div>
               </li>
@@ -226,14 +226,14 @@ function DispatchChain({
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <StatusDot status={row.status} />
-        <span className="font-mono text-[12px] font-semibold text-text">{row.dispatchId}</span>
+        <span className="font-mono ui-meta font-semibold text-text">{row.dispatchId}</span>
         <EntityRefLink
           entityRef={`session/${row.runtimeSessionId}`}
           onNavigate={onNavigateEntity}
           title={row.runtimeSessionId}
-          className="font-mono text-[11px] text-accent hover:underline"
+          className="font-mono ui-micro text-accent hover:underline"
         />
-        <span className="ml-auto font-mono text-[11px] text-text-faint">{row.status}</span>
+        <span className="ml-auto font-mono ui-micro text-text-faint">{row.status}</span>
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,.9fr)_minmax(0,1.1fr)_minmax(0,1.4fr)]">
         <ChainStep index="01" title="Mission">
@@ -259,7 +259,7 @@ function DispatchChain({
             <MetaLine label="squad" value="—" />
           )}
           <MetaLine label="delegated by" value={row.delegatedByAgentName ?? row.delegatedByAgentId ?? "—"} />
-          <p className="mt-3 text-[11px] leading-5 text-text-faint">
+          <p className="mt-3 ui-micro leading-5 text-text-faint">
             当前读面不包含 mission 正文；这里仅展示结构化派工身份。
           </p>
         </ChainStep>
@@ -287,16 +287,16 @@ function DispatchChain({
           ) : !session ? (
             <Pending text="正在读取 session report…" />
           ) : session.result?.text ? (
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans text-[12px] leading-5 text-text">
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-sans ui-meta leading-5 text-text">
               {session.result.text}
             </pre>
           ) : (
-            <p className="text-[12px] leading-5 text-text-faint">该 session 尚无 report 结果。</p>
+            <p className="ui-meta leading-5 text-text-faint">该 session 尚无 report 结果。</p>
           )}
         </ChainStep>
       </div>
       <div className="mt-4 border-t border-border/70 pt-3">
-        <p className="mb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-text-faint">Event stream</p>
+        <p className="mb-2 font-mono ui-micro uppercase tracking-[0.16em] text-text-faint">Event stream</p>
         {/* TODO(read-model): repo.agentRuntime.events.read exposes only event headers.
             Render type/time only; never recover payloads by parsing daemon transport data. */}
         {eventsError ? (
@@ -304,11 +304,11 @@ function DispatchChain({
         ) : !events ? (
           <Pending text="正在读取事件类型与时间…" />
         ) : events.events.length === 0 ? (
-          <p className="text-[11px] text-text-faint">暂无事件帧。</p>
+          <p className="ui-micro text-text-faint">暂无事件帧。</p>
         ) : (
           <ul className="flex flex-wrap gap-x-5 gap-y-2">
             {events.events.map((event) => (
-              <li key={event.cursor} className="flex items-center gap-2 text-[11px]">
+              <li key={event.cursor} className="flex items-center gap-2 ui-micro">
                 <span className="font-mono text-text-muted">{event.type}</span>
                 <Timestamp value={event.occurredAt} />
               </li>
@@ -387,7 +387,7 @@ export function TaskEvidenceTab({
         description="按 taskId 从关系投影筛选；triage 信号（矛盾 / 孤儿 / 低置信 / 已被取代）在同一投影上现算"
         extra={
           facts.length > 0 ? (
-            <span className="ml-auto shrink-0 font-mono text-[11px] text-text-faint">
+            <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
               {signalledCount} 条带信号 · {facts.length - signalledCount} healthy
             </span>
           ) : undefined
@@ -443,9 +443,9 @@ function FactRow({
   return (
     <article className={`grid gap-3 py-5 lg:grid-cols-[8rem_minmax(0,1fr)_13rem] ${accent}`}>
       <div>
-        <p className="font-mono text-[11px] font-semibold text-text">{fact.factId}</p>
+        <p className="font-mono ui-micro font-semibold text-text">{fact.factId}</p>
         <span
-          className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] ${fact.liveness === "standing" ? "bg-status-done/10 text-status-done" : "bg-surface-raised text-text-faint"}`}
+          className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono ui-micro ${fact.liveness === "standing" ? "bg-status-done/10 text-status-done" : "bg-surface-raised text-text-faint"}`}
         >
           {fact.liveness}
         </span>
@@ -457,24 +457,24 @@ function FactRow({
               <span
                 key={signal.kind}
                 title={signal.detail}
-                className="inline-flex rounded border border-status-blocked/30 bg-status-blocked/10 px-1.5 py-0.5 font-mono text-[10px] text-status-blocked"
+                className="inline-flex rounded border border-status-blocked/30 bg-status-blocked/10 px-1.5 py-0.5 font-mono ui-micro text-status-blocked"
               >
                 {SIGNAL_LABEL[signal.kind]}
               </span>
             ))}
-            <span className="font-mono text-[10px] text-text-faint">severity {item.severity}</span>
+            <span className="font-mono ui-micro text-text-faint">severity {item.severity}</span>
           </div>
         )}
-        <p className="text-[14px] leading-6 text-text">{fact.statement}</p>
-        <p className="mt-2 break-all font-mono text-[11px] text-text-faint">source: {fact.source}</p>
+        <p className="ui-body leading-6 text-text">{fact.statement}</p>
+        <p className="mt-2 break-all font-mono ui-micro text-text-faint">source: {fact.source}</p>
         {onNavigateEntity && (
           <button
             type="button"
             data-testid={`task-fact-detail-${fact.factId}`}
             onClick={() => onNavigateEntity(`fact/${fact.factId}`)}
-            className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+            className="mt-2 inline-flex items-center gap-1 ui-micro text-accent hover:underline"
           >
-            <ArrowSquareOut weight="bold" className="text-[11px]" />
+            <ArrowSquareOut weight="bold" className="ui-micro" />
             事实详情
           </button>
         )}
@@ -485,7 +485,7 @@ function FactRow({
             <CopyContextButton compact buildText={() => buildFactTriageContext(item, relations, decisions, tasks)} />
           </div>
         )}
-        <dl className="grid content-start grid-cols-[5rem_1fr] gap-x-2 gap-y-1 text-[11px]">
+        <dl className="grid content-start grid-cols-[5rem_1fr] gap-x-2 gap-y-1 ui-micro">
           <dt className="text-text-faint">confidence</dt>
           <dd className="font-mono text-text-muted">{fact.confidence}</dd>
           <dt className="text-text-faint">observed</dt>
@@ -554,7 +554,7 @@ export function TaskRelationsTab({
               onClick={onSelect ? () => onSelect(task.parentTaskId!) : undefined}
             />
           ) : (
-            <p className="text-[12px] text-text-faint">这是根任务，没有 parent。</p>
+            <p className="ui-meta text-text-faint">这是根任务，没有 parent。</p>
           )}
           {children.map((child) => (
             <EntityButton
@@ -569,7 +569,7 @@ export function TaskRelationsTab({
 
         <RelationGroup title="Decision" count={relatedDecisions.length}>
           {relatedDecisions.length === 0 ? (
-            <p className="text-[12px] text-text-faint">没有关联 decision。</p>
+            <p className="ui-meta text-text-faint">没有关联 decision。</p>
           ) : (
             relatedDecisions.map((decision) => (
               <EntityButton
@@ -589,7 +589,7 @@ export function TaskRelationsTab({
           ) : runtime.isError ? (
             <ReadError text={`Session 读取失败：${runtime.error.message}`} />
           ) : runtime.data.sessions.length === 0 ? (
-            <p className="text-[12px] text-text-faint">没有与该任务绑定的 session。</p>
+            <p className="ui-meta text-text-faint">没有与该任务绑定的 session。</p>
           ) : (
             runtime.data.sessions.map((session) => (
               <button
@@ -598,17 +598,17 @@ export function TaskRelationsTab({
                 onClick={() => onOpenSession(session.runtimeSessionId)}
                 className="group flex w-full items-center gap-3 border-b border-border/70 py-2.5 text-left last:border-b-0 hover:text-accent"
               >
-                <span className="font-mono text-[11px] text-text-muted group-hover:text-accent">
+                <span className="font-mono ui-micro text-text-muted group-hover:text-accent">
                   {session.runtimeSessionId}
                 </span>
-                <span className="min-w-0 truncate text-[12px] text-text-faint">
+                <span className="min-w-0 truncate ui-meta text-text-faint">
                   {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
                   {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
                     ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
                     : ""}
                 </span>
-                <span className="ml-auto font-mono text-[10px] text-text-faint">{session.liveness}</span>
-                <ArrowSquareOut weight="bold" className="text-[12px] text-text-faint group-hover:text-accent" />
+                <span className="ml-auto font-mono ui-micro text-text-faint">{session.liveness}</span>
+                <ArrowSquareOut weight="bold" className="ui-meta text-text-faint group-hover:text-accent" />
               </button>
             ))
           )}
@@ -616,7 +616,7 @@ export function TaskRelationsTab({
 
         <RelationGroup title="全部关系边" count={outEdges.length + inEdges.length}>
           {outEdges.length === 0 && inEdges.length === 0 ? (
-            <p className="text-[12px] text-text-faint">没有 active relation。</p>
+            <p className="ui-meta text-text-faint">没有 active relation。</p>
           ) : (
             <div className="grid gap-2">
               {outEdges.map((edge, index) => (
@@ -692,10 +692,10 @@ export function TaskCloseoutTab({
           <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
             <CloseoutBadge value={task.closeoutReadiness} />
             {task.closeoutBlocker ? (
-              <span className="font-mono text-[11px] text-stale">blocker: {task.closeoutBlocker}</span>
+              <span className="font-mono ui-micro text-stale">blocker: {task.closeoutBlocker}</span>
             ) : null}
             {task.snapshotAvailability ? (
-              <span className="ml-auto font-mono text-[10px] text-text-faint">
+              <span className="ml-auto font-mono ui-micro text-text-faint">
                 availability · consent {task.snapshotAvailability.consents} · code/doc{" "}
                 {task.snapshotAvailability.codeDocWitnesses} · gates {task.snapshotAvailability.gateWitnesses}
               </span>
@@ -752,13 +752,13 @@ export function TaskCloseoutTab({
 
         <aside className="grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6">
           <div>
-            <h3 className="text-[13px] font-semibold text-text">Gate assessment</h3>
+            <h3 className="ui-body font-semibold text-text">Gate assessment</h3>
             {task.gates.length === 0 ? (
-              <p className="mt-3 text-[12px] text-text-faint">没有 completion gate。</p>
+              <p className="mt-3 ui-meta text-text-faint">没有 completion gate。</p>
             ) : (
               <div className="mt-3 grid gap-2">
                 {task.gates.map((gate) => (
-                  <div key={gate.name} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 text-[11px]">
+                  <div key={gate.name} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-2 ui-micro">
                     {gate.ok === true ? (
                       <CheckCircle weight="bold" className="mt-0.5 text-status-done" />
                     ) : gate.ok === false ? (
@@ -794,11 +794,11 @@ function AuditGroup({
   return (
     <section>
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-[13px] font-semibold text-text">{title}</h3>
-        <span className="font-mono text-[10px] text-text-faint">{count}</span>
+        <h3 className="ui-body font-semibold text-text">{title}</h3>
+        <span className="font-mono ui-micro text-text-faint">{count}</span>
       </div>
       {count === 0 ? (
-        <p className="border-t border-border py-3 text-[12px] text-text-faint">暂无记录。</p>
+        <p className="border-t border-border py-3 ui-meta text-text-faint">暂无记录。</p>
       ) : (
         <div className="divide-y divide-border border-y border-border">{children}</div>
       )}
@@ -817,7 +817,7 @@ function ExecutionOutputsGroup({ executions }: { readonly executions: readonly E
           data-testid={`task-execution-${execution.executionId}`}
           className="grid gap-3 py-3"
         >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px]">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono ui-micro">
             <span className="font-semibold text-text">{execution.executionId}</span>
             <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">{field(execution.state)}</span>
             {execution.origin && (
@@ -833,13 +833,13 @@ function ExecutionOutputsGroup({ executions }: { readonly executions: readonly E
             </span>
           </div>
           {execution.outputs.length === 0 ? (
-            <p className="text-[12px] text-text-faint">该 execution 没有输出记录。</p>
+            <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
           ) : (
             <div className="grid gap-1">
               {execution.outputs.map((output, index) => (
                 <div
                   key={`${output.evidenceId ?? "unknown"}-${index}`}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono text-[11px]"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
                 >
                   <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
                   <span className="min-w-0 truncate text-text-muted">
@@ -883,10 +883,10 @@ function AuditRow({
   return (
     <div className="grid gap-2 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_9rem]">
       <div>
-        <p className="font-mono text-[11px] text-text-muted">{id}</p>
-        <p className="mt-0.5 font-mono text-[10px] text-text-faint">{state}</p>
+        <p className="font-mono ui-micro text-text-muted">{id}</p>
+        <p className="mt-0.5 font-mono ui-micro text-text-faint">{state}</p>
       </div>
-      <p className="min-w-0 break-words text-[12px] leading-5 text-text">{summary}</p>
+      <p className="min-w-0 break-words ui-meta leading-5 text-text">{summary}</p>
       <Timestamp value={at} />
     </div>
   );
@@ -904,9 +904,9 @@ function RelationGroup({
   return (
     <section className="min-w-0 border-t border-border pt-3">
       <div className="mb-2 flex items-center gap-2">
-        <LinkSimple weight="duotone" className="text-[14px] text-text-faint" />
-        <h3 className="text-[13px] font-semibold text-text">{title}</h3>
-        <span className="font-mono text-[10px] text-text-faint">{count}</span>
+        <LinkSimple weight="duotone" className="ui-body text-text-faint" />
+        <h3 className="ui-body font-semibold text-text">{title}</h3>
+        <span className="font-mono ui-micro text-text-faint">{count}</span>
       </div>
       {children}
     </section>
@@ -926,16 +926,13 @@ function EntityButton({
 }) {
   const content = (
     <>
-      <span className="w-14 shrink-0 rounded bg-surface-raised px-1 py-0.5 text-center font-mono text-[10px] text-text-faint">
+      <span className="w-14 shrink-0 rounded bg-surface-raised px-1 py-0.5 text-center font-mono ui-micro text-text-faint">
         {label}
       </span>
-      <span className="shrink-0 font-mono text-[11px] text-text-muted group-hover:text-accent">{id}</span>
-      <span className="min-w-0 truncate text-[12px] text-text-faint">{title}</span>
+      <span className="shrink-0 font-mono ui-micro text-text-muted group-hover:text-accent">{id}</span>
+      <span className="min-w-0 truncate ui-meta text-text-faint">{title}</span>
       {onClick ? (
-        <ArrowSquareOut
-          weight="bold"
-          className="ml-auto shrink-0 text-[12px] text-text-faint group-hover:text-accent"
-        />
+        <ArrowSquareOut weight="bold" className="ml-auto shrink-0 ui-meta text-text-faint group-hover:text-accent" />
       ) : null}
     </>
   );
@@ -972,10 +969,10 @@ function ChainStep({
   return (
     <div className="min-w-0 border-t border-border pt-3">
       <div className="mb-3 flex items-center gap-2">
-        <span className="font-mono text-[10px] text-accent">{index}</span>
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-text-muted">{title}</h3>
+        <span className="font-mono ui-micro text-accent">{index}</span>
+        <h3 className="ui-meta font-semibold uppercase tracking-[0.12em] text-text-muted">{title}</h3>
       </div>
-      <div className="grid gap-1.5 text-[12px]">{children}</div>
+      <div className="grid gap-1.5 ui-meta">{children}</div>
     </div>
   );
 }
@@ -994,16 +991,16 @@ function MetaLine({
 }) {
   return (
     <div className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-2">
-      <span className="text-[11px] text-text-faint">{label}</span>
+      <span className="ui-micro text-text-faint">{label}</span>
       {entityRef && onNavigate ? (
         <EntityRefLink
           entityRef={entityRef}
           onNavigate={onNavigate}
           title={value}
-          className="min-w-0 break-all font-mono text-[11px] text-accent hover:underline"
+          className="min-w-0 break-all font-mono ui-micro text-accent hover:underline"
         />
       ) : (
-        <span className="min-w-0 break-all font-mono text-[11px] text-text-muted">{value}</span>
+        <span className="min-w-0 break-all font-mono ui-micro text-text-muted">{value}</span>
       )}
     </div>
   );
@@ -1038,9 +1035,9 @@ function SectionHeading({
 }) {
   return (
     <header className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1" data-testid="task-section-heading">
-      <p className="shrink-0 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-accent">{eyebrow}</p>
-      <h2 className="shrink-0 text-[14px] font-semibold tracking-[-0.01em] text-text">{title}</h2>
-      <p className="min-w-0 truncate text-[11px] leading-4 text-text-faint">{description}</p>
+      <p className="shrink-0 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-accent">{eyebrow}</p>
+      <h2 className="shrink-0 ui-body font-semibold tracking-[-0.01em] text-text">{title}</h2>
+      <p className="min-w-0 truncate ui-micro leading-4 text-text-faint">{description}</p>
       {extra}
     </header>
   );
@@ -1048,25 +1045,25 @@ function SectionHeading({
 
 function Timestamp({ value }: { readonly value: string }) {
   return (
-    <time dateTime={value} title={value} className="font-mono text-[10px] text-text-faint">
+    <time dateTime={value} title={value} className="font-mono ui-micro text-text-faint">
       {formatTime(value, { style: "date-time-seconds" }) ?? value}
     </time>
   );
 }
 
 function Pending({ text }: { readonly text: string }) {
-  return <p className="animate-pulse text-[12px] text-text-faint">{text}</p>;
+  return <p className="animate-pulse ui-meta text-text-faint">{text}</p>;
 }
 
 function ReadError({ text }: { readonly text: string }) {
-  return <p className="text-[12px] leading-5 text-danger">{text}</p>;
+  return <p className="ui-meta leading-5 text-danger">{text}</p>;
 }
 
 function Empty({ text }: { readonly text: string }) {
   return (
     <div className="flex min-h-28 flex-col items-center justify-center gap-2 border border-dashed border-border-strong px-6 py-8 text-center">
       <FileText weight="duotone" className="text-xl text-text-faint" />
-      <p className="max-w-lg text-[12px] leading-5 text-text-faint">{text}</p>
+      <p className="max-w-lg ui-meta leading-5 text-text-faint">{text}</p>
     </div>
   );
 }

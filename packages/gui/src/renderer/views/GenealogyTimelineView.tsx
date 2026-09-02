@@ -125,8 +125,8 @@ export function GenealogyTimelineView({
         data-testid="genealogy-empty"
         className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
       >
-        <div className="text-[14px] font-semibold text-text">暂无决策谱系边</div>
-        <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
+        <div className="ui-body font-semibold text-text">暂无决策谱系边</div>
+        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
           当前投影没有 refines / narrows / supersedes / supports 关系。决策出现谱系边后,演化史会自动展示祖先与后代。
         </div>
       </div>
@@ -139,8 +139,8 @@ export function GenealogyTimelineView({
         data-testid="genealogy-no-focus"
         className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
       >
-        <div className="text-[13px] font-semibold text-text">演化史需要 decision 焦点</div>
-        <div className="max-w-md text-[12px] leading-relaxed text-text-faint">
+        <div className="ui-body font-semibold text-text">演化史需要 decision 焦点</div>
+        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
           先在聚光灯里选中一个 decision,演化史会展示它的谱系(祖先 / 后代 / 同日 cluster)。
         </div>
       </div>
@@ -156,7 +156,7 @@ export function GenealogyTimelineView({
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="genealogy-timeline">
       <div className="flex flex-col gap-0.5 border-b border-border px-4 py-1.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="min-w-0 truncate font-mono text-[12px] tabular-nums text-text-faint">
+          <span className="min-w-0 truncate font-mono ui-meta tabular-nums text-text-faint">
             {edges.length} 条谱系边 · {participants.length} 参与者
           </span>
           {cycleWarning.count > 0 && (
@@ -167,7 +167,7 @@ export function GenealogyTimelineView({
               环警告 · {cycleWarning.count}
             </span>
           )}
-          <span className="min-w-0 truncate font-mono text-[11px] tabular-nums text-text-faint">
+          <span className="min-w-0 truncate font-mono ui-micro tabular-nums text-text-faint">
             焦点谱系 · {ancestorCount} 祖先 / {descendantCount} 后代
             {visibleClusters > 0 ? ` · ${visibleClusters} 同日簇` : ""}
           </span>
@@ -175,8 +175,8 @@ export function GenealogyTimelineView({
       </div>
 
       <div className="flex items-center gap-3 border-b border-border px-4 py-1.5">
-        <span className="font-mono text-[11px] text-text-faint">DAG 拓扑(谱系深度排序,同日自动折簇)</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2 text-[11px]">
+        <span className="font-mono ui-micro text-text-faint">DAG 拓扑(谱系深度排序,同日自动折簇)</span>
+        <div className="ml-auto flex flex-wrap items-center gap-2 ui-micro">
           {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {
             const meta = KIND_META[kind];
             return (
@@ -213,7 +213,7 @@ export function GenealogyTimelineView({
         <div ref={plotRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-bg">
           {layout.nodes.length <= 1 && !layout.nodes[0]?.isCluster ? (
             <div className="flex h-full items-center justify-center px-6 text-center">
-              <div className="max-w-sm text-[12px] leading-relaxed text-text-faint">
+              <div className="max-w-sm ui-meta leading-relaxed text-text-faint">
                 该 decision 暂无谱系连接(没有 refines/narrows/supersedes/supports 邻居)。
               </div>
             </div>

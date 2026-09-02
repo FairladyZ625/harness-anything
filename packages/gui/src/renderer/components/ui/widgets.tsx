@@ -1,13 +1,13 @@
 import type { ReactNode } from "react";
 
 export const BTN =
-  "rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted transition-colors duration-100 hover:border-border-strong hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted";
+  "rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:border-border-strong hover:bg-surface-raised hover:text-text disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-border disabled:hover:bg-transparent disabled:hover:text-text-muted";
 
 export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="font-mono text-[12px] uppercase tracking-wide text-text-faint">{title}</span>
+        <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</span>
         {action}
       </div>
       <div>{children}</div>
@@ -49,7 +49,7 @@ export function Segmented<T extends string>({
             if (!disabled) onChange(o.key);
           }}
           disabled={disabled}
-          className={`px-3 py-1.5 text-[13px] ${i > 0 ? "border-l border-border" : ""} ${
+          className={`px-3 py-1.5 ui-body ${i > 0 ? "border-l border-border" : ""} ${
             value === o.key ? "bg-surface-raised font-medium" : "text-text-muted hover:bg-surface-raised/50"
           } ${disabled ? "cursor-not-allowed" : ""}`}
         >
@@ -91,7 +91,7 @@ export function Toggle({
 
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="rounded border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-[13px] text-text-muted">
+    <kbd className="rounded border border-border bg-surface-raised px-1.5 py-0.5 font-mono ui-body text-text-muted">
       {children}
     </kbd>
   );

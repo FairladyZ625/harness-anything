@@ -262,9 +262,9 @@ export function RuntimeCard({
                 </Btn>
               )}
             </div>
-            {apiMode && <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
+            {apiMode && <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
             {planeUsesApiOverride(instance.kindId) && (
-              <p className="mt-2 text-[11px] text-text-faint">
+              <p className="mt-2 ui-micro text-text-faint">
                 {t(apiMode ? "agentRuntime.claudeApiOverrideOn" : "agentRuntime.claudeApiOverrideOff")}
               </p>
             )}
@@ -425,7 +425,7 @@ function ProviderEditor({
     >
       <div className="grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
         <label className="grid gap-0.5">
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+          <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.name")}
           </span>
           <TextInput
@@ -437,17 +437,17 @@ function ProviderEditor({
         </label>
         {instance.kindId === "codex" && (
           <label className="grid gap-0.5">
-            <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+            <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
               {t("agentRuntime.fast")}
             </span>
-            <span className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted">
+            <span className="inline-flex min-h-8 items-center gap-2 ui-micro text-text-muted">
               <Toggle checked={draft.fast} onChange={(fast) => patch({ fast })} label={t("agentRuntime.fast")} />
               {t("agentRuntime.fastDescription")}
             </span>
           </label>
         )}
         <label className="grid gap-0.5">
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+          <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.installation")}
           </span>
           <select
@@ -466,7 +466,7 @@ function ProviderEditor({
         </label>
         {planeAllowsBaseUrl(instance.kindId, instance.authMode) && (
           <label className="grid gap-0.5">
-            <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+            <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
               {t("agentRuntime.baseUrl")}
             </span>
             <TextInput
@@ -477,11 +477,11 @@ function ProviderEditor({
               onChange={(baseUrl) => patch({ baseUrl })}
               placeholder="https://api.third-party.example/v1"
             />
-            <span className="text-[10px] text-text-faint">{t("agentRuntime.baseUrlHint")}</span>
+            <span className="ui-micro text-text-faint">{t("agentRuntime.baseUrlHint")}</span>
           </label>
         )}
         <label className="grid gap-0.5">
-          <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">
+          <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.model")}
           </span>
           <RuntimeModelEditor

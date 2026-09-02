@@ -29,7 +29,7 @@ function JudgmentHistory({
   if (history.length === 0) return null;
   return (
     <section className="mt-4 rounded-lg border border-border bg-surface p-3">
-      <h2 className="font-mono text-[11px] font-semibold uppercase tracking-wide text-text-faint">
+      <h2 className="font-mono ui-micro font-semibold uppercase tracking-wide text-text-faint">
         {t("views.decisionsView.canonicalJudgmentHistory")}
       </h2>
       <ul className="mt-1.5 space-y-1">
@@ -38,7 +38,7 @@ function JudgmentHistory({
           return (
             <li
               key={consent.consentId}
-              className="text-[11px] leading-relaxed [contain-intrinsic-size:auto_1rem] [content-visibility:auto]"
+              className="ui-micro leading-relaxed [contain-intrinsic-size:auto_1rem] [content-visibility:auto]"
             >
               <span className="font-mono text-text-muted">
                 {consent.action} · {decision.decisionId} ·{consent.consentId}
@@ -150,11 +150,11 @@ export function DecisionsView({
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
         <ChatCircleDots weight="bold" className="text-accent" />
-        <span className="text-[13px] font-semibold text-text">决策批准</span>
-        <span className="rounded bg-surface-raised px-1.5 font-mono text-[11px] tabular-nums text-text-muted">
+        <span className="ui-body font-semibold text-text">决策批准</span>
+        <span className="rounded bg-surface-raised px-1.5 font-mono ui-micro tabular-nums text-text-muted">
           {queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}
         </span>
-        <span className="truncate text-[11px] text-text-faint">riskTier × urgency · canonical reread</span>
+        <span className="truncate ui-micro text-text-faint">riskTier × urgency · canonical reread</span>
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={() => setCursor((value) => Math.max(0, value - 1))}
@@ -176,7 +176,7 @@ export function DecisionsView({
             onClick={skip}
             disabled={!current}
             title="跳过 · S（不改 canonical 状态）"
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
           >
             <SkipForward />
             跳过
@@ -187,7 +187,7 @@ export function DecisionsView({
                 setSkipped(new Set());
                 setCursor(0);
               }}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] tabular-nums text-accent transition-colors duration-100 hover:bg-accent/10"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro tabular-nums text-accent transition-colors duration-100 hover:bg-accent/10"
             >
               <ArrowsClockwise />
               恢复{skipped.size}
@@ -195,14 +195,14 @@ export function DecisionsView({
           )}
           <button
             onClick={() => setHelp((value) => !value)}
-            className="rounded-md px-2 py-1 font-mono text-[11px] text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+            className="rounded-md px-2 py-1 font-mono ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
           >
             ?
           </button>
         </div>
       </div>
       {help && (
-        <div className="border-b border-border bg-surface-raised px-4 py-2 font-mono text-[11px] leading-relaxed text-text-muted">
+        <div className="border-b border-border bg-surface-raised px-4 py-2 font-mono ui-micro leading-relaxed text-text-muted">
           J/K 下一条/上一条 · S 跳过 · A/R/D 打开 Accept/Reject/Defer rationale · ? 帮助；编辑字段内快捷键停用。
         </div>
       )}
@@ -211,7 +211,7 @@ export function DecisionsView({
           <div className="flex-1 overflow-auto p-4">
             {current ? (
               <>
-                <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 text-[11px] leading-relaxed text-stale">
+                <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 ui-micro leading-relaxed text-stale">
                   只处理 canonical proposed。mutation pending 只锁当前卡；不要重放，用 opId 查询 receipt。
                 </div>
                 <VerdictCard
@@ -237,13 +237,11 @@ export function DecisionsView({
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                 <div className="grid size-14 place-items-center rounded-full bg-surface-raised">
-                  <SealCheck weight="duotone" className="text-[28px] text-success" />
+                  <SealCheck weight="duotone" className="ui-heading text-success" />
                 </div>
                 <div>
-                  <div className="text-[15px] font-semibold text-text">当前无待决策批准</div>
-                  <div className="mt-1 text-[12px] text-text-faint">
-                    终态只来自 canonical decision + judgment consent。
-                  </div>
+                  <div className="ui-prose font-semibold text-text">当前无待决策批准</div>
+                  <div className="mt-1 ui-meta text-text-faint">终态只来自 canonical decision + judgment consent。</div>
                 </div>
               </div>
             )}
@@ -257,7 +255,7 @@ export function DecisionsView({
                     key={decision.decisionId}
                     onClick={() => setCursor(index)}
                     title={decision.title}
-                    className={`shrink-0 rounded-md px-2 py-1 font-mono text-[11px] transition-colors duration-100 ${index === idx ? "bg-accent font-semibold text-accent-fg" : skipped.has(decision.decisionId) ? "bg-surface text-text-faint line-through hover:text-text-muted" : "bg-surface text-text-muted hover:text-text"}`}
+                    className={`shrink-0 rounded-md px-2 py-1 font-mono ui-micro transition-colors duration-100 ${index === idx ? "bg-accent font-semibold text-accent-fg" : skipped.has(decision.decisionId) ? "bg-surface text-text-faint line-through hover:text-text-muted" : "bg-surface text-text-muted hover:text-text"}`}
                   >
                     {decision.decisionId}
                   </button>

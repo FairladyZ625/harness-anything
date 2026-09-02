@@ -33,11 +33,11 @@ export class ErrorBoundary extends Component<Props, State> {
       <div className="grid min-h-0 flex-1 place-items-center p-6">
         <div className="max-w-lg rounded-lg border border-border bg-surface-raised p-5 text-center">
           <p className="text-sm font-medium text-text">此视图出现错误</p>
-          <p className="mt-0.5 text-[11px] text-text-faint">This view hit an error</p>
+          <p className="mt-0.5 ui-micro text-text-faint">This view hit an error</p>
           <p
             className={
               "mt-3 max-h-40 overflow-auto break-words rounded border border-border bg-surface " +
-              "p-2 text-left font-mono text-[11px] text-status-blocked"
+              "p-2 text-left font-mono ui-micro text-status-blocked"
             }
           >
             {error.message || String(error)}
@@ -46,16 +46,14 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               type="button"
               onClick={this.reset}
-              className={
-                "rounded border border-accent/60 bg-accent/10 px-3 py-1 text-[12px] text-text hover:bg-accent/20"
-              }
+              className={"rounded border border-accent/60 bg-accent/10 px-3 py-1 ui-meta text-text hover:bg-accent/20"}
             >
               重试 · Retry
             </button>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="rounded border border-border px-3 py-1 text-[12px] text-text-muted hover:bg-surface"
+              className="rounded border border-border px-3 py-1 ui-meta text-text-muted hover:bg-surface"
             >
               重新加载 · Reload
             </button>

@@ -124,7 +124,7 @@ export function FactInspector({
         ) : (
           <span className="min-w-0 truncate font-mono text-xs text-text-muted">{anchor}</span>
         )}
-        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text-faint">
+        <span className="rounded bg-surface-raised px-1.5 py-0.5 ui-micro text-text-faint">
           {t("components.factInspector.title")}
         </span>
         {fact && (
@@ -149,7 +149,7 @@ export function FactInspector({
           onFocusGraph={onFocusGraph}
           testId="fact-view-in-graph"
           className={
-            "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono text-[10px] " +
+            "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono ui-micro " +
             "text-text-faint hover:border-border-strong hover:bg-surface-raised hover:text-text"
           }
         />
@@ -169,7 +169,7 @@ export function FactInspector({
 
       <div className="flex flex-col gap-3 px-3 py-3">
         {!fact ? (
-          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 ui-meta text-danger">
             <div className="flex items-center gap-1 font-semibold">
               <WarningCircle weight="bold" />
               {t("components.factInspector.danglingFactReference")}
@@ -192,22 +192,20 @@ export function FactInspector({
           <>
             <div className="rounded-md border border-stale/30 bg-stale/5 px-2.5 py-3">
               <div className="flex items-center gap-2">
-                <span className="rounded bg-stale px-1.5 py-0.5 font-mono text-[11px] text-stale-fg">
-                  {fact.category}
-                </span>
-                <span className="font-mono text-[11px] text-text-faint">{fact.at}</span>
-                <span className="font-mono text-[11px] text-text-faint">
+                <span className="rounded bg-stale px-1.5 py-0.5 font-mono ui-micro text-stale-fg">{fact.category}</span>
+                <span className="font-mono ui-micro text-text-faint">{fact.at}</span>
+                <span className="font-mono ui-micro text-text-faint">
                   {t("components.factInspector.confidenceValue", { confidence: fact.confidence })}
                 </span>
                 {fact.invalidated && (
-                  <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-stale">
+                  <span className="ml-auto inline-flex items-center gap-1 ui-micro text-stale">
                     <WarningCircle weight="bold" />
                     已失效
                   </span>
                 )}
               </div>
-              <p className="mt-2 text-[13px] font-medium leading-relaxed text-text">{fact.text}</p>
-              <div className="mt-1 font-mono text-[11px] text-text-faint">
+              <p className="mt-2 ui-body font-medium leading-relaxed text-text">{fact.text}</p>
+              <div className="mt-1 font-mono ui-micro text-text-faint">
                 {t("components.factInspector.sourceValue", {
                   source: fact.source ?? t("components.factInspector.unknown"),
                 })}
@@ -215,7 +213,7 @@ export function FactInspector({
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+              <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("components.factInspector.taskPackage")}
               </div>
               <div className="mt-1 flex items-center gap-2">
@@ -224,52 +222,52 @@ export function FactInspector({
                     entityRef={`task/${ownerTaskId}`}
                     onNavigate={() => onNavigateTask(ownerTaskId)}
                     title={t("components.factInspector.jumpSourceTask")}
-                    className="font-mono text-[12px] text-accent hover:underline"
+                    className="font-mono ui-meta text-accent hover:underline"
                   />
                 ) : (
-                  <span className="font-mono text-[12px] text-text">
+                  <span className="font-mono ui-meta text-text">
                     {ownerTaskId ?? t("components.factInspector.unknown")}
                   </span>
                 )}
                 {ownerTaskId && (
-                  <span className="min-w-0 truncate text-[12px] text-text-muted">
+                  <span className="min-w-0 truncate ui-meta text-text-muted">
                     {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
                   </span>
                 )}
               </div>
               {task && (
-                <div className="mt-1 font-mono text-[11px] text-text-faint">
+                <div className="mt-1 font-mono ui-micro text-text-faint">
                   {t("components.factInspector.moduleSourceValue", { module: task.module, source: task.source })}
                 </div>
               )}
             </div>
 
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+              <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("components.factInspector.provenance")}
               </div>
               {fact.provenance?.length ? (
                 <div className="mt-1 space-y-1">
                   {fact.provenance.map((entry) => (
-                    <div key={`${entry.sessionId}-${entry.boundAt}`} className="font-mono text-[11px] text-text-muted">
+                    <div key={`${entry.sessionId}-${entry.boundAt}`} className="font-mono ui-micro text-text-muted">
                       {entry.runtime}:{entry.sessionId.slice(0, 8)}... ·{" "}
                       {formatTime(entry.boundAt, { style: "date-time" }) ?? "—"}
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="mt-1 text-[12px] text-text-faint">{t("components.factInspector.noProvenance")}</p>
+                <p className="mt-1 ui-meta text-text-faint">{t("components.factInspector.noProvenance")}</p>
               )}
             </div>
           </>
         )}
 
         <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-          <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+          <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("components.factInspector.incomingRelation")}
           </div>
           {inbound.length === 0 ? (
-            <p className="mt-1 text-[12px] text-text-faint">{t("components.factInspector.noIncomingRelation")}</p>
+            <p className="mt-1 ui-meta text-text-faint">{t("components.factInspector.noIncomingRelation")}</p>
           ) : (
             <div className="mt-1 space-y-1.5">
               {inbound.map((relation, index) => (
@@ -277,14 +275,14 @@ export function FactInspector({
                   key={`${relation.from}-${relation.kind}-${index}`}
                   className="rounded border border-border bg-surface px-2 py-1.5"
                 >
-                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                  <div className="flex items-center gap-1.5 font-mono ui-micro">
                     <EndpointRef
                       raw={relation.from}
                       onNavigateDecision={onNavigateDecision}
                       onNavigateTask={onNavigateTask}
                       onFocusGraph={onFocusGraph}
                     />
-                    <ArrowSquareOut weight="bold" className="text-[11px] text-text-faint" />
+                    <ArrowSquareOut weight="bold" className="ui-micro text-text-faint" />
                     <span
                       className={
                         relation.kind === "refuted-by" || relation.kind === "supersedes-fact"
@@ -296,7 +294,7 @@ export function FactInspector({
                     </span>
                   </div>
                   {relation.rationale && (
-                    <div className="mt-1 text-[11px] leading-snug text-text-muted">{relation.rationale}</div>
+                    <div className="mt-1 ui-micro leading-snug text-text-muted">{relation.rationale}</div>
                   )}
                 </div>
               ))}
@@ -306,14 +304,14 @@ export function FactInspector({
 
         {supportedDecisionIds.length > 0 && (
           <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-            <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+            <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
               {t("components.factInspector.supportingDecisionTitle")}
             </div>
             <div className="mt-1 space-y-1">
               {supportedDecisionIds.map((decId) => {
                 const decision = decisions.find((candidate) => candidate.decisionId === decId);
                 return (
-                  <div key={decId} className="text-[12px]">
+                  <div key={decId} className="ui-meta">
                     {onNavigateDecision ? (
                       <button
                         onClick={() => onNavigateDecision(decId)}
@@ -337,19 +335,19 @@ export function FactInspector({
 
         {(contradictions.length > 0 || supersedingRelations.length > 0) && (
           <div className="rounded-md border border-stale/40 bg-stale/10 px-2.5 py-2 text-stale">
-            <div className="flex items-center gap-1 text-[12px] font-semibold">
+            <div className="flex items-center gap-1 ui-meta font-semibold">
               <WarningCircle weight="bold" />
               {t("components.factInspector.dangerousLiaisons")}
             </div>
             {contradictions.length > 0 && (
-              <div className="mt-1 font-mono text-[11px]">
+              <div className="mt-1 font-mono ui-micro">
                 {t("components.factInspector.contradictsValue", {
                   value: contradictions.map((relation) => shortEndpoint(relation.from)).join(", "),
                 })}
               </div>
             )}
             {supersedingRelations.length > 0 && (
-              <div className="mt-1 font-mono text-[11px]">
+              <div className="mt-1 font-mono ui-micro">
                 {t("components.factInspector.replacedByValue", {
                   value: supersedingRelations.map((relation) => shortEndpoint(relation.from)).join(", "),
                 })}

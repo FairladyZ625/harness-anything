@@ -66,8 +66,8 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
             className="inline-block size-2.5 shrink-0 rounded-sm"
             style={{ backgroundColor: axis, opacity: 0.75 }}
           />
-          <span className="ui-body min-w-0 flex-1 truncate text-[13px] font-semibold text-text">{zone.title}</span>
-          <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
+          <span className="ui-body min-w-0 flex-1 truncate ui-body font-semibold text-text">{zone.title}</span>
+          <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
             {zone.chips.length}
           </span>
           <button
@@ -76,7 +76,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
               data.onFold(zone.zoneId);
             }}
             title={data.folded ? "展开全部 chip" : "折叠(只显热点)"}
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-text-muted hover:border-border-strong hover:text-text"
+            className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted hover:border-border-strong hover:text-text"
           >
             {data.folded ? "▸" : "▾"}
           </button>
@@ -133,7 +133,7 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
         data-testid="territory-fold"
         data-zone-id={fold.zoneId}
         data-deferred={fold.deferred ? "true" : undefined}
-        className="flex h-full w-full items-center justify-center gap-1.5 rounded-lg border border-dashed text-[11.5px] transition-colors hover:border-border-strong hover:text-text"
+        className="flex h-full w-full items-center justify-center gap-1.5 rounded-lg border border-dashed ui-micro transition-colors hover:border-border-strong hover:text-text"
         style={{
           borderColor: fold.deferred ? "color-mix(in oklch, var(--color-accent) 45%, var(--color-border))" : undefined,
           color: fold.deferred ? "var(--color-accent)" : undefined,
@@ -164,7 +164,7 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
       className="flex h-full w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg border border-border bg-surface-raised px-2.5 transition-colors hover:border-border-strong"
     >
       <span
-        className="grid size-[18px] shrink-0 place-items-center rounded font-mono text-[10px] font-bold"
+        className="grid size-[18px] shrink-0 place-items-center rounded font-mono ui-micro font-bold"
         style={{
           backgroundColor: `color-mix(in srgb, ${axis} 18%, transparent)`,
           color: axis,
@@ -207,20 +207,18 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
             chip.pinned === true ? "text-accent" : "text-text-faint hover:text-text"
           }`}
         >
-          <PushPin weight={chip.pinned === true ? "fill" : "bold"} className="text-[10px]" />
+          <PushPin weight={chip.pinned === true ? "fill" : "bold"} className="ui-micro" />
         </button>
       ) : chip.pinned ? (
         <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
-          <PushPin weight="fill" className="text-[10px] text-accent" />
+          <PushPin weight="fill" className="ui-micro text-accent" />
         </span>
       ) : null}
-      <span className="ui-body min-w-0 flex-1 truncate text-[12.5px] text-text">{chip.label}</span>
+      <span className="ui-body min-w-0 flex-1 truncate ui-meta text-text">{chip.label}</span>
       {chip.sub && (
-        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
-          {chip.sub}
-        </span>
+        <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 font-mono ui-micro text-text-faint">{chip.sub}</span>
       )}
-      <ArrowsOutSimple weight="bold" className="shrink-0 text-[11px] text-text-faint" />
+      <ArrowsOutSimple weight="bold" className="shrink-0 ui-micro text-text-faint" />
     </div>
   );
 }

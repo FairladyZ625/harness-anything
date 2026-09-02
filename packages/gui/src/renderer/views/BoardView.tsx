@@ -89,7 +89,7 @@ function Card({
             }}
             title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
             aria-pressed={task.pinned === true}
-            className={`inline-flex items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
               task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
             }`}
           >
@@ -99,13 +99,13 @@ function Card({
           <span
             title="📌 今天当前在做"
             data-testid={`board-pinned-marker-${task.taskId}`}
-            className="inline-flex items-center rounded border border-accent/40 px-1 text-[11px] text-accent"
+            className="inline-flex items-center rounded border border-accent/40 px-1 ui-micro text-accent"
           >
             <PushPin weight="fill" />
           </span>
         ) : null}
         {archived && (
-          <span className="ml-auto inline-flex items-center gap-1 font-mono text-[11px] text-text-faint">
+          <span className="ml-auto inline-flex items-center gap-1 font-mono ui-micro text-text-faint">
             <Archive weight="bold" />
             {task.packageDisposition}
           </span>
@@ -118,7 +118,7 @@ function Card({
               onToggleFavorite(task.taskId);
             }}
             title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-            className={`ml-auto inline-flex items-center justify-center rounded p-0.5 text-[12px] hover:bg-surface ${
+            className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface ${
               isFavorite
                 ? "text-accent opacity-100"
                 : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
@@ -128,15 +128,15 @@ function Card({
           </button>
         )}
       </div>
-      <p className="mt-1.5 text-[15px] leading-snug text-text">{task.title}</p>
+      <p className="mt-1.5 ui-prose leading-snug text-text">{task.title}</p>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-          <span className="rounded border border-status-blocked/30 px-1 font-mono text-[11px] text-status-blocked">
+          <span className="rounded border border-status-blocked/30 px-1 font-mono ui-micro text-status-blocked">
             canonical {task.canonicalStatus}
           </span>
         )}
         {task.blocking === "unknown" && (
-          <span className="rounded border border-stale/30 px-1 text-[11px] text-stale">阻塞关系未能确定</span>
+          <span className="rounded border border-stale/30 px-1 ui-micro text-stale">阻塞关系未能确定</span>
         )}
         {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
         <CloseoutBadge value={task.closeoutReadiness} />
@@ -217,7 +217,7 @@ function Column({
   return (
     <div
       ref={setNodeRef}
-      className={`flex w-[280px] shrink-0 flex-col rounded-xl p-2 transition-colors ${
+      className={`flex basis-1/4 shrink-0 flex-col rounded-xl p-2 transition-colors ${
         isOver && rejecting
           ? "bg-danger/5 outline outline-1 outline-dashed outline-danger/40"
           : isOver
@@ -229,12 +229,12 @@ function Column({
         <span style={{ color: meta.color }} className="text-base">
           {meta.icon}
         </span>
-        <span className="text-[15px] font-semibold">{meta.label}</span>
-        <span className="font-mono text-[13px] text-text-faint" data-testid={`board-status-${status}-count`}>
+        <span className="ui-prose font-semibold">{meta.label}</span>
+        <span className="font-mono ui-body text-text-faint" data-testid={`board-status-${status}-count`}>
           {tasks.length}
         </span>
         {isOver && rejecting && (
-          <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-danger">
+          <span className="ml-auto inline-flex items-center gap-1 ui-micro text-danger">
             <Lock weight="bold" />
             外部引擎管理
           </span>
@@ -254,7 +254,7 @@ function Column({
             />
           ))
         ) : (
-          <div className="rounded-lg border border-dashed border-border px-3 py-5 text-[14px] text-text-faint">
+          <div className="rounded-lg border border-dashed border-border px-3 py-5 ui-body text-text-faint">
             当前筛选下无 {meta.label} 任务
           </div>
         )}
@@ -329,7 +329,7 @@ export function BoardView({
   };
 
   const seg = (active: boolean) =>
-    `rounded px-2 py-0.5 text-[12px] ${
+    `rounded px-2 py-0.5 ui-meta ${
       active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
     }`;
 
@@ -337,7 +337,7 @@ export function BoardView({
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
         <h1 className="ui-title font-semibold">看板</h1>
-        <span className="font-mono text-[13px] text-text-faint">
+        <span className="font-mono ui-body text-text-faint">
           {tasks.length}/{allTasks.length}
         </span>
         <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
@@ -363,7 +363,7 @@ export function BoardView({
             列表
           </button>
         </div>
-        <span className="text-[12px] text-text-faint">
+        <span className="ui-meta text-text-faint">
           {layout === "column"
             ? "仅 native planned + blocking clear 可拖到 Active"
             : layout === "list"
@@ -372,7 +372,7 @@ export function BoardView({
         </span>
         {layout !== "list" && (
           <div className="ml-auto flex items-center gap-1.5">
-            <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">分组维度</span>
+            <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
               {(["root", "module", "engine", "productLine"] as const).map((d) => (
                 <button
@@ -397,10 +397,7 @@ export function BoardView({
         )}
       </header>
       {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
-        <div
-          className="border-b border-border px-4 py-2 text-[12px] text-text-muted"
-          data-testid="board-mutation-feedback"
-        >
+        <div className="border-b border-border px-4 py-2 ui-meta text-text-muted" data-testid="board-mutation-feedback">
           {dragMessage ??
             (() => {
               const item = mutationFeedback?.(lastMutationTaskId!);

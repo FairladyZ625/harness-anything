@@ -20,7 +20,7 @@ type PoolTab = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
 const selectClass =
-  "rounded-md border border-border bg-surface px-2 py-1 font-mono text-[12px] text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
+  "rounded-md border border-border bg-surface px-2 py-1 font-mono ui-meta text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
 function withinRange(decision: DecisionRow, range: TimeRange) {
   if (range === "all") return true;
@@ -51,7 +51,7 @@ function ReadinessBadge({
   return (
     <span
       title={`${coverage.summary}\nworstColor:${worst}`}
-      className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${tone}`}
+      className={`rounded px-1.5 py-0.5 font-mono ui-micro ${tone}`}
     >
       {t("views.decisionPoolView.coverageValue", { value: coverage.color === "na" ? "N/A" : coverage.color })}
     </span>
@@ -71,10 +71,10 @@ function ChainView({
     amended = decision.decidedAt && decision.lastChangedAt && decision.lastChangedAt !== decision.decidedAt;
   if (!chain.supersedes.length && !chain.supersededBy.length && !amended)
     return (
-      <span className="font-mono text-[11px] text-text-faint">{t("views.decisionPoolView.noSupersedeAmendChain")}</span>
+      <span className="font-mono ui-micro text-text-faint">{t("views.decisionPoolView.noSupersedeAmendChain")}</span>
     );
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+    <div className="flex flex-wrap items-center gap-1.5 ui-micro">
       <GitBranch weight="bold" className="text-text-faint" />
       {chain.supersedes.length > 0 && (
         <span className="inline-flex items-center gap-1 font-mono text-danger">
@@ -280,12 +280,12 @@ export function DecisionPoolView({
       <header className="flex items-center gap-3 border-b border-border px-4 py-3">
         <div>
           <h1 className="ui-title font-semibold">{t("renderer.shellConfig.decisionPool")}</h1>
-          <span className="font-mono text-[12px] text-text-faint">{t("views.decisionPoolView.subtitle")}</span>
+          <span className="font-mono ui-meta text-text-faint">{t("views.decisionPoolView.subtitle")}</span>
         </div>
         {onPropose && (
           <button
             onClick={() => setProposalOpen((value) => !value)}
-            className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-[12px] font-semibold text-accent-fg transition-colors duration-100 ${proposalOpen ? "bg-accent/85 hover:bg-accent" : "bg-accent hover:bg-accent/85"}`}
+            className={`ml-auto inline-flex items-center gap-1 rounded-md px-3 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 ${proposalOpen ? "bg-accent/85 hover:bg-accent" : "bg-accent hover:bg-accent/85"}`}
           >
             <Plus weight="bold" />
             {t("views.decisionPoolView.proposal")}
@@ -308,7 +308,7 @@ export function DecisionPoolView({
               setTab(item.id);
               setStateFilter("all");
             }}
-            className={`rounded-md px-3 py-1.5 font-mono text-[12px] tabular-nums transition-colors duration-100 ${tab === item.id ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
+            className={`rounded-md px-3 py-1.5 font-mono ui-meta tabular-nums transition-colors duration-100 ${tab === item.id ? "bg-accent text-accent-fg" : "bg-surface-raised text-text-muted hover:text-text"}`}
           >
             {item.id.replaceAll("_", " ")} · {item.count}
           </button>
@@ -408,7 +408,7 @@ export function DecisionPoolView({
         </select>
       </div>
       {remoteEnabled && (remote.isPending || remote.isError || remote.data?.status !== "ready") && (
-        <div className="border-b border-border bg-stale/10 px-4 py-2 font-mono text-[11px] text-stale">
+        <div className="border-b border-border bg-stale/10 px-4 py-2 font-mono ui-micro text-stale">
           {t("views.decisionPoolView.projectionUnknown", {
             detail:
               remote.error instanceof Error
@@ -427,7 +427,7 @@ export function DecisionPoolView({
             >
               {groupBy !== "none" && (
                 <div
-                  className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono text-[12px] text-text-muted backdrop-blur"
+                  className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono ui-meta text-text-muted backdrop-blur"
                   data-testid={`decision-pool-group-${group.key}`}
                 >
                   <span className="font-semibold text-text">{group.title}</span>
@@ -451,7 +451,7 @@ export function DecisionPoolView({
                   <div className="flex items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="font-mono text-[12px] text-text-faint">
+                        <span className="font-mono ui-meta text-text-faint">
                           <EntityRefLink
                             entityRef={`decision/${decision.decisionId}`}
                             onNavigate={() => onNavigateDecision(decision.decisionId)}
@@ -470,9 +470,9 @@ export function DecisionPoolView({
                           graphState={relationState}
                         />
                       </div>
-                      <h2 className="mt-1 text-[15px] font-semibold leading-snug text-text">{decision.title}</h2>
-                      <p className="mt-0.5 text-[12px] text-text-muted">Q: {decision.question}</p>
-                      <div className="mt-2 flex flex-wrap gap-x-3 font-mono text-[11px] text-text-faint">
+                      <h2 className="mt-1 ui-prose font-semibold leading-snug text-text">{decision.title}</h2>
+                      <p className="mt-0.5 ui-meta text-text-muted">Q: {decision.question}</p>
+                      <div className="mt-2 flex flex-wrap gap-x-3 font-mono ui-micro text-text-faint">
                         <span>{decision.vertical ?? "未知/—"}</span>
                         <span>{decision.preset ?? "未知/—"}</span>
                         <span>{decision.decisionClass ?? "unknown class"}</span>
@@ -495,7 +495,7 @@ export function DecisionPoolView({
                     <ChainView decision={decision} relations={relations} onNavigateDecision={onNavigateDecision} />
                   </div>
                   {decision.judgmentConsents.length > 0 && (
-                    <details className="mt-2 text-[11px] text-text-muted">
+                    <details className="mt-2 ui-micro text-text-muted">
                       <summary className="cursor-pointer select-none text-text-faint hover:text-text-muted">
                         {t("views.decisionPoolView.canonicalBodyConsents")}
                       </summary>
@@ -523,7 +523,7 @@ export function DecisionPoolView({
             </section>
           ))}
           {rows.length === 0 && (!remoteEnabled || remote.data?.status === "ready") && (
-            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-[14px] text-text-faint">
+            <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center ui-body text-text-faint">
               {t("views.decisionPoolView.emptyFilter")}
             </div>
           )}

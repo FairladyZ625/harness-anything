@@ -115,7 +115,7 @@ export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, on
               aria-label={t("agentRuntime.squadName")}
               value={draft.name}
               onChange={(event) => patch({ name: event.target.value })}
-              className="w-48 rounded border border-transparent bg-transparent px-1 py-px text-[12px] text-text-muted outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface"
+              className="w-48 rounded border border-transparent bg-transparent px-1 py-px ui-meta text-text-muted outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface"
             />
           </Right>
         </CardHead>
@@ -168,14 +168,14 @@ export function SquadCard({ detail, row, agents, busy, onSave, onSelectAgent, on
             value={draft.leaderTurnBudget}
             onChange={(event) => patch({ leaderTurnBudget: event.target.value })}
             className={
-              "w-32 rounded border border-border bg-surface px-2 py-1 text-[12px] outline-none " +
+              "w-32 rounded border border-border bg-surface px-2 py-1 ui-meta outline-none " +
               "focus-visible:border-accent"
             }
           />
         </Sect>
 
         <Sect title={t("agentRuntime.roster")} desc={t("agentRuntime.rosterDesc")}>
-          <p className="mb-1.5 text-[11px] text-text-faint">{t("agentRuntime.rosterHint")}</p>
+          <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.rosterHint")}</p>
           <textarea
             aria-label={t("agentRuntime.roster")}
             data-testid="squad-roster"
@@ -320,7 +320,7 @@ function SlotConfig({
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Avatar id={current || "unassigned"} />
-        <b className="text-[11px] font-[650]">
+        <b className="ui-micro font-[650]">
           {slot.kind === "leader"
             ? t("agentRuntime.commanderSlot")
             : t("agentRuntime.workerSlot", { index: slot.index + 1 })}

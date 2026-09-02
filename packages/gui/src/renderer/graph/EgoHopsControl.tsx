@@ -55,7 +55,7 @@ function HopsStepper({
         aria-label={`${label} 减一跳`}
         disabled={atMin}
         onClick={() => onChange(clampHops(value - 1))}
-        className="rounded px-1 text-[11px] hover:bg-surface disabled:opacity-40"
+        className="rounded px-1 ui-micro hover:bg-surface disabled:opacity-40"
       >
         −
       </button>
@@ -68,7 +68,7 @@ function HopsStepper({
         aria-label={`${label} 加一跳`}
         disabled={atMax}
         onClick={() => onChange(clampHops(value + 1))}
-        className="rounded px-1 text-[11px] hover:bg-surface disabled:opacity-40"
+        className="rounded px-1 ui-micro hover:bg-surface disabled:opacity-40"
       >
         +
       </button>

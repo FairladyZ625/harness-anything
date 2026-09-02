@@ -57,7 +57,7 @@ const time = (iso: string | null): string => (iso === null ? "—" : (formatTime
 
 const READ_ERROR_ROW_CLASS = [
   "shrink-0 border-b border-border bg-status-blocked/10",
-  "px-3.5 py-1.5 font-mono text-[11px] text-status-blocked",
+  "px-3.5 py-1.5 font-mono ui-micro text-status-blocked",
 ].join(" ");
 
 export function SchedulesView({
@@ -84,8 +84,8 @@ export function SchedulesView({
   return (
     <section data-testid="schedules-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="text-[13px] tracking-[0.02em]">{t("schedules.title")}</b>
-        <span className="truncate font-mono text-[10.5px] text-text-faint">{t("schedules.subtitle")}</span>
+        <b className="ui-body tracking-[0.02em]">{t("schedules.title")}</b>
+        <span className="truncate font-mono ui-micro text-text-faint">{t("schedules.subtitle")}</span>
         {query.data && (
           <span className="flex items-center gap-2 whitespace-nowrap">
             <Chip tone="mono" tip={t("schedules.modeTip")}>
@@ -370,7 +370,7 @@ function ScheduleListPane({
         <Empty>{t("schedules.list.emptyFiltered")}</Empty>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border" data-testid="schedules-matrix">
-          <table className="w-full border-collapse text-left text-[11.5px]">
+          <table className="w-full border-collapse text-left ui-micro">
             <thead>
               <tr className="bg-surface text-text-muted">
                 {[
@@ -387,7 +387,7 @@ function ScheduleListPane({
                 ].map((label) => (
                   <th
                     key={label}
-                    className="border-b border-border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.06em]"
+                    className="border-b border-border px-2.5 py-1.5 font-mono ui-micro uppercase tracking-[0.06em]"
                   >
                     {label}
                   </th>
@@ -403,7 +403,7 @@ function ScheduleListPane({
                       data-testid={`schedule-row-${row.scheduleId}`}
                       className="border-b border-border bg-status-blocked/10 last:border-b-0"
                     >
-                      <td className="px-2.5 py-1.5 font-mono text-[10.5px] text-text-faint">{row.scheduleId}</td>
+                      <td className="px-2.5 py-1.5 font-mono ui-micro text-text-faint">{row.scheduleId}</td>
                       <td colSpan={9} className="px-2.5 py-1.5 text-status-blocked">
                         <b className="mr-2 font-mono uppercase">invalid</b>
                         {row.invalidReason}
@@ -425,12 +425,12 @@ function ScheduleListPane({
                         data-testid={`schedule-focus-${row.scheduleId}`}
                         onClick={() => onOpenSchedule(row.scheduleId)}
                         title={t("schedules.list.openDetail")}
-                        className="flex items-center gap-1.5 text-left text-[12px] font-medium hover:text-accent"
+                        className="flex items-center gap-1.5 text-left ui-meta font-medium hover:text-accent"
                       >
                         {row.name}
                         <ArrowRight className="size-3 text-text-faint" />
                       </button>
-                      <div className="font-mono text-[10px] text-text-faint">{row.scheduleId}</div>
+                      <div className="font-mono ui-micro text-text-faint">{row.scheduleId}</div>
                     </td>
                     <td className="px-2.5 py-1.5">
                       <span className="inline-flex items-center gap-1.5">
@@ -461,7 +461,7 @@ function ScheduleListPane({
                         {row.trigger.summary}
                       </Chip>
                     </td>
-                    <td className="px-2.5 py-1.5 font-mono text-[10.5px] text-text-faint">{time(row.nextRunAt)}</td>
+                    <td className="px-2.5 py-1.5 font-mono ui-micro text-text-faint">{time(row.nextRunAt)}</td>
                     <td className="px-2.5 py-1.5">
                       {row.lastRun === null ? (
                         <Hint>—</Hint>
@@ -479,7 +479,7 @@ function ScheduleListPane({
                     </td>
                     <td className="px-2.5 py-1.5">
                       <span
-                        className="font-mono text-[10.5px] text-text-faint"
+                        className="font-mono ui-micro text-text-faint"
                         title={t(AVAILABILITY_META[row.executionAvailability])}
                       >
                         {row.claim.nodeId ?? t(AVAILABILITY_META[row.executionAvailability])}
@@ -488,7 +488,7 @@ function ScheduleListPane({
                     <td className="px-2.5 py-1.5">
                       {row.missed.count > 0 ? (
                         <span
-                          className="font-mono text-[10.5px] text-status-planned"
+                          className="font-mono ui-micro text-status-planned"
                           title={row.missed.lastMissedReason ?? undefined}
                         >
                           {t("schedules.missedCount", { count: row.missed.count })}
@@ -549,7 +549,7 @@ function FilterGroup<T extends string>({
 }) {
   return (
     <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1 disabled:opacity-50">
-      <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-text-faint">{label}</span>
+      <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">{label}</span>
       <span
         className={`inline-flex overflow-hidden rounded border border-border-strong ${disabled ? "opacity-50" : ""}`}
       >
@@ -563,8 +563,8 @@ function FilterGroup<T extends string>({
             onClick={() => onChange(option.value)}
             className={
               option.value === value
-                ? "bg-accent font-semibold text-accent-fg px-2 py-0.5 text-[10.5px]"
-                : "text-text-muted hover:bg-surface px-2 py-0.5 text-[10.5px]"
+                ? "bg-accent font-semibold text-accent-fg px-2 py-0.5 ui-micro"
+                : "text-text-muted hover:bg-surface px-2 py-0.5 ui-micro"
             }
           >
             {option.label}

@@ -22,17 +22,14 @@ export function FocusHistoryBar({
   onClear: () => void;
 }) {
   return (
-    <div
-      data-testid="focus-history-bar"
-      className="flex items-center gap-2 border-b border-border px-3 py-1 text-[11px]"
-    >
+    <div data-testid="focus-history-bar" className="flex items-center gap-2 border-b border-border px-3 py-1 ui-micro">
       <button
         onClick={onBack}
         disabled={!canBack}
         title="上一个焦点 (Cmd+[)"
         className="grid size-6 place-items-center rounded text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
       >
-        <ArrowLeft weight="bold" className="text-[12px]" />
+        <ArrowLeft weight="bold" className="ui-meta" />
       </button>
       <button
         onClick={onForward}
@@ -40,7 +37,7 @@ export function FocusHistoryBar({
         title="下一个焦点 (Cmd+])"
         className="grid size-6 place-items-center rounded text-text-muted hover:bg-surface-raised hover:text-text disabled:opacity-30 disabled:hover:bg-transparent"
       >
-        <ArrowRight weight="bold" className="text-[12px]" />
+        <ArrowRight weight="bold" className="ui-meta" />
       </button>
       {breadcrumb ? (
         <span className="min-w-0 flex-1 truncate font-mono text-text-muted">
@@ -56,7 +53,7 @@ export function FocusHistoryBar({
           title="清除焦点"
           className="grid size-6 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
         >
-          <X weight="bold" className="text-[12px]" />
+          <X weight="bold" className="ui-meta" />
         </button>
       )}
     </div>

@@ -64,7 +64,7 @@ export function FirstRunWizard({ onBootstrapped }: { readonly onBootstrapped: (r
         className="w-full max-w-2xl rounded-xl border border-border-strong bg-surface-raised p-6 shadow-2xl"
         onSubmit={(event) => void submit(event)}
       >
-        <p className="font-mono text-[11px] uppercase tracking-widest text-accent">{t("firstRun.stepRepository")}</p>
+        <p className="font-mono ui-micro uppercase tracking-widest text-accent">{t("firstRun.stepRepository")}</p>
         <h1 className="mt-2 text-2xl font-semibold">{t("firstRun.title")}</h1>
         <p className="mt-2 text-sm leading-6 text-text-muted">{t("firstRun.subtitle")}</p>
 
@@ -160,7 +160,7 @@ export function FirstRunGuide({
       data-testid="first-run-guide"
       className="fixed right-5 bottom-5 z-50 w-80 rounded-xl border border-accent/50 bg-surface-raised p-4 shadow-2xl"
     >
-      <p className="font-mono text-[10px] uppercase tracking-widest text-accent">
+      <p className="font-mono ui-micro uppercase tracking-widest text-accent">
         {t(provider ? "firstRun.stepProvider" : "firstRun.stepAgent")}
       </p>
       <h2 className="mt-1 text-base font-semibold">{t(provider ? "firstRun.providerTitle" : "firstRun.agentTitle")}</h2>

@@ -34,17 +34,17 @@ export function SessionInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t("agentRuntime.inspectorSession")}
-      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
     >
       <h2
-        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
         tracking-[0.09em] text-text-faint"
       >
         {t("agentRuntime.inspectorSession")}
       </h2>
       <SessionFacts row={row} squadNames={squadNames} onOpenTask={onOpenTask} onSelectEntity={onSelectEntity} />
       <section className="border-b border-border px-3 py-2 last:border-b-0">
-        <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+        <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
           {t("agentRuntime.inspectorSessions", { count: siblings.length })}
         </h3>
         {siblings.length === 0 ? (
@@ -76,7 +76,7 @@ function SessionFacts({
   const squadId = row?.kind === "round" ? row.squadId : null;
   return (
     <section className="border-b border-border px-3 py-2">
-      <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+      <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
         {t("agentRuntime.inspectorSessionFacts")}
       </h3>
       {row === null ? (
@@ -132,9 +132,9 @@ function SessionFacts({
               "hover:border-accent hover:text-accent"
             }
           >
-            <span className="min-w-0 flex-1 truncate text-[11px]">{row.taskTitle ?? row.taskId}</span>
-            <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{shortRef(row.taskId, 14)}</span>
-            <span aria-hidden className="shrink-0 text-[9.5px] text-text-faint">
+            <span className="min-w-0 flex-1 truncate ui-micro">{row.taskTitle ?? row.taskId}</span>
+            <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(row.taskId, 14)}</span>
+            <span aria-hidden className="shrink-0 ui-micro text-text-faint">
               ↗
             </span>
           </button>
@@ -159,17 +159,17 @@ function SiblingRow({
     >
       <LiveDot state={sessionStatusDot[sibling.status]} tip={t(sessionStatusKey[sibling.status] as never)} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11.5px]">
+        <span className="block truncate ui-micro">
           {sibling.kind === "round" ? (sibling.agentName ?? sibling.instanceId) : sibling.instanceId}
         </span>
-        <span className="block truncate font-mono text-[10px] text-text-faint">
+        <span className="block truncate font-mono ui-micro text-text-faint">
           {sibling.kind === "round" ? shortRef(sibling.dispatchId, 16) : t("agentRuntime.sessionsNoDispatchTag")}
         </span>
       </span>
-      <span className={`shrink-0 font-mono text-[9.5px] ${sessionStatusTone[sibling.status]}`}>
+      <span className={`shrink-0 font-mono ui-micro ${sessionStatusTone[sibling.status]}`}>
         {t(sessionStatusKey[sibling.status] as never)}
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(sibling.startedAt, { style: "time" }) ?? sibling.startedAt}
       </span>
     </button>

@@ -40,7 +40,7 @@ export function AxisBar({ label, segments }: { label: string; segments: Seg[] })
   const total = segments.reduce((sum, s) => sum + s.count, 0);
   return (
     <div className="grid gap-2 md:grid-cols-[132px_1fr] md:items-center">
-      <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{label}</span>
+      <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">{label}</span>
       <div className="min-w-0">
         <div className="flex h-3.5 overflow-hidden rounded-full bg-surface-raised ring-1 ring-border">
           {total > 0 &&
@@ -54,7 +54,7 @@ export function AxisBar({ label, segments }: { label: string; segments: Seg[] })
                 />
               ))}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-faint">
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono ui-micro text-text-faint">
           {segments
             .filter((s) => s.count > 0)
             .map((s) => (
@@ -82,7 +82,7 @@ export function Card({
 }) {
   return (
     <section className={`${className} flex min-h-0 flex-col rounded-lg border border-border bg-surface`}>
-      <div className="border-b border-border px-3 py-2 font-mono text-[11px] uppercase tracking-wide text-text-faint">
+      <div className="border-b border-border px-3 py-2 font-mono ui-micro uppercase tracking-wide text-text-faint">
         {title}
       </div>
       <div className={`${bodyClassName} flex min-h-0 flex-1 flex-col overflow-hidden`}>{children}</div>
@@ -103,12 +103,12 @@ export function KpiCard({
 }) {
   return (
     <section className="rounded-lg border border-border bg-surface px-3 py-3">
-      <div className="font-mono text-[11px] uppercase tracking-wide text-text-faint">{label}</div>
+      <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">{label}</div>
       <div className="mt-1 flex items-end gap-2">
-        <span className="font-mono text-[28px] font-semibold leading-none text-text">{value}</span>
+        <span className="font-mono ui-heading font-semibold leading-none text-text">{value}</span>
         {tone && <span className="mb-1 h-2 w-2 rounded-full" style={{ background: tone }} />}
       </div>
-      <p className="mt-2 text-[12px] leading-snug text-text-muted">{detail}</p>
+      <p className="mt-2 ui-meta leading-snug text-text-muted">{detail}</p>
     </section>
   );
 }

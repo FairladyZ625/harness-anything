@@ -41,12 +41,12 @@ const TIME_SOURCE_LABEL: Record<ArtifactGuiRowDto["timeSource"], MessageKey> = {
 
 const READ_ERROR_ROW_CLASS = [
   "shrink-0 border-b border-border bg-status-blocked/10",
-  "px-3.5 py-1.5 font-mono text-[11px] text-status-blocked",
+  "px-3.5 py-1.5 font-mono ui-micro text-status-blocked",
 ].join(" ");
 const DRAWER_MIN_PX = 200;
 const OPEN_BUTTON_CLASS = [
   "inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5",
-  "text-[10.5px] text-text-muted hover:border-border-strong hover:text-text",
+  "ui-micro text-text-muted hover:border-border-strong hover:text-text",
 ].join(" ");
 const ROW_CLASS = [
   "w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-left",
@@ -69,10 +69,10 @@ export function ArtifactsView({
   return (
     <section data-testid="artifacts-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="text-[13px] tracking-[0.02em]">{t("artifacts.title")}</b>
-        <span className="truncate font-mono text-[10.5px] text-text-faint">{t("artifacts.subtitle")}</span>
+        <b className="ui-body tracking-[0.02em]">{t("artifacts.title")}</b>
+        <span className="truncate font-mono ui-micro text-text-faint">{t("artifacts.subtitle")}</span>
         {query.data && (
-          <span className="ml-auto whitespace-nowrap font-mono text-[10.5px] text-text-faint">
+          <span className="ml-auto whitespace-nowrap font-mono ui-micro text-text-faint">
             {t("artifacts.counts", { html: String(query.data.counts.html), md: String(query.data.counts.md) })}
           </span>
         )}
@@ -161,7 +161,7 @@ export function ArtifactsWorkspace({
           ].join(" ")}
         >
           <ArrowsInLineHorizontal weight="bold" className="size-4 shrink-0 rotate-90" />
-          <span className="font-mono text-[10px] [writing-mode:vertical-rl]">{t("artifacts.drawer.collapsed")}</span>
+          <span className="font-mono ui-micro [writing-mode:vertical-rl]">{t("artifacts.drawer.collapsed")}</span>
         </button>
       ) : (
         <>
@@ -247,7 +247,7 @@ function ArtifactRow({
       >
         <span
           data-testid={`artifact-focus-${row.taskId ?? "taskless"}-${row.path}`}
-          className="flex w-full items-center gap-1.5 text-[12px] font-medium"
+          className="flex w-full items-center gap-1.5 ui-meta font-medium"
         >
           {row.kind === "html" ? (
             <FileHtml weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
@@ -258,7 +258,7 @@ function ArtifactRow({
           {/* 相对时间是主显;绝对时间与时间来源(台账 occurredAt 还是文件 mtime)进 tooltip,
               mtime 这个「非台账事实」额外显形在正文里,不给它和 ledger 同等的安静。 */}
           <span
-            className="shrink-0 font-mono text-[10px] text-text-faint"
+            className="shrink-0 font-mono ui-micro text-text-faint"
             title={`${displayTime(row.time)} · ${t(TIME_SOURCE_LABEL[row.timeSource])}`}
           >
             {relativeTimeOf(row.time)}
@@ -269,7 +269,7 @@ function ArtifactRow({
         {row.taskId === null ? (
           <Hint>{t("artifacts.taskUnknown")}</Hint>
         ) : (
-          <span className="block max-w-full truncate text-[11px] text-text-muted">{row.taskTitle ?? row.taskId}</span>
+          <span className="block max-w-full truncate ui-micro text-text-muted">{row.taskTitle ?? row.taskId}</span>
         )}
       </button>
     </li>
@@ -295,8 +295,8 @@ function KindToggle({
       onClick={() => onChange(kind)}
       className={
         value === kind
-          ? "rounded border border-border-strong bg-accent px-2 py-0.5 text-[10.5px] font-semibold text-accent-fg"
-          : "rounded border border-border px-2 py-0.5 text-[10.5px] text-text-muted hover:bg-surface"
+          ? "rounded border border-border-strong bg-accent px-2 py-0.5 ui-micro font-semibold text-accent-fg"
+          : "rounded border border-border px-2 py-0.5 ui-micro text-text-muted hover:bg-surface"
       }
     >
       {t(KIND_LABEL[kind])}
@@ -331,7 +331,7 @@ function ArtifactPreviewPane({
         <div
           className={[
             "flex min-h-56 flex-1 items-center justify-center px-6 text-center",
-            "font-mono text-[11px] text-text-faint",
+            "font-mono ui-micro text-text-faint",
           ].join(" ")}
         >
           {t("artifacts.preview.none")}
@@ -367,7 +367,7 @@ function ArtifactPreviewBody({
   return (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted" title={repoPathOf(row)}>
+        <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted" title={repoPathOf(row)}>
           {repoPathOf(row)}
         </span>
         <button
@@ -401,7 +401,7 @@ function ArtifactPreviewBody({
         <p
           role="alert"
           data-testid="artifact-open-external-error"
-          className="px-3 py-1.5 font-mono text-[11px] text-status-blocked"
+          className="px-3 py-1.5 font-mono ui-micro text-status-blocked"
         >
           {openError}
         </p>
@@ -444,7 +444,7 @@ function ArtifactPreviewBody({
 }
 
 function PreviewNote({ text }: { readonly text: string }) {
-  return <p className="px-1 py-3 text-[12px] text-text-faint">{text}</p>;
+  return <p className="px-1 py-3 ui-meta text-text-faint">{text}</p>;
 }
 
 // ---- 抽屉宽度与折叠态的 localStorage 记忆(task_7e713fee)----

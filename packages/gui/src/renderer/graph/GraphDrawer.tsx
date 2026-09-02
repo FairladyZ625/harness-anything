@@ -47,7 +47,7 @@ export function GraphDrawer({
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
           <span className="font-mono text-xs text-text-muted">{t("graph.graphDrawer.edgeRelation")}</span>
-          <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">{focusEdge.kind}</span>
+          <span className="rounded bg-surface-raised px-1.5 py-0.5 ui-micro text-text-faint">{focusEdge.kind}</span>
           <button
             onClick={onClose}
             title={t("graph.graphDrawer.exitFocusEsc")}
@@ -57,17 +57,17 @@ export function GraphDrawer({
           </button>
         </div>
         <div className="flex flex-col gap-3 px-3 py-3">
-          <p className="text-[13px] leading-snug text-text">
+          <p className="ui-body leading-snug text-text">
             {t("graph.graphDrawer.edgeKindMessage", { kind: KIND_LABEL[focusEdge.kind] ?? focusEdge.kind })}
           </p>
-          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-2 text-[11px] text-text-muted">
+          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-2 ui-micro text-text-muted">
             <div className="flex min-w-0 flex-wrap items-center gap-1">
               <span className="font-bold text-text">{t("graph.graphDrawer.from")}</span>{" "}
               <EntityRefLink
                 entityRef={focusEdge.from}
                 onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.from)))}
                 title={focusEdge.from}
-                className="break-all font-mono text-[11px] text-accent hover:underline"
+                className="break-all font-mono ui-micro text-accent hover:underline"
               />
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1">
@@ -76,16 +76,16 @@ export function GraphDrawer({
                 entityRef={focusEdge.to}
                 onNavigate={onNavigateEntity ?? (() => onFocus(endpointToNodeId(focusEdge.to)))}
                 title={focusEdge.to}
-                className="break-all font-mono text-[11px] text-accent hover:underline"
+                className="break-all font-mono ui-micro text-accent hover:underline"
               />
             </div>
           </div>
           {focusEdge.provenance && (
             <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
-              <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+              <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("graph.graphDrawer.provenance")}
               </span>
-              <div className="font-mono text-[11px] text-text-muted">{focusEdge.provenance}</div>
+              <div className="font-mono ui-micro text-text-muted">{focusEdge.provenance}</div>
             </div>
           )}
           <div className="flex gap-2">
@@ -127,14 +127,14 @@ export function GraphDrawer({
           title={focusNode.id}
           className="font-mono text-xs text-accent hover:underline"
         />
-        <span className="rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-faint">{focusNode.entity}</span>
+        <span className="rounded bg-surface-raised px-1.5 py-0.5 ui-micro text-text-faint">{focusNode.entity}</span>
         {onNavigateEntity && (
           <button
             onClick={() => onNavigateEntity(focusNode.entity === "task" ? `task/${focusNode.id}` : focusNode.id)}
             title={t("graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool")}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-text-muted hover:border-border-strong hover:text-text"
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted hover:border-border-strong hover:text-text"
           >
-            <ArrowsOutSimple weight="bold" className="text-[10px]" />
+            <ArrowsOutSimple weight="bold" className="ui-micro" />
             {t("graph.graphDrawer.open")}
           </button>
         )}
@@ -162,7 +162,7 @@ export function GraphDrawer({
       </div>
 
       <div className="flex flex-col gap-3 px-3 py-3">
-        <p className="text-[13px] leading-snug text-text">{focusNode.label}</p>
+        <p className="ui-body leading-snug text-text">{focusNode.label}</p>
 
         {focusTask ? (
           <>
@@ -172,7 +172,7 @@ export function GraphDrawer({
               <EngineBadge engine={focusTask.engine} locked={isExternal(focusTask)} />
             </div>
             <FreshnessTag freshness={focusTask.freshness} lastKnownAt={focusTask.lastKnownAt} />
-            <div className="flex gap-3 font-mono text-[11px] text-text-muted">
+            <div className="flex gap-3 font-mono ui-micro text-text-muted">
               <span>
                 {t("graph.graphDrawer.moduleValue", {
                   module: moduleDisplayLabel(resolveTaskModule(focusTask.module)),
@@ -187,7 +187,7 @@ export function GraphDrawer({
               const dec = focusNode.raw as DecisionRow;
               return (
                 <>
-                  <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <div className="flex items-center gap-2 font-mono ui-micro">
                     <span className="rounded bg-accent px-1.5 py-0.5 text-accent-fg">{dec.state}</span>
                     <span className="text-text-muted">
                       {t("graph.graphDrawer.riskUrgency", {
@@ -197,18 +197,18 @@ export function GraphDrawer({
                     </span>
                   </div>
                   <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                    <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                       {t("graph.graphDrawer.question")}
                     </span>
-                    <p className="text-[12px] font-medium text-text mt-1">{dec.question}</p>
+                    <p className="ui-meta font-medium text-text mt-1">{dec.question}</p>
                   </div>
                   {dec.chosen.length > 0 && (
                     <div className="rounded-md border border-accent/30 bg-accent-fg/5 px-2.5 py-2">
-                      <span className="font-mono text-[10px] uppercase tracking-wide text-accent">
+                      <span className="font-mono ui-micro uppercase tracking-wide text-accent">
                         {t("graph.graphDrawer.chosen")}
                       </span>
                       {dec.chosen.map((c) => (
-                        <p key={c.id} className="text-[12px] text-text mt-1">
+                        <p key={c.id} className="ui-meta text-text mt-1">
                           {c.text}
                         </p>
                       ))}
@@ -216,10 +216,10 @@ export function GraphDrawer({
                   )}
                   {dec.claims && dec.claims.length > 0 && (
                     <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-                      <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                      <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                         {t("graph.graphDrawer.claims")}
                       </span>
-                      <ul className="list-inside list-disc text-[12px] text-text-muted mt-1">
+                      <ul className="list-inside list-disc ui-meta text-text-muted mt-1">
                         {dec.claims.map((c) => (
                           <li key={c.id}>{c.text}</li>
                         ))}
@@ -236,21 +236,21 @@ export function GraphDrawer({
               const fact = focusNode.raw as FactRef;
               return (
                 <>
-                  <div className="flex items-center gap-2 font-mono text-[11px]">
+                  <div className="flex items-center gap-2 font-mono ui-micro">
                     <span className="rounded bg-stale px-1.5 py-0.5 text-stale-fg">{fact.category}</span>
                     <span className="text-text-muted">@ {fact.at}</span>
                   </div>
                   <div className="rounded-md border border-stale/30 bg-stale/5 px-2.5 py-3">
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-stale">
+                    <span className="font-mono ui-micro uppercase tracking-wide text-stale">
                       {t("graph.graphDrawer.factObservation")}
                     </span>
-                    <p className="text-[13px] leading-relaxed text-text mt-1.5 font-medium">{fact.text}</p>
+                    <p className="ui-body leading-relaxed text-text mt-1.5 font-medium">{fact.text}</p>
                   </div>
                   <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
-                    <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+                    <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                       {t("graph.graphDrawer.anchorDetails")}
                     </span>
-                    <div className="flex flex-col gap-0.5 font-mono text-[11px] text-text-muted">
+                    <div className="flex flex-col gap-0.5 font-mono ui-micro text-text-muted">
                       {fact.taskId && (
                         <div className="flex min-w-0 flex-wrap items-center gap-1">
                           <span className="text-text-faint">{t("graph.graphDrawer.anchorTaskLabel")}</span>{" "}
@@ -280,19 +280,19 @@ export function GraphDrawer({
             })()}
           </div>
         ) : (
-          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 text-[11px] text-text-muted">
+          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 ui-micro text-text-muted">
             {focusNode.entity}
             {t("graph.graphDrawer.node")}
           </div>
         )}
 
-        <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 font-mono text-[11px] text-text-muted">
+        <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2 font-mono ui-micro text-text-muted">
           {t("graph.graphDrawer.chainCounts", { up: upCount, down: downCount })}
         </div>
 
         {directOut.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+            <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
               {t("graph.graphDrawer.outEdgesCount", { count: directOut.length })}
             </span>
             {directOut.map((e, i) => {
@@ -303,8 +303,8 @@ export function GraphDrawer({
                   onClick={() => onFocus(endpointToNodeId(e.to))}
                   className="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs hover:bg-surface-raised"
                 >
-                  <span className="shrink-0 text-[10px] text-text-faint">{KIND_LABEL[e.kind]} →</span>
-                  <span className="shrink-0 font-mono text-[11px] text-text-muted">{e.to}</span>
+                  <span className="shrink-0 ui-micro text-text-faint">{KIND_LABEL[e.kind]} →</span>
+                  <span className="shrink-0 font-mono ui-micro text-text-muted">{e.to}</span>
                   <span className="truncate text-text-muted">{peer ? truncate(peer.label, 20) : ""}</span>
                 </button>
               );
@@ -314,7 +314,7 @@ export function GraphDrawer({
 
         {directIn.length > 0 && (
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-wide text-text-faint">
+            <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
               {t("graph.graphDrawer.inEdgesCount", { count: directIn.length })}
             </span>
             {directIn.map((e, i) => {
@@ -325,9 +325,9 @@ export function GraphDrawer({
                   onClick={() => onFocus(endpointToNodeId(e.from))}
                   className="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-xs hover:bg-surface-raised"
                 >
-                  <ArrowSquareOut weight="bold" className="shrink-0 text-[10px] text-text-faint" />
-                  <span className="shrink-0 text-[10px] text-text-faint">← {KIND_LABEL_IN[e.kind]}</span>
-                  <span className="shrink-0 font-mono text-[11px] text-text-muted">{e.from}</span>
+                  <ArrowSquareOut weight="bold" className="shrink-0 ui-micro text-text-faint" />
+                  <span className="shrink-0 ui-micro text-text-faint">← {KIND_LABEL_IN[e.kind]}</span>
+                  <span className="shrink-0 font-mono ui-micro text-text-muted">{e.from}</span>
                   <span className="truncate text-text-muted">{peer ? truncate(peer.label, 20) : ""}</span>
                 </button>
               );

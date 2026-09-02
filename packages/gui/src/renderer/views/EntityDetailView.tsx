@@ -94,14 +94,14 @@ function DetailPendingColumn({ loading, refLabel }: { loading: boolean; refLabel
       className="flex w-[26rem] shrink-0 flex-col gap-3 border-r border-border bg-surface px-3 py-3"
     >
       {loading ? (
-        <p className="font-mono text-[12px] text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
+        <p className="font-mono ui-meta text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
       ) : (
         <>
-          <div className="flex items-center gap-1 text-[12px] font-semibold text-stale">
+          <div className="flex items-center gap-1 ui-meta font-semibold text-stale">
             <WarningCircle weight="bold" />
             {t("views.entityDetail.notProjected")}
           </div>
-          <div className="font-mono text-[11px] text-text-faint">{refLabel}</div>
+          <div className="font-mono ui-micro text-text-faint">{refLabel}</div>
         </>
       )}
     </aside>
@@ -127,7 +127,7 @@ function NeighborhoodPane({
 }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5 font-mono text-[11px] text-text-muted">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5 font-mono ui-micro text-text-muted">
         {t("views.entityDetail.neighborhoodHint")}
       </div>
       <div className="flex min-h-0 flex-1">
