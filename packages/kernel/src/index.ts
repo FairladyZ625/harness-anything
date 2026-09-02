@@ -98,7 +98,6 @@ export {
   bindWriterGenerationToken,
   createWriteReceipt,
   isReceiptDiagnostic,
-  isReceiptGuidance,
   normalizeCommandEnvelope,
   serializeEventHead,
   WRITE_RECEIPT_SCHEMA,

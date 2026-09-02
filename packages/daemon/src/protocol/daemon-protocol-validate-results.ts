@@ -1,4 +1,3 @@
-import { isReceiptDiagnostic, isReceiptGuidance } from "../../../kernel/src/index.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
@@ -354,7 +353,7 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     return [validationError(entityId, "error.hint", value.error.hint, "must be a non-empty string")];
   if (value.code !== value.error.code)
     return [validationError(entityId, "error.code", value.error.code, "must equal code")];
-  if (value.diagnostic !== undefined && !isReceiptDiagnostic(value.diagnostic))
+  if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   return [];
 }
@@ -455,9 +454,9 @@ export function writeReceipt(value: JsonObject): string[] {
     return [validationError(entityId, "proof", value.proof, "must prove durable canonical visibility at one cut")];
   if (pending && !nonEmpty(value.nextAction) && (!Array.isArray(value.guidance) || value.guidance.length === 0))
     return [validationError(entityId, "guidance", value.guidance, "must include nextAction or structured guidance")];
-  if (value.guidance !== undefined && (!Array.isArray(value.guidance) || !value.guidance.every(isReceiptGuidance)))
+  if (value.guidance !== undefined && (!Array.isArray(value.guidance) || !value.guidance.every(isStructuredGuidance)))
     return [validationError(entityId, "guidance", value.guidance, "must be structured receipt guidance")];
-  if (value.diagnostic !== undefined && !isReceiptDiagnostic(value.diagnostic))
+  if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   if (noChanges) {
     for (const field of ["code", "origin", "nextAction"] as const)
@@ -581,4 +580,18 @@ function validationDiagnostic(hint: string) {
         actual: match[4]!,
       }
     : null;
+}
+
+// Transport validates shape only; the kernel receipt registry owns the guidance kind vocabulary.
+function isStructuredGuidance(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    nonEmpty(value.kind) &&
+    isJsonObject(value.args) &&
+    (value.when === undefined || isJsonObject(value.when))
+  );
+}
+
+function isStructuredDiagnostic(value: unknown): boolean {
+  return isJsonObject(value) && nonEmpty(value.kind);
 }

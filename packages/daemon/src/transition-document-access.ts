@@ -118,7 +118,8 @@ export function assertTaskTransitionDocumentReady(input: {
             ? `canonical projection document at workspace revision ${document.workspaceRevision}`
             : `submitted candidate against canonical projection workspace revision ${document.workspaceRevision}`,
         diagnosticSummary = actionableMissing.length
-          ? `${actionableMissing.length} required section${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
+          ? `${actionableMissing.length} required section` +
+            `${actionableMissing.length === 1 ? " is" : "s are"} incomplete.`
           : "No missing required sections were reported.";
       Object.assign(error, {
         documentPath: document.path,

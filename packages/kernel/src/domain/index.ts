@@ -17,12 +17,7 @@ export type {
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
-export type {
-  ActionReturnsContract,
-  ReceiptGuidanceArgument,
-  ReceiptGuidanceContractEntry,
-  ReceiptGuidanceWhen,
-} from "./receipt-guidance.ts";
+export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
