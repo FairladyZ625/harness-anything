@@ -614,6 +614,7 @@ export default Object.freeze({
     "Schedule-S5",
     "Ontology-Explain-A",
     "Relation-G3c",
+    "PLT-Ontology-4.1",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

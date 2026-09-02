@@ -432,9 +432,9 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(scheduleRowById(rows, null)).toBe(null);
   });
 
-  it("reads the list through the bridge and reports invalid results", async () => {
+  it("reads the plane through the use-case projection and reports invalid results", async () => {
     const harness = {
-      listSchedules: vi.fn().mockResolvedValue(dto()),
+      readUseCaseProjection: vi.fn().mockResolvedValue(projectionEnvelope("schedule-plane", "plane", dto())),
       createSchedule: vi.fn(),
       updateSchedule: vi.fn(),
       deleteSchedule: vi.fn(),
@@ -445,11 +445,16 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     vi.stubGlobal("window", { harness });
     const result = await schedulesClient.list("repo-a");
     expect(result.schedules[0]?.scheduleId).toBe("heartbeat-probe");
-    expect(harness.listSchedules).toHaveBeenCalledWith({ repoId: "repo-a" });
+    expect(harness.readUseCaseProjection).toHaveBeenCalledWith({ repoId: "repo-a", name: "schedule-plane" });
     await expect(
       schedulesClient.list("repo-a") &&
-        ((harness.listSchedules = vi.fn().mockResolvedValue({ ok: false })), schedulesClient.list("repo-a")),
+        ((harness.readUseCaseProjection = vi.fn().mockResolvedValue({ ok: false })), schedulesClient.list("repo-a")),
     ).rejects.toThrow(/invalid result/u);
+    // A projection envelope naming a different projection is a routing fault, not a render problem.
+    harness.readUseCaseProjection = vi
+      .fn()
+      .mockResolvedValue(projectionEnvelope("runtime-session-groups", "groups", dto()));
+    await expect(schedulesClient.list("repo-a")).rejects.toThrow(/answered runtime-session-groups/u);
     vi.unstubAllGlobals();
   });
 
@@ -503,4 +508,9 @@ async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
+}
+
+/** The wire envelope every use-case projection now arrives in. */
+function projectionEnvelope(name: string, facet: string, projection: unknown) {
+  return { schema: "daemon.use-case-projection/v1", ok: true, name, facet, version: 1, inputs: {}, projection };
 }

@@ -1,4 +1,5 @@
 import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { admitUseCaseProjectionSelector } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { relationDirections, relationStates } from "../../../kernel/src/index.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
@@ -121,6 +122,15 @@ export function assertPreloadPayload(method: string, payload: unknown): true {
               : ["repoId", "facet", "relationType", "state", "direction"];
       if (!closed(payload, fields)) throw new Error(`Preload ${method} fields are not allowed.`);
       if (!validQueryPayload(method, payload)) throw new Error(`Preload ${method} query facets are invalid.`);
+    }
+    // The use-case projection selector is admitted by the same function the daemon request
+    // validator and the repo-cell handler call, so preload closure cannot drift from the daemon's.
+    // Before this, each facet vocabulary was restated per layer and adding a selector to only one
+    // of them failed asymmetrically instead of fail-closed.
+    if (method === "readUseCaseProjection") {
+      const { repoId: _repoId, ...selector } = payload;
+      const admitted = admitUseCaseProjectionSelector(selector);
+      if (typeof admitted === "string") throw new Error(`Preload ${method} request is invalid: ${admitted}`);
     }
     if (method === "getDecisions" && !validDecisionListPayload(payload))
       throw new Error("Preload getDecisions request is invalid.");

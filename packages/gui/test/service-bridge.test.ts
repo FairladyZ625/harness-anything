@@ -10,6 +10,7 @@ import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/
 import {
   compileScheduleDefinitionEvent,
   createScheduleV1,
+  deriveUseCaseProjectionInputs,
   makeTaskEventStore,
   makeTaskProjection,
 } from "../../kernel/src/index.ts";
@@ -161,8 +162,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                           ? { ...scope, squadId: "core-squad" }
                           : contract.id === "squad.run.read"
                             ? { ...scope, squadRunId: seededSquadRun }
-                            : contract.id === "schedules.runs"
-                              ? { ...scope, scheduleId: "schedule-gui-smoke" }
+                            : contract.id === "projection.read"
+                              ? { ...scope, name: "schedule-plane" }
                               : contract.id === "ci.observatory.read"
                                 ? { ...scope, window: 10 }
                                 : contract.id === "gui.catalog.preset.read"
@@ -192,6 +193,21 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       [...results.keys()],
       daemonGuiReadMethods.map(({ method }) => method),
     );
+    // Every catalog projection must answer through the one bridge method, not just the first one
+    // the sweep above happens to pick; a name in the catalog with no live read is a dead entry.
+    for (const [name, selector] of [
+      ["schedule-plane", {}],
+      ["schedule-run-history", { scheduleId: "schedule-gui-smoke" }],
+      ["runtime-session-groups", {}],
+    ] as const) {
+      const envelope = parseDaemonGuiReadResponse(
+        "repo.projection.read",
+        await bridge.invoke("readUseCaseProjection", { ...scope, name, ...selector }),
+      );
+      assert.equal(envelope.ok, true, `${name}: ${JSON.stringify(envelope)}`);
+      assert.equal(envelope.name, name);
+      assert.deepEqual(envelope.inputs, deriveUseCaseProjectionInputs(name), `${name} inputs are registry-derived`);
+    }
     const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
     assert.deepEqual(settingsBefore.settings, {
       schema: "settings/v1",

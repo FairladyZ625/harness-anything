@@ -17,16 +17,17 @@ import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
-  AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionResult,
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contract.ts";
 import type { ArtifactsListResult } from "./artifacts-gui-contract.ts";
-import type { SchedulesListResult } from "./schedules-gui-contract.ts";
-import type { ScheduleRunsResult } from "../schedule-runs-read.ts";
 import type { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
-import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
+import {
+  taskStatusWords,
+  useCaseProjectionFacetWords,
+  useCaseProjectionNameWords,
+} from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 
 type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
@@ -324,6 +325,7 @@ export type DaemonGuiReadResultMap = {
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
+  readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
@@ -352,7 +354,6 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
   readonly "repo.agentRuntime.overview": AgentRuntimeOverviewResult;
-  readonly "repo.agentRuntime.sessionGroups": AgentRuntimeSessionGroupsResult;
   readonly "repo.agentRuntime.sessions.read": AgentRuntimeSessionResult;
   readonly "repo.agentRuntime.events.read": AgentRuntimeEventsResult;
   readonly "repo.task.dispatches": DaemonTaskDispatchesResult;
@@ -363,8 +364,6 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.squad.entity.read": Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }>;
   readonly "repo.squad.runs.list": SquadRunsListResult;
   readonly "repo.squad.run.read": SquadRunReadResult;
-  readonly "repo.schedules.list": SchedulesListResult;
-  readonly "repo.schedules.runs": ScheduleRunsResult;
   readonly "repo.gui.catalog.snapshot": JsonObject;
   readonly "repo.gui.catalog.preset.read": JsonObject;
   readonly "repo.terminal.sessions.list": JsonObject;
@@ -382,6 +381,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
+  readonly "repo.projection.read": DaemonUseCaseProjectionPayload;
   readonly "repo.entity.actions.explain": {
     readonly schema: "entity-action-explain-request/v1";
     readonly mode: "catalog" | "object";
@@ -406,15 +406,6 @@ export type DaemonGuiReadPayloadMap = {
     readonly limit?: number;
     readonly cursor?: string;
   };
-  readonly "repo.agentRuntime.sessionGroups": {
-    readonly groupBy?: "task" | "squad" | "agent" | "day";
-    readonly since?: string;
-    readonly query?: string;
-    /** 精确归属过滤(G12 §4b):与 query 子串检索互不冲突,按派工行精确匹配。 */
-    readonly agentId?: string;
-    readonly squadId?: string;
-    readonly limit?: number;
-  };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
   };
@@ -436,8 +427,6 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.squad.run.read": {
     readonly squadRunId: string;
   };
-  readonly "repo.schedules.list": Readonly<Record<string, never>>;
-  readonly "repo.schedules.runs": { readonly scheduleId: string; readonly limit?: number };
   readonly "repo.gui.catalog.snapshot": Readonly<Record<string, never>>;
   readonly "repo.gui.catalog.preset.read": {
     readonly presetId: string;
@@ -827,4 +816,97 @@ export interface DaemonProtocolErrorResult {
   readonly error: { readonly code: string; readonly hint: string };
   readonly nextAction: string;
   readonly diagnostic?: ReceiptDiagnostic;
+}
+
+/**
+ * Use-case projection transport contract (dec_5B135F46 CH4 layer two).
+ *
+ * The kernel catalog says which named projections exist and which views consume them; this is the
+ * wire half, and — the part that matters — the *single* boundary where a selector is admitted. The
+ * precedent (`task_e75157a2d1538a71726603aeef`) shipped facet selectors whose vocabulary ended up
+ * restated in five files, so adding a facet to only some of them failed asymmetrically instead of
+ * fail-closed. `admitUseCaseProjectionSelector` is called by the RPC request validator, the
+ * repo-cell handler and the GUI preload, so all three reject identically.
+ *
+ * This lives on the thin-CLI/daemon transport path, so it carries no runtime kernel import; the
+ * name mirror in `daemon-protocol-vocabulary.ts` is pinned to the kernel type at compile time.
+ */
+export const useCaseProjectionSchemaId = "daemon.use-case-projection/v1" as const;
+
+export type UseCaseProjectionName = (typeof useCaseProjectionNameWords)[number];
+
+export const useCaseProjectionFacets = Object.freeze({
+  "schedule-plane": Object.freeze(["plane"] as const),
+  "schedule-run-history": Object.freeze(["runs"] as const),
+  "runtime-session-groups": Object.freeze(["groups"] as const),
+});
+
+export type UseCaseProjectionFacet = (typeof useCaseProjectionFacetWords)[number];
+
+/**
+ * The closed field set a projection may carry, `name` and `facet` included. Anything else on the
+ * payload is rejected at the boundary rather than silently ignored by one layer and honoured by
+ * the next.
+ */
+function useCaseProjectionSelectorFields(name: UseCaseProjectionName): readonly string[] {
+  const base = ["name", "facet"];
+  if (name === "schedule-plane") return base;
+  if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
+  return [...base, "groupBy", "since", "query", "agentId", "squadId", "limit"];
+}
+
+export function isUseCaseProjectionName(value: unknown): value is UseCaseProjectionName {
+  return typeof value === "string" && (useCaseProjectionNameWords as readonly string[]).includes(value);
+}
+
+export function isUseCaseProjectionFacet(name: UseCaseProjectionName, facet: unknown): facet is UseCaseProjectionFacet {
+  return typeof facet === "string" && (useCaseProjectionFacets[name] as readonly string[]).includes(facet);
+}
+
+/**
+ * The one admission routine. Returns the resolved `{name, facet}` or the reason it is inadmissible,
+ * so every layer that guards this read rejects for the same reason with the same words.
+ */
+export function admitUseCaseProjectionSelector(
+  payload: Readonly<Record<string, unknown>>,
+): { readonly name: UseCaseProjectionName; readonly facet: UseCaseProjectionFacet } | string {
+  const { name } = payload;
+  if (!isUseCaseProjectionName(name)) return `Use-case projection name is unknown: ${String(name)}.`;
+  const facet = payload.facet === undefined ? useCaseProjectionFacets[name][0] : payload.facet;
+  if (!isUseCaseProjectionFacet(name, facet))
+    return (
+      `Use-case projection ${name} has no facet ${String(facet)}; ` +
+      `expected ${useCaseProjectionFacets[name].join(", ")}.`
+    );
+  const allowed = useCaseProjectionSelectorFields(name);
+  const unexpected = Object.keys(payload).filter((field) => !allowed.includes(field));
+  if (unexpected.length > 0)
+    return (
+      `Use-case projection ${name}/${facet} does not accept ${unexpected.sort().join(", ")}; ` +
+      `expected only ${allowed.join(", ")}.`
+    );
+  return { name, facet };
+}
+
+export interface DaemonUseCaseProjectionResult {
+  readonly schema: typeof useCaseProjectionSchemaId;
+  readonly ok: true;
+  readonly name: UseCaseProjectionName;
+  readonly facet: UseCaseProjectionFacet;
+  readonly version: number;
+  /** Derived from `entityKindContracts` at read time, never restated on the wire declaration. */
+  readonly inputs: { readonly entityKinds: readonly string[]; readonly relationTypes: readonly string[] };
+  readonly projection: unknown;
+}
+
+export interface DaemonUseCaseProjectionPayload {
+  readonly name: UseCaseProjectionName;
+  readonly facet?: UseCaseProjectionFacet;
+  readonly scheduleId?: string;
+  readonly groupBy?: "task" | "squad" | "agent" | "day";
+  readonly agentId?: string;
+  readonly squadId?: string;
+  readonly since?: string;
+  readonly query?: string;
+  readonly limit?: number;
 }

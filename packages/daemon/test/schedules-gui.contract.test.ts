@@ -10,12 +10,14 @@ import {
   daemonGuiReadMethods,
   validateDaemonRpcCall,
 } from "../src/protocol/daemon-protocol.contract.ts";
-import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonGuiReadSchemas } from "../src/protocol/daemon-protocol-schema-registry.ts";
 import {
   DAEMON_SCHEDULES_LIST_SCHEMA,
   DAEMON_SCHEDULE_RUNS_SCHEMA,
+  DAEMON_USE_CASE_PROJECTION_SCHEMA,
 } from "../src/protocol/daemon-protocol-schema-ids.ts";
+import { validateDaemonUseCaseProjection } from "../src/protocol/daemon-protocol-use-case-projection.ts";
+import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
 import {
   deriveScheduleExecutionAvailability,
   readSchedulesGui,
@@ -74,43 +76,73 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
   };
 }
 
-test("the schedules list read facet is registered and payload-closed", () => {
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.schedules.list");
-  assert.ok(facet, "repo.schedules.list must be registered");
-  assert.equal(facet.guiBridgeMethod, "listSchedules");
-  assert.equal(facet.outputSchemaId, DAEMON_SCHEDULES_LIST_SCHEMA.id);
+test("the schedule plane is served by the schedule-plane use-case projection, payload-closed", () => {
+  // The per-store `repo.schedules.list` read is gone; the plane now arrives as a named projection.
+  assert.equal(
+    daemonGuiReadMethods.some(({ method }) => method === "repo.schedules.list"),
+    false,
+    "repo.schedules.list must no longer be a read method",
+  );
+  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.projection.read");
+  assert.ok(facet, "repo.projection.read must be registered");
+  assert.equal(facet.guiBridgeMethod, "readUseCaseProjection");
+  assert.equal(facet.outputSchemaId, DAEMON_USE_CASE_PROJECTION_SCHEMA.id);
   assert.deepEqual(
-    validateDaemonRpcCall({ method: "repo.schedules.list", params: { repo: { repoId: "schedule-gui" } } }),
+    validateDaemonRpcCall({
+      method: "repo.projection.read",
+      params: { repo: { repoId: "schedule-gui" }, payload: { name: "schedule-plane" } },
+    }),
     [],
   );
+  // schedule-plane admits no selector at all, so a scheduleId is rejected at the one boundary.
   assert.notDeepEqual(
     validateDaemonRpcCall({
-      method: "repo.schedules.list",
-      params: { repo: { repoId: "schedule-gui" }, payload: { scheduleId: "heartbeat-probe" } },
+      method: "repo.projection.read",
+      params: { repo: { repoId: "schedule-gui" }, payload: { name: "schedule-plane", scheduleId: "heartbeat-probe" } },
     }),
     [],
   );
 });
 
-test("the Schedule runs facet is registered with a closed occurrence query", () => {
-  const facet = daemonGuiReadMethods.find(({ method }) => method === "repo.schedules.runs");
-  assert.ok(facet, "repo.schedules.runs must be registered");
-  assert.equal(facet.guiBridgeMethod, "listScheduleRuns");
-  assert.equal(facet.outputSchemaId, DAEMON_SCHEDULE_RUNS_SCHEMA.id);
+test("the schedule run history projection keeps a closed occurrence query", () => {
+  assert.equal(
+    daemonGuiReadMethods.some(({ method }) => method === "repo.schedules.runs"),
+    false,
+    "repo.schedules.runs must no longer be a read method",
+  );
   assert.deepEqual(
     validateDaemonRpcCall({
-      method: "repo.schedules.runs",
-      params: { repo: { repoId: "schedule-gui" }, payload: { scheduleId: "heartbeat-probe", limit: 25 } },
+      method: "repo.projection.read",
+      params: {
+        repo: { repoId: "schedule-gui" },
+        payload: { name: "schedule-run-history", scheduleId: "heartbeat-probe", limit: 25 },
+      },
     }),
     [],
   );
   assert.notDeepEqual(
     validateDaemonRpcCall({
-      method: "repo.schedules.runs",
+      method: "repo.projection.read",
       params: {
         repo: { repoId: "schedule-gui" },
-        payload: { scheduleId: "heartbeat-probe", limit: 25, includeSecrets: true },
+        payload: { name: "schedule-run-history", scheduleId: "heartbeat-probe", limit: 25, includeSecrets: true },
       },
+    }),
+    [],
+  );
+  // A run history read without its schedule id is rejected rather than silently listing nothing.
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.projection.read",
+      params: { repo: { repoId: "schedule-gui" }, payload: { name: "schedule-run-history" } },
+    }),
+    [],
+  );
+  // A facet that belongs to another projection is rejected at the same boundary.
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.projection.read",
+      params: { repo: { repoId: "schedule-gui" }, payload: { name: "schedule-plane", facet: "groups" } },
     }),
     [],
   );
@@ -165,7 +197,7 @@ test("the six schedule GUI actions reuse the canonical action kinds", () => {
 test("the schedules list validator locks the joined wire shape", () => {
   const result = readSchedulesGui(guiContext());
   assert.deepEqual(validateSchedulesList(result), []);
-  assert.equal(parseDaemonGuiReadResult("repo.schedules.list", result), result);
+  assert.deepEqual(validateDaemonUseCaseProjection(schedulePlaneEnvelope(result)), []);
   assert.equal(serializeSchedulesList(result), `${JSON.stringify(result)}\n`);
   const row = result.schedules[0] as ScheduleGuiRowDto;
   assert.equal(row.scheduleId, "heartbeat-probe");
@@ -257,7 +289,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
   // linked, or settles with a detail — that shape must validate, or every real GUI
   // read (which parses through this contract) would fail once a schedule has run.
   assert.deepEqual(validateSchedulesList(result), []);
-  assert.equal(parseDaemonGuiReadResult("repo.schedules.list", result), result);
+  assert.deepEqual(validateDaemonUseCaseProjection(schedulePlaneEnvelope(result)), []);
   assert.equal(result.schedules[0]!.activeRun!.dispatchId, null);
   assert.equal(result.schedules[0]!.activeRun!.runtimeSessionId, null);
   assert.equal(result.schedules[0]!.lastRun!.detail, null);
@@ -548,3 +580,38 @@ test("the Schedule runs schema is registry-closed with a negative fixture", () =
   assert.ok(entry, "the Schedule runs schema must be registered");
   assert.deepEqual(entry.negativeFixtures, ["packages/daemon/fixtures/contracts/daemon-schedule-runs-invalid.json"]);
 });
+
+test("the use-case projection envelope is registry-closed with a negative fixture", () => {
+  const entry = daemonGuiReadSchemas.find(({ id }) => id === DAEMON_USE_CASE_PROJECTION_SCHEMA.id);
+  assert.ok(entry, "the use-case projection schema must be registered");
+  assert.deepEqual(entry.negativeFixtures, [
+    "packages/daemon/fixtures/contracts/daemon-use-case-projection-invalid.json",
+  ]);
+  // The envelope's `inputs` are derived from the kind registry, so an envelope that restates them
+  // by hand is rejected. This is the wire-level form of "inputs are not hand-copied".
+  const result = readSchedulesGui(guiContext());
+  assert.notDeepEqual(
+    validateDaemonUseCaseProjection({
+      ...schedulePlaneEnvelope(result),
+      inputs: { entityKinds: ["schedule", "task"], relationTypes: [] },
+    }),
+    [],
+  );
+  // A projection whose inner shape is invalid is rejected through the envelope, not around it.
+  assert.notDeepEqual(
+    validateDaemonUseCaseProjection({ ...schedulePlaneEnvelope(result), projection: { ok: true } }),
+    [],
+  );
+});
+
+function schedulePlaneEnvelope(projection: unknown) {
+  return {
+    schema: "daemon.use-case-projection/v1" as const,
+    ok: true as const,
+    name: "schedule-plane" as const,
+    facet: "plane" as const,
+    version: 1,
+    inputs: deriveUseCaseProjectionInputs("schedule-plane"),
+    projection,
+  };
+}

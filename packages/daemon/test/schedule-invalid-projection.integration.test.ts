@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import type { SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -65,7 +66,10 @@ test("a canonical Schedule row missing a newly required field stays readable and
     assert.equal(shown.schedule.state, "invalid");
     assert.match(String(shown.schedule.invalidReason), /missing required field "mode"/u);
 
-    const gui = parseDaemonGuiReadResult("repo.schedules.list", await cell.read("repo.schedules.list")),
+    const gui = parseDaemonGuiReadResult(
+        "repo.projection.read",
+        await cell.read("repo.projection.read", { name: "schedule-plane" }),
+      ).projection as SchedulesListResult,
       guiInvalid = gui.schedules.find(({ scheduleId }) => scheduleId === "legacy-probe");
     assert.equal(guiInvalid?.state, "invalid");
     if (guiInvalid?.state === "invalid") assert.match(guiInvalid.invalidReason, /missing required field "mode"/u);

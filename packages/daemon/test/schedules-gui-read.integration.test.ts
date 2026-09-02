@@ -182,7 +182,10 @@ test(
         // merely disagree with field expectations (a claimed-but-unlinked activeRun or a
         // lastRun without detail previously failed this parse).
         const list = async (): Promise<SchedulesListResult> =>
-          parseDaemonGuiReadResult("repo.schedules.list", await cell.read("repo.schedules.list"));
+          parseDaemonGuiReadResult(
+            "repo.projection.read",
+            await cell.read("repo.projection.read", { name: "schedule-plane" }),
+          ).projection as SchedulesListResult;
         const initial = await list();
         assert.equal(initial.ok, true);
         assert.equal(initial.repoMode, "local");
@@ -382,9 +385,9 @@ test(
       };
       const list = async (): Promise<SchedulesListResult> =>
         parseDaemonGuiReadResult(
-          "repo.schedules.list",
-          await host.read("schedules-gui-center", "repo.schedules.list", {}, localAuth),
-        );
+          "repo.projection.read",
+          await host.read("schedules-gui-center", "repo.projection.read", { name: "schedule-plane" }, localAuth),
+        ).projection as SchedulesListResult;
       // Ownership is authoritative input to this join: before center admission the
       // whole read fails instead of fabricating an unresolved owner.
       await assert.rejects(list, /requires an admitted fleet roster/u);

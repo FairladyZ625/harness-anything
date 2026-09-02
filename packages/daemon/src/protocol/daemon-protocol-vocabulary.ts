@@ -1,4 +1,9 @@
-import type { CredentialKind, DaemonRepoMode, PeopleCommandClass } from "../../../kernel/src/index.ts";
+import type {
+  CredentialKind,
+  DaemonRepoMode,
+  PeopleCommandClass,
+  UseCaseProjectionName,
+} from "../../../kernel/src/index.ts";
 
 // daemon-status-vocabulary:generated:start
 export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
@@ -95,3 +100,21 @@ export const credentialKindWords = Object.freeze([
 export const credentialKindWordsAreExact: [CredentialKind] extends [(typeof credentialKindWords)[number]]
   ? true
   : never = true;
+
+// The named use-case projections of dec_5B135F46 CH4, mirrored on the transport path. The kernel
+// catalog (`use-case-projection-catalog.ts`) stays the authority for what a projection *means*;
+// this is only the wire enum, and the bidirectional check below fails compilation the moment the
+// two disagree — so the mirror cannot drift without the kernel type being changed to match.
+export const useCaseProjectionNameWords = Object.freeze([
+  "schedule-plane",
+  "schedule-run-history",
+  "runtime-session-groups",
+] as const satisfies readonly UseCaseProjectionName[]);
+
+export const useCaseProjectionNameWordsAreExact: [UseCaseProjectionName] extends [
+  (typeof useCaseProjectionNameWords)[number],
+]
+  ? true
+  : never = true;
+
+export const useCaseProjectionFacetWords = Object.freeze(["plane", "runs", "groups"] as const);

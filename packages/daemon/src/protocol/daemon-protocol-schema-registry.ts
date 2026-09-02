@@ -29,6 +29,7 @@ import {
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
+  DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
   GUI_CATALOG_PRESET_SCHEMA,
   GUI_CATALOG_SNAPSHOT_SCHEMA,
@@ -113,6 +114,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/protocol/daemon-protocol.contract.ts#serializeDaemonTaskSnapshotList",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-task-snapshot-list-invalid.json"]),
+  },
+  {
+    id: DAEMON_USE_CASE_PROJECTION_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_USE_CASE_PROJECTION_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-use-case-projection.ts#validateDaemonUseCaseProjection",
+    writer: "packages/daemon/src/protocol/daemon-protocol-use-case-projection.ts#serializeDaemonUseCaseProjection",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-use-case-projection-invalid.json"]),
   },
   {
     id: DAEMON_WORKSPACE_SUMMARY_SCHEMA.id,
