@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assessFactRetirement,
   upstreamEvidencingFacts,
+  validFactStillHoldsAttestation,
   type FactRetirementDecision,
   type FactRetirementRelation,
 } from "../../src/domain/fact-retirement-readiness.ts";
@@ -63,6 +64,16 @@ test("standing upstream evidence is undeclared until superseded or attested stil
   });
   assert.equal(attested.ready, true);
   assert.deepEqual(attested.undischarged, []);
+});
+
+test("historical attestation readers ignore additions without relaxing required Fact semantics", () => {
+  const attestation = { factRef, rationale: "The evidence remains current." },
+    future = { ...attestation, futureOptionalField: true };
+  assert.equal(validFactStillHoldsAttestation(attestation), true);
+  assert.equal(validFactStillHoldsAttestation(future), false);
+  assert.equal(validFactStillHoldsAttestation(future, true), true);
+  assert.equal(validFactStillHoldsAttestation({ factRef }, true), false);
+  assert.equal(validFactStillHoldsAttestation({ ...attestation, factRef: "task/not-a-fact" }, true), false);
 });
 
 test("a task-produced superseding Fact discharges the upstream Fact without an attestation", () => {
