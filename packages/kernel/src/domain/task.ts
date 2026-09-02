@@ -132,7 +132,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     value.provenance !== undefined &&
     (!Array.isArray(value.provenance) ||
       value.provenance.length === 0 ||
-      value.provenance.some((entry) => !validateSessionProvenance(entry)))
+      value.provenance.some((entry) => !validateSessionProvenance(entry, allowUnknownFields)))
   )
     issues.push({ code: "invalid_task", message: "task provenance must contain session identities" });
   if (typeof value.pinned !== "boolean") issues.push({ code: "invalid_task", message: "pinned must be a boolean" });

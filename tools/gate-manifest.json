@@ -333,10 +333,14 @@
       "tierReason": null,
       "authoritySource": [
         ".github/pull_request_template.md",
-        "harness/governance/standards/repo-governance-standard.md"
+        "harness/governance/standards/repo-governance-standard.md",
+        "decision/dec_558977E9272F532D6DCFDB7F90#CH1",
+        "packages/daemon/src/protocol/daemon-protocol-commands-agent.ts:agentProtocolCommands"
       ],
       "consumerScope": [
-        "GitHub pull request body"
+        "GitHub pull request body",
+        "accepted canonical-event fixture changes derived from the pull request base and head",
+        "migration command names rendered by ha migrate --help from the daemon protocol command catalog"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -353,7 +357,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "No human-authored PR allowlist; PR body must satisfy the bilingual template contract."
+        "notes": "No human-authored migration-command allowlist; Event-Migration names are derived from the CLI protocol catalog. A none declaration must carry its reason in the PR body."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -361,6 +365,7 @@
         "protectedSurfaces": [
           ".github/pull_request_template.md",
           "tools/check-pr-body-bilingual.mjs",
+          "packages/kernel/fixtures/canonical-events/**/accepted*.json",
           "tools/gate-manifest.json"
         ]
       },
@@ -4420,16 +4425,19 @@
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH3",
         "decision/dec_1BA221E0BED164C24854AFF2FA#CH1",
         "decision/dec_1BA221E0BED164C24854AFF2FA#CH3",
+        "decision/dec_558977E9272F532D6DCFDB7F90#CH1",
         "packages/kernel/src/domain/doc-sync.contract.ts:canonicalEventSchemas",
         "packages/kernel/fixtures/canonical-events/",
+        "tools/gates/sample-canonical-events.mjs",
         "packages/daemon/src/protocol/daemon-protocol.contract.ts:validateDaemon*",
         "packages/daemon/fixtures/readside-responses/"
       ],
       "consumerScope": [
         "all canonical event reader predicates registered in canonicalEventSchemas",
-        "byte-exact frozen events previously accepted under every registered canonical schema id",
+        "one de-identified frozen event for every recursive (schema, type, payload-key set) shape at the canonical ledger cut",
         "daemon response validators for persistent task, decision, fact/relation, document, agenda, workspace-summary, and runtime-dispatch projections",
-        "production reducer and daemon read assembly replay of byte-exact events from a fixed pre-#1746 canonical cut"
+        "production reducer and daemon read assembly replay of byte-exact events from a fixed pre-#1746 canonical cut",
+        "connected Decision digest and current Relation shape derivation controls from the 2026-09-02 incident"
       ],
       "githubContext": {
         "requiredContexts": [
@@ -4448,13 +4456,14 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every registered canonical schema id and persistent daemon read-side response validator must retain at least one accepted frozen sample; reader rejection has no allowlist."
+        "notes": "Every registered canonical schema id, sampled recursive payload-key shape, and persistent daemon read-side response validator must retain accepted frozen evidence; reader or replay rejection has no allowlist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/gates/canonical-event-compat.mjs",
+          "tools/gates/sample-canonical-events.mjs",
           "packages/kernel/fixtures/canonical-events/**",
           "packages/daemon/fixtures/readside-responses/**",
           "package.json:scripts.harness:check-canonical-event-compat",
@@ -4493,6 +4502,7 @@
         "status": "covered",
         "evidence": [
           "tools/gates/test/canonical-event-compat.test.mjs",
+          "tools/gates/test/sample-canonical-events.test.mjs",
           "packages/kernel/test/contracts/canonical-event-forward-compat.test.ts",
           "packages/kernel/fixtures/canonical-events/ORIGINS.md",
           "packages/daemon/fixtures/readside-responses/ORIGINS.md"

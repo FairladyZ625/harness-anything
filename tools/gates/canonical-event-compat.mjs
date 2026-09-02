@@ -10,15 +10,18 @@ import { closeoutReadiness } from "../../packages/kernel/src/domain/closeout-rea
 import {
   canonicalEventSchemas,
   docSyncWritePlan,
+  isDecisionEvent,
   isDocEvent,
   parseCanonicalEvent,
   serializeCanonicalEvent,
 } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
+import { decisionWritePlan } from "../../packages/kernel/src/domain/decision-event.ts";
 import {
   isMigrationImportEvent,
   migrationImportWritePlan,
 } from "../../packages/kernel/src/domain/migration-import-event.ts";
 import { isTaskBootstrapEvent, taskBootstrapWritePlan } from "../../packages/kernel/src/domain/task-bootstrap-event.ts";
+import { isRelationEvent, relationEventWritePlan } from "../../packages/kernel/src/domain/relation-event.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { canonicalEventContentClaims } from "../../packages/kernel/src/store/task-event-store.ts";
@@ -86,6 +89,27 @@ const frozenReadsideEvents = Object.freeze([
     gitBlobSha: "2bb6ffadf87c76d79e493c7412041702750e5983",
     validators: ["validateDaemonTaskDocumentList", "validateDaemonTaskDispatches"],
   },
+  {
+    relativePath: "events/f1/op-fixture-decision-proposed.json",
+    revision: 10,
+    eventId: "event-fixture-decision-proposed",
+    gitBlobSha: "92a64f4d4b40f1a22eb48b04be101f8140ebdb27",
+    validators: ["validateDaemonDecisionList", "validateDaemonWorkspaceSummary", "validateDaemonRelationGraph"],
+  },
+  {
+    relativePath: "events/f2/op-fixture-decision-accepted.json",
+    revision: 11,
+    eventId: "event-fixture-decision-accepted",
+    gitBlobSha: "82eec39121155a742f11013c00a711ad191d059b",
+    validators: ["validateDaemonDecisionList", "validateDaemonWorkspaceSummary", "validateDaemonRelationGraph"],
+  },
+  {
+    relativePath: "events/f3/op-fixture-relation-created.json",
+    revision: 12,
+    eventId: "event-fixture-relation-created",
+    gitBlobSha: "0a9be09343cf3d85d9e66a9e0b6a7555bde95a89",
+    validators: ["validateDaemonRelationGraph"],
+  },
 ]);
 
 export const daemonResponseValidators = Object.freeze([
@@ -101,6 +125,13 @@ export const daemonResponseValidators = Object.freeze([
 
 function fixtureDirectory(schema) {
   return schema.replaceAll("/", "-");
+}
+
+function frozenCanonicalEventCount(rootDir, schemas) {
+  return schemas.reduce((count, entry) => {
+    const directory = path.join(rootDir, FIXTURE_ROOT, fixtureDirectory(entry.schema));
+    return count + (existsSync(directory) ? readdirSync(directory).filter((name) => name.endsWith(".json")).length : 0);
+  }, 0);
 }
 
 export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEvent) {
@@ -137,7 +168,10 @@ export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEv
       }
       const issues = entry.validate(value);
       if (issues.length > 0)
-        errors.push(`${relativePath}: ${entry.schema} rejected frozen sample: ${issues.join("; ")}`);
+        errors.push(
+          `${relativePath} [sourceEventIds=${typeof value.eventId === "string" ? value.eventId : "unknown"}]: ` +
+            `${entry.schema} rejected frozen sample: ${issues.join("; ")}`,
+        );
       else if (parseCanonicalEvent !== undefined) {
         try {
           parseCanonicalEvent(body);
@@ -176,7 +210,7 @@ function readContentObject(rootDir, claim) {
   return bytes;
 }
 
-function readFrozenReadsideHistory(rootDir) {
+function readFrozenReadsideHistory(rootDir, transformEvent) {
   if (frozenReadsideEvents.length > MAX_READSIDE_EVENTS)
     throw new Error(`read-side history has ${frozenReadsideEvents.length} events; budget is ${MAX_READSIDE_EVENTS}`);
   const content = new Map();
@@ -186,7 +220,8 @@ function readFrozenReadsideHistory(rootDir) {
         bytes = readFileSync(path.join(rootDir, relativePath));
       if (gitBlobSha(bytes) !== origin.gitBlobSha)
         throw new Error(`${relativePath}: frozen event bytes differ from locked-cut blob ${origin.gitBlobSha}`);
-      const event = parseCanonicalEvent(bytes.toString("utf8"));
+      const parsed = parseCanonicalEvent(bytes.toString("utf8")),
+        event = transformEvent(parsed);
       if (event.eventId !== origin.eventId || event.workspaceRevision !== origin.revision)
         throw new Error(`${relativePath}: expected ${origin.eventId} at revision ${origin.revision}`);
       for (const claim of canonicalEventContentClaims(event))
@@ -201,6 +236,8 @@ function fixtureWritePlan(event) {
   if (isMigrationImportEvent(event)) return migrationImportWritePlan(event);
   if (isTaskBootstrapEvent(event)) return taskBootstrapWritePlan(event);
   if (isDocEvent(event)) return docSyncWritePlan(event);
+  if (isDecisionEvent(event)) return decisionWritePlan(event);
+  if (isRelationEvent(event)) return relationEventWritePlan(event);
   throw new Error(`read-side fixture ${event.eventId} has no production write-plan adapter`);
 }
 
@@ -224,8 +261,8 @@ function sourceEventIds(validatorName) {
     .map(({ eventId }) => eventId);
 }
 
-export function projectFrozenDaemonResponses(rootDir) {
-  const fixture = readFrozenReadsideHistory(rootDir),
+export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) => event) {
+  const fixture = readFrozenReadsideHistory(rootDir, transformEvent),
     temporaryRoot = mkdtempSync(path.join(tmpdir(), "daemon-readside-compat-"));
   mkdirSync(path.join(temporaryRoot, "harness"), { recursive: true });
   let head = null;
@@ -244,7 +281,14 @@ export function projectFrozenDaemonResponses(rootDir) {
     for (const event of fixture.events) {
       head = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` };
       positionFixtureProjection(projectionPath, event.workspaceRevision);
-      projection.apply(event, fixtureWritePlan(event));
+      try {
+        projection.apply(event, fixtureWritePlan(event));
+      } catch (error) {
+        consumeKnownError(error);
+        throw new Error(
+          `${event.eventId}: historical replay failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       projection.close();
     }
     const model = makeTaskQueryReadModel({
@@ -298,11 +342,15 @@ export function validateProjectedDaemonResponses(samples, validators) {
   return errors;
 }
 
-export function validateFrozenDaemonReadside(rootDir, validators = daemonResponseValidators) {
+export function validateFrozenDaemonReadside(
+  rootDir,
+  validators = daemonResponseValidators,
+  transformEvent = (event) => event,
+) {
   const started = performance.now();
   let errors;
   try {
-    errors = validateProjectedDaemonResponses(projectFrozenDaemonResponses(rootDir), validators);
+    errors = validateProjectedDaemonResponses(projectFrozenDaemonResponses(rootDir, transformEvent), validators);
   } catch (error) {
     consumeKnownError(error);
     errors = [`daemon read-side history replay failed: ${error instanceof Error ? error.message : String(error)}`];
@@ -325,8 +373,11 @@ function main() {
     console.error(errors.join("\n"));
     process.exitCode = 1;
   } else {
+    const sampleCount = frozenCanonicalEventCount(rootDir, canonicalEventSchemas);
     console.log(
-      `canonical-event-compat: ok (${canonicalEventSchemas.length} canonical schemas, ${daemonResponseValidators.length} daemon response validators from ${daemon.eventCount} historical events, ${daemon.durationMs.toFixed(1)}ms)`,
+      `canonical-event-compat: ok (${sampleCount} samples across ${canonicalEventSchemas.length} canonical schemas, ` +
+        `${daemonResponseValidators.length} daemon response validators from ${daemon.eventCount} historical events, ` +
+        `${daemon.durationMs.toFixed(1)}ms)`,
     );
   }
 }

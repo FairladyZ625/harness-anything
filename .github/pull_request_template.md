@@ -33,6 +33,9 @@ Deleted-Gates-Fixtures: none
 Production-Delta: +N/-M
 <!-- If any package.json or package-lock.json changes, replace the rejected `none` sentinel with a complete deterministic description; otherwise delete the entire next line. -->
 Dependency-Change: none
+<!-- Required only when packages/kernel/fixtures/canonical-events/**/accepted*.json changes. Name one command from `ha migrate --help`, or explain in one sentence why the refresh does not require a migration. -->
+<!-- Event-Migration: ha migrate <name> -->
+<!-- Event-Migration: none — <why no event migration is required> -->
 <!-- Optional: only when retaining an old production path, remove the surrounding comment markers from the next line and replace every placeholder. -->
 <!-- Retained-Path: <path> until <YYYY-MM-DD> per <dec_id> -->
 

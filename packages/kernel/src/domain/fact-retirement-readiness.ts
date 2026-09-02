@@ -119,12 +119,17 @@ export function upstreamEvidencingFacts(
   );
 }
 
-export function validFactStillHoldsAttestation(value: unknown): value is FactStillHoldsAttestation {
+export function validFactStillHoldsAttestation(
+  value: unknown,
+  allowUnknownFields = false,
+): value is FactStillHoldsAttestation {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const row = value as Readonly<Record<string, unknown>>,
     ref = typeof row.factRef === "string" ? parseEntityRef(row.factRef) : null;
   return (
-    Object.keys(row).sort().join("\0") === "factRef\0rationale" &&
+    (allowUnknownFields || Object.keys(row).sort().join("\0") === "factRef\0rationale") &&
+    Object.hasOwn(row, "factRef") &&
+    Object.hasOwn(row, "rationale") &&
     ref?.kind === "fact" &&
     !ref.externalHarness &&
     ref.anchor === undefined &&

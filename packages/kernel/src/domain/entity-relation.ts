@@ -236,8 +236,9 @@ export function isAllowedRelationRecord(
 export function assertGovernedRelationRecord(
   record: EntityRelationRecord,
   witness: GovernedRelationRegistryWitness,
+  allowUnknownFields = false,
 ): void {
-  assertGovernedRelationRegistryWitness(witness);
+  assertGovernedRelationRegistryWitness(witness, allowUnknownFields);
   const sourceKind = governedRelationEndpointKind(record.source, witness),
     targetKind = governedRelationEndpointKind(record.target, witness);
   if (!sourceKind || !targetKind)
@@ -248,18 +249,20 @@ export function assertGovernedRelationRecord(
 
 export function assertGovernedRelationRegistryWitness(
   value: unknown,
+  allowUnknownFields = false,
 ): asserts value is GovernedRelationRegistryWitness {
   if (!isRecord(value)) throw new Error("Governed Relation registry witness is invalid");
   const witness = value as unknown as GovernedRelationRegistryWitness,
     direction = witness.direction;
   if (
-    Object.keys(witness).some(
-      (field) => !["schema", "registryRevision", "artifactEndpoints", "direction"].includes(field),
-    ) ||
+    (!allowUnknownFields &&
+      Object.keys(witness).some(
+        (field) => !["schema", "registryRevision", "artifactEndpoints", "direction"].includes(field),
+      )) ||
     witness.schema !== "governed-relation-registry-witness/v1" ||
     !/^sha256:[0-9a-f]{64}$/u.test(witness.registryRevision) ||
     !Array.isArray(witness.artifactEndpoints) ||
-    witness.artifactEndpoints.some((endpoint) => !validGovernedArtifactEndpoint(endpoint)) ||
+    witness.artifactEndpoints.some((endpoint) => !validGovernedArtifactEndpoint(endpoint, allowUnknownFields)) ||
     new Set(witness.artifactEndpoints.map(({ kind }) => kind)).size !== witness.artifactEndpoints.length ||
     !isRecord(direction) ||
     typeof direction.sourceKind !== "string" ||
@@ -306,10 +309,12 @@ function governedRelationEndpointKind(ref: string, witness: GovernedRelationRegi
 
 function validGovernedArtifactEndpoint(
   value: unknown,
+  allowUnknownFields: boolean,
 ): value is GovernedRelationRegistryWitness["artifactEndpoints"][number] {
   if (
     !isRecord(value) ||
-    Object.keys(value).some((field) => !["kind", "idPattern", "refTemplate"].includes(field)) ||
+    (!allowUnknownFields &&
+      Object.keys(value).some((field) => !["kind", "idPattern", "refTemplate"].includes(field))) ||
     typeof value.kind !== "string" ||
     !value.kind ||
     typeof value.idPattern !== "string" ||

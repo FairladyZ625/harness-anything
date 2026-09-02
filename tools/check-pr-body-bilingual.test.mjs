@@ -4,9 +4,11 @@ import test from "node:test";
 import {
   architectureJustificationThresholds,
   checkArchitectureJustification,
+  checkEventMigrationDeclaration,
   checkGateHarvestDeclarations,
   checkPrBodyBilingual,
   countBilingualSignals,
+  eventMigrationCommandNames,
 } from "./check-pr-body-bilingual.mjs";
 
 const validEnglish = [
@@ -181,6 +183,68 @@ test("a body with no deleted production paths preserves existing behavior", () =
 
   assert.equal(result.ok, true);
   assert.equal(result.hasDeletedProductionPaths, false);
+});
+
+test("accepted canonical-event sample changes require an Event-Migration declaration", () => {
+  const result = checkPrBodyBilingual(twoBlockBody(), undefined, {
+    eventMigration: {
+      files: ["packages/kernel/fixtures/canonical-events/relation-event-v1/accepted.json"],
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.eventMigration.required, true);
+  assert.match(result.issues.join("\n"), /exactly one Event-Migration/u);
+});
+
+test("an existing ha migrate command satisfies an accepted-sample refresh", () => {
+  const english = [validEnglish.replace("\n\n---", ""), "Event-Migration: ha migrate relation-events", "", "---"].join(
+      "\n",
+    ),
+    result = checkPrBodyBilingual(twoBlockBody({ english }), undefined, {
+      eventMigration: {
+        files: ["packages/kernel/fixtures/canonical-events/relation-event-v1/accepted.json"],
+      },
+    });
+
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.eventMigration.migrationName, "relation-events");
+});
+
+test("Event-Migration command names come from the ha migrate protocol catalog", () => {
+  const commands = eventMigrationCommandNames();
+  assert.ok(commands.includes("relation-events"));
+  assert.ok(commands.includes("decision-digests"));
+  assert.ok(commands.includes("adrs"));
+  assert.equal(commands.includes("invented-migration"), false);
+
+  const result = checkEventMigrationDeclaration("Event-Migration: ha migrate invented-migration", {
+    files: ["packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json"],
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /unknown command/u);
+});
+
+test("Event-Migration none requires and accepts a written reason", () => {
+  const files = ["packages/kernel/fixtures/canonical-events/fact-event-v1/accepted-fact-recorded-shape.json"];
+  assert.equal(checkEventMigrationDeclaration("Event-Migration: none", { files }).ok, false);
+  assert.equal(
+    checkEventMigrationDeclaration(
+      "Event-Migration: none — identifiers only were re-redacted; the shape is unchanged.",
+      {
+        files,
+      },
+    ).ok,
+    true,
+  );
+});
+
+test("unrelated fixture changes do not require Event-Migration", () => {
+  const result = checkEventMigrationDeclaration("", {
+    files: ["packages/daemon/fixtures/readside-responses/events/f1/example.json"],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.required, false);
 });
 
 test("missing English heading fails", () => {
