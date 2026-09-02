@@ -46,12 +46,20 @@ export async function fleetEdgeRegistration(
   const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
   const commandRoot = canonicalRoot(command.rootDir),
     registered = readRegisteredRepos(daemonUserRoot(env))
-      .map((repo) => ({ ...repo, canonicalRoot: canonicalRoot(repo.canonicalRoot, true) }))
+      // 只解析 enabled 条目,且解析不了根目录的(已删除的 e2e 残留登记)直接丢弃:
+      // 它们不可能是本命令的根,不能让一条死登记把所有命令的路由一起炸掉。
+      .filter((repo) => repo.state === "enabled")
+      .flatMap((repo) => {
+        try {
+          return [{ ...repo, canonicalRoot: canonicalRoot(repo.canonicalRoot, true) }];
+        } catch {
+          return [];
+        }
+      })
       .filter(
         (repo) =>
-          repo.state === "enabled" &&
-          (commandRoot === path.resolve(repo.canonicalRoot) ||
-            commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`)),
+          commandRoot === path.resolve(repo.canonicalRoot) ||
+          commandRoot.startsWith(`${path.resolve(repo.canonicalRoot)}${path.sep}`),
       )
       .sort((left, right) => path.resolve(right.canonicalRoot).length - path.resolve(left.canonicalRoot).length)[0];
   if (registered?.mode !== "remote-edge") return null;
