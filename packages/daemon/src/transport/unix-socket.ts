@@ -34,6 +34,7 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
 
 export function createUnixSocketTransportServer(options: UnixSocketTransportOptions): UnixSocketTransportServer {
   const connections = new Set<DaemonTransportConnection>();
+  const connectionClosures = new Map<DaemonTransportConnection, Promise<void>>();
   const endpoint = options.socketPath ?? defaultUnixSocketPath(options.daemonId);
   const server = net.createServer((socket) => {
     // Windows endpoints are named pipes, which have no filesystem owner to
@@ -63,9 +64,13 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     });
     connections.add(connection);
     options.onConnection?.(connection);
+    let confirmClosed!: () => void;
+    connectionClosures.set(connection, new Promise((resolve) => (confirmClosed = resolve)));
     socket.once("close", () => {
       connections.delete(connection);
       options.onConnectionClosed?.(connection);
+      confirmClosed();
+      connectionClosures.delete(connection);
     });
   });
 
@@ -90,16 +95,18 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       });
     },
     stop: async () => {
-      // server.close() waits for every accepted socket, and a client holding
-      // a stream subscription never disconnects on its own. Closing each
-      // connection bounds the wait on in-flight requests -- so a write already
-      // running still gets its receipt -- and then tears the socket down, so
-      // the close callback is not held behind an unbounded request queue
-      // (notably on Windows named pipes, where half-close delivery is async).
-      await Promise.all([...connections].map((connection) => connection.close()));
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
+      // Stop accepting new work before draining already accepted connections. A client holding a
+      // stream subscription never disconnects on its own, so each connection is then closed to
+      // bound the wait (notably on Windows named pipes, where half-close delivery is async).
+      const serverClosed = new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        }),
+        closing = [...connections].map((connection) => ({
+          connection,
+          closed: connectionClosures.get(connection) ?? Promise.resolve(),
+        }));
+      await Promise.all(closing.map(async ({ connection, closed }) => Promise.all([connection.close(), closed])));
+      await serverClosed;
       if (process.platform !== "win32") rmSync(endpoint, { force: true });
     },
   };

@@ -86,6 +86,12 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       providerSessionId: stream.providerSessionId,
     });
     context.processes.set(active.runtimeSessionId, active);
+    context.input.recordLifecycle?.({
+      event: "runtime_spawn",
+      runtimeSessionId: active.runtimeSessionId,
+      dispatchId: active.dispatchId,
+      pid: active.process.pid,
+    });
     await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
     if (session.liveness !== "live") {
       await context.publishRuntimeEvent(

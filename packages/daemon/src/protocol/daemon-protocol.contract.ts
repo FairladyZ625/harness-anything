@@ -51,7 +51,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       protocolVersion: shape({ major: "number", minor: "number" }),
       sessionEnvironment: "json?",
-      restartStaleDaemon: "boolean?",
+      reportStaleBuild: "boolean?",
     }),
   },
   {
@@ -505,8 +505,8 @@ type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
-    /** Only a caller that will autostart the daemon again may ask a drifted daemon to stop. */
-    readonly restartStaleDaemon?: boolean;
+    /** A receipt-rendering caller asks the daemon to begin its cooperative build drain. */
+    readonly reportStaleBuild?: boolean;
   };
   readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
   readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
@@ -542,6 +542,20 @@ export interface DaemonProtocolHelloResult {
   readonly protocolVersion: ContractVersion;
   readonly methods: readonly DaemonRpcMethod[];
   readonly build: { readonly commit: string | null };
+  readonly warning?: DaemonBuildStaleNotice;
+}
+
+export interface DaemonBuildDrainStatus {
+  readonly liveRuntimeSessions: number;
+  readonly pendingWrites: number;
+  readonly attachingRepositories: number;
+}
+
+export interface DaemonBuildStaleNotice extends DaemonBuildDrainStatus {
+  readonly code: "daemon_build_stale";
+  readonly loadedBuildId: string | null;
+  readonly diskBuildId: string | null;
+  readonly message: string;
 }
 
 export interface DaemonStopResult {

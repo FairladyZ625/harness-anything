@@ -96,13 +96,6 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     ? "daemon_target_conflict"
     : null;
 }
-export function daemonBuildStaleCode(error: unknown): "daemon_build_stale" | null {
-  return typeof error === "object" &&
-    error !== null &&
-    (error as { readonly code?: unknown }).code === "daemon_build_stale"
-    ? "daemon_build_stale"
-    : null;
-}
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -111,11 +104,11 @@ export async function runCommandThroughDaemon(
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
   const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
-    // The CLI is the one caller that restarts a drifted daemon (withAutostart), so it alone asks
-    // the daemon to step aside on build drift; attach-only clients keep the loaded build.
+    // The CLI renders build drift alongside the successful receipt. Attach-only clients keep their
+    // existing command-result shape while the resident daemon drains cooperatively.
     requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(((target, ...rest) =>
       rpc.requestLocalDaemonJsonRpcForTarget(
-        { ...target, restartStaleDaemon: true },
+        { ...target, reportStaleBuild: true },
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show",

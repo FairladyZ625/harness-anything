@@ -12,6 +12,7 @@ import {
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
   type DaemonFleetTaskAction,
+  type DaemonBuildDrainStatus,
   type DaemonRpcMethod,
   type DaemonRpcResult,
 } from "./daemon-protocol.contract.ts";
@@ -43,6 +44,7 @@ import type { CoreDomainError } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
+import { daemonBuildStaleNotice, withDaemonBuildDrainSummary } from "../daemon-build-drain.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
@@ -65,6 +67,10 @@ export function createJsonRpcProtocolServer(options: {
   readonly recordRequest?: (entry: DaemonRequestLogEntry) => void;
   readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void;
   readonly requestShutdown?: () => void;
+  readonly buildDrainStatus?: () => DaemonBuildDrainStatus;
+  readonly onRequestStarted?: (method: string) => void;
+  readonly onRequestSettled?: (method: string) => void;
+  readonly onBuildDriftObserved?: () => void;
 }): JsonRpcProtocolServer {
   let handshaken = false;
   // Every client — CLI, GUI, fleet — converges on this server, and every dispatched response is
@@ -76,7 +82,7 @@ export function createJsonRpcProtocolServer(options: {
     readonly detach: () => void;
   };
   const subscriptions = new Set<Subscription>();
-  const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
+  const run = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
       startedAt = Date.now(),
       dispatchDelayMs = Math.max(0, startedAt - frameReceivedAt);
@@ -139,32 +145,15 @@ export function createJsonRpcProtocolServer(options: {
         Object.assign(options.authContext, {
           sessionEnvironment: params.sessionEnvironment,
         });
-      // A drifted daemon keeps serving attach-only clients (the GUI) on the loaded build; it only
-      // steps aside for a caller that declares it will start the disk build again (the CLI).
-      const buildStatus = options.buildObserver?.status(),
-        callerRestartsDaemon = params.restartStaleDaemon === true;
-      if (buildStatus?.drifted && callerRestartsDaemon) {
-        const stale = daemonProtocolError(
-          "protocol.hello",
-          "daemon_build_stale",
-          `Daemon build is stale: loaded ${buildStatus.loadedBuildId ?? "missing"}, ` +
-            `disk ${buildStatus.diskBuildId ?? "missing"}. Restarting once to load the disk build.`,
-        );
-        const staleResult = {
-          ...stale,
-          loadedBuildId: buildStatus.loadedBuildId,
-          diskBuildId: buildStatus.diskBuildId,
-        };
-        const response = reply(method, staleResult);
-        setImmediate(() => options.requestShutdown?.());
-        return response;
-      }
+      const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
+      if (warning && params.reportStaleBuild) options.onBuildDriftObserved?.();
       handshaken = true;
       return reply(method, {
         ok: true,
         protocolVersion: currentDaemonProtocolVersion,
         methods: jsonRpcMethodContracts.map((entry) => entry.method),
         build: { ...options.build },
+        ...(warning ? { warning } : {}),
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
@@ -193,7 +182,10 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
-    if (request.method === "daemon.status") return reply("daemon.status", { ok: true, ...options.host.status() });
+    if (request.method === "daemon.status") {
+      const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
+      return reply("daemon.status", { ok: true, ...withDaemonBuildDrainSummary(options.host.status(), warning) });
+    }
     if (request.method === "daemon.stop" && method === request.method) {
       if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
         return reply(
@@ -534,6 +526,15 @@ export function createJsonRpcProtocolServer(options: {
       commandMethod,
       isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
     );
+  };
+  const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
+    const method = typeof request.method === "string" ? request.method : "";
+    options.onRequestStarted?.(method);
+    try {
+      return await run(request, frameReceivedAt);
+    } finally {
+      options.onRequestSettled?.(method);
+    }
   };
   return {
     handle: async (message, timing) =>
