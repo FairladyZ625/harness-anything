@@ -374,6 +374,7 @@ function AppShell() {
       <AppSidebar
         project={project}
         repos={systemQuery.data?.repos ?? []}
+        connection={systemQuery.data?.connection}
         activeRepoId={activeRepoId}
         view={view}
         hasSelection={selected !== null}

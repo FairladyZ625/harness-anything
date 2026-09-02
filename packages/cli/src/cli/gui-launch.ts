@@ -70,16 +70,18 @@ export async function runGuiLaunch(
         "gui_build_failed",
         "The GUI preload build completed without producing dist-electron/electron-preload.cjs.",
       );
-    const daemon = await (dependencies.ensureDaemon ?? prepareGuiDaemon)(workspaceRoot);
-    if (!daemon.ok)
-      return reject(
-        daemon.code ?? "daemon_start_failed",
-        daemon.hint || "The default daemon could not be acquired through the CLI autostart path.",
-      );
+    if (!launch.remote) {
+      const daemon = await (dependencies.ensureDaemon ?? prepareGuiDaemon)(workspaceRoot);
+      if (!daemon.ok)
+        return reject(
+          daemon.code ?? "daemon_start_failed",
+          daemon.hint || "The default daemon could not be acquired through the CLI autostart path.",
+        );
+    }
     const child = (dependencies.spawnProcess ?? spawn)(
       electronBinary,
       [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")],
-      { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(launch.rootDir) },
+      { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(launch) },
     );
     child.on?.("error", consumeKnownError);
     if (child.pid === undefined)
@@ -208,12 +210,18 @@ function guiCliEntry(workspaceRoot: string): string {
 function parseGuiLaunch(
   argv: readonly string[],
 ):
-  | { readonly ok: true; readonly rootDir: string }
+  | { readonly ok: true; readonly rootDir: string; readonly remote: boolean; readonly options: Record<string, string> }
   | { readonly ok: false; readonly code: string; readonly hint: string } {
   let root: string | undefined;
+  let remote = false;
+  const options: Record<string, string> = {};
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "gui" || value === "--json") continue;
+    if (value === "--remote") {
+      remote = true;
+      continue;
+    }
     if (value === "--root") {
       const supplied = argv[index + 1];
       if (!supplied || supplied.startsWith("-"))
@@ -223,17 +231,76 @@ function parseGuiLaunch(
       index += 1;
       continue;
     }
+    if (isGuiRemoteOption(value)) {
+      const supplied = argv[index + 1];
+      if (!supplied || supplied.startsWith("-"))
+        return { ok: false, code: "missing_field", hint: `Add a value after ${value}.` };
+      options[value] = supplied;
+      index += 1;
+      continue;
+    }
     return {
       ok: false,
       code: "unsupported_command",
       hint: "Use `ha gui [--root <path>]`; the production launcher has no additional modes.",
     };
   }
-  return { ok: true, rootDir: path.resolve(root ?? process.cwd()) };
+  if (remote) {
+    const hasAlias = Boolean(options["--ssh-config-host"]?.trim());
+    const host = options["--remote-host"]?.trim();
+    const portText = options["--remote-port"]?.trim();
+    const hasEndpoint = Boolean(host) && Boolean(portText);
+    if (!hasAlias && !hasEndpoint)
+      return {
+        ok: false,
+        code: "gui_remote_config_missing",
+        hint: "`ha gui --remote` needs an OpenSSH config alias (`--ssh-config-host`) or both `--remote-host` and `--remote-port`.",
+      };
+    if (hasEndpoint) {
+      const port = Number(portText);
+      if (!Number.isInteger(port) || port < 1 || port > 65_535)
+        return { ok: false, code: "gui_remote_port_invalid", hint: "`--remote-port` must be an integer between 1 and 65535." };
+    }
+  }
+  return { ok: true, rootDir: path.resolve(root ?? process.cwd()), remote, options };
 }
-function guiLaunchEnvironment(rootDir: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: rootDir };
+function isGuiRemoteOption(value: string): boolean {
+  switch (value) {
+    case "--remote-host":
+    case "--remote-port":
+    case "--remote-user":
+    case "--identity-file":
+    case "--host-key-alias":
+    case "--ssh-config-host":
+    case "--ssh-command":
+    case "--remote-daemon-id":
+    case "--remote-command-json":
+      return true;
+    default:
+      return false;
+  }
+}
+function guiLaunchEnvironment(launch: { readonly rootDir: string; readonly remote: boolean; readonly options: Record<string, string> }): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: launch.rootDir };
   delete environment.ELECTRON_RENDERER_URL;
   delete environment.ELECTRON_RUN_AS_NODE;
+  if (launch.remote) {
+    environment.HARNESS_GUI_TRANSPORT = "ssh";
+    const mappings: Record<string, string> = {
+      "--remote-host": "HARNESS_GUI_REMOTE_HOST",
+      "--remote-port": "HARNESS_GUI_REMOTE_PORT",
+      "--remote-user": "HARNESS_GUI_REMOTE_USER",
+      "--identity-file": "HARNESS_GUI_REMOTE_IDENTITY_FILE",
+      "--host-key-alias": "HARNESS_GUI_REMOTE_HOST_KEY_ALIAS",
+      "--ssh-config-host": "HARNESS_GUI_REMOTE_SSH_CONFIG_HOST",
+      "--ssh-command": "HARNESS_GUI_SSH_COMMAND",
+      "--remote-daemon-id": "HARNESS_GUI_REMOTE_DAEMON_ID",
+      "--remote-command-json": "HARNESS_GUI_REMOTE_COMMAND_JSON",
+    };
+    for (const [option, variable] of Object.entries(mappings)) {
+      const value = launch.options[option];
+      if (value !== undefined) environment[variable] = value;
+    }
+  }
   return environment;
 }

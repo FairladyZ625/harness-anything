@@ -37,7 +37,7 @@ export function registerAgentRuntimeIpc(
       void pending.catch((error) => {
         event.sender.send(frameChannel, {
           ok: false,
-          code: "daemon_stream_error",
+          code: errorCode(error),
           hint: error instanceof Error ? error.message : String(error),
         });
         active.delete(key);
@@ -55,6 +55,11 @@ export function registerAgentRuntimeIpc(
     active.delete(key);
     (await pending)();
   }
+}
+function errorCode(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : "daemon_stream_error";
 }
 function checkedEnvelope(value: unknown): {
   readonly subscriptionId: string;

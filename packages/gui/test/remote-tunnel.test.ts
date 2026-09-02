@@ -6,7 +6,10 @@ import {
   bindApiRoutesToDaemonTransport,
   createRemoteDaemonTunnelController,
   deriveRemoteTerminalSurfaceState,
-  publicTokenMetadata
+  publicTokenMetadata,
+  resolveRemoteGuiProfile,
+  addRemoteMainControls,
+  createRemoteGuiServiceBridge
 } from "../src/index.ts";
 import type { RemoteHostProfile, TerminalSessionInfo } from "../src/index.ts";
 
@@ -29,6 +32,74 @@ test("ssh tunnel transport reuses daemon API route semantics with tunnel auth on
   );
   assert.equal(remote.every((route) => route.auth === "ssh-tunnel-local-token"), true);
   assert.equal(remote.some((route) => route.id.includes("remote")), false);
+});
+
+test("remote GUI profile describes only the local SSH endpoint", () => {
+  const profile = resolveRemoteGuiProfile({
+    HARNESS_GUI_TRANSPORT: "ssh",
+    HARNESS_GUI_REMOTE_HOST: "127.0.0.1",
+    HARNESS_GUI_REMOTE_PORT: "22022",
+    HARNESS_GUI_REMOTE_USER: "cyr",
+    HARNESS_GUI_REMOTE_IDENTITY_FILE: "C:/Users/test/.ssh/harness-company-internal",
+    HARNESS_GUI_REMOTE_HOST_KEY_ALIAS: "company-internal-host"
+  });
+  assert.deepEqual(profile, {
+    host: "127.0.0.1",
+    port: 22022,
+    user: "cyr",
+    identityFile: "C:/Users/test/.ssh/harness-company-internal",
+    hostKeyAlias: "company-internal-host",
+    daemonId: "default",
+    remoteCommand: ["ha", "daemon", "connect", "--stdio", "--daemon-id", "default"]
+  });
+});
+
+test("remote GUI profile accepts an OpenSSH alias without duplicating its endpoint", () => {
+  assert.deepEqual(
+    resolveRemoteGuiProfile({
+      HARNESS_GUI_TRANSPORT: "ssh",
+      HARNESS_GUI_REMOTE_SSH_CONFIG_HOST: "harness-company-via-uu"
+    }),
+    {
+      sshConfigHost: "harness-company-via-uu",
+      daemonId: "default",
+      remoteCommand: ["ha", "daemon", "connect", "--stdio", "--daemon-id", "default"]
+    }
+  );
+});
+
+test("remote GUI profile is disabled unless explicitly selected", () => {
+  assert.equal(resolveRemoteGuiProfile({}), null);
+});
+
+test("remote main controls reject local-daemon restart instead of falling back", async () => {
+  const bridge = addRemoteMainControls({
+    bridge: {
+      invoke: async () => ({ ok: true }),
+      stream: async () => () => undefined
+    }
+  });
+  const result = (await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" })) as {
+    readonly ok: boolean;
+    readonly error: { readonly code: string };
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "remote_restart_unsupported");
+});
+
+test("remote GUI reports SSH startup failure as a receipt instead of using local daemon", async () => {
+  const bridge = createRemoteGuiServiceBridge({
+    host: "127.0.0.1",
+    port: 22022,
+    daemonId: "default",
+    sshCommand: "harness-ssh-command-that-does-not-exist"
+  });
+  const result = (await bridge.invoke("getSystemStatus", null)) as {
+    readonly ok: boolean;
+    readonly error: { readonly code: string };
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "ssh_not_found");
 });
 
 test("remote daemon token bootstrap stores metadata separately from the one-time secret", () => {

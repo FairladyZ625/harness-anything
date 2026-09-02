@@ -26,6 +26,9 @@ import type {
 import { isFactDomainTypeSummaryRow, isRendererRecord, type FactDomainTypeSummaryRow } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { isGuiConnectionInfo } from "./gui-connection.ts";
+export type { GuiConnectionInfo } from "./gui-connection.ts";
+import type { GuiConnectionInfo } from "./gui-connection.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -215,6 +218,7 @@ export interface SystemStatusSuccess {
       readonly error: BridgeError | null;
     };
   };
+  readonly connection?: GuiConnectionInfo;
   readonly repos: ReadonlyArray<SystemRepoRow>;
 }
 export interface BridgeError {
@@ -929,6 +933,7 @@ function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
     value.ok === true &&
     typeof value.observedAt === "string" &&
     isRendererRecord(value.daemon) &&
+    (value.connection === undefined || isGuiConnectionInfo(value.connection)) &&
     Array.isArray(value.repos) &&
     value.repos.every(
       (repo) =>
