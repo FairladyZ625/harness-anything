@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjection, readDaemonRegistry } from "../../kernel/src/index.ts";
+import { makeTaskProjection, readDaemonRegistry, taskLifecycleWritePlan } from "../../kernel/src/index.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -575,6 +576,39 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
     assert.equal((await host.run("schema-admission", { kind: "task-list" }, auth)).outcome, "applied");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.state, "attached");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.attach, undefined);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon status exposes an ahead projection cache without letting rebuild discard it", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-ahead-projection-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user");
+  rosterRepo(rootDir, "ahead-projection");
+  const event = { ...lifecycleFixture().events[0]!, workspaceRevision: 5 },
+    headlessStore = {
+      readHead: () => null,
+      readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
+      readContentBlob: () => null,
+    },
+    projection = makeTaskProjection({ rootDir, eventStore: headlessStore });
+  projection.apply(event, taskLifecycleWritePlan(event));
+  projection.close();
+  const retained = readFileSync(projection.path);
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId: "ahead-projection", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "ahead-projection", userRoot });
+  await host.attachmentsSettled();
+  try {
+    const unavailable = host.status().repos.find((repo) => repo.repoId === "ahead-projection")!;
+    assert.equal(unavailable.state, "unavailable");
+    assert.equal(unavailable.causeClass, "data-shape", JSON.stringify(unavailable));
+    assert.match(String(unavailable.lastError), /event stream head is 1.*revisions 2-5.*cache retained/iu);
+    const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
+    assert.equal(rebuild.code, "repo_unavailable");
+    assert.match(String(rebuild.nextAction), /event stream head is 1.*cache retained/iu);
+    assert.deepEqual(readFileSync(projection.path), retained);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

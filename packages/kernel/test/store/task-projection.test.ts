@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -226,7 +226,7 @@ test("document retirement rejects a base derived from worktree drift instead of 
   });
 });
 
-test("headless direct apply is instance-local and never preserves an ahead cache across reopen", async () => {
+test("headless direct apply retains its ahead cache and refuses reopen or rebuild", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const event = lifecycleFixture().events[0]!,
       headlessStore = () => ({
@@ -236,25 +236,28 @@ test("headless direct apply is instance-local and never preserves an ahead cache
       });
     const live = makeTaskProjection({ rootDir, eventStore: headlessStore() });
     live.apply(event, taskLifecycleWritePlan(event));
-    const hot = live.read(event.taskId);
-    assert.deepEqual(
-      { status: hot.status, watermark: hot.watermark, sourceRevision: hot.sourceRevision },
-      { status: "ready", watermark: 1, sourceRevision: 1 },
-    );
-    assert.equal(hot.snapshot.task?.taskId, event.taskId);
-    assert.equal(live.rebuild().watermark, 0);
-    assert.equal(live.read(event.taskId).snapshot.task, null);
-    live.apply(event, taskLifecycleWritePlan(event));
+    const retained = readFileSync(live.path);
+    const rejectsAheadCache = (error: unknown): boolean => {
+      assert.equal(error instanceof Error, true);
+      assert.equal((error as Error & { code?: string }).code, "invalid_store");
+      assert.match((error as Error).message, /event stream head is null.*revisions 1-1.*cache retained/iu);
+      assert.deepEqual(
+        {
+          cacheWatermark: (error as { cacheWatermark?: number }).cacheWatermark,
+          eventStreamHead: (error as { eventStreamHead?: number | null }).eventStreamHead,
+          missingRange: (error as { missingRange?: unknown }).missingRange,
+        },
+        { cacheWatermark: 1, eventStreamHead: null, missingRange: { from: 1, to: 1 } },
+      );
+      return true;
+    };
+    assert.throws(() => live.read(event.taskId), rejectsAheadCache);
+    assert.throws(() => live.rebuild(), rejectsAheadCache);
+    assert.deepEqual(readFileSync(live.path), retained);
     live.close();
 
-    const reopened = makeTaskProjection({ rootDir, eventStore: headlessStore() }),
-      cold = reopened.read(event.taskId);
-    assert.deepEqual(
-      { status: cold.status, watermark: cold.watermark, sourceRevision: cold.sourceRevision },
-      { status: "ready", watermark: 0, sourceRevision: 0 },
-    );
-    assert.equal(cold.snapshot.task, null);
-    assert.equal(reopened.readOperation(event.opId), null);
+    assert.throws(() => makeTaskProjection({ rootDir, eventStore: headlessStore() }), rejectsAheadCache);
+    assert.deepEqual(readFileSync(live.path), retained);
   });
 });
 
@@ -902,7 +905,7 @@ test("historical agent entity envelopes replay into the generic entity projectio
   });
 });
 
-test("stale persistent event projection schema is discarded and replayed from the ledger", async () => {
+test("stale persistent event projection schema is discarded and replayed from the ledger", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir }),
@@ -922,6 +925,7 @@ test("stale persistent event projection schema is discarded and replayed from th
     assert.equal(read.status, "ready");
     assert.equal(read.snapshot.task?.taskId, created.taskId);
     assert.equal(read.watermark, 1);
+    t.diagnostic(JSON.stringify({ case: "complete-stream-schema-rebuild", sourceRevision: 1, watermark: 1 }));
   });
 });
 

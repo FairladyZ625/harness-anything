@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
@@ -95,7 +96,7 @@ test("event relation truth cannot cross a same-revision ledger identity", async 
   });
 });
 
-test("a cache ahead of a replacement source history is discarded before staged events can apply", async () => {
+test("a cache ahead of a replacement source history is retained and rejected", async () => {
   await withTempStoreAsync(async (rootA) => {
     await withTempStoreAsync(async (rootB) => {
       const storeA = seedTaskLedger(rootA, "history-a", 6),
@@ -103,17 +104,24 @@ test("a cache ahead of a replacement source history is discarded before staged e
         projectionA = makeTaskProjection({ rootDir: rootA, eventStore: storeA });
       projectionA.rebuild();
       assert.equal(projectionA.read("task-1").watermark, 6);
-
-      const projectionB = makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path });
-      assert.throws(() => projectionB.read("task-1"), /projection cache ledger identity mismatch/iu);
-      projectionB.rebuild();
-      const recovered = projectionB.read("task-1");
-      assert.deepEqual(
-        { status: recovered.status, watermark: recovered.watermark, sourceRevision: recovered.sourceRevision },
-        { status: "ready", watermark: 2, sourceRevision: 2 },
+      projectionA.close();
+      const retained = readFileSync(projectionA.path);
+      assert.throws(
+        () => makeTaskProjection({ rootDir: rootB, eventStore: storeB, projectionPath: projectionA.path }),
+        (error: unknown) => {
+          assert.equal((error as Error & { code?: string }).code, "invalid_store");
+          assert.deepEqual(
+            {
+              cacheWatermark: (error as { cacheWatermark?: number }).cacheWatermark,
+              eventStreamHead: (error as { eventStreamHead?: number | null }).eventStreamHead,
+              missingRange: (error as { missingRange?: unknown }).missingRange,
+            },
+            { cacheWatermark: 6, eventStreamHead: 2, missingRange: { from: 3, to: 6 } },
+          );
+          return true;
+        },
       );
-      assert.equal(recovered.snapshot.task?.status, "active");
-      assert.equal(projectionB.readOperation(lifecycleFixture().events[2]!.opId), null);
+      assert.deepEqual(readFileSync(projectionA.path), retained);
     });
   });
 });

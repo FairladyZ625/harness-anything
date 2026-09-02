@@ -14,6 +14,7 @@ import {
   makeTaskProjection,
   serializeCanonicalEvent,
   sha256Text,
+  type CanonicalEventV1,
   type MigrationImportEventV1,
   type TaskEventV1,
 } from "../../src/index.ts";
@@ -273,19 +274,23 @@ export function writeLegacyFactEvent(rootDir: string, event: FactEventDraftV1): 
   writeFileSync(path.join(eventRoot, `${event.opId}.json`), `${JSON.stringify(legacy)}\n`);
 }
 export function projectionFixture(rootDir: string) {
+  let eventStreamHead: { readonly revision: number; readonly eventDigest: `sha256:${string}` } | null = null;
   const blobs = new Map<string, Uint8Array>(),
     eventStore = {
-      readHead: () => null,
-      readBatch: () => ({
-        sourceRevision: 0,
-        events: [],
-        cursor: null,
-        done: true,
-        accessedItems: 0,
-      }),
+      readHead: () => eventStreamHead,
+      readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
       readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
     };
-  return { blobs, projection: makeTaskProjection({ rootDir, eventStore }) };
+  return {
+    appendEvent: (event: CanonicalEventV1) => {
+      eventStreamHead = {
+        revision: event.workspaceRevision,
+        eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+      };
+    },
+    blobs,
+    projection: makeTaskProjection({ rootDir, eventStore }),
+  };
 }
 export function decisionProjectionDatabase(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -326,6 +331,7 @@ export function compileCurrent(fixture: ReturnType<typeof projectionFixture>, ev
 export function applyDecision(fixture: ReturnType<typeof projectionFixture>, event: DecisionEventDraftV1): void {
   const compiled = compileCurrent(fixture, event);
   fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body));
+  fixture.appendEvent(compiled.event);
   fixture.projection.apply(compiled.event, compiled.plan);
 }
 export function applyFact(fixture: ReturnType<typeof projectionFixture>, event: FactEventDraftV1): void {
@@ -335,6 +341,7 @@ export function applyFact(fixture: ReturnType<typeof projectionFixture>, event: 
     currentFacts: fixture.projection.searchFacts({ taskId: event.taskId }).facts,
   });
   fixture.blobs.set(compiled.blobs[0].sha256, Buffer.from(compiled.body));
+  fixture.appendEvent(compiled.event);
   fixture.projection.apply(compiled.event, compiled.plan);
 }
 export function writeTask(rootDir: string, taskId: string, record: EntityRelationRecord): void {

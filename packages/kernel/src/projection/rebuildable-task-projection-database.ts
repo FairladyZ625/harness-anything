@@ -16,7 +16,6 @@ export type { TaskProjection } from "./task-projection-port.ts";
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
   readonly use: <A>(operation: (db: DatabaseSync) => A) => A;
-  readonly discard: () => void;
   readonly close: () => void;
 }
 
@@ -29,13 +28,43 @@ export class ProjectionIdentityMismatchError extends Error {
 
 export class ProjectionSchemaMismatchError extends Error {
   readonly code = "kernel_schema_mismatch";
+  readonly observed: number;
 
   constructor(observed: number, projectionPath: string) {
     super(
-      `kernel projection schema ${observed} is newer than supported schema ${taskProjectionSchemaVersion}; ` +
-        `run a daemon build that understands ${projectionPath}`,
+      `kernel projection schema ${observed} does not match supported schema ${taskProjectionSchemaVersion}; ` +
+        (observed > taskProjectionSchemaVersion
+          ? `run a daemon build that understands ${projectionPath}`
+          : "the cache can only be rebuilt from a continuous canonical event stream"),
     );
     this.name = "ProjectionSchemaMismatchError";
+    this.observed = observed;
+  }
+}
+
+export class ProjectionEventStreamIncompleteError extends Error {
+  readonly code = "invalid_store";
+  readonly cacheWatermark: number;
+  readonly cacheScannedRevision: number;
+  readonly eventStreamHead: number | null;
+  readonly missingRange: { readonly from: number; readonly to: number };
+
+  constructor(
+    cacheWatermark: number,
+    cacheScannedRevision: number,
+    eventStreamHead: number | null,
+    missingRange: { readonly from: number; readonly to: number },
+  ) {
+    super(
+      `projection cache through revision ${Math.max(cacheWatermark, cacheScannedRevision)} cannot be discarded: ` +
+        `event stream head is ${eventStreamHead ?? "null"} and revisions ` +
+        `${missingRange.from}-${missingRange.to} are not continuously readable; cache retained`,
+    );
+    this.name = "ProjectionEventStreamIncompleteError";
+    this.cacheWatermark = cacheWatermark;
+    this.cacheScannedRevision = cacheScannedRevision;
+    this.eventStreamHead = eventStreamHead;
+    this.missingRange = missingRange;
   }
 }
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
@@ -119,8 +148,12 @@ export function withQueryOnlyDatabaseSession<A>(
     db.close();
   }
 }
-export function discardDatabase(projectionPath: string, readHead: EventStreamPort["readHead"]): void {
-  projectionDatabaseOwner(projectionPath, readHead).discard();
+export function discardDatabase(projectionPath: string, eventStore: EventStreamPort): void {
+  if (!localRuntimeStateFileSystem.exists(projectionPath)) return;
+  const coverage = readProjectionCoverage(projectionPath, eventStore.readHead);
+  assertEventStreamContinuity(eventStore, coverage);
+  closeProjectionHandlesAt(canonicalProjectionPath(projectionPath));
+  localRuntimeStateFileSystem.remove(projectionPath);
 }
 // close() shares discard()'s invariant: callers close a projection so they can remove its file, and
 // a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
@@ -172,22 +205,12 @@ function projectionDatabaseOwner(
     configureDatabase(db);
     fingerprint = projectionFileFingerprint(projectionPath);
   };
-  const discard = () => {
-    schemaChecked = false;
-    closeProjectionHandlesAt(resolvedProjectionPath);
-    localRuntimeStateFileSystem.remove(projectionPath);
-  };
   const initialize = () => {
     open();
-    let observed = projectionSchemaVersion(db!);
-    if (observed !== null && observed > taskProjectionSchemaVersion) {
+    const observed = projectionSchemaVersion(db!);
+    if (observed !== null && observed !== taskProjectionSchemaVersion) {
       close();
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
-    }
-    if (observed !== null && observed !== taskProjectionSchemaVersion) {
-      discard();
-      open();
-      observed = null;
     }
     if (!schemaChecked || observed === null) createTables(db!);
     schemaChecked = true;
@@ -207,7 +230,7 @@ function projectionDatabaseOwner(
       const observed = projectionSchemaVersion(db!);
       if (observed !== null && observed > taskProjectionSchemaVersion)
         throw new ProjectionSchemaMismatchError(observed, projectionPath);
-      if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
+      assertLedgerIdentity(db!, readHead());
       return operation(db!);
     } finally {
       useDepth -= 1;
@@ -216,7 +239,7 @@ function projectionDatabaseOwner(
       if (useDepth === 0) close();
     }
   };
-  const owner = { use, discard, close };
+  const owner = { use, close };
   owners.set(projectionPath, owner);
   return owner;
 }
@@ -241,9 +264,9 @@ function projectionFileFingerprint(projectionPath: string): string | null {
 // ledgers apart (a genesis replay rewrites every event while keeping the revision), so the meta
 // row also pins the head eventDigest as of the last completed scan. A cache whose scan claims the
 // current head revision but pins a different digest belongs to another ledger: discard it. A cache
-// which has scanned or applied beyond the current source cut is likewise from an abandoned history;
-// discard it before any staged events can be applied to the replacement ledger.
-function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+// which has scanned or applied beyond the current source cut may be the only readable copy of those
+// revisions, so opening must retain it and fail closed.
+function assertLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): void {
   const row =
     /* @gate-identity check-bypass-write-boundary/bypass-write-010 */
     db.prepare("SELECT watermark, scanned_revision, head_digest FROM projection_meta WHERE singleton = 1").get() as {
@@ -252,8 +275,64 @@ function matchesLedgerIdentity(db: DatabaseSync, head: ReturnType<EventStreamPor
       readonly head_digest: string | null;
     };
   const sourceRevision = head?.revision ?? 0;
-  if (Number(row.watermark) > sourceRevision || Number(row.scanned_revision) > sourceRevision) return false;
-  return Number(row.scanned_revision) !== sourceRevision || row.head_digest === (head?.eventDigest ?? null);
+  if (Number(row.watermark) > sourceRevision || Number(row.scanned_revision) > sourceRevision)
+    throw new ProjectionEventStreamIncompleteError(
+      Number(row.watermark),
+      Number(row.scanned_revision),
+      head?.revision ?? null,
+      { from: sourceRevision + 1, to: Math.max(Number(row.watermark), Number(row.scanned_revision)) },
+    );
+  if (Number(row.scanned_revision) === sourceRevision && row.head_digest !== (head?.eventDigest ?? null))
+    throw new ProjectionIdentityMismatchError();
+}
+
+function readProjectionCoverage(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+): {
+  readonly watermark: number;
+  readonly scannedRevision: number;
+} {
+  return withQueryOnlyDatabaseSession(projectionPath, readHead, (db) => {
+    const row = queryRows<{ readonly watermark: number; readonly scanned_revision: number }>(
+      db,
+      "SELECT watermark, scanned_revision FROM projection_meta WHERE singleton = 1",
+    )[0];
+    if (row === undefined) throw new Error(`projection cache metadata is unavailable at ${projectionPath}`);
+    return { watermark: Number(row.watermark), scannedRevision: Number(row.scanned_revision) };
+  });
+}
+
+function assertEventStreamContinuity(
+  eventStore: EventStreamPort,
+  coverage: { readonly watermark: number; readonly scannedRevision: number },
+): void {
+  const head = eventStore.readHead(),
+    headRevision = head?.revision ?? 0,
+    coverageRevision = Math.max(coverage.watermark, coverage.scannedRevision);
+  const fail = (from: number, to: number): never => {
+    throw new ProjectionEventStreamIncompleteError(
+      coverage.watermark,
+      coverage.scannedRevision,
+      head?.revision ?? null,
+      { from, to },
+    );
+  };
+  if (headRevision < coverageRevision) fail(headRevision + 1, coverageRevision);
+  let expectedRevision = 1,
+    cursor: string | null = null;
+  while (expectedRevision <= coverageRevision) {
+    const batch = eventStore.readBatch(cursor, 4096);
+    for (const event of batch.events) {
+      if (event.workspaceRevision < expectedRevision) continue;
+      if (event.workspaceRevision > expectedRevision)
+        fail(expectedRevision, Math.min(coverageRevision, event.workspaceRevision - 1));
+      expectedRevision += 1;
+      if (expectedRevision > coverageRevision) return;
+    }
+    if (batch.done || batch.cursor === cursor) fail(expectedRevision, coverageRevision);
+    cursor = batch.cursor;
+  }
 }
 function openDatabase(projectionPath: string): DatabaseSync {
   return /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(projectionPath);
