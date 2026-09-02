@@ -353,13 +353,13 @@ export async function openRepoWriterCell(
         candidate = undefined;
         coreClosedForReplacement = false;
         knownTaskIds = null;
-        if (recovery.status === "indeterminate") {
-          adoptedIndeterminate = true;
+        const probeIndeterminate = recovery.status === "indeterminate";
+        adoptedIndeterminate = probeIndeterminate;
+        if (probeIndeterminate)
           throw cellCodedError(
             recovery.errorCode ?? "publication_indeterminate",
             recovery.error ?? `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`,
           );
-        }
         // Opening a reader generation is also a structural probe: a watermark can be current
         // while a persisted snapshot row is corrupt.
         projection.list();
