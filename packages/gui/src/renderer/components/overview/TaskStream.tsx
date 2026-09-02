@@ -109,12 +109,14 @@ export function tasksAheadOfStatus(tasks: ReadonlyArray<TaskRow>, status: Snapsh
 export function TaskStream({
   tasks,
   summary,
+  projectionStatus = "ready",
   onOpenPreview,
   onGoBoard,
   onSetPin,
 }: {
   tasks: ReadonlyArray<TaskRow>;
   summary: WorkspaceSummaryRead["tasks"];
+  projectionStatus?: "ready" | "pending" | "error";
   onOpenPreview: (taskId: string) => void;
   onGoBoard: (status: SnapshotStatus) => void;
   onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
@@ -165,7 +167,13 @@ export function TaskStream({
         </div>
       )}
       {rows.length === 0 ? (
-        <StreamEmpty>{t("views.overviewView.taskEmpty")}</StreamEmpty>
+        <StreamEmpty>
+          {projectionStatus === "error"
+            ? t("views.overviewView.taskProjectionFailed")
+            : projectionStatus === "pending" && summary.total > 0
+              ? t("views.overviewView.taskProjectionPending")
+              : t("views.overviewView.taskEmpty")}
+        </StreamEmpty>
       ) : (
         <StreamBody testId="task-stream-rows">
           {rows.map((task) => (

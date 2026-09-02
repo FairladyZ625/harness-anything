@@ -6,7 +6,10 @@ import {
   bindApiRoutesToDaemonTransport,
   createRemoteDaemonTunnelController,
   deriveRemoteTerminalSurfaceState,
-  publicTokenMetadata
+  publicTokenMetadata,
+  resolveRemoteGuiProfile,
+  addRemoteMainControls,
+  createRemoteGuiServiceBridge,
 } from "../src/index.ts";
 import type { RemoteHostProfile, TerminalSessionInfo } from "../src/index.ts";
 
@@ -14,28 +17,102 @@ test("ssh tunnel transport reuses daemon API route semantics with tunnel auth on
   const local = bindApiRoutesToDaemonTransport(apiRouteContracts, {
     kind: "local-loopback",
     host: "127.0.0.1",
-    port: 4873
+    port: 4873,
   });
   const remote = bindApiRoutesToDaemonTransport(apiRouteContracts, {
     kind: "ssh-tunnel",
     tunnelId: "tunnel-1",
     localHost: "127.0.0.1",
-    localPort: 65001
+    localPort: 65001,
   });
 
   assert.deepEqual(
     remote.map(({ id, method, path, service, serviceMethod }) => ({ id, method, path, service, serviceMethod })),
-    local.map(({ id, method, path, service, serviceMethod }) => ({ id, method, path, service, serviceMethod }))
+    local.map(({ id, method, path, service, serviceMethod }) => ({ id, method, path, service, serviceMethod })),
   );
-  assert.equal(remote.every((route) => route.auth === "ssh-tunnel-local-token"), true);
-  assert.equal(remote.some((route) => route.id.includes("remote")), false);
+  assert.equal(
+    remote.every((route) => route.auth === "ssh-tunnel-local-token"),
+    true,
+  );
+  assert.equal(
+    remote.some((route) => route.id.includes("remote")),
+    false,
+  );
+});
+
+test("remote GUI profile describes only the local SSH endpoint", () => {
+  const profile = resolveRemoteGuiProfile({
+    HARNESS_GUI_TRANSPORT: "ssh",
+    HARNESS_GUI_REMOTE_HOST: "127.0.0.1",
+    HARNESS_GUI_REMOTE_PORT: "22022",
+    HARNESS_GUI_REMOTE_USER: "cyr",
+    HARNESS_GUI_REMOTE_IDENTITY_FILE: "C:/Users/test/.ssh/harness-company-internal",
+    HARNESS_GUI_REMOTE_HOST_KEY_ALIAS: "company-internal-host",
+  });
+  assert.deepEqual(profile, {
+    host: "127.0.0.1",
+    port: 22022,
+    user: "cyr",
+    identityFile: "C:/Users/test/.ssh/harness-company-internal",
+    hostKeyAlias: "company-internal-host",
+    daemonId: "default",
+    remoteCommand: ["ha", "daemon", "connect", "--stdio", "--daemon-id", "default"],
+  });
+});
+
+test("remote GUI profile accepts an OpenSSH alias without duplicating its endpoint", () => {
+  assert.deepEqual(
+    resolveRemoteGuiProfile({
+      HARNESS_GUI_TRANSPORT: "ssh",
+      HARNESS_GUI_REMOTE_SSH_CONFIG_HOST: "harness-company-via-uu",
+    }),
+    {
+      sshConfigHost: "harness-company-via-uu",
+      daemonId: "default",
+      remoteCommand: ["ha", "daemon", "connect", "--stdio", "--daemon-id", "default"],
+    },
+  );
+});
+
+test("remote GUI profile is disabled unless explicitly selected", () => {
+  assert.equal(resolveRemoteGuiProfile({}), null);
+});
+
+test("remote main controls reject local-daemon restart instead of falling back", async () => {
+  const bridge = addRemoteMainControls({
+    bridge: {
+      invoke: async () => ({ ok: true }),
+      stream: async () => () => undefined,
+    },
+  });
+  const result = (await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" })) as {
+    readonly ok: boolean;
+    readonly error: { readonly code: string };
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "remote_restart_unsupported");
+});
+
+test("remote GUI reports SSH startup failure as a receipt instead of using local daemon", async () => {
+  const bridge = createRemoteGuiServiceBridge({
+    host: "127.0.0.1",
+    port: 22022,
+    daemonId: "default",
+    sshCommand: "harness-ssh-command-that-does-not-exist",
+  });
+  const result = (await bridge.invoke("getSystemStatus", null)) as {
+    readonly ok: boolean;
+    readonly error: { readonly code: string };
+  };
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "ssh_not_found");
 });
 
 test("remote daemon token bootstrap stores metadata separately from the one-time secret", () => {
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a")],
     createId: sequenceId(),
-    now: sequenceTime("2026-06-14T00:00:00.000Z")
+    now: sequenceTime("2026-06-14T00:00:00.000Z"),
   });
 
   const issued = controller.requestAttachToken({
@@ -43,7 +120,7 @@ test("remote daemon token bootstrap stores metadata separately from the one-time
     daemonInstanceId: "daemon-a",
     userId: "user-a",
     ttlMillis: 60_000,
-    tunnelNonce: "nonce-a"
+    tunnelNonce: "nonce-a",
   });
 
   assert.equal(issued.ok, true);
@@ -56,7 +133,7 @@ test("remote daemon token bootstrap stores metadata separately from the one-time
     hostProfileId: "host-a",
     tunnelNonce: "nonce-a",
     issuedAt: "2026-06-14T00:00:00.000Z",
-    expiresAt: "2026-06-14T00:01:00.000Z"
+    expiresAt: "2026-06-14T00:01:00.000Z",
   });
   assert.deepEqual(controller.listTokenMetadata(), [issued.metadata]);
   assert.equal(JSON.stringify(controller.listTokenMetadata()).includes("secret-2"), false);
@@ -66,20 +143,20 @@ test("remote daemon tunnel lifecycle distinguishes degraded reconnect failed and
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a")],
     createId: sequenceId(),
-    now: sequenceTime("2026-06-14T01:00:00.000Z")
+    now: sequenceTime("2026-06-14T01:00:00.000Z"),
   });
   const token = controller.requestAttachToken({
     hostProfileId: "host-a",
     daemonInstanceId: "daemon-a",
     userId: "user-a",
-    ttlMillis: 60_000
+    ttlMillis: 60_000,
   });
   assert.equal(token.ok, true);
   if (!token.ok) return;
 
   const initiated = controller.initiateTunnel({
     hostProfileId: "host-a",
-    localPort: 65001
+    localPort: 65001,
   });
   assert.equal(initiated.ok, true);
   if (!initiated.ok) return;
@@ -90,7 +167,7 @@ test("remote daemon tunnel lifecycle distinguishes degraded reconnect failed and
     tokenId: token.metadata.tokenId,
     tokenSecret: token.secret.value,
     tunnelNonce: token.metadata.tunnelNonce,
-    remoteDaemonId: "daemon-a"
+    remoteDaemonId: "daemon-a",
   });
   assert.equal(authenticating.ok, true);
   if (!authenticating.ok) return;
@@ -106,15 +183,15 @@ test("remote daemon tunnel lifecycle distinguishes degraded reconnect failed and
       tokenId: token.metadata.tokenId,
       tokenSecret: token.secret.value,
       tunnelNonce: token.metadata.tunnelNonce,
-      remoteDaemonId: "daemon-a"
+      remoteDaemonId: "daemon-a",
     }),
     {
       ok: false,
       error: {
         code: "invalid_tunnel_state",
-        hint: "Tunnel cannot authenticate from status: established"
-      }
-    }
+        hint: "Tunnel cannot authenticate from status: established",
+      },
+    },
   );
 
   const degraded = controller.markDegraded(started.tunnel.tunnelId, "remote_daemon_unreachable", "heartbeat missed");
@@ -149,13 +226,13 @@ test("token expiry and host revoke block new tunnel use without requiring networ
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a"), hostProfile("host-b")],
     createId: sequenceId(),
-    now: sequenceTime("2026-06-14T02:00:00.000Z", 61_000)
+    now: sequenceTime("2026-06-14T02:00:00.000Z", 61_000),
   });
   const expired = controller.requestAttachToken({
     hostProfileId: "host-a",
     daemonInstanceId: "daemon-a",
     userId: "user-a",
-    ttlMillis: 60_000
+    ttlMillis: 60_000,
   });
   assert.equal(expired.ok, true);
   if (!expired.ok) return;
@@ -167,22 +244,22 @@ test("token expiry and host revoke block new tunnel use without requiring networ
       tokenSecret: expired.secret.value,
       tunnelNonce: expired.metadata.tunnelNonce,
       localPort: 65001,
-      remoteDaemonId: "daemon-a"
+      remoteDaemonId: "daemon-a",
     }),
     {
       ok: false,
       error: {
         code: "token_expired",
-        hint: "Remote daemon attach token has expired."
-      }
-    }
+        hint: "Remote daemon attach token has expired.",
+      },
+    },
   );
 
   const revoked = controller.requestAttachToken({
     hostProfileId: "host-b",
     daemonInstanceId: "daemon-b",
     userId: "user-a",
-    ttlMillis: 120_000
+    ttlMillis: 120_000,
   });
   assert.equal(revoked.ok, true);
   if (!revoked.ok) return;
@@ -195,15 +272,15 @@ test("token expiry and host revoke block new tunnel use without requiring networ
       tokenSecret: revoked.secret.value,
       tunnelNonce: revoked.metadata.tunnelNonce,
       localPort: 65002,
-      remoteDaemonId: "daemon-b"
+      remoteDaemonId: "daemon-b",
     }),
     {
       ok: false,
       error: {
         code: "host_profile_revoked",
-        hint: "Remote host profile is revoked: host-b"
-      }
-    }
+        hint: "Remote host profile is revoked: host-b",
+      },
+    },
   );
 });
 
@@ -211,14 +288,14 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a")],
     createId: sequenceId(),
-    now: sequenceTime("2026-06-14T02:30:00.000Z")
+    now: sequenceTime("2026-06-14T02:30:00.000Z"),
   });
   const issued = controller.requestAttachToken({
     hostProfileId: "host-a",
     daemonInstanceId: "daemon-a",
     userId: "user-a",
     ttlMillis: 60_000,
-    tunnelNonce: "nonce-a"
+    tunnelNonce: "nonce-a",
   });
   assert.equal(issued.ok, true);
   if (!issued.ok) return;
@@ -230,15 +307,15 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
       tokenSecret: "not-the-secret",
       tunnelNonce: "nonce-a",
       localPort: 65001,
-      remoteDaemonId: "daemon-a"
+      remoteDaemonId: "daemon-a",
     }),
     {
       ok: false,
       error: {
         code: "token_secret_mismatch",
-        hint: "Remote daemon attach token secret is invalid."
-      }
-    }
+        hint: "Remote daemon attach token secret is invalid.",
+      },
+    },
   );
   assert.deepEqual(
     controller.startTunnel({
@@ -247,15 +324,15 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
       tokenSecret: issued.secret.value,
       tunnelNonce: "wrong-nonce",
       localPort: 65001,
-      remoteDaemonId: "daemon-a"
+      remoteDaemonId: "daemon-a",
     }),
     {
       ok: false,
       error: {
         code: "token_nonce_mismatch",
-        hint: "Remote daemon attach token is bound to a different tunnel nonce."
-      }
-    }
+        hint: "Remote daemon attach token is bound to a different tunnel nonce.",
+      },
+    },
   );
   assert.deepEqual(
     controller.startTunnel({
@@ -264,15 +341,15 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
       tokenSecret: issued.secret.value,
       tunnelNonce: "nonce-a",
       localPort: 65001,
-      remoteDaemonId: "daemon-b"
+      remoteDaemonId: "daemon-b",
     }),
     {
       ok: false,
       error: {
         code: "token_daemon_mismatch",
-        hint: "Remote daemon attach token is bound to a different daemon instance."
-      }
-    }
+        hint: "Remote daemon attach token is bound to a different daemon instance.",
+      },
+    },
   );
 
   const started = controller.startTunnel({
@@ -281,7 +358,7 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
     tokenSecret: issued.secret.value,
     tunnelNonce: "nonce-a",
     localPort: 65001,
-    remoteDaemonId: "daemon-a"
+    remoteDaemonId: "daemon-a",
   });
   assert.equal(started.ok, true);
   if (!started.ok) return;
@@ -293,15 +370,15 @@ test("token id metadata alone cannot authenticate and attach tokens are one-time
       tokenSecret: issued.secret.value,
       tunnelNonce: "nonce-a",
       localPort: 65002,
-      remoteDaemonId: "daemon-a"
+      remoteDaemonId: "daemon-a",
     }),
     {
       ok: false,
       error: {
         code: "token_already_used",
-        hint: "Remote daemon attach token has already been used."
-      }
-    }
+        hint: "Remote daemon attach token has already been used.",
+      },
+    },
   );
 });
 
@@ -309,13 +386,13 @@ test("closed or revoked tunnels cannot be reconnected back to established", () =
   const controller = createRemoteDaemonTunnelController({
     hostProfiles: [hostProfile("host-a")],
     createId: sequenceId(),
-    now: sequenceTime("2026-06-14T02:45:00.000Z")
+    now: sequenceTime("2026-06-14T02:45:00.000Z"),
   });
   const token = controller.requestAttachToken({
     hostProfileId: "host-a",
     daemonInstanceId: "daemon-a",
     userId: "user-a",
-    ttlMillis: 60_000
+    ttlMillis: 60_000,
   });
   assert.equal(token.ok, true);
   if (!token.ok) return;
@@ -325,7 +402,7 @@ test("closed or revoked tunnels cannot be reconnected back to established", () =
     tokenSecret: token.secret.value,
     tunnelNonce: token.metadata.tunnelNonce,
     localPort: 65001,
-    remoteDaemonId: "daemon-a"
+    remoteDaemonId: "daemon-a",
   });
   assert.equal(started.ok, true);
   if (!started.ok) return;
@@ -334,30 +411,30 @@ test("closed or revoked tunnels cannot be reconnected back to established", () =
     ok: false,
     error: {
       code: "invalid_tunnel_state",
-      hint: "Tunnel cannot reconnect from status: established"
-    }
+      hint: "Tunnel cannot reconnect from status: established",
+    },
   });
   controller.revokeHostProfile("host-a");
   assert.deepEqual(controller.completeReconnect(started.tunnel.tunnelId), {
     ok: false,
     error: {
       code: "invalid_tunnel_state",
-      hint: "Tunnel cannot complete reconnect from status: closed"
-    }
+      hint: "Tunnel cannot complete reconnect from status: closed",
+    },
   });
   assert.deepEqual(controller.markDegraded(started.tunnel.tunnelId, "stale_heartbeat", "late stale event"), {
     ok: false,
     error: {
       code: "invalid_tunnel_state",
-      hint: "Closed tunnels cannot be marked degraded."
-    }
+      hint: "Closed tunnels cannot be marked degraded.",
+    },
   });
   assert.deepEqual(controller.failTunnel(started.tunnel.tunnelId, "stale_ssh_close", "late stale event"), {
     ok: false,
     error: {
       code: "invalid_tunnel_state",
-      hint: "Closed tunnels cannot be marked failed."
-    }
+      hint: "Closed tunnels cannot be marked failed.",
+    },
   });
 });
 
@@ -372,32 +449,32 @@ test("tunnel disconnect and host revoke degrade remote terminal surfaces instead
     localPort: 65001,
     startedAt: "2026-06-14T03:00:00.000Z",
     errorCode: "ssh_tunnel_closed",
-    errorMessage: "ssh process exited"
+    errorMessage: "ssh process exited",
   };
   const closedRevokedTunnel = {
     ...degradedTunnel,
     status: "closed" as const,
     errorCode: "host_profile_revoked",
-    errorMessage: "Remote host profile was revoked."
+    errorMessage: "Remote host profile was revoked.",
   };
 
   assert.deepEqual(deriveRemoteTerminalSurfaceState(activeSession, degradedTunnel), {
     sessionId: "term-1",
     terminalStatus: "active",
     surfaceStatus: "degraded",
-    reason: "ssh_tunnel_closed"
+    reason: "ssh_tunnel_closed",
   });
   assert.deepEqual(deriveRemoteTerminalSurfaceState(activeSession, closedRevokedTunnel), {
     sessionId: "term-1",
     terminalStatus: "active",
     surfaceStatus: "detached",
-    reason: "host_profile_revoked"
+    reason: "host_profile_revoked",
   });
   assert.deepEqual(deriveRemoteTerminalSurfaceState(exitedSession, degradedTunnel), {
     sessionId: "term-2",
     terminalStatus: "exited",
     surfaceStatus: "closed",
-    reason: "terminal-session-exited"
+    reason: "terminal-session-exited",
   });
 });
 
@@ -405,7 +482,7 @@ function hostProfile(hostProfileId: string): RemoteHostProfile {
   return {
     hostProfileId,
     label: hostProfileId,
-    sshConfigHost: hostProfileId
+    sshConfigHost: hostProfileId,
   };
 }
 
@@ -422,7 +499,7 @@ function remoteSession(sessionId: string, status: TerminalSessionInfo["status"])
     cwd: "/workspace",
     shell: "/bin/zsh",
     createdAt: "2026-06-14T03:00:00.000Z",
-    lastActivityAt: "2026-06-14T03:00:00.000Z"
+    lastActivityAt: "2026-06-14T03:00:00.000Z",
   };
 }
 

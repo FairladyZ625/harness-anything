@@ -147,19 +147,19 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
     current = validateRepositorySettings(normalized).length === 0;
   if (!current) return false;
   if (!allowUnknownFields)
-    return (
-      value.walFlush !== undefined &&
-      Object.keys(value).every((field) =>
-        [
-          "schema",
-          "settingsId",
-          "defaultVertical",
-          "defaultPreset",
-          "defaultProfile",
-          "scaffolds",
-          "walFlush",
-        ].includes(field),
-      )
+    // settings/v1 was emitted before WAL flush controls were added. Treat an
+    // omitted facet as the default so historical immutable events remain
+    // readable; newly written events still include the complete facet.
+    return Object.keys(value).every((field) =>
+      [
+        "schema",
+        "settingsId",
+        "defaultVertical",
+        "defaultPreset",
+        "defaultProfile",
+        "scaffolds",
+        "walFlush",
+      ].includes(field),
     );
   return (
     validateRepositorySettings({

@@ -207,7 +207,17 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
     let unrefs = 0;
     const output = captureGuiOutput(() =>
       runGuiLaunch(
-        ["gui", "--json"],
+        [
+          "gui",
+          "--json",
+          "--remote",
+          "--ssh-config-host",
+          "harness-company-via-uu",
+          "--remote-daemon-id",
+          "company",
+          "--remote-command-json",
+          '["/opt/node","/opt/ha.js","daemon","connect","--stdio","--daemon-id","company"]',
+        ],
         {
           workspaceRoot: fixture.root,
           resolveElectronBinary: () => "/electron",
@@ -244,9 +254,60 @@ test("GUI launch starts the packaged Electron entry detached and without a dev r
     );
     assert.equal(spawnedEnv.ELECTRON_RUN_AS_NODE, undefined, "node mode would start the main process without a window");
     assert.equal(spawnedEnv.HARNESS_GUI_ROOT, process.cwd(), "the shell must be told which workspace to open");
+    assert.equal(spawnedEnv.HARNESS_GUI_TRANSPORT, "ssh");
+    assert.equal(spawnedEnv.HARNESS_GUI_REMOTE_SSH_CONFIG_HOST, "harness-company-via-uu");
+    assert.equal(spawnedEnv.HARNESS_GUI_REMOTE_DAEMON_ID, "company");
+    assert.equal(
+      spawnedEnv.HARNESS_GUI_REMOTE_COMMAND_JSON,
+      '["/opt/node","/opt/ha.js","daemon","connect","--stdio","--daemon-id","company"]',
+    );
   } finally {
     delete process.env.ELECTRON_RENDERER_URL;
     delete process.env.ELECTRON_RUN_AS_NODE;
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("remote GUI launch requires an endpoint or OpenSSH config alias", () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
+    const output = captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json", "--remote"],
+        { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_remote_config_missing");
+    assert.equal(receipt.error.code, "gui_remote_config_missing");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("remote GUI launch rejects an invalid direct endpoint port", () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
+    const output = captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json", "--remote", "--remote-host", "127.0.0.1", "--remote-port", "70000"],
+        { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_remote_port_invalid");
+    assert.equal(receipt.error.code, "gui_remote_port_invalid");
+  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -294,6 +355,16 @@ test("the gui command reaches the launcher through the CLI entry", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("the gui help documents the remote launch options", () => {
+  const result = spawnSync(process.execPath, [path.resolve("packages/cli/src/index.ts"), "gui", "--help"], {
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Usage: ha gui \[--remote\]/u);
+  assert.match(result.stdout, /--ssh-config-host <alias>/u);
+  assert.match(result.stdout, /--remote-command-json/u);
 });
 
 function makeGuiFixture(withDist: boolean): { root: string } {

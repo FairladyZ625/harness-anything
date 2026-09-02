@@ -8,8 +8,13 @@ export const systemQueryKeys = {
 
 export function selectActiveRepoId(repos: ReadonlyArray<SystemRepoRow>, current: string | null): string | null {
   const enabled = repos.filter((repo) => repo.registrationState === "enabled");
-  if (current && enabled.some((repo) => repo.repoId === current)) return current;
-  return enabled.find((repo) => repo.cellState === "attached")?.repoId ?? enabled[0]?.repoId ?? null;
+  const attached = enabled.find((repo) => repo.cellState === "attached");
+  const currentRepo = current === null ? undefined : enabled.find((repo) => repo.repoId === current);
+  // During daemon startup the first status read can contain only an unavailable
+  // registry row. Move to a usable attached repo once the attachment settles.
+  if (currentRepo?.cellState === "attached") return currentRepo.repoId;
+  if (attached) return attached.repoId;
+  return currentRepo?.repoId ?? enabled[0]?.repoId ?? null;
 }
 
 export function useSystemStatusQuery() {

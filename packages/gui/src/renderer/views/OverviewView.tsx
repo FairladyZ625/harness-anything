@@ -25,6 +25,7 @@ const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 export function OverviewView({
   project,
   tasks,
+  taskProjectionStatus,
   agenda,
   decisions,
   workspaceSummary,
@@ -42,6 +43,7 @@ export function OverviewView({
 }: {
   project: Project;
   tasks: readonly TaskRow[];
+  taskProjectionStatus?: "ready" | "pending" | "error";
   /** `ha agenda` 同一条 repo.agenda.read 投影;PIN 区不从 task list 二次猜。 */
   agenda?: AgendaSuccess;
   decisions: DecisionRow[];
@@ -124,6 +126,7 @@ export function OverviewView({
           <TaskStream
             tasks={tasks}
             summary={workspaceSummary.tasks}
+            projectionStatus={taskProjectionStatus}
             onOpenPreview={onSelect}
             onGoBoard={onDrill}
             onSetPin={onSetPin}

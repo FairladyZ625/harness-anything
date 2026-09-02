@@ -22,7 +22,6 @@ remote 路径仍属实验性能力。远端 CLI 命令会通过 SSH stdio relay 
 
 - 把 daemon 绑定到 TCP、HTTP 或 WebSocket。当前实现的传输只有本地 Unix socket 和
   Windows named pipe。
-- 让 A 机 GUI 连接 B 机 daemon。GUI 连接的是本地 daemon endpoint。
 - 实时通知订阅。订阅方法当前只是 no-op stub。
 
 ## 前置条件
@@ -114,6 +113,54 @@ id 时，设置 `HARNESS_DAEMON_REPO_ID`。
 客户端实际执行的是 `ssh <host> <remote-ha> daemon connect --stdio`。服务器必须已经为
 canonical root 启动 `ha daemon start --service`。每个请求都会携带 remote root，并且它必须
 匹配成员 forced command 固定的 root。
+
+## 通过本地 endpoint 连接远程 GUI
+
+Remote GUI 不依赖创建本地 endpoint 的网络服务。UU、FRP、VPN、公网中转服务器或 SSH
+`-L` 转发对 GUI 都是等价的：它们只需要在本机暴露一个可连接的 `host:port`。GUI 不需要
+知道 daemon 的内网地址，也不需要知道使用的是哪一种穿透服务。
+
+在 Windows 上显式启用 SSH connector（PowerShell 示例）：
+
+```powershell
+$env:HARNESS_GUI_TRANSPORT = "ssh"
+$env:HARNESS_GUI_REMOTE_HOST = "127.0.0.1"
+$env:HARNESS_GUI_REMOTE_PORT = "22022"
+$env:HARNESS_GUI_REMOTE_USER = "cyr"
+$env:HARNESS_GUI_REMOTE_IDENTITY_FILE = "$env:USERPROFILE\.ssh\harness-company-internal"
+$env:HARNESS_GUI_REMOTE_HOST_KEY_ALIAS = "company-internal-host"
+$env:HARNESS_GUI_REMOTE_DAEMON_ID = "default"
+```
+
+如果连接信息已经写入 OpenSSH config，可以用 `ha gui` 的参数启动，避免每次重复
+设置整组环境变量：
+
+```powershell
+ha gui --remote --ssh-config-host harness-company-via-uu --remote-daemon-id default
+```
+
+其中 `harness-company-via-uu` 只应是本机 OpenSSH config 中的 alias；私钥仍由
+OpenSSH config 或 ssh-agent 管理。也可以使用 `--remote-host` 与 `--remote-port`
+代替 `--ssh-config-host`。环境变量仍可作为参数覆盖和测试注入入口。
+
+只提供 OpenSSH alias 时，GUI 会直接把 endpoint 解析交给 OpenSSH，并在界面显示该
+alias；提供 `--remote-host` 与 `--remote-port` 时，界面显示实际的本机 endpoint。
+
+`HARNESS_GUI_REMOTE_SSH_CONFIG_HOST` 可选择用户 OpenSSH 配置中的 host alias；
+`HARNESS_GUI_SSH_COMMAND` 仅用于显式指定兼容 OpenSSH 的客户端。私钥必须放在仓库之外，
+并使用 `StrictHostKeyChecking=yes` 与已固定的 `known_hosts` 条目。
+
+默认远程命令是 `ha daemon connect --stdio`。如果远程安装没有把 `ha` 放进非交互 SSH
+的 `PATH`，可以单独提供参数数组，不需要修改穿透服务：
+
+```powershell
+$env:HARNESS_GUI_REMOTE_COMMAND_JSON = '["/opt/harness/node","/opt/harness/cli.js","daemon","connect","--stdio","--daemon-id","default"]'
+```
+
+远程命令必须已经安装，resident daemon 也必须正在运行。connector 会先完成 TCP/SSH
+连接，再要求 Harness `protocol.hello` 和 daemon build 响应；端口可达本身不算 ready。
+认证失败、host key 失败、超时、EOF 和重连耗尽都会变成明确的 remote error；remote GUI
+模式不会启动本地 daemon，也不会静默回退到本地路径。
 
 ## 使用 SSH forced command 接入团队
 

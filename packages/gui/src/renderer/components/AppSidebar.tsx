@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
-import type { SystemRepoRow } from "../api-client.ts";
+import { FolderSimple, CaretUpDown, Cloud, CloudSlash } from "@phosphor-icons/react";
+import type { GuiConnectionInfo, SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
@@ -13,6 +13,7 @@ import { t } from "../i18n/index.tsx";
 export interface AppSidebarProps {
   readonly project: Project;
   readonly repos: readonly SystemRepoRow[];
+  readonly connection?: GuiConnectionInfo;
   readonly activeRepoId: string | null;
   readonly view: ViewId;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
@@ -44,6 +45,7 @@ export interface AppSidebarProps {
 export function AppSidebar({
   project,
   repos,
+  connection,
   activeRepoId,
   view,
   hasSelection,
@@ -59,6 +61,7 @@ export function AppSidebar({
   onOpenSystem,
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
+  const isRemote = connection?.kind === "ssh";
   return (
     <aside
       data-testid="app-sidebar"
@@ -70,12 +73,18 @@ export function AppSidebar({
         <div className="flex items-center gap-2 px-3 pt-3 pb-1">
           <span className="font-mono text-[11px] font-semibold tracking-wide text-text-muted">HARNESS</span>
           <span
-            title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
+            title={
+              isRemote
+                ? t("components.appSidebar.remoteConnection", { endpoint: connection.endpoint })
+                : t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")
+            }
             className={`inline-flex items-center gap-1 rounded border border-border px-1 py-px
               font-mono text-[10px] text-text-faint`}
           >
-            <CloudSlash weight="bold" />
-            {t("components.appSidebar.local")}
+            {isRemote ? <Cloud weight="bold" /> : <CloudSlash weight="bold" />}
+            {isRemote
+              ? `${t("components.appSidebar.remote")} · ${connection.endpoint}`
+              : t("components.appSidebar.local")}
           </span>
           <div className="ml-auto">
             <ThemeToggle />
@@ -158,9 +167,11 @@ export function AppSidebar({
             Z
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-xs text-text">{t("components.appSidebar.localMode2")}</span>
+            <span className="block truncate text-xs text-text">
+              {isRemote ? t("components.appSidebar.remoteMode") : t("components.appSidebar.localMode2")}
+            </span>
             <span className="block truncate text-[10px] text-text-faint">
-              {t("components.appSidebar.accountSynchronizationV2")}
+              {isRemote ? connection.endpoint : t("components.appSidebar.accountSynchronizationV2")}
             </span>
           </span>
         </button>

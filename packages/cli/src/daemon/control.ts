@@ -27,6 +27,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import { cliDaemonServeLaunch, consumeKnownError } from "./client.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
+import { runDaemonStdioBridge } from "./stdio-bridge.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -40,6 +41,16 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
+  if (command === "connect") {
+    if (argv.includes("--help")) {
+      console.log("Usage: ha daemon connect --stdio [--user-root <path>] [--daemon-id <id>]");
+      console.log("Expose the resident daemon JSON-RPC stream over stdin/stdout.");
+      return 0;
+    }
+    if (subcommand === "--stdio")
+      return runDaemonStdioBridge({ socketPath: localUserDaemonEndpoint(userRoot, daemonId) });
+    return finish(daemonFailure("daemon-connect", "unsupported_command", "Use `ha daemon connect --stdio`."), 2);
+  }
   try {
     if (command === "projection" && subcommand === "rebuild") {
       const suppliedRoot = daemonOption(argv, "--root");
@@ -561,11 +572,14 @@ export function runGuiLaunch(
       "gui_preload_missing",
       "Run `npm run build:preload -w @harness-anything/gui` from the harness-anything workspace, then retry `ha gui`.",
     );
+  const environment = guiLaunchEnvironment(guiRoot(argv), argv),
+    remoteConfigurationError = validateGuiRemoteLaunch(argv, environment);
+  if (remoteConfigurationError) return reject(remoteConfigurationError.code, remoteConfigurationError.hint);
   try {
     const child = (dependencies.spawnProcess ?? spawn)(
       electronBinary,
       [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")],
-      { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(guiRoot(argv)) },
+      { cwd: workspaceRoot, ...detachedProcessOptions, env: environment },
     );
     // spawn reports an unusable binary asynchronously, so the catch below never sees it and a
     // detached launch cannot wait for the event. An absent pid is the synchronous witness that
@@ -614,10 +628,60 @@ function guiRoot(argv: readonly string[]): string {
   const supplied = daemonOption(argv, "--root");
   return path.resolve(supplied && !supplied.startsWith("-") ? supplied : process.cwd());
 }
-function guiLaunchEnvironment(rootDir: string): NodeJS.ProcessEnv {
+function guiLaunchEnvironment(rootDir: string, argv: readonly string[] = []): NodeJS.ProcessEnv {
   // A packaged launch must never inherit the dev loop's renderer origin or node-mode flag.
   const environment: NodeJS.ProcessEnv = { ...process.env, HARNESS_GUI_ROOT: rootDir };
   delete environment.ELECTRON_RENDERER_URL;
   delete environment.ELECTRON_RUN_AS_NODE;
+  if (argv.includes("--remote")) environment.HARNESS_GUI_TRANSPORT = "ssh";
+  const mappings = [
+    ["--remote-host", "HARNESS_GUI_REMOTE_HOST"],
+    ["--remote-port", "HARNESS_GUI_REMOTE_PORT"],
+    ["--remote-user", "HARNESS_GUI_REMOTE_USER"],
+    ["--identity-file", "HARNESS_GUI_REMOTE_IDENTITY_FILE"],
+    ["--host-key-alias", "HARNESS_GUI_REMOTE_HOST_KEY_ALIAS"],
+    ["--ssh-config-host", "HARNESS_GUI_REMOTE_SSH_CONFIG_HOST"],
+    ["--ssh-command", "HARNESS_GUI_SSH_COMMAND"],
+    ["--remote-daemon-id", "HARNESS_GUI_REMOTE_DAEMON_ID"],
+    ["--remote-command-json", "HARNESS_GUI_REMOTE_COMMAND_JSON"],
+  ] as const;
+  for (const [flag, variable] of mappings) {
+    const value = guiOption(argv, flag);
+    if (value !== undefined) environment[variable] = value;
+  }
+  if (
+    guiOption(argv, "--ssh-config-host") === undefined &&
+    (guiOption(argv, "--remote-host") !== undefined || guiOption(argv, "--remote-port") !== undefined)
+  )
+    delete environment.HARNESS_GUI_REMOTE_SSH_CONFIG_HOST;
   return environment;
+}
+
+function validateGuiRemoteLaunch(
+  argv: readonly string[],
+  environment: NodeJS.ProcessEnv,
+): { readonly code: string; readonly hint: string } | null {
+  if (!argv.includes("--remote")) return null;
+  const hasConfigHost = Boolean(environment.HARNESS_GUI_REMOTE_SSH_CONFIG_HOST?.trim()),
+    hasEndpoint =
+      Boolean(environment.HARNESS_GUI_REMOTE_HOST?.trim()) && Boolean(environment.HARNESS_GUI_REMOTE_PORT?.trim());
+  if (hasConfigHost) return null;
+  if (hasEndpoint) {
+    const port = Number(environment.HARNESS_GUI_REMOTE_PORT);
+    if (Number.isInteger(port) && port >= 1 && port <= 65_535) return null;
+    return {
+      code: "gui_remote_port_invalid",
+      hint: "`--remote-port` must be an integer between 1 and 65535.",
+    };
+  }
+  return {
+    code: "gui_remote_config_missing",
+    hint: "`ha gui --remote` needs an OpenSSH config alias (`--ssh-config-host`) or both `--remote-host` and `--remote-port`.",
+  };
+}
+
+function guiOption(argv: readonly string[], name: string): string | undefined {
+  const at = argv.indexOf(name),
+    value = at < 0 ? undefined : argv[at + 1];
+  return value && !value.startsWith("-") ? value : undefined;
 }

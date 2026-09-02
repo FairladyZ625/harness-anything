@@ -1,5 +1,6 @@
 import net from "node:net";
 import { createInterface } from "node:readline";
+import type { Duplex } from "node:stream";
 import { consumeKnownError } from "../../../kernel/src/index.ts";
 import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import { daemonStreamFacets, type DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
@@ -39,6 +40,7 @@ export async function streamAgentRuntimeAt(input: {
 }
 export async function streamDaemonFacetAt(input: {
   readonly socketPath: string;
+  readonly openSocket?: () => Promise<Duplex>;
   readonly repoId: string;
   readonly method: keyof DaemonStreamPayloadMap;
   readonly payload: DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap];
@@ -48,7 +50,7 @@ export async function streamDaemonFacetAt(input: {
 }): Promise<() => void> {
   let detached = false,
     everAttached = false,
-    socket: net.Socket | undefined,
+    socket: Duplex | undefined,
     retry: ReturnType<typeof setTimeout> | undefined,
     reconnects = 0,
     lastFailure = "socket closed",
@@ -67,101 +69,109 @@ export async function streamDaemonFacetAt(input: {
     reconnects += 1;
     retry = setTimeout(() => {
       retry = undefined;
-      void connect().catch(consumeKnownError);
+      void connect().catch((error) => {
+        lastFailure = error instanceof Error ? error.message : String(error);
+        consumeKnownError(error);
+        scheduleReconnect();
+      });
     }, delayMs);
   };
   const connect = () =>
     new Promise<void>((resolve, reject) => {
-      const next = net.createConnection(input.socketPath),
-        lines = createInterface({ input: next });
-      let watchdog: ReturnType<typeof setTimeout> | undefined;
-      socket = next;
-      let settled = false,
-        supported = true;
-      const armWatchdog = () => {
-        clearTimeout(watchdog);
-        watchdog = setTimeout(
-          () => streamFail(new Error("daemon_stream_unavailable")),
-          input.timeoutMs ?? defaultSilenceMs,
-        );
-      };
-      armWatchdog();
-      next.once("connect", () => {
-        const payload =
-          input.method === "repo.agentRuntime.attach"
-            ? { ...(input.payload as object), afterCursor: cursor }
-            : { ...(input.payload as object), afterSeq: cursor };
-        next.write(
-          `${JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "protocol.hello",
-            params: { protocolVersion: currentDaemonProtocolVersion },
-          })}\n${JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: facet.method,
-            params: { repo: { repoId: input.repoId }, payload },
-          })}\n`,
-        );
-      });
-      lines.on("line", (line) => {
-        if (!settled) armWatchdog();
-        try {
-          const value = JSON.parse(line) as {
-            readonly id?: number;
-            readonly method?: string;
-            readonly params?: unknown;
-            readonly result?: unknown;
-            readonly error?: { readonly message?: string };
-          };
-          if (value.id === 2) {
-            if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
-            const initial = parseDaemonStreamResult(input.method, value.result);
-            input.onValue(initial);
-            supported = initial.ok === true;
-            if (initial.ok) {
+      const setup = (candidate: Duplex): void => {
+        const lines = createInterface({ input: candidate });
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
+        socket = candidate;
+        let settled = false,
+          supported = true;
+        const armWatchdog = () => {
+          clearTimeout(watchdog);
+          watchdog = setTimeout(
+            () => streamFail(new Error("daemon_stream_unavailable")),
+            input.timeoutMs ?? defaultSilenceMs,
+          );
+        };
+        armWatchdog();
+        candidate.once("connect", () => {
+          const payload =
+            input.method === "repo.agentRuntime.attach"
+              ? { ...(input.payload as object), afterCursor: cursor }
+              : { ...(input.payload as object), afterSeq: cursor };
+          candidate.write(
+            `${JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "protocol.hello",
+              params: { protocolVersion: currentDaemonProtocolVersion },
+            })}\n${JSON.stringify({
+              jsonrpc: "2.0",
+              id: 2,
+              method: facet.method,
+              params: { repo: { repoId: input.repoId }, payload },
+            })}\n`,
+          );
+        });
+        lines.on("line", (line) => {
+          if (!settled) armWatchdog();
+          try {
+            const value = JSON.parse(line) as {
+              readonly id?: number;
+              readonly method?: string;
+              readonly params?: unknown;
+              readonly result?: unknown;
+              readonly error?: { readonly message?: string };
+            };
+            if (value.id === 2) {
+              if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
+              const initial = parseDaemonStreamResult(input.method, value.result);
+              input.onValue(initial);
+              supported = initial.ok === true;
+              if (initial.ok) {
+                cursor =
+                  input.method === "repo.agentRuntime.attach"
+                    ? (initial as AgentRuntimeAttachResult & { readonly cursor: string }).cursor
+                    : Number((initial as Record<string, unknown>).outputSeq);
+                everAttached = true;
+                reconnects = 0;
+              }
+              settled = true;
+              clearTimeout(watchdog);
+              resolve();
+              if (!supported) candidate.end();
+            } else if (value.method === facet.eventMethod) {
+              const event = parseDaemonStreamEvent(input.method, value.params);
               cursor =
                 input.method === "repo.agentRuntime.attach"
-                  ? (initial as AgentRuntimeAttachResult & { readonly cursor: string }).cursor
-                  : Number((initial as Record<string, unknown>).outputSeq);
-              everAttached = true;
-              reconnects = 0;
+                  ? (event as AgentRuntimeAttachEvent).cursor
+                  : Number((event as Record<string, unknown>).seq);
+              input.onValue(event);
             }
-            settled = true;
-            clearTimeout(watchdog);
-            resolve();
-            if (!supported) next.end();
-          } else if (value.method === facet.eventMethod) {
-            const event = parseDaemonStreamEvent(input.method, value.params);
-            cursor =
-              input.method === "repo.agentRuntime.attach"
-                ? (event as AgentRuntimeAttachEvent).cursor
-                : Number((event as Record<string, unknown>).seq);
-            input.onValue(event);
+          } catch (error) {
+            consumeKnownError(error);
+            streamFail(error instanceof Error ? error : new Error(String(error)));
           }
-        } catch (error) {
-          consumeKnownError(error);
-          streamFail(error instanceof Error ? error : new Error(String(error)));
+        });
+        lines.on("error", consumeKnownError);
+        candidate.once("error", streamFail);
+        candidate.once("close", () => {
+          lines.close();
+          clearTimeout(watchdog);
+          if (!settled && !everAttached) {
+            reject(new Error("daemon stream closed before attach"));
+            return;
+          }
+          if (!detached && supported && everAttached && input.method === "repo.agentRuntime.attach")
+            scheduleReconnect();
+        });
+        function streamFail(error: Error): void {
+          lastFailure = error.message;
+          clearTimeout(watchdog);
+          if (!settled) reject(error);
+          candidate.destroy();
         }
-      });
-      lines.on("error", consumeKnownError);
-      next.once("error", streamFail);
-      next.once("close", () => {
-        lines.close();
-        clearTimeout(watchdog);
-        if (!settled && !everAttached) {
-          reject(new Error("daemon stream closed before attach"));
-          return;
-        }
-        if (!detached && supported && everAttached && input.method === "repo.agentRuntime.attach") scheduleReconnect();
-      });
-      function streamFail(error: Error): void {
-        lastFailure = error.message;
-        clearTimeout(watchdog);
-        if (!settled) reject(error);
-        next.destroy();
-      }
+      };
+      if (input.openSocket) input.openSocket().then(setup, reject);
+      else setup(net.createConnection(input.socketPath));
     });
   await connect();
   return () => {
