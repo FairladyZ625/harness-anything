@@ -32,6 +32,7 @@ import {
 } from "../terminal-layout.ts";
 import { directionalPane, type PaneBox, type PaneDirection } from "../terminal-pane-focus.ts";
 import { isMacPlatform } from "../platform.ts";
+import type { TaskTreeNode } from "../components/terminal/task-tree.ts";
 import { terminalLinkTargetOf, type TerminalLinkMatch } from "../components/terminal/terminal-links.ts";
 import {
   TerminalChrome,
@@ -65,7 +66,7 @@ import { t } from "../i18n/index.tsx";
 interface Props {
   readonly repoId: string;
   readonly daemonGeneration: number | null;
-  readonly tasks: readonly { readonly taskId: string; readonly title: string }[];
+  readonly tasks: readonly TaskTreeNode[];
   /** 仓库(canonical)根绝对路径;相对路径链接的解析基座(其次才用会话 cwd)。 */
   readonly repoRoot: string | null;
   /** 实体链接出口(App 的 navigateToEntity:详情页推栈,回撤原路返回终端页)。 */

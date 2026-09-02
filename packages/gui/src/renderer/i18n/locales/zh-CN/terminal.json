@@ -51,8 +51,19 @@
   "terminal.view.dragHandleTitle": "拖动到别的 pane 上换位",
   "terminal.view.taskPickerPlaceholder": "搜索 task 标题或 id…",
   "terminal.view.taskPickerEmpty": "无匹配 task",
-  "terminal.view.taskPickerMore": "还有 {count} 个,继续输入缩小范围",
   "terminal.view.launchOptions": "启动选项",
   "terminal.view.noAttachable": "没有可附加的会话",
-  "terminal.view.sidebarResize": "拖动调整侧栏宽度"
+  "terminal.view.sidebarResize": "拖动调整侧栏宽度",
+  "terminal.view.taskTreeOpen": "选择要绑定的 task",
+  "terminal.view.taskTreeCreatedWithin": "创建时间",
+  "terminal.view.taskTreeAnyTime": "任意时间",
+  "terminal.view.taskTreeDays": "{count} 天内",
+  "terminal.view.taskTreeStatus": "状态",
+  "terminal.view.taskTreeHits": "命中 {hits} / 共 {total}",
+  "terminal.view.taskTreeTotal": "共 {total} 个 task",
+  "terminal.view.taskTreeCrumbs": "聚焦路径",
+  "terminal.view.taskTreeAll": "全部",
+  "terminal.view.taskTreeToggle": "展开 / 折叠下级",
+  "terminal.view.taskTreeFocus": "聚焦到这棵子树",
+  "terminal.view.taskTreeTruncated": "只显示前 300 行,继续缩小范围"
 }
