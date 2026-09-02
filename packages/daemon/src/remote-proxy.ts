@@ -1,5 +1,5 @@
 import type net from "node:net";
-import { readDaemonRegistry, type DaemonRegistryConnection, type DaemonRegistryRepo } from "../../kernel/src/index.ts";
+import { readDaemonRegistry, type DaemonRegistryConnection } from "../../kernel/src/index.ts";
 import { connectSocket, JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
 import {
@@ -29,7 +29,6 @@ export interface RemoteProxyManager {
 }
 
 interface RemoteProxyRoute {
-  readonly repo: DaemonRegistryRepo;
   readonly connection: DaemonRegistryConnection & { readonly endpoint: string };
 }
 
@@ -58,7 +57,7 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
       connection.endpoint === undefined
     )
       throw remoteProxyError("remote_proxy_unavailable", `Remote connection ${repo.connectionId} is unavailable.`);
-    return { repo, connection: { ...connection, endpoint: connection.endpoint } };
+    return { connection: { ...connection, endpoint: connection.endpoint } };
   };
   const connectorFor = (remote: RemoteProxyRoute): RemoteEndpointConnector => {
     const current = connectors.get(remote.connection.id);

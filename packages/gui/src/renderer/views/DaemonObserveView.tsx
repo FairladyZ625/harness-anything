@@ -39,6 +39,7 @@ const TAIL_FOLLOW_MS = 1_000,
 
 const MODE_LABEL: Record<ObserveTailMode, () => string> = {
   local: () => t("views.daemonObserve.modeLocal"),
+  "remote-proxy": () => t("views.daemonObserve.modeProxy"),
   "remote-center": () => t("views.daemonObserve.modeCenter"),
   "remote-edge": () => t("views.daemonObserve.modeEdge"),
 };

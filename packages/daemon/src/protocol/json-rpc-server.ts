@@ -168,7 +168,8 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
-    if (method === "daemon.repo.bootstrap" && options.host.remoteProxy.route(params.repoId))
+    const remoteProxy = options.host.remoteProxy;
+    if (method === "daemon.repo.bootstrap" && remoteProxy?.route(params.repoId))
       return reply(
         method,
         daemonProtocolError(
@@ -178,15 +179,15 @@ export function createJsonRpcProtocolServer(options: {
         ),
       );
     const remoteRepoId = repoIdFromParams(params);
-    if (remoteRepoId && options.host.remoteProxy.route(remoteRepoId)) {
+    if (remoteRepoId && remoteProxy?.route(remoteRepoId)) {
       try {
         if (isDaemonStreamCall(call)) {
-          const subscription = await options.host.remoteProxy.stream(remoteRepoId, call.method, call.params.payload);
+          const subscription = await remoteProxy.stream(remoteRepoId, call.method, call.params.payload);
           subscriptions.add(subscription);
           setImmediate(() => pump(subscription, remoteProxyEventMethod(call.method)));
           return reply(call.method, subscription.initial);
         }
-        const result = await options.host.remoteProxy.request(remoteRepoId, method, params);
+        const result = await remoteProxy.request(remoteRepoId, method, params);
         return reply(method, result as DaemonRpcResult<typeof method>);
       } catch (error) {
         return reply(method, protocolFailure(method, error));

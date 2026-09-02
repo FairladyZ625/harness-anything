@@ -23,9 +23,11 @@ import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
-import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
 import { runGuiLaunch } from "../cli/gui-launch.ts";
+import { runDaemonConnectionControl } from "./connection-control.ts";
+import { daemonFailure, daemonOption } from "./control-support.ts";
+import { runDaemonRepoControl } from "./repo-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -62,128 +64,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return finish(result, result.ok === true ? 0 : 1);
     }
     if (command === "fleet") return fleetControl(argv, at, userRoot, daemonId, finish);
-    if (command === "repo" && subcommand === "register") {
-      const root = daemonOption(argv, "--root"),
-        repoId = daemonOption(argv, "--repo-id"),
-        mode = daemonOption(argv, "--mode"),
-        endpoint = daemonOption(argv, "--endpoint"),
-        connectionId = daemonOption(argv, "--connection"),
-        displayName = daemonOption(argv, "--display-name");
-      if (!repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id."), 2);
-      if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number]))
-        return finish(
-          daemonFailure("daemon-repo-register", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`),
-          2,
-        );
-      if (mode === "remote-proxy") {
-        if (root || (endpoint === undefined) === (connectionId === undefined))
-          return finish(
-            daemonFailure(
-              "daemon-repo-register",
-              "invalid_field",
-              "Remote-proxy registration omits --root and uses exactly one of --endpoint or --connection.",
-            ),
-            2,
-          );
-      } else if (!root || endpoint !== undefined || connectionId !== undefined)
-        return finish(
-          daemonFailure(
-            "daemon-repo-register",
-            "invalid_field",
-            "Workspace-backed registration requires --root and does not accept --endpoint or --connection.",
-          ),
-          2,
-        );
-      const result = await requestDaemonJsonRpcAt(
-        localUserDaemonEndpoint(userRoot, daemonId),
-        "daemon.repo.register",
-        {
-          repoId,
-          ...(root ? { rootDir: path.resolve(root) } : {}),
-          ...(mode ? { mode } : {}),
-          ...(endpoint ? { endpoint } : {}),
-          ...(connectionId ? { connectionId } : {}),
-          ...(displayName ? { displayName } : {}),
-        },
-        75,
-      );
-      return finish(result, result.ok === true ? 0 : 1);
+    if (command === "repo") {
+      const result = await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
+      if (result !== undefined) return result;
     }
-    if (command === "repo" && subcommand === "update") {
-      const repoId = daemonOption(argv, "--repo-id"),
-        mode = daemonOption(argv, "--mode"),
-        state = daemonOption(argv, "--state");
-      if (!repoId) return finish(daemonFailure("daemon-repo-update", "missing_field", "Add --repo-id."), 2);
-      if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number]))
-        return finish(
-          daemonFailure("daemon-repo-update", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`),
-          2,
-        );
-      if (state !== undefined && state !== "enabled" && state !== "disabled")
-        return finish(daemonFailure("daemon-repo-update", "invalid_field", "Use --state enabled or disabled."), 2);
-      const result = await requestDaemonJsonRpcAt(
-        localUserDaemonEndpoint(userRoot, daemonId),
-        "daemon.repo.update",
-        {
-          repoId,
-          ...(mode ? { mode } : {}),
-          ...(state ? { state } : {}),
-          ...(daemonOption(argv, "--display-name") ? { displayName: daemonOption(argv, "--display-name") } : {}),
-          ...(daemonOption(argv, "--endpoint") ? { endpoint: daemonOption(argv, "--endpoint") } : {}),
-          ...(daemonOption(argv, "--connection") ? { connectionId: daemonOption(argv, "--connection") } : {}),
-        },
-        75,
-      );
-      return finish(result, result.ok === true ? 0 : 1);
-    }
-    if (command === "repo" && subcommand === "unregister") {
-      const repoId = daemonOption(argv, "--repo-id");
-      if (!repoId) return finish(daemonFailure("daemon-repo-unregister", "missing_field", "Add --repo-id."), 2);
-      const result = await requestDaemonJsonRpcAt(
-        localUserDaemonEndpoint(userRoot, daemonId),
-        "daemon.repo.unregister",
-        { repoId },
-        75,
-      );
-      return finish(result, result.ok === true ? 0 : 1);
-    }
-    if (command === "connection") {
-      const verb = subcommand,
-        connectionId = daemonOption(argv, "--connection") ?? daemonOption(argv, "--connection-id"),
-        endpoint = daemonOption(argv, "--endpoint"),
-        displayName = daemonOption(argv, "--display-name"),
-        state = daemonOption(argv, "--state"),
-        reject = (errorCode: string, nextAction: string) =>
-          finish(daemonFailure(`daemon-connection-${verb ?? "unknown"}`, errorCode, nextAction), 2);
-      if (!verb || !["add", "update", "remove", "probe"].includes(verb))
-        return reject("unsupported_command", "Use daemon connection add, update, remove, or probe.");
-      if ((verb === "add" || verb === "probe") && !endpoint)
-        return reject("missing_field", `Connection ${verb} requires --endpoint.`);
-      if ((verb === "update" || verb === "remove") && !connectionId)
-        return reject("missing_field", `Connection ${verb} requires --connection.`);
-      if (state !== undefined && state !== "enabled" && state !== "disabled")
-        return reject("invalid_field", "Use --state enabled or disabled.");
-      const method =
-          verb === "add"
-            ? "daemon.connection.register"
-            : verb === "update"
-              ? "daemon.connection.update"
-              : verb === "remove"
-                ? "daemon.connection.unregister"
-                : "daemon.connection.probe",
-        result = await requestDaemonJsonRpcAt(
-          localUserDaemonEndpoint(userRoot, daemonId),
-          method,
-          {
-            ...(connectionId ? { connectionId } : {}),
-            ...(endpoint ? { endpoint } : {}),
-            ...(displayName ? { displayName } : {}),
-            ...(state ? { state } : {}),
-          },
-          75,
-        );
-      return finish(result, result.ok === true ? 0 : 1);
-    }
+    if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
     if (command === "serve") {
       const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
@@ -572,24 +457,6 @@ async function waitForDaemonStop(userRoot: string, daemonId: string, pid: number
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   return false;
-}
-function daemonOption(argv: readonly string[], name: string): string | undefined {
-  const at = argv.indexOf(name);
-  return at < 0 ? undefined : argv[at + 1];
-}
-function daemonFailure(command: string, errorCode: string, nextAction: string): Record<string, unknown> {
-  return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command,
-    outcome: "op_rejected",
-    opId: "N/A",
-    origin: "cli",
-    code: errorCode,
-    evidence: `rejection:${errorCode}`,
-    error: { code: errorCode, hint: nextAction },
-    nextAction,
-  };
 }
 function finishControlReceipt(
   renderReceipt: ReceiptEmitter,

@@ -403,6 +403,7 @@
   "views.daemonObserve.kindDaemonLog": "守护进程日志",
   "views.daemonObserve.kindDaemonLogTip": "守护进程日志是全局的,不分仓库;仓库日志仅本仓。",
   "views.daemonObserve.modeLocal": "本地",
+  "views.daemonObserve.modeProxy": "纯展示(远端代理)",
   "views.daemonObserve.modeCenter": "远端 center",
   "views.daemonObserve.modeEdge": "远端 edge",
   "views.daemonObserve.pause": "暂停",

@@ -316,7 +316,6 @@ export {
   updateDaemonRepo,
 } from "./daemon/registry.ts";
 export type {
-  DaemonConnectionKind,
   DaemonRegistry,
   DaemonRegistryConnection,
   DaemonRegistryRepo,

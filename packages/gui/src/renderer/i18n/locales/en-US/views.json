@@ -403,6 +403,7 @@
   "views.daemonObserve.kindDaemonLog": "Daemon log",
   "views.daemonObserve.kindDaemonLogTip": "The daemon log is global; the repo log is per repository.",
   "views.daemonObserve.modeLocal": "local",
+  "views.daemonObserve.modeProxy": "Display-only (remote proxy)",
   "views.daemonObserve.modeCenter": "remote center",
   "views.daemonObserve.modeEdge": "remote edge",
   "views.daemonObserve.pause": "Pause",
