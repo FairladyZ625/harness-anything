@@ -1,6 +1,16 @@
+/**
+ * Dispatch artifacts cannot recover the ingress idempotency key, so imported dispatch events use
+ * `dispatch-record-migration:<dispatchId>`. This intentionally differs from ingress's repo-scoped
+ * hash derivation; the migration marker's `migratedFrom` value preserves the construction source.
+ *
+ * The cancelled opId suffix also differs from production's hashed `runtime-cancel-*` form. Existing
+ * cancelled sessions are terminal before migration planning, so that branch is not reachable for a
+ * partially projected session; the suffix remains only for a wholly absent historical sequence.
+ */
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   validateCurrentAgentRuntimeEvent,
   type AgentDefinitionSnapshot,
@@ -40,7 +50,7 @@ export interface DispatchRecordMigrationInput {
   readonly settleLease: (settlement: DispatchRecordLeaseSettlement) => Promise<void>;
 }
 
-type DispatchRecordAction = "import-full" | "settle-tail" | `skip:${string}`;
+type DispatchRecordAction = "import-full" | "settle-tail" | "settle-lease-only" | `skip:${string}`;
 
 interface RuntimeDispatchRecordV1 {
   readonly schema: "runtime-dispatch/v1";
@@ -64,7 +74,6 @@ interface RuntimeDispatchRecordV1 {
 interface RecoveredResult {
   readonly body: string;
   readonly sourceRef: string;
-  readonly recoveredRef: string;
   readonly claim: {
     readonly sha256: string;
     readonly size: number;
@@ -99,6 +108,7 @@ interface PlannedDispatch {
   readonly settlement: DispatchRecordLeaseSettlement | null;
   readonly sourceResultRef: string | null;
   readonly recoveredResultRef: string | null;
+  readonly resultBlobMissing: boolean;
 }
 
 export async function runDispatchRecordMigration(input: DispatchRecordMigrationInput): Promise<WriteReceiptDraft> {
@@ -113,7 +123,10 @@ export async function runDispatchRecordMigration(input: DispatchRecordMigrationI
       stableStringify(planned.map(({ sourcePath, sourceBody }) => ({ sourcePath, sourceBody }))),
     ),
     markerOpId = `op_${sha256Text(`dispatch-records\0${sourceDigest}`)}`,
-    actionable = planned.filter((entry) => entry.action === "import-full" || entry.action === "settle-tail");
+    actionable = planned.filter(
+      (entry) =>
+        entry.action === "import-full" || entry.action === "settle-tail" || entry.action === "settle-lease-only",
+    );
   if (input.dryRun || actionable.length === 0)
     return migrationPreview(headRevision, markerOpId, report, actionable.length);
   if (gitRevision !== headRevision)
@@ -187,13 +200,11 @@ function planDispatchRecords(input: DispatchRecordMigrationInput, headRevision: 
       throw new Error(
         `dispatch-records migrating replay stalled at revision ${rebuilt.watermark} before ${headRevision}`,
       );
-    return readDispatchDocuments(input.store, projection)
-      .map((document) => planDispatchDocument(input.store, projection, input.actor, document))
-      .sort(
-        (left, right) =>
-          (left.startedAt ?? "9999").localeCompare(right.startedAt ?? "9999") ||
-          left.sourcePath.localeCompare(right.sourcePath),
-      );
+    const documents = [...readDispatchDocuments(input.store, projection)].sort(dispatchDocumentOrder),
+      seenRuntimeSessionIds = new Set<string>();
+    return documents.map((document) =>
+      planDispatchDocument(input.store, projection, input.actor, document, seenRuntimeSessionIds),
+    );
   } finally {
     projection.close();
     for (const suffix of ["", "-wal", "-shm"]) localRuntimeStateFileSystem.remove(`${scratchPath}${suffix}`);
@@ -221,6 +232,7 @@ function planDispatchDocument(
   projection: TaskProjection,
   actor: ActorIdentity,
   document: { readonly sourcePath: string; readonly sourceBody: string },
+  seenRuntimeSessionIds: Set<string>,
 ): PlannedDispatch {
   let raw: unknown;
   try {
@@ -230,6 +242,8 @@ function planDispatchDocument(
   }
   const record = runtimeDispatchRecord(raw);
   if (record === null) return skipped(document, "schema-mismatch", raw);
+  if (seenRuntimeSessionIds.has(record.runtimeSessionId)) return skipped(document, "duplicate-session", record);
+  seenRuntimeSessionIds.add(record.runtimeSessionId);
   const identity = {
     dispatchId: record.dispatchId,
     runtimeSessionId: record.runtimeSessionId,
@@ -241,15 +255,27 @@ function planDispatchDocument(
   if (!task.task) return skipped(document, "task-not-found", record);
   if (!task.executions.some(({ executionId }) => executionId === record.executionId))
     return skipped(document, "execution-not-found", record);
-  const result = recoveredResult(store, projection, document.sourcePath, record);
-  if (result === null) return skipped(document, "result-content-missing", record);
   const session = projection.readRuntimeSession(record.runtimeSessionId),
     settlement = leaseSettlement(projection, record);
   if (session !== null) {
     if (!matchingTaskBinding(session, record)) return skipped(document, "session-binding-mismatch", record);
-    if (session.liveness === "exited" && session.outcome !== null) return skipped(document, "already-settled", record);
+    if (session.liveness === "exited" && session.outcome !== null)
+      return settlement === null
+        ? skipped(document, "already-settled", record)
+        : {
+            ...document,
+            ...identity,
+            action: "settle-lease-only",
+            events: [],
+            settlement,
+            sourceResultRef: record.resultRef,
+            recoveredResultRef: null,
+            resultBlobMissing: store.readContentBlob(resultHash(record)) === null,
+          };
     if (session.liveness !== "unknown" || session.outcome !== null)
       return skipped(document, "session-not-settleable", record);
+    const result = recoveredResult(store, projection, document.sourcePath, record);
+    if (result === null) return skipped(document, "result-content-missing", record, true);
     return {
       ...document,
       ...identity,
@@ -257,13 +283,17 @@ function planDispatchDocument(
       events: terminalEvents(record, actor, result),
       settlement,
       sourceResultRef: result.sourceRef,
-      recoveredResultRef: result.recoveredRef,
+      recoveredResultRef: result.sourceRef,
+      resultBlobMissing: false,
     };
   }
-  const definition = matchingDefinition(projection, record);
-  if (definition === null) return skipped(document, "runtime-definition-not-found", record);
-  const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition.snapshot);
+  const definitionMatch = matchingDefinition(projection, record);
+  if (definitionMatch.kind !== "found") return skipped(document, `definition-${definitionMatch.kind}`, record);
+  const definition = definitionMatch.definition,
+    definitionArtifact = runtimeDefinitionSnapshotArtifact(definition.snapshot);
   if (definitionArtifact.ref !== definition.ref) return skipped(document, "runtime-definition-content-invalid", record);
+  const result = recoveredResult(store, projection, document.sourcePath, record);
+  if (result === null) return skipped(document, "result-content-missing", record, true);
   return {
     ...document,
     ...identity,
@@ -271,7 +301,8 @@ function planDispatchDocument(
     events: fullEvents(record, actor, definition, definitionArtifact.body, result),
     settlement,
     sourceResultRef: result.sourceRef,
-    recoveredResultRef: result.recoveredRef,
+    recoveredResultRef: result.sourceRef,
+    resultBlobMissing: false,
   };
 }
 
@@ -279,6 +310,7 @@ function skipped(
   document: { readonly sourcePath: string; readonly sourceBody: string },
   reason: string,
   raw?: unknown,
+  resultBlobMissing = false,
 ): PlannedDispatch {
   const record = isRecord(raw) ? raw : {};
   return {
@@ -293,7 +325,30 @@ function skipped(
     settlement: null,
     sourceResultRef: typeof record.resultRef === "string" ? record.resultRef : null,
     recoveredResultRef: null,
+    resultBlobMissing,
   };
+}
+
+function dispatchDocumentOrder(
+  left: { readonly sourcePath: string; readonly sourceBody: string },
+  right: { readonly sourcePath: string; readonly sourceBody: string },
+): number {
+  return (
+    dispatchStartedAt(left.sourceBody) - dispatchStartedAt(right.sourceBody) ||
+    left.sourcePath.localeCompare(right.sourcePath)
+  );
+}
+
+function dispatchStartedAt(sourceBody: string): number {
+  try {
+    const value = JSON.parse(sourceBody) as unknown;
+    return isRecord(value) && typeof value.startedAt === "string"
+      ? Date.parse(value.startedAt)
+      : Number.POSITIVE_INFINITY;
+  } catch (error) {
+    consumeKnownError(error);
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 function runtimeDispatchRecord(value: unknown): RuntimeDispatchRecordV1 | null {
@@ -348,23 +403,21 @@ function recoveredResult(
   sourcePath: string,
   record: RuntimeDispatchRecordV1,
 ): RecoveredResult | null {
-  const sourceHash = record.resultRef.slice("artifact:runtime-result/sha256/".length),
+  const sourceHash = resultHash(record),
     existing = store.readContentBlob(sourceHash),
     existingBody = existing === null ? null : utf8(existing);
-  if (existingBody !== null && sha256Text(existingBody) === sourceHash)
-    return result(record.resultRef, record.resultRef, existingBody);
+  if (existingBody !== null && sha256Text(existingBody) === sourceHash) return result(record.resultRef, existingBody);
   const reportPath = sourcePath.replace("/artifacts/dispatches/", "/artifacts/reports/").replace(/\.json$/u, ".md"),
-    reportBody = projection.readDocument(reportPath).document?.body ?? null;
-  return reportBody === null ? null : result(record.resultRef, null, reportBody);
+    reportBody = projection.readDocument(reportPath).document?.body,
+    normalized = reportBody === undefined ? null : runtimeArchiveText(reportBody);
+  return normalized !== null && sha256Text(normalized) === sourceHash ? result(record.resultRef, normalized) : null;
 }
 
-function result(sourceRef: string, recoveredRef: string | null, body: string): RecoveredResult {
-  const sha256 = sha256Text(body),
-    ref = recoveredRef ?? `artifact:runtime-result/sha256/${sha256}`;
+function result(sourceRef: string, body: string): RecoveredResult {
+  const sha256 = sha256Text(body);
   return {
     body,
     sourceRef,
-    recoveredRef: ref,
     claim: {
       sha256,
       size: Buffer.byteLength(body),
@@ -373,15 +426,24 @@ function result(sourceRef: string, recoveredRef: string | null, body: string): R
   };
 }
 
-function matchingDefinition(
-  projection: TaskProjection,
-  record: RuntimeDispatchRecordV1,
-): { readonly ref: string; readonly snapshot: AgentDefinitionSnapshot } | null {
+function resultHash(record: RuntimeDispatchRecordV1): string {
+  return record.resultRef.slice("artifact:runtime-result/sha256/".length);
+}
+
+type DefinitionMatch =
+  | {
+      readonly kind: "found";
+      readonly definition: { readonly ref: string; readonly snapshot: AgentDefinitionSnapshot };
+    }
+  | { readonly kind: "not-found" | "ambiguous" };
+
+function matchingDefinition(projection: TaskProjection, record: RuntimeDispatchRecordV1): DefinitionMatch {
   const matches = projection
     .readRuntimeDispatches()
-    .filter(({ payload }) => {
+    .filter(({ occurredAt, payload }) => {
       const snapshot = payload.definitionSnapshot;
       return (
+        Date.parse(occurredAt) <= Date.parse(record.startedAt) &&
         snapshot.instanceId === record.instanceId &&
         snapshot.model === record.model &&
         snapshot.reasoningEffort === record.reasoningEffort &&
@@ -389,9 +451,14 @@ function matchingDefinition(
         projection.readRuntimeInstallation(snapshot.installationId) !== null
       );
     })
-    .map(({ payload }) => ({ ref: payload.definitionSnapshotRef, snapshot: payload.definitionSnapshot }));
-  const unique = [...new Map(matches.map((candidate) => [stableStringify(candidate), candidate] as const)).values()];
-  return unique.length === 1 ? unique[0]! : null;
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
+  if (matches.length === 0) return { kind: "not-found" };
+  const latestAt = Date.parse(matches[0]!.occurredAt),
+    latest = matches
+      .filter(({ occurredAt }) => Date.parse(occurredAt) === latestAt)
+      .map(({ payload }) => ({ ref: payload.definitionSnapshotRef, snapshot: payload.definitionSnapshot })),
+    unique = [...new Map(latest.map((candidate) => [stableStringify(candidate), candidate] as const)).values()];
+  return unique.length === 1 ? { kind: "found", definition: unique[0]! } : { kind: "ambiguous" };
 }
 
 function matchingTaskBinding(session: RuntimeSession, record: RuntimeDispatchRecordV1): boolean {
@@ -407,6 +474,7 @@ function leaseSettlement(
   const lease = projection.currentLease(record.taskId, record.endedAt),
     executor = lease?.actor.executor;
   return lease &&
+    lease.phase === "held" &&
     lease.executionId === record.executionId &&
     executor?.kind === "agent" &&
     executor.id === `runtime-session:${record.runtimeSessionId}`
@@ -509,7 +577,7 @@ function terminalEvents(
         runtimeSessionId: record.runtimeSessionId,
         outcome: record.outcome,
         exitCode: record.exitCode,
-        resultRef: recovered.recoveredRef,
+        resultRef: recovered.sourceRef,
         result: recovered.claim,
       },
       recovered.body,
@@ -657,6 +725,7 @@ function migrationReport(headRevision: number, gitRevision: number, planned: rea
       action: entry.action,
       sourceResultRef: entry.sourceResultRef,
       recoveredResultRef: entry.recoveredResultRef,
+      resultBlobMissing: entry.resultBlobMissing,
       plannedEvents: entry.events.map(({ type }) => type),
       releaseLease: entry.settlement !== null,
     })),

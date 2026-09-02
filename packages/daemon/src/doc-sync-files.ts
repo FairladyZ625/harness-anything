@@ -8,6 +8,7 @@ import {
   consumeKnownError,
   documentPath,
   resolveHarnessLayout,
+  runtimeArchiveText,
   type DocSyncReceiptDetail,
   type EventPublicationKillpoint,
   type WriteReceiptDraft as WriteReceipt,
@@ -20,9 +21,7 @@ export function localProseSource(source: WriteSource): boolean {
   return source === "local";
 }
 
-export function runtimeArchiveText(value: string): string {
-  return value.replace(/\r\n?/gu, "\n");
-}
+export { runtimeArchiveText };
 
 export function runtimeArchiveMissionRef(
   input: Omit<Input, "action">,

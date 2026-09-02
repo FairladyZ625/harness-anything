@@ -14,6 +14,8 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   relationEventWritePlan,
+  runDispatchRecordMigration,
+  runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   sha256Text,
   type AgentDefinitionSnapshot,
@@ -331,8 +333,7 @@ test("dispatch records recover full sessions, settle tails, and release only the
       },
       source,
     };
-  let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined,
-    activeStore: ReturnType<typeof makeTaskEventStore> | undefined;
+  let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
   try {
     initRepo(scratch);
     cell = await openBootstrappedRepoCell({
@@ -340,9 +341,6 @@ test("dispatch records recover full sessions, settle tails, and release only the
       rootDir: canonicalRoot(scratch),
       ownerId: "dispatch-records-test",
       now: monotonicMigrationClock(),
-      onStoreOpened: (opened) => {
-        activeStore = opened;
-      },
     });
     for (const record of records) {
       const created = (await cell.run(
@@ -389,9 +387,6 @@ test("dispatch records recover full sessions, settle tails, and release only the
       rootDir: canonicalRoot(scratch),
       ownerId: "dispatch-records-test",
       now: monotonicMigrationClock(),
-      onStoreOpened: (opened) => {
-        activeStore = opened;
-      },
     });
 
     const leaseConflict = await cell.run(
@@ -430,6 +425,10 @@ test("dispatch records recover full sessions, settle tails, and release only the
       ],
     );
     assert.equal(previewReport.plannedLeaseReleases, 1);
+    assert.equal(
+      previewReport.dispatches.every(({ resultBlobMissing }) => !resultBlobMissing),
+      true,
+    );
     context.diagnostic(
       `dispatch-records dry-run sample ${JSON.stringify({
         outcome: preview.outcome,
@@ -450,7 +449,11 @@ test("dispatch records recover full sessions, settle tails, and release only the
         })) as unknown as {
           readonly session: {
             readonly liveness: string;
-            readonly activity: { readonly outcome: string | null; readonly exitCode: number | null };
+            readonly activity: {
+              readonly outcome: string | null;
+              readonly exitCode: number | null;
+              readonly resultRef: string | null;
+            };
           };
         },
         dispatches = (await cell.read("repo.task.dispatches", { taskId: record.taskId })) as unknown as {
@@ -464,13 +467,16 @@ test("dispatch records recover full sessions, settle tails, and release only the
       assert.equal(status.session.liveness, "exited", record.runtimeSessionId);
       assert.equal(status.session.activity.outcome, record.outcome, record.runtimeSessionId);
       assert.equal(status.session.activity.exitCode, record.exitCode, record.runtimeSessionId);
+      assert.equal(status.session.activity.resultRef, record.resultRef, record.runtimeSessionId);
       assert.deepEqual(
         dispatches.dispatches.map((row) => [row.dispatchId, row.runtimeSessionId, row.outcome, row.exitCode]),
         [[record.dispatchId, record.runtimeSessionId, record.outcome, record.exitCode]],
       );
     }
-    assert.ok(activeStore);
-    const events = activeStore.read().events,
+    await cell.close();
+    cell = undefined;
+    const reader = makeTaskEventReader({ repoId, rootDir: scratch }),
+      events = reader.read().events,
       marker = events.find(
         (event) =>
           event.schema === "migration-import-event/v1" && event.payload.migratedFrom.startsWith("dispatch-records:"),
@@ -515,6 +521,16 @@ test("dispatch records recover full sessions, settle tails, and release only the
         true,
         record.runtimeSessionId,
       );
+      const outcome = runtimeEvents.find(({ type }) => type === "runtime_session_outcome_observed"),
+        resultHash = record.resultRef.slice("artifact:runtime-result/sha256/".length);
+      assert.equal(
+        outcome?.type === "runtime_session_outcome_observed" ? outcome.payload.resultRef : null,
+        record.resultRef,
+      );
+      assert.equal(
+        Buffer.from(reader.readContentBlob(resultHash) ?? []).toString("utf8"),
+        normalizedReportBody(record),
+      );
     }
     assert.deepEqual(
       tailEvents
@@ -527,6 +543,12 @@ test("dispatch records recover full sessions, settle tails, and release only the
     );
     assert.equal(released?.occurredAt, tail.endedAt);
 
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-records-test",
+      now: monotonicMigrationClock(),
+    });
     const restarted = await cell.run(
       { kind: "task-start", taskId: tail.taskId, executionId: tail.executionId },
       binding,
@@ -545,21 +567,341 @@ test("dispatch records recover full sessions, settle tails, and release only the
       );
       assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     }
-    const beforeRepeat = activeStore.read().events.length,
-      repeat = (await cell.run({ kind: "dispatch-records-migrate" }, binding)) as Record<string, unknown>,
-      afterRepeat = activeStore.read().events.length;
+    const repeat = (await cell.run({ kind: "dispatch-records-migrate" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "pending", JSON.stringify(repeat));
     assert.deepEqual(dispatchMigrationReport(repeat).categories, { "skip:already-settled": 3 });
-    assert.equal(afterRepeat, beforeRepeat);
+    await cell.close();
+    cell = undefined;
+    assert.equal(makeTaskEventReader({ repoId, rootDir: scratch }).read().revision, repeat.revision);
     context.diagnostic(
       `dispatch-records idempotency sample ${JSON.stringify({
         outcome: repeat.outcome,
         categories: dispatchMigrationReport(repeat).categories,
-        addedEvents: afterRepeat - beforeRepeat,
+        addedEvents: 0,
       })}`,
     );
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-records-test",
+      now: monotonicMigrationClock(),
+    });
     const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding);
     assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
+  } finally {
+    await cell?.close?.();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("dispatch migration retries a lease settlement that failed after terminal events were appended", async (context) => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-dispatch-settle-retry-")),
+    repoId = "dispatch-settle-retry",
+    binding: RepoCellBinding = { actor: { principal: actor.principal, executor: null }, source },
+    record = dispatchRecordFixtures()[0]!,
+    runtimeBinding: RepoCellBinding = {
+      actor: {
+        principal: actor.principal,
+        executor: { kind: "agent", id: `runtime-session:${record.runtimeSessionId}` },
+      },
+      source,
+    };
+  let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
+  try {
+    initRepo(scratch);
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-settle-retry",
+      now: monotonicMigrationClock(),
+    });
+    const created = (await cell.run(
+      { kind: "task-create", taskId: record.taskId, title: "Settlement retry fixture" },
+      binding,
+    )) as Record<string, unknown>;
+    await realizeTaskPlanFixture(scratch, String(created.packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    const started = await cell.run(
+      { kind: "task-start", taskId: record.taskId, executionId: record.executionId },
+      runtimeBinding,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await addDispatchArtifacts(cell, scratch, record, runtimeBinding);
+    await cell.close();
+    cell = undefined;
+    await appendRuntimeMigrationBaseline(scratch, repoId, [record]);
+
+    const store = makeTaskEventStore({ repoId, rootDir: scratch }),
+      projection = makeTaskProjection({
+        rootDir: scratch,
+        eventStore: store,
+        projectionPath: path.join(scratch, ".harness/cache/dispatch-settle-retry.sqlite"),
+      });
+    projection.rebuild();
+    let settlementAttempts = 0;
+    await assert.rejects(
+      runDispatchRecordMigration({
+        dryRun: false,
+        actor: binding.actor,
+        source,
+        rootDir: scratch,
+        store,
+        projection,
+        now: monotonicMigrationClock(),
+        settleLease: async () => {
+          settlementAttempts += 1;
+          throw new Error("fixture settlement failure");
+        },
+      }),
+      /fixture settlement failure/u,
+    );
+    assert.equal(settlementAttempts, 1);
+    assert.equal(
+      store
+        .read()
+        .events.filter(
+          (event) =>
+            event.schema === "agent-runtime-event/v1" &&
+            "runtimeSessionId" in event.payload &&
+            event.payload.runtimeSessionId === record.runtimeSessionId &&
+            (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed"),
+        ).length,
+      2,
+    );
+    projection.close();
+    await store.drain();
+
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-settle-retry",
+      now: monotonicMigrationClock(),
+    });
+    const preview = (await cell.run({ kind: "dispatch-records-migrate", dryRun: true }, binding)) as Record<
+        string,
+        unknown
+      >,
+      previewReport = dispatchMigrationReport(preview);
+    assert.deepEqual(previewReport.categories, { "settle-lease-only": 1 });
+    assert.deepEqual(previewReport.dispatches[0]?.plannedEvents, []);
+    assert.equal(previewReport.dispatches[0]?.releaseLease, true);
+
+    const applied = (await cell.run({ kind: "dispatch-records-migrate" }, binding)) as Record<string, unknown>,
+      appliedReport = dispatchMigrationReport(applied);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(appliedReport.appliedEvents, 0);
+    assert.equal(appliedReport.releasedLeases, 1);
+    context.diagnostic(
+      `dispatch-records settlement retry ${JSON.stringify({
+        firstSettlementAttempts: settlementAttempts,
+        retryCategory: previewReport.categories,
+        retryRuntimeEvents: appliedReport.appliedEvents,
+        releasedLeases: appliedReport.releasedLeases,
+      })}`,
+    );
+    const repeat = (await cell.run({ kind: "dispatch-records-migrate" }, binding)) as Record<string, unknown>;
+    assert.equal(repeat.outcome, "pending", JSON.stringify(repeat));
+    assert.deepEqual(dispatchMigrationReport(repeat).categories, { "skip:already-settled": 1 });
+    await cell.close();
+    cell = undefined;
+
+    const events = makeTaskEventReader({ repoId, rootDir: scratch }).read().events;
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.schema === "agent-runtime-event/v1" &&
+          "runtimeSessionId" in event.payload &&
+          event.payload.runtimeSessionId === record.runtimeSessionId &&
+          (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed"),
+      ).length,
+      2,
+    );
+    assert.equal(
+      events.filter(
+        (event) =>
+          event.schema === "task-event/v1" && event.type === "lease_released" && event.taskId === record.taskId,
+      ).length,
+      1,
+    );
+  } finally {
+    await cell?.close?.();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("dispatch migration skips unproven bindings and selects the latest definition effective at dispatch time", async (context) => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-dispatch-safe-planning-")),
+    repoId = "dispatch-safe-planning",
+    binding: RepoCellBinding = { actor: { principal: actor.principal, executor: null }, source },
+    executionMissing = syntheticDispatchRecord("a", { instanceId: "definition-common" }),
+    bindingMismatch = syntheticDispatchRecord("b", { instanceId: "definition-binding" }),
+    duplicateFirst = syntheticDispatchRecord("c", { instanceId: "definition-common" }),
+    duplicateSecond = syntheticDispatchRecord("d", {
+      instanceId: "definition-common",
+      runtimeSessionId: duplicateFirst.runtimeSessionId,
+    }),
+    definitionMissing = syntheticDispatchRecord("e", { instanceId: "definition-missing" }),
+    resultMissing = syntheticDispatchRecord("f", {
+      instanceId: "definition-common",
+      resultRef: `artifact:runtime-result/sha256/${"0".repeat(64)}`,
+    }),
+    definitionLatest = syntheticDispatchRecord("1", { instanceId: "definition-history" }),
+    definitionAmbiguous = syntheticDispatchRecord("2", { instanceId: "definition-ambiguous" }),
+    records = [
+      executionMissing,
+      bindingMismatch,
+      duplicateFirst,
+      duplicateSecond,
+      definitionMissing,
+      resultMissing,
+      definitionLatest,
+      definitionAmbiguous,
+    ];
+  let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
+  try {
+    initRepo(scratch);
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-safe-planning",
+      now: monotonicMigrationClock(),
+    });
+    for (const record of records) {
+      const created = (await cell.run(
+        { kind: "task-create", taskId: record.taskId, title: `Safe planning ${record.dispatchId}` },
+        binding,
+      )) as Record<string, unknown>;
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await realizeTaskPlanFixture(scratch, String(created.packagePath), (planPath) =>
+        cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+      if (record !== executionMissing) {
+        const started = await cell.run(
+          { kind: "task-start", taskId: record.taskId, executionId: record.executionId },
+          binding,
+        );
+        assert.equal(started.outcome, "applied", JSON.stringify(started));
+      }
+      await addDispatchArtifacts(cell, scratch, record, binding);
+    }
+    await cell.close();
+    cell = undefined;
+
+    const store = makeTaskEventStore({ repoId, rootDir: scratch }),
+      common = definitionSnapshotFor(duplicateFirst, "installation-common"),
+      bindingDefinition = definitionSnapshotFor(bindingMismatch, "installation-binding"),
+      historyOld = definitionSnapshotFor(definitionLatest, "installation-history-old"),
+      historyNew = definitionSnapshotFor(definitionLatest, "installation-history-new"),
+      historyFuture = definitionSnapshotFor(definitionLatest, "installation-history-future"),
+      ambiguousLeft = definitionSnapshotFor(definitionAmbiguous, "installation-ambiguous-left"),
+      ambiguousRight = definitionSnapshotFor(definitionAmbiguous, "installation-ambiguous-right");
+    for (const [index, definition] of [
+      common,
+      bindingDefinition,
+      historyOld,
+      historyNew,
+      historyFuture,
+      ambiguousLeft,
+      ambiguousRight,
+    ].entries())
+      appendRuntimeInstallation(store, definition, String(index));
+    appendDefinitionCandidate(store, common, "2026-09-02T00:10:00.000Z", "common");
+    appendDefinitionCandidate(store, historyOld, "2026-09-02T00:20:00.000Z", "history-old");
+    appendDefinitionCandidate(store, historyNew, "2026-09-02T00:30:00.000Z", "history-new");
+    appendDefinitionCandidate(store, historyFuture, "2026-09-03T00:00:00.000Z", "history-future");
+    appendDefinitionCandidate(store, ambiguousLeft, "2026-09-02T00:40:00.000Z", "ambiguous-left");
+    appendDefinitionCandidate(store, ambiguousRight, "2026-09-02T00:40:00.000Z", "ambiguous-right");
+    appendMismatchedRuntimeSession(store, bindingMismatch, bindingDefinition);
+    await store.drain();
+
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "dispatch-safe-planning",
+      now: monotonicMigrationClock(),
+    });
+    const preview = (await cell.run({ kind: "dispatch-records-migrate", dryRun: true }, binding)) as Record<
+        string,
+        unknown
+      >,
+      report = dispatchMigrationReport(preview),
+      byDispatch = new Map(report.dispatches.map((entry) => [entry.dispatchId, entry] as const));
+    assert.deepEqual(report.categories, {
+      "skip:execution-not-found": 1,
+      "skip:session-binding-mismatch": 1,
+      "import-full": 2,
+      "skip:duplicate-session": 1,
+      "skip:definition-not-found": 1,
+      "skip:result-content-missing": 1,
+      "skip:definition-ambiguous": 1,
+    });
+    assert.equal(byDispatch.get(executionMissing.dispatchId)?.action, "skip:execution-not-found");
+    assert.equal(byDispatch.get(bindingMismatch.dispatchId)?.action, "skip:session-binding-mismatch");
+    assert.equal(byDispatch.get(duplicateSecond.dispatchId)?.action, "skip:duplicate-session");
+    assert.equal(byDispatch.get(definitionMissing.dispatchId)?.action, "skip:definition-not-found");
+    assert.equal(byDispatch.get(definitionAmbiguous.dispatchId)?.action, "skip:definition-ambiguous");
+    assert.deepEqual(
+      {
+        action: byDispatch.get(resultMissing.dispatchId)?.action,
+        sourceResultRef: byDispatch.get(resultMissing.dispatchId)?.sourceResultRef,
+        recoveredResultRef: byDispatch.get(resultMissing.dispatchId)?.recoveredResultRef,
+        resultBlobMissing: byDispatch.get(resultMissing.dispatchId)?.resultBlobMissing,
+      },
+      {
+        action: "skip:result-content-missing",
+        sourceResultRef: resultMissing.resultRef,
+        recoveredResultRef: null,
+        resultBlobMissing: true,
+      },
+    );
+    assert.equal(byDispatch.get(definitionLatest.dispatchId)?.resultBlobMissing, false);
+    context.diagnostic(
+      `dispatch-records safe planning ${JSON.stringify({
+        categories: report.categories,
+        missingResultRef: byDispatch.get(resultMissing.dispatchId)?.sourceResultRef,
+        resultBlobMissing: byDispatch.get(resultMissing.dispatchId)?.resultBlobMissing,
+      })}`,
+    );
+
+    const applied = await cell.run({ kind: "dispatch-records-migrate" }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    await cell.close();
+    cell = undefined;
+    const reader = makeTaskEventReader({ repoId, rootDir: scratch }),
+      events = reader.read().events,
+      latestDispatch = events.find(
+        (event) =>
+          event.schema === "agent-runtime-event/v1" &&
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.dispatchId === definitionLatest.dispatchId,
+      ),
+      duplicateStarts = events.filter(
+        (event) =>
+          event.schema === "agent-runtime-event/v1" &&
+          event.type === "runtime_session_started" &&
+          event.payload.runtimeSessionId === duplicateFirst.runtimeSessionId,
+      ),
+      missingOutcomes = events.filter(
+        (event) =>
+          event.schema === "agent-runtime-event/v1" &&
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === resultMissing.runtimeSessionId,
+      );
+    assert.equal(
+      latestDispatch?.type === "runtime_dispatch_requested" ? latestDispatch.payload.installationId : null,
+      historyNew.installationId,
+    );
+    assert.equal(duplicateStarts.length, 1);
+    assert.equal(missingOutcomes.length, 0);
+    assert.equal(reader.readContentBlob("0".repeat(64)), null);
+    const projection = makeTaskProjection({
+      rootDir: scratch,
+      eventStore: reader,
+      projectionPath: path.join(scratch, ".harness/cache/dispatch-safe-rebuild.sqlite"),
+    });
+    assert.equal(projection.rebuild().watermark, reader.read().revision);
+    projection.close();
   } finally {
     await cell?.close?.();
     rmSync(scratch, { recursive: true, force: true });
@@ -606,12 +948,9 @@ async function addDispatchArtifacts(
 ): Promise<void> {
   const dispatchSource = `incoming-${record.dispatchId}.json`,
     reportSource = `incoming-${record.dispatchId}.md`,
-    fixtureBody = readFileSync(
-      new URL(`./fixtures/dispatch-record-migration/${record.dispatchId}.json`, import.meta.url),
-      "utf8",
-    );
+    fixtureBody = `${JSON.stringify(record, null, 2)}\n`;
   writeFileSync(path.join(rootDir, dispatchSource), fixtureBody);
-  writeFileSync(path.join(rootDir, reportSource), `Recovered report for ${record.dispatchId}.\n`);
+  writeFileSync(path.join(rootDir, reportSource), rawReportBody(record));
   for (const [artifactSource, destination] of [
     [dispatchSource, `dispatches/${record.dispatchId}.json`],
     [reportSource, `reports/${record.dispatchId}.md`],
@@ -622,6 +961,158 @@ async function addDispatchArtifacts(
     );
     assert.equal(added.outcome, "applied", `${artifactSource}: ${JSON.stringify(added)}`);
   }
+}
+
+function rawReportBody(record: DispatchRecordFixture): string {
+  const ending = record.dispatchId === "dispatch_58d3d4f10a20791ac746e2e9" ? "\r\n" : "\n";
+  return `Recovered report for ${record.dispatchId}.${ending}`;
+}
+
+function normalizedReportBody(record: DispatchRecordFixture): string {
+  return runtimeArchiveText(rawReportBody(record));
+}
+
+function syntheticDispatchRecord(key: string, overrides: Partial<DispatchRecordFixture> = {}): DispatchRecordFixture {
+  const base = dispatchRecordFixtures()[1]!,
+    dispatchId = `dispatch_${key.repeat(24)}`,
+    minute = String(Number.parseInt(key, 16)).padStart(2, "0"),
+    draft: DispatchRecordFixture = {
+      ...base,
+      dispatchId,
+      taskId: `task_${key.repeat(24)}`,
+      executionId: `exe_${key.repeat(24)}`,
+      runtimeSessionId: `runtime_${key.repeat(24)}`,
+      providerSessionId: `provider-${key}`,
+      startedAt: `2026-09-02T01:${minute}:00.000Z`,
+      endedAt: `2026-09-02T02:${minute}:00.000Z`,
+      eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
+      resultRef: "pending",
+      ...overrides,
+    };
+  return {
+    ...draft,
+    resultRef:
+      overrides.resultRef ?? `artifact:runtime-result/sha256/${sha256Text(runtimeArchiveText(rawReportBody(draft)))}`,
+  };
+}
+
+function definitionSnapshotFor(record: DispatchRecordFixture, installationId: string): AgentDefinitionSnapshot {
+  return {
+    schema: "agent-definition-snapshot/v1",
+    configVersion: 1,
+    instanceId: record.instanceId,
+    installationId,
+    kindId: "codex",
+    providerId: "openai",
+    model: record.model,
+    reasoningEffort: record.reasoningEffort,
+    fast: record.fast,
+    baseUrl: null,
+    authMode: "subscription",
+  };
+}
+
+function appendRuntimeInstallation(
+  store: ReturnType<typeof makeTaskEventStore>,
+  definition: AgentDefinitionSnapshot,
+  suffix: string,
+): void {
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_installation_observed",
+    opId: `fixture-safe-installation-${suffix}`,
+    occurredAt: "2026-09-02T00:00:00.000Z",
+    payload: {
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      protocolFamily: definition.kindId,
+      hostRef: "host:local",
+      version: "fixture-1.0.0",
+      discoverySource: "wrapper",
+      capabilities: ["structured_witness", "attach"],
+    },
+  });
+}
+
+function appendDefinitionCandidate(
+  store: ReturnType<typeof makeTaskEventStore>,
+  definition: AgentDefinitionSnapshot,
+  occurredAt: string,
+  suffix: string,
+): void {
+  const artifact = runtimeDefinitionSnapshotArtifact(definition);
+  appendRuntimeFixtureEvent(
+    store,
+    {
+      type: "runtime_dispatch_requested",
+      opId: `fixture-safe-definition-${suffix}`,
+      occurredAt,
+      payload: {
+        dispatchId: `dispatch-definition-${suffix}`,
+        runtimeSessionId: `runtime-definition-${suffix}`,
+        instanceId: definition.instanceId,
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        idempotencyKey: `fixture-definition-${suffix}`,
+        definitionSnapshotRef: artifact.ref,
+        definitionSnapshot: definition,
+      },
+    },
+    artifact.body,
+  );
+}
+
+function appendMismatchedRuntimeSession(
+  store: ReturnType<typeof makeTaskEventStore>,
+  record: DispatchRecordFixture,
+  definition: AgentDefinitionSnapshot,
+): void {
+  const artifact = runtimeDefinitionSnapshotArtifact(definition),
+    base = `fixture-binding-${record.dispatchId}`;
+  appendRuntimeFixtureEvent(
+    store,
+    {
+      type: "runtime_dispatch_requested",
+      opId: base,
+      occurredAt: "2026-09-02T00:15:00.000Z",
+      payload: {
+        dispatchId: record.dispatchId,
+        runtimeSessionId: record.runtimeSessionId,
+        instanceId: definition.instanceId,
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        idempotencyKey: `fixture-binding-${record.dispatchId}`,
+        definitionSnapshotRef: artifact.ref,
+        definitionSnapshot: definition,
+      },
+    },
+    artifact.body,
+  );
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_session_started",
+    opId: `${base}-started`,
+    occurredAt: record.startedAt,
+    payload: {
+      runtimeSessionId: record.runtimeSessionId,
+      instanceId: definition.instanceId,
+      installationId: definition.installationId,
+      kindId: definition.kindId,
+      definitionSnapshotRef: artifact.ref,
+      launchGeneration: 1,
+      attachable: true,
+    },
+  });
+  appendRuntimeFixtureEvent(store, {
+    type: "runtime_session_task_bound",
+    opId: `${base}-task`,
+    occurredAt: record.startedAt,
+    payload: {
+      runtimeSessionId: record.runtimeSessionId,
+      taskId: "task_unrelated",
+      executionId: "exe_unrelated",
+      providerSessionId: record.providerSessionId,
+      transcriptRef: record.eventStreamRef,
+    },
+  });
 }
 
 async function appendRuntimeMigrationBaseline(
@@ -799,7 +1290,15 @@ function dispatchMigrationReport(receipt: Record<string, unknown>): {
   readonly plannedLeaseReleases: number;
   readonly appliedEvents?: number;
   readonly releasedLeases?: number;
-  readonly dispatches: readonly { readonly dispatchId: string; readonly action: string }[];
+  readonly dispatches: readonly {
+    readonly dispatchId: string;
+    readonly action: string;
+    readonly sourceResultRef: string | null;
+    readonly recoveredResultRef: string | null;
+    readonly resultBlobMissing: boolean;
+    readonly plannedEvents: readonly string[];
+    readonly releaseLease: boolean;
+  }[];
 } {
   return JSON.parse(String(receipt.evidence)) as ReturnType<typeof dispatchMigrationReport>;
 }

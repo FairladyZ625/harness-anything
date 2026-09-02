@@ -92,6 +92,11 @@ export interface RuntimeResultClaim {
   readonly size: number;
   readonly mediaType: "text/plain; charset=utf-8";
 }
+
+export function runtimeArchiveText(value: string): string {
+  return value.replace(/\r\n?/gu, "\n");
+}
+
 interface RuntimeDefinitionSnapshotClaim {
   readonly sha256: string;
   readonly size: number;
