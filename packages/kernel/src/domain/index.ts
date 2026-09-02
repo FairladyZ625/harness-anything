@@ -92,20 +92,10 @@ export {
   taskBoardColumnIds,
   taskBoardColumnOf,
   taskBoardPlacement,
-  taskBoardRankOf,
   taskCapabilities,
-  taskCapabilityIds,
-  taskCapabilityReasons,
   taskVisibility,
 } from "./task-board-projection.ts";
-export type {
-  TaskBoardColumnId,
-  TaskBoardPlacement,
-  TaskBoardRowInput,
-  TaskCapability,
-  TaskCapabilityId,
-  TaskCapabilityReason,
-} from "./task-board-projection.ts";
+export type { TaskBoardColumnId, TaskCapabilityId, TaskCapabilityReason } from "./task-board-projection.ts";
 
 export {
   DEFAULT_TASK_ROOT_THRESHOLD,
