@@ -10,6 +10,15 @@ export {
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget,
 } from "./client/local-json-rpc-client.ts";
+export {
+  buildSshArgs,
+  openRemoteDaemonConnection,
+  openRemoteDaemonStream,
+  requestRemoteDaemonJsonRpc,
+  RemoteDaemonTransportError,
+  type RemoteDaemonConnection,
+  type RemoteDaemonSshOptions,
+} from "./client/remote-json-rpc-client.ts";
 export { openDaemonHost, type DaemonHost } from "./daemon-host.ts";
 export {
   listenFleetTls,
