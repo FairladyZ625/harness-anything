@@ -8,7 +8,9 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskProjection, readDaemonRegistry } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
@@ -139,6 +141,84 @@ test("a request arriving while a registered repo warms parks until background at
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "attached");
   } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon status exposes the writer phase and progress while a repository attaches", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-attach-progress-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user");
+  rosterRepo(rootDir, "host-attach-progress");
+  registerDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId: "host-attach-progress",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  let publishProgress!: () => void, releaseOpen!: () => void;
+  const workerStatuses: RepoCellStatus[] = [],
+    progressPublished = new Promise<void>((resolve) => {
+      publishProgress = resolve;
+    }),
+    openReleased = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    }),
+    openCell: NonNullable<DaemonHostOpenInput["openCell"]> = async (cellInput) => {
+      cellInput.onStatus?.({
+        repoId: cellInput.repoId,
+        rootDir: cellInput.rootDir,
+        mode: cellInput.mode ?? "local",
+        state: "warming",
+        generation: null,
+        queueDepth: 0,
+        lastError: null,
+        causeClass: null,
+        recoveryMs: null,
+        attach: {
+          phase: "catching-up",
+          applied: 4_096,
+          total: 8_192,
+          watermark: 4_096,
+        },
+      });
+      publishProgress();
+      await openReleased;
+      return openRepoCell({
+        ...cellInput,
+        onStatus: (status) => {
+          workerStatuses.push(status);
+          cellInput.onStatus?.(status);
+        },
+      });
+    },
+    host = await openDaemonHost({ daemonId: "host-attach-progress", userRoot, openCell }),
+    attachments = host.attachmentsSettled();
+  await progressPublished;
+  try {
+    const row = host.status().repos.find((repo) => repo.repoId === "host-attach-progress");
+    context.diagnostic(`ha daemon status repo row: ${JSON.stringify(row)}`);
+    assert.equal(row?.state, "warming");
+    assert.deepEqual(row?.attach, {
+      phase: "catching-up",
+      applied: 4_096,
+      total: 8_192,
+      watermark: 4_096,
+    });
+    releaseOpen();
+    await attachments;
+    assert.ok(
+      workerStatuses.some((status) => status.attach?.phase === "catching-up"),
+      "the real writer must relay its catch-up boundary through the existing status message",
+    );
+    const attachedRows = host.status().repos.filter((repo) => repo.repoId === "host-attach-progress");
+    assert.equal(attachedRows.length, 1);
+    assert.equal(attachedRows[0]?.state, "attached");
+    assert.equal(attachedRows[0]?.attach, undefined);
+  } finally {
+    releaseOpen();
+    await attachments;
     await host.close();
     rmSync(parent, { recursive: true, force: true });
   }
@@ -494,6 +574,7 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
     clock = "2026-08-18T00:00:06.000Z";
     assert.equal((await host.run("schema-admission", { kind: "task-list" }, auth)).outcome, "applied");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.state, "attached");
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.attach, undefined);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

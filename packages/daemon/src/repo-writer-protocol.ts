@@ -5,7 +5,7 @@ import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { diagnosticForError } from "./receipt-guidance.ts";
 import type { RepoBootstrapInput } from "./repo-bootstrap.ts";
-import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoCellStatus, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal, RuntimeDaemonRoute } from "./runtime-spawn.ts";
 
 export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
@@ -76,7 +76,7 @@ export interface RepoWriterStatusV1 {
   readonly schema: "harness-repo-writer-status/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly kind: "ready" | "cut" | "status" | "closed";
-  readonly status?: unknown;
+  readonly status?: RepoCellStatus;
   readonly bootstrapReceipt?: unknown;
   readonly error?: SerializedWriterErrorV1;
 }

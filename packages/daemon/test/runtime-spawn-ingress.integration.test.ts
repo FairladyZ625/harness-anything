@@ -1342,9 +1342,12 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
                 event.payload.runtimeSessionId === second.runtimeSessionId,
             ),
         );
-        const read = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
-          repo: { repoId },
-          payload: { runtimeSessionId: second.runtimeSessionId },
+        const read = await eventuallyValue(async () => {
+          const value = await rpc(host, auth, "repo.agentRuntime.sessions.read", {
+            repo: { repoId },
+            payload: { runtimeSessionId: second.runtimeSessionId },
+          });
+          return value.result ? value : null;
         });
         assert.equal((read.session as Record<string, unknown>).providerSessionId, providerSessionId);
         assert.equal(

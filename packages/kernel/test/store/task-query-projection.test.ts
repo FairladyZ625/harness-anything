@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import {
@@ -227,6 +228,35 @@ test("narrow task list pages concatenate to the unparameterized result and keep 
       projection.list({ status: "active", limit: 1 }).rows.map((row) => row.taskId),
       ["task_query_01"],
     );
+  });
+});
+
+test("catch-up reports every bounded round and keeps an omitted progress callback as a no-op", async () => {
+  const events = taskFixture().events.slice(0, 3);
+  await withTempStoreAsync(async (rootDir) => {
+    const progress: Array<{ readonly applied: number; readonly total: number; readonly watermark: number }> = [],
+      projection = makeTaskProjection({
+        rootDir,
+        eventStore: memoryEventStore(events),
+        catchUpLimit: 1,
+        onProgress: (round) => progress.push({ ...round, total: round.total ?? -1 }),
+      });
+    projection.catchUp();
+    assert.deepEqual(progress, [
+      { applied: 1, total: 3, watermark: 1 },
+      { applied: 2, total: 3, watermark: 2 },
+      { applied: 3, total: 3, watermark: 3 },
+    ]);
+    projection.close();
+
+    const quiet = makeTaskProjection({
+      rootDir,
+      projectionPath: path.join(rootDir, ".harness/cache/task-quiet.sqlite"),
+      eventStore: memoryEventStore(events),
+      catchUpLimit: 1,
+    });
+    assert.equal(quiet.catchUp().watermark, 3);
+    quiet.close();
   });
 });
 
