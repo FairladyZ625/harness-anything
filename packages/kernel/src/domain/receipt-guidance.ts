@@ -4,15 +4,19 @@ export interface ReceiptGuidanceWhen {
   readonly [field: string]: string | number | boolean;
 }
 
+export const RECEIPT_GUIDANCE_KINDS = Object.freeze([
+  "repository-diff-contract",
+  "task-create-publish",
+  "task-create-start",
+  "receipt-query",
+  "edit-plan",
+  "pin-agenda",
+  "ledger-managed",
+] as const);
+export type ReceiptGuidanceKind = (typeof RECEIPT_GUIDANCE_KINDS)[number];
+
 export interface ReceiptGuidanceContractEntry {
-  readonly kind:
-    | "repository-diff-contract"
-    | "task-create-publish"
-    | "task-create-start"
-    | "receipt-query"
-    | "edit-plan"
-    | "pin-agenda"
-    | "ledger-managed";
+  readonly kind: ReceiptGuidanceKind;
   readonly args: Readonly<Record<string, ReceiptGuidanceArgument>>;
   readonly when?: ReceiptGuidanceWhen;
 }

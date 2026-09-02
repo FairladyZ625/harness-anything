@@ -2,7 +2,7 @@ import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
-import type { ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
+import { RECEIPT_GUIDANCE_KINDS, type ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
 
 export interface EntityActionUnmetCriterionV1 {
@@ -328,15 +328,7 @@ export function isReceiptGuidance(value: unknown): value is ReceiptGuidanceContr
   const fields = "when" in value ? ["kind", "args", "when"] : ["kind", "args"];
   return (
     exact(value, fields) &&
-    [
-      "repository-diff-contract",
-      "task-create-publish",
-      "task-create-start",
-      "receipt-query",
-      "edit-plan",
-      "pin-agenda",
-      "ledger-managed",
-    ].includes(String(value.kind)) &&
+    (RECEIPT_GUIDANCE_KINDS as readonly string[]).includes(String(value.kind)) &&
     isReceiptDomainRecord(value.args) &&
     Object.values(value.args).every(
       (argument) =>
