@@ -96,18 +96,18 @@ export function withQueryOnlyDatabaseSession<A>(
     { readOnly: true },
   );
   try {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-098 */
+    /* @gate-identity check-bypass-write-boundary/bypass-write-104 */
     db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON; BEGIN`);
     queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
     const value = use(db);
     if (value !== null && typeof value === "object" && "then" in value)
       throw new Error("projection reader sessions must complete synchronously inside one SQLite transaction");
-    /* @gate-identity check-bypass-write-boundary/bypass-write-099 */
+    /* @gate-identity check-bypass-write-boundary/bypass-write-105 */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-100 */
+      /* @gate-identity check-bypass-write-boundary/bypass-write-106 */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
