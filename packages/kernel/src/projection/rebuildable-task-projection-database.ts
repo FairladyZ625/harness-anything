@@ -95,15 +95,18 @@ export function withQueryOnlyDatabaseSession<A>(
     { readOnly: true },
   );
   try {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-098 */
     db.exec("PRAGMA query_only = ON; BEGIN");
     queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
     const value = use(db);
     if (value !== null && typeof value === "object" && "then" in value)
       throw new Error("projection reader sessions must complete synchronously inside one SQLite transaction");
+    /* @gate-identity check-bypass-write-boundary/bypass-write-099 */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-100 */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
@@ -186,11 +189,17 @@ function projectionDatabaseOwner(
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
     if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
     if (db === null) initialize();
-    const observed = projectionSchemaVersion(db!);
-    if (observed !== null && observed > taskProjectionSchemaVersion)
-      throw new ProjectionSchemaMismatchError(observed, projectionPath);
-    if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
-    return operation(db!);
+    try {
+      const observed = projectionSchemaVersion(db!);
+      if (observed !== null && observed > taskProjectionSchemaVersion)
+        throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      if (!matchesLedgerIdentity(db!, readHead())) throw new ProjectionIdentityMismatchError();
+      return operation(db!);
+    } finally {
+      // A completed writer operation publishes the main projection file, not SQLite's
+      // process-local WAL index. Query readers keep their own short-lived snapshot open.
+      close();
+    }
   };
   const owner = { use, discard, close };
   owners.set(projectionPath, owner);

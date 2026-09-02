@@ -120,13 +120,16 @@ export function transaction<A>(db: DatabaseSync, run: () => A): A {
 
 export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
   if (db.isTransaction) return run();
+  /* @gate-identity check-bypass-write-boundary/bypass-write-101 */
   db.exec("BEGIN");
   try {
     const value = run();
+    /* @gate-identity check-bypass-write-boundary/bypass-write-102 */
     db.exec("COMMIT");
     return value;
   } catch (error) {
     try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-103 */
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);

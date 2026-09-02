@@ -5,13 +5,10 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  canonicalRoot,
-  workspaceId,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 
 import {
   cli,
@@ -27,22 +24,11 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
   const fixture = setup(),
     source = makeCanary(fixture.root);
   try {
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.alpha, fixture.userRoot, "alpha");
-    const installed = run(fixture.alpha, fixture.userRoot, [
-      "preset",
-      "install",
-      "--source",
-      source,
-    ]);
+    const installed = run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
     assert.equal(installed.outcome, "pending");
-    assert.equal(
-      (installed.proof as Record<string, unknown>).canonicalVisible,
-      false,
-    );
+    assert.equal((installed.proof as Record<string, unknown>).canonicalVisible, false);
     const result = spawnSync(
       process.execPath,
       [
@@ -69,41 +55,24 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
     );
     assert.equal(result.status, 0, result.stderr);
     const output = result.stdout.trim().split("\n");
-    for (const phase of [
-      "admitted",
-      "spawned",
-      "running",
-      "publishing",
-      "applied",
-    ])
+    for (const phase of ["admitted", "spawned", "running", "publishing", "applied"])
       assert.equal(
         output.some((line) => line.includes(`preset-run-start: ${phase}`)),
         true,
         `${phase}: ${result.stdout}`,
       );
     assert.match(
-      String(
-        run(fixture.alpha, fixture.userRoot, ["task", "show", "task-canary"])
-          .evidence,
-      ),
+      String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-canary"]).evidence),
       /Daemon canary/u,
     );
-    const childEvent = makeTaskEventStore({
+    const childEvent = makeTaskEventReader({
       rootDir: fixture.alpha,
       repoId: "alpha",
     })
       .read()
-      .events.find(
-        (event) =>
-          event.schema === "task-bootstrap-event/v1" &&
-          event.taskId === "task-canary",
-      );
+      .events.find((event) => event.schema === "task-bootstrap-event/v1" && event.taskId === "task-canary");
     assert.ok(childEvent);
-    const producedReceipt = run(fixture.alpha, fixture.userRoot, [
-        "receipt",
-        "show",
-        childEvent.opId,
-      ]),
+    const producedReceipt = run(fixture.alpha, fixture.userRoot, ["receipt", "show", childEvent.opId]),
       directReceipt = run(fixture.alpha, fixture.userRoot, [
         "task",
         "create",
@@ -134,7 +103,7 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
     assert.equal(directReceipt.commitSha, null);
     assert.ok(directReceipt.cut);
     stop(fixture.alpha, fixture.userRoot);
-    const materialized = makeTaskEventStore({
+    const materialized = makeTaskEventReader({
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
@@ -155,20 +124,11 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
 
 test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async () => {
   const fixture = setup(),
-    source = makeCanary(
-      fixture.root,
-      "setTimeout(() => process.exit(0), 2_000);",
-      [],
-    );
+    source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
   try {
     run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]);
     register(fixture.alpha, fixture.userRoot, "alpha");
-    run(fixture.alpha, fixture.userRoot, [
-      "preset",
-      "install",
-      "--source",
-      source,
-    ]);
+    run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
     const params = {
         repo: { repoId: "alpha" },
         payload: {
@@ -178,20 +138,11 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
           idempotencyKey: "crash-once",
         },
       },
-      started = await requestLocalDaemonJsonRpc(
-        fixture.alpha,
-        "repo.preset.run.start",
-        params,
-        1_000,
-        { userRoot: fixture.userRoot },
-      );
+      started = await requestLocalDaemonJsonRpc(fixture.alpha, "repo.preset.run.start", params, 1_000, {
+        userRoot: fixture.userRoot,
+      });
     assert.equal(started.phase, "admitted");
-    await waitForRun(
-      fixture.alpha,
-      fixture.userRoot,
-      String(started.runId),
-      "running",
-    );
+    await waitForRun(fixture.alpha, fixture.userRoot, String(started.runId), "running");
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid);
     process.kill(pid, "SIGKILL");
@@ -205,11 +156,7 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
       { userRoot: fixture.userRoot },
     );
     assert.equal(unknown.outcome, "outcome_unknown", JSON.stringify(unknown));
-    assert.equal(
-      (unknown.phases as string[]).filter((phase) => phase === "spawned")
-        .length,
-      1,
-    );
+    assert.equal((unknown.phases as string[]).filter((phase) => phase === "spawned").length, 1);
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
@@ -247,20 +194,10 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
       "Blocked",
     ]);
     assert.notEqual(blocked.status, 0);
+    assert.equal((blocked.receipt.error as { code?: string }).code, "repo_unavailable");
     assert.equal(
-      (blocked.receipt.error as { code?: string }).code,
-      "repo_unavailable",
-    );
-    assert.equal(
-      run(fixture.beta, fixture.userRoot, [
-        "task",
-        "create",
-        "--id",
-        "task-live",
-        "--admin",
-        "--title",
-        "Live",
-      ]).outcome,
+      run(fixture.beta, fixture.userRoot, ["task", "create", "--id", "task-live", "--admin", "--title", "Live"])
+        .outcome,
       "applied",
     );
   } finally {
@@ -286,10 +223,10 @@ test("one invalid registry entry stays visible and removable without blocking he
     assert.ok(bad);
     delete bad.authoredBranch;
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
-    assert.equal(
-      run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]).ok,
-      true,
-    );
+    assert.equal(run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    // Socket readiness intentionally precedes background repository attachment. Exercise
+    // the healthy repo through the CLI warming retry before asserting its settled status.
+    assert.equal(run(fixture.beta, fixture.userRoot, ["task", "list"]).outcome, "applied");
     const status = run(fixture.beta, fixture.userRoot, ["daemon", "status"]),
       rows = status.repos as Array<{
         repoId: string;
@@ -299,21 +236,10 @@ test("one invalid registry entry stays visible and removable without blocking he
       invalid = rows.find((repo) => repo.repoId === "alpha");
     assert.equal(invalid?.state, "unavailable");
     assert.match(invalid?.lastError ?? "", /authoredBranch/u);
-    assert.equal(
-      rows.find((repo) => repo.repoId === "beta")?.state,
-      "attached",
-    );
-    assert.equal(
-      run(fixture.beta, fixture.userRoot, ["task", "list"]).outcome,
-      "applied",
-    );
-    const system = await requestLocalDaemonJsonRpc(
-        fixture.beta,
-        "daemon.gui.system.read",
-        {},
-        1_000,
-        { userRoot: fixture.userRoot },
-      ),
+    assert.equal(rows.find((repo) => repo.repoId === "beta")?.state, "attached");
+    const system = await requestLocalDaemonJsonRpc(fixture.beta, "daemon.gui.system.read", {}, 1_000, {
+        userRoot: fixture.userRoot,
+      }),
       guiInvalid = (
         system.repos as Array<{
           repoId: string;
@@ -323,13 +249,7 @@ test("one invalid registry entry stays visible and removable without blocking he
       ).find((repo) => repo.repoId === "alpha");
     assert.equal(guiInvalid?.cellState, "unavailable");
     assert.match(guiInvalid?.unavailableReason ?? "", /authoredBranch/u);
-    const unregistered = run(fixture.beta, fixture.userRoot, [
-      "daemon",
-      "repo",
-      "unregister",
-      "--repo-id",
-      "alpha",
-    ]);
+    const unregistered = run(fixture.beta, fixture.userRoot, ["daemon", "repo", "unregister", "--repo-id", "alpha"]);
     assert.equal(unregistered.ok, true);
     assert.equal((unregistered.repo as { state: string }).state, "disabled");
     const persisted = JSON.parse(readFileSync(registryPath, "utf8")) as {

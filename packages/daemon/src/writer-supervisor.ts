@@ -36,6 +36,7 @@ export interface WriterSupervisor {
 export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<WriterSupervisor> {
   let worker: Worker | null = null,
     closed = false,
+    opened = false,
     restartAttempt = 0,
     status: RepoCellStatus = {
       repoId: input.repoId,
@@ -58,6 +59,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
 
   ready = startWriterWorker();
   await ready;
+  opened = true;
 
   return {
     request: async <T>(method: RepoWriterRequestV1["method"], payload: unknown, binding?: RepoCellBinding) => {
@@ -87,21 +89,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         }
       });
     },
-    control: async (command) => {
-      await ready;
-      if (!worker) throw new Error("RepoWriterCell is unavailable");
-      const requestId = randomUUID(),
-        control: RepoWriterControlV1 = {
-          schema: "harness-repo-writer-control/v1",
-          protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
-          requestId,
-          command,
-        };
-      return new Promise<void>((resolve, reject) => {
-        pending.set(requestId, { resolve: () => resolve(), reject });
-        worker!.postMessage(control);
-      });
-    },
+    control: sendControl,
     status: () => status,
     bootstrapReceipt: () => publishedBootstrapReceipt,
     close: async () => {
@@ -109,16 +97,7 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
       closed = true;
       try {
         if (worker) {
-          const requestId = randomUUID();
-          await new Promise<void>((resolve, reject) => {
-            pending.set(requestId, { resolve: () => resolve(), reject });
-            worker!.postMessage({
-              schema: "harness-repo-writer-control/v1",
-              protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
-              requestId,
-              command: "drain",
-            } satisfies RepoWriterControlV1);
-          });
+          await sendControl("drain", true);
         }
       } finally {
         const active = worker;
@@ -141,6 +120,16 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         workerData: bootstrapMessage(input),
       });
       let settled = false;
+      const readyTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        const error = new Error("RepoWriterCell did not publish ready within 30000ms");
+        if (!opened) closed = true;
+        reject(error);
+        failActive(error);
+        void candidate.terminate();
+      }, 30_000);
+      readyTimer.unref?.();
       worker = candidate;
       candidate.on("message", (message: unknown) => {
         if (isReceipt(message)) {
@@ -161,10 +150,14 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           if (message.kind === "ready") {
             restartAttempt = 0;
             settled = true;
+            clearTimeout(readyTimer);
             resolve();
           } else if (message.kind === "closed" && message.error && !settled) {
             settled = true;
+            clearTimeout(readyTimer);
+            if (!opened) closed = true;
             reject(deserializeWriterError(message.error));
+            void candidate.terminate();
           }
           return;
         }
@@ -173,15 +166,19 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
       candidate.once("error", (error) => {
         if (!settled) {
           settled = true;
+          clearTimeout(readyTimer);
+          if (!opened) closed = true;
           reject(error);
         }
         failActive(error);
       });
       candidate.once("exit", (code) => {
+        clearTimeout(readyTimer);
         if (worker === candidate) worker = null;
         const error = new Error(`RepoWriterCell exited with code ${code}`);
         if (!settled) {
           settled = true;
+          if (!opened) closed = true;
           reject(error);
         }
         failActive(error);
@@ -203,6 +200,22 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           });
         }
       });
+    });
+  }
+
+  async function sendControl(command: RepoWriterControlV1["command"], allowClosed = false): Promise<void> {
+    await ready;
+    if ((!allowClosed && closed) || !worker) throw new Error("RepoWriterCell is unavailable");
+    const requestId = randomUUID(),
+      control: RepoWriterControlV1 = {
+        schema: "harness-repo-writer-control/v1",
+        protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+        requestId,
+        command,
+      };
+    return new Promise<void>((resolve, reject) => {
+      pending.set(requestId, { resolve: () => resolve(), reject });
+      worker!.postMessage(control);
     });
   }
 
@@ -276,6 +289,14 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
       case "runtimeOutcome":
         input.onRuntimeOutcome?.(call.payload as never);
         return null;
+      case "runtimeSignal": {
+        const payload = call.payload as {
+          runtimeSessionId: string;
+          signal: Parameters<NonNullable<RepoCellOpenInput["onRuntimeSignal"]>>[1];
+        };
+        input.onRuntimeSignal?.(payload.runtimeSessionId, payload.signal);
+        return null;
+      }
       case "attemptTerminal":
         input.onAttemptTerminal?.(call.payload as never);
         return null;
@@ -283,6 +304,17 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         input.recordLifecycle?.(call.payload as never);
         return null;
       case "storeOpened":
+        input.onStoreOpened?.({
+          beginBulkWrite: () => {
+            const begun = sendControl("beginBulkWrite");
+            return {
+              finish: async () => {
+                await begun;
+                await sendControl("finishBulkWrite");
+              },
+            };
+          },
+        } as Parameters<NonNullable<RepoCellOpenInput["onStoreOpened"]>>[0]);
         return null;
     }
   }
@@ -317,7 +349,9 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
       runtimeLaunch: input.runtimeLaunch !== undefined,
+      runtimeSignal: input.onRuntimeSignal !== undefined,
       fleetRoster: input.fleetRoster !== undefined,
+      storeOpened: input.onStoreOpened !== undefined,
     },
   };
 }

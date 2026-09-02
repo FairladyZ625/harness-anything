@@ -18,7 +18,11 @@ import { createPresetProcessService, presetUserRoot } from "../../preset/src/ind
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { prepareAgentEntityInstall, readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
+import {
+  makeAgentRuntimeStreamHub,
+  type AgentRuntimeNativeSignal,
+  type AgentRuntimeStreamHub,
+} from "./agent-runtime-stream.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -153,6 +157,8 @@ export interface RepoCellOpenInput {
       { readonly type: "runtime_session_outcome_observed" }
     >,
   ) => void;
+  /** Relays validated live provider frames to the host-side read-only stream hub. */
+  readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Test seam for controlling WAL materialization without wall-clock scheduling. */
   readonly onStoreOpened?: (store: CanonicalEventStore) => void;
@@ -200,13 +206,21 @@ export async function openRepoWriterCell(
     userRoot: presetUserRoot(rootDir),
     readSettings: () => readSettings(),
   });
-  const runtimeStream = makeAgentRuntimeStreamHub({
-    readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
-    canAttach: (session) =>
-      session.attachable &&
-      Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
-    now: () => new Date(now()),
-  });
+  const workerRuntimeStream = makeAgentRuntimeStreamHub({
+      readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
+      canAttach: (session) =>
+        session.attachable &&
+        Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
+      now: () => new Date(now()),
+    }),
+    runtimeStream: AgentRuntimeStreamHub = {
+      ...workerRuntimeStream,
+      publish: (runtimeSessionId, signal) => {
+        const event = workerRuntimeStream.publish(runtimeSessionId, signal);
+        input.onRuntimeSignal?.(runtimeSessionId, signal);
+        return event;
+      },
+    };
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   let activeWriterEpochGuard: (() => void) | null = null,

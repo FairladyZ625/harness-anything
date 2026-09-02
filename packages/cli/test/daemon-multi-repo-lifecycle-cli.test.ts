@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import { cli, git, register, run, runMaybe, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
@@ -179,7 +179,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", decisionPath]).outcome,
       "applied",
     );
-    const beforeAccepted = makeTaskEventStore({
+    const beforeAccepted = makeTaskEventReader({
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).readHead()!.revision;
@@ -195,7 +195,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(acceptedDecision.outcome, "applied");
     assert.match(String(acceptedDecision.consentId), /^djc_[0-9a-f]{26}$/u);
     assert.equal(
-      makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()?.revision,
+      makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).readHead()?.revision,
       beforeAccepted + 1,
     );
     const decisionList = JSON.parse(
@@ -232,7 +232,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     };
     assert.match(reckonFact.evidenceSource, new RegExp(`^decision/${decision.decisionId}@\\d+$`, "u"));
     assert.match(reckonFact.statement, /no load-bearing claims/u);
-    const canonicalEvents = makeTaskEventStore({
+    const canonicalEvents = makeTaskEventReader({
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read().events;
@@ -370,8 +370,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(spoof.ok, false);
     assert.equal((spoof.error as { code?: string }).code, "invalid_request");
     const logicalRevisions = new Map([
-      [fixture.alpha, makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
-      [fixture.beta, makeTaskEventStore({ rootDir: fixture.beta, repoId: "beta" }).read().revision],
+      [fixture.alpha, makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
+      [fixture.beta, makeTaskEventReader({ rootDir: fixture.beta, repoId: "beta" }).read().revision],
     ]);
     stop(fixture.alpha, fixture.userRoot); // explicit drain: Git/fresh readers catch up after acknowledged visibility
     for (const root of [fixture.alpha, fixture.beta]) {
@@ -468,7 +468,7 @@ test("real CLI creates module and subtask-expansion packages through their decla
       "task-parent",
     ]);
     assert.equal(child.outcome, "applied", JSON.stringify(child));
-    const childEvent = makeTaskEventStore({
+    const childEvent = makeTaskEventReader({
       rootDir: fixture.alpha,
       repoId: "alpha",
     })

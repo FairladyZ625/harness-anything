@@ -149,6 +149,11 @@ export async function performOpenRegistered(
       ...context.runtimePorts,
       ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
     });
+    if (context.closing) {
+      await cell.close();
+      context.settleWarming(repo.repoId);
+      return;
+    }
     context.cells.set(repo.repoId, cell);
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);

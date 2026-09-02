@@ -1,7 +1,9 @@
-import type { DaemonRepoMode, EventPublicationKillpoint } from "../../kernel/src/index.ts";
+import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "../../kernel/src/index.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { diagnosticForError } from "./receipt-guidance.ts";
 import type { RepoBootstrapInput } from "./repo-bootstrap.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal, RuntimeDaemonRoute } from "./runtime-spawn.ts";
@@ -32,7 +34,9 @@ export interface RepoWriterBootstrapV1 {
     readonly prepareRuntimeLaunch: boolean;
     readonly prepareWorkerGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
+    readonly runtimeSignal: boolean;
     readonly fleetRoster: boolean;
+    readonly storeOpened: boolean;
   };
 }
 
@@ -75,7 +79,7 @@ export interface RepoWriterControlV1 {
   readonly schema: "harness-repo-writer-control/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly command: "recover" | "drain" | "crash";
+  readonly command: "recover" | "drain" | "crash" | "beginBulkWrite" | "finishBulkWrite";
 }
 
 export type RepoWriterMessageV1 =
@@ -93,6 +97,7 @@ export interface SerializedWriterErrorV1 {
   readonly stack: string | null;
   readonly code: string | null;
   readonly data: JsonObject | null;
+  readonly diagnostic: ReceiptDiagnostic | null;
 }
 
 export type RepoWriterCapabilityName =
@@ -107,6 +112,7 @@ export type RepoWriterCapabilityName =
   | "runtimeTerminateTree"
   | "bootstrap"
   | "runtimeOutcome"
+  | "runtimeSignal"
   | "attemptTerminal"
   | "lifecycle"
   | "storeOpened"
@@ -164,6 +170,7 @@ export interface RepoWriterInputPorts {
   readonly shouldStop?: () => boolean;
   readonly fleetRoster?: () => FleetRoster | null;
   readonly onRuntimeOutcome?: (event: unknown) => void;
+  readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
 }
 
@@ -175,6 +182,7 @@ export function serializeWriterError(error: unknown): SerializedWriterErrorV1 {
     stack: error instanceof Error ? (error.stack ?? null) : null,
     code: typeof record?.code === "string" ? record.code : null,
     data: isJsonRecord(record?.data) ? (record.data as JsonObject) : null,
+    diagnostic: diagnosticForError(error) ?? null,
   };
 }
 
@@ -184,6 +192,7 @@ export function deserializeWriterError(error: SerializedWriterErrorV1): Error {
     ...(error.stack ? { stack: error.stack } : {}),
     ...(error.code ? { code: error.code } : {}),
     ...(error.data ? { data: error.data } : {}),
+    ...(error.diagnostic ? { diagnostic: error.diagnostic } : {}),
   });
 }
 

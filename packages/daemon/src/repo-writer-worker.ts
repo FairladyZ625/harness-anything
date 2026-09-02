@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError, type CanonicalEventStore } from "../../kernel/src/index.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -37,7 +37,9 @@ async function startRepoWriterWorker(): Promise<void> {
       { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcessListeners>();
-  let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
+  let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null,
+    writerStore: CanonicalEventStore | null = null,
+    bulkWrite: ReturnType<NonNullable<CanonicalEventStore["beginBulkWrite"]>> | null = null;
 
   parentPort.on("message", (message: unknown) => {
     if (isCapabilityResult(message)) {
@@ -90,6 +92,19 @@ async function startRepoWriterWorker(): Promise<void> {
             }
           : {}),
         ...(bootstrap.capabilities.runtimeLaunch ? { runtimeLaunch: remoteRuntimeLaunch } : {}),
+        ...(bootstrap.capabilities.runtimeSignal
+          ? {
+              onRuntimeSignal: (runtimeSessionId, signal) => notify("runtimeSignal", { runtimeSessionId, signal }),
+            }
+          : {}),
+        ...(bootstrap.capabilities.storeOpened
+          ? {
+              onStoreOpened: (store) => {
+                writerStore = store;
+                notify("storeOpened", null);
+              },
+            }
+          : {}),
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onRuntimeOutcome: (event) => notify("runtimeOutcome", event),
         onAttemptTerminal: (terminal) => notify("attemptTerminal", terminal),
@@ -157,10 +172,34 @@ async function startRepoWriterWorker(): Promise<void> {
   async function handleControl(control: RepoWriterControlV1): Promise<void> {
     try {
       if (control.command === "crash") process.exit(86);
+      if (control.command === "beginBulkWrite") {
+        if (bulkWrite) throw new Error("RepoWriterCell already has an active bulk write");
+        const opened = writerStore?.beginBulkWrite?.();
+        if (!opened) throw new Error("RepoWriterCell store does not support bulk writes");
+        bulkWrite = opened;
+      }
+      if (control.command === "finishBulkWrite") {
+        if (!bulkWrite) throw new Error("RepoWriterCell has no active bulk write");
+        const active = bulkWrite;
+        try {
+          await active.finish();
+        } finally {
+          bulkWrite = null;
+        }
+      }
       if (control.command === "recover") await cell?.verifyReadiness();
       if (control.command === "drain") {
+        if (bulkWrite) {
+          const active = bulkWrite;
+          try {
+            await active.finish();
+          } finally {
+            bulkWrite = null;
+          }
+        }
         await cell?.close();
         cell = null;
+        writerStore = null;
       }
       postReceipt(control.requestId, null);
       if (control.command === "drain") postStatus({ kind: "closed" });

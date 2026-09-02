@@ -15,7 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -840,7 +840,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     run(root, env, ["runtime", "status", String(queueNotification.runtimeSessionId), "--wait", "--no-stream"]);
     await eventuallyFile(notificationStarted);
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-    const revisionBefore = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
+    const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
       writeStartedAt = performance.now(),
       queueWrite = run(root, env, [
         "task",
@@ -853,7 +853,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "test:reports/notification-queue.txt:write progressed while callback was active",
       ]),
       writeLatencyMs = performance.now() - writeStartedAt,
-      revisionAfter = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0;
+      revisionAfter = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0;
     assert.ok(revisionAfter > revisionBefore, `${revisionBefore} -> ${revisionAfter}`);
     assert.ok(writeLatencyMs < 3000, `repo write waited ${writeLatencyMs.toFixed(3)}ms behind a 4000ms notifier`);
     assert.equal(
@@ -1344,7 +1344,7 @@ function runtimeInvariantEvidence(
     archivePath = path.join(artifactRoot, "dispatches", `${dispatchId}.json`),
     reportPath = path.join(artifactRoot, "reports", `${dispatchId}.md`),
     archive = JSON.parse(readFileSync(archivePath, "utf8")) as Record<string, unknown>,
-    events = makeTaskEventStore({ repoId: "runtime-cli", rootDir: root })
+    events = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root })
       .read()
       .events.filter(
         (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === runtimeSessionId,

@@ -33,22 +33,41 @@ import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 /** Host-side RepoCell boundary: admission/proxy plus completed-cut projection reads only. */
 export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
+  let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
-    supervisor = await openWriterSupervisor(input);
+    supervisor = await openWriterSupervisor({
+      ...input,
+      onRuntimeSignal: (runtimeSessionId, signal) => {
+        relayRuntimeSignal(runtimeSessionId, signal);
+        input.onRuntimeSignal?.(runtimeSessionId, signal);
+      },
+    });
   } catch (error) {
     await lock.close();
     throw error;
   }
   const reader = makeTaskProjectionReader({ rootDir: input.rootDir, ...(input.now ? { now: input.now } : {}) }),
-    git = makeGitEventStore({ repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch }),
+    gitOptions = { repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch },
+    currentGit = () => makeGitEventStore(gitOptions),
+    readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => {
+      const store = makeTaskEventReader(gitOptions);
+      try {
+        return read(store);
+      } finally {
+        void store.drain();
+      }
+    },
     replica = openReplicaCutSource({
       repoId: input.repoId,
       localRoot: path.dirname(path.dirname(reader.path)),
       readBasis: (afterRevision) => reader.withSession((projection) => projection.readReplicaBasis(afterRevision)),
-      readLedgerCut: git.currentCut,
-      readContentBlob: git.readContentBlob,
-      readEvent: git.readEvent,
+      // Fleet replication follows the acknowledged writer cut, including the durable
+      // WAL suffix that may not have reached Git yet. This reader is immutable; the
+      // RepoWriterCell remains the only mutable WAL owner.
+      readLedgerCut: () => readCurrentLedger((store) => store.currentCut()),
+      readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
+      readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
       readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
     }),
     runtime = makeAgentRuntimeStreamHub({
@@ -67,6 +86,7 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
       daemonGeneration: supervisor.status().generation ?? Date.now() * 1_000 + (process.pid % 1_000),
       ...(input.now ? { now: input.now } : {}),
     });
+  relayRuntimeSignal = runtime.publish;
   let closed = false;
 
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
@@ -121,7 +141,7 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
             rootDir: input.rootDir,
             authoredBranch: input.authoredBranch,
           })
-        : git,
+        : currentGit(),
       unsupportedWrite = async (): Promise<never> => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       },

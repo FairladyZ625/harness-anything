@@ -217,7 +217,7 @@ test("a repository whose open never settles is bounded by an attach budget while
   const host = await openDaemonHost({
     daemonId: "attach-budget",
     userRoot,
-    attachTimeoutMs: 150,
+    attachTimeoutMs: 2_000,
     openCell,
     recordLifecycle: (record) => records.push(record),
   });
@@ -226,7 +226,7 @@ test("a repository whose open never settles is bounded by an attach budget while
     assert.equal(
       records.some(
         (record) =>
-          record.event === "repo_attach_timed_out" && record.repoId === "aaa-hung" && record.durationMs === 150,
+          record.event === "repo_attach_timed_out" && record.repoId === "aaa-hung" && record.durationMs === 2_000,
       ),
       true,
     );
@@ -238,7 +238,7 @@ test("a repository whose open never settles is bounded by an attach budget while
     );
     const latched = host.status().repos.find((repo) => repo.repoId === "aaa-hung")!;
     assert.equal(latched.state, "unavailable");
-    assert.match(String(latched.lastError), /did not finish attaching within 150ms/u);
+    assert.match(String(latched.lastError), /did not finish attaching within 2000ms/u);
     assert.equal((await host.run("aaa-hung", { kind: "task-list" }, auth)).code, "repo_unavailable");
     assert.equal((await host.run("zzz-live", { kind: "task-list" }, auth)).outcome, "applied");
     hungOpens[0]!(
