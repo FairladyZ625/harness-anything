@@ -622,6 +622,7 @@ export default Object.freeze({
     "Relation-G3c",
     "PLT-Ontology-4.1",
     "Governed-Entity-W1-B",
+    "Ontology-4.1b",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

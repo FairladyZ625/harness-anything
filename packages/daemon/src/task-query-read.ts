@@ -6,6 +6,9 @@ import {
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
+  taskBoardPlacement,
+  taskCapabilities,
+  taskVisibility,
   workspaceTaskStatus,
   type FreshnessReason,
   type FreshnessReasonInput,
@@ -263,17 +266,30 @@ export function makeTaskQueryReadModel(input: {
           },
           coordinationStatus = task
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
-            : ("unknown" as const);
+            : ("unknown" as const),
+          closeoutAssessment = closeout(row.snapshot, snapshotAvailability),
+          // dec_5B135F46 CH4: the board / visibility / capability judgments are the kernel's. This
+          // read passes the row and the assessments it already has and returns what comes back.
+          boardRow = {
+            snapshot: row.snapshot,
+            blockingState: blockingAssessment.state,
+            packageDisposition: disposition,
+            origin,
+            closeoutReadiness: closeoutAssessment.readiness,
+          };
         return {
           ...row,
           coordinationStatus,
           snapshotAvailability,
-          closeoutAssessment: closeout(row.snapshot, snapshotAvailability),
+          closeoutAssessment,
           blockingAssessment,
           placement,
           executionEvidence: row.snapshot.executions.map((execution) =>
             projectExecutionEvidence(row.taskId, execution, origin),
           ),
+          board: taskBoardPlacement(boardRow),
+          visibility: taskVisibility(boardRow),
+          capabilities: taskCapabilities(boardRow),
         };
       }),
       ...cut,

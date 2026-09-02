@@ -1,23 +1,32 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
+import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "../../kernel/src/index.ts";
 import { admitUseCaseProjectionSelector, useCaseProjectionFacets } from "../src/protocol/daemon-protocol-gui-types.ts";
-import { useCaseProjectionFacetWords, useCaseProjectionNameWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
+import {
+  rowDeliveredUseCaseProjections,
+  useCaseProjectionFacetWords,
+  useCaseProjectionNameWords,
+} from "../src/protocol/daemon-protocol-vocabulary.ts";
 import { daemonUseCaseProjectionPayloadShape } from "../src/protocol/daemon-protocol-schema-ids.ts";
 import { daemonGuiReadMethods } from "../src/protocol/daemon-protocol.contract.ts";
 import { validateDaemonUseCaseProjection } from "../src/protocol/daemon-protocol-use-case-projection.ts";
 
 test("the transport name mirror equals the kernel catalog", () => {
   // The daemon transport path may not import the kernel barrel at runtime (check-cli-structure),
-  // so the wire enum is a mirror. `useCaseProjectionNameWordsAreExact` pins it at compile time;
-  // this pins the order and the catalog correspondence at test time, so a projection added to one
-  // side and not the other is red rather than silently unreachable.
-  // `useCaseProjectionNameWordsAreExact` already pins the mirror to the kernel type in both
-  // directions at compile time. What that cannot see is whether each mirrored name resolves to a
-  // real catalog entry, so every name is resolved through the kernel derivation here: a mirror
-  // name the catalog does not carry throws instead of reaching the wire.
+  // so the wire enum is a mirror. `useCaseProjectionNameWordsAreServed` and
+  // `useCaseProjectionDeliveryIsTotal` pin it at compile time: a selector name the catalog does not
+  // carry, or a catalog name with no delivery channel at all, fails to compile. What those cannot
+  // see is whether each mirrored name resolves to a real catalog entry, so every name is resolved
+  // through the kernel derivation here, and the row-delivered names are checked the same way.
   for (const name of useCaseProjectionNameWords) assert.ok(deriveUseCaseProjectionInputs(name).entityKinds.length > 0);
+  for (const name of Object.keys(rowDeliveredUseCaseProjections) as UseCaseProjectionName[])
+    assert.ok(deriveUseCaseProjectionInputs(name).entityKinds.length > 0);
+  // A row-delivered projection is deliberately not selectable on repo.projection.read: its fields
+  // ride on the read named here, and offering a second way to ask for them is CH2's second table.
+  assert.deepEqual(rowDeliveredUseCaseProjections, { "task-board-rows": "repo.tasks.list" });
+  for (const name of Object.keys(rowDeliveredUseCaseProjections))
+    assert.equal((useCaseProjectionNameWords as readonly string[]).includes(name), false);
   assert.deepEqual(Object.keys(useCaseProjectionFacets), [...useCaseProjectionNameWords]);
   for (const facets of Object.values(useCaseProjectionFacets))
     for (const facet of facets)

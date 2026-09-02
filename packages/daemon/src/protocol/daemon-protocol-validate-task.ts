@@ -31,6 +31,9 @@ import {
   decisionStateWords,
   packageDispositionWords,
   relationStateWords,
+  taskBoardColumnWords,
+  taskCapabilityIdWords,
+  taskCapabilityReasonWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
@@ -249,6 +252,33 @@ export function blockingAssessment(value: unknown): boolean {
   );
 }
 
+/**
+ * The `task-board-rows` projection on the wire. Column, capability id and rejection reason are all
+ * closed word sets mirrored from the kernel judgment, so a row carrying free-text prose in `reason`
+ * or an invented column is rejected at the boundary rather than rendered.
+ */
+export function boardPlacement(value: unknown): boolean {
+  return (
+    exactRecord(value, ["columnId", "rank"]) &&
+    (value.columnId === null || statusWord(taskBoardColumnWords, value.columnId)) &&
+    integer(value.rank) &&
+    Number(value.rank) >= 0
+  );
+}
+
+export function capabilityList(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== taskCapabilityIdWords.length) return false;
+  return value.every(
+    (capability, index) =>
+      exactRecord(capability, ["id", "available", "reason"]) &&
+      capability.id === taskCapabilityIdWords[index] &&
+      typeof capability.available === "boolean" &&
+      (capability.reason === null
+        ? capability.available
+        : !capability.available && statusWord(taskCapabilityReasonWords, capability.reason)),
+  );
+}
+
 export function queryPageRow(value: unknown): boolean {
   return (
     exactRecord(value, ["limit", "cursor", "nextCursor"]) &&
@@ -324,6 +354,9 @@ const taskSnapshotListRowFields = [
   "blockingAssessment",
   "placement",
   "executionEvidence",
+  "board",
+  "visibility",
+  "capabilities",
 ] as const;
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
@@ -354,6 +387,10 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (!closeoutAssessment(value.closeoutAssessment)) errors.push(error("closeoutAssessment"));
   if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
   if (!placement(value.placement)) errors.push(error("placement"));
+  if (!boardPlacement(value.board)) errors.push(error("board"));
+  if (!exactRecord(value.visibility, ["archived"]) || typeof value.visibility.archived !== "boolean")
+    errors.push(error("visibility"));
+  if (!capabilityList(value.capabilities)) errors.push(error("capabilities"));
   if (!Array.isArray(value.executionEvidence)) errors.push(error("executionEvidence"));
   else
     value.executionEvidence.forEach((item, evidenceIndex) => {

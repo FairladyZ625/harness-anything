@@ -88,6 +88,9 @@ export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
+export { taskBoardPlacement, taskCapabilities, taskVisibility } from "./task-board-projection.ts";
+export type { TaskBoardColumnId, TaskCapabilityId, TaskCapabilityReason } from "./task-board-projection.ts";
+
 export {
   DEFAULT_TASK_ROOT_THRESHOLD,
   DEFAULT_TASK_WIP_LIMIT,

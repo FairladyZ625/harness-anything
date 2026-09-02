@@ -22,6 +22,7 @@ export const useCaseProjectionNames = Object.freeze([
   "schedule-plane",
   "schedule-run-history",
   "runtime-session-groups",
+  "task-board-rows",
 ] as const);
 
 export type UseCaseProjectionName = (typeof useCaseProjectionNames)[number];
@@ -74,6 +75,21 @@ export const useCaseProjectionCatalog: readonly UseCaseProjectionDefinition[] = 
     outputSchemaId: "daemon.use-case-projection/v1",
     version: 1,
     consumers: ["views/SessionsView.tsx", "views/AgentSquadView.tsx"],
+  },
+  {
+    // Column placement, archive visibility and per-row action affordances for the task plane.
+    // The judgments themselves are `domain/task-board-projection.ts`; this entry is only the
+    // registration that makes the kernel — not the renderer — their authority face.
+    name: "task-board-rows",
+    entityKinds: ["task"],
+    outputSchemaId: "daemon.use-case-projection/v1",
+    version: 1,
+    consumers: [
+      "views/BoardView.tsx",
+      "views/ListView.tsx",
+      "views/SwimlaneBoard.tsx",
+      "components/TaskControlPanel.tsx",
+    ],
   },
 ] as const satisfies readonly UseCaseProjectionDefinition[]);
 
