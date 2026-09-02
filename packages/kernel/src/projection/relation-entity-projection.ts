@@ -201,8 +201,19 @@ export function readRelationProjectionRow(db: DatabaseSync, relationId: string):
     : null;
 }
 
-export function readRelationProjectionRows(db: DatabaseSync): readonly VersionedRelationProjectionRow[] {
-  const rows = queryRows<{ readonly row_json: string }>(db, "SELECT row_json FROM relation_edge ORDER BY relation_id")
+export function readRelationProjectionRows(
+  db: DatabaseSync,
+  targetRef?: string,
+): readonly VersionedRelationProjectionRow[] {
+  const rows = (
+    targetRef === undefined
+      ? queryRows<{ readonly row_json: string }>(db, "SELECT row_json FROM relation_edge ORDER BY relation_id")
+      : queryRows<{ readonly row_json: string }>(
+          db,
+          "SELECT row_json FROM relation_edge WHERE target_ref = ? ORDER BY relation_id",
+          targetRef,
+        )
+  )
     .map((row) => JSON.parse(row.row_json) as Partial<VersionedRelationProjectionRow>)
     .filter(
       (row): row is VersionedRelationProjectionRow =>
