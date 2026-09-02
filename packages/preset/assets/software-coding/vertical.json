@@ -48,7 +48,17 @@
         "pathTemplate": "entities/architecture-decision-records/{id}.json"
       },
       "locatorKinds": ["repository-path"],
-      "relations": []
+      "relations": [
+        {
+          "type": "relates",
+          "sourceKind": "architecture-decision-record",
+          "targetKind": "decision",
+          "reads": "the architecture decision record relates to the target decision",
+          "strength": "weak",
+          "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+          "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+        }
+      ]
     }
   ],
   "contractEntityKinds": ["task", "decision", "fact"],

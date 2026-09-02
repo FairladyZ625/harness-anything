@@ -1,7 +1,7 @@
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { ParsedEntityRef } from "./entity-ref.ts";
-import { canonicalRelationDirections } from "./relation-direction.ts";
+import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 
 export const relationTypes = [
   "supports",
@@ -83,6 +83,7 @@ export function formatRelationFlowRecord(record: EntityRelationRecord): string {
 export function validateRelationRecordsForHost(
   host: string,
   records: ReadonlyArray<EntityRelationRecord>,
+  registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): ReadonlyArray<EntityRelationValidationIssue> {
   const issues: EntityRelationValidationIssue[] = [];
   const hostRef = parseEntityRef(host);
@@ -110,7 +111,7 @@ export function validateRelationRecordsForHost(
     // The type-subset whitelist only governs live edges. Retired/deleted records are
     // audit history: a migration retires an illegal edge in place, and re-validating the
     // corpse would permanently block every future write to the host document.
-    if (record.state === "active" && !isAllowedRelationKindTriple(source.kind, record.type, target.kind)) {
+    if (record.state === "active" && !isAllowedRelationRecord(record, source.kind, target.kind, registry)) {
       issues.push({
         code: "invalid_relation_type_subset",
         relationId: record.relation_id,
@@ -162,9 +163,10 @@ export function relationOwnerRef(sourceRef: string): string {
 }
 
 export function isAllowedRelationKindTriple(
-  sourceKind: ParsedEntityRef["kind"],
+  sourceKind: string,
   type: RelationType,
-  targetKind: ParsedEntityRef["kind"],
+  targetKind: string,
+  registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): boolean {
   // Ratified convention (dec_mr74sbka, 2026-07-05): every edge reads as one sentence,
   // `source <verb> target`, in the physical (host -> target) direction — no cell whose
@@ -175,12 +177,28 @@ export function isAllowedRelationKindTriple(
   // blocks were retired with zero stored active edges (2026-08-17 census); the retired
   // aliases remain parse-only vocabulary and reverse questions go through
   // `incomingRelations` in relation-direction.ts.
-  return canonicalRelationDirections.some(
+  return registry.some(
     (direction) =>
       direction.registration !== "derived" &&
       direction.sourceKind === sourceKind &&
       direction.type === type &&
       direction.targetKind === targetKind,
+  );
+}
+
+export function isAllowedRelationRecord(
+  record: Pick<EntityRelationRecord, "type" | "strength">,
+  sourceKind: string,
+  targetKind: string,
+  registry: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
+): boolean {
+  return registry.some(
+    (direction) =>
+      direction.registration !== "derived" &&
+      direction.sourceKind === sourceKind &&
+      direction.type === record.type &&
+      direction.targetKind === targetKind &&
+      (direction.strength === undefined || direction.strength === record.strength),
   );
 }
 
