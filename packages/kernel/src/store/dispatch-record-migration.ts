@@ -20,7 +20,7 @@ import {
 import type { ActorIdentity } from "../domain/actor-identity.ts";
 import { migrationImportWritePlan, type MigrationImportEventV1 } from "../domain/migration-import-event.ts";
 import type { WriteReceiptDraft } from "../domain/receipt-domain-registry.ts";
-import type { WriteSource } from "../domain/write-chain.contract.ts";
+import { isRecord, type WriteSource } from "../domain/write-chain.contract.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
@@ -116,7 +116,7 @@ export async function runDispatchRecordMigration(input: DispatchRecordMigrationI
   const headRevision = input.store.readHead()?.revision ?? 0,
     gitRevision = input.store.revisionAt(input.store.currentCommit()) ?? 0,
     planned = planDispatchRecords(input, headRevision),
-    report = migrationReport(headRevision, gitRevision, planned),
+    report = dispatchRecordMigrationReport(headRevision, gitRevision, planned),
     reportBody = `${JSON.stringify(report, null, 2)}\n`,
     reportDigest = sha256Text(reportBody),
     sourceDigest = sha256Text(
@@ -680,7 +680,7 @@ function migrationMarker(
 function migrationPreview(
   headRevision: number,
   markerOpId: string,
-  report: ReturnType<typeof migrationReport>,
+  report: ReturnType<typeof dispatchRecordMigrationReport>,
   actionable: number,
 ): WriteReceiptDraft {
   return {
@@ -703,7 +703,7 @@ function migrationPreview(
   };
 }
 
-function migrationReport(headRevision: number, gitRevision: number, planned: readonly PlannedDispatch[]) {
+function dispatchRecordMigrationReport(headRevision: number, gitRevision: number, planned: readonly PlannedDispatch[]) {
   const counts: Record<string, number> = {};
   for (const entry of planned) counts[entry.action] = (counts[entry.action] ?? 0) + 1;
   return {
@@ -739,8 +739,4 @@ function utf8(bytes: Uint8Array): string | null {
     consumeKnownError(error);
     return null;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
