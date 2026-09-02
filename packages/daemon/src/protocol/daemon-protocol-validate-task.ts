@@ -313,7 +313,9 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
       rowIndex: index,
       taskId,
       field: `rows[${index}]${field ? `.${field}` : ""}`,
-      message: `actual=${validationValueSummary(field ? validationValueAtPath(value, field) : value)}: Task snapshot field is invalid.`,
+      message:
+        `actual=${validationValueSummary(field ? validationValueAtPath(value, field) : value)}: ` +
+        "Task snapshot field is invalid.",
     });
   if (!isJsonObject(value)) return [error("")];
   const missing = taskSnapshotListRowFields.find((field) => !Object.hasOwn(value, field));

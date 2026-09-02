@@ -72,7 +72,10 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
     );
     assert.match(placeholder.nextAction ?? "", /The on-disk harness\/tasks\/.*\/task_plan\.md differs/u);
-    assert.match(placeholder.nextAction ?? "", /missing required section is: CI\/Gate Authority Stop Condition/u);
+    assert.match(
+      placeholder.nextAction ?? "",
+      /required-section diagnostics:\n- CI\/Gate Authority Stop Condition: 空/u,
+    );
     assert.match(placeholder.nextAction ?? "", new RegExp(`ha doc sync --submit --path ${planPath}`, "u"));
     assert.doesNotMatch(placeholder.nextAction ?? "", /missing required sections are: Brief/u);
     const closeoutPath = `${packagePath}/closeout.md`;

@@ -243,7 +243,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     assert.match(
       String(placeholderLease.receipt.nextAction),
-      /missing required section is: CI\/Gate Authority Stop Condition/u,
+      /required-section diagnostics:\n- CI\/Gate Authority Stop Condition: 空/u,
     );
     assert.doesNotMatch(String(placeholderLease.receipt.nextAction), /missing required sections are: Brief/u);
     assert.match(

@@ -54,7 +54,10 @@ export function validationValueSummary(value: unknown): string {
 }
 
 export function validationError(entityId: string, field: string, actual: unknown, expectation: string): string {
-  return `entity=${validationValueSummary(entityId)} field=${field} ${expectation}; actual=${validationValueSummary(actual)}`;
+  return (
+    `entity=${validationValueSummary(entityId)} field=${field} ${expectation}; ` +
+    `actual=${validationValueSummary(actual)}`
+  );
 }
 
 export function validationEntityId(value: unknown, fields: readonly string[], fallback: string): string {
