@@ -15,6 +15,7 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
+import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
@@ -214,7 +215,6 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
     }
   };
   const run: RepoCell["run"] = async (action, binding, signal) => {
-    await Promise.resolve();
     if (closed)
       return {
         outcome: "op_rejected",
@@ -224,6 +224,18 @@ export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoC
       } as never;
     if (action.kind === "task-list" && supervisor.status().state === "attached")
       return query((projection) => legacyTaskList(projection, action, binding, input));
+    if (action.kind === "task-show" && supervisor.status().state === "attached")
+      return query((projection) => legacyTaskShow(projection, action, input));
+    // Writes must yield once so a close started in the same turn wins admission.
+    // Host-owned projection reads do not need that scheduling boundary.
+    await Promise.resolve();
+    if (closed)
+      return {
+        outcome: "op_rejected",
+        opId: "closed",
+        code: "repo_unavailable",
+        nextAction: "Re-open the repository before retrying the command.",
+      } as never;
     return supervisor.request("run", { action }, binding, signal);
   };
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
@@ -367,6 +379,16 @@ function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjecti
     ...(limit === undefined ? {} : { limit }),
     ...(cursor ? { cursor } : {}),
   };
+}
+
+function legacyTaskShow(
+  projection: TaskProjectionQueries,
+  action: RepoTaskAction,
+  input: RepoCellOpenInput,
+): Awaited<ReturnType<RepoCell["run"]>> {
+  const taskId = typeof action.taskId === "string" && action.taskId ? action.taskId : null;
+  if (taskId === null) throw cellCodedError("invalid_command", "taskId is required");
+  return taskShowFromProjection(input.rootDir, projection, taskId) as unknown as Awaited<ReturnType<RepoCell["run"]>>;
 }
 
 function legacyTaskList(

@@ -130,7 +130,6 @@ async function startRepoWriterWorker(): Promise<void> {
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
     const abort = new AbortController();
     activeRequests.set(request.requestId, abort);
-    await new Promise<void>((resolve) => setImmediate(resolve));
     if (!cell) {
       activeRequests.delete(request.requestId);
       return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
