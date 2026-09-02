@@ -4761,10 +4761,10 @@
     },
     {
       "id": "ontology-kind-authority",
-      "command": "node tools/gates/ontology-kind-authority.mjs",
+      "command": "node tools/gates/ontology-kind-authority.mjs --mode ratchet",
       "category": "boundary",
-      "tier": "pr-advisory",
-      "tierReason": "Phase G0 advisory audits registry-external kind/ref tables after the legacy registry probe was retired.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f1-统一语义坐标系被证伪至少四套-kindactionread-坐标并存",
@@ -4775,8 +4775,8 @@
         "registry-external EntityRef kind authorities"
       ],
       "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4797,8 +4797,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4857,10 +4857,10 @@
     },
     {
       "id": "ontology-event-read-truth",
-      "command": "node tools/gates/ontology-event-read-truth.mjs",
+      "command": "node tools/gates/ontology-event-read-truth.mjs --mode ratchet",
       "category": "boundary",
-      "tier": "pr-advisory",
-      "tierReason": "Phase G0 baseline observation only; G3b may promote this gate after wide and narrow event reads use the same event-backed truth.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f7-projection-基础有效但统一读取协议甚至出现了query-shape-truth差异"
@@ -4870,8 +4870,8 @@
         "daemon WIP snapshot event-projection read"
       ],
       "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4892,8 +4892,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
       "deterministic": true,
@@ -4906,8 +4906,8 @@
       "id": "ontology-explain-executable-actions",
       "command": "node tools/gates/ontology-explain-executable-actions.mjs --mode ratchet",
       "category": "boundary",
-      "tier": "pr-advisory",
-      "tierReason": "Phase G1 ratchet: entity explain may advertise only actions with executable metadata.",
+      "tier": "pr-required",
+      "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f2-action-catalog-大部分是可解释名字不是可执行-action-authority"
@@ -4917,8 +4917,8 @@
         "entity explain transitions.available output"
       ],
       "githubContext": {
-        "requiredContexts": [],
-        "workflowJobs": ["ontology-advisory"],
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4939,8 +4939,8 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": false, "checkPr": false, "script": null },
-        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
         "classes": ["pr"]
       },
       "deterministic": true,
