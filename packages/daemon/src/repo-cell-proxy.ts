@@ -48,8 +48,7 @@ export async function openRepoCellProxy(
 ): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
-  let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>,
-    opening = true;
+  let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
       {
@@ -60,12 +59,9 @@ export async function openRepoCellProxy(
         },
       },
       {
-        onStatus: (status) => {
-          if (opening && status.state === "warming") input.onStatus?.(status);
-        },
+        onAttachStatus: input.onStatus,
       },
     );
-    opening = false;
   } catch (error) {
     await lock.close();
     throw error;

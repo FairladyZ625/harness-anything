@@ -43,7 +43,7 @@ export async function openWriterSupervisor(
       url: URL,
       workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
     ) => Worker;
-    readonly onStatus?: (status: RepoCellStatus) => void;
+    readonly onAttachStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
   let worker: Worker | null = null,
@@ -198,8 +198,9 @@ export async function openWriterSupervisor(
         if (isStatus(message)) {
           const published = message.status;
           if (published && typeof published === "object") {
-            status = published;
-            options.onStatus?.(status);
+            const attachStatus = published.attach !== undefined;
+            if (!settled || !attachStatus) status = published;
+            if (!settled && attachStatus) options.onAttachStatus?.(published);
           }
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;

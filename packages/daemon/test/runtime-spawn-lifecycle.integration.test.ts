@@ -264,8 +264,11 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         started?.type === "runtime_session_started" && started.payload.definitionSnapshotRef,
         dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.definitionSnapshotRef,
       );
-      const overview = await cell.read("repo.agentRuntime.overview", {});
-      const session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
+      const { session } = await eventuallyValue(async () => {
+        const overview = await cell.read("repo.agentRuntime.overview", {}),
+          projected = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
+        return projected?.liveness === "live" ? { session: projected } : null;
+      });
       assert.equal(session?.instanceId, definition.instanceId);
       assert.deepEqual(session?.definitionSnapshot, definition);
       assert.equal(session?.definitionSnapshotPersisted, true);

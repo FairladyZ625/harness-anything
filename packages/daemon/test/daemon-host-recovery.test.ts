@@ -212,6 +212,10 @@ test("daemon status exposes the writer phase and progress while a repository att
       workerStatuses.some((status) => status.attach?.phase === "catching-up"),
       "the real writer must relay its catch-up boundary through the existing status message",
     );
+    const attachedRows = host.status().repos.filter((repo) => repo.repoId === "host-attach-progress");
+    assert.equal(attachedRows.length, 1);
+    assert.equal(attachedRows[0]?.state, "attached");
+    assert.equal(attachedRows[0]?.attach, undefined);
   } finally {
     releaseOpen();
     await attachments;
@@ -570,6 +574,7 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
     clock = "2026-08-18T00:00:06.000Z";
     assert.equal((await host.run("schema-admission", { kind: "task-list" }, auth)).outcome, "applied");
     assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.state, "attached");
+    assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.attach, undefined);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

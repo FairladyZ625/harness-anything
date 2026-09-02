@@ -24,7 +24,7 @@ test("a writer may open beyond 30 seconds when messages keep the ready watchdog 
     published: RepoCellStatus[] = [],
     opening = openWriterSupervisor(supervisorInput, {
       createWorker: () => writer as unknown as Worker,
-      onStatus: (status) => published.push(status),
+      onAttachStatus: (status) => published.push(status),
     });
 
   context.mock.timers.tick(29_999);
@@ -34,9 +34,15 @@ test("a writer may open beyond 30 seconds when messages keep the ready watchdog 
   context.mock.timers.tick(29_999);
   assert.equal(writer.terminateCalls, 0);
   writer.publish(writerStatus("ready", attachedStatus()));
+  writer.publish(
+    writerStatus("status", warmingStatus({ phase: "catching-up", applied: 8_192, total: 8_192, watermark: 8_192 })),
+  );
 
   const supervisor = await opening;
   assert.equal(supervisor.status().state, "attached");
+  assert.equal(supervisor.status().generation, 1);
+  assert.equal(supervisor.status().attach, undefined);
+  assert.equal(published.length, 1);
   assert.deepEqual(published[0]?.attach, {
     phase: "catching-up",
     applied: 4_096,

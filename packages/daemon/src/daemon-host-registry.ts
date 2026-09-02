@@ -143,7 +143,9 @@ export async function performOpenRegistered(
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
       onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
-      onStatus: (status) => context.markWarming(repo.repoId, status),
+      onStatus: (status) => {
+        if (context.warming.has(repo.repoId)) context.warming.set(repo.repoId, status);
+      },
       // Live getter: cells attach at daemon boot, before the fleet center may be
       // admitted, so the schedule read resolves the roster at read time.
       fleetRoster: () => context.fleetRoster,
