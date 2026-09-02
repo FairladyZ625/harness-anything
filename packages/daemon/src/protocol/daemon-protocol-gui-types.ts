@@ -874,11 +874,17 @@ export function admitUseCaseProjectionSelector(
   if (!isUseCaseProjectionName(name)) return `Use-case projection name is unknown: ${String(name)}.`;
   const facet = payload.facet === undefined ? useCaseProjectionFacets[name][0] : payload.facet;
   if (!isUseCaseProjectionFacet(name, facet))
-    return `Use-case projection ${name} has no facet ${String(facet)}; expected ${useCaseProjectionFacets[name].join(", ")}.`;
+    return (
+      `Use-case projection ${name} has no facet ${String(facet)}; ` +
+      `expected ${useCaseProjectionFacets[name].join(", ")}.`
+    );
   const allowed = useCaseProjectionSelectorFields(name);
   const unexpected = Object.keys(payload).filter((field) => !allowed.includes(field));
   if (unexpected.length > 0)
-    return `Use-case projection ${name}/${facet} does not accept ${unexpected.sort().join(", ")}; expected only ${allowed.join(", ")}.`;
+    return (
+      `Use-case projection ${name}/${facet} does not accept ${unexpected.sort().join(", ")}; ` +
+      `expected only ${allowed.join(", ")}.`
+    );
   return { name, facet };
 }
 
