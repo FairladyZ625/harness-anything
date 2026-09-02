@@ -196,7 +196,8 @@ function validateArtifactDeclaration(
   portablePathTemplate(artifact.store.pathTemplate);
   if (!registeredSchemaRefs.has(artifact.descriptorSchemaRef)) {
     throw new VerticalContractError(
-      `Artifact kind ${artifact.id} descriptorSchemaRef ${artifact.descriptorSchemaRef} is not registered in projectionSchemas.`,
+      `Artifact kind ${artifact.id} descriptorSchemaRef ${artifact.descriptorSchemaRef} ` +
+        "is not registered in projectionSchemas.",
     );
   }
   assertUniqueValues(artifact.locatorKinds, `Artifact kind ${artifact.id} locatorKinds`);

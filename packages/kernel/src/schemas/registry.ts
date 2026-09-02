@@ -29,12 +29,7 @@ export {
   RelationStrengthSchema,
   RelationTypeSchema,
 } from "./entity-relations.ts";
-export { artifactLocatorKinds, decodeVerticalDefinition, VerticalDefinitionSchema } from "./vertical-definition.ts";
-export type {
-  ArtifactEntityKindDefinition,
-  ArtifactRelationDefinition,
-  VerticalDefinition,
-} from "./vertical-definition.ts";
+export type { VerticalDefinition } from "./vertical-definition.ts";
 
 export const DomainStatusSchema = Schema.Literal(...domainStatuses);
 

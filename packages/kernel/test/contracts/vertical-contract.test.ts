@@ -2,12 +2,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { baseEntityActionIds } from "../../src/domain/base-entity.ts";
 import {
   acceptVerticalRegistryCandidate,
-  baseEntityActionIds,
   compileVerticalContract,
   emptyCompiledVerticalRegistry,
-} from "../../src/index.ts";
+} from "../../src/domain/vertical-contract.ts";
 
 const baseVertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),

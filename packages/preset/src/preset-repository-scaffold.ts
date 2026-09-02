@@ -119,8 +119,9 @@ export function compileRepositoryScaffold(input: {
       verticalId: assets.compiledVertical.definition.id,
       verticalVersion: assets.compiledVertical.definition.version,
       verticalDigest: `sha256:${assets.verticalSha256}` as const,
-      baseScaffoldDigest:
-        `sha256:${resolverContentHash(canonicalPresetBytes(assets.compiledVertical.definition.repositoryScaffold))}` as const,
+      baseScaffoldDigest: `sha256:${resolverContentHash(
+        canonicalPresetBytes(assets.compiledVertical.definition.repositoryScaffold),
+      )}` as const,
       projectOverlayPath:
         overlayTarget && existsSync(overlayTarget)
           ? path.relative(rootDir, overlayTarget).split(path.sep).join("/")
