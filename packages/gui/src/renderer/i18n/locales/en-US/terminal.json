@@ -51,5 +51,8 @@
   "terminal.view.dragHandleTitle": "Drag onto another pane to rearrange",
   "terminal.view.taskPickerPlaceholder": "Search task title or id…",
   "terminal.view.taskPickerEmpty": "No matching task",
-  "terminal.view.taskPickerMore": "{count} more — keep typing to narrow down"
+  "terminal.view.taskPickerMore": "{count} more — keep typing to narrow down",
+  "terminal.view.launchOptions": "Launch options",
+  "terminal.view.noAttachable": "No session to attach",
+  "terminal.view.sidebarResize": "Drag to resize the sidebar"
 }

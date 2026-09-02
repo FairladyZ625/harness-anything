@@ -561,7 +561,7 @@ export function TerminalView({
     <section
       aria-label={t("terminal.view.title")}
       data-testid="terminal-view"
-      className="flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="flex min-h-0 flex-1 flex-row overflow-hidden"
     >
       <TerminalChrome
         repoId={repoId}
@@ -584,34 +584,40 @@ export function TerminalView({
         onCreate={create}
         tasks={tasks}
       />
-      {/* pane 区:一个 tab(group)一棵 pane 树,切 tab 即换 dockview 实例。 */}
-      <div ref={regionRef} data-testid="terminal-pane-region" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        {activeGroup ? (
-          <TerminalPaneContext.Provider value={paneActions}>
-            <TerminalSplitGrid
-              key={activeGroup.groupId}
-              seeds={activeGroup.seeds}
-              grid={activeGroup.grid}
-              onApiReady={(api) => {
-                gridApi.current = api;
-              }}
-              onLayoutChange={(grid) => applyGrid(activeGroup.groupId, grid)}
-              onActivePaneChange={(panelId) => {
-                if (panelId) focusPane(panelId);
-              }}
-            />
-          </TerminalPaneContext.Provider>
-        ) : (
-          <div className="grid h-full place-items-center px-4 text-center text-[12px] text-text-faint">
-            {t("terminal.view.startHint")}
-          </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* pane 区:一个 tab(group)一棵 pane 树,切 tab 即换 dockview 实例。 */}
+        <div
+          ref={regionRef}
+          data-testid="terminal-pane-region"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          {activeGroup ? (
+            <TerminalPaneContext.Provider value={paneActions}>
+              <TerminalSplitGrid
+                key={activeGroup.groupId}
+                seeds={activeGroup.seeds}
+                grid={activeGroup.grid}
+                onApiReady={(api) => {
+                  gridApi.current = api;
+                }}
+                onLayoutChange={(grid) => applyGrid(activeGroup.groupId, grid)}
+                onActivePaneChange={(panelId) => {
+                  if (panelId) focusPane(panelId);
+                }}
+              />
+            </TerminalPaneContext.Provider>
+          ) : (
+            <div className="grid h-full place-items-center px-4 text-center text-[12px] text-text-faint">
+              {t("terminal.view.startHint")}
+            </div>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="border-t border-status-blocked/30 px-3 py-1 text-[11px] text-status-blocked">
+            {error}
+          </p>
         )}
       </div>
-      {error && (
-        <p role="alert" className="border-t border-status-blocked/30 px-3 py-1 text-[11px] text-status-blocked">
-          {error}
-        </p>
-      )}
     </section>
   );
 }

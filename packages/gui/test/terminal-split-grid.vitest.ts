@@ -475,13 +475,35 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(panes()).toHaveLength(2);
   });
 
+  it("resizes the sidebar by dragging its right edge and remembers the width", async () => {
+    stubBridge([sessionRow()]);
+    mountView();
+    await flush();
+    const aside = container!.querySelector<HTMLElement>('[data-testid="terminal-sidebar"]')!;
+    const handle = container!.querySelector<HTMLElement>('[data-testid="terminal-sidebar-resize"]')!;
+    expect(aside.style.width).toBe("224px");
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 224, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 300, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 300, pointerId: 1 }));
+    });
+    expect(aside.style.width).toBe("300px");
+    expect(localStorage.getItem("harness:gui:terminal-sidebar-width")).toBe("300");
+    act(() => {
+      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 300, pointerId: 1 }));
+      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 20, pointerId: 1 }));
+    });
+    expect(localStorage.getItem("harness:gui:terminal-sidebar-width")).toBe("160");
+  });
+
   it("bans attaching one session into two panes by disabling it in the attach picker", async () => {
     // 自动附加取会话表里最后一个可附加的:s-restore 会进 pane,s-free 留在表里。
     stubBridge([sessionRow({ sessionId: "s-free", name: "Free" }), sessionRow()]);
     mountView();
     await flush();
-    const options = [...container!.querySelectorAll<HTMLOptionElement>("option")];
-    expect(options.find((option) => option.value === "s-restore")?.disabled).toBe(true);
-    expect(options.find((option) => option.value === "s-free")?.disabled).toBe(false);
+    act(() => container!.querySelector<HTMLButtonElement>('[data-testid="terminal-attach"]')!.click());
+    const options = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-attach-list"] button')];
+    expect(options.find((option) => option.dataset.sessionId === "s-restore")?.disabled).toBe(true);
+    expect(options.find((option) => option.dataset.sessionId === "s-free")?.disabled).toBe(false);
   });
 });
