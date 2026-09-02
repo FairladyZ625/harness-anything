@@ -134,7 +134,9 @@ export type AgentRuntimeEventsResult = {
   readonly runtimeSessionId: string;
   readonly events: readonly AgentRuntimeLifecycleDto[];
   readonly cursor: string;
+  /** End of the projection snapshot that supplied this page; it never describes a newer canonical-store cut. */
   readonly sourceCursor: string;
+  /** Whether this page reached sourceCursor within that same projection snapshot. */
   readonly done: boolean;
 };
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
