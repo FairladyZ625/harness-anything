@@ -382,7 +382,7 @@ if (args[0] === "login" && args[1] === "status") {
 const prompt = fs.readFileSync(0, "utf8");
 const frame = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 const initialLeader = prompt.includes("# Squad dispatch protocol");
-const callbackLeader = prompt.includes("# Squad worker callback");
+const callbackLeader = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");
 const terra = prompt.includes("# Agent Identity: Terra (terra)");
 const luna = prompt.includes("# Agent Identity: Luna (luna)");
 const retry = terra && prompt.includes("Terra retry mission");
@@ -514,7 +514,8 @@ if (!config.includes("experimental_bearer_token = \\"squad-secret\\"")) {
   process.exit(1);
 }
 const frame = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
-const leader = prompt.includes("# Squad dispatch protocol") || prompt.includes("# Squad worker callback");
+const callback = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");
+const leader = prompt.includes("# Squad dispatch protocol") || callback;
 const terra = prompt.includes("# Agent Identity: Terra (terra)");
 const luna = prompt.includes("# Agent Identity: Luna (luna)");
 const writeSynthesisReport = () => {
@@ -533,7 +534,7 @@ const writeSynthesisReport = () => {
 frame({ type: "thread.started", thread_id: leader ? "leader-api-session" : terra ? "terra-api-session" : "luna-api-session" });
 if (prompt.includes("# Squad dispatch protocol")) {
   frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ instance: "squad-api", to: "terra", prompt: "terra API mission" }, { instance: "squad-api", to: "luna", prompt: "luna API mission" }] }) } });
-} else if (prompt.includes("# Squad worker callback")) {
+} else if (callback) {
   const running = /^worker .*status=running/mu.test(prompt);
   if (running) {
     frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "squad-decision/v1", action: "waiting" }) } });
