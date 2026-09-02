@@ -61,7 +61,9 @@ export function compileVerticalContract(source: unknown): CompiledVerticalContra
   try {
     definition = decodeVerticalDefinition(source);
   } catch (error) {
-    throw new VerticalContractError(`Vertical definition decode failed: ${messageOf(error)}`);
+    throw new VerticalContractError(
+      `Vertical definition decode failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   const artifacts = definition.entityKinds.filter(
@@ -216,7 +218,8 @@ function portablePathTemplate(pathTemplate: string): void {
     }
   } catch (error) {
     throw new VerticalContractError(
-      `Artifact store.pathTemplate must be a normalized portable relative path: ${pathTemplate} (${messageOf(error)})`,
+      `Artifact store.pathTemplate must be a normalized portable relative path: ${pathTemplate} ` +
+        `(${error instanceof Error ? error.message : String(error)})`,
     );
   }
 }
@@ -278,10 +281,6 @@ function assertUniqueValues(values: readonly string[], label: string): void {
 
 function duplicate(field: string, value: string): never {
   throw new VerticalContractError(`Duplicate artifact ${field}: ${value}.`);
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function deepFreeze<T>(value: T): T {

@@ -4,12 +4,8 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Schema } from "effect";
-import {
-  TemplateCatalogSchema,
-  VerticalDefinitionSchema,
-  type TemplateCatalog,
-  type VerticalDefinition,
-} from "../../kernel/src/index.ts";
+import { TemplateCatalogSchema, type TemplateCatalog, type VerticalDefinition } from "../../kernel/src/index.ts";
+import { VerticalDefinitionSchema } from "../../kernel/src/schemas/vertical-definition.ts";
 import {
   planTemplateMaterialization,
   validateExtensionInputShape,

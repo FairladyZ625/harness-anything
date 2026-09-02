@@ -26,7 +26,7 @@ export function runVerticalDiscoveryAction(
 ): unknown {
   const assets = loadCanonicalAssets(path.resolve(assetsRoot)),
     vertical = assets.compiledVertical.definition,
-    source = `vertical:${vertical.id}`;
+    source = `builtin:${vertical.id}`;
   if (action.kind === "template-list")
     return assets.catalog.catalog.documents
       .map((document) => ({
@@ -99,7 +99,7 @@ export function runVerticalDiscoveryAction(
       },
     };
   }
-  throw presetFailure("unsupported_command", `No vertical discovery contract exists for ${action.kind}.`);
+  throw presetFailure("unsupported_command", `No builtin discovery contract exists for ${action.kind}.`);
 }
 
 export function listCatalog(catalog: Map<string, Candidate>, verticalId: string): PresetCatalogDisplayEntry[] {
