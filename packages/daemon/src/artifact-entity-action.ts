@@ -188,8 +188,8 @@ async function resolveArtifactSource(input: {
   if (locator.kind === "url") {
     const response = await fetch(locator.value, { redirect: "follow" }),
       source = { kind: "url" as const, url: locator.value };
-    if (response.status === 404 || response.status === 410)
-      return { status: "missing", source, reason: `HTTP ${response.status}`, resolver: "http" };
+    const code = response.status;
+    if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
     if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
     const content = new Uint8Array(await response.arrayBuffer());
     return {
