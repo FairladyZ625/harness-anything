@@ -282,7 +282,7 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
 }
 
 async function daemonGone(command: ThinCommand): Promise<boolean> {
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
+  const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { daemonProcessAlive, daemonSocketProbe, readDaemonPid } = await import("../../daemon/src/daemon-singleton.ts"),
     pid = readDaemonPid(target.userRoot, target.daemonId),
     livePid = pid !== null && daemonProcessAlive(pid),

@@ -71,13 +71,13 @@ test("a worktree is refused before spawn while the registered canonical checkout
       })}\n`,
       "utf8",
     );
-    assert.equal(daemonHostStartRefusal({ invokingRoot: path.join(canonical, "packages"), userRoot }), null);
+    assert.equal(await daemonHostStartRefusal({ invokingRoot: path.join(canonical, "packages"), userRoot }), null);
     assert.equal(
-      daemonHostStartRefusal({ invokingRoot: independent, userRoot }),
+      await daemonHostStartRefusal({ invokingRoot: independent, userRoot }),
       null,
       "a different, not-yet-registered repository owns its own checkout identity",
     );
-    const refusal = daemonHostStartRefusal({ invokingRoot: worktree, userRoot });
+    const refusal = await daemonHostStartRefusal({ invokingRoot: worktree, userRoot });
     assert.equal(refusal?.code, "daemon_start_noncanonical_checkout");
     assert.match(refusal?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);
     assert.match(refusal?.hint ?? "", new RegExp(escapeRegExp(canonical), "u"));

@@ -10,6 +10,7 @@ export {
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
+  resolveLocalDaemonTargetFromRepos,
   type LocalDaemonTarget,
 } from "./local-daemon-target.ts";
 
@@ -29,7 +30,7 @@ export async function requestLocalDaemonJsonRpc(
   timeoutMs = 75,
   options: LocalDaemonJsonRpcOptions = {},
 ): Promise<JsonObject> {
-  const target = resolveLocalDaemonTarget({
+  const target = await resolveLocalDaemonTarget({
     rootDir,
     repoIdOverride: options.repoIdOverride,
     userRoot: options.userRoot,

@@ -241,7 +241,7 @@ export async function runCommandThroughDaemon(
     );
   }
   const target = {
-    ...resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env }),
+    ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
   };
   const requestPayload = daemonRequestPayload(command, env);
@@ -391,7 +391,7 @@ export async function streamRuntimeThroughDaemon(
   onValue: (value: unknown) => void,
   onClosed?: (failure: import("../../../daemon/src/client/local-json-rpc-stream.ts").DaemonStreamLost) => void,
 ): Promise<() => void> {
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
+  const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { streamAgentRuntimeAt } = await import("../../../daemon/src/client/local-json-rpc-stream.ts");
   return streamAgentRuntimeAt({
     socketPath: target.socketPath,
@@ -417,7 +417,7 @@ export async function openRuntimeStatusReader(
       read: () => runCommandThroughDaemon(fleetCommand, () => undefined, { autostart: false }),
       close: () => undefined,
     };
-  const daemonTarget = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
+  const daemonTarget = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { connectSocket, JsonRpcLineClient } = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
     { currentDaemonProtocolVersion } = await import("../../../daemon/src/protocol/version.ts"),
     socket = await connectSocket(daemonTarget.socketPath, 2_000),
@@ -446,7 +446,7 @@ export async function relayRuntimeAuthTerminal(
   sessionId: string,
   onOutput: (text: string) => void,
 ): Promise<number> {
-  const target = resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
+  const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { relayDaemonTerminal } = await import("../../../daemon/src/client/terminal-relay.ts");
   return relayDaemonTerminal({ socketPath: target.socketPath, repoId: target.repoId, sessionId, write: onOutput });
 }

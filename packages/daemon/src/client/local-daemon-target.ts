@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { readDaemonRegistry, type DaemonRegistryRepo } from "../../../kernel/src/index.ts";
+import type { DaemonRegistryRepo } from "../../../kernel/src/index.ts";
 import {
   canonicalRoot as bindCanonicalRoot,
   endpointIdentity,
@@ -17,6 +18,13 @@ export interface LocalDaemonTarget {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly socketPath: EndpointIdentity;
+}
+export interface LocalDaemonTargetInput {
+  readonly rootDir: string;
+  readonly repoIdOverride?: string;
+  readonly userRoot?: string;
+  readonly daemonId?: string;
+  readonly env?: NodeJS.ProcessEnv;
 }
 export function localUserDaemonEndpoint(
   userRoot = daemonUserRoot(),
@@ -57,22 +65,25 @@ export function resolveLocalDaemonEndpoint(input: {
   const nextAction = `Daemon target conflict: injected target endpoint=${JSON.stringify(endpoint)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}; resolved registry target endpoint=${JSON.stringify(expected)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}. Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.`;
   throw Object.assign(new Error(nextAction), { code: "daemon_target_conflict", nextAction });
 }
-export function resolveLocalDaemonTarget(input: {
-  readonly rootDir: string;
-  readonly repoIdOverride?: string;
-  readonly userRoot?: string;
-  readonly daemonId?: string;
-  readonly env?: NodeJS.ProcessEnv;
-}): LocalDaemonTarget {
+export async function resolveLocalDaemonTarget(input: LocalDaemonTargetInput): Promise<LocalDaemonTarget> {
+  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(input.env ?? process.env));
+  return resolveLocalDaemonTargetFromRepos(input, await readRegisteredRepos(userRoot));
+}
+export function resolveLocalDaemonTargetFromRepos(
+  input: LocalDaemonTargetInput,
+  repos: ReadonlyArray<DaemonRegistryRepo>,
+): LocalDaemonTarget {
   const env = input.env ?? process.env,
     userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
   const daemonId = input.daemonId ?? daemonIdFromEnv(env),
-    repos = readRegisteredRepos(userRoot);
+    registeredRepos = repos.filter(
+      (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
+    );
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
   const rootDir = bindCanonicalRoot(input.rootDir);
   const repo = requested
-    ? repos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
-    : repos
+    ? registeredRepos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
+    : registeredRepos
         .filter(
           (candidate) =>
             candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`),
@@ -100,12 +111,11 @@ export function resolveLocalDaemonTarget(input: {
     socketPath,
   };
 }
-export function readRegisteredRepos(userRoot: string): readonly {
-  readonly repoId: string;
-  readonly canonicalRoot: string;
-  readonly state: string;
-  readonly mode?: string;
-}[] {
+export async function readRegisteredRepos(
+  userRoot: string,
+): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
+  if (!existsSync(path.join(userRoot, "registry.json"))) return [];
+  const { readDaemonRegistry } = await import("../../../kernel/src/index.ts");
   return readDaemonRegistry({ userRoot }).repos.filter(
     (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
   );

@@ -25,7 +25,10 @@ import { defaultRegistryReader, resolveRepoScopedTarget } from "./repo-scoped-ta
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 interface DaemonClient {
-  readonly resolveLocalDaemonTarget: (input: { readonly rootDir: string; readonly repoIdOverride?: string }) => {
+  readonly resolveLocalDaemonTargetFromRepos: (
+    input: { readonly rootDir: string; readonly repoIdOverride?: string },
+    repos: ReturnType<typeof defaultRegistryReader>["repos"],
+  ) => {
     readonly repoId: string;
     readonly socketPath: string;
     readonly canonicalRoot: string;
@@ -205,13 +208,13 @@ function repoTarget(
   daemon: DaemonClient,
   rootDir: string,
   repoId: string,
-): ReturnType<DaemonClient["resolveLocalDaemonTarget"]> {
+): ReturnType<DaemonClient["resolveLocalDaemonTargetFromRepos"]> {
   return resolveRepoScopedTarget(
-    () => daemon.resolveLocalDaemonTarget({ rootDir, repoIdOverride: repoId }),
+    () => daemon.resolveLocalDaemonTargetFromRepos({ rootDir, repoIdOverride: repoId }, defaultRegistryReader().repos),
     defaultRegistryReader,
     globalTarget,
     repoId,
-  ) as ReturnType<DaemonClient["resolveLocalDaemonTarget"]>;
+  ) as ReturnType<DaemonClient["resolveLocalDaemonTargetFromRepos"]>;
 }
 
 /** Settings → 仓库与连接 的 admin 通道:同一 one-shot 客户端直达本机 daemon 的 admin RPC。 */
