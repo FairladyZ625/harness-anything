@@ -61,6 +61,15 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
+  if (route.id === "relation-events-migrate" || route.id === "decision-digests-migrate") {
+    const f = readFlags(route.id, args.slice(2), inputs);
+    return f.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: route.id,
+          ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
+        })
+      : rejected(f.code, f.nextAction, json);
+  }
   if (route.id === "ledger-migrate")
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "ledger-migrate" })

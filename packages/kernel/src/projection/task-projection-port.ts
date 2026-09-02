@@ -1,3 +1,4 @@
+import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
 import type { AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "../domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
@@ -96,6 +97,7 @@ export interface TaskProjection {
   readonly readOperation: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
   readonly readRelationTruth: () => EventBackedRelationTruth;
   readonly readEntityVersionWitness: (entityRef: string) => EntityVersionWitness;
+  readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
   readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;

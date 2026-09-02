@@ -2,7 +2,6 @@ import { projectBaseEntityAtCut, requireEntityTypeContract, type BaseEntity } fr
 import {
   deriveRelationId,
   isAllowedRelationKindTriple,
-  normalizeLegacyRelationState,
   relationStrengthForType,
   relationDirections,
   relationOrigins,
@@ -120,7 +119,7 @@ export function reduceRelationEntity(
     throw new Error("Relation aggregate requires relation history");
   const relation =
     migrated?.kind === "relation"
-      ? migrationRelationRecord(migrated.relation)
+      ? eventRecord(migrated.relation)
       : event.schema === "relation-event/v1" &&
           (event.type === "relation_created" || event.type === "relation_replaced")
         ? event.payload.relation
@@ -556,13 +555,6 @@ function eventRecord(record: EntityRelationRecord): RelationEventRecord {
         ? ((record as EntityRelationRecord & { readonly targetObservedVersion: EntityVersion | null })
             .targetObservedVersion ?? null)
         : null,
-  };
-}
-
-function migrationRelationRecord(record: EntityRelationRecord): RelationEventRecord {
-  return {
-    ...eventRecord(record),
-    state: normalizeLegacyRelationState(record.state),
   };
 }
 

@@ -145,10 +145,23 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
     };
   assert.deepEqual(validateMigrationImportEvent(migrated), [], "the frozen migration remains a readable event");
   assert.notDeepEqual(validateCurrentMigrationImportEvent(migrated), [], "new migration writes reject the old state");
-  const entity = reduceRelationEntity(null, migrated);
+  // History carrying the retired lifecycle word is upcast once by `ha migrate relation-events`;
+  // replay no longer translates it.
+  assert.throws(() => reduceRelationEntity(null, migrated), /Relation facet is invalid/u);
+  const upcast = {
+      ...migrated,
+      payload: {
+        ...migrated.payload,
+        entity: {
+          ...migrated.payload.entity,
+          relation: { ...migrated.payload.entity.relation, state: "retired" as const },
+        },
+      },
+    },
+    entity = reduceRelationEntity(null, upcast);
   assert.equal(entity.id, relation.relation_id);
   assert.equal(entity.origin, "imported_snapshot");
-  assert.equal(entity.state, "retired", "only migration genesis upcasts the historical lifecycle word");
+  assert.equal(entity.state, "retired");
   assert.equal(entity.revision, 11);
   assert.throws(
     () =>
@@ -162,7 +175,7 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
           },
         },
       }),
-    /migration state is invalid/u,
+    /Relation facet is invalid/u,
   );
 
   const replacementRecord = record("relation/rel_2222222222222222", "task/task_REPLACEMENT"),

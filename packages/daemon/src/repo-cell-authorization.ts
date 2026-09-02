@@ -143,7 +143,11 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "fact-record":
       return authorizeRepoCellAction(input);
+    case "decision-digests-migrate":
+      return authorizeRepoCellAction(input);
     case "fact-rekey":
+      return authorizeRepoCellAction(input);
+    case "relation-events-migrate":
       return authorizeRepoCellAction(input);
     case "fact-type-register":
       return authorizeRepoCellAction(input);
