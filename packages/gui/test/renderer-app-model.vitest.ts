@@ -2,15 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { TaskProjectionRow } from "../../kernel/src/index.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
-import {
-  buildGuiViewModelFromTaskProjection,
-  readGuiTaskDetailResult,
-  readGuiTaskDocumentResult,
-  readGuiTaskListResult,
-  toGuiCommandFeedback,
-} from "../src/api/view-model.ts";
+import { taskCan } from "../src/renderer/model/types.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
@@ -19,7 +13,7 @@ import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskDetai
 import { DecisionJudgmentPanel } from "../src/renderer/components/DecisionJudgmentPanel.tsx";
 import { DecisionProposalForm } from "../src/renderer/components/DecisionProposalForm.tsx";
 import { taskDocumentQuery } from "../src/renderer/task-data.ts";
-import { isTaskStartable, settleTaskReceipt } from "../src/renderer/task-actions.ts";
+import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
 
 describe("renderer app model", () => {
@@ -42,115 +36,6 @@ describe("renderer app model", () => {
       "execution-evidence",
       "graph",
     ]);
-  });
-
-  it("builds task shell views from sqlite-task-row/v1 fields only", () => {
-    const rows = [
-      taskRow({ taskId: "task-child", title: "Child", parentTaskId: "task-parent", coordinationStatus: "blocked" }),
-      taskRow({ taskId: "task-parent", title: "Parent", closeoutReadiness: "ready" }),
-      taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" }),
-    ];
-
-    const model = buildGuiViewModelFromTaskProjection(rows);
-
-    expect(model.list.map((row) => row.taskId)).toEqual(["task-child", "task-parent"]);
-    expect(model.board.find((column) => column.id === "blocked")?.taskIds).toEqual(["task-child"]);
-    expect(model.reviewQueue.map((row) => row.taskId)).toEqual(["task-parent"]);
-    expect(model.graph.nodes).toEqual([
-      { id: "task-child", title: "Child" },
-      { id: "task-parent", title: "Parent" },
-    ]);
-    expect(model.graph.edges).toEqual([{ from: "task-parent", to: "task-child", kind: "child" }]);
-  });
-
-  it("reads task route results defensively without depending on optional route fields", () => {
-    const list = readGuiTaskListResult({
-      ok: true,
-      tasks: [
-        taskRow({ taskId: "task-1", title: "One" }),
-        taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" }),
-      ],
-    });
-    const detail = readGuiTaskDetailResult({
-      ok: true,
-      task: taskRow({ taskId: "task-1", title: "One" }),
-      documents: [{ path: "INDEX.md" }, { label: "ignored" }],
-    });
-    const document = readGuiTaskDocumentResult({ ok: true, taskId: "task-1", path: "INDEX.md" });
-    const invalid = readGuiTaskListResult({ ok: true, tasks: [{ taskId: "task-1", title: "One" }] });
-
-    expect(list).toMatchObject({ ok: true, warnings: [] });
-    expect(list.ok && list.rows[0]).toMatchObject({ taskId: "task-1", title: "One" });
-    expect(list.ok && list.rows.map((row) => row.taskId)).toEqual(["task-1"]);
-    expect(detail.ok && detail.documents).toEqual([{ path: "INDEX.md" }]);
-    expect(document).toEqual({ ok: true, taskId: "task-1", path: "INDEX.md", body: "" });
-    expect(invalid).toEqual({
-      ok: false,
-      error: {
-        code: "invalid_task_projection_row",
-        hint: "Expected sqlite-task-row/v1 task projection row.",
-      },
-    });
-  });
-
-  it("normalizes command feedback from lean local results and rich command receipts", () => {
-    expect(toGuiCommandFeedback({ ok: true })).toEqual({
-      ok: true,
-      summary: "Command completed.",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: false,
-        error: { code: "task_not_found", hint: "missing" },
-      }),
-    ).toEqual({
-      ok: false,
-      summary: "Command failed.",
-      errorCode: "task_not_found",
-      hint: "missing",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: true,
-        schema: "command-receipt/v2",
-        command: "ha task progress append",
-        action: "progress append",
-        summary: "appended progress",
-        paths: [{ role: "progress", path: "progress.md" }],
-        next: [{ command: "ha task show task-1" }],
-        meta: {
-          generatedAt: "2026-07-07T00:00:00.000Z",
-          compatibility: {},
-        },
-      }),
-    ).toEqual({
-      ok: true,
-      summary: "appended progress",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: false,
-        schema: "command-receipt/v2",
-        command: "ha task status set",
-        action: "status set",
-        summary: "failed",
-        error: { code: "invalid_status", hint: "bad status" },
-        warnings: ["ignored by default display"],
-        meta: {
-          generatedAt: "2026-07-07T00:00:00.000Z",
-          compatibility: {},
-        },
-      }),
-    ).toEqual({
-      ok: false,
-      summary: "failed",
-      errorCode: "invalid_status",
-      hint: "bad status",
-      warnings: ["ignored by default display"],
-    });
   });
 
   it("settles task writes only from durable canonical receipts and resolves pending by opId", async () => {
@@ -301,7 +186,8 @@ describe("renderer app model", () => {
     expect(decisionHasReachableEvidence(decision, [{ ...edge, from: "decision/dec_test/C2" }])).toBe(false);
   });
 
-  it("allows drag start only for native planned clear active packages", () => {
+  // 拖拽起跑的判据不再由 renderer 拼状态词,而是读 daemon 投影的 start 能力。
+  it("allows drag start exactly when the projected start capability is available", () => {
     const planned: TaskRow = {
       taskId: "task-1",
       title: "One",
@@ -320,11 +206,11 @@ describe("renderer app model", () => {
       lastKnownAt: "2026-08-14T00:00:00.000Z",
       gates: [],
       docs: [],
+      ...taskProjectionFields("planned", { can: ["start"] }),
     };
-    expect(isTaskStartable(planned)).toBe(true);
-    expect(isTaskStartable({ ...planned, blocking: "blocked", coordinationStatus: "blocked" })).toBe(false);
-    expect(isTaskStartable({ ...planned, origin: "external" })).toBe(false);
-    expect(isTaskStartable({ ...planned, canonicalStatus: "active", coordinationStatus: "active" })).toBe(false);
+    expect(taskCan(planned, "start")).toBe(true);
+    expect(taskCan({ ...planned, ...taskProjectionFields("blocked") }, "start")).toBe(false);
+    expect(taskCan({ ...planned, ...taskProjectionFields("active") }, "start")).toBe(false);
   });
 
   it("renders an explicit empty state when the triadic ledger has no entities", () => {
@@ -406,6 +292,7 @@ describe("renderer app model", () => {
       activeExecutionId: "execution-gui-1",
       gates: [],
       docs: [],
+      ...taskProjectionFields("active", { can: ["progress", "submit"] }),
     };
     const activeMarkup = renderToStaticMarkup(
       createElement(
@@ -430,6 +317,10 @@ describe("renderer app model", () => {
             blocking: "blocked",
             blockingLabel: "1 个 active blocking relation",
             activeExecutionId: undefined,
+            capabilities: [
+              { id: "start", available: false, reason: "blocked" },
+              { id: "progress", available: false, reason: "invalid_transition" },
+            ],
             blockers: [
               {
                 relationId: "rel_1",
@@ -591,25 +482,6 @@ describe("renderer app model", () => {
     expect(markup).toContain("receipt-show（不重放 mutation）");
   });
 });
-
-function taskRow(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
-  return {
-    schema: "sqlite-task-row/v1",
-    taskId: "task-default",
-    title: "Default",
-    canonicalStatus: "planned",
-    coordinationStatus: "open",
-    rawStatus: "planned",
-    packageDisposition: "active",
-    closeoutReadiness: "not-ready",
-    lifecycleEngine: "local",
-    freshness: "fresh",
-    updatedAt: "2026-07-07T00:00:00.000Z",
-    source: "local-document",
-    sourcePath: "harness/tasks/task-default/INDEX.md",
-    ...overrides,
-  };
-}
 
 function receipt(overrides: Record<string, unknown> = {}) {
   return {

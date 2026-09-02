@@ -15,6 +15,7 @@ import {
   zoneHeaderH,
   ZONE_BODY_PAD_Y,
 } from "../src/renderer/graph/territoryLayout.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * 领地两级布局回归(archive 结构恢复):
@@ -41,6 +42,9 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+      archived: (overrides.packageDisposition ?? "active") !== "active",
+    }),
     ...overrides,
   };
 }

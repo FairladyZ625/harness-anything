@@ -108,6 +108,10 @@ function adaptProjectionRow(
     // 这里按 reviews 等既有模式原样透传,renderer 不重解释 kernel 字段。
     executions: row.snapshot.executions,
     executionEvidence: row.executionEvidence,
+    // dec_5B135F46 CH4:看板列/排序、归档降噪、行级能力由 daemon 派生,这里原样透传。
+    board: row.board,
+    visibility: row.visibility,
+    capabilities: row.capabilities,
     ...(task.metadata?.riskTier ? { riskTier: task.metadata.riskTier } : {}),
     ...(task.metadata?.urgency ? { urgency: task.metadata.urgency } : {}),
     docs: [],

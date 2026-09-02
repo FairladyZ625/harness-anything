@@ -39,6 +39,9 @@ function taskRow(taskId: string) {
       provenance: [{ kind: "l2", ref: `tasks/${taskId}-probe/INDEX.md` }],
     },
     executionEvidence: [],
+    board: { columnId: "open", rank: 3 },
+    visibility: { archived: false },
+    capabilities: [{ id: "start", available: true, reason: null }],
     snapshot: {
       revision: 1,
       task: {

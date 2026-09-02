@@ -1,4 +1,4 @@
-import type { TaskRow, SnapshotStatus } from "../model/types";
+import type { TaskRow } from "../model/types";
 import { resolveTaskModule, UNPROJECTED_MODULE } from "./moduleAssignment";
 
 /**
@@ -8,21 +8,22 @@ import { resolveTaskModule, UNPROJECTED_MODULE } from "./moduleAssignment";
  * 所以领地 task 分区不再按 module 摊平(那正是「一片混乱 + 未投影占 C 位」的成因),
  * 而是按 rootTaskId 聚簇成 PRD 块,每块带自己的状态构成与完成率。
  *
- * 全部由现有 triadic projection 前端派生:不新增查询、不改后端契约。
+ * 构成与排序都读 daemon 投影的 `board`(dec_5B135F46 CH4):列由 `board.columnId` 给,
+ * 块内顺序由 `board.rank` 给,renderer 不再自己把状态词分桶或排权重。
  * 诚实边界:rootTaskId / module 缺失的 task 仍然显式归入「未投影」,只降权重排,不隐藏、
  * 不补默认值冒充已投影(REQ-GUI-03 验收硬项)。
  */
 
 export interface ZoneProgress {
   total: number;
-  done: number;
-  active: number;
+  /** 看板 terminal 列(kernel `terminalDomainStatuses`:done 与 cancelled)。 */
+  terminal: number;
+  open: number;
   blocked: number;
   inReview: number;
-  planned: number;
-  /** cancelled + unknown:不计入完成率分母之外,但单列出来避免「消失」。 */
-  other: number;
-  /** 完成率 = done / total,0..1。 */
+  /** 投影不给列的行(无 projected task):不计完成,但单列出来避免「消失」。 */
+  unplaced: number;
+  /** 完成率 = terminal / total,0..1。 */
   doneRatio: number;
   /** 该块是否属于未投影(缺 root/module 字段)。 */
   unprojected: boolean;
@@ -30,81 +31,35 @@ export interface ZoneProgress {
 
 const EMPTY_PROGRESS: ZoneProgress = {
   total: 0,
-  done: 0,
-  active: 0,
+  terminal: 0,
+  open: 0,
   blocked: 0,
   inReview: 0,
-  planned: 0,
-  other: 0,
+  unplaced: 0,
   doneRatio: 0,
   unprojected: false,
 };
 
-/** 一组 task 的状态构成 + 完成率。 */
+/** 一组 task 的看板列构成 + 完成率。 */
 export function deriveZoneProgress(tasks: ReadonlyArray<TaskRow>, unprojected = false): ZoneProgress {
   if (tasks.length === 0) return { ...EMPTY_PROGRESS, unprojected };
-  let done = 0;
-  let active = 0;
-  let blocked = 0;
-  let inReview = 0;
-  let planned = 0;
-  let other = 0;
+  const counts = { terminal: 0, open: 0, blocked: 0, in_review: 0 };
+  let unplaced = 0;
   for (const task of tasks) {
-    /* @gate-identity check-gui-status-judgments/gui-status-023 */
-    switch (statusBucket(task.coordinationStatus)) {
-      case "done":
-        done += 1;
-        break;
-      case "active":
-        active += 1;
-        break;
-      case "blocked":
-        blocked += 1;
-        break;
-      case "in_review":
-        inReview += 1;
-        break;
-      case "planned":
-        planned += 1;
-        break;
-      default:
-        other += 1;
-    }
+    const columnId = task.board.columnId;
+    if (columnId === null) unplaced += 1;
+    else counts[columnId] += 1;
   }
   return {
     total: tasks.length,
-    done,
-    active,
-    blocked,
-    inReview,
-    planned,
-    other,
-    doneRatio: done / tasks.length,
+    terminal: counts.terminal,
+    open: counts.open,
+    blocked: counts.blocked,
+    inReview: counts.in_review,
+    unplaced,
+    doneRatio: counts.terminal / tasks.length,
     unprojected,
   };
-}
-
-function statusBucket(status: SnapshotStatus): SnapshotStatus {
-  if (
-    /* @gate-identity check-gui-status-judgments/gui-status-024 */
-    status === "done" ||
-    /* @gate-identity check-gui-status-judgments/gui-status-025 */
-    status === "active" ||
-    /* @gate-identity check-gui-status-judgments/gui-status-026 */
-    status === "blocked"
-  )
-    return status;
-  if (
-    /* @gate-identity check-gui-status-judgments/gui-status-027 */
-    status === "in_review"
-  )
-    return "in_review";
-  if (
-    /* @gate-identity check-gui-status-judgments/gui-status-028 */
-    status === "planned"
-  )
-    return "planned";
-  return "unknown";
 }
 
 /**
@@ -116,7 +71,7 @@ export function zoneRank(progress: ZoneProgress): number {
   if (progress.unprojected) return 9;
   if (progress.blocked > 0) return 0;
   if (progress.doneRatio >= 0.8) return 3;
-  if (progress.active > 0 || progress.inReview > 0) return 1;
+  if (progress.open > 0 || progress.inReview > 0) return 1;
   return 2;
 }
 
@@ -208,25 +163,7 @@ function prdTitle(rootId: string, group: ReadonlyArray<TaskRow>, titleById: Read
   return fromRow ?? titleById.get(rootId) ?? rootId;
 }
 
-/** task 重要性:阻塞 > 进行 > 评审 > 规划 > 完成/其他;同档按标题稳定排序。 */
+/** task 重要性:排序权重由投影的 `board.rank` 给;同档按标题稳定排序。 */
 function taskImportance(a: TaskRow, b: TaskRow): number {
-  return statusWeight(a.coordinationStatus) - statusWeight(b.coordinationStatus) || a.title.localeCompare(b.title);
-}
-
-function statusWeight(status: SnapshotStatus): number {
-  /* @gate-identity check-gui-status-judgments/gui-status-029 */
-  switch (status) {
-    case "blocked":
-      return 0;
-    case "active":
-      return 1;
-    case "in_review":
-      return 2;
-    case "planned":
-      return 3;
-    case "done":
-      return 4;
-    default:
-      return 5;
-  }
+  return a.board.rank - b.board.rank || a.title.localeCompare(b.title);
 }

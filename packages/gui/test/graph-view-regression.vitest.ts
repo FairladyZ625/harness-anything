@@ -9,6 +9,7 @@ import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../src/renderer/graph-territory-preferences.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * 关系图页不因 ego 组件抽取而退化(W4 硬要求)。
@@ -34,6 +35,7 @@ function task(taskId: string, title: string): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields("active"),
   };
 }
 
@@ -191,8 +193,17 @@ describe("territory archive-noise filter (board parity)", () => {
   function noiseTasks(): TaskRow[] {
     return [
       task("t_live", "在飞任务"),
-      { ...task("t_cancelled", "已取消任务"), coordinationStatus: "cancelled", rawStatus: "cancelled" },
-      { ...task("t_archived", "已归档任务"), packageDisposition: "archived" },
+      {
+        ...task("t_cancelled", "已取消任务"),
+        coordinationStatus: "cancelled" as const,
+        rawStatus: "cancelled",
+        ...taskProjectionFields("cancelled"),
+      },
+      {
+        ...task("t_archived", "已归档任务"),
+        packageDisposition: "archived" as const,
+        ...taskProjectionFields("active", { archived: true }),
+      },
     ];
   }
 

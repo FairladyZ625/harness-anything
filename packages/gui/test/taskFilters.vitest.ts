@@ -10,6 +10,7 @@ import {
   taskFilterSummary,
   type TaskFilters,
 } from "../src/renderer/model/taskFilters.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 function makeTask(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
@@ -27,6 +28,9 @@ function makeTask(overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-07-09T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+      archived: (overrides.packageDisposition ?? "active") !== "active",
+    }),
     ...overrides,
   };
 }

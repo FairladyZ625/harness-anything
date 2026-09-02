@@ -15,22 +15,17 @@ import { endpointToNodeId } from "./endpoint";
 /** 内部哨兵:字段未投影。渲染侧翻成「未投影」文案。 */
 export const UNPROJECTED_MODULE = "__unprojected__";
 
-/** task.module 字段里代表「未赋值」的占位值(task-adapter 硬编码)。 */
-const PLACEHOLDER_MODULES = new Set(
-  /* @gate-identity check-gui-status-judgments/gui-status-021 */
-  ["", "unassigned", "unknown", "none"],
-);
+/** task.module 字段里代表「未赋值」的占位值:task-adapter 在 moduleKeys 为空时写它。 */
+const UNASSIGNED_MODULE = "unassigned";
 
 /** task.module 是否为占位(未投影)。 */
 export function isModuleUnprojected(module: string | undefined | null): boolean {
-  if (!module) return true;
-  return PLACEHOLDER_MODULES.has(module);
+  return !module || module === UNASSIGNED_MODULE;
 }
 
 /** 把 task.module 解析成显示值:真实模块原样返回,占位返回 UNPROJECTED 哨兵。 */
 export function resolveTaskModule(module: string | undefined | null): string {
-  if (!module || PLACEHOLDER_MODULES.has(module)) return UNPROJECTED_MODULE;
-  return module;
+  return !module || module === UNASSIGNED_MODULE ? UNPROJECTED_MODULE : module;
 }
 
 /**

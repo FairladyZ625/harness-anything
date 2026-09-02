@@ -12,7 +12,7 @@ import {
 } from "@dnd-kit/core";
 import { Lock, Archive, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus, RelationEdge } from "../model/types";
-import { BOARD_COLUMNS, isExternal } from "../model/types";
+import { BOARD_COLUMNS, isExternal, taskCan } from "../model/types";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -27,7 +27,7 @@ import type { TaskFilters } from "../model/taskFilters";
 import { sortByPinAndFavoritesFirst } from "../model/taskFilters";
 import { spawningDecisionOf } from "../model/triadic";
 import { ListView } from "./ListView";
-import { isTaskStartable, type TaskMutationFeedback } from "../task-actions.ts";
+import type { TaskMutationFeedback } from "../task-actions.ts";
 
 const ENGINE_HINT: Record<string, string> = {
   multica: "由 Multica 管理，去 Multica 改状态",
@@ -37,7 +37,7 @@ const ENGINE_HINT: Record<string, string> = {
 
 function taskControlHint(task: TaskRow): string {
   if (isExternal(task)) return ENGINE_HINT[task.engine] ?? `由外部引擎 ${task.engine} 管理，GUI 只读`;
-  if (task.packageDisposition !== "active") return `${task.packageDisposition} package 只读`;
+  if (task.visibility.archived) return `${task.packageDisposition} package 只读`;
   if (task.blocking === "blocked") return "Blocked 是 relation overlay，不可拖；关系在 canonical 来源处理";
   if (task.canonicalStatus === "in_review") return "已进入 review；只能查看 canonical settlement";
   if (task.canonicalStatus === "done") return "任务已完成，状态只读";
@@ -64,9 +64,7 @@ function Card({
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
-  const archived =
-    /* @gate-identity check-gui-status-judgments/gui-status-058 */
-    task.packageDisposition !== "active";
+  const archived = task.visibility.archived;
   const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div
@@ -161,7 +159,7 @@ function DraggableCard({
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
-  const draggable = isTaskStartable(task);
+  const draggable = taskCan(task, "start");
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.taskId,
     disabled: !draggable,

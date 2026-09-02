@@ -30,14 +30,13 @@ const AXIS_VAR: Record<Entity, string> = {
   schedule: "var(--color-axis-assoc)",
 };
 
-/** 状态段配色(等亮度状态色,与视觉系统同源)。 */
+/** 看板列段配色(等亮度状态色,与视觉系统同源);段与 `board.columnId` 一一对应。 */
 const PROGRESS_SEGMENTS: ReadonlyArray<{ key: keyof ZoneProgress; label: string; color: string }> = [
-  { key: "done", label: "完成", color: "var(--color-status-done)" },
+  { key: "terminal", label: "终态", color: "var(--color-status-done)" },
   { key: "inReview", label: "评审", color: "var(--color-status-in-review)" },
-  { key: "active", label: "进行", color: "var(--color-status-active)" },
+  { key: "open", label: "开放", color: "var(--color-status-active)" },
   { key: "blocked", label: "阻塞", color: "var(--color-status-blocked)" },
-  { key: "planned", label: "规划", color: "var(--color-status-planned)" },
-  { key: "other", label: "其他", color: "var(--color-status-unknown)" },
+  { key: "unplaced", label: "未定", color: "var(--color-status-unknown)" },
 ];
 
 export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
@@ -113,7 +112,7 @@ function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {
       <div className="ui-micro flex items-center gap-2 font-mono text-text-faint">
         <span data-testid="zone-done-ratio">{Math.round(progress.doneRatio * 100)}% 完成</span>
         <span>
-          {progress.done}/{progress.total}
+          {progress.terminal}/{progress.total}
         </span>
         {progress.blocked > 0 && <span className="text-danger">阻塞 {progress.blocked}</span>}
       </div>

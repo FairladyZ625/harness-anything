@@ -17,6 +17,7 @@ import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFil
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -35,6 +36,9 @@ function task(patch: Partial<TaskRow>): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields(patch.coordinationStatus ?? "active", {
+      archived: (patch.packageDisposition ?? "active") !== "active",
+    }),
     ...patch,
   };
 }
