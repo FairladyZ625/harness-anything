@@ -89,6 +89,7 @@ export interface WalMaterializationFailureV1 {
     readonly name: string;
     readonly message: string;
     readonly code: string | null;
+    readonly retryable: boolean;
     readonly diverged: boolean;
     readonly canonicalSha: string | null;
   };

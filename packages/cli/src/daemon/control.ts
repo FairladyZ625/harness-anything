@@ -336,7 +336,9 @@ function assessDaemonStatus(result: Record<string, unknown>): {
         !Number.isSafeInteger(health.pendingWalEvents) ||
         Number(health.pendingWalEvents) < 0 ||
         (health.lastCheckpointAt !== null && typeof health.lastCheckpointAt !== "string") ||
-        (health.reason !== "git_diverged" && health.reason !== "retry_budget_exhausted") ||
+        (health.reason !== "git_diverged" &&
+          health.reason !== "deterministic_failure" &&
+          health.reason !== "retry_budget_exhausted") ||
         typeof health.lastError !== "string"
       )
         return [];
@@ -346,7 +348,7 @@ function assessDaemonStatus(result: Record<string, unknown>): {
           lastCheckpointRevision: health.lastCheckpointRevision as number,
           lastCheckpointAt: typeof health.lastCheckpointAt === "string" ? health.lastCheckpointAt : null,
           pendingWalEvents: health.pendingWalEvents as number,
-          reason: health.reason as "git_diverged" | "retry_budget_exhausted",
+          reason: health.reason as "git_diverged" | "deterministic_failure" | "retry_budget_exhausted",
           lastError: health.lastError,
         },
       ];
@@ -393,7 +395,7 @@ function withoutRepoId(failure: {
   readonly lastCheckpointRevision: number;
   readonly lastCheckpointAt: string | null;
   readonly pendingWalEvents: number;
-  readonly reason: "git_diverged" | "retry_budget_exhausted";
+  readonly reason: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
   readonly lastError: string;
 }) {
   const { repoId: _repoId, ...diagnostic } = failure;

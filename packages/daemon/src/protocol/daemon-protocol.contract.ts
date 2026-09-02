@@ -601,7 +601,7 @@ export interface DaemonStatusResult {
       readonly lastCheckpointRevision: number;
       readonly lastCheckpointAt: string | null;
       readonly pendingWalEvents: number;
-      readonly reason?: "git_diverged" | "retry_budget_exhausted";
+      readonly reason?: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
       readonly lastError?: string;
     } | null;
   }[];

@@ -39,7 +39,7 @@ export type ReceiptDiagnostic =
       readonly lastCheckpointRevision: number;
       readonly lastCheckpointAt: string | null;
       readonly pendingWalEvents: number;
-      readonly reason: "git_diverged" | "retry_budget_exhausted";
+      readonly reason: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
       readonly lastError: string;
     };
 
@@ -369,7 +369,9 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
       cut(value.lastCheckpointRevision) &&
       (value.lastCheckpointAt === null || isNonEmptyString(value.lastCheckpointAt)) &&
       cut(value.pendingWalEvents) &&
-      (value.reason === "git_diverged" || value.reason === "retry_budget_exhausted") &&
+      (value.reason === "git_diverged" ||
+        value.reason === "deterministic_failure" ||
+        value.reason === "retry_budget_exhausted") &&
       isNonEmptyString(value.lastError)
     );
   return (

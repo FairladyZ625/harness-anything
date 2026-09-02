@@ -1,4 +1,5 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { VcsCommandError } from "../ports/version-control-system.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -106,7 +107,7 @@ export function runWalMaterializationRequest(
       };
     return response;
   } catch (error) {
-    return failureResponse(request.requestId, request.cut, error);
+    return failureResponse(request.requestId, request.cut, error, request.testFault !== undefined);
   }
 }
 
@@ -144,6 +145,7 @@ function failureResponse(
   requestId: string,
   cut: WalMaterializationRequestV1["cut"] | null,
   error: unknown,
+  injectedTransientFault = false,
 ): WalMaterializationFailureV1 {
   const failure = error instanceof Error ? error : new Error(String(error));
   return {
@@ -159,9 +161,35 @@ function failureResponse(
     error: {
       name: failure.name,
       message: failure.message,
-      code: failure instanceof TaskEventStoreError ? failure.code : null,
+      code: materializationErrorCode(failure),
+      retryable:
+        !(failure instanceof WalMaterializerDivergedError) &&
+        (injectedTransientFault || isRetryableWalMaterializationError(failure)),
       diverged: failure instanceof WalMaterializerDivergedError,
       canonicalSha: failure instanceof WalMaterializerDivergedError ? failure.canonicalSha : null,
     },
   };
+}
+
+const transientSystemErrorCodes = new Set(["EAGAIN", "EBUSY", "EINTR", "EMFILE", "ENFILE", "ENOBUFS", "ETIMEDOUT"]);
+const transientGitLock =
+  /(?:another git process seems to be running|(?:unable to create|could not lock)[^\n]*\.lock['"]?: file exists)/iu;
+
+// Retry only recognized Git lock/resource/I/O pressure; protocol, fence, ref/cut, and consistency failures latch.
+export function isRetryableWalMaterializationError(error: unknown): boolean {
+  const systemCode = materializationErrorCode(error);
+  if (systemCode !== null && transientSystemErrorCodes.has(systemCode)) return true;
+  if (error instanceof VcsCommandError) {
+    if (typeof error.exitCode === "string" && transientSystemErrorCodes.has(error.exitCode)) return true;
+    return transientGitLock.test(error.stderrSummary ?? "");
+  }
+  return (
+    error instanceof Error &&
+    new RegExp(`\\b(?:${[...transientSystemErrorCodes].join("|")})\\b`, "u").test(error.message)
+  );
+}
+
+function materializationErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
 }

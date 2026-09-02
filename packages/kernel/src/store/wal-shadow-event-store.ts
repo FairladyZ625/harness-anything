@@ -43,7 +43,7 @@ import type {
   WalMaterializationFailureV1,
   WalMaterializationSuccessV1,
 } from "./wal-materialization-protocol.ts";
-import { runWalMaterializationRequest } from "./wal-materialization-worker.ts";
+import { isRetryableWalMaterializationError, runWalMaterializationRequest } from "./wal-materialization-worker.ts";
 import type { WalMaterializationRequestV1, WalMaterializationResponseV1 } from "./wal-materialization-protocol.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
@@ -361,6 +361,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           ? { point: options.walMaterializationTestFault.point }
           : undefined;
     if (fault) remainingTestFaults -= 1;
+    let responseRetryable: boolean | undefined;
     try {
       const response = await materialize(materializationConfig, {
         schema: "harness-wal-materialization-request/v1",
@@ -377,7 +378,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         fence: pendingMaterializationFence,
         ...(fault ? { testFault: fault } : {}),
       });
-      if (response.outcome === "failed") throw materializationError(response);
+      if (response.outcome === "failed") {
+        responseRetryable = response.error.retryable;
+        throw materializationError(response);
+      }
       acceptMaterializedCut(cut, response, gitRevisionBeforeFlush);
       const range = `${first}-${cut.throughRevision}`;
       const attempt = consecutiveFailures + 1;
@@ -391,6 +395,14 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       if (error instanceof WalMaterializerDivergedError) {
         latchMaterializationFailure("git_diverged", error);
         console.error(`[wal-materializer] diverged; materializer stopped: ${error.message}`);
+        consumeKnownError(error);
+        return false;
+      }
+      if (!(responseRetryable ?? isRetryableWalMaterializationError(error))) {
+        latchMaterializationFailure("deterministic_failure", error);
+        console.error(
+          `[wal-materializer] deterministic failure; materializer stopped: ${walShadowErrorMessage(error)}`,
+        );
         consumeKnownError(error);
         return false;
       }
@@ -697,6 +709,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         if (hasWalRecords()) {
           const succeeded = await queueFlush("drain");
           if (!succeeded && hasWalRecords()) {
+            if (failureLatch !== null) throw materializationFailedError();
             if (attempt >= retryLimit)
               throw new TaskEventStoreError(
                 "publication_indeterminate",
@@ -722,6 +735,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     clearSchedule();
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
       if ((await queueFlush(context, compactWorktree)) && !hasWalRecords()) return;
+      if (failureLatch !== null) throw materializationFailedError();
       if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())

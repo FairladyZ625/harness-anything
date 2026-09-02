@@ -189,22 +189,34 @@ test("RepoWriterCell verifies the writer epoch inside Git ref finalization", asy
     epoch: leaseA.epoch,
     holderId: leaseA.holderId,
   };
+  let materializationAttempts = 0;
   const store = makeTaskEventStore({
     repoId: "probe-repo",
     rootDir: repo,
-    walMaterialize: (config, request) =>
-      runWalMaterializationRequest(config, request, {
+    walMaterialize: (config, request) => {
+      materializationAttempts += 1;
+      return runWalMaterializationRequest(config, request, {
         withFinalizeFence: (descriptor, operation) => withWriterEpochFenceDescriptor(descriptor, operation),
-      }),
+      });
+    },
     walMaterializationFence: () => fence,
   });
   const baselineCommit = probeGit(repo, "rev-parse", "refs/ha/canonical");
   try {
     appendWorkerTask(store, 1);
-    await assert.rejects(store.settlePendingMaterialization!("writer epoch test"), /WAL writer epoch test exhausted/u);
+    const startedAt = performance.now();
+    await assert.rejects(
+      store.settlePendingMaterialization!("writer epoch test"),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
+    const latchElapsedMs = performance.now() - startedAt;
+    assert.equal(materializationAttempts, 1);
+    assert.equal(store.materializationHealth().reason, "deterministic_failure");
+    console.info(`writer epoch deterministic latch attempts=1 elapsedMs=${latchElapsedMs.toFixed(1)}`);
     assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), baselineCommit);
 
     fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
+    assert.notEqual(store.recover().status, "indeterminate");
     appendWorkerTask(store, 2);
     await store.settlePendingMaterialization!("writer epoch test");
     assert.equal(JSON.parse(probeGit(repo, "show", "refs/ha/canonical:harness/events/head.json")).revision, 2);
@@ -421,7 +433,10 @@ test("remote-center recovery leaves no legacy prepared publication after fencing
     assert.equal(failed.code, "service_rejected");
     assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
     newAuthority.acquire("probe-repo");
-    await assert.rejects(oldCell.close(), /writer epoch 1.*stale|WAL drain exhausted/u);
+    await assert.rejects(
+      oldCell.close(),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
     oldCell = undefined;
     recoveryCell = await openRepoCell({
       repoId: "probe-repo" as never,

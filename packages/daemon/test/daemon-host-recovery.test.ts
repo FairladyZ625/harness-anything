@@ -254,7 +254,7 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     await assert.rejects(
       host.settleMaterialization(repoId, "force injected materialization failures"),
-      (error: unknown) => (error as { readonly code?: string }).code === "publication_indeterminate",
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
     );
     const failed = await waitForRepoMaterialization(host, repoId, "failed");
     context.diagnostic(`failed daemon status row: ${JSON.stringify(failed)}`);

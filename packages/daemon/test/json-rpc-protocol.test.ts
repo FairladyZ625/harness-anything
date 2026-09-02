@@ -777,7 +777,7 @@ test("a pending WAL receipt remains readable when the Git object store is unavai
     const receipt = await cell.run({ kind: "receipt-show", opId: applied.opId }, repoWriteBinding);
     assert.deepEqual({ outcome: receipt.outcome, commitSha: receipt.commitSha, cut: receipt.cut }, { outcome: "applied", commitSha: null, cut: applied.cut });
     assert.equal(cell.status().state, "attached");
-    await assert.rejects(cell.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "publication_indeterminate"); cell = undefined;
+    await assert.rejects(cell.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "materialization_failed"); cell = undefined;
   } finally { if (cell) await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -832,7 +832,7 @@ test("RepoCell preserves an acknowledged receipt when Git materialization stops 
     const first = await crashed.run(action, repoWriteBinding);
     assert.deepEqual({ outcome: first.outcome, commitSha: first.commitSha }, { outcome: "applied", commitSha: null });
     assert.ok(first.cut); assert.equal(crashed.status().state, "attached");
-    await assert.rejects(crashed.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "publication_indeterminate"); crashed = undefined;
+    await assert.rejects(crashed.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "materialization_failed"); crashed = undefined;
     recovered = await openRepoCell({ repoId: workspaceId("git-cut-crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
     const settled = await recovered.run({ kind: "receipt-show", opId: first.opId }, repoWriteBinding);
     assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.match(String(settled.commitSha), /^[0-9a-f]{40}$/u); assert.deepEqual(settled.cut, first.cut);

@@ -11,9 +11,11 @@ import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publicat
 import { sha256Text, stableStringify } from "../../src/integrity/stable-hash.ts";
 import { contentObjectRelativePath } from "../../src/layout/ledger-object-layout.ts";
 import { localWalFileSystem } from "../../src/local/local-layout-file-system.ts";
+import { VcsCommandError } from "../../src/ports/version-control-system.ts";
 import { resolveLedgerGitLayout } from "../../src/store/ledger-git-layout.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
+import { isRetryableWalMaterializationError } from "../../src/store/wal-materialization-worker.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { captureWalDurableCut, openWalDurablePrefix, openWalEventLog } from "../../src/store/wal-event-log.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -175,18 +177,22 @@ test("WAL materialization rechecks content bytes before trusting the flushed suf
       bundle = taskBundle(1, "durable bytes\n");
     store.append(bundle);
     writeFileSync(path.join(rootDir, ".harness", "wal", "objects", bundle.blobs[0]!.sha256), "corrupt\n");
-    const warnings: string[] = [],
-      originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    const errors: string[] = [],
+      originalError = console.error;
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
     try {
-      await assert.rejects(store.drain(), /WAL drain exhausted 1 attempt/u);
+      await assert.rejects(
+        store.drain(),
+        (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+      );
     } finally {
-      console.warn = originalWarn;
+      console.error = originalError;
     }
     assert.equal(
-      warnings.some((warning) => warning.includes("WAL content object") && warning.includes("corrupt")),
+      errors.some((error) => error.includes("WAL content object") && error.includes("corrupt")),
       true,
     );
+    assert.equal(store.materializationHealth().reason, "deterministic_failure");
     assert.equal(makeGitEventStore({ repoId: "wal-corrupt-object", rootDir }).read().revision, 0);
   });
 });
@@ -339,6 +345,80 @@ test("materialization failures warn, retry with a bound, and do not revoke the w
       lastCheckpointAt: "2026-08-20T00:00:00.000Z",
       pendingWalEvents: 0,
     });
+  });
+});
+
+test("materialization retry classification admits only recognized transient failures", () => {
+  assert.equal(
+    isRetryableWalMaterializationError(
+      new VcsCommandError({
+        command: "update-index",
+        cwd: "/repo",
+        exitCode: 128,
+        stderrSummary: "fatal: Unable to create '/repo/.git/index.lock': File exists",
+      }),
+    ),
+    true,
+  );
+  assert.equal(
+    isRetryableWalMaterializationError(
+      new VcsCommandError({
+        command: "update-ref",
+        cwd: "/repo",
+        exitCode: 128,
+        stderrSummary: "fatal: cannot lock ref 'refs/ha/canonical': is at aaa but expected bbb",
+      }),
+    ),
+    false,
+  );
+  assert.equal(
+    isRetryableWalMaterializationError(Object.assign(new Error("temporarily unavailable"), { code: "EAGAIN" })),
+    true,
+  );
+  assert.equal(
+    isRetryableWalMaterializationError(
+      Object.assign(new Error("writer epoch is stale"), { code: "writer_epoch_stale" }),
+    ),
+    false,
+  );
+});
+
+test("deterministic materialization failure latches before drain consumes the retry budget", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    let attempts = 0;
+    const store = makeWalShadowEventStore({
+      repoId: "wal-deterministic-failure",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+      walRetryLimit: 8,
+      walRetryBaseMs: 250,
+      walMaterialize: (_config, request) => {
+        attempts += 1;
+        return {
+          schema: "harness-wal-materialization-response/v1",
+          requestId: request.requestId,
+          outcome: "failed",
+          cut: request.cut,
+          error: {
+            name: "TaskEventStoreError",
+            message: "Git cut changed before materialization",
+            code: "publication_indeterminate",
+            retryable: false,
+            diverged: false,
+            canonicalSha: null,
+          },
+        };
+      },
+    });
+    store.append(taskBundle(1, "deterministic failure\n"));
+    await assert.rejects(
+      store.drain(),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
+    assert.equal(attempts, 1);
+    assert.equal(store.materializationHealth().reason, "deterministic_failure");
   });
 });
 
@@ -509,7 +589,10 @@ test("restart recovery settles and checkpoints a WAL cut whose Git refs already 
     });
     const receipt = first.append(taskBundle(1, "recover me\n"));
     assert.equal(receipt.commitSha, null);
-    await assert.rejects(first.drain(), /WAL drain exhausted/u);
+    await assert.rejects(
+      first.drain(),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
     const documentPath = path.join(rootDir, "harness", "tasks", "task-1", "task.md");
     rmSync(documentPath);
     assert.equal(openWalEventLog(rootDir, { mutable: false }).records().length, 1);

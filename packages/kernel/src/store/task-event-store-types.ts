@@ -110,7 +110,7 @@ export interface MaterializationReceipt {
 }
 export const materializationStates = Object.freeze(["ok", "retrying", "failed"] as const);
 export type MaterializationState = (typeof materializationStates)[number];
-export type MaterializationFailureReason = "git_diverged" | "retry_budget_exhausted";
+export type MaterializationFailureReason = "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
 export interface MaterializationHealth {
   readonly state: MaterializationState;
   readonly lastCheckpointRevision: number;
