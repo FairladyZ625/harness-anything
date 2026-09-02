@@ -317,7 +317,7 @@ function validFactEntity(value: Readonly<Record<string, unknown>>, allowUnknownF
     fact.provenance.length > 0 &&
     fact.provenance.every(
       (entry) =>
-        validateSessionProvenance(entry) ||
+        validateSessionProvenance(entry, allowUnknownFields) ||
         (allowUnknownFields &&
           isRecord(entry) &&
           (factProvenanceRuntimes as readonly unknown[]).includes(entry.runtime) &&
@@ -419,8 +419,8 @@ function validRelationEntity(value: Readonly<Record<string, unknown>>, allowUnkn
   if (!valid) return false;
   if (value.registry === undefined) return true;
   try {
-    assertGovernedRelationRegistryWitness(value.registry);
-    assertGovernedRelationRecord(relation as unknown as EntityRelationRecord, value.registry);
+    assertGovernedRelationRegistryWitness(value.registry, allowUnknownFields);
+    assertGovernedRelationRecord(relation as unknown as EntityRelationRecord, value.registry, allowUnknownFields);
     return true;
   } catch {
     return false;

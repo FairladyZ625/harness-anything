@@ -142,7 +142,15 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
         task: value.scaffolds.task,
         repository: value.scaffolds.repository,
       },
-      walFlush: value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
+      walFlush:
+        allowUnknownFields && isRecord(value.walFlush)
+          ? {
+              adaptive: value.walFlush.adaptive,
+              events: value.walFlush.events,
+              bytes: value.walFlush.bytes,
+              milliseconds: value.walFlush.milliseconds,
+            }
+          : (value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS),
     },
     current = validateRepositorySettings(normalized).length === 0;
   if (!current) return false;
@@ -161,11 +169,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
         ].includes(field),
       )
     );
-  return (
-    validateRepositorySettings({
-      ...normalized,
-    }).length === 0
-  );
+  return true;
 }
 
 export function isSettingsEvent(event: { readonly schema: string }): event is SettingsEventV1 {

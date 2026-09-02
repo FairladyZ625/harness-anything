@@ -10,6 +10,7 @@ import {
   parseCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../../src/domain/doc-sync.contract.ts";
+import { validateTaskV2 } from "../../src/domain/task.ts";
 import { sameActorIdentity, sameWriteSource, serializeEventEnvelope } from "../../src/domain/write-chain.contract.ts";
 
 const actor = { principal: { personId: "person-fixture" }, executor: { kind: "agent" as const, id: "codex" } };
@@ -50,6 +51,35 @@ test("Task/v2 readers ignore a field that current writers do not know", () => {
 
   assert.deepEqual(parseCanonicalEvent(bytes), future);
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /unknown/u);
+});
+
+test("Task/v2 provenance readers ignore additions without relaxing required fields", () => {
+  const provenance = {
+      runtime: "codex",
+      sessionId: "session-fixture",
+      transcriptReachability: "by_session_id" as const,
+      boundAt: taskCreated.occurredAt,
+    },
+    future = {
+      ...taskCreated.payload.task,
+      provenance: [{ ...provenance, futureOptionalField: true }],
+    },
+    { boundAt: _boundAt, ...missingBoundAt } = provenance;
+  void _boundAt;
+
+  assert.deepEqual(validateTaskV2(future, true), []);
+  assert.match(
+    validateTaskV2(future)
+      .map(({ message }) => message)
+      .join("\n"),
+    /provenance/u,
+  );
+  assert.match(
+    validateTaskV2({ ...taskCreated.payload.task, provenance: [missingBoundAt] }, true)
+      .map(({ message }) => message)
+      .join("\n"),
+    /provenance/u,
+  );
 });
 
 test("cold replay restates immutable Task/v1 payloads as explicit Task/v2 state", () => {

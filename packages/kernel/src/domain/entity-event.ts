@@ -252,9 +252,9 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
     return ["entity event envelope or payload is invalid"];
   if (validateEventEnvelopeIdentity(value, allowUnknownFields).length) return ["entity event identity is invalid"];
   if (value.type === "entity_content_observed")
-    return validateObservedPayload(value.payload, hasFields, String(value.opId));
+    return validateObservedPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   if (value.type === "entity_target_missing")
-    return validateMissingPayload(value.payload, hasFields, String(value.opId));
+    return validateMissingPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   return validateUpsertPayload(value.schema, value.payload, hasFields);
 }
 
@@ -375,6 +375,7 @@ function validateObservedPayload(
   payload: Record<string, unknown>,
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
   opId: string,
+  allowUnknownFields: boolean,
 ): readonly string[] {
   const fields = [
     "entityKind",
@@ -388,7 +389,7 @@ function validateObservedPayload(
     "artifactContract",
   ];
   if (!hasFields(payload, fields)) return ["entity_content_observed payload is invalid"];
-  const common = validateArtifactPayload(payload);
+  const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
   if (typeof payload.observedContentVersion !== "string" || !payload.observedContentVersion)
     return ["entity observed content version is invalid"];
@@ -396,17 +397,18 @@ function validateObservedPayload(
     return ["entity observed idempotency identity is invalid"];
   let contract: EntityStoreKindContract;
   try {
-    contract = artifactEntityContractFromSnapshot(payload.artifactContract);
+    contract = artifactEntityContractFromSnapshot(payload.artifactContract, allowUnknownFields);
   } catch {
     return ["entity artifact contract is invalid"];
   }
-  return validateClaim(payload, contract);
+  return validateClaim(payload, contract, hasFields);
 }
 
 function validateMissingPayload(
   payload: Record<string, unknown>,
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
   opId: string,
+  allowUnknownFields: boolean,
 ): readonly string[] {
   const fields = [
     "entityKind",
@@ -419,7 +421,7 @@ function validateMissingPayload(
     "artifactContract",
   ];
   if (!hasFields(payload, fields)) return ["entity_target_missing payload is invalid"];
-  const common = validateArtifactPayload(payload);
+  const common = validateArtifactPayload(payload, allowUnknownFields);
   if (common.length) return common;
   if (typeof payload.reason !== "string" || !payload.reason) return ["entity target-missing reason is invalid"];
   return validObservationIdentity(payload, `missing:${payload.reason}`, opId)
@@ -427,10 +429,10 @@ function validateMissingPayload(
     : ["entity missing idempotency identity is invalid"];
 }
 
-function validateArtifactPayload(payload: Record<string, unknown>): readonly string[] {
+function validateArtifactPayload(payload: Record<string, unknown>, allowUnknownFields: boolean): readonly string[] {
   let contract: EntityStoreKindContract;
   try {
-    contract = artifactEntityContractFromSnapshot(payload.artifactContract);
+    contract = artifactEntityContractFromSnapshot(payload.artifactContract, allowUnknownFields);
   } catch {
     return ["entity artifact contract is invalid"];
   }
