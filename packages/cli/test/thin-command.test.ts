@@ -125,6 +125,8 @@ test("ADR migration projects its registry and occurrence fences into one center 
       revision,
       "--op-id",
       "w1e-adr-cutover-20260902",
+      "--source-root",
+      "harness/adr",
       "--expect-count",
       "30",
       "--dry-run",
@@ -136,9 +138,20 @@ test("ADR migration projects its registry and occurrence fences into one center 
     kind: "entity-migrate-adrs",
     registryRevision: revision,
     migrationOpId: "w1e-adr-cutover-20260902",
+    sourceRoot: "harness/adr",
     expectCount: 30,
     dryRun: true,
   });
+  const missingSourceRoot = parseThinCommand([
+    "migrate",
+    "adrs",
+    "--registry-revision",
+    revision,
+    "--op-id",
+    "w1e-adr-cutover-20260902",
+  ]);
+  assert.equal(missingSourceRoot.ok, false);
+  if (!missingSourceRoot.ok) assert.equal(missingSourceRoot.code, "missing_field");
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {

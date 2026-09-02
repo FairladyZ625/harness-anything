@@ -72,6 +72,7 @@ const adrMigrationProtocolInput = Object.freeze({
   fields: Object.freeze([
     { field: "registryRevision", type: "string" as const, required: true },
     { field: "migrationOpId", type: "string" as const, required: true },
+    { field: "sourceRoot", type: "string" as const, required: true },
     { field: "expectCount", type: "number" as const, required: false },
     { field: "dryRun", type: "boolean" as const, required: false },
   ]),

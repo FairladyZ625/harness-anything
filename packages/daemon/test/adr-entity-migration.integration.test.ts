@@ -53,6 +53,7 @@ test("ADR migration imports descriptors and every existing Decision anchor once"
         kind: "entity-migrate-adrs",
         registryRevision: adrMigrationRegistryRevision(),
         migrationOpId,
+        sourceRoot: "harness/adr",
         expectCount: 30,
       } as const;
     const firstLocator = sourceBodies.keys().next().value as string,
@@ -60,6 +61,10 @@ test("ADR migration imports descriptors and every existing Decision anchor once"
       hiddenFirstPath = `${firstPath}.disabled`,
       readmePath = path.join(rootDir, "harness", "adr", "README.md"),
       hiddenReadmePath = `${readmePath}.disabled`;
+    const invalidSource = await cell.run({ ...request, sourceRoot: "../adr" }, binding);
+    assert.equal(invalidSource.outcome, "op_rejected", JSON.stringify(invalidSource));
+    assert.equal(invalidSource.code, "invalid_command");
+    assert.equal(store().read().events.length, initialCount);
     renameSync(firstPath, hiddenFirstPath);
     const shortScan = await cell.run(request, binding);
     assert.equal(shortScan.outcome, "op_rejected", JSON.stringify(shortScan));
@@ -217,7 +222,7 @@ test("ADR migration imports descriptors and every existing Decision anchor once"
   }
 });
 
-test("ADR migration uses configured authoredRoot and allows a descriptor-only batch", async () => {
+test("ADR migration uses an explicit source root and allows a descriptor-only batch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adr-authored-root-")),
     repoId = workspaceId("adr-custom-authored-root"),
     ignoredBodies = seedCustomAuthoredRoot(rootDir);
@@ -235,6 +240,7 @@ test("ADR migration uses configured authoredRoot and allows a descriptor-only ba
         kind: "entity-migrate-adrs",
         registryRevision: adrMigrationRegistryRevision(),
         migrationOpId: "custom-authored-root-first",
+        sourceRoot: "records/adr",
       } as const,
       preview = await cell.run({ ...request, dryRun: true }, binding),
       previewReport = migrationReport(preview);
@@ -289,7 +295,7 @@ function seedAdrSources(rootDir: string): ReadonlyMap<string, string> {
   mkdirSync(path.join(rootDir, "harness", "adr"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness", "harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: records\n  localRoot: .harness\n",
   );
   writeFileSync(path.join(rootDir, "harness", "adr", "README.md"), "# ADR index retained as a regular file\n");
   const bodies = new Map<string, string>();
@@ -313,12 +319,12 @@ function seedAdrSources(rootDir: string): ReadonlyMap<string, string> {
     writeFileSync(path.join(rootDir, locator), body);
     bodies.set(locator, body);
     if (relationAdrNumbers.has(number)) {
-      const decisionDir = path.join(rootDir, "harness", "decisions", `decision-${decisionId}`);
+      const decisionDir = path.join(rootDir, "records", "decisions", `decision-${decisionId}`);
       mkdirSync(decisionDir, { recursive: true });
       writeFileSync(path.join(decisionDir, "decision.md"), `# ${decisionId}\n`);
     }
     if (number === 20) {
-      const secondDecisionDir = path.join(rootDir, "harness", "decisions", "decision-dec_LEDGER_SECOND_TEST");
+      const secondDecisionDir = path.join(rootDir, "records", "decisions", "decision-dec_LEDGER_SECOND_TEST");
       mkdirSync(secondDecisionDir, { recursive: true });
       writeFileSync(path.join(secondDecisionDir, "decision.md"), "# dec_LEDGER_SECOND_TEST\n");
     }

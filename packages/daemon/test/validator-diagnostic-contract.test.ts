@@ -57,19 +57,32 @@ test("entity import wire input is exact and projected from its executable Action
   );
 });
 
-test("ADR migration wire input accepts its fences and optional expected count", () => {
+test("ADR migration wire input requires its source root and accepts an optional expected count", () => {
   const payload = {
     payload: {
       action: {
         kind: "entity-migrate-adrs",
         registryRevision: `sha256:${"a".repeat(64)}`,
         migrationOpId: "w1e-adr-cutover",
+        sourceRoot: "harness/adr",
         expectCount: 30,
         dryRun: true,
       },
     },
   } as JsonObject;
   assert.deepEqual(validateCatalogActionPayload(payload), []);
+  assert.match(
+    validateCatalogActionPayload({
+      payload: {
+        action: {
+          kind: "entity-migrate-adrs",
+          registryRevision: `sha256:${"a".repeat(64)}`,
+          migrationOpId: "w1e-adr-cutover",
+        },
+      },
+    } as JsonObject).join("\n"),
+    /action\.sourceRoot.*field is required/u,
+  );
   assert.match(
     validateCatalogActionPayload({
       payload: { action: { ...payload.payload.action, locator: "harness/adr" } },

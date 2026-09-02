@@ -223,8 +223,8 @@ async function scanCandidates(
   contract: CompiledArtifactKindContract,
 ): Promise<AdrScan> {
   const layout = resolveHarnessLayout(input.rootDir),
-    adrDir = path.join(layout.authoredRoot, "adr"),
-    decisionsDir = path.join(layout.authoredRoot, "decisions"),
+    adrDir = path.join(input.rootDir, requiredSourceRoot(input.action.sourceRoot)),
+    decisionsDir = layout.decisionsRoot,
     entries = readdirSync(adrDir, { withFileTypes: true }),
     names = entries
       .filter((entry) => entry.isFile() && ADR_FILE.test(entry.name))
@@ -605,6 +605,20 @@ function requiredRegistryRevision(value: unknown): `sha256:${string}` {
   if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value))
     migrationError("invalid_command", "registryRevision must be sha256:<64 lowercase hex>.");
   return value as `sha256:${string}`;
+}
+
+function requiredSourceRoot(value: unknown): string {
+  if (typeof value !== "string") {
+    migrationError("invalid_command", "sourceRoot must be a repository-relative path.");
+  }
+  try {
+    return normalizeRelativeDocumentPath(value);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(`sourceRoot must be a portable repository-relative path: ${detail}.`), {
+      code: "invalid_command",
+    });
+  }
 }
 
 function optionalExpectedCount(value: unknown): number | null {

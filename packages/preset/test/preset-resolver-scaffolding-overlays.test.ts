@@ -137,10 +137,10 @@ test("task and repository overlays share replace/add validation while keeping se
         projectScaffold: scaffold,
       });
     const applied = compile();
-    assert.equal(applied.documents.length, 16);
+    assert.equal(applied.documents.length, 15);
     assert.deepEqual(
       applied.documents.map(({ disposition }) => disposition),
-      Array(16).fill("created"),
+      Array(15).fill("created"),
     );
     assert.equal(
       applied.documents.find(({ slot }) => slot === "repository.context.architecture")?.templateRef,
