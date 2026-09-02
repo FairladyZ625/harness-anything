@@ -58,6 +58,12 @@ import {
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
+export interface TaskProjectionCatchUpProgress {
+  readonly applied: number;
+  readonly total?: number;
+  readonly watermark: number;
+}
+
 // Public projection construction and local source-head handling.
 export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
   return path.join(path.resolve(rootDir), ".harness/cache/task.sqlite");
@@ -68,10 +74,12 @@ export function makeTaskProjection(options: {
   readonly projectionPath?: string;
   readonly catchUpLimit?: number;
   readonly now?: () => string;
+  readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
 }): TaskProjection {
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = options.catchUpLimit ?? 4096,
     now = options.now ?? (() => new Date().toISOString()),
+    onProgress = options.onProgress ?? (() => undefined),
     sourceReadHead = options.eventStore.readHead;
   let observedSourceHead = false,
     hotAppliedHead: ReturnType<EventStreamPort["readHead"]> = null;
@@ -150,6 +158,7 @@ export function makeTaskProjection(options: {
       return rebuildProjection(projectionPath, readHead, options.eventStore, limit);
     },
     catchUp: () => {
+      const initialWatermark = withDatabase(projectionPath, readHead, watermark);
       let sqliteTransactions = 0,
         reducedItems = 0,
         maxBatchItems = 0;
@@ -158,6 +167,12 @@ export function makeTaskProjection(options: {
         sqliteTransactions += round.sqliteTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
+        const total = Math.max(0, round.sourceRevision - initialWatermark);
+        onProgress({
+          applied: Math.min(total, Math.max(0, round.watermark - initialWatermark)),
+          total,
+          watermark: round.watermark,
+        });
         if (round.watermark !== round.sourceRevision) continue;
         const settled = withDatabase(projectionPath, readHead, (db) =>
           transaction(db, () => ({

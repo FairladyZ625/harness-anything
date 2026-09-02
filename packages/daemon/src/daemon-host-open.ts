@@ -92,7 +92,9 @@ export interface DaemonHostOpenInput {
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly attachTimeoutMs?: number;
-  readonly openCell?: typeof openRepoCell;
+  readonly openCell?: (
+    input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
+  ) => Promise<RepoCell>;
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
@@ -226,6 +228,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     recoveryMs: null,
     lastError: null,
     causeClass: null,
+    attach: {
+      phase: "opening",
+      applied: null,
+      total: null,
+      watermark: null,
+    },
   });
   const warmingMessage = (repoId: string): string =>
     `Repository ${repoId} is still warming; wait for its background attachment to complete.`;

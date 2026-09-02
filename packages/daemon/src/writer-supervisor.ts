@@ -36,7 +36,16 @@ export interface WriterSupervisor {
   readonly close: () => Promise<void>;
 }
 
-export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<WriterSupervisor> {
+export async function openWriterSupervisor(
+  input: RepoCellOpenInput,
+  options: {
+    readonly createWorker?: (
+      url: URL,
+      workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
+    ) => Worker;
+    readonly onStatus?: (status: RepoCellStatus) => void;
+  } = {},
+): Promise<WriterSupervisor> {
   let worker: Worker | null = null,
     closed = false,
     opened = false,
@@ -51,6 +60,12 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
       lastError: null,
       causeClass: null,
       recoveryMs: null,
+      attach: {
+        phase: "opening",
+        applied: null,
+        total: null,
+        watermark: null,
+      },
     },
     publishedBootstrapReceipt: unknown,
     ready: Promise<void>;
@@ -142,25 +157,34 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
   function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
     return new Promise((resolve, reject) => {
-      const candidate = new Worker(writerWorkerUrl(), {
+      const workerOptions = {
         execArgv: process.execArgv.filter(
           (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
         ),
         workerData: bootstrapMessage(input),
-      });
+      };
+      const candidate =
+        options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
       let settled = false;
-      const readyTimer = setTimeout(() => {
+      let readyWatchdog: ReturnType<typeof setTimeout>;
+      const readyInactive = () => {
         if (settled) return;
         settled = true;
-        const error = new Error("RepoWriterCell did not publish ready within 30000ms");
+        const error = new Error("RepoWriterCell did not publish ready after 30000ms without a message");
         if (!opened) closed = true;
         reject(error);
         failActive(error);
         void candidate.terminate();
-      }, 30_000);
-      readyTimer.unref?.();
+      };
+      const armReadyWatchdog = () => {
+        clearTimeout(readyWatchdog);
+        readyWatchdog = setTimeout(readyInactive, 30_000);
+        readyWatchdog.unref?.();
+      };
+      armReadyWatchdog();
       worker = candidate;
       candidate.on("message", (message: unknown) => {
+        if (!settled) armReadyWatchdog();
         if (isReceipt(message)) {
           const operation = pending.get(message.requestId);
           if (!operation) return;
@@ -173,7 +197,10 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
         }
         if (isStatus(message)) {
           const published = message.status;
-          if (published && typeof published === "object") status = published as RepoCellStatus;
+          if (published && typeof published === "object") {
+            status = published;
+            options.onStatus?.(status);
+          }
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;
             input.onBootstrap?.(message.bootstrapReceipt as never);
@@ -181,11 +208,11 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
           if (message.kind === "ready") {
             restartAttempt = 0;
             settled = true;
-            clearTimeout(readyTimer);
+            clearTimeout(readyWatchdog);
             resolve();
           } else if (message.kind === "closed" && message.error && !settled) {
             settled = true;
-            clearTimeout(readyTimer);
+            clearTimeout(readyWatchdog);
             if (!opened) closed = true;
             reject(deserializeWriterError(message.error));
             void candidate.terminate();
@@ -197,14 +224,14 @@ export async function openWriterSupervisor(input: RepoCellOpenInput): Promise<Wr
       candidate.once("error", (error) => {
         if (!settled) {
           settled = true;
-          clearTimeout(readyTimer);
+          clearTimeout(readyWatchdog);
           if (!opened) closed = true;
           reject(error);
         }
         failActive(error);
       });
       candidate.once("exit", (code) => {
-        clearTimeout(readyTimer);
+        clearTimeout(readyWatchdog);
         if (worker === candidate) worker = null;
         const error = new Error(`RepoWriterCell exited with code ${code}`);
         if (!settled) {

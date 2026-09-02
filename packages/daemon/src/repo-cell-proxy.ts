@@ -43,18 +43,29 @@ const validTaskStatusFilter = (value: string | undefined): boolean =>
   value === undefined || TASK_STATUS_FILTERS.includes(value);
 
 /** Host-side RepoCell boundary: admission/proxy plus completed-cut projection reads only. */
-export async function openRepoCellProxy(input: RepoCellOpenInput): Promise<RepoCell> {
+export async function openRepoCellProxy(
+  input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
+): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
-  let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
+  let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>,
+    opening = true;
   try {
-    supervisor = await openWriterSupervisor({
-      ...input,
-      onRuntimeSignal: (runtimeSessionId, signal) => {
-        relayRuntimeSignal(runtimeSessionId, signal);
-        input.onRuntimeSignal?.(runtimeSessionId, signal);
+    supervisor = await openWriterSupervisor(
+      {
+        ...input,
+        onRuntimeSignal: (runtimeSessionId, signal) => {
+          relayRuntimeSignal(runtimeSessionId, signal);
+          input.onRuntimeSignal?.(runtimeSessionId, signal);
+        },
       },
-    });
+      {
+        onStatus: (status) => {
+          if (opening && status.state === "warming") input.onStatus?.(status);
+        },
+      },
+    );
+    opening = false;
   } catch (error) {
     await lock.close();
     throw error;
