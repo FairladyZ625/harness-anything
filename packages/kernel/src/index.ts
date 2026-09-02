@@ -280,8 +280,10 @@ export {
   openEntityStore,
   resolveLedgerGitLayout,
   resolveRetirableDocument,
+  eventShapeMigrations,
   makeTaskEventStore,
   makeTaskProjection,
+  runEventShapeMigration,
   runWalMaterializationRequest,
   WAL_MATERIALIZATION_WORKER_KIND,
 } from "./composition/index.ts";

@@ -6,7 +6,6 @@ export {
   assertDecisionWritePlan,
   compileDecisionWrite,
   decisionDocumentProse,
-  decisionContentPin,
   decisionMachineDigest,
   decisionWritePlan,
   reduceDecisionDocument,

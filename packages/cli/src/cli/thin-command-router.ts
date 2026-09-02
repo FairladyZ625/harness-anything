@@ -52,16 +52,7 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (route.id === "fact-rekey") {
-    const f = readFlags(route.id, args.slice(2), inputs);
-    return f.ok
-      ? accepted(rootDir, repoId, json, {
-          kind: "fact-rekey",
-          ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
-        })
-      : rejected(f.code, f.nextAction, json);
-  }
-  if (route.id === "relation-events-migrate" || route.id === "decision-digests-migrate") {
+  if (route.id === "fact-rekey" || route.id === "relation-events-migrate" || route.id === "decision-digests-migrate") {
     const f = readFlags(route.id, args.slice(2), inputs);
     return f.ok
       ? accepted(rootDir, repoId, json, {

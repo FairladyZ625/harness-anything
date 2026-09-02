@@ -21,6 +21,7 @@ import {
   sha256Text,
   stableStringify,
   taskEntryToRow,
+  eventShapeMigrations,
   type CanonicalEventV1,
   type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
@@ -195,12 +196,14 @@ function rebuildEventOracle(sourceRoot: string, inspection: MigrationEventInspec
       ? (`sha256:${sha256Text(serializePersistedCanonicalEvent(inspection.events.at(-1)!))}` as const)
       : null;
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  const upcastRelationShape = (event: CanonicalEventV1): CanonicalEventV1 =>
+    eventShapeMigrations["relation-events-migrate"].rewrite(event, projection!)?.event ?? event;
   try {
     const eventStore = {
       readHead: () => (sourceRevision === 0 || eventDigest === null ? null : { revision: sourceRevision, eventDigest }),
       readBatch: (cursor: string | null, maxItems: number) => {
         const start = cursor === null ? 0 : Number(cursor),
-          batch = inspection.events.slice(start, start + maxItems),
+          batch = inspection.events.slice(start, start + maxItems).map(upcastRelationShape),
           next = start + batch.length,
           done = next >= inspection.events.length;
         return {

@@ -123,7 +123,6 @@ export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 export {
   compileDecisionWrite,
   decisionDocumentProse,
-  decisionContentPin,
   decisionMachineDigest,
   decisionStates,
   decisionWritePlan,

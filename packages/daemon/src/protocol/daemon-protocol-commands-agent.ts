@@ -93,7 +93,8 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Migration-A",
     path: ["migrate", "relation-events"],
     summary:
-      "Upcast historical relation events to the current record shape (derived strength, active|retired state, target witness at the event cut); stop daemon writers first and use --dry-run before applying.",
+      "Upcast historical relation events to the current record shape: derived strength, active|retired state, " +
+      "target witness at the event cut. Stop daemon writers first; --dry-run reports the rewrites.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -110,7 +111,8 @@ export const agentProtocolCommands = Object.freeze([
     phase: "Migration-A",
     path: ["migrate", "decision-digests"],
     summary:
-      "Restamp historical decision consent and content-pin machine digests under the current projection derivation; stop daemon writers first and use --dry-run before applying.",
+      "Restamp historical decision consent and content-pin machine digests under the current projection " +
+      "derivation. Stop daemon writers first; --dry-run reports the rewrites.",
     method: "repo.task.run",
     inputs: [
       cliInput(
