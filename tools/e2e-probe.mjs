@@ -294,20 +294,6 @@ function projectionStatus(receipt) {
   }
 }
 
-async function agentRun() {
-  const journey = await runE2EProbeJourney();
-  if (journey.outcome === "healthy")
-    return {
-      schema: "e2e-probe-result/v1",
-      outcome: "healthy",
-      runId: journey.runId,
-      failureSignature: null,
-      taskId: null,
-      deduplicated: null,
-    };
-  return await recordE2EProbeFailure({ bundlePath: journey.bundlePath });
-}
-
 async function runCliJson(workspaceRoot, rootDir, args, env) {
   const child = spawn(
     process.execPath,
@@ -397,8 +383,29 @@ async function closeElectronApp(electronApp) {
 }
 
 async function main(argv) {
-  if (argv.length === 1 && argv[0] === "--canonical-read-only") return runE2EProbeJourney();
-  if (argv.length === 1 && argv[0] === "--agent-run") return agentRun();
+  if (argv.length === 1 && argv[0] === "--canonical-read-only") {
+    const { runGuiE2E } = await import("./gui-e2e.mjs");
+    return (await runGuiE2E({ lane: "canonical", scenarios: [], noBuild: false })).result;
+  }
+  if (argv.length === 1 && argv[0] === "--agent-run") {
+    const { runGuiE2E } = await import("./gui-e2e.mjs");
+    const { result, runRoot } = await runGuiE2E({ lane: "all", scenarios: [], noBuild: false });
+    if (result.outcome === "healthy") return result;
+    const first = result.scenarios.find((scenario) => scenario.outcome === "failed"),
+      bundlePath = path.join(runRoot, "probe-failure.json");
+    writeFileSync(
+      bundlePath,
+      `${JSON.stringify({
+        schema: "e2e-probe-journey/v1",
+        outcome: "failed",
+        runId: result.runId,
+        startedAt: new Date(Date.now() - (first?.durationMs ?? 0)).toISOString(),
+        failureSignature: result.failureSignature,
+      })}\n`,
+    );
+    const closure = await recordE2EProbeFailure({ bundlePath });
+    return { ...result, taskId: closure.taskId, deduplicated: closure.deduplicated };
+  }
   if (argv.length === 2 && argv[0] === "--record-failure")
     return recordE2EProbeFailure({ bundlePath: path.resolve(argv[1]) });
   throw probeError(
