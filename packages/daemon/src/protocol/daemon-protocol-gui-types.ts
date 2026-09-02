@@ -700,6 +700,9 @@ export type DaemonTaskSnapshotListResult = {
     readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
     readonly placement: TaskPlacementSupplement;
     readonly executionEvidence: readonly ExecutionEvidenceProjection[];
+    readonly board: import("../../../kernel/src/domain/task-board-projection.ts").TaskBoardPlacement;
+    readonly visibility: import("../../../kernel/src/domain/task-board-projection.ts").TaskVisibility;
+    readonly capabilities: readonly import("../../../kernel/src/domain/task-board-projection.ts").TaskCapability[];
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;

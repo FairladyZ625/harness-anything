@@ -43,10 +43,10 @@ test("catalog entries carry no transport dimension", () => {
   }
 });
 
-test("the catalog names exactly the three shipped projections", () => {
+test("the catalog names exactly the shipped projections", () => {
   assert.deepEqual(
     useCaseProjectionCatalog.map((entry) => entry.name),
-    ["schedule-plane", "schedule-run-history", "runtime-session-groups"],
+    ["schedule-plane", "schedule-run-history", "runtime-session-groups", "task-board-rows"],
   );
   assert.deepEqual([...useCaseProjectionNames].sort(), useCaseProjectionCatalog.map((entry) => entry.name).sort());
   for (const entry of useCaseProjectionCatalog) {

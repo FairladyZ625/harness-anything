@@ -1,5 +1,6 @@
 import type { CanonicalStatus, CloseoutReadiness, PriorityTier, TaskWorkKind } from "../domain/index.ts";
 import type { ContractVersion } from "../domain/contract-version.ts";
+import type { TaskBoardColumnId } from "../domain/task-board-projection.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
 import type { HarnessLayoutOverrides } from "../layout/index.ts";
 import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
@@ -7,7 +8,7 @@ import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
 export type ProjectionCanonicalStatus = CanonicalStatus | "unknown";
-export type CoordinationStatus = "open" | "blocked" | "in_review" | "terminal" | "unknown";
+export type CoordinationStatus = TaskBoardColumnId | "unknown";
 export type ProjectionWarningSource = "source-package" | "generated-cache" | "collaboration-gate";
 export type ProjectionWarningSeverity = "warning" | "hard-fail";
 export type ProjectionWarningCode =

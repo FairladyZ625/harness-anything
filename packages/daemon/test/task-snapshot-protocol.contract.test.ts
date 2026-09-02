@@ -56,6 +56,16 @@ const row = {
     provenance: [{ kind: "canonical-event", ref: "task/task-repoint" }],
   },
   executionEvidence: [],
+  // A row whose task the projection could not resolve sits in no board column and affords nothing.
+  board: { columnId: null, rank: 5 },
+  visibility: { archived: false },
+  capabilities: [
+    { id: "start", available: false, reason: "unknown" },
+    { id: "progress", available: false, reason: "unknown" },
+    { id: "submit", available: false, reason: "unknown" },
+    { id: "review", available: false, reason: "unknown" },
+    { id: "complete", available: false, reason: "unknown" },
+  ],
 } as const;
 const list = {
   ok: true,

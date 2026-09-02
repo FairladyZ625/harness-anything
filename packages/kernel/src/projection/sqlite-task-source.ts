@@ -3,7 +3,8 @@ import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
 import type { CloseoutReadiness } from "../domain/index.ts";
 import { closeoutReadiness as domainCloseoutReadiness, isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
-import { isDomainStatus, isTerminalStatus } from "../domain/lifecycle-status.ts";
+import { isDomainStatus } from "../domain/lifecycle-status.ts";
+import { taskBoardColumnOf } from "../domain/task-board-projection.ts";
 import { isPackageDisposition } from "../domain/package-disposition.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
@@ -248,10 +249,7 @@ function readTaskSupplementalSourceInputs(
 }
 
 function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {
-  if (status === "unknown") return "unknown";
-  if (status === "blocked") return "blocked";
-  if (status === "in_review") return "in_review";
-  return isTerminalStatus(status) ? "terminal" : "open";
+  return status === "unknown" ? "unknown" : (taskBoardColumnOf(status) ?? "unknown");
 }
 
 function projectCloseoutReadiness(status: ProjectionCanonicalStatus): CloseoutReadiness {

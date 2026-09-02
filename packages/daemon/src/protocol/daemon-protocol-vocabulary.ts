@@ -2,6 +2,9 @@ import type {
   CredentialKind,
   DaemonRepoMode,
   PeopleCommandClass,
+  TaskBoardColumnId,
+  TaskCapabilityId,
+  TaskCapabilityReason,
   UseCaseProjectionName,
 } from "../../../kernel/src/index.ts";
 
@@ -57,6 +60,48 @@ export const relationOriginWords = ["declared", "imported_snapshot", "generated"
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
 
+// The `task-board-rows` projection's wire mirrors. Same bidirectional check as the other mirrors
+// below: the kernel judgment stays the authority for what a column or a rejection reason means,
+// and a mirror that stops matching it fails compilation instead of drifting onto the wire.
+export const taskBoardColumnWords = Object.freeze([
+  "open",
+  "blocked",
+  "in_review",
+  "terminal",
+] as const satisfies readonly TaskBoardColumnId[]);
+
+export const taskBoardColumnWordsAreExact: [TaskBoardColumnId] extends [(typeof taskBoardColumnWords)[number]]
+  ? true
+  : never = true;
+
+export const taskCapabilityIdWords = Object.freeze([
+  "start",
+  "progress",
+  "submit",
+  "review",
+  "complete",
+] as const satisfies readonly TaskCapabilityId[]);
+
+export const taskCapabilityIdWordsAreExact: [TaskCapabilityId] extends [(typeof taskCapabilityIdWords)[number]]
+  ? true
+  : never = true;
+
+export const taskCapabilityReasonWords = Object.freeze([
+  "invalid_disposition",
+  "invalid_transition",
+  "lease_required",
+  "lease_conflict",
+  "completion_blocked",
+  "blocked",
+  "unknown",
+] as const satisfies readonly TaskCapabilityReason[]);
+
+export const taskCapabilityReasonWordsAreExact: [TaskCapabilityReason] extends [
+  (typeof taskCapabilityReasonWords)[number],
+]
+  ? true
+  : never = true;
+
 export const reviewVerdictWords = ["approved", "changes_requested", "dismissed"] as const;
 
 export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const;
@@ -101,18 +146,37 @@ export const credentialKindWordsAreExact: [CredentialKind] extends [(typeof cred
   ? true
   : never = true;
 
-// The named use-case projections of dec_5B135F46 CH4, mirrored on the transport path. The kernel
-// catalog (`use-case-projection-catalog.ts`) stays the authority for what a projection *means*;
-// this is only the wire enum, and the bidirectional check below fails compilation the moment the
-// two disagree — so the mirror cannot drift without the kernel type being changed to match.
+// The use-case projections of dec_5B135F46 CH4 that `repo.projection.read` serves by name. The
+// kernel catalog (`use-case-projection-catalog.ts`) stays the authority for what a projection
+// *means*; this is only the wire selector, and the checks below fail compilation the moment it
+// names something the catalog does not, or the catalog gains a name with no delivery channel.
 export const useCaseProjectionNameWords = Object.freeze([
   "schedule-plane",
   "schedule-run-history",
   "runtime-session-groups",
 ] as const satisfies readonly UseCaseProjectionName[]);
 
-export const useCaseProjectionNameWordsAreExact: [UseCaseProjectionName] extends [
-  (typeof useCaseProjectionNameWords)[number],
+/**
+ * Catalog projections whose fields ride on an existing read's rows instead of `repo.projection.read`
+ * — `task-board-rows` is carried by `repo.tasks.list`, which is why it has no selector above. Which
+ * read carries a projection is transport truth, so it is declared here and not in the kernel catalog.
+ */
+export const rowDeliveredUseCaseProjections = Object.freeze({
+  "task-board-rows": "repo.tasks.list",
+} as const satisfies Readonly<Record<string, string>>);
+
+/**
+ * Every catalog projection has exactly one delivery channel: a `repo.projection.read` selector above
+ * or a row-delivering read. Adding a name to the kernel catalog without choosing one fails here.
+ */
+export const useCaseProjectionDeliveryIsTotal: [UseCaseProjectionName] extends [
+  (typeof useCaseProjectionNameWords)[number] | keyof typeof rowDeliveredUseCaseProjections,
+]
+  ? true
+  : never = true;
+
+export const useCaseProjectionNameWordsAreServed: [(typeof useCaseProjectionNameWords)[number]] extends [
+  UseCaseProjectionName,
 ]
   ? true
   : never = true;
