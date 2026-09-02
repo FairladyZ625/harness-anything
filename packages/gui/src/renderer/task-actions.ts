@@ -3,8 +3,15 @@ import { useRef, useState } from "react";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
 import type { GuiSubmissionV1 } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess } from "./api-client.ts";
-import type { TaskRow } from "./model/types.ts";
+import type { TaskCapabilityId, TaskRow } from "./model/types.ts";
 import { readTaskList, taskQueryKeys } from "./task-data.ts";
+
+/**
+ * 写后重读的落定判据:读重读行自己的能力投影(dec_5B135F46 CH4 第二层),
+ * 而不是在 renderer 里再比一次状态词——落定与否是 daemon 已经判完的事。
+ */
+const rowCan = (row: TaskListSuccess["rows"][number], id: TaskCapabilityId): boolean =>
+  row.capabilities.some((capability) => capability.id === id && capability.available);
 
 type ReceiptRecord = GuiActionResult & {
   readonly revision?: number;
@@ -69,18 +76,6 @@ export async function settleTaskReceipt(
     hint: receipt.error?.hint ?? receipt.nextAction ?? "Inspect the canonical rejection.",
     receipt,
   };
-}
-
-export function isTaskStartable(task: TaskRow): boolean {
-  return (
-    task.origin === "native" &&
-    /* @gate-identity check-gui-status-judgments/gui-status-044 */
-    task.packageDisposition === "active" &&
-    /* @gate-identity check-gui-status-judgments/gui-status-045 */
-    task.canonicalStatus === "planned" &&
-    /* @gate-identity check-gui-status-judgments/gui-status-046 */
-    task.blocking === "clear"
-  );
 }
 
 export function createGuiExecutionId(randomUUID: () => string = () => crypto.randomUUID()): string {
@@ -189,10 +184,7 @@ export function useTaskActions(repoId: string) {
       return reread(task.taskId, "start", settlement, (data) =>
         data.rows.some(
           (row) =>
-            row.taskId === task.taskId &&
-            /* @gate-identity check-gui-status-judgments/gui-status-047 */
-            row.snapshot.task?.status === "active" &&
-            row.snapshot.lease?.executionId === executionId,
+            row.taskId === task.taskId && rowCan(row, "progress") && row.snapshot.lease?.executionId === executionId,
         ),
       );
     });
@@ -223,8 +215,7 @@ export function useTaskActions(repoId: string) {
         data.rows.some(
           (row) =>
             row.taskId === task.taskId &&
-            /* @gate-identity check-gui-status-judgments/gui-status-048 */
-            row.snapshot.task?.status === "active" &&
+            rowCan(row, "progress") &&
             row.snapshot.lease?.executionId === task.activeExecutionId,
         ),
       );
@@ -247,13 +238,7 @@ export function useTaskActions(repoId: string) {
         ({ opId }) => harnessClient.showReceipt({ repoId, opId }),
       );
       return reread(task.taskId, "submit", settlement, (data) =>
-        data.rows.some(
-          (row) =>
-            row.taskId === task.taskId &&
-            /* @gate-identity check-gui-status-judgments/gui-status-049 */
-            row.snapshot.task?.status === "in_review" &&
-            row.snapshot.lease === null,
-        ),
+        data.rows.some((row) => row.taskId === task.taskId && rowCan(row, "review") && row.snapshot.lease === null),
       );
     });
   // 台账 pin 的 GUI 写通道:与 `ha task pin/unpin` 完全同一条 daemon 动作

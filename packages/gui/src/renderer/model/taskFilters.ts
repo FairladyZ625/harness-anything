@@ -40,13 +40,12 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
 
 /**
  * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):
- * status=cancelled 或 package disposition 非 active(archived/tombstoned)的 task
+ * 投影的 `visibility.archived`(package disposition 非 active)或 status=cancelled 的 task
  * 默认算噪音。看板入口 = matchesTask 的 !includeArchived 分支;关系图领地入口 =
  * GraphView territory 的「显示已归档」开关(默认关 = 隐藏,task_b92c5138)。
  */
-export const isTaskArchiveNoise = (task: Pick<TaskRow, "packageDisposition" | "coordinationStatus">): boolean =>
-  /* @gate-identity check-gui-status-judgments/gui-status-033 */
-  task.packageDisposition !== "active" ||
+export const isTaskArchiveNoise = (task: Pick<TaskRow, "visibility" | "coordinationStatus">): boolean =>
+  task.visibility.archived ||
   /* @gate-identity check-gui-status-judgments/gui-status-034 */
   task.coordinationStatus === "cancelled";
 
@@ -64,12 +63,12 @@ export const isTaskArchiveNoise = (task: Pick<TaskRow, "packageDisposition" | "c
 export const GRAPH_FOCUS_RECENT_WINDOW_DAYS = 14;
 
 export function isTaskGraphFocusSeed(
-  task: Pick<TaskRow, "taskId" | "pinned" | "packageDisposition" | "coordinationStatus" | "lastKnownAt">,
+  task: Pick<TaskRow, "taskId" | "pinned" | "board" | "visibility" | "coordinationStatus" | "lastKnownAt">,
   now: string,
 ): boolean {
   if (task.pinned === true) return true;
   if (isTaskArchiveNoise(task)) return false;
-  if (!isTerminal(task.coordinationStatus)) return true;
+  if (!isTerminal(task)) return true;
   return recentWindowCutoff(now) <= Date.parse(task.lastKnownAt);
 }
 

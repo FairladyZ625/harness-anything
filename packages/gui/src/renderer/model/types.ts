@@ -118,6 +118,14 @@ interface TaskRowFields {
   executions?: TaskSnapshotProjectionRow["snapshot"]["executions"];
   /** execution evidence 投影原样透传(同上)。 */
   executionEvidence?: TaskSnapshotProjectionRow["executionEvidence"];
+  /**
+   * dec_5B135F46 CH4 第二层的 `task-board-rows` 投影,由 daemon 逐行派生
+   * (kernel `task-board-projection.ts`):看板列与排序权重、归档降噪、行级能力。
+   * renderer 只读这三格,不再自己按状态词分桶/排序/判可否动手。
+   */
+  board: TaskSnapshotProjectionRow["board"];
+  visibility: TaskSnapshotProjectionRow["visibility"];
+  capabilities: TaskSnapshotProjectionRow["capabilities"];
   docs: readonly DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
@@ -313,11 +321,22 @@ export interface EventEntry {
 }
 
 export const isExternal = (t: TaskRow) => t.origin === "external" || (t.origin === undefined && t.engine !== "local");
-export const isTerminal = (s: SnapshotStatus) =>
-  /* @gate-identity check-gui-status-judgments/gui-status-039 */
-  s === "done" ||
-  /* @gate-identity check-gui-status-judgments/gui-status-040 */
-  s === "cancelled";
+/** 行级能力投影:某个动作对这一行是否可做,以及不可做的原因码(不是文案)。 */
+export type TaskCapability = TaskSnapshotProjectionRow["capabilities"][number];
+export type TaskCapabilityId = TaskCapability["id"];
+/** 不可用时的原因码(可用时是 null),渲染侧据此选措辞。 */
+export type TaskCapabilityReasonKey = NonNullable<TaskCapability["reason"]>;
+
+/** 终态由投影的看板列回答(kernel `terminalDomainStatuses`),renderer 不再自己列终态词。 */
+export const isTerminal = (task: Pick<TaskRow, "board">) => task.board.columnId === "terminal";
+
+export const taskCapabilityOf = (
+  task: Pick<TaskRow, "capabilities">,
+  id: TaskCapabilityId,
+): TaskCapability | undefined => task.capabilities.find((capability) => capability.id === id);
+
+export const taskCan = (task: Pick<TaskRow, "capabilities">, id: TaskCapabilityId): boolean =>
+  taskCapabilityOf(task, id)?.available === true;
 
 export const BOARD_COLUMNS: SnapshotStatus[] = [
   "planned",

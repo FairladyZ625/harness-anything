@@ -1,13 +1,10 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
 import type { TaskRow } from "../src/renderer/model/types.ts";
-import {
-  clusterTasksByPrd,
-  deriveZoneProgress,
-  zoneRank,
-} from "../src/renderer/graph/territoryProgress.ts";
+import { clusterTasksByPrd, deriveZoneProgress, zoneRank } from "../src/renderer/graph/territoryProgress.ts";
 import { partitionTasks } from "../src/renderer/graph/territory.ts";
 import { UNPROJECTED_MODULE } from "../src/renderer/graph/moduleAssignment.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * 领地找回「每个 PRD 任务的进度」+ 未投影降权。
@@ -16,11 +13,23 @@ import { UNPROJECTED_MODULE } from "../src/renderer/graph/moduleAssignment.ts";
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
-    taskId: "task_a", title: "Task A", projectId: "proj",
-    coordinationStatus: "active", rawStatus: "active", freshness: "fresh",
-    packageDisposition: "active", closeoutReadiness: "not_required",
-    engine: "local", source: "local-document", module: "kernel",
-    lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
+    taskId: "task_a",
+    title: "Task A",
+    projectId: "proj",
+    coordinationStatus: "active",
+    rawStatus: "active",
+    freshness: "fresh",
+    packageDisposition: "active",
+    closeoutReadiness: "not_required",
+    engine: "local",
+    source: "local-document",
+    module: "kernel",
+    lastKnownAt: "2026-08-01T00:00:00.000Z",
+    gates: [],
+    docs: [],
+    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+      archived: (overrides.packageDisposition ?? "active") !== "active",
+    }),
     ...overrides,
   };
 }
@@ -29,18 +38,39 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
 function prdFixture(): TaskRow[] {
   return [
     task({ taskId: "root_1", title: "PRD 一", rootTaskId: "root_1", coordinationStatus: "active" }),
-    task({ taskId: "c1", title: "子一", parentTaskId: "root_1", rootTaskId: "root_1", rootTitle: "PRD 一", coordinationStatus: "done" }),
-    task({ taskId: "c2", title: "子二", parentTaskId: "root_1", rootTaskId: "root_1", rootTitle: "PRD 一", coordinationStatus: "active" }),
-    task({ taskId: "c3", title: "子三", parentTaskId: "root_1", rootTaskId: "root_1", rootTitle: "PRD 一", coordinationStatus: "blocked" }),
+    task({
+      taskId: "c1",
+      title: "子一",
+      parentTaskId: "root_1",
+      rootTaskId: "root_1",
+      rootTitle: "PRD 一",
+      coordinationStatus: "done",
+    }),
+    task({
+      taskId: "c2",
+      title: "子二",
+      parentTaskId: "root_1",
+      rootTaskId: "root_1",
+      rootTitle: "PRD 一",
+      coordinationStatus: "active",
+    }),
+    task({
+      taskId: "c3",
+      title: "子三",
+      parentTaskId: "root_1",
+      rootTaskId: "root_1",
+      rootTitle: "PRD 一",
+      coordinationStatus: "blocked",
+    }),
   ];
 }
 
 describe("PRD 进度派生", () => {
-  it("按状态分桶并算完成率", () => {
+  it("按投影的看板列分桶并算完成率", () => {
     const progress = deriveZoneProgress(prdFixture());
     expect(progress.total).toBe(4);
-    expect(progress.done).toBe(1);
-    expect(progress.active).toBe(2);
+    expect(progress.terminal).toBe(1);
+    expect(progress.open).toBe(2);
     expect(progress.blocked).toBe(1);
     expect(progress.doneRatio).toBeCloseTo(0.25);
   });
@@ -49,12 +79,14 @@ describe("PRD 进度派生", () => {
     expect(deriveZoneProgress([]).doneRatio).toBe(0);
   });
 
-  it("cancelled / unknown 计入 other,不静默消失", () => {
+  // cancelled 落 terminal 列(kernel `terminalDomainStatuses`),unknown 没有列 —— 两者都不静默消失。
+  it("cancelled 计入 terminal,unknown 计入 unplaced", () => {
     const progress = deriveZoneProgress([
       task({ taskId: "x", coordinationStatus: "cancelled" }),
       task({ taskId: "y", coordinationStatus: "unknown" }),
     ]);
-    expect(progress.other).toBe(2);
+    expect(progress.terminal).toBe(1);
+    expect(progress.unplaced).toBe(1);
     expect(progress.total).toBe(2);
   });
 });
@@ -118,9 +150,7 @@ describe("territory 分区接线", () => {
   });
 
   it("未投影 zone 的 moduleId 仍是显式哨兵(供计数与降权识别)", () => {
-    const zones = partitionTasks([
-      task({ taskId: "orphan", parentTaskId: "ghost", module: "unassigned" }),
-    ]);
+    const zones = partitionTasks([task({ taskId: "orphan", parentTaskId: "ghost", module: "unassigned" })]);
     expect(zones[0]!.moduleId).toBe(UNPROJECTED_MODULE);
     expect(zones[0]!.title).toBe("未投影");
   });

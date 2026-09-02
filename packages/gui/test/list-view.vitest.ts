@@ -6,6 +6,7 @@ import type { TaskRow } from "../src/renderer/model/types.ts";
 import { ListView } from "../src/renderer/views/ListView.tsx";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 beforeAll(() => setActiveLocale("en-US"));
 
@@ -24,6 +25,9 @@ const makeTask = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   lastKnownAt: "2026-07-09T00:00:00.000Z",
   gates: [],
   docs: [],
+  ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+    archived: (overrides.packageDisposition ?? "active") !== "active",
+  }),
   ...overrides,
 });
 

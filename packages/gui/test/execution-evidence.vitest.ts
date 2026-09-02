@@ -159,6 +159,9 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
       gates: [{ gateId: "build", status: "passed" }],
     },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
+    board: { columnId: "open", rank: 3 },
+    visibility: { archived: false },
+    capabilities: [{ id: "start", available: true, reason: null }],
     placement: {
       moduleKeys: ["gui"],
       productLines: ["harness"],

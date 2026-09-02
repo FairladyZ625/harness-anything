@@ -64,6 +64,9 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
       provenance: [{ kind: "l2", ref: `tasks/${taskId}-x/INDEX.md` }],
     },
     executionEvidence: [],
+    board: { columnId: "open", rank: 3 },
+    visibility: { archived: false },
+    capabilities: [{ id: "start", available: true, reason: null }],
     ...overrides,
   };
 }

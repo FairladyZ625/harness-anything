@@ -100,7 +100,9 @@ export function tasksAheadOfStatus(tasks: ReadonlyArray<TaskRow>, status: Snapsh
  * 总览「任务流」:合并原「现在在跑什么」与「任务流」两格。
  * 状态切换是**就地筛选**——点哪个状态,本格数据源换成该状态的任务瀑布流,
  * 路由不动;「去看板」是唯一的显式路由出口,带当前状态预置。
- * Tab counts are rendered verbatim from the daemon workspace summary.
+ * Tab counts are rendered verbatim from the daemon workspace summary, one tab per
+ * BOARD_COLUMNS entry —— 与看板同一列集合,包括 unknown:投影认不出状态的行在总览
+ * 里同样不隐藏(与「未投影只沉底、不消失」同一条诚实边界)。
  * 排序 = task_bootstrapped 创建时间倒序;内部滚动,不截断。
  * 流首那一组是 `tasksAheadOfStatus` 派生的「更新的」行:没有独立筛选/排序/状态,
  * 不可能显示当前标签本来就会显示的行,当前标签已含最新行时它为空 —— 所以它不是
@@ -130,11 +132,7 @@ export function TaskStream({
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-center gap-2">
         <StreamTabs
-          options={BOARD_COLUMNS.filter(
-            (column) =>
-              /* @gate-identity check-gui-status-judgments/gui-status-007 */
-              column !== "unknown",
-          ).map((column) => ({
+          options={BOARD_COLUMNS.map((column) => ({
             key: column,
             label: STATUS_META[column].label,
             count: summary.byStatus[column],

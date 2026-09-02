@@ -78,7 +78,7 @@ export const guiTaskProjectionFields = [
   "parentTaskId",
   "coordinationStatus",
   "closeoutReadiness",
-  "packageDisposition"
+  "packageDisposition",
 ] as const satisfies ReadonlyArray<keyof TaskProjectionRow>;
 
 const viewOrder: readonly GuiViewId[] = ["board", "list", "detail", "doc-viewer", "review-queue", "graph"];
@@ -94,25 +94,35 @@ export function buildGuiViewModel(rows: readonly GuiTaskRow[]): GuiViewModel {
     views: viewOrder,
     board: boardOrder.map((status) => ({
       id: status,
-      taskIds: sortedRows.filter((row) => row.coordinationStatus === status).map((row) => row.taskId)
+      taskIds: sortedRows.filter((row) => row.coordinationStatus === status).map((row) => row.taskId),
     })),
     list: sortedRows,
-    reviewQueue: sortedRows.filter((row) =>
-      /* @gate-identity check-gui-status-judgments/gui-status-002 */
-      row.closeoutReadiness === "ready"),
+    reviewQueue: sortedRows.filter(
+      (row) =>
+        /* @gate-identity check-gui-status-judgments/gui-status-002 */
+        row.closeoutReadiness === "ready",
+    ),
     graph: {
       nodes: sortedRows.map((row) => ({ id: row.taskId, title: row.title })),
-      edges: sortedRows.flatMap((row) => row.parentTaskId && taskIds.has(row.parentTaskId)
-        ? [{ from: row.parentTaskId, to: row.taskId, kind: "child" as const }]
-        : [])
-    }
+      edges: sortedRows.flatMap((row) =>
+        row.parentTaskId && taskIds.has(row.parentTaskId)
+          ? [{ from: row.parentTaskId, to: row.taskId, kind: "child" as const }]
+          : [],
+      ),
+    },
   };
 }
 
 export function buildGuiViewModelFromTaskProjection(rows: readonly TaskProjectionRow[]): GuiViewModel {
-  return buildGuiViewModel(rows.filter((row) =>
-    /* @gate-identity check-gui-status-judgments/gui-status-003 */
-    row.packageDisposition === "active").map(toGuiTaskRow));
+  return buildGuiViewModel(
+    rows
+      .filter(
+        (row) =>
+          /* @gate-identity check-gui-status-judgments/gui-status-003 */
+          row.packageDisposition === "active",
+      )
+      .map(toGuiTaskRow),
+  );
 }
 
 export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
@@ -127,13 +137,15 @@ export function readGuiTaskListResult(result: unknown): GuiTaskListReadResult {
     if (!row.ok) return row;
     if (
       /* @gate-identity check-gui-status-judgments/gui-status-004 */
-      (task as TaskProjectionRow).packageDisposition !== "active") continue;
+      (task as TaskProjectionRow).packageDisposition !== "active"
+    )
+      continue;
     rows.push(row.row);
   }
   return {
     ok: true,
     rows,
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
   };
 }
 
@@ -148,9 +160,7 @@ export function readGuiTaskDetailResult(result: unknown): GuiTaskDetailReadResul
   return {
     ok: true,
     task: task?.row,
-    documents: Array.isArray(result.documents)
-      ? result.documents.filter(isDocumentDescriptor)
-      : []
+    documents: Array.isArray(result.documents) ? result.documents.filter(isDocumentDescriptor) : [],
   };
 }
 
@@ -164,7 +174,7 @@ export function readGuiTaskDocumentResult(result: unknown): GuiTaskDocumentReadR
     ok: true,
     taskId: typeof result.taskId === "string" ? result.taskId : undefined,
     path: typeof result.path === "string" ? result.path : undefined,
-    body: typeof result.body === "string" ? result.body : ""
+    body: typeof result.body === "string" ? result.body : "",
   };
 }
 
@@ -172,12 +182,13 @@ export function toGuiCommandFeedback(result: unknown): GuiCommandFeedback {
   if (isCommandReceiptEnvelope(result)) {
     return {
       ok: result.ok,
-      summary: typeof result.summary === "string" && result.summary.length > 0
-        ? result.summary
-        : fallbackCommandSummary(result.ok),
+      summary:
+        typeof result.summary === "string" && result.summary.length > 0
+          ? result.summary
+          : fallbackCommandSummary(result.ok),
       errorCode: result.ok ? undefined : result.error?.code,
       hint: result.ok ? undefined : result.error?.hint,
-      warnings: Array.isArray(result.warnings) ? result.warnings : []
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
     };
   }
   if (!isGuiRecord(result) || typeof result.ok !== "boolean") {
@@ -186,14 +197,14 @@ export function toGuiCommandFeedback(result: unknown): GuiCommandFeedback {
       summary: "Command response was not recognized.",
       errorCode: "invalid_command_result",
       hint: "The GUI received a response outside the task command contract.",
-      warnings: []
+      warnings: [],
     };
   }
   if (result.ok) {
     return {
       ok: true,
       summary: "Command completed.",
-      warnings: Array.isArray(result.warnings) ? result.warnings : []
+      warnings: Array.isArray(result.warnings) ? result.warnings : [],
     };
   }
   const error = isGuiRecord(result.error) ? result.error : {};
@@ -202,7 +213,7 @@ export function toGuiCommandFeedback(result: unknown): GuiCommandFeedback {
     summary: "Command failed.",
     errorCode: typeof error.code === "string" ? error.code : "command_failed",
     hint: typeof error.hint === "string" ? error.hint : "The command did not provide a failure hint.",
-    warnings: Array.isArray(result.warnings) ? result.warnings : []
+    warnings: Array.isArray(result.warnings) ? result.warnings : [],
   };
 }
 
@@ -219,7 +230,7 @@ function toGuiTaskRow(row: Pick<TaskProjectionRow, (typeof guiTaskProjectionFiel
     title: row.title,
     coordinationStatus: coordinationStatuses.has(row.coordinationStatus) ? row.coordinationStatus : "unknown",
     closeoutReadiness: row.closeoutReadiness,
-    parentTaskId: typeof row.parentTaskId === "string" && row.parentTaskId.length > 0 ? row.parentTaskId : undefined
+    parentTaskId: typeof row.parentTaskId === "string" && row.parentTaskId.length > 0 ? row.parentTaskId : undefined,
   };
 }
 
@@ -230,26 +241,26 @@ function readGuiTaskRouteFailure(value: unknown): GuiTaskRouteFailure | undefine
     ok: false,
     error: {
       code: typeof error.code === "string" ? error.code : "task_route_failed",
-      hint: typeof error.hint === "string" ? error.hint : "Task route failed without a hint."
-    }
+      hint: typeof error.hint === "string" ? error.hint : "Task route failed without a hint.",
+    },
   };
 }
 
 function isSqliteTaskProjectionRow(value: unknown): value is TaskProjectionRow {
-  return isGuiRecord(value)
-    && value.schema === "sqlite-task-row/v1"
-    && typeof value.taskId === "string"
-    && typeof value.title === "string"
-    && typeof value.coordinationStatus === "string"
-    && typeof value.closeoutReadiness === "string"
-    && typeof value.packageDisposition === "string"
-    && (value.parentTaskId === undefined || typeof value.parentTaskId === "string");
+  return (
+    isGuiRecord(value) &&
+    value.schema === "sqlite-task-row/v1" &&
+    typeof value.taskId === "string" &&
+    typeof value.title === "string" &&
+    typeof value.coordinationStatus === "string" &&
+    typeof value.closeoutReadiness === "string" &&
+    typeof value.packageDisposition === "string" &&
+    (value.parentTaskId === undefined || typeof value.parentTaskId === "string")
+  );
 }
 
 function isCommandReceiptEnvelope(value: unknown): value is CommandReceiptEnvelope {
-  return isGuiRecord(value)
-    && value.schema === commandReceiptEnvelope
-    && typeof value.ok === "boolean";
+  return isGuiRecord(value) && value.schema === commandReceiptEnvelope && typeof value.ok === "boolean";
 }
 
 function isDocumentDescriptor(value: unknown): value is { readonly path: string } {

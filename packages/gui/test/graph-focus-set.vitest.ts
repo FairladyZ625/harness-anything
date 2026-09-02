@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import { isTaskGraphFocusSeed } from "../src/renderer/model/taskFilters.ts";
 import { selectGraphFocusSet, isInGraphFocusSet } from "../src/renderer/graph/focusSet.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * 关系图「重点模式」的重点集(task_5ba031c2)。
@@ -28,6 +29,9 @@ function task(taskId: string, overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-08-29T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+      archived: (overrides.packageDisposition ?? "active") !== "active",
+    }),
     ...overrides,
   } as TaskRow;
 }

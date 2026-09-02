@@ -31,9 +31,7 @@ function AuditRow({
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
-  const archived =
-    /* @gate-identity check-gui-status-judgments/gui-status-064 */
-    task.packageDisposition !== "active";
+  const archived = task.visibility.archived;
   const spawningDecision = spawningDecisionOf(task, relations);
   const pinned = task.pinned === true;
   return (

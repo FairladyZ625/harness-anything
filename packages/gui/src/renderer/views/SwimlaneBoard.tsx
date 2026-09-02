@@ -51,9 +51,7 @@ function LaneCard({
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
   const external = isExternal(task);
-  const archived =
-    /* @gate-identity check-gui-status-judgments/gui-status-067 */
-    task.packageDisposition !== "active";
+  const archived = task.visibility.archived;
   const spawningDecision = spawningDecisionOf(task, relations);
   return (
     <div

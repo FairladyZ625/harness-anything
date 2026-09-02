@@ -8,6 +8,7 @@ import {
   readGraphDensityFocusMode,
   writeGraphDensityFocusMode,
 } from "../src/renderer/graph-density-preferences.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * 密度分层(task_5ba031c2):重点集落进领地 = 每块只留重点 chip,其余折叠成
@@ -30,6 +31,9 @@ function task(taskId: string, overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-08-29T00:00:00.000Z",
     gates: [],
     docs: [],
+    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+      archived: (overrides.packageDisposition ?? "active") !== "active",
+    }),
     ...overrides,
   } as TaskRow;
 }

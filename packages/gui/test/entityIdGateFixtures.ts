@@ -12,6 +12,7 @@ import type {
   SquadEntityRow,
 } from "../../daemon/src/agent-entities.ts";
 import type { RuntimeDockRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 
 /**
  * G10 实体互链不变量 · fixture 实体宇宙(entity-id-links.vitest.ts 的数据面)。
@@ -70,6 +71,7 @@ export function fixtureTaskRow(taskId: string, title: string): TaskRow {
     gates: [],
     docs: [],
     events: [{ at: AT, projectId: REPO_ID, taskId, summary: "fixture 事件行" }] satisfies EventEntry[],
+    ...taskProjectionFields("active"),
   };
 }
 
