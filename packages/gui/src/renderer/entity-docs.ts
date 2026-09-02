@@ -162,7 +162,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["active", "retired"],
       },
     ],
-    actions: ["relate", "unrelate"],
+    actions: ["relate", "unrelate", "reconfirm"],
   },
   review: {
     schemaId: "Review/v1",

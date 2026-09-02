@@ -43,7 +43,7 @@ import {
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
 import { executeArtifactEntityImport } from "./artifact-entity-action.ts";
-import { executeRelationAction, publicationKillpoints } from "./entity-action-relation.ts";
+import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -947,18 +947,4 @@ function requiredCommandText(value: unknown, field: string): string {
 function object(value: unknown, field: string): Readonly<Record<string, unknown>> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Readonly<Record<string, unknown>>;
   reject("invalid_command", `${field} must be an object.`);
-}
-function reject(
-  code:
-    | "actor_unauthorized"
-    | "content_not_ready"
-    | "entity_not_found"
-    | "invalid_command"
-    | "op_conflict"
-    | "relation_cycle"
-    | "revision_conflict"
-    | "version_conflict",
-  message: string,
-): never {
-  throw Object.assign(new Error(message), { code });
 }

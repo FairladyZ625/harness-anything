@@ -208,8 +208,16 @@ function hasRelationPath(
   return false;
 }
 
-function reject(
-  code: "entity_not_found" | "invalid_command" | "relation_cycle" | "revision_conflict" | "version_conflict",
+export function reject(
+  code:
+    | "actor_unauthorized"
+    | "content_not_ready"
+    | "entity_not_found"
+    | "invalid_command"
+    | "op_conflict"
+    | "relation_cycle"
+    | "revision_conflict"
+    | "version_conflict",
   message: string,
 ): never {
   throw Object.assign(new Error(message), { code });
