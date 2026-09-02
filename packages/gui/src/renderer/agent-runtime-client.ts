@@ -36,6 +36,20 @@ export type SessionGroupsQuery = {
   readonly squadId?: string;
   readonly limit?: number;
 };
+/**
+ * One query key per daemon read, shared by every view that shows it (task detail, sessions page,
+ * runtime workspace): the same dispatch list or runtime overview was fetched under three
+ * different keys, so react-query could neither dedupe the requests nor invalidate them together.
+ */
+export const runtimeQueryKeys = {
+  dispatchesAll: (repoId: string) => ["dispatches", repoId] as const,
+  dispatches: (repoId: string, taskId: string) => ["dispatches", repoId, taskId] as const,
+  overviewAll: (repoId: string) => ["runtime-overview", repoId] as const,
+  overview: (repoId: string, taskId: string) => ["runtime-overview", repoId, taskId] as const,
+  sessionAll: (repoId: string) => ["runtime-session", repoId] as const,
+  session: (repoId: string, runtimeSessionId: string) => ["runtime-session", repoId, runtimeSessionId] as const,
+};
+
 export const agentRuntimeClient = {
   overview: async (
     repoId: string,

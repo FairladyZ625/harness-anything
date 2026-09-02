@@ -14,7 +14,7 @@ import type {
   AgentRuntimeSessionResult,
 } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { GuiSubmissionV1, RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
-import { agentRuntimeClient } from "../../agent-runtime-client.ts";
+import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
@@ -142,14 +142,14 @@ export function TaskDispatchTab({
   readonly onNavigateEntity: (ref: string) => void;
 }) {
   const dispatches = useQuery({
-    queryKey: ["task-detail", task.projectId, task.taskId, "dispatches"],
+    queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
   });
   const rows = dispatches.data?.dispatches ?? [];
   const sessions = useQueries({
     queries: rows.map((row) => ({
-      queryKey: ["task-detail", task.projectId, row.runtimeSessionId, "session"],
+      queryKey: runtimeQueryKeys.session(task.projectId, row.runtimeSessionId),
       queryFn: () => agentRuntimeClient.session(task.projectId, row.runtimeSessionId),
       staleTime: 4_000,
     })),
@@ -520,7 +520,7 @@ export function TaskRelationsTab({
   readonly onOpenSession: (runtimeSessionId: string) => void;
 }) {
   const runtime = useQuery({
-    queryKey: ["task-detail", task.projectId, task.taskId, "runtime-overview"],
+    queryKey: runtimeQueryKeys.overview(task.projectId, task.taskId),
     queryFn: () => agentRuntimeClient.overview(task.projectId, task.taskId),
     staleTime: 4_000,
   });

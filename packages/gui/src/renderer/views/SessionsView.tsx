@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { agentEntityClient } from "../agent-entity-client.ts";
-import { agentRuntimeClient } from "../agent-runtime-client.ts";
+import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Badge, Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
@@ -145,14 +145,14 @@ export function SessionsView({
   );
   const roundsQueries = useQueries({
     queries: expandedTasks.map((group) => ({
-      queryKey: ["sessions-page", repoId, "rounds", group.taskId],
+      queryKey: runtimeQueryKeys.dispatches(repoId, group.taskId),
       queryFn: () => harnessClient.getTaskDispatches({ repoId, taskId: group.taskId }),
       staleTime: 4_000,
     })),
   });
   const taskSessionQueries = useQueries({
     queries: expandedTasks.map((group) => ({
-      queryKey: ["sessions-page", repoId, "task-sessions", group.taskId],
+      queryKey: runtimeQueryKeys.overview(repoId, group.taskId),
       queryFn: () => agentRuntimeClient.overview(repoId, group.taskId),
       staleTime: 4_000,
     })),
@@ -204,7 +204,7 @@ export function SessionsView({
       groups.find(({ latestRound }) => latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
     selectedSessionId = focusedSessionId ?? defaultSessionId;
   const selectedSession = useQuery({
-    queryKey: ["sessions-page", repoId, "session", selectedSessionId],
+    queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
     enabled: selectedSessionId !== null,
     staleTime: 4_000,

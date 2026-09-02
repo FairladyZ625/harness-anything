@@ -4,7 +4,7 @@ import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
-import { agentRuntimeClient } from "../../agent-runtime-client.ts";
+import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
 import { buildDispatchSpawnInput, type DispatchRequest } from "../../dispatch-flow.ts";
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
@@ -218,7 +218,9 @@ export function useSessionsWorkspace(
       client.invalidateQueries({ queryKey: ["session-groups", repoId] }),
       client.invalidateQueries({ queryKey: ["squad-runs", repoId] }),
       client.invalidateQueries({ queryKey: ["squad-run-detail", repoId] }),
-      client.invalidateQueries({ queryKey: ["sessions-page", repoId] }),
+      client.invalidateQueries({ queryKey: runtimeQueryKeys.dispatchesAll(repoId) }),
+      client.invalidateQueries({ queryKey: runtimeQueryKeys.overviewAll(repoId) }),
+      client.invalidateQueries({ queryKey: runtimeQueryKeys.sessionAll(repoId) }),
     ]);
   });
   return {
