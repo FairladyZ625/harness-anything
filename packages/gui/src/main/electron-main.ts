@@ -7,6 +7,8 @@ import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
 import { bootstrapLocalRepository, createLocalGuiServiceBridge } from "./local-composition-root.ts";
+import { createRemoteGuiServiceBridge, resolveRemoteGuiProfile } from "./remote-composition-root.ts";
+import { addRemoteMainControls } from "./remote-main-controls.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
 import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
@@ -23,6 +25,7 @@ import {
 } from "./security-policy.ts";
 import { assertDevRendererUrl, createGuiContentSecurityPolicy, isNavigableAppDocumentUrl } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
+import { daemonProtocolError } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -158,12 +161,21 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),
-    bridge = createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides()),
-    controlled = addLocalMainControls({
-      bridge,
-      target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
-      clientBuildCommit: daemonBuildStamp().commit,
-    }),
+    packaged = app.isPackaged ? { resourcesPath: process.resourcesPath } : undefined,
+    remoteProfile = resolveRemoteGuiProfile(),
+    bridge = remoteProfile
+      ? createRemoteGuiServiceBridge(remoteProfile)
+      : createLocalGuiServiceBridge(rootDir, resolveGuiLayoutOverrides(), packaged ? { packaged } : {}),
+    controlled = remoteProfile
+      ? addRemoteMainControls({ bridge })
+      : addLocalMainControls({
+          bridge,
+          invokingRoot: rootDir,
+          target: async (repoId) =>
+            resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
+          clientBuildCommit: daemonBuildStamp().commit,
+          ...(packaged ? { packaged } : {}),
+        }),
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
       rendererUrl: {
@@ -177,6 +189,7 @@ export async function startGuiApp(): Promise<void> {
     ipcMain,
     {
       canonicalRootOf: (repoId) => {
+        if (remoteProfile) throw new Error("Artifact paths are not available from remote daemon mode.");
         const target = resolveLocalDaemonTarget({ rootDir, repoIdOverride: repoId });
         if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
         return target.canonicalRoot;
@@ -195,7 +208,14 @@ export async function startGuiApp(): Promise<void> {
         });
         return selected.canceled ? null : (selected.filePaths[0] ?? null);
       },
-      bootstrap: (input) => bootstrapLocalRepository(input),
+      bootstrap: remoteProfile
+        ? async () =>
+            daemonProtocolError(
+              "init",
+              "remote_bootstrap_unsupported",
+              "Repository bootstrap is not available from remote daemon mode.",
+            ) as unknown as Record<string, unknown>
+        : (input) => bootstrapLocalRepository(input, packaged),
     },
     trustPolicy,
   );

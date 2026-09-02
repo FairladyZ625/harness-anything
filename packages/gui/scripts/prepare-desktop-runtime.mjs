@@ -98,10 +98,17 @@ async function prepareDaemonNodeModules() {
   const dependencyPaths = [
     ...new Set(
       ["@harness-anything/cli", "@harness-anything/daemon"].flatMap((workspace) =>
-        execFileSync(npmExecutableName, ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all"], {
-          cwd: repoRoot,
-          encoding: "utf8",
-        })
+        execFileSync(
+          npmExecutableName,
+          ["ls", "--workspace", workspace, "--omit=dev", "--parseable", "--all", "--package-lock-only"],
+          {
+            cwd: repoRoot,
+            encoding: "utf8",
+            // npm is a .cmd shim on Windows; Node does not execute it directly
+            // without a shell. The arguments above are fixed literals/paths.
+            shell: platform === "win32",
+          },
+        )
           .split(/\r?\n/u)
           .map((line) => line.trim())
           .filter(Boolean),
@@ -111,6 +118,9 @@ async function prepareDaemonNodeModules() {
 
   const nodeModulesRoot = join(repoRoot, "node_modules");
   for (const dependencyPath of dependencyPaths) {
+    // npm's lockfile view includes optional packages for other platforms;
+    // those packages are intentionally absent from this node_modules tree.
+    if (!existsSync(dependencyPath)) continue;
     if (!dependencyPath.startsWith(nodeModulesRoot)) continue;
     const packageName = relative(nodeModulesRoot, dependencyPath);
     if (!packageName || packageName === "@harness-anything/cli") continue;

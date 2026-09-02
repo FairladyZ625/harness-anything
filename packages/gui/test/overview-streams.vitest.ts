@@ -855,6 +855,30 @@ describe("overview pinned stream", () => {
     expect(markup).toContain("ha agenda");
     expect(markup).not.toContain("当前没有 pin 的任务");
   });
+  it("does not render an aggregate count as an empty task stream while projection is pending", () => {
+    const summary = summarizeWorkspace([{ coordinationStatus: "active", packageDisposition: "active" }], []).tasks;
+    const pending = renderToStaticMarkup(
+      createElement(TaskStream, {
+        tasks: [],
+        summary,
+        projectionStatus: "pending",
+        onOpenPreview: noop,
+        onGoBoard: noop,
+      }),
+    );
+    const failed = renderToStaticMarkup(
+      createElement(TaskStream, {
+        tasks: [],
+        summary,
+        projectionStatus: "error",
+        onOpenPreview: noop,
+        onGoBoard: noop,
+      }),
+    );
+    expect(pending).toContain("任务投影正在同步");
+    expect(pending).not.toContain("该状态下暂无任务");
+    expect(failed).toContain("任务投影读取失败");
+  });
 });
 
 describe("decision preview drawer (click opens a drawer, not a page jump)", () => {

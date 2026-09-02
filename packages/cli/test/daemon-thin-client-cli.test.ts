@@ -246,7 +246,17 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     let unrefs = 0;
     const output = await captureGuiOutput(() =>
       runGuiLaunch(
-        ["gui", "--json"],
+        [
+          "gui",
+          "--json",
+          "--remote",
+          "--ssh-config-host",
+          "harness-company-via-uu",
+          "--remote-daemon-id",
+          "company",
+          "--remote-command-json",
+          '["/opt/node","/opt/ha.js","daemon","connect","--stdio","--daemon-id","company"]',
+        ],
         {
           workspaceRoot: fixture.root,
           resolveElectronBinary: () => "/electron",
@@ -297,9 +307,60 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     );
     assert.equal(spawnedEnv.ELECTRON_RUN_AS_NODE, undefined, "node mode would start the main process without a window");
     assert.equal(spawnedEnv.HARNESS_GUI_ROOT, process.cwd(), "the shell must be told which workspace to open");
+    assert.equal(spawnedEnv.HARNESS_GUI_TRANSPORT, "ssh");
+    assert.equal(spawnedEnv.HARNESS_GUI_REMOTE_SSH_CONFIG_HOST, "harness-company-via-uu");
+    assert.equal(spawnedEnv.HARNESS_GUI_REMOTE_DAEMON_ID, "company");
+    assert.equal(
+      spawnedEnv.HARNESS_GUI_REMOTE_COMMAND_JSON,
+      '["/opt/node","/opt/ha.js","daemon","connect","--stdio","--daemon-id","company"]',
+    );
   } finally {
     delete process.env.ELECTRON_RENDERER_URL;
     delete process.env.ELECTRON_RUN_AS_NODE;
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("remote GUI launch requires an endpoint or OpenSSH config alias", async () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json", "--remote"],
+        { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_remote_config_missing");
+    assert.equal(receipt.error.code, "gui_remote_config_missing");
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("remote GUI launch rejects an invalid direct endpoint port", async () => {
+  const fixture = makeGuiFixture(true);
+  try {
+    writeFileSync(path.join(fixture.root, "packages/gui/dist/index.html"), "<!doctype html>\n");
+    writeFileSync(path.join(fixture.root, "packages/gui/dist-electron/electron-preload.cjs"), "\n");
+    const output = await captureGuiOutput(() =>
+      runGuiLaunch(
+        ["gui", "--json", "--remote", "--remote-host", "127.0.0.1", "--remote-port", "70000"],
+        { workspaceRoot: fixture.root, resolveElectronBinary: () => "/electron" },
+        emit,
+      ),
+    );
+    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string } };
+    assert.equal(output.status, 1);
+    assert.equal(receipt.ok, false);
+    assert.equal(receipt.code, "gui_remote_port_invalid");
+    assert.equal(receipt.error.code, "gui_remote_port_invalid");
+  } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });
@@ -400,6 +461,8 @@ test("ha gui --help documents repository context and attach-only daemon ownershi
   assert.match(result.stdout, /ha gui \[--root <path>\]/u);
   assert.match(result.stdout, /canonical CLI installation/u);
   assert.match(result.stdout, /never stops the daemon/u);
+  assert.match(result.stdout, /--ssh-config-host <alias>/u);
+  assert.match(result.stdout, /--remote-command-json/u);
 });
 
 function makeGuiFixture(withDist: boolean): { root: string } {

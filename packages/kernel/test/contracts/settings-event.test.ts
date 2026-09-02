@@ -9,6 +9,7 @@ import {
   readSettingsFacet,
   repositorySettings,
   writeRepositorySettingsFacet,
+  validateRepositorySettings,
   type SettingsV1,
 } from "../../src/domain/settings.ts";
 
@@ -107,5 +108,34 @@ test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, a
       { kind: "projection_invalidation", projection: "document/v1", key: "harness.yaml" },
       { kind: "projection_invalidation", projection: "entity/v1", key: "settings/repository" },
     ],
+  );
+});
+
+test("historical settings events without walFlush remain valid and use defaults", () => {
+  const settings = readSettingsFacet(original),
+    bundle = compileSettingsChangedEvent({
+      settings,
+      baseDocumentBody: original,
+      candidateDocumentBody: original,
+      eventId: "event-settings-legacy",
+      opId: "op-settings-legacy",
+      workspaceRevision: 1,
+      actor: { principal: { personId: "person-settings" }, executor: null },
+      source: "local",
+      occurredAt: "2026-08-27T01:00:00.000Z",
+    }),
+    legacy = {
+      ...bundle.event,
+      payload: {
+        ...bundle.event.payload,
+        settings: (({ walFlush: _walFlush, ...withoutWalFlush }) => withoutWalFlush)(bundle.event.payload.settings),
+      },
+    };
+  assert.deepEqual(validateSettingsEvent(legacy), []);
+  assert.deepEqual(readSettingsFacet(original).walFlush, settings.walFlush);
+  assert.deepEqual(
+    validateRepositorySettings(legacy.payload.settings),
+    [],
+    "legacy repository settings remain valid after schema evolution",
   );
 });

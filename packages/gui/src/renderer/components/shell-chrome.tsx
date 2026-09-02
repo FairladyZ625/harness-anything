@@ -66,14 +66,15 @@ export function NavButton({
  * 2026-08-31 收纳搬去 components/sidebar/SystemStatusPanel.tsx。
  */
 export function ProjectSummary({ repo, active, onOpen }: { repo: SystemRepoRow; active: boolean; onOpen: () => void }) {
+  const openable = repo.registrationState === "enabled" && repo.cellState === "attached";
   return (
     <button
       onClick={onOpen}
-      disabled={repo.registrationState !== "enabled"}
+      disabled={!openable}
       className={`flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors duration-100 ${
         active
           ? "border-accent/70 bg-accent/10"
-          : repo.registrationState === "enabled"
+          : openable
             ? "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
             : "cursor-not-allowed border-border bg-surface opacity-60"
       }`}

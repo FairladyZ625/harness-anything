@@ -66,7 +66,20 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     );
     return 2;
   }
-  if (explainHelpOverlay === undefined && (argv.length === 0 || argv.includes("--help"))) {
+  const daemonConnectCommand = command === "daemon" && argv.includes("connect");
+  if (command === "gui" && argv.includes("--help")) {
+    console.log("Usage: ha gui [--remote] [remote connection options]");
+    console.log("Launch the desktop GUI. Remote mode uses an existing local SSH endpoint.");
+    console.log("  --remote                                      Enable SSH-backed GUI mode.");
+    console.log("  --ssh-config-host <alias>                    Use a local OpenSSH config alias.");
+    console.log("  --remote-host <host> --remote-port <port>    Use a direct local endpoint.");
+    console.log("  --remote-user <user> --identity-file <path>  Override SSH identity settings.");
+    console.log("  --host-key-alias <alias>                     Select the pinned known_hosts name.");
+    console.log("  --remote-daemon-id <id>                      Select the resident daemon.");
+    console.log("  --remote-command-json <json-array>           Override the remote bridge command.");
+    return 0;
+  }
+  if (explainHelpOverlay === undefined && (argv.length === 0 || (argv.includes("--help") && !daemonConnectCommand))) {
     const domain = helpDomain(argv);
     if (domain !== undefined && !cliCommandDomains().includes(domain)) {
       emit(cliFailure("help", "unsupported_command", unsupportedCommandHint([domain])), argv.includes("--json"));

@@ -25,8 +25,6 @@ Unsupported deployments:
 
 - Binding the daemon to TCP, HTTP, or WebSocket. The implemented transports are
   the local Unix socket and the Windows named pipe.
-- Remote GUI attachment to another machine's daemon. The GUI connects to the
-  local daemon endpoint.
 - Real-time notification subscriptions. The subscription method is currently a
   no-op stub.
 
@@ -126,6 +124,62 @@ The client invokes `ssh <host> <remote-ha> daemon connect --stdio`. The server
 must already be running `ha daemon start --service` for the canonical root. The
 remote root is sent with each request and must match the root pinned by the
 member's forced command.
+
+## Remote GUI via a local endpoint
+
+The GUI's remote mode is deliberately independent of the network service that
+creates its local endpoint. UU, FRP, VPN, a public relay, and an SSH `-L`
+forward are all equivalent from the GUI's perspective: they must expose a
+reachable local `host:port`. The GUI never needs the private address of the
+daemon or the name of the tunnelling service.
+
+Enable the SSH connector explicitly on Windows (PowerShell example):
+
+```powershell
+$env:HARNESS_GUI_TRANSPORT = "ssh"
+$env:HARNESS_GUI_REMOTE_HOST = "127.0.0.1"
+$env:HARNESS_GUI_REMOTE_PORT = "22022"
+$env:HARNESS_GUI_REMOTE_USER = "cyr"
+$env:HARNESS_GUI_REMOTE_IDENTITY_FILE = "$env:USERPROFILE\.ssh\harness-company-internal"
+$env:HARNESS_GUI_REMOTE_HOST_KEY_ALIAS = "company-internal-host"
+$env:HARNESS_GUI_REMOTE_DAEMON_ID = "default"
+```
+
+When the connection is already represented by an OpenSSH config alias, launch the
+GUI with one explicit command instead of repeating the full environment block:
+
+```powershell
+ha gui --remote --ssh-config-host harness-company-via-uu --remote-daemon-id default
+```
+
+`harness-company-via-uu` must be a local OpenSSH config alias. The private key
+remains managed by OpenSSH config or `ssh-agent`. Use `--remote-host` together
+with `--remote-port` when no alias is available. Environment variables remain
+available for overrides and test injection.
+
+When only an OpenSSH alias is supplied, the GUI delegates endpoint resolution
+to OpenSSH and displays that alias. When `--remote-host` and `--remote-port`
+are supplied, it displays the concrete local endpoint.
+
+`HARNESS_GUI_REMOTE_SSH_CONFIG_HOST` may select a host alias from the user's
+OpenSSH config; `HARNESS_GUI_SSH_COMMAND` is reserved for an explicitly chosen
+OpenSSH-compatible client. Keep the private key outside the repository and use
+`StrictHostKeyChecking=yes` with a pinned `known_hosts` entry.
+
+The default remote command is `ha daemon connect --stdio`. When the remote
+installation does not put `ha` on the non-interactive SSH `PATH`, provide an
+argument array instead of changing the tunnel configuration:
+
+```powershell
+$env:HARNESS_GUI_REMOTE_COMMAND_JSON = '["/opt/harness/node","/opt/harness/cli.js","daemon","connect","--stdio","--daemon-id","default"]'
+```
+
+The remote command must already be installed and the resident daemon must be
+running. The connector performs a TCP/SSH connection, then requires the
+Harness `protocol.hello` handshake and daemon build response. A reachable port
+alone is not considered ready. Authentication failures, host-key failures,
+timeouts, EOF, and reconnect exhaustion are surfaced as explicit remote
+errors; the GUI never starts or falls back to a local daemon in remote mode.
 
 ## Team onboarding with SSH forced commands
 

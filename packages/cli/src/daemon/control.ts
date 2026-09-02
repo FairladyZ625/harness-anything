@@ -26,6 +26,7 @@ import { ensureCliDaemonRunning } from "./autostart.ts";
 import { daemonRepoModeWords } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { firstCliCommandIndex } from "../cli/thin-command.ts";
 import { runGuiLaunch } from "../cli/gui-launch.ts";
+import { runDaemonStdioBridge } from "./stdio-bridge.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -39,6 +40,16 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
+  if (command === "connect") {
+    if (argv.includes("--help")) {
+      console.log("Usage: ha daemon connect --stdio [--user-root <path>] [--daemon-id <id>]");
+      console.log("Expose the resident daemon JSON-RPC stream over stdin/stdout.");
+      return 0;
+    }
+    if (subcommand === "--stdio")
+      return runDaemonStdioBridge({ socketPath: localUserDaemonEndpoint(userRoot, daemonId) });
+    return finish(daemonFailure("daemon-connect", "unsupported_command", "Use `ha daemon connect --stdio`."), 2);
+  }
   try {
     if (command === "projection" && subcommand === "rebuild") {
       const suppliedRoot = daemonOption(argv, "--root");

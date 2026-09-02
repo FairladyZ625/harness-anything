@@ -168,6 +168,15 @@ export function SystemView({
             {daemon.daemonId} · pid {daemon.pid}
           </span>
           <div className="ml-auto flex gap-2">
+            {status.data.connection?.kind === "ssh" ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-md bg-accent/15 px-2.5 py-1 text-[12px] font-semibold text-accent"
+                title={status.data.connection.hostKeyAlias}
+              >
+                <span className="size-2 rounded-full bg-accent" aria-hidden />
+                SSH · {status.data.connection.endpoint}
+              </span>
+            ) : null}
             <button
               disabled={!activeRepoId || control.busy}
               onClick={() => void control.request("refresh")}

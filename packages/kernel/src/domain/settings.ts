@@ -202,7 +202,9 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
   },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
+  // walFlush was added after the first settings/v1 events were written. The
+  // reader supplies DEFAULT_WAL_FLUSH_SETTINGS for those immutable events.
+  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds"],
   additionalProperties: false,
 };
 

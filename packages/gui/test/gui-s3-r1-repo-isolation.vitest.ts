@@ -280,14 +280,14 @@ describe("GUI S3 R1 repository isolation", () => {
     }
   });
 
-  it("selects only enabled repos and retains an enabled unavailable repo", () => {
+  it("selects only enabled repos and moves from transient unavailable to attached", () => {
     const repos = [
       repo("disabled", "disabled", "not_loaded"),
       repo("unavailable", "enabled", "unavailable"),
       repo("attached", "enabled", "attached"),
     ];
     expect(selectActiveRepoId(repos, null)).toBe("attached");
-    expect(selectActiveRepoId(repos, "unavailable")).toBe("unavailable");
+    expect(selectActiveRepoId(repos, "unavailable")).toBe("attached");
     expect(selectActiveRepoId(repos, "disabled")).toBe("attached");
   });
 

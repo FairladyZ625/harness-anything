@@ -374,6 +374,7 @@ function AppShell() {
       <AppSidebar
         project={project}
         repos={systemQuery.data?.repos ?? []}
+        connection={systemQuery.data?.connection}
         activeRepoId={activeRepoId}
         view={view}
         hasSelection={selected !== null}
@@ -435,6 +436,7 @@ function AppShell() {
                 <OverviewView
                   project={project}
                   tasks={projectTasks}
+                  taskProjectionStatus={tasksQuery.isError ? "error" : tasksQuery.data?.status ?? "pending"}
                   agenda={agendaQuery.data}
                   decisions={decisions}
                   workspaceSummary={workspaceSummaryQuery.data}

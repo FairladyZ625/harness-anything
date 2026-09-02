@@ -23,13 +23,14 @@ export function HomeView({
       </header>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3 p-4">
         {repos.map((repo) => {
-          const enabled = repo.registrationState === "enabled";
+          const enabled = repo.registrationState === "enabled",
+            openable = enabled && repo.cellState === "attached";
           return (
             <button
               key={repo.repoId}
-              disabled={!enabled}
-              onClick={() => onOpenProject(repo.repoId)}
-              className={`rounded-lg border bg-surface p-3 text-left ${repo.repoId === currentRepoId ? "border-accent" : "border-border"} ${enabled ? "hover:border-border-strong" : "cursor-not-allowed opacity-65"}`}
+              disabled={!openable}
+              onClick={() => openable && onOpenProject(repo.repoId)}
+              className={`rounded-lg border bg-surface p-3 text-left ${repo.repoId === currentRepoId ? "border-accent" : "border-border"} ${openable ? "hover:border-border-strong" : "cursor-not-allowed opacity-65"}`}
             >
               <div className="flex items-center gap-2">
                 <FolderSimple className="text-text-muted" />
@@ -49,10 +50,10 @@ export function HomeView({
                   {repo.unavailableReason ?? repo.lastError ?? "unknown / 未投影"}
                 </p>
               )}
-              {!enabled && (
+              {!openable && (
                 <p className="mt-2 inline-flex items-center gap-1 ui-micro text-text-faint">
                   <LockKey />
-                  disabled repo 仅解释，不可进入
+                  {enabled ? "投影不可用，仅可在系统页查看原因" : "disabled repo 仅解释，不可进入"}
                 </p>
               )}
             </button>

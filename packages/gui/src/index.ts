@@ -9,6 +9,8 @@ export * from "./doc-renderer/sanitize.ts";
 export * from "./api/html-artifact-policy.ts";
 export * from "./main/ipc-handlers.ts";
 export * from "./main/local-composition-root.ts";
+export * from "./main/remote-composition-root.ts";
+export * from "./main/remote-main-controls.ts";
 export * from "./main/security-policy.ts";
 export * from "./main/trust-policy.ts";
 export * from "./main/window-config.ts";
