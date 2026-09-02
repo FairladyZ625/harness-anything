@@ -289,7 +289,7 @@ export interface BoundedContextActionException {
 
 const declarationDocument = (pathTemplate: string) =>
   Object.freeze({ pathTemplate, mediaType: "application/json" as const, policyId: ENTITY_DOCUMENT_POLICY_ID });
-const noSdkExposure: EntitySdkExposure = Object.freeze({ sdk: null, agentCapability: null });
+export const noSdkExposure: EntitySdkExposure = Object.freeze({ sdk: null, agentCapability: null });
 const capabilityExposure = (target: string, schemaId: string): EntitySdkExposure =>
   Object.freeze({
     sdk: Object.freeze({ target: `${target[0]!.toUpperCase()}${target.slice(1)}Capability`, schemaId }),
@@ -359,8 +359,11 @@ const defaultConcurrency = (kind: string, refTemplate: string): EntityActionCont
     idempotency: Object.freeze({ authority: "operation-id" }),
     artifactOwnership: Object.freeze({ owner: "entity", refTemplate }),
   });
-const genericAuthoring = Object.freeze({ kind: "generic-entity-store" as const, contractRef: "entity-event/v1" });
-const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
+export const genericAuthoring = Object.freeze({
+  kind: "generic-entity-store" as const,
+  contractRef: "entity-event/v1",
+});
+export const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
 
 const taskExposure = capabilityExposure("task", "task-frontmatter");

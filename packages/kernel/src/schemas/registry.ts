@@ -29,7 +29,7 @@ export {
   RelationStrengthSchema,
   RelationTypeSchema,
 } from "./entity-relations.ts";
-export { VerticalDefinitionSchema } from "./vertical-definition.ts";
+export type { VerticalDefinition } from "./vertical-definition.ts";
 
 export const DomainStatusSchema = Schema.Literal(...domainStatuses);
 
@@ -342,7 +342,6 @@ export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
 export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
-export type VerticalDefinition = Schema.Schema.Type<typeof VerticalDefinitionSchema>;
 export type LegacyEvidencePointer = Schema.Schema.Type<typeof LegacyEvidencePointerSchema>;
 export type LegacyIndexEntry = Schema.Schema.Type<typeof LegacyIndexEntrySchema>;
 export type LegacyIndex = Schema.Schema.Type<typeof LegacyIndexSchema>;

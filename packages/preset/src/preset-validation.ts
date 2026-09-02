@@ -1,22 +1,9 @@
 import { loadCanonicalAssets } from "./preset-assets.ts";
-import {
-  decodePresetPackageV3,
-  parsePresetJson,
-  presetDocumentValue,
-  scan,
-} from "./preset-package.ts";
-import {
-  asFailure,
-  defaultAssets,
-  isPresetResolutionRecord,
-  presetFailure,
-} from "./preset-resolver-common.ts";
+import { decodePresetPackageV3, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
+import { asFailure, defaultAssets, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
-import {
-  consumeKnownError,
-  validatePresetDocumentV1,
-  validatePresetManifestV3,
-} from "./preset.contract.ts";
+import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 export function validatePresetPackage(input: { readonly source: string }) {
@@ -37,23 +24,16 @@ export function validatePresetPackage(input: { readonly source: string }) {
   const manifestBody = files.get("preset.json");
   if (manifestBody === undefined)
     issues.push(
-      presetFailure(
-        "missing_manifest",
-        `Preset package is missing preset.json; expected a v3 JSON manifest.`,
-      ),
+      presetFailure("missing_manifest", `Preset package is missing preset.json; expected a v3 JSON manifest.`),
     );
   else {
     try {
       const raw = JSON.parse(manifestBody) as unknown;
-      for (const message of validatePresetManifestV3(raw))
-        issues.push(presetFailure("invalid_manifest", message));
+      for (const message of validatePresetManifestV3(raw)) issues.push(presetFailure("invalid_manifest", message));
     } catch (error) {
       consumeKnownError(error);
       issues.push(
-        presetFailure(
-          "invalid_manifest",
-          `preset.json is not valid JSON; expected a preset-manifest/v3 object.`,
-        ),
+        presetFailure("invalid_manifest", `preset.json is not valid JSON; expected a preset-manifest/v3 object.`),
       );
     }
   }
@@ -67,9 +47,7 @@ export function validatePresetPackage(input: { readonly source: string }) {
       ),
     );
   else
-    for (const message of validatePresetDocumentV1(
-      presetDocumentValue(documentBody),
-    ))
+    for (const message of validatePresetDocumentV1(presetDocumentValue(documentBody)))
       issues.push(presetFailure("invalid_preset_document", message));
   if (issues.length)
     return {
@@ -103,76 +81,55 @@ export function validatePresetPackage(input: { readonly source: string }) {
   }
 }
 
-export function validateBuiltinVertical(
-  input: { readonly source?: string; readonly assetsRoot?: string } = {},
+export function validateVerticalSource(
+  input: { readonly source?: string; readonly assetsRoot?: string; readonly rootDir?: string } = {},
 ) {
-  const requested = input.source ?? "software/coding";
-  if (!["software/coding", "builtin:software/coding"].includes(requested))
-    return {
-      schema: "vertical-validate-report/v1" as const,
-      source: requested,
-      available: false,
-      valid: false,
-      issues: [
-        presetFailure(
-          "custom_vertical_unavailable",
-          "Custom verticals remain unavailable until validate, discovery, and create materialization share one source.",
-        ),
-      ],
-    };
+  const requested = input.source ?? "software/coding",
+    builtin = ["software/coding", "builtin:software/coding"].includes(requested),
+    source = builtin
+      ? path.resolve(input.assetsRoot ?? defaultAssets)
+      : path.resolve(input.rootDir ?? process.cwd(), requested);
   try {
-    const assets = loadCanonicalAssets(
-        path.resolve(input.assetsRoot ?? defaultAssets),
-      ),
+    const assets = loadCanonicalAssets(source),
+      vertical = assets.compiledVertical.definition,
       refs = [
-        ...assets.vertical.packageScaffolds.flatMap(
-          ({ templateSelections }) => templateSelections,
-        ),
-        ...assets.vertical.repositoryScaffold.seededDocs,
-        ...assets.vertical.templateSelections,
-        ...(assets.vertical.repositoryScaffold.agentsEntry
+        ...vertical.packageScaffolds.flatMap(({ templateSelections }) => templateSelections),
+        ...vertical.repositoryScaffold.seededDocs,
+        ...vertical.templateSelections,
+        ...(vertical.repositoryScaffold.agentsEntry
           ? [
               {
-                templateRef:
-                  assets.vertical.repositoryScaffold.agentsEntry.baseRef,
+                templateRef: vertical.repositoryScaffold.agentsEntry.baseRef,
               },
               {
-                templateRef:
-                  assets.vertical.repositoryScaffold.agentsEntry.overlayRef,
+                templateRef: vertical.repositoryScaffold.agentsEntry.overlayRef,
               },
             ]
           : []),
       ],
-      known = new Set(
-        assets.catalog.catalog.documents.map(
-          ({ id, version }) => `template://${id}@${version}`,
-        ),
-      ),
+      known = new Set(assets.catalog.catalog.documents.map(({ id, version }) => `template://${id}@${version}`)),
       issues = refs
         .filter(({ templateRef }) => !known.has(templateRef))
         .map(({ templateRef }) =>
-          presetFailure(
-            "missing_template",
-            `Vertical references unavailable template ${templateRef}.`,
-          ),
+          presetFailure("missing_template", `Vertical references unavailable template ${templateRef}.`),
         );
     return {
       schema: "vertical-validate-report/v1" as const,
-      source: `builtin:${assets.vertical.id}`,
+      source: builtin ? `builtin:${vertical.id}` : source,
       available: true,
       valid: issues.length === 0,
       vertical: {
-        id: assets.vertical.id,
-        title: assets.vertical.title,
-        version: assets.vertical.version,
+        id: vertical.id,
+        title: vertical.title,
+        version: vertical.version,
       },
       issues,
     };
   } catch (error) {
     return {
       schema: "vertical-validate-report/v1" as const,
-      source: "builtin:software/coding",
-      available: true,
+      source: builtin ? "builtin:software/coding" : source,
+      available: builtin || existsSync(source),
       valid: false,
       issues: [asFailure(error)],
     };

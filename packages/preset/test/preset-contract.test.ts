@@ -8,7 +8,7 @@ import presetContract, {
   validatePresetSnapshotV1,
 } from "../src/preset.contract.ts";
 import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
-import { decodePresetPackageV3, validateBuiltinVertical } from "../src/preset-resolver.ts";
+import { decodePresetPackageV3, validateVerticalSource } from "../src/preset-resolver.ts";
 
 const manifest = {
   schema: "preset-manifest/v3",
@@ -230,13 +230,12 @@ test("preset failures reach the daemon boundary as readable text and survive rep
   assert.notEqual(hint, "[object Object]");
   assert.match(hint, /is not a regular directory/u);
   assert.equal((thrown as { readonly code?: string }).code, "invalid_package");
-  assert.deepEqual(JSON.parse(JSON.stringify(validateBuiltinVertical({ source: "custom-vertical" }).issues)), [
-    {
-      code: "custom_vertical_unavailable",
-      message:
-        "Custom verticals remain unavailable until validate, discovery, and create materialization share one source.",
-    },
-  ]);
+  const missingVertical = validateVerticalSource({ source: "custom-vertical" });
+  assert.equal(missingVertical.available, false);
+  assert.deepEqual(
+    missingVertical.issues.map(({ code }) => code),
+    ["missing_vertical"],
+  );
 });
 
 test("preset run receipt requires an exact current phase and bounded terminal vocabulary", () => {

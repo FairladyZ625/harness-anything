@@ -1,16 +1,14 @@
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Schema } from "effect";
 import {
-  VerticalDefinitionSchema,
   parseVerticalScriptAction,
   parseVerticalScriptPlan,
   resolveHarnessLayout,
-  type VerticalDefinition,
   type VerticalScriptActionV1,
   type VerticalScriptPlanV1,
 } from "../../kernel/src/index.ts";
+import { loadCanonicalAssets } from "./preset-assets.ts";
 
 export interface PreparedBuiltinVerticalScript {
   readonly action: VerticalScriptActionV1;
@@ -38,7 +36,7 @@ export function prepareBuiltinVerticalScriptExecution(input: {
 }): PreparedBuiltinVerticalScript {
   const action = parseVerticalScriptAction(input.action),
     layout = resolveHarnessLayout(input.rootDir),
-    vertical = readVertical(),
+    vertical = loadCanonicalAssets(assetsRoot).compiledVertical.definition,
     declaration = vertical.scripts.find(({ id }) => id === action.scriptId);
   if (!declaration)
     throw new BuiltinVerticalScriptError(
@@ -135,11 +133,6 @@ export function acceptBuiltinVerticalScriptPlan(
   return plan;
 }
 
-function readVertical(): VerticalDefinition {
-  return Schema.decodeUnknownSync(VerticalDefinitionSchema)(
-    JSON.parse(readFileSync(path.join(assetsRoot, "vertical.json"), "utf8")),
-  );
-}
 function regularContainedFile(target: string): boolean {
   try {
     return lstatSync(target).isFile() && isWithinVerticalBoundary(realpathSync(assetsRoot), realpathSync(target));

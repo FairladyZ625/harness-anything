@@ -1,7 +1,4 @@
-import type {
-  TemplateCatalog,
-  VerticalDefinition,
-} from "../../kernel/src/index.ts";
+import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
 import type {
   CapabilityRefV1,
   PresetDocumentV1,
@@ -55,7 +52,7 @@ export interface CatalogSource {
 }
 
 export interface CanonicalAssets {
-  readonly vertical: VerticalDefinition;
+  readonly compiledVertical: CompiledVerticalContract;
   readonly verticalSha256: string;
   readonly catalog: CatalogSource;
   readonly providers: readonly Provider[];
@@ -75,9 +72,7 @@ export interface Provider {
   readonly payloadFields?: readonly string[];
 }
 
-export type ManifestEntrypoint = NonNullable<
-  PresetTaskManifestV3["entrypoints"]
->[string];
+export type ManifestEntrypoint = NonNullable<PresetTaskManifestV3["entrypoints"]>[string];
 
 export interface OwnedEntrypoint {
   readonly definition: ManifestEntrypoint;
@@ -108,10 +103,7 @@ export interface InternalPresetResolution {
   readonly packageRoot: string;
   readonly packageDigest: string;
   readonly produceActions: Readonly<
-    Record<
-      string,
-      { readonly actionKind: string; readonly payloadFields: readonly string[] }
-    >
+    Record<string, { readonly actionKind: string; readonly payloadFields: readonly string[] }>
   >;
 }
 

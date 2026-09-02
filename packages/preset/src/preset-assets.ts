@@ -3,36 +3,37 @@ import {
   validateTemplateCatalog,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { TemplateCatalogSchema, VerticalDefinitionSchema } from "../../kernel/src/index.ts";
-import type { TemplateCatalog, VerticalDefinition } from "../../kernel/src/index.ts";
+import { compileVerticalContract, TemplateCatalogSchema } from "../../kernel/src/index.ts";
+import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-package.ts";
 import { isPresetResolutionRecord, presetFailure, resolverContentHash } from "./preset-resolver-common.ts";
 import type { CanonicalAssets, CatalogSource, DecodedPresetPackageV3, Provider } from "./preset-resolver-types.ts";
 import { Schema } from "effect";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
 
-export function loadCanonicalAssets(root: string): CanonicalAssets {
-  const verticalBody = requiredRegularFile(path.join(root, "vertical.json"), "missing_vertical"),
+export function loadCanonicalAssets(source: string): CanonicalAssets {
+  const resolvedSource = path.resolve(source),
+    sourceIsFile = existsSync(resolvedSource) && lstatSync(resolvedSource).isFile(),
+    root = sourceIsFile ? path.dirname(resolvedSource) : resolvedSource,
+    verticalPath = sourceIsFile ? resolvedSource : path.join(root, "vertical.json"),
+    verticalBody = requiredRegularFile(verticalPath, "missing_vertical"),
     catalogBody = requiredRegularFile(path.join(root, "template-catalog.json"), "missing_template_catalog"),
     providersBody = requiredRegularFile(path.join(root, "capabilities.json"), "missing_provider_catalog"),
     verticalRaw = parsePresetJson(verticalBody, "invalid_vertical"),
-    catalog = decodeCatalog(catalogBody, root),
-    verticalShape = validateExtensionInputShape("vertical-definition", verticalRaw);
-  if (!verticalShape.ok)
-    throw presetFailure("invalid_vertical", verticalShape.issues.map((item) => item.message).join("; "));
-  let vertical: VerticalDefinition;
+    catalog = decodeCatalog(catalogBody, root);
+  let compiledVertical: CompiledVerticalContract;
   try {
-    vertical = Schema.decodeUnknownSync(VerticalDefinitionSchema)(verticalRaw);
-  } catch {
-    throw presetFailure("invalid_vertical", "Vertical contract is invalid.");
+    compiledVertical = compileVerticalContract(verticalRaw);
+  } catch (error) {
+    throw presetFailure("invalid_vertical", error instanceof Error ? error.message : "Vertical contract is invalid.");
   }
-  const verticalValidation = validateVerticalDefinition(vertical);
+  const verticalValidation = validateVerticalDefinition(compiledVertical.definition);
   if (!verticalValidation.ok)
     throw presetFailure("invalid_vertical", verticalValidation.issues.map((item) => item.message).join("; "));
   return {
-    vertical,
+    compiledVertical,
     verticalSha256: resolverContentHash(verticalBody),
     catalog,
     providers: decodeProviders(parsePresetJson(providersBody, "invalid_provider_catalog")),
@@ -40,10 +41,10 @@ export function loadCanonicalAssets(root: string): CanonicalAssets {
 }
 
 export function assertCanonicalVertical(assets: CanonicalAssets, verticalId: string): void {
-  if (assets.vertical.id !== verticalId)
+  if (assets.compiledVertical.definition.id !== verticalId)
     throw presetFailure(
       "missing_vertical",
-      `Vertical ${verticalId} is unavailable. Available vertical ids: ${assets.vertical.id}.`,
+      `Vertical ${verticalId} is unavailable. Available vertical ids: ${assets.compiledVertical.definition.id}.`,
     );
 }
 
