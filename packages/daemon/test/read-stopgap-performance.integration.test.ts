@@ -133,7 +133,8 @@ test("runtime discovery write load keeps independent read clients within the sto
       for (const [name, method, params] of calls) {
         const startedAt = performance.now();
         await request(method, params);
-        values[name].push(Math.round(performance.now() - startedAt));
+        // Microsecond precision, not whole milliseconds: see read-socket-probe-worker.ts.
+        values[name].push(Math.round((performance.now() - startedAt) * 1000) / 1000);
       }
     return values;
   }

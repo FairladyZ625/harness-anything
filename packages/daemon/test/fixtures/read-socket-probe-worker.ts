@@ -29,7 +29,11 @@ try {
     for (const [name, method, params] of calls) {
       const startedAt = performance.now();
       await requestDaemonJsonRpcAt(endpoint, method, params, 2_000, 10_000);
-      values[name]!.push(Math.round(performance.now() - startedAt));
+      // Microsecond precision, not whole milliseconds: a sub-2ms round trip rounded to the
+      // nearest millisecond turns a real ~0.5ms difference into a 100%+ swing once percentiles
+      // are taken over the rounded values, which trips ratio-based latency bounds on noise
+      // rather than an actual regression.
+      values[name]!.push(Math.round((performance.now() - startedAt) * 1000) / 1000);
     }
     if (sample + 1 < input.samples) await new Promise((resolve) => setTimeout(resolve, input.intervalMs));
   }
