@@ -3,6 +3,7 @@ import { yieldToEventLoop } from "./process-port.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { latchReprobeThrottleMs } from "./repo-cell.ts";
 import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
+import type { RegisteredRepoInput } from "./daemon-host-context.ts";
 
 // Host-level latch self-heal, mirroring RepoCell's attemptRecovery cadence: a repo parked in
 // `unavailable` is re-opened (openRegistered) when a command touches it, throttled to one probe
@@ -15,7 +16,12 @@ export async function attemptHostRecovery(context: DaemonHostRegistryContext, re
   context.unavailableProbes.set(repoId, probe);
   if (!probe.begin(Date.parse(context.now()))) return;
   const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-    (repo) => repo.repoId === repoId && repo.state === "enabled",
+    (repo): repo is typeof repo & RegisteredRepoInput =>
+      repo.repoId === repoId &&
+      repo.state === "enabled" &&
+      repo.mode !== "remote-proxy" &&
+      repo.canonicalRoot !== null &&
+      repo.authoredBranch !== null,
   );
   if (!repo) return;
   if (context.pruneMissingRoot(repo)) {

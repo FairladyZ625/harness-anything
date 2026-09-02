@@ -29,11 +29,11 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
-        nextAction: "Register requires --repo-id and --root.",
+        nextAction: "Register requires --repo-id.",
       }),
-      cliInput("--root", "single", true, {
+      cliInput("--root", "single", false, {
         code: "missing_field",
-        nextAction: "Register requires --repo-id and --root.",
+        nextAction: "Workspace-backed registration requires --root.",
       }),
       cliInput(
         "--mode",
@@ -41,9 +41,64 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use local, remote-center, or remote-edge.",
+          nextAction: "Use local, remote-proxy, remote-center, or remote-edge.",
         },
         { enum: daemonRepoModeWords },
+      ),
+      cliInput("--endpoint", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use tcp://host:port or an absolute socket path.",
+      }),
+      cliInput("--connection", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a registered connection id.",
+      }),
+      cliInput("--display-name", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a non-empty display name.",
+      }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-repo-update",
+    phase: "PLT-EdgeGUI-W2",
+    path: ["daemon", "repo", "update"],
+    summary: "Update one machine-local repository registration.",
+    method: "daemon.repo.update",
+    inputs: [
+      cliInput("--repo-id", "single", true, {
+        code: "missing_field",
+        nextAction: "Update requires --repo-id.",
+      }),
+      cliInput("--display-name", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a non-empty display name.",
+      }),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use a registered repo mode." },
+        {
+          enum: daemonRepoModeWords,
+        },
+      ),
+      cliInput("--connection", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a registered connection id.",
+      }),
+      cliInput("--endpoint", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use tcp://host:port or an absolute socket path.",
+      }),
+      cliInput(
+        "--state",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use enabled or disabled." },
+        {
+          enum: ["enabled", "disabled"],
+        },
       ),
     ],
   }),
@@ -57,6 +112,83 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
         nextAction: "Unregister requires --repo-id.",
+      }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-connection-add",
+    phase: "PLT-EdgeGUI-W2",
+    path: ["daemon", "connection", "add"],
+    summary: "Add a remote daemon endpoint connection.",
+    method: "daemon.connection.register",
+    inputs: [
+      cliInput("--connection", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a lowercase connection id.",
+      }),
+      cliInput("--display-name", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a non-empty display name.",
+      }),
+      cliInput("--endpoint", "single", true, {
+        code: "missing_field",
+        nextAction: "Connection add requires --endpoint.",
+      }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-connection-update",
+    phase: "PLT-EdgeGUI-W2",
+    path: ["daemon", "connection", "update"],
+    summary: "Update a remote daemon endpoint connection.",
+    method: "daemon.connection.update",
+    inputs: [
+      cliInput("--connection", "single", true, {
+        code: "missing_field",
+        nextAction: "Connection update requires --connection.",
+      }),
+      cliInput("--display-name", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use a non-empty display name.",
+      }),
+      cliInput("--endpoint", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use tcp://host:port or an absolute socket path.",
+      }),
+      cliInput(
+        "--state",
+        "single",
+        false,
+        { code: "invalid_field", nextAction: "Use enabled or disabled." },
+        {
+          enum: ["enabled", "disabled"],
+        },
+      ),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-connection-remove",
+    phase: "PLT-EdgeGUI-W2",
+    path: ["daemon", "connection", "remove"],
+    summary: "Disable a remote daemon endpoint connection.",
+    method: "daemon.connection.unregister",
+    inputs: [
+      cliInput("--connection", "single", true, {
+        code: "missing_field",
+        nextAction: "Connection remove requires --connection.",
+      }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-connection-probe",
+    phase: "PLT-EdgeGUI-W2",
+    path: ["daemon", "connection", "probe"],
+    summary: "Probe a remote daemon endpoint and list its repositories.",
+    method: "daemon.connection.probe",
+    inputs: [
+      cliInput("--endpoint", "single", true, {
+        code: "missing_field",
+        nextAction: "Connection probe requires --endpoint.",
       }),
     ],
   }),

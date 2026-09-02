@@ -24,7 +24,12 @@ export function entityActionCommandTopology(
   if (mutationFields.length === 0 || mutationFields.some((field) => !localOnlyFields.includes(field))) return command;
   return {
     ...command,
-    admission: { local: "direct", "remote-center": "direct", "remote-edge": "direct" },
+    admission: {
+      local: "direct",
+      "remote-proxy": "rejected",
+      "remote-center": "direct",
+      "remote-edge": "direct",
+    },
   };
 }
 
@@ -33,6 +38,11 @@ export function admitRepoMode(
   command: Pick<CommandTopology, "admission">,
   source: WriteSource,
 ): RepoModeAdmission {
+  if (mode === "remote-proxy")
+    return rejection(
+      "repo_mode_remote_proxy",
+      "This repository has no local workspace; send repository requests through its remote endpoint.",
+    );
   const route = command.admission[mode],
     assignment = typeof source === "object" && source.kind === "assignment";
   if (mode === "local" && source === "remote_direct")

@@ -108,6 +108,7 @@ export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeter
 
 export const daemonRepoModeWords = Object.freeze([
   "local",
+  "remote-proxy",
   "remote-center",
   "remote-edge",
 ] as const satisfies readonly DaemonRepoMode[]);

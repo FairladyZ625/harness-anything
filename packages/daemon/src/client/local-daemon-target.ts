@@ -109,7 +109,9 @@ export function readRegisteredRepos(userRoot: string): readonly {
   const registryPath = path.join(userRoot, "registry.json");
   if (!existsSync(registryPath)) return [];
   const value: unknown = JSON.parse(readFileSync(registryPath, "utf8"));
-  if (!daemonRegistryRecord(value) || value.schema !== "harness-daemon-registry/v1" || !Array.isArray(value.repos))
+  if (daemonRegistryRecord(value) && value.schema === "harness-daemon-registry/v1")
+    throw new Error(`unsupported daemon registry v1 at ${registryPath}; remove it and re-register repositories`);
+  if (!daemonRegistryRecord(value) || value.schema !== "harness-daemon-registry/v2" || !Array.isArray(value.repos))
     throw new Error(`invalid daemon registry at ${registryPath}`);
   return value.repos.filter(
     (repo): repo is { repoId: string; canonicalRoot: string; state: string; mode?: string } =>

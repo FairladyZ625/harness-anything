@@ -110,7 +110,11 @@ export function createDaemonHostRuntimeApi(
           roster = readFleetRosterFile(request.rosterPath),
           authorityRepoId = [...new Set(roster.assignments.map(({ repoId }) => repoId))].sort()[0],
           authorityRepo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-            (repo) => repo.repoId === authorityRepoId && repo.state === "enabled",
+            (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+              repo.repoId === authorityRepoId &&
+              repo.state === "enabled" &&
+              repo.mode !== "remote-proxy" &&
+              repo.canonicalRoot !== null,
           );
         if (!authorityRepo)
           throw context.hostCodedError(
@@ -162,6 +166,7 @@ export function createDaemonHostRuntimeApi(
         const modeMatches =
           registered !== undefined &&
           registered.mode === "remote-edge" &&
+          registered.canonicalRoot !== null &&
           canonicalRoot(request.workspaceRoot) === canonicalRoot(registered.canonicalRoot);
         if (!modeMatches)
           throw context.hostCodedError(
@@ -190,6 +195,7 @@ export function createDaemonHostRuntimeApi(
         if (
           !registered ||
           registered.mode !== "remote-edge" ||
+          registered.canonicalRoot === null ||
           canonicalRoot(request.workspaceRoot) !== canonicalRoot(registered.canonicalRoot)
         )
           throw context.hostCodedError(
@@ -215,7 +221,10 @@ export function createDaemonHostRuntimeApi(
       if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
       const authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
-        .filter((repo) => repo.state === "enabled")
+        .filter(
+          (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+            repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
+        )
         .sort((left, right) => left.repoId.localeCompare(right.repoId))[0];
       const serverBinding = authorityRepo
         ? await context.binding(authorityRepo.canonicalRoot, auth)

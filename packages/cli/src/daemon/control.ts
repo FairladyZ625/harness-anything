@@ -65,18 +65,73 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "repo" && subcommand === "register") {
       const root = daemonOption(argv, "--root"),
         repoId = daemonOption(argv, "--repo-id"),
-        mode = daemonOption(argv, "--mode");
-      if (!root || !repoId)
-        return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id and --root."), 2);
+        mode = daemonOption(argv, "--mode"),
+        endpoint = daemonOption(argv, "--endpoint"),
+        connectionId = daemonOption(argv, "--connection"),
+        displayName = daemonOption(argv, "--display-name");
+      if (!repoId) return finish(daemonFailure("daemon-repo-register", "missing_field", "Add --repo-id."), 2);
       if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number]))
         return finish(
           daemonFailure("daemon-repo-register", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`),
           2,
         );
+      if (mode === "remote-proxy") {
+        if (root || (endpoint === undefined) === (connectionId === undefined))
+          return finish(
+            daemonFailure(
+              "daemon-repo-register",
+              "invalid_field",
+              "Remote-proxy registration omits --root and uses exactly one of --endpoint or --connection.",
+            ),
+            2,
+          );
+      } else if (!root || endpoint !== undefined || connectionId !== undefined)
+        return finish(
+          daemonFailure(
+            "daemon-repo-register",
+            "invalid_field",
+            "Workspace-backed registration requires --root and does not accept --endpoint or --connection.",
+          ),
+          2,
+        );
       const result = await requestDaemonJsonRpcAt(
         localUserDaemonEndpoint(userRoot, daemonId),
         "daemon.repo.register",
-        { rootDir: path.resolve(root), repoId, ...(mode ? { mode } : {}) },
+        {
+          repoId,
+          ...(root ? { rootDir: path.resolve(root) } : {}),
+          ...(mode ? { mode } : {}),
+          ...(endpoint ? { endpoint } : {}),
+          ...(connectionId ? { connectionId } : {}),
+          ...(displayName ? { displayName } : {}),
+        },
+        75,
+      );
+      return finish(result, result.ok === true ? 0 : 1);
+    }
+    if (command === "repo" && subcommand === "update") {
+      const repoId = daemonOption(argv, "--repo-id"),
+        mode = daemonOption(argv, "--mode"),
+        state = daemonOption(argv, "--state");
+      if (!repoId) return finish(daemonFailure("daemon-repo-update", "missing_field", "Add --repo-id."), 2);
+      if (mode !== undefined && !daemonRepoModeWords.includes(mode as (typeof daemonRepoModeWords)[number]))
+        return finish(
+          daemonFailure("daemon-repo-update", "invalid_field", `Use --mode ${daemonRepoModeWords.join(", ")}.`),
+          2,
+        );
+      if (state !== undefined && state !== "enabled" && state !== "disabled")
+        return finish(daemonFailure("daemon-repo-update", "invalid_field", "Use --state enabled or disabled."), 2);
+      const result = await requestDaemonJsonRpcAt(
+        localUserDaemonEndpoint(userRoot, daemonId),
+        "daemon.repo.update",
+        {
+          repoId,
+          ...(mode ? { mode } : {}),
+          ...(state ? { state } : {}),
+          ...(daemonOption(argv, "--display-name") ? { displayName: daemonOption(argv, "--display-name") } : {}),
+          ...(daemonOption(argv, "--endpoint") ? { endpoint: daemonOption(argv, "--endpoint") } : {}),
+          ...(daemonOption(argv, "--connection") ? { connectionId: daemonOption(argv, "--connection") } : {}),
+        },
         75,
       );
       return finish(result, result.ok === true ? 0 : 1);
@@ -90,6 +145,43 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         { repoId },
         75,
       );
+      return finish(result, result.ok === true ? 0 : 1);
+    }
+    if (command === "connection") {
+      const verb = subcommand,
+        connectionId = daemonOption(argv, "--connection") ?? daemonOption(argv, "--connection-id"),
+        endpoint = daemonOption(argv, "--endpoint"),
+        displayName = daemonOption(argv, "--display-name"),
+        state = daemonOption(argv, "--state"),
+        reject = (errorCode: string, nextAction: string) =>
+          finish(daemonFailure(`daemon-connection-${verb ?? "unknown"}`, errorCode, nextAction), 2);
+      if (!verb || !["add", "update", "remove", "probe"].includes(verb))
+        return reject("unsupported_command", "Use daemon connection add, update, remove, or probe.");
+      if ((verb === "add" || verb === "probe") && !endpoint)
+        return reject("missing_field", `Connection ${verb} requires --endpoint.`);
+      if ((verb === "update" || verb === "remove") && !connectionId)
+        return reject("missing_field", `Connection ${verb} requires --connection.`);
+      if (state !== undefined && state !== "enabled" && state !== "disabled")
+        return reject("invalid_field", "Use --state enabled or disabled.");
+      const method =
+          verb === "add"
+            ? "daemon.connection.register"
+            : verb === "update"
+              ? "daemon.connection.update"
+              : verb === "remove"
+                ? "daemon.connection.unregister"
+                : "daemon.connection.probe",
+        result = await requestDaemonJsonRpcAt(
+          localUserDaemonEndpoint(userRoot, daemonId),
+          method,
+          {
+            ...(connectionId ? { connectionId } : {}),
+            ...(endpoint ? { endpoint } : {}),
+            ...(displayName ? { displayName } : {}),
+            ...(state ? { state } : {}),
+          },
+          75,
+        );
       return finish(result, result.ok === true ? 0 : 1);
     }
     if (command === "serve") {
@@ -123,7 +215,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       daemonFailure(
         "daemon",
         "unsupported_command",
-        "Use daemon projection rebuild, daemon repo register|unregister, fleet center start, fleet edge sync, start --service, status, or stop.",
+        [
+          "Use daemon projection rebuild, daemon repo register|update|unregister,",
+          "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
+          "start --service, status, or stop.",
+        ].join(" "),
       ),
       2,
     );

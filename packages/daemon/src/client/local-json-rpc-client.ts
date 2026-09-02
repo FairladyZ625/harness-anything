@@ -241,7 +241,7 @@ function responseTimeoutHint(method: string, responseTimeoutMs: number): string 
 
 export function connectSocket(socketPath: string, timeoutMs: number): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection(socketPath),
+    const socket = createDaemonEndpointSocket(socketPath),
       timer = setTimeout(() => {
         socket.destroy();
         reject(new Error("daemon_unavailable"));
@@ -255,6 +255,14 @@ export function connectSocket(socketPath: string, timeoutMs: number): Promise<ne
       reject(error);
     });
   });
+}
+
+export function createDaemonEndpointSocket(endpoint: string): net.Socket {
+  if (!endpoint.startsWith("tcp://")) return net.createConnection(endpoint);
+  const url = new URL(endpoint);
+  if (url.protocol !== "tcp:" || !url.hostname || !url.port)
+    throw new Error("daemon endpoint must be tcp://host:port or a socket path");
+  return net.createConnection({ host: url.hostname.replace(/^\[|\]$/gu, ""), port: Number(url.port) });
 }
 export function jsonRpcRecord(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);

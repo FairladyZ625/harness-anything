@@ -3,7 +3,9 @@ export interface CliInputError {
   readonly nextAction: string;
 }
 export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
-export type CommandAdmission = Readonly<Record<"local" | "remote-center" | "remote-edge", CommandAdmissionRoute>>;
+export type CommandAdmission = Readonly<
+  Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
+>;
 export interface CommandTopology {
   readonly commandClass: "admin" | "repo-write" | "repo-read" | "arbiter";
   readonly admission: CommandAdmission;
@@ -15,7 +17,12 @@ const commandTopology = (
 ): CommandTopology =>
   Object.freeze({
     commandClass,
-    admission: Object.freeze({ local: "direct", "remote-center": center, "remote-edge": edge }),
+    admission: Object.freeze({
+      local: "direct",
+      "remote-proxy": "rejected",
+      "remote-center": center,
+      "remote-edge": edge,
+    }),
   });
 export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
   ledgerWriteCommandTopology = commandTopology("repo-write", "via-assignment", "rejected"),

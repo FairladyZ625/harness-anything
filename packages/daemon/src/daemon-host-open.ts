@@ -75,6 +75,7 @@ import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
+import { openRemoteProxyManager } from "./remote-proxy.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -105,7 +106,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       userRoot: input.userRoot,
       daemonId: input.daemonId,
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
-    };
+    },
+    remoteProxy = openRemoteProxyManager(input.userRoot);
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
@@ -246,7 +248,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   };
   for (const repo of initialRegistry.invalidRepos)
     if (repo.state !== "disabled") latchUnavailable(invalidRepoId(repo), invalidRegistryStatus(repo));
-  const repos = initialRegistry.repos.filter((repo) => repo.state === "enabled");
+  const repos = initialRegistry.repos.filter(
+    (
+      repo,
+    ): repo is typeof repo & {
+      readonly canonicalRoot: string;
+      readonly authoredBranch: string;
+    } =>
+      repo.state === "enabled" &&
+      repo.mode !== "remote-proxy" &&
+      repo.canonicalRoot !== null &&
+      repo.authoredBranch !== null,
+  );
   for (const repo of repos) markWarming(repo.repoId, warmingStatus(repo));
   const extracted: DaemonHostRegistryContext = {
     cells,
@@ -326,6 +339,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     });
     const loaded = cells.get(repoId);
     if (loaded && loaded.status().mode !== registered.repo.mode) await closeCell(repoId);
+    if (registered.repo.authoredBranch === null)
+      throw hostCodedError("registry_repo_invalid", `Workspace repository ${repoId} has no authored branch.`);
     if (!cells.has(repoId))
       try {
         markWarming(
@@ -340,6 +355,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           ...registered.repo,
           repoId: id,
           canonicalRoot: root,
+          authoredBranch: registered.repo.authoredBranch,
         });
       } catch (error) {
         consumeKnownError(error);
@@ -359,6 +375,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       validRows = registry.repos.map((repo) => {
         const status = cells.get(repo.repoId)?.status() ?? warming.get(repo.repoId) ?? unavailable.get(repo.repoId),
           disabled = repo.state === "disabled",
+          proxy = repo.mode === "remote-proxy",
           attached = status?.state === "attached",
           warmingUp = status?.state === "warming";
         return {
@@ -367,14 +384,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           canonicalRoot: repo.canonicalRoot,
           authoredBranch: repo.authoredBranch,
           registrationState: repo.state,
-          cellState: disabled ? "not_loaded" : attached ? "attached" : warmingUp ? "warming" : "unavailable",
+          connectionId: repo.connectionId,
+          mode: repo.mode,
+          cellState: disabled || proxy ? "not_loaded" : attached ? "attached" : warmingUp ? "warming" : "unavailable",
           generation: disabled ? null : (status?.generation ?? null),
           queueDepth: disabled ? null : (status?.queueDepth ?? null),
-          lockState: disabled ? "not_applicable" : attached ? "held" : "unknown",
+          lockState: disabled || proxy ? "not_applicable" : attached ? "held" : "unknown",
           recoveryMs: disabled ? null : (status?.recoveryMs ?? null),
           lastError: disabled ? null : (status?.lastError ?? null),
           unavailableReason:
-            disabled || attached || warmingUp ? null : (status?.lastError ?? "unknown / not projected"),
+            disabled || proxy || attached || warmingUp ? null : (status?.lastError ?? "unknown / not projected"),
         };
       }),
       invalidRows = registry.invalidRepos.map(invalidRegistrySystemRow);
@@ -405,6 +424,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   };
   const hostContext: DaemonHostApiContext = {
+    remoteProxy,
     cells,
     unavailable,
     input,
@@ -476,6 +496,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     startedAt,
   };
   const host: DaemonHost = {
+    remoteProxy,
     ...createDaemonHostRepositoryApi(hostContext),
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),

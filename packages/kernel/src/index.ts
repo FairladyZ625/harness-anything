@@ -307,12 +307,18 @@ export type {
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,
+  registerDaemonConnection,
   resolveDaemonRepoByRoot,
   registerDaemonRepo,
+  removeDaemonConnection,
   unregisterDaemonRepo,
+  updateDaemonConnection,
+  updateDaemonRepo,
 } from "./daemon/registry.ts";
 export type {
+  DaemonConnectionKind,
   DaemonRegistry,
+  DaemonRegistryConnection,
   DaemonRegistryRepo,
   DaemonRepoMode,
   InvalidDaemonRegistryRepo,

@@ -20,6 +20,11 @@ export function createDaemonHostControlApi(
           (entry) => entry.repoId === authorityRepoId,
         );
       if (!repo) throw context.hostCodedError("repo_namespace_unknown", `Unknown authority repo: ${authorityRepoId}.`);
+      if (repo.canonicalRoot === null)
+        throw context.hostCodedError(
+          "repo_mode_remote_proxy",
+          "A remote-proxy repository cannot authorize local daemon controls.",
+        );
       const controlBinding = await context.binding(repo.canonicalRoot, auth),
         authorizationDecision = requireAuthorizedHostAction({
           kind: "daemon-control-request",

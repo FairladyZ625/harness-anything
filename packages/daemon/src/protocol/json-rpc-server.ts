@@ -42,6 +42,7 @@ import { isContractVersionCompatible } from "../../../kernel/src/domain/contract
 import type { CoreDomainError } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
+import { remoteProxyEventMethod } from "../remote-proxy.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
@@ -167,6 +168,30 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    if (method === "daemon.repo.bootstrap" && options.host.remoteProxy.route(params.repoId))
+      return reply(
+        method,
+        daemonProtocolError(
+          method,
+          "repo_mode_remote_proxy",
+          "This repository has no local workspace; bootstrap is unavailable in remote-proxy mode.",
+        ),
+      );
+    const remoteRepoId = repoIdFromParams(params);
+    if (remoteRepoId && options.host.remoteProxy.route(remoteRepoId)) {
+      try {
+        if (isDaemonStreamCall(call)) {
+          const subscription = await options.host.remoteProxy.stream(remoteRepoId, call.method, call.params.payload);
+          subscriptions.add(subscription);
+          setImmediate(() => pump(subscription, remoteProxyEventMethod(call.method)));
+          return reply(call.method, subscription.initial);
+        }
+        const result = await options.host.remoteProxy.request(remoteRepoId, method, params);
+        return reply(method, result as DaemonRpcResult<typeof method>);
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     if (request.method === "daemon.status") return reply("daemon.status", { ok: true, ...options.host.status() });
     if (request.method === "daemon.stop" && method === request.method) {
       if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
@@ -194,30 +219,70 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure("init", error));
       }
     }
-    if (
-      (request.method === "daemon.repo.register" || request.method === "daemon.repo.unregister") &&
-      method === request.method
-    ) {
-      try {
-        return reply(
-          method,
-          await options.host.admin(
-            method === "daemon.repo.unregister"
-              ? { kind: "unregister", repoId: params.repoId }
-              : {
-                  kind: "register",
-                  repoId: params.repoId,
-                  rootDir: params.rootDir,
-                  ...(typeof params.mode === "string"
-                    ? { mode: params.mode as "local" | "remote-center" | "remote-edge" }
-                    : {}),
-                },
-            options.authContext,
-          ),
-        );
-      } catch (error) {
-        return reply(method, protocolFailure(method, error));
-      }
+    switch (call.method) {
+      case "daemon.repo.register":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "register", ...call.params }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.repo.update":
+        try {
+          return reply(call.method, await options.host.admin({ kind: "update", ...call.params }, options.authContext));
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.repo.unregister":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "unregister", repoId: call.params.repoId }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.connection.register":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "connection-register", ...call.params }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.connection.update":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "connection-update", ...call.params }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.connection.unregister":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin(
+              { kind: "connection-unregister", connectionId: call.params.connectionId },
+              options.authContext,
+            ),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
+      case "daemon.connection.probe":
+        try {
+          return reply(
+            call.method,
+            await options.host.admin({ kind: "connection-probe", endpoint: call.params.endpoint }, options.authContext),
+          );
+        } catch (error) {
+          return reply(call.method, protocolFailure(call.method, error));
+        }
     }
     if (isRuntimeInstanceCall(call)) {
       const { method, params } = call;

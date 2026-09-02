@@ -10,13 +10,37 @@ import { createPresetProcessService } from "../../preset/src/index.ts";
 import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 
+test("local daemon target rejects v1 registries with re-registration guidance", () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-v1-")),
+    userRoot = path.join(fixtureRoot, "user");
+  try {
+    mkdirSync(userRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [] })}\n`,
+    );
+    assert.throws(
+      () => resolveLocalDaemonTarget({ rootDir: fixtureRoot, userRoot, env: {} }),
+      /unsupported daemon registry v1.*re-register/u,
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("local daemon target resolves a registered workspace from its subdirectory", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const workspaceRoot = path.join(fixtureRoot, "workspace"), nestedRoot = path.join(workspaceRoot, "harness", "tasks"), userRoot = path.join(fixtureRoot, "user");
+  const workspaceRoot = path.join(fixtureRoot, "workspace"),
+    nestedRoot = path.join(workspaceRoot, "harness", "tasks"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(nestedRoot, { recursive: true }); mkdirSync(userRoot, { recursive: true });
+    mkdirSync(nestedRoot, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
     const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("workspace", canonicalWorkspaceRoot)] }, null, 2)}\n`);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("workspace", canonicalWorkspaceRoot)]), null, 2)}\n`,
+    );
 
     const target = resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
 
@@ -29,11 +53,19 @@ test("local daemon target resolves a registered workspace from its subdirectory"
 
 test("local daemon target chooses the deepest nested registered workspace", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const outerRoot = path.join(fixtureRoot, "outer"), innerRoot = path.join(outerRoot, "packages", "inner"), nestedRoot = path.join(innerRoot, "harness"), userRoot = path.join(fixtureRoot, "user");
+  const outerRoot = path.join(fixtureRoot, "outer"),
+    innerRoot = path.join(outerRoot, "packages", "inner"),
+    nestedRoot = path.join(innerRoot, "harness"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(nestedRoot, { recursive: true }); mkdirSync(userRoot, { recursive: true });
-    const canonicalOuterRoot = realpathSync.native(outerRoot), canonicalInnerRoot = realpathSync.native(innerRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot)] }, null, 2)}\n`);
+    mkdirSync(nestedRoot, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    const canonicalOuterRoot = realpathSync.native(outerRoot),
+      canonicalInnerRoot = realpathSync.native(innerRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot)]), null, 2)}\n`,
+    );
 
     const target = resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
 
@@ -46,13 +78,24 @@ test("local daemon target chooses the deepest nested registered workspace", () =
 
 test("local daemon target rejects a disabled nested workspace instead of falling back to its enabled parent", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const outerRoot = path.join(fixtureRoot, "outer"), innerRoot = path.join(outerRoot, "packages", "inner"), nestedRoot = path.join(innerRoot, "harness"), userRoot = path.join(fixtureRoot, "user");
+  const outerRoot = path.join(fixtureRoot, "outer"),
+    innerRoot = path.join(outerRoot, "packages", "inner"),
+    nestedRoot = path.join(innerRoot, "harness"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(nestedRoot, { recursive: true }); mkdirSync(userRoot, { recursive: true });
-    const canonicalOuterRoot = realpathSync.native(outerRoot), canonicalInnerRoot = realpathSync.native(innerRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot, "disabled")] }, null, 2)}\n`);
+    mkdirSync(nestedRoot, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    const canonicalOuterRoot = realpathSync.native(outerRoot),
+      canonicalInnerRoot = realpathSync.native(innerRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot, "disabled")]), null, 2)}\n`,
+    );
 
-    assert.throws(() => resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} }), /workspace is not registered/u);
+    assert.throws(
+      () => resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} }),
+      /workspace is not registered/u,
+    );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -60,11 +103,18 @@ test("local daemon target rejects a disabled nested workspace instead of falling
 
 test("local daemon target honors an explicit root instead of the process working directory", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const outerRoot = path.join(fixtureRoot, "outer"), innerRoot = path.join(outerRoot, "packages", "inner"), userRoot = path.join(fixtureRoot, "user");
+  const outerRoot = path.join(fixtureRoot, "outer"),
+    innerRoot = path.join(outerRoot, "packages", "inner"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(innerRoot, { recursive: true }); mkdirSync(userRoot, { recursive: true });
-    const canonicalOuterRoot = realpathSync.native(outerRoot), canonicalInnerRoot = realpathSync.native(innerRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot)] }, null, 2)}\n`);
+    mkdirSync(innerRoot, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    const canonicalOuterRoot = realpathSync.native(outerRoot),
+      canonicalInnerRoot = realpathSync.native(innerRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot)]), null, 2)}\n`,
+    );
     const parsed = parseThinCommand(["--root", outerRoot, "task", "list"], innerRoot);
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
     if (!parsed.ok) return;
@@ -80,13 +130,25 @@ test("local daemon target honors an explicit root instead of the process working
 
 test("local daemon target keeps the environment repo id override authoritative", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const firstRoot = path.join(fixtureRoot, "first"), secondRoot = path.join(fixtureRoot, "second"), userRoot = path.join(fixtureRoot, "user");
+  const firstRoot = path.join(fixtureRoot, "first"),
+    secondRoot = path.join(fixtureRoot, "second"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(firstRoot, { recursive: true }); mkdirSync(secondRoot); mkdirSync(userRoot);
-    const canonicalFirstRoot = realpathSync.native(firstRoot), canonicalSecondRoot = realpathSync.native(secondRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("first", canonicalFirstRoot), repo("second", canonicalSecondRoot)] }, null, 2)}\n`);
+    mkdirSync(firstRoot, { recursive: true });
+    mkdirSync(secondRoot);
+    mkdirSync(userRoot);
+    const canonicalFirstRoot = realpathSync.native(firstRoot),
+      canonicalSecondRoot = realpathSync.native(secondRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("first", canonicalFirstRoot), repo("second", canonicalSecondRoot)]), null, 2)}\n`,
+    );
 
-    const target = resolveLocalDaemonTarget({ rootDir: firstRoot, userRoot, env: { HARNESS_DAEMON_REPO_ID: "second" } });
+    const target = resolveLocalDaemonTarget({
+      rootDir: firstRoot,
+      userRoot,
+      env: { HARNESS_DAEMON_REPO_ID: "second" },
+    });
 
     assert.equal(target.repoId, "second");
     assert.equal(target.canonicalRoot, canonicalSecondRoot);
@@ -97,12 +159,22 @@ test("local daemon target keeps the environment repo id override authoritative",
 
 test("local daemon target rejects a path outside every registered workspace", () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
-  const workspaceRoot = path.join(fixtureRoot, "workspace"), unrelatedRoot = path.join(fixtureRoot, "unrelated"), userRoot = path.join(fixtureRoot, "user");
+  const workspaceRoot = path.join(fixtureRoot, "workspace"),
+    unrelatedRoot = path.join(fixtureRoot, "unrelated"),
+    userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(workspaceRoot); mkdirSync(unrelatedRoot); mkdirSync(userRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("workspace", realpathSync.native(workspaceRoot))] }, null, 2)}\n`);
+    mkdirSync(workspaceRoot);
+    mkdirSync(unrelatedRoot);
+    mkdirSync(userRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("workspace", realpathSync.native(workspaceRoot))]), null, 2)}\n`,
+    );
 
-    assert.throws(() => resolveLocalDaemonTarget({ rootDir: unrelatedRoot, userRoot, env: {} }), /workspace is not registered/u);
+    assert.throws(
+      () => resolveLocalDaemonTarget({ rootDir: unrelatedRoot, userRoot, env: {} }),
+      /workspace is not registered/u,
+    );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
@@ -114,11 +186,16 @@ test("local daemon target routes a repository worktree to the canonical workspac
     worktreeRoot = path.join(workspaceRoot, ".worktrees", "feature"),
     userRoot = path.join(fixtureRoot, "user");
   try {
-    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true }); mkdirSync(path.join(worktreeRoot, "harness"), { recursive: true }); mkdirSync(userRoot);
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    mkdirSync(path.join(worktreeRoot, "harness"), { recursive: true });
+    mkdirSync(userRoot);
     writeFileSync(path.join(workspaceRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
     writeFileSync(path.join(worktreeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
     const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("workspace", canonicalWorkspaceRoot)] }, null, 2)}\n`);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("workspace", canonicalWorkspaceRoot)]), null, 2)}\n`,
+    );
 
     const target = resolveLocalDaemonTarget({ rootDir: worktreeRoot, userRoot, env: {} });
     const layout = resolveHarnessLayout(target.canonicalRoot);
@@ -132,9 +209,15 @@ test("local daemon target routes a repository worktree to the canonical workspac
     assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);
     assert.equal(layout.localRoot, path.join(canonicalWorkspaceRoot, ".harness"));
     assert.equal(layout.cacheRoot, path.join(canonicalWorkspaceRoot, ".harness", "cache"));
-    assert.equal(daemonRequestLogPath(target.canonicalRoot), path.join(canonicalWorkspaceRoot, ".harness", "requests", "requests.jsonl"));
+    assert.equal(
+      daemonRequestLogPath(target.canonicalRoot),
+      path.join(canonicalWorkspaceRoot, ".harness", "requests", "requests.jsonl"),
+    );
     assert.equal(existsSync(path.join(canonicalWorkspaceRoot, ".harness", "preset-runs")), true);
-    assert.equal(`${target.canonicalRoot}.harness-anything-writer.lock`, `${canonicalWorkspaceRoot}.harness-anything-writer.lock`);
+    assert.equal(
+      `${target.canonicalRoot}.harness-anything-writer.lock`,
+      `${canonicalWorkspaceRoot}.harness-anything-writer.lock`,
+    );
     assert.notEqual(layout.localRoot, path.join(realpathSync.native(worktreeRoot), ".harness"));
     assert.equal(existsSync(path.join(worktreeRoot, ".harness")), false);
   } finally {
@@ -143,11 +226,26 @@ test("local daemon target routes a repository worktree to the canonical workspac
 });
 
 test("local daemon target keeps a matching injected endpoint across an isolated runtime temp directory", () => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "user"), daemonId = "runtime-worker", derived = localUserDaemonEndpoint(userRoot, daemonId), endpoint = process.platform === "win32" ? derived : path.join(fixtureRoot, path.basename(derived));
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    userRoot = path.join(fixtureRoot, "user"),
+    daemonId = "runtime-worker",
+    derived = localUserDaemonEndpoint(userRoot, daemonId),
+    endpoint = process.platform === "win32" ? derived : path.join(fixtureRoot, path.basename(derived));
   try {
-    mkdirSync(workspaceRoot); mkdirSync(userRoot); const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("runtime-worker", canonicalWorkspaceRoot)] }, null, 2)}\n`);
-    const target = resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, daemonId, env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") } });
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)]), null, 2)}\n`,
+    );
+    const target = resolveLocalDaemonTarget({
+      rootDir: workspaceRoot,
+      userRoot,
+      daemonId,
+      env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") },
+    });
     assert.equal(target.socketPath, endpoint);
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
@@ -155,23 +253,68 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
 });
 
 test("local daemon target rejects an injected endpoint owned by another user root", () => {
-  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")), workspaceRoot = path.join(fixtureRoot, "workspace"), userRoot = path.join(fixtureRoot, "isolated-user"), parentUserRoot = path.join(fixtureRoot, "parent-user"), daemonId = "isolated", endpoint = localUserDaemonEndpoint(parentUserRoot, "parent");
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    userRoot = path.join(fixtureRoot, "isolated-user"),
+    parentUserRoot = path.join(fixtureRoot, "parent-user"),
+    daemonId = "isolated",
+    endpoint = localUserDaemonEndpoint(parentUserRoot, "parent");
   try {
-    mkdirSync(workspaceRoot); mkdirSync(userRoot); const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
-    writeFileSync(path.join(userRoot, "registry.json"), `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [repo("runtime-worker", canonicalWorkspaceRoot)] }, null, 2)}\n`);
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)]), null, 2)}\n`,
+    );
 
-    assert.throws(() => resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, daemonId, env: { HARNESS_DAEMON_ENDPOINT: endpoint } }), (error: unknown) => {
-      assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
-      for (const value of [endpoint, localUserDaemonEndpoint(userRoot, daemonId), userRoot, daemonId, "runtime-worker", canonicalWorkspaceRoot]) assert.match(String(error), new RegExp(escapeRegExp(value), "u"));
-      assert.match(String(error), /Unset HARNESS_DAEMON_ENDPOINT/u);
-      return true;
-    });
+    assert.throws(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: workspaceRoot,
+          userRoot,
+          daemonId,
+          env: { HARNESS_DAEMON_ENDPOINT: endpoint },
+        }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        for (const value of [
+          endpoint,
+          localUserDaemonEndpoint(userRoot, daemonId),
+          userRoot,
+          daemonId,
+          "runtime-worker",
+          canonicalWorkspaceRoot,
+        ])
+          assert.match(String(error), new RegExp(escapeRegExp(value), "u"));
+        assert.match(String(error), /Unset HARNESS_DAEMON_ENDPOINT/u);
+        return true;
+      },
+    );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
 function repo(repoId: string, canonicalRoot: string, state = "enabled") {
-  return { repoId, canonicalRoot, displayName: repoId, authoredBranch: "main", state, registeredAt: "2026-08-17T00:00:00.000Z" };
+  return {
+    repoId,
+    canonicalRoot,
+    displayName: repoId,
+    authoredBranch: "main",
+    connectionId: "local",
+    mode: "local",
+    state,
+    registeredAt: "2026-08-17T00:00:00.000Z",
+  };
 }
-function escapeRegExp(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"); }
+function registry(repos: readonly ReturnType<typeof repo>[]) {
+  return {
+    schema: "harness-daemon-registry/v2",
+    connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
+    repos,
+  };
+}
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}

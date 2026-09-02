@@ -5,6 +5,7 @@ import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../
 import { daemonStreamFacets, type DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";
 import { parseDaemonStreamEvent, parseDaemonStreamResult } from "../protocol/gui-result-validation.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
+import { createDaemonEndpointSocket } from "./local-json-rpc-client.ts";
 export type AgentRuntimeStreamValue = AgentRuntimeAttachResult | AgentRuntimeAttachEvent;
 // A stream that has attached once survives daemon unavailability by reconnecting — that is what
 // lets CLI runtime waits ride out daemon restarts — but the reconnect used to be 25/s
@@ -72,7 +73,7 @@ export async function streamDaemonFacetAt(input: {
   };
   const connect = () =>
     new Promise<void>((resolve, reject) => {
-      const next = net.createConnection(input.socketPath),
+      const next = createDaemonEndpointSocket(input.socketPath),
         lines = createInterface({ input: next });
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       socket = next;

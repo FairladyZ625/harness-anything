@@ -268,7 +268,10 @@ function lastRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["lastRun"] {
 }
 
 export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesListResult {
-  const mode = context.mode ?? "local",
+  const repoMode = context.mode ?? "local";
+  if (repoMode === "remote-proxy")
+    throw new Error("Schedule GUI reads for remote-proxy repositories must be routed to the remote daemon.");
+  const mode = repoMode,
     now = context.now(),
     viewerNodeId = viewerNodeIdOf(mode, context.rootDir),
     roster = rosterOf(mode, context.rootDir, context.fleetRoster),
