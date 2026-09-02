@@ -8,36 +8,36 @@ export function OverviewPanel({ decision }: { decision: DecisionRow }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("views.decisionDetailView.question")}
         </span>
-        <p className="mt-1 text-[13px] font-medium text-text">{decision.question}</p>
+        <p className="mt-1 ui-body font-medium text-text">{decision.question}</p>
       </div>
       {decision.chosen.length > 0 && (
         <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2">
-          <span className="font-mono text-[11px] uppercase tracking-wide text-accent">
+          <span className="font-mono ui-micro uppercase tracking-wide text-accent">
             {t("views.decisionsVerdict.chosen")}
           </span>
           {decision.chosen.map((option) => (
-            <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
+            <div key={option.id} className="mt-1 ui-meta leading-relaxed">
               <span className="font-mono text-text-faint">{option.id} </span>
               <span className="text-text">{option.text}</span>
-              {option.rationale && <p className="ml-4 text-[11px] text-text-muted">{option.rationale}</p>}
+              {option.rationale && <p className="ml-4 ui-micro text-text-muted">{option.rationale}</p>}
             </div>
           ))}
         </div>
       )}
       {decision.rejected.length > 0 && (
         <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2">
-          <span className="font-mono text-[11px] uppercase tracking-wide text-danger">
+          <span className="font-mono ui-micro uppercase tracking-wide text-danger">
             {t("views.decisionsVerdict.rejected")}
           </span>
           {decision.rejected.map((option) => (
-            <div key={option.id} className="mt-1 text-[12px] leading-relaxed">
+            <div key={option.id} className="mt-1 ui-meta leading-relaxed">
               <span className="font-mono text-text-faint">{option.id} </span>
               <span className="text-text line-through opacity-70">{option.text}</span>
               {option.whyNot && (
-                <p className="ml-4 text-[11px] italic text-text-muted">
+                <p className="ml-4 ui-micro italic text-text-muted">
                   {t("views.decisionDetailView.whyNot")}: {option.whyNot}
                 </p>
               )}
@@ -53,18 +53,18 @@ export function ClaimsPanel({ decision }: { decision: DecisionRow }) {
   return (
     <div className="flex flex-col gap-3">
       <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+        <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("views.decisionDetailView.claims")}
         </h2>
         {decision.claims.length === 0 ? (
-          <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.claimsEmpty")}</p>
+          <p className="mt-1 ui-meta text-text-faint">{t("views.decisionDetailView.claimsEmpty")}</p>
         ) : (
-          <ul className="mt-1 list-inside list-disc text-[12px] text-text-muted">
+          <ul className="mt-1 list-inside list-disc ui-meta text-text-muted">
             {decision.claims.map((claim) => (
               <li key={claim.id}>
                 <span className="font-mono text-text-faint">{claim.id} </span>
                 {claim.text}
-                <span className="ml-1 font-mono text-[11px] text-text-faint">
+                <span className="ml-1 font-mono ui-micro text-text-faint">
                   {t("views.decisionDetailView.fulfillment")}: {claim.fulfillment ?? "—"}
                   {claim.loadBearing ? " · load-bearing" : ""}
                 </span>
@@ -74,13 +74,13 @@ export function ClaimsPanel({ decision }: { decision: DecisionRow }) {
         )}
       </section>
       <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+        <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("views.decisionDetailView.consents")}
         </h2>
         {decision.judgmentConsents.length === 0 ? (
-          <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.consentsEmpty")}</p>
+          <p className="mt-1 ui-meta text-text-faint">{t("views.decisionDetailView.consentsEmpty")}</p>
         ) : (
-          <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
+          <ul className="mt-1 space-y-1 font-mono ui-micro text-text-muted">
             {decision.judgmentConsents.map((consent) => (
               <li key={consent.consentId}>
                 {consent.action} · {consent.consentId} · {consent.consentedAt}
@@ -91,10 +91,10 @@ export function ClaimsPanel({ decision }: { decision: DecisionRow }) {
       </section>
       {(decision.provenance?.length ?? 0) > 0 && (
         <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-          <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+          <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("views.decisionsVerdict.provenance")}
           </h2>
-          <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
+          <ul className="mt-1 space-y-1 font-mono ui-micro text-text-muted">
             {decision.provenance!.map((entry) => (
               <li key={entry.sessionId}>
                 {entry.runtime}:{entry.sessionId} · {formatTime(entry.boundAt, { style: "date-time" }) ?? "—"}
@@ -131,7 +131,7 @@ export function RelationsPanel({
     <div className="flex flex-col gap-3">
       {(chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
         <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5 ui-micro">
             {chain.supersedes.length > 0 && (
               <span className="inline-flex items-center gap-1 font-mono text-danger">
                 {chain.supersedes.map((id) => (
@@ -163,10 +163,10 @@ export function RelationsPanel({
       )}
       {derived.length > 0 && (
         <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-          <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+          <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("views.decisionDetailView.derivedTasks")}
           </h2>
-          <div className="mt-1 flex flex-wrap gap-2 text-[11px]">
+          <div className="mt-1 flex flex-wrap gap-2 ui-micro">
             {derived.map((task) => (
               <span key={task.taskId} className="inline-flex items-center gap-1 font-mono text-text-muted">
                 {onNavigateTask ? (
@@ -186,13 +186,13 @@ export function RelationsPanel({
         </section>
       )}
       <section className="rounded-md border border-border bg-surface-raised px-3 py-2">
-        <h2 className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+        <h2 className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("views.decisionDetailView.tabRelations")}
         </h2>
         {edges.length === 0 ? (
-          <p className="mt-1 text-[12px] text-text-faint">{t("views.decisionDetailView.relationsEmpty")}</p>
+          <p className="mt-1 ui-meta text-text-faint">{t("views.decisionDetailView.relationsEmpty")}</p>
         ) : (
-          <ul className="mt-1 space-y-1 font-mono text-[11px] text-text-muted">
+          <ul className="mt-1 space-y-1 font-mono ui-micro text-text-muted">
             {edges.map((edge) => (
               <li key={edge.relationId} className="break-all">
                 <RefLink

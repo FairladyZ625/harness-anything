@@ -19,7 +19,7 @@ const PINNED_ROW_CLASS_NAME = [
 ].join(" ");
 
 const PIN_TOGGLE_CLASS_NAME = [
-  "inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[13px]",
+  "inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body",
   "text-accent hover:bg-surface",
 ].join(" ");
 
@@ -77,14 +77,14 @@ export function PinnedStream({
     return (
       <StreamEmpty>
         {t("views.overviewView.pinnedEmpty")}{" "}
-        <span className="font-mono text-[12px] text-text-faint">{t("views.overviewView.pinnedHint")}</span>
+        <span className="font-mono ui-meta text-text-faint">{t("views.overviewView.pinnedHint")}</span>
       </StreamEmpty>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <p className="shrink-0 font-mono text-[10px] text-text-faint" data-testid="pinned-projection-cut">
+      <p className="shrink-0 font-mono ui-micro text-text-faint" data-testid="pinned-projection-cut">
         {t("views.overviewView.pinnedProjection", {
           count: rows.length,
           watermark: String(agenda.watermark),
@@ -99,12 +99,12 @@ export function PinnedStream({
               title={`${task.taskId} · ${task.title}`}
               className="flex min-w-0 flex-1 items-center gap-2 text-left"
             >
-              <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.status].color }}>
+              <span className="shrink-0 ui-body" style={{ color: STATUS_META[task.status].color }}>
                 {STATUS_META[task.status].icon}
               </span>
-              <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
+              <span className="min-w-0 flex-1 truncate ui-body font-medium text-text">{task.title}</span>
               <StatusBadge status={task.status} />
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+              <span className="shrink-0 font-mono ui-micro tabular-nums text-text-faint">
                 {streamTime(task.updatedAt)}
               </span>
             </button>
@@ -120,7 +120,7 @@ export function PinnedStream({
                 <PushPin weight="fill" />
               </button>
             ) : (
-              <PushPin weight="fill" className="shrink-0 text-[13px] text-accent" />
+              <PushPin weight="fill" className="shrink-0 ui-body text-accent" />
             )}
           </div>
         ))}

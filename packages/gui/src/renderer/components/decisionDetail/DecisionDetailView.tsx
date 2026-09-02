@@ -91,14 +91,14 @@ export function DecisionDetailView({
     return (
       <aside data-testid="decision-detail-pending" className="flex h-full flex-col items-start gap-3 px-4 py-6">
         {loading ? (
-          <p className="font-mono text-[12px] text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
+          <p className="font-mono ui-meta text-text-faint">{t("views.entityDetail.loadingProjection")}</p>
         ) : (
           <>
-            <div className="flex items-center gap-1 text-[12px] font-semibold text-stale">
+            <div className="flex items-center gap-1 ui-meta font-semibold text-stale">
               <WarningCircle weight="bold" />
               {t("views.entityDetail.notProjected")}
             </div>
-            <div className="font-mono text-[11px] text-text-faint">{decisionId ?? "—"}</div>
+            <div className="font-mono ui-micro text-text-faint">{decisionId ?? "—"}</div>
           </>
         )}
       </aside>
@@ -121,7 +121,7 @@ export function DecisionDetailView({
             <ArrowLeft weight="bold" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
+            <div className="flex min-w-0 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
                 {projectName}
               </button>
@@ -138,11 +138,11 @@ export function DecisionDetailView({
                 entityRef={`decision/${decision.decisionId}`}
                 onNavigate={onNavigateEntity}
                 title={decision.decisionId}
-                className="truncate font-mono text-[9px] leading-3 text-text-muted hover:text-accent hover:underline"
+                className="truncate font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
               />
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-text">
+              <h1 className="truncate ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
                 {decision.title}
               </h1>
               <DecisionStateBadge state={decision.state} />
@@ -156,7 +156,7 @@ export function DecisionDetailView({
                 type="button"
                 onClick={() => onOpenPool(decision.decisionId)}
                 className={[
-                  "rounded-md border border-border px-2 py-1.5 font-mono text-[10px] text-text-muted",
+                  "rounded-md border border-border px-2 py-1.5 font-mono ui-micro text-text-muted",
                   "hover:border-border-strong hover:bg-surface-raised hover:text-text",
                 ].join(" ")}
               >
@@ -170,7 +170,7 @@ export function DecisionDetailView({
         <details className="group relative z-30">
           <summary
             className={[
-              "list-none cursor-pointer border-t border-border px-3 py-1.5 font-mono text-[10px]",
+              "list-none cursor-pointer border-t border-border px-3 py-1.5 font-mono ui-micro",
               "text-text-faint hover:text-text-muted [&::-webkit-details-marker]:hidden lg:px-4",
             ].join(" ")}
           >
@@ -238,11 +238,11 @@ export function DecisionDetailView({
               aria-controls={`decision-panel-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={[
-                "relative flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] font-medium",
+                "relative flex h-8 shrink-0 items-center gap-1 px-2 ui-micro font-medium",
                 active ? "text-text" : "text-text-faint hover:text-text-muted",
               ].join(" ")}
             >
-              <Icon weight={active ? "bold" : "regular"} className="text-[12px]" />
+              <Icon weight={active ? "bold" : "regular"} className="ui-meta" />
               {t(tab.label)}
               {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
             </button>

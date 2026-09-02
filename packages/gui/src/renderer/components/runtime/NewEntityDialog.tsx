@@ -189,12 +189,12 @@ function TemplateCard({
       onClick={onPick}
       className={`rounded-lg border px-3 py-2.5 text-left ${dashed ? "border-dashed" : ""} ${on ? "border-accent bg-accent/[0.07]" : "border-border bg-surface hover:border-accent"}`}
     >
-      <span className="flex items-center gap-1.5 text-[12px] font-[650]">
+      <span className="flex items-center gap-1.5 ui-meta font-[650]">
         {icon}
         {title}
       </span>
-      <span className="my-1 block text-[11px] leading-[1.45] text-text-muted">{desc}</span>
-      <span className="block font-mono text-[10px] text-text-faint">{meta}</span>
+      <span className="my-1 block ui-micro leading-[1.45] text-text-muted">{desc}</span>
+      <span className="block font-mono ui-micro text-text-faint">{meta}</span>
     </button>
   );
 }

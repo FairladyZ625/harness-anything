@@ -33,12 +33,12 @@ export function ViewInGraphButton({
       className={
         className ??
         [
-          "flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 font-mono text-[10px]",
+          "flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1.5 font-mono ui-micro",
           "text-text-muted hover:border-border-strong hover:bg-surface-raised hover:text-text",
         ].join(" ")
       }
     >
-      <Graph weight="bold" className="text-[11px]" />
+      <Graph weight="bold" className="ui-micro" />
       {t("components.viewInGraph.view")}
     </button>
   );

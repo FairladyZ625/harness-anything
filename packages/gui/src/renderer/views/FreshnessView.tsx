@@ -31,7 +31,7 @@ function ReasonBadge({ reason }: { reason: FreshnessReason }) {
   return (
     <span
       data-testid={`freshness-reason-${reason}`}
-      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] ${REASON_CLASS[reason]}`}
+      className={`shrink-0 rounded border px-1.5 py-0.5 font-mono ui-micro ${REASON_CLASS[reason]}`}
     >
       {t(`views.freshnessView.reason.${reason}`)}
     </span>
@@ -55,11 +55,11 @@ function FreshnessRow({
     >
       <ReasonBadge reason={candidate.reason} />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[13px] text-text" title={candidate.claimText ?? candidate.claimId}>
-          <span className="font-mono text-[11px] text-text-faint">{candidate.claimId} </span>
+        <p className="truncate ui-body text-text" title={candidate.claimText ?? candidate.claimId}>
+          <span className="font-mono ui-micro text-text-faint">{candidate.claimId} </span>
           {candidate.claimText ?? t("views.freshnessView.claimMissing")}
         </p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-1 font-mono text-[11px] text-text-faint">
+        <p className="mt-0.5 flex flex-wrap items-center gap-1 font-mono ui-micro text-text-faint">
           <EntityRefLink
             entityRef={`decision/${candidate.decisionId}`}
             onNavigate={onNavigateEntity}
@@ -109,7 +109,7 @@ export function FreshnessView({
         <div className="flex items-baseline gap-2">
           <HourglassMedium weight="duotone" className="self-center text-text-muted" />
           <h1 className="ui-title font-mono font-semibold">{t("views.freshnessView.title")}</h1>
-          <span className="font-mono text-[12px] text-text-faint" data-testid="freshness-counts">
+          <span className="font-mono ui-meta text-text-faint" data-testid="freshness-counts">
             {t("views.freshnessView.counts", {
               uncovered: candidates.length,
               total: inScopeTotal,
@@ -117,12 +117,12 @@ export function FreshnessView({
             })}
           </span>
           {basis !== null && (
-            <span className="ml-auto shrink-0 font-mono text-[12px] text-text-faint">
+            <span className="ml-auto shrink-0 font-mono ui-meta text-text-faint">
               {t("views.freshnessView.basis", { value: basis })}
             </span>
           )}
         </div>
-        <p className="mt-1 text-[12px] text-text-muted">{t("views.freshnessView.tagline")}</p>
+        <p className="mt-1 ui-meta text-text-muted">{t("views.freshnessView.tagline")}</p>
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-5">
         {relationState === "loading" ? (

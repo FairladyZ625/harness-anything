@@ -31,8 +31,8 @@ function durationOf(everyMs: number): { readonly amount: string; readonly unit: 
  * trigger spec the daemon will evaluate; the renderer never computes nextRun. */
 /** Shared segment-toggle styling so the guided-form buttons stay under the
  * 120-character line budget (G36) without compressing the class strings. */
-const SEGMENT_ON_CLASS = "bg-accent font-semibold text-accent-fg px-2.5 py-0.5 text-[11px]";
-const SEGMENT_OFF_CLASS = "text-text-muted hover:bg-surface px-2.5 py-0.5 text-[11px]";
+const SEGMENT_ON_CLASS = "bg-accent font-semibold text-accent-fg px-2.5 py-0.5 ui-micro";
+const SEGMENT_OFF_CLASS = "text-text-muted hover:bg-surface px-2.5 py-0.5 ui-micro";
 
 export function buildCronExpression(
   frequency: CronFrequency,
@@ -270,7 +270,7 @@ export function ScheduleForm({
                         return next;
                       })
                     }
-                    className={`rounded border px-2 py-0.5 text-[11px] ${
+                    className={`rounded border px-2 py-0.5 ui-micro ${
                       cronWeekdays.has(day)
                         ? "border-accent bg-accent text-accent-fg"
                         : "border-border-strong text-text-muted hover:border-accent"
@@ -281,7 +281,7 @@ export function ScheduleForm({
                 ))}
               </div>
             )}
-            <p className="mt-2 font-mono text-[11px] text-text-muted" data-testid="schedule-form-cron-expression">
+            <p className="mt-2 font-mono ui-micro text-text-muted" data-testid="schedule-form-cron-expression">
               {t("schedules.form.cron.expression")}:{" "}
               {cronExpression === null ? t("schedules.form.cron.invalid") : cronExpression}
               {cronExpression !== null && cronTimezone.trim() !== "" ? ` · TZ=${cronTimezone.trim()}` : ""}
@@ -296,11 +296,7 @@ export function ScheduleForm({
           data-testid="schedule-form-executor"
           className="inline-flex overflow-hidden rounded border border-border-strong"
         >
-          <button
-            type="button"
-            aria-pressed
-            className="bg-accent px-2.5 py-0.5 text-[11px] font-semibold text-accent-fg"
-          >
+          <button type="button" aria-pressed className="bg-accent px-2.5 py-0.5 ui-micro font-semibold text-accent-fg">
             {t("schedules.form.executor.agent")}
           </button>
           <button
@@ -308,7 +304,7 @@ export function ScheduleForm({
             data-testid="schedule-form-executor-squad"
             disabled
             title={t("schedules.form.executor.squadPending")}
-            className="px-2.5 py-0.5 text-[11px] text-text-faint"
+            className="px-2.5 py-0.5 ui-micro text-text-faint"
           >
             {t("schedules.form.executor.squad")}
           </button>
@@ -386,7 +382,7 @@ export function ScheduleForm({
             <FormField label={t("agentRuntime.fast")}>
               <span
                 data-testid="schedule-form-fast"
-                className="inline-flex min-h-8 items-center gap-2 text-[11px] text-text-muted"
+                className="inline-flex min-h-8 items-center gap-2 ui-micro text-text-muted"
               >
                 <Toggle checked={selectedFast} onChange={setFast} label={t("agentRuntime.fast")} />
                 {t("agentRuntime.fastDescription")}
@@ -506,7 +502,7 @@ export function ScheduleForm({
           aria-label={t("schedules.form.mission")}
           data-testid="schedule-form-mission"
           className={
-            "min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-[12px] " +
+            "min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 ui-meta " +
             "outline-none focus-visible:border-accent"
           }
           value={mission}
@@ -516,7 +512,7 @@ export function ScheduleForm({
       </FormSection>
 
       {error !== null && (
-        <p role="alert" data-testid="schedule-form-error" className="font-mono text-[11px] text-status-blocked">
+        <p role="alert" data-testid="schedule-form-error" className="font-mono ui-micro text-status-blocked">
           {error}
         </p>
       )}
@@ -613,7 +609,7 @@ function FormSection({
   return (
     <section data-testid={testId} className="overflow-hidden rounded-lg border border-border">
       <header className="bg-surface px-3 py-1.5">
-        <b className="text-[12px] font-[650]">{title}</b>
+        <b className="ui-meta font-[650]">{title}</b>
       </header>
       <div className="space-y-2 px-3 py-2.5">{children}</div>
     </section>
@@ -622,8 +618,8 @@ function FormSection({
 
 function FormField({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
-    <label className="grid gap-1 text-[11px] text-text-muted">
-      <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text-faint">{label}</span>
+    <label className="grid gap-1 ui-micro text-text-muted">
+      <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">{label}</span>
       {children}
     </label>
   );
@@ -640,10 +636,10 @@ function ModeCard({
 }) {
   return (
     <div
-      className={`rounded border px-2.5 py-2 text-[11.5px] leading-relaxed text-text-muted
+      className={`rounded border px-2.5 py-2 ui-micro leading-relaxed text-text-muted
         ${active ? "border-accent/60 bg-accent/[0.05]" : "border-border"}`}
     >
-      <b className="mb-1 block text-[12px] text-text">{title}</b>
+      <b className="mb-1 block ui-meta text-text">{title}</b>
       {children}
     </div>
   );
@@ -652,7 +648,7 @@ function ModeCard({
 function RoutingCard({ when, children }: { readonly when: string; readonly children: ReactNode }) {
   return (
     <div className="rounded border border-dashed border-border-strong bg-surface px-2.5 py-2">
-      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.06em] text-text-faint">{when}</div>
+      <div className="mb-1.5 font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">{when}</div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">{children}</div>
     </div>
   );
@@ -674,7 +670,7 @@ function RoutingToggle({
   readonly onChange?: (checked: boolean) => void;
 }) {
   return (
-    <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1.5 text-[11px] text-text-muted">
+    <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1.5 ui-micro text-text-muted">
       <Toggle checked={checked} onChange={locked ? () => undefined : (onChange ?? (() => undefined))} label={label} />
       {label}
     </span>

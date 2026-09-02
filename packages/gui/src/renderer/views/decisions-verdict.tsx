@@ -41,7 +41,7 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
           : "bg-success";
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ${colorCls}`}
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono ui-micro ${colorCls}`}
       title={signal.summary}
     >
       <span className={`size-1.5 rounded-full ${dotCls} ${signal.color !== "green" ? "animate-pulse" : ""}`} />
@@ -80,10 +80,10 @@ function FactChip({
     return (
       <button
         onClick={() => onInspect(factRef)}
-        className="inline-flex items-center gap-1 rounded border border-dashed border-danger/60 px-1.5 py-0.5 font-mono text-[11px] text-danger hover:bg-danger/10"
+        className="inline-flex items-center gap-1 rounded border border-dashed border-danger/60 px-1.5 py-0.5 font-mono ui-micro text-danger hover:bg-danger/10"
         title={t("views.decisionsVerdict.danglingReferenceNonExistentFactAnchor")}
       >
-        <WarningCircle weight="bold" className="text-[11px]" />
+        <WarningCircle weight="bold" className="ui-micro" />
         {factRef}
       </button>
     );
@@ -91,14 +91,14 @@ function FactChip({
   return (
     <button
       onClick={() => onInspect(factRef)}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] ${
+      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono ui-micro ${
         f.invalidated ? "text-stale line-through" : "text-success"
       } hover:bg-surface-raised`}
       title={`fact:${f.text}${f.invalidated ? " (已失效)" : ""}${rationale ? `\nrationale: ${rationale}` : ""}`}
     >
       <span className="font-sans text-text-faint">⟶</span>
       {f.anchor}
-      {f.invalidated && <WarningCircle weight="bold" className="text-[11px]" />}
+      {f.invalidated && <WarningCircle weight="bold" className="ui-micro" />}
       {rationale && <span className="font-sans normal-case text-text-faint not-italic">({rationale})</span>}
     </button>
   );
@@ -122,13 +122,13 @@ function ClaimList({
   if (items.length === 0) return null;
   return (
     <div className="mt-2">
-      <div className="text-[11px] font-semibold text-text-faint">
+      <div className="ui-micro font-semibold text-text-faint">
         {title}
         {tone === "rejected" && <span className="ml-1 text-danger">· 否决比选择更重要,每条必带 why_not</span>}
       </div>
       <ul className="mt-1 space-y-1.5">
         {items.map((c) => (
-          <li key={c.id} className="text-[12px] leading-relaxed">
+          <li key={c.id} className="ui-meta leading-relaxed">
             <span className="font-mono text-text-faint">{c.id} </span>
             <span className={tone === "rejected" ? "text-text-muted line-through opacity-80" : "text-text"}>
               {c.text}
@@ -140,12 +140,12 @@ function ClaimList({
                 ))}
               </div>
             ) : (
-              <span className="ml-2 font-mono text-[11px] text-danger">⚠ 无 evidence(INV-5 Goodhart 风险)</span>
+              <span className="ml-2 font-mono ui-micro text-danger">⚠ 无 evidence(INV-5 Goodhart 风险)</span>
             )}
             {tone === "rejected" && !c.whyNot && (
-              <span className="ml-2 font-mono text-[11px] text-danger">⚠ 缺 why_not</span>
+              <span className="ml-2 font-mono ui-micro text-danger">⚠ 缺 why_not</span>
             )}
-            {c.whyNot && <div className="ml-4 text-[11px] italic text-text-faint">why_not: {c.whyNot}</div>}
+            {c.whyNot && <div className="ml-4 ui-micro italic text-text-faint">why_not: {c.whyNot}</div>}
           </li>
         ))}
       </ul>
@@ -244,13 +244,13 @@ export function VerdictCard({
               entityRef={`decision/${d.decisionId}`}
               onNavigate={(ref) => onNavigateDecision(ref.split("/")[1] ?? d.decisionId)}
               title={d.decisionId}
-              className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline"
+              className="font-mono ui-meta text-text-faint hover:text-accent hover:underline"
             />
             <DecisionStateBadge state={d.state} />
-            <span className="font-mono text-[11px] text-text-faint">{d.vertical}</span>
+            <span className="font-mono ui-micro text-text-faint">{d.vertical}</span>
           </div>
-          <div className="mt-1 text-[15px] font-semibold text-text">{d.title}</div>
-          <div className="mt-0.5 text-[12px] italic text-text-muted">Q: {d.question}</div>
+          <div className="mt-1 ui-prose font-semibold text-text">{d.title}</div>
+          <div className="mt-0.5 ui-meta italic text-text-muted">Q: {d.question}</div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <CopyContextButton
@@ -274,38 +274,38 @@ export function VerdictCard({
 
       {/* 评审深度提示(E50:提示不强拦) */}
       {deepHint && (
-        <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 text-[11px] text-stale">
-          <WarningCircle weight="bold" className="mr-1 inline text-[11px]" />
+        <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 ui-micro text-stale">
+          <WarningCircle weight="bold" className="mr-1 inline ui-micro" />
           高风险:建议拉满证据审查,放慢节奏充分核查后再决策批准。
         </div>
       )}
       {quickHint && (
-        <div className="mt-2 rounded-md bg-surface-raised px-2.5 py-1.5 text-[11px] text-text-faint">
+        <div className="mt-2 rounded-md bg-surface-raised px-2.5 py-1.5 ui-micro text-text-faint">
           低风险:可快速通过(因故进人队列,非典型)。
         </div>
       )}
 
       {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
-        <span className="font-mono text-[11px] font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
+        <span className="font-mono ui-micro font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
         ))}
-        {worst === "green" && <span className="ml-auto text-[11px] text-success">全绿 · 直接决策批准正当</span>}
+        {worst === "green" && <span className="ml-auto ui-micro text-success">全绿 · 直接决策批准正当</span>}
       </div>
 
       {/* 黄/红警示条(41 §3.1a:不禁用按钮,只显式警示) */}
       {hasAlert && (
         <div
-          className={`mt-2 rounded-md px-2.5 py-2 text-[11px] ${
+          className={`mt-2 rounded-md px-2.5 py-2 ui-micro ${
             worst === "red" ? "bg-danger/10 text-danger" : "bg-stale/10 text-stale"
           }`}
         >
           <div className="flex items-center gap-1 font-semibold">
             {worst === "red" ? (
-              <BugBeetle weight="bold" className="text-[12px]" />
+              <BugBeetle weight="bold" className="ui-meta" />
             ) : (
-              <WarningCircle weight="bold" className="text-[12px]" />
+              <WarningCircle weight="bold" className="ui-meta" />
             )}
             {worst === "red"
               ? "红灯:决策批准前必须核查(承重风险)"
@@ -319,7 +319,7 @@ export function VerdictCard({
               .map((s) => (
                 <li key={s.id} className="flex gap-1">
                   <span className={`shrink-0 ${s.color === "red" ? "text-danger" : "text-stale"}`}>●</span>
-                  <span className="font-mono text-[11px]">{s.label}:</span>
+                  <span className="font-mono ui-micro">{s.label}:</span>
                   <span>{s.summary}</span>
                 </li>
               ))}
@@ -328,7 +328,7 @@ export function VerdictCard({
       )}
 
       {/* 提议/批准者 + proposer≠arbiter 自证警示(actorClass 审计性展示,INV-7 已删 → 不再强拒 agent) */}
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 ui-micro text-text-faint">
         <span>proposedBy {renderActor(d.proposedBy, onNavigateEntity)}</span>
         <span>arbiter {renderActor(d.arbiter, onNavigateEntity)}</span>
         {selfArb && (
@@ -357,7 +357,7 @@ export function VerdictCard({
       />
 
       {/* 覆盖度只消费 canonical coverageRows；不从 option evidence 猜。 */}
-      <div className="mt-2 flex items-center gap-2 text-[11px]">
+      <div className="mt-2 flex items-center gap-2 ui-micro">
         <span className="text-text-faint">覆盖度</span>
         <span
           className={
@@ -372,11 +372,11 @@ export function VerdictCard({
       {/* ④ relation 上下游:派生 task + supersede 链(P2 loop) */}
       {(derived.length > 0 || chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2">
-          <div className="flex items-center gap-1 text-[11px] font-semibold text-text-faint">
-            <TreeStructure weight="bold" className="text-[12px]" /> relation 上下游(loop)
+          <div className="flex items-center gap-1 ui-micro font-semibold text-text-faint">
+            <TreeStructure weight="bold" className="ui-meta" /> relation 上下游(loop)
           </div>
           {derived.length > 0 && (
-            <div className="mt-1 text-[11px]">
+            <div className="mt-1 ui-micro">
               <span className="text-text-faint">派生 task → </span>
               {derived.map((t) => (
                 <span key={t.taskId} className="mr-2 inline-flex items-center gap-1 font-mono text-text-muted">
@@ -392,7 +392,7 @@ export function VerdictCard({
             </div>
           )}
           {chain.supersedes.length > 0 && (
-            <div className="mt-0.5 text-[11px]">
+            <div className="mt-0.5 ui-micro">
               <span className="text-text-faint">推翻(supersedes)→ </span>
               <span className="font-mono text-danger">
                 {chain.supersedes
@@ -410,7 +410,7 @@ export function VerdictCard({
             </div>
           )}
           {chain.supersededBy.length > 0 && (
-            <div className="mt-0.5 text-[11px]">
+            <div className="mt-0.5 ui-micro">
               <span className="text-text-faint">被推翻(superseded by)→ </span>
               <span className="font-mono text-danger">
                 {chain.supersededBy
@@ -431,23 +431,23 @@ export function VerdictCard({
       )}
 
       {/* ⑤ provenance 三字段 + 原文追溯入口 */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="mt-2 flex flex-wrap items-center gap-2 ui-micro">
         <span className="text-text-faint">{t("views.decisionsVerdict.provenance")}</span>
         {d.provenance?.map((p) => (
           <button
             disabled
             key={p.sessionId}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[11px] text-text-faint opacity-70"
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono ui-micro text-text-faint opacity-70"
             title={`E47 disabled:renderer 暂无 session 原文 IPC。runtime: ${p.runtime}; sessionId: ${p.sessionId}; boundAt: ${dateLabel(p.boundAt)}`}
           >
-            <ArrowSquareOut weight="bold" className="text-[11px]" />
+            <ArrowSquareOut weight="bold" className="ui-micro" />
             {p.runtime}:{p.sessionId.slice(0, 8)}…
             <span className="font-sans text-text-faint">· {dateLabel(p.boundAt)}</span>
           </button>
         ))}
       </div>
 
-      <div className="mt-1 text-[11px] text-text-faint">
+      <div className="mt-1 ui-micro text-text-faint">
         proposedAt: {dateLabel(d.proposedAt)} · lastChanged: {dateLabel(d.lastChangedAt)}
       </div>
 
@@ -468,22 +468,22 @@ export function VerdictCard({
         (hasAlert ? (
           <button
             onClick={() => onCallAgent(`harness decision ${d.decisionId} --check`)}
-            className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12px] font-semibold ${
+            className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 ui-meta font-semibold ${
               worst === "red"
                 ? "bg-danger/15 text-danger hover:bg-danger/25"
                 : "bg-stale/15 text-stale hover:bg-stale/25"
             }`}
           >
-            <Robot weight="bold" className="text-[13px]" />
+            <Robot weight="bold" className="ui-body" />
             呼叫 Agent 核查(推荐)
-            <span className="ml-1 text-[11px] font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
+            <span className="ml-1 ui-micro font-normal opacity-70">agent 核查漂移/失效,经 CLI 代录决策</span>
           </button>
         ) : (
           <button
             onClick={() => onCallAgent(`harness decision ${d.decisionId}`)}
-            className="mt-2 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+            className="mt-2 inline-flex items-center gap-1 ui-micro text-accent hover:underline"
           >
-            <PaperPlaneTilt weight="bold" className="text-[11px]" />
+            <PaperPlaneTilt weight="bold" className="ui-micro" />
             或通过 CLI 与 Agent 讨论后决策批准(预填 /decisions)
           </button>
         ))}

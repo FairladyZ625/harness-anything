@@ -138,7 +138,7 @@ export function AgentCard({
           onFocusGraph={onFocusGraph}
           testId="agent-view-in-graph"
           className={
-            "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-[11px] " +
+            "ml-auto flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 ui-micro " +
             "text-text-muted hover:border-border-strong hover:text-text"
           }
         />
@@ -152,13 +152,13 @@ export function AgentCard({
                 aria-label={t("agentRuntime.agentName")}
                 value={draft.name}
                 onChange={(event) => patch({ name: event.target.value })}
-                className="min-w-[200px] rounded border border-transparent bg-transparent px-1 py-px text-[15px] font-bold text-text outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface"
+                className="min-w-[200px] rounded border border-transparent bg-transparent px-1 py-px ui-prose font-bold text-text outline-none hover:border-border-strong focus-visible:border-accent focus-visible:bg-surface"
               />
               <EntityRefLink
                 entityRef={`agent/${detail.id}`}
                 onNavigate={() => onSelectAgent(detail.id)}
                 title={detail.id}
-                className="font-mono text-[10.5px] text-text-faint hover:text-accent hover:underline"
+                className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
               {row && <Badge tip={t("agentRuntime.layerTip", { layer: row.layer })}>{row.layer}</Badge>}
               {row?.validity === "blocked" && <Badge status="blocked">{t("agentRuntime.declarationBlocked")}</Badge>}
@@ -202,7 +202,7 @@ export function AgentCard({
           desc={t("agentRuntime.instructionsDesc")}
           right={<span className="font-mono">{t("agentRuntime.charCount", { count: draft.instructions.length })}</span>}
         >
-          <p className="mb-1.5 text-[11px] text-text-faint">{t("agentRuntime.instructionsHint")}</p>
+          <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.instructionsHint")}</p>
           <textarea
             aria-label={t("agentRuntime.instructions")}
             data-testid="agent-instructions"
@@ -251,9 +251,9 @@ export function AgentCard({
                       }}
                       className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-surface-raised"
                     >
-                      <b className="font-mono text-[11px]">{skill.id}</b>
+                      <b className="font-mono ui-micro">{skill.id}</b>
                       <Badge>{skill.source}</Badge>
-                      <span className="min-w-0 truncate font-mono text-[10px] text-text-faint">{skill.path}</span>
+                      <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{skill.path}</span>
                     </button>
                   ))
                 ) : (
@@ -294,8 +294,8 @@ export function AgentCard({
                     }}
                     className="block w-full rounded px-2 py-1 text-left hover:bg-surface-raised"
                   >
-                    <b className="text-[11px]">{preset.title}</b>
-                    <span className="ml-2 font-mono text-[10px] text-text-faint">{preset.id}</span>
+                    <b className="ui-micro">{preset.title}</b>
+                    <span className="ml-2 font-mono ui-micro text-text-faint">{preset.id}</span>
                   </button>
                 ))
               ) : (
@@ -318,7 +318,7 @@ export function AgentCard({
                 key={index}
                 className="mb-1.5 flex items-center gap-2 rounded border border-border bg-surface px-2 py-1.5"
               >
-                <span className="font-mono text-[10px] text-text-faint">{String(index + 1).padStart(2, "0")}</span>
+                <span className="font-mono ui-micro text-text-faint">{String(index + 1).padStart(2, "0")}</span>
                 <input
                   aria-label={t("agentRuntime.promptAt", { index: index + 1 })}
                   value={prompt}
@@ -329,7 +329,7 @@ export function AgentCard({
                       ),
                     })
                   }
-                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-px font-mono text-[11px] text-text outline-none focus-visible:border-accent"
+                  className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-px font-mono ui-micro text-text outline-none focus-visible:border-accent"
                 />
                 <Btn
                   size="sm"
@@ -423,11 +423,11 @@ export function AgentCard({
                     key={instance.instanceId}
                     type="button"
                     onClick={() => onSelectRuntime(instance.instanceId)}
-                    className="flex w-full items-center gap-1.5 py-0.5 text-left text-[11px] hover:text-accent"
+                    className="flex w-full items-center gap-1.5 py-0.5 text-left ui-micro hover:text-accent"
                   >
                     <KindDot kind={instance.kindId} />
                     <span>{instance.name}</span>
-                    <span className="font-mono text-[10px] text-text-faint">{instance.defaultModel}</span>
+                    <span className="font-mono ui-micro text-text-faint">{instance.defaultModel}</span>
                     <LiveDot state={instance.enabled ? "live" : "idle"} />
                   </button>
                 ))
@@ -436,7 +436,7 @@ export function AgentCard({
               )}
             </div>
           )}
-          <p className="mt-2 text-[11px] text-text-faint">{t("agentRuntime.runtimeConstraintNote")}</p>
+          <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.runtimeConstraintNote")}</p>
         </Sect>
 
         <Sect title={t("agentRuntime.actions")}>

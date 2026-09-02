@@ -31,7 +31,7 @@ export const colorSeed = (id: string): number =>
   [...id].reduce((total, character) => total + character.charCodeAt(0), 0) % AVATAR_COLORS.length;
 
 export function Crumbs({ children }: { readonly children: ReactNode }) {
-  return <div className="mb-2.5 flex flex-wrap items-center gap-1.5 text-[11px] text-text-faint">{children}</div>;
+  return <div className="mb-2.5 flex flex-wrap items-center gap-1.5 ui-micro text-text-faint">{children}</div>;
 }
 export function CrumbSep() {
   return <span className="text-border-strong">/</span>;
@@ -59,10 +59,10 @@ export function CardHead({ children }: { readonly children: ReactNode }) {
   return <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">{children}</header>;
 }
 export function CardTitle({ children }: { readonly children: ReactNode }) {
-  return <b className="text-[12px] font-[650] tracking-[0.01em] text-text">{children}</b>;
+  return <b className="ui-meta font-[650] tracking-[0.01em] text-text">{children}</b>;
 }
 export function Hint({ children }: { readonly children: ReactNode }) {
-  return <span className="text-[10.5px] text-text-faint">{children}</span>;
+  return <span className="ui-micro text-text-faint">{children}</span>;
 }
 export function Right({ children }: { readonly children: ReactNode }) {
   return <span className="ml-auto flex items-center gap-2">{children}</span>;
@@ -85,9 +85,9 @@ export function Sect({
   return (
     <section className="border-t border-border first:border-t-0">
       <header className="flex flex-wrap items-center gap-2 px-3.5 pt-2 pb-0.5">
-        <b className="text-[11px] font-bold uppercase tracking-[0.08em] text-text-muted">{title}</b>
-        {desc && <span className="text-[10.5px] text-text-faint">{desc}</span>}
-        {right && <span className="ml-auto flex items-center gap-2 text-[10.5px] text-text-faint">{right}</span>}
+        <b className="ui-micro font-bold uppercase tracking-[0.08em] text-text-muted">{title}</b>
+        {desc && <span className="ui-micro text-text-faint">{desc}</span>}
+        {right && <span className="ml-auto flex items-center gap-2 ui-micro text-text-faint">{right}</span>}
       </header>
       <div className="px-3.5 pt-2 pb-3">{children}</div>
     </section>
@@ -110,9 +110,9 @@ export function Field({
 }) {
   return (
     <div className="min-w-0">
-      <dt className="mb-0.5 font-mono text-[9.5px] uppercase tracking-[0.08em] text-text-faint">{label}</dt>
+      <dt className="mb-0.5 font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">{label}</dt>
       <dd
-        className={`[overflow-wrap:anywhere] ${mono ? "font-mono text-[11px]" : "text-[12px]"} ${faint ? "text-text-faint" : "text-text"}`}
+        className={`[overflow-wrap:anywhere] ${mono ? "font-mono ui-micro" : "ui-meta"} ${faint ? "text-text-faint" : "text-text"}`}
       >
         {value}
       </dd>
@@ -120,12 +120,12 @@ export function Field({
   );
 }
 export function KV({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] text-[11px]">{children}</dl>;
+  return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
 }
 export function KVRow({ name, children }: { readonly name: ReactNode; readonly children: ReactNode }) {
   return (
     <>
-      <dt className="whitespace-nowrap font-mono text-[10px] text-text-faint">{name}</dt>
+      <dt className="whitespace-nowrap font-mono ui-micro text-text-faint">{name}</dt>
       <dd className="[overflow-wrap:anywhere] text-text">{children}</dd>
     </>
   );
@@ -142,7 +142,7 @@ export function Chip({
   readonly onClick?: () => void;
   readonly children: ReactNode;
 }) {
-  const base = `inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface px-[7px] py-0.5 text-[11px] ${tone === "mono" ? "font-mono text-[10.5px]" : ""}`;
+  const base = `inline-flex items-center gap-1.5 rounded border border-border-strong bg-surface px-[7px] py-0.5 ui-micro ${tone === "mono" ? "font-mono ui-micro" : ""}`;
   return onClick ? (
     <button type="button" data-tip={tip} onClick={onClick} className={`${base} hover:border-accent`}>
       {children}
@@ -163,7 +163,7 @@ export function RoleTag({
   const color = `var(--color-status-${tone})`;
   return (
     <span
-      className="rounded-[3px] border px-[3px] font-mono text-[9px] tracking-[0.03em]"
+      className="rounded-[3px] border px-[3px] font-mono ui-micro tracking-[0.03em]"
       style={{
         color,
         borderColor: `color-mix(in oklab, ${color} 40%, transparent)`,
@@ -187,7 +187,7 @@ export function Badge({
   return (
     <span
       data-tip={tip}
-      className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 py-px font-mono text-[10px] tracking-[0.03em] text-text-muted"
+      className="inline-flex items-center gap-1 rounded-[3px] border border-border-strong px-1.5 py-px font-mono ui-micro tracking-[0.03em] text-text-muted"
       style={color ? { color, borderColor: `color-mix(in oklab, ${color} 45%, transparent)` } : undefined}
     >
       {color && <span className="size-1.5 rounded-full" style={{ background: color }} />}
@@ -226,7 +226,7 @@ export function Avatar({ id, size = "sm" }: { readonly id: string; readonly size
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center font-mono font-bold text-[oklch(0.15_0.01_285)] ${size === "lg" ? "size-10 rounded-lg text-[17px]" : "size-[18px] rounded text-[10px]"}`}
+      className={`flex shrink-0 items-center justify-center font-mono font-bold text-[oklch(0.15_0.01_285)] ${size === "lg" ? "size-10 rounded-lg ui-title" : "size-[18px] rounded ui-micro"}`}
       style={{ background: AVATAR_COLORS[colorSeed(id)] }}
     >
       {initials(id)}
@@ -309,7 +309,7 @@ export function Btn({
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-[12px]"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded border ${size === "sm" ? "px-2 py-0.5 ui-micro" : "px-2.5 py-1 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
     >
       {children}
     </button>
@@ -320,7 +320,7 @@ export function AddChip({ onClick, children }: { readonly onClick: () => void; r
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded border border-dashed border-border-strong px-2 py-0.5 text-[11px] text-text-faint hover:border-accent hover:text-accent"
+      className="inline-flex items-center gap-1 rounded border border-dashed border-border-strong px-2 py-0.5 ui-micro text-text-faint hover:border-accent hover:text-accent"
     >
       {children}
     </button>
@@ -330,7 +330,7 @@ export function ChipZone({ children }: { readonly children: ReactNode }) {
   return <div className="flex flex-wrap items-center gap-1.5">{children}</div>;
 }
 export function Empty({ children }: { readonly children: ReactNode }) {
-  return <p className="py-1 text-[11px] text-text-faint">{children}</p>;
+  return <p className="py-1 ui-micro text-text-faint">{children}</p>;
 }
 
 export function SegCtl<T extends string>({
@@ -353,7 +353,7 @@ export function SegCtl<T extends string>({
           data-tip={option.tip}
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={`px-2.5 py-0.5 text-[11px] ${option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+          className={`px-2.5 py-0.5 ui-micro ${option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
         >
           {option.label}
         </button>
@@ -388,21 +388,21 @@ export function Toggle({
 export function CfgRow({ label, children }: { readonly label: string; readonly children: ReactNode }) {
   return (
     <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
-      <span className="min-w-[118px] text-[11px] text-text-muted">{label}</span>
+      <span className="min-w-[118px] ui-micro text-text-muted">{label}</span>
       {children}
     </div>
   );
 }
 export function WarnBar({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="mt-2 flex items-start gap-2 rounded border border-dashed border-stale/60 bg-stale/[0.07] px-2.5 py-[7px] text-[11px] leading-[1.45] text-text-muted">
+    <div className="mt-2 flex items-start gap-2 rounded border border-dashed border-stale/60 bg-stale/[0.07] px-2.5 py-[7px] ui-micro leading-[1.45] text-text-muted">
       {children}
     </div>
   );
 }
 export function PlannedBox({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">
+    <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
       {children}
     </div>
   );
@@ -437,7 +437,7 @@ export function TextInput({
       autoComplete={type === "password" ? "off" : undefined}
       spellCheck={type === "password" ? false : undefined}
       onChange={(event) => onChange(event.target.value)}
-      className={`min-w-0 rounded border border-border-strong bg-surface px-2 py-1 text-[12px] text-text outline-none focus-visible:border-accent disabled:opacity-50 ${mono ? "font-mono text-[11px]" : ""}`}
+      className={`min-w-0 rounded border border-border-strong bg-surface px-2 py-1 ui-meta text-text outline-none focus-visible:border-accent disabled:opacity-50 ${mono ? "font-mono ui-micro" : ""}`}
     />
   );
 }
@@ -470,13 +470,13 @@ export function Modal({
         className={`flex max-h-[calc(100dvh-80px)] w-full flex-col overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
       >
         <header className="flex items-center gap-2 border-b border-border px-3.5 py-2.5">
-          <b className="text-[13px] font-[650]">{title}</b>
+          <b className="ui-body font-[650]">{title}</b>
           {hint && <Hint>{hint}</Hint>}
           <button
             type="button"
             aria-label="close"
             onClick={onClose}
-            className="ml-auto px-1 text-[15px] text-text-faint hover:text-text"
+            className="ml-auto px-1 ui-prose text-text-faint hover:text-text"
           >
             ✕
           </button>

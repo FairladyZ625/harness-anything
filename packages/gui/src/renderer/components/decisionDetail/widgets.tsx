@@ -15,8 +15,8 @@ export function IdentityItem({
 }) {
   return (
     <div className="min-w-0 bg-surface px-3 py-2">
-      <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
-      <dd title={value} className="mt-1 min-w-0 truncate font-mono text-[11px] text-text-muted">
+      <dt className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
+      <dd title={value} className="mt-1 min-w-0 truncate font-mono ui-micro text-text-muted">
         {content ??
           (onClick ? (
             <button type="button" onClick={onClick} className="text-accent hover:underline">

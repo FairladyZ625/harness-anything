@@ -91,7 +91,7 @@ function ModeBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`px-2.5 py-1 text-[12px] font-medium transition-colors ${
+      className={`px-2.5 py-1 ui-meta font-medium transition-colors ${
         active ? "bg-accent text-accent-fg" : "bg-surface text-text-muted hover:text-text"
       }${disabled ? " cursor-not-allowed opacity-50" : ""}`}
     >

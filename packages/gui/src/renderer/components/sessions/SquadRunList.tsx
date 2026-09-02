@@ -32,10 +32,10 @@ export function SquadRunList({
     <nav
       data-testid="squad-run-list"
       aria-label={t("agentRuntime.sessionsSegmentSquad")}
-      className="flex w-[420px] shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex basis-1/3 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
     >
       {runs.length === 0 ? (
-        <p data-testid="squad-runs-empty" className="px-4 py-4 text-[11.5px] text-text-faint">
+        <p data-testid="squad-runs-empty" className="px-4 py-4 ui-micro text-text-faint">
           {t(
             query !== ""
               ? "agentRuntime.sessionsNoMatches"
@@ -57,10 +57,7 @@ export function SquadRunList({
         ))
       )}
       {truncated && (
-        <p
-          data-testid="squad-runs-truncated"
-          className="border-t border-border px-4 py-2 text-[10.5px] text-text-faint"
-        >
+        <p data-testid="squad-runs-truncated" className="border-t border-border px-4 py-2 ui-micro text-text-faint">
           {t("agentRuntime.squadRunsTruncated", { count: runs.length, total: totalRuns })}
         </p>
       )}
@@ -111,22 +108,22 @@ function RunSection({
               state={run.runningCount > 0 ? "live" : "idle"}
               tip={t("agentRuntime.liveSessions", { count: run.runningCount })}
             />
-            <b className="min-w-0 truncate text-[12.5px]">{squadNames.get(run.squadId) ?? run.squadId}</b>
-            <span className="shrink-0 font-mono text-[9.5px] text-text-faint">{shortRef(run.squadId, 12)}</span>
-            <span className={`ml-auto shrink-0 font-mono text-[9.5px] ${PHASE_TONE[run.phase]}`}>
+            <b className="min-w-0 truncate ui-meta">{squadNames.get(run.squadId) ?? run.squadId}</b>
+            <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(run.squadId, 12)}</span>
+            <span className={`ml-auto shrink-0 font-mono ui-micro ${PHASE_TONE[run.phase]}`}>
               {t(PHASE_KEY[run.phase] as never)}
             </span>
           </span>
-          <span className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10.5px] text-text-muted">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5 ui-micro text-text-muted">
             {t("agentRuntime.squadRunTask")}
-            <span className="font-mono text-[10.5px] text-text-muted">{shortRef(run.taskId, 14)}</span>
+            <span className="font-mono ui-micro text-text-muted">{shortRef(run.taskId, 14)}</span>
             <span>· {t("agentRuntime.squadRunLeaderTurns", { count: run.leaderTurnCount })}</span>
             <span>· {t("agentRuntime.squadRunWorkerAttempts", { count: run.workerAttemptCount })}</span>
-            <span className="ml-auto shrink-0 font-mono text-[9.5px] text-text-faint">
+            <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
               {relativeTime(run.latestActivityAt)}
             </span>
           </span>
-          <p className="max-w-full truncate text-[11px] text-text-muted" title={run.mission}>
+          <p className="max-w-full truncate ui-micro text-text-muted" title={run.mission}>
             {run.mission}
           </p>
         </span>

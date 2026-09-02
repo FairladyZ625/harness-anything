@@ -93,7 +93,7 @@ const time = (iso: string | null): string => (iso === null ? "—" : (formatTime
 /** Shared styling for the occurrence shortcut buttons (keeps lines under the
  * 120-character budget without compressing the class string). */
 const OCCURRENCE_CHIP_CLASS =
-  "rounded border border-border px-2 py-0.5 font-mono text-[11px] text-text-muted " +
+  "rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted " +
   "hover:border-accent hover:text-accent";
 
 // Word → label lookups stay total: an unknown daemon word renders as its own
@@ -261,7 +261,7 @@ export function ScheduleDetailView({
           setTab("runs");
           onExitRun();
         }}
-        className="mb-1.5 inline-flex items-center gap-1 text-[11px] text-text-faint hover:text-accent"
+        className="mb-1.5 inline-flex items-center gap-1 ui-micro text-text-faint hover:text-accent"
       >
         <ArrowLeft />
         {runOccurrence === null ? t("schedules.detail.backToList") : t("schedules.run.backToRuns")}
@@ -269,7 +269,7 @@ export function ScheduleDetailView({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
         <div className="min-w-0">
           <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <b className="text-[14px] font-[650]">{row.name}</b>
+            <b className="ui-body font-[650]">{row.name}</b>
             <RoleTag tone={stateMeta.tone}>{t(stateMeta.key)}</RoleTag>
             {row.activeRun !== null && <RoleTag tone="active">{t("schedules.activeRun")}</RoleTag>}
             <ModeBadge mode={mode} />
@@ -277,7 +277,7 @@ export function ScheduleDetailView({
               {targetKind === "squad" ? t("schedules.executor.squad") : t("schedules.executor.agent")}
             </Chip>
           </div>
-          <p className="font-mono text-[10.5px] text-text-faint">
+          <p className="font-mono ui-micro text-text-faint">
             {`schedule/${row.scheduleId}`} · {t("schedules.detail.rev", { rev: String(row.definitionRevision) })} ·{" "}
             {t("schedules.fields.updatedAt")} {time(row.updatedAt)}
           </p>
@@ -321,12 +321,12 @@ export function ScheduleDetailView({
         )}
       </div>
       {actionError !== null && (
-        <p role="alert" data-testid="schedule-action-error" className="mt-2 font-mono text-[11px] text-status-blocked">
+        <p role="alert" data-testid="schedule-action-error" className="mt-2 font-mono ui-micro text-status-blocked">
           {actionError}
         </p>
       )}
       {receipt !== null && (
-        <p role="status" data-testid="schedule-action-receipt" className="mt-2 font-mono text-[10.5px] text-text-faint">
+        <p role="status" data-testid="schedule-action-receipt" className="mt-2 font-mono ui-micro text-text-faint">
           {t("schedules.receipt", { command: receipt.command, outcome: receipt.outcome, opId: receipt.opId })}
           {receipt.nextAction !== null ? ` · ${receipt.nextAction}` : ""}
         </p>
@@ -356,7 +356,7 @@ export function ScheduleDetailView({
                   setTab(item);
                   setConfirmDelete(false);
                 }}
-                className={`rounded-t border-b-2 px-3 py-1 text-[12px] font-semibold ${
+                className={`rounded-t border-b-2 px-3 py-1 ui-meta font-semibold ${
                   tab === item
                     ? "border-accent bg-surface-raised text-accent"
                     : "border-transparent text-text-muted hover:text-text"
@@ -504,13 +504,13 @@ function ScheduleOverviewTab({
             <CardTitle>{t("schedules.detail.purpose.title")}</CardTitle>
           </CardHead>
           <CardBody>
-            <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-text">{row.mission}</p>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+            <p className="whitespace-pre-wrap ui-meta leading-relaxed text-text">{row.mission}</p>
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
               <ModeBadge mode={mode} />
               <span>{t("schedules.detail.purpose.modeLine")}</span>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
-              <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-text-faint">
+            <div className="mt-1.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
+              <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
                 {t("schedules.detail.routing.title")}
               </span>
               <span>{t("schedules.detail.routing.ternary")}</span>
@@ -561,7 +561,7 @@ function ScheduleOverviewTab({
                   type="button"
                   data-testid={`schedule-agent-link-${agentTarget.agentId}`}
                   onClick={() => onSelectEntity(`agent/${agentTarget.agentId}`)}
-                  className="font-mono text-[11px] text-accent hover:underline"
+                  className="font-mono ui-micro text-accent hover:underline"
                 >
                   {t("schedules.fields.agent")}: {agentTarget.agentId}
                 </button>
@@ -569,7 +569,7 @@ function ScheduleOverviewTab({
                   type="button"
                   data-testid={`schedule-instance-link-${agentTarget.runtimeInstanceId}`}
                   onClick={() => onSelectEntity(`provider/${agentTarget.runtimeInstanceId}`)}
-                  className="font-mono text-[11px] text-accent hover:underline"
+                  className="font-mono ui-micro text-accent hover:underline"
                 >
                   {t("schedules.fields.instance")}: {agentTarget.runtimeInstanceId}
                 </button>
@@ -679,7 +679,7 @@ function ScheduleRunsTab({
         {missed > 0 && <Chip>{t("schedules.runs.missedCount", { count: String(missed) })}</Chip>}
       </div>
       {pendingBackend && (
-        <div className="mb-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">
+        <div className="mb-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
           {t("schedules.runs.pendingBackend")}
           {error !== null ? ` · ${error}` : ""}
         </div>
@@ -704,13 +704,13 @@ function ScheduleRunsTab({
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge status={meta.tone}>{t(meta.key)}</Badge>
                   {aggregate ? (
-                    <span className="font-mono text-[11px] text-text-faint">{t("schedules.runs.missedAggregate")}</span>
+                    <span className="font-mono ui-micro text-text-faint">{t("schedules.runs.missedAggregate")}</span>
                   ) : (
                     <button
                       type="button"
                       data-testid={`schedule-run-open-${occurrence.occurrenceId}`}
                       onClick={() => onOpenRun(occurrence.occurrenceId)}
-                      className="font-mono text-[11px] font-semibold text-text hover:text-accent"
+                      className="font-mono ui-micro font-semibold text-text hover:text-accent"
                     >
                       {occurrence.occurrenceId}
                     </button>
@@ -721,18 +721,18 @@ function ScheduleRunsTab({
                       node {occurrence.nodeId}
                     </Chip>
                   )}
-                  <span className="text-[11px] text-text-faint">
+                  <span className="ui-micro text-text-faint">
                     {time(occurrence.endedAt ?? occurrence.scheduledFor)}
                     {occurrence.outcome === "running" ? "" : ` · ${formatDurationMs(occurrence.durationMs)}`}
                   </span>
                   <span className="flex-1" />
                   {occurrence.outcome === "missed" ? (
-                    <span className="text-[11px] text-status-planned">
+                    <span className="ui-micro text-status-planned">
                       {t("schedules.runs.notRun")}
                       {occurrence.missedReason !== null ? ` · ${missedReasonLabel(occurrence.missedReason)}` : ""}
                     </span>
                   ) : (
-                    <span className="text-[11px] text-text-faint">
+                    <span className="ui-micro text-text-faint">
                       {occurrence.reportRef !== null
                         ? t("schedules.runs.outputReport")
                         : occurrence.detail !== null
@@ -784,8 +784,8 @@ function ScheduleDangerTab({
         />
       </div>
       <div className="rounded border border-danger/40 px-3 py-2.5">
-        <b className="text-[12px] text-danger">{t("schedules.action.delete")}</b>
-        <p className="mt-1 text-[11.5px] text-text-muted">{t("schedules.deletePrompt")}</p>
+        <b className="ui-meta text-danger">{t("schedules.action.delete")}</b>
+        <p className="mt-1 ui-micro text-text-muted">{t("schedules.deletePrompt")}</p>
         {!confirmDelete ? (
           <Btn
             size="sm"
@@ -800,7 +800,7 @@ function ScheduleDangerTab({
           </Btn>
         ) : (
           <span className="flex flex-wrap items-center gap-2" data-testid="schedule-delete-confirmation">
-            <span className="text-[11px] text-status-blocked">{t("schedules.deletePrompt")}</span>
+            <span className="ui-micro text-status-blocked">{t("schedules.deletePrompt")}</span>
             <Btn size="sm" disabled={busy} onClick={() => onConfirmDelete(false)}>
               {t("schedules.action.cancelDelete")}
             </Btn>
@@ -830,7 +830,7 @@ function ScheduleRunDetailView({
     <div data-testid="schedule-run-detail" className="mt-3">
       <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2.5">
         <Badge status={meta.tone}>{t(meta.key)}</Badge>
-        <b className="font-mono text-[13px]">{occurrence.occurrenceId}</b>
+        <b className="font-mono ui-body">{occurrence.occurrenceId}</b>
         {occurrence.kind !== null && <Chip tone="mono">{occurrence.kind}</Chip>}
         <span className="flex-1" />
         <Hint>
@@ -840,7 +840,7 @@ function ScheduleRunDetailView({
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-[5fr_7fr]">
         <div className="min-w-0">
-          <h4 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+          <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
             {t("schedules.run.session.title")}
           </h4>
           {/* M4: the run session is embedded here — occurrence replay through the
@@ -861,7 +861,7 @@ function ScheduleRunDetailView({
           {scheduleRowTargetKind(row) === "agent" && <Hint>{t("schedules.run.session.squadNote")}</Hint>}
         </div>
         <div className="min-w-0">
-          <h4 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+          <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
             {t("schedules.run.artifacts.title")}
           </h4>
           {occurrence.reportRef === null && occurrence.detail === null ? (
@@ -898,11 +898,11 @@ function ScheduleRunDetailView({
             </KVRow>
             <KVRow name={t("schedules.fields.claimedAt")}>{time(occurrence.claimedAt)}</KVRow>
           </KV>
-          <h4 className="mb-1.5 mt-3 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+          <h4 className="mb-1.5 mt-3 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
             {t("schedules.run.routing.title")}
           </h4>
           <div className="rounded border border-border bg-surface-raised px-2.5 py-2">
-            <ol className="ml-4 list-decimal text-[11.5px] text-text-muted">
+            <ol className="ml-4 list-decimal ui-micro text-text-muted">
               <li>{t("schedules.run.routing.step1")}</li>
               <li>{t("schedules.run.routing.step2")}</li>
               <li>{t("schedules.run.routing.step3")}</li>
@@ -927,10 +927,10 @@ function ArtifactRow({
   return (
     <div
       data-testid={testId}
-      className="mb-1.5 flex items-start gap-2 rounded border border-border px-2.5 py-1.5 text-[11.5px]"
+      className="mb-1.5 flex items-start gap-2 rounded border border-border px-2.5 py-1.5 ui-micro"
     >
       <b className="shrink-0">{title}</b>
-      <span className="min-w-0 flex-1 break-all font-mono text-[10.5px] text-text-faint">{artifactRef}</span>
+      <span className="min-w-0 flex-1 break-all font-mono ui-micro text-text-faint">{artifactRef}</span>
     </div>
   );
 }
@@ -944,11 +944,11 @@ function ArtifactRow({
 export function ScheduleSquadLanes({ run }: { readonly run: SquadRunReadResult["run"] }) {
   return (
     <div data-testid="schedule-run-squad-lanes" className="mt-2 rounded border border-border px-2.5 py-2">
-      <b className="text-[12px]">{t("schedules.run.squad.leaderTurns", { count: String(run.leaderTurns.length) })}</b>
+      <b className="ui-meta">{t("schedules.run.squad.leaderTurns", { count: String(run.leaderTurns.length) })}</b>
       <ol className="mt-1 space-y-1">
         {run.leaderTurns.map((turn) => (
-          <li key={turn.turnId} className="rounded border border-border px-2 py-1 text-[11px]">
-            <span className="font-mono text-[10.5px] text-text-muted">{turn.turnId}</span>{" "}
+          <li key={turn.turnId} className="rounded border border-border px-2 py-1 ui-micro">
+            <span className="font-mono ui-micro text-text-muted">{turn.turnId}</span>{" "}
             <Chip tone="mono">{turn.trigger.kind}</Chip>{" "}
             {turn.decision !== null && (
               <Chip tone="mono">
@@ -963,13 +963,13 @@ export function ScheduleSquadLanes({ run }: { readonly run: SquadRunReadResult["
           </li>
         ))}
       </ol>
-      <b className="mt-2 block text-[12px]">
+      <b className="mt-2 block ui-meta">
         {t("schedules.run.squad.workerAttempts", { count: String(run.workerAttempts.length) })}
       </b>
       <ol className="mt-1 space-y-1">
         {run.workerAttempts.map((attempt) => (
-          <li key={attempt.attemptId} className="rounded border border-border px-2 py-1 text-[11px]">
-            <span className="font-mono text-[10.5px] text-text-muted">{attempt.workerId}</span>{" "}
+          <li key={attempt.attemptId} className="rounded border border-border px-2 py-1 ui-micro">
+            <span className="font-mono ui-micro text-text-muted">{attempt.workerId}</span>{" "}
             <Chip tone="mono">{attempt.status ?? "—"}</Chip>{" "}
             <Hint>
               {attempt.startedAt ?? "—"} → {attempt.endedAt ?? "—"}
@@ -983,7 +983,7 @@ export function ScheduleSquadLanes({ run }: { readonly run: SquadRunReadResult["
 
 function ScheduleSquadLanesPlaceholder({ squadRunId }: { readonly squadRunId: string }) {
   return (
-    <div className="mt-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">
+    <div className="mt-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
       {t("schedules.run.squad.pendingJoin", { squadRunId })}
     </div>
   );

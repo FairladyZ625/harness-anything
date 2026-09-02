@@ -13,7 +13,7 @@ const timeOf = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-border px-4 py-3">
-      <div className="mb-2 font-mono text-[12px] uppercase tracking-wide text-text-faint">{title}</div>
+      <div className="mb-2 font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</div>
       {children}
     </section>
   );
@@ -73,17 +73,17 @@ export function TaskPreviewDrawer({
                   entityRef={`task/${task.taskId}`}
                   onNavigate={() => onOpenDetail(task.taskId)}
                   title={task.taskId}
-                  className="font-mono text-[13px] text-text-faint hover:text-accent hover:underline"
+                  className="font-mono ui-body text-text-faint hover:text-accent hover:underline"
                 />
                 <EngineBadge engine={task.engine} locked={isExternal(task)} />
                 {isExternal(task) && (
-                  <span className="inline-flex items-center gap-1 text-[12px] text-text-faint">
+                  <span className="inline-flex items-center gap-1 ui-meta text-text-faint">
                     <Lock weight="bold" />
                     {t("components.taskPreviewDrawer.readOnlySource")}
                   </span>
                 )}
               </div>
-              <h2 className="mt-2 text-[20px] font-semibold leading-tight text-text">{task.title}</h2>
+              <h2 className="mt-2 ui-heading font-semibold leading-tight text-text">{task.title}</h2>
             </div>
             {onSetPin && (
               <button
@@ -110,12 +110,12 @@ export function TaskPreviewDrawer({
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusBadge status={task.coordinationStatus} />
             {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-              <span className="font-mono text-[11px] text-status-blocked">
+              <span className="font-mono ui-micro text-status-blocked">
                 {t("components.taskPreviewDrawer.canonical")} {task.canonicalStatus}
               </span>
             )}
             {task.blocking === "unknown" && (
-              <span className="text-[11px] text-stale">{t("components.taskPreviewDrawer.blockingUnknown")}</span>
+              <span className="ui-micro text-stale">{t("components.taskPreviewDrawer.blockingUnknown")}</span>
             )}
             <CloseoutBadge value={task.closeoutReadiness} />
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
@@ -124,9 +124,9 @@ export function TaskPreviewDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <Section title={t("components.taskPreviewDrawer.context")}>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[14px]">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 ui-body">
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.module")}</dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.module")}</dt>
                 <dd className="font-mono text-text">
                   {task.module === "unassigned" || !task.module
                     ? t("components.taskPreviewDrawer.notProjected")
@@ -134,29 +134,25 @@ export function TaskPreviewDrawer({
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.rawStatus")}</dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.rawStatus")}</dt>
                 <dd className="font-mono text-text">{task.rawStatus}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.package")}</dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.package")}</dt>
                 <dd className="font-mono text-text">{task.packageDisposition}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">{t("components.taskPreviewDrawer.source")}</dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.source")}</dt>
                 <dd className="font-mono text-text">{task.origin ?? task.source}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">
-                  {t("components.taskPreviewDrawer.productLines")}
-                </dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.productLines")}</dt>
                 <dd className="font-mono text-text">
                   {task.productLines?.join(", ") || t("components.taskPreviewDrawer.notProjected")}
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-[12px] text-text-faint">
-                  {t("components.taskPreviewDrawer.parentRoot")}
-                </dt>
+                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.parentRoot")}</dt>
                 <dd className="font-mono text-text">
                   {task.parentTaskId ? (
                     <EntityRefLink
@@ -191,20 +187,20 @@ export function TaskPreviewDrawer({
 
           <Section title={t("components.taskPreviewDrawer.gates")}>
             {task.gates.length === 0 ? (
-              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.thereNoGateRecordYet")}</p>
+              <p className="ui-body text-text-faint">{t("components.taskPreviewDrawer.thereNoGateRecordYet")}</p>
             ) : (
               <div className="space-y-2">
                 {task.gates.map((gate) => (
                   <div key={gate.name} className="flex items-start gap-2 rounded-md bg-surface-raised px-3 py-2">
                     {gate.ok ? (
-                      <CheckCircle weight="duotone" className="mt-0.5 shrink-0 text-[16px] text-status-done" />
+                      <CheckCircle weight="duotone" className="mt-0.5 shrink-0 ui-title text-status-done" />
                     ) : (
-                      <XCircle weight="duotone" className="mt-0.5 shrink-0 text-[16px] text-danger" />
+                      <XCircle weight="duotone" className="mt-0.5 shrink-0 ui-title text-danger" />
                     )}
                     <div className="min-w-0">
-                      <div className="font-mono text-[14px] text-text">{gate.name}</div>
+                      <div className="font-mono ui-body text-text">{gate.name}</div>
                       {gate.detail && (
-                        <div className={`mt-0.5 text-[13px] ${gate.ok ? "text-text-faint" : "text-danger"}`}>
+                        <div className={`mt-0.5 ui-body ${gate.ok ? "text-text-faint" : "text-danger"}`}>
                           {gate.detail}
                         </div>
                       )}
@@ -217,20 +213,20 @@ export function TaskPreviewDrawer({
 
           <Section title={t("components.taskPreviewDrawer.closingMaterial")}>
             {task.docs.length === 0 ? (
-              <p className="text-[14px] text-stale">{t("components.taskPreviewDrawer.documentListUnavailable")}</p>
+              <p className="ui-body text-stale">{t("components.taskPreviewDrawer.documentListUnavailable")}</p>
             ) : missingDocs.length === 0 ? (
-              <p className="text-[14px] text-text-muted">
+              <p className="ui-body text-text-muted">
                 {t("components.taskPreviewDrawer.requiredDocumentationComplete")}
               </p>
             ) : (
               <div className="space-y-1.5">
                 {missingDocs.map((doc) => (
                   <div key={doc.path} className="flex items-center gap-2 rounded-md bg-surface-raised px-3 py-2">
-                    <span className="font-mono text-[13px] text-danger">
+                    <span className="font-mono ui-body text-danger">
                       {t("components.taskPreviewDrawer.missingDocument")}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[14px]">{doc.title}</span>
-                    <span className="font-mono text-[12px] text-text-faint">{doc.path}</span>
+                    <span className="min-w-0 flex-1 truncate ui-body">{doc.title}</span>
+                    <span className="font-mono ui-meta text-text-faint">{doc.path}</span>
                   </div>
                 ))}
               </div>
@@ -239,7 +235,7 @@ export function TaskPreviewDrawer({
 
           <Section title={t("components.taskPreviewDrawer.associatedTasks")}>
             {related.length === 0 ? (
-              <p className="text-[14px] text-text-faint">
+              <p className="ui-body text-text-faint">
                 {t("components.taskPreviewDrawer.thereCurrentlyNoRelatedEdges")}
               </p>
             ) : (
@@ -250,9 +246,9 @@ export function TaskPreviewDrawer({
                     onClick={() => onPreviewTask(relatedTask!.taskId)}
                     className="flex w-full items-center gap-2 rounded-md bg-surface-raised px-3 py-2 text-left hover:bg-bg"
                   >
-                    <span className="font-mono text-[12px] text-text-faint">{edge.kind}</span>
-                    <span className="font-mono text-[13px] text-text">{relatedTask!.taskId}</span>
-                    <span className="min-w-0 flex-1 truncate text-[14px] text-text-muted">{relatedTask!.title}</span>
+                    <span className="font-mono ui-meta text-text-faint">{edge.kind}</span>
+                    <span className="font-mono ui-body text-text">{relatedTask!.taskId}</span>
+                    <span className="min-w-0 flex-1 truncate ui-body text-text-muted">{relatedTask!.title}</span>
                   </button>
                 ))}
               </div>
@@ -261,15 +257,15 @@ export function TaskPreviewDrawer({
 
           <Section title={t("components.taskPreviewDrawer.recentEvents")}>
             {orderedEvents.length === 0 ? (
-              <p className="text-[14px] text-text-faint">{t("components.taskPreviewDrawer.noEventsYet")}</p>
+              <p className="ui-body text-text-faint">{t("components.taskPreviewDrawer.noEventsYet")}</p>
             ) : (
               <div className="space-y-2">
                 {orderedEvents.map((event) => (
                   <div
                     key={`${event.at}-${event.summary}`}
-                    className="text-[14px] [contain-intrinsic-size:auto_1.25rem] [content-visibility:auto]"
+                    className="ui-body [contain-intrinsic-size:auto_1.25rem] [content-visibility:auto]"
                   >
-                    <span className="font-mono text-[12px] text-text-faint">{timeOf(event.at)}</span>
+                    <span className="font-mono ui-meta text-text-faint">{timeOf(event.at)}</span>
                     <span className="ml-2 text-text-muted">{event.summary}</span>
                   </div>
                 ))}
@@ -281,14 +277,14 @@ export function TaskPreviewDrawer({
         <footer className="flex items-center gap-2 border-t border-border px-4 py-3">
           <button
             onClick={() => onOpenDetail(task.taskId)}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-[15px] font-semibold text-accent-fg"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 ui-prose font-semibold text-accent-fg"
           >
             <ArrowSquareOut weight="bold" />
             {t("components.taskPreviewDrawer.openFullDetails")}
           </button>
           <button
             onClick={onClose}
-            className="rounded-md border border-border px-3 py-2 text-[15px] text-text-muted hover:bg-surface-raised hover:text-text"
+            className="rounded-md border border-border px-3 py-2 ui-prose text-text-muted hover:bg-surface-raised hover:text-text"
           >
             {t("components.taskPreviewDrawer.close")}
           </button>

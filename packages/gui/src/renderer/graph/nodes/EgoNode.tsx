@@ -152,7 +152,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
                 (data.raw as TaskRow).pinned === true ? "text-accent" : "text-text-faint hover:text-text"
               }`}
             >
-              <PushPin weight={(data.raw as TaskRow).pinned === true ? "fill" : "bold"} className="text-[11px]" />
+              <PushPin weight={(data.raw as TaskRow).pinned === true ? "fill" : "bold"} className="ui-micro" />
             </button>
           )}
           {data.onRefocus && !focus && (
@@ -162,7 +162,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
               aria-label={data.refocusTitle ?? "设为画布中心"}
               className="grid size-5 place-items-center rounded text-text-muted hover:bg-surface-raised hover:text-text"
             >
-              <Crosshair weight="bold" className="text-[11px]" />
+              <Crosshair weight="bold" className="ui-micro" />
             </button>
           )}
           {data.onNavigate && (
@@ -172,7 +172,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
               aria-label="详情"
               className="grid size-5 place-items-center rounded text-text-muted hover:bg-surface-raised hover:text-accent"
             >
-              <ArrowsOutSimple weight="bold" className="text-[11px]" />
+              <ArrowsOutSimple weight="bold" className="ui-micro" />
             </button>
           )}
           <button
@@ -181,7 +181,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
             aria-label="收起"
             className="grid size-5 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
           >
-            <X weight="bold" className="text-[11px]" />
+            <X weight="bold" className="ui-micro" />
           </button>
         </span>
       </div>
@@ -190,7 +190,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
         <p className="ui-body font-semibold leading-snug text-text">{data.label}</p>
         {entity === "task" && (data.raw as TaskRow).pinned === true && (
           <p className="ui-micro mt-0.5 flex items-center gap-1 font-mono text-text-faint">
-            <PushPin weight="fill" className="text-[10px] text-accent" />
+            <PushPin weight="fill" className="ui-micro text-accent" />
             台账 pinned · 恒在重点集
           </p>
         )}
@@ -237,7 +237,7 @@ function EgoTaskBody({ task }: { task: TaskRow }) {
 function EgoPinMark() {
   return (
     <span title="台账 pinned(在任务列表钉住)——恒在重点集,密度分层不折叠" className="flex shrink-0 items-center">
-      <PushPin weight="fill" className="text-[10px] text-accent" />
+      <PushPin weight="fill" className="ui-micro text-accent" />
     </span>
   );
 }

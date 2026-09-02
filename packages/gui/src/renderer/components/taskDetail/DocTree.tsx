@@ -37,7 +37,7 @@ export function DocTree({ nodes, activeDoc, onSelectDoc }: DocTreeProps) {
 
   if (nodes.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border px-2 py-3 text-[12px] text-text-faint">
+      <div className="rounded-md border border-dashed border-border px-2 py-3 ui-meta text-text-faint">
         {t("components.docTree.projectionDidNotReturnDocumentList")}
       </div>
     );
@@ -85,16 +85,16 @@ function TreeNodeView({
           type="button"
           onClick={() => onToggle(node.path)}
           aria-expanded={isExpanded}
-          className="flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left text-[12px] font-medium text-text-muted hover:text-text"
+          className="flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left ui-meta font-medium text-text-muted hover:text-text"
           style={{ paddingLeft: indent }}
         >
           {isExpanded ? (
-            <CaretDown weight="bold" className="shrink-0 text-[10px] text-text-faint" />
+            <CaretDown weight="bold" className="shrink-0 ui-micro text-text-faint" />
           ) : (
-            <CaretRight weight="bold" className="shrink-0 text-[10px] text-text-faint" />
+            <CaretRight weight="bold" className="shrink-0 ui-micro text-text-faint" />
           )}
           <span className="min-w-0 truncate">{node.name}/</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px] text-text-faint">{countDocs(node)}</span>
+          <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">{countDocs(node)}</span>
         </button>
         {isExpanded &&
           node.children.map((child) => (
@@ -120,7 +120,7 @@ function TreeNodeView({
       type="button"
       onClick={() => onSelectDoc(doc.path)}
       aria-current={activeDoc === doc.path ? "page" : undefined}
-      className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left text-[13px] ${
+      className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left ui-body ${
         activeDoc === doc.path ? "bg-surface-raised text-text" : "text-text-muted hover:text-text"
       }`}
       style={{ paddingLeft: indent + 14 }}
@@ -128,19 +128,19 @@ function TreeNodeView({
       <DocPresence doc={doc} />
       <span className="min-w-0 truncate">{doc.title}</span>
       {doc.required && (
-        <span className="shrink-0 rounded border border-border px-1 text-[9px] text-text-faint">
+        <span className="shrink-0 rounded border border-border px-1 ui-micro text-text-faint">
           {t("components.docTree.required")}
         </span>
       )}
       {!doc.present && doc.required && (
-        <span className="shrink-0 text-[10px]" style={{ color: "var(--color-danger)" }}>
+        <span className="shrink-0 ui-micro" style={{ color: "var(--color-danger)" }}>
           {t("components.docTree.missing")}
         </span>
       )}
       {doc.uncommitted && (
         <span
           data-testid={`doc-uncommitted-${doc.path}`}
-          className="shrink-0 rounded border border-status-blocked/50 px-1 font-mono text-[9px] text-status-blocked"
+          className="shrink-0 rounded border border-status-blocked/50 px-1 font-mono ui-micro text-status-blocked"
         >
           {t("components.docTree.uncommitted")}
         </span>

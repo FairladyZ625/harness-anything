@@ -291,17 +291,17 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
               />
             </Row>
             <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
-              <span className="font-mono text-[12px] text-text-muted">
+              <span className="font-mono ui-meta text-text-muted">
                 settings/{draft.settingsId} · {draft.schema}
               </span>
             </Row>
             {catalogQuery.error ? (
-              <div className="px-3 py-2 text-[12px] text-danger">
+              <div className="px-3 py-2 ui-meta text-danger">
                 {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
               </div>
             ) : null}
             {settingsMutation.error ? (
-              <div className="px-3 py-2 text-[12px] text-danger">{String(settingsMutation.error)}</div>
+              <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
             ) : null}
           </Section>
         );
@@ -328,7 +328,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
             >
               <select
                 aria-label={t("views.settingsView.timeZoneLabel")}
-                className="rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
+                className="rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
                 value={timeZoneOverride}
                 onChange={(event) => {
                   const next = event.currentTarget.value;
@@ -352,7 +352,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 {Object.entries(STATUS_META).map(([key, meta]) => (
                   <span key={key} className="inline-flex items-center gap-1">
                     <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
-                    <span className="font-mono text-[12px] text-text-muted">{meta.label}</span>
+                    <span className="font-mono ui-meta text-text-muted">{meta.label}</span>
                   </span>
                 ))}
               </div>
@@ -365,7 +365,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
             <Row label={t("settings.language")} desc={t("views.settingsView.languageDescription")}>
               <select
                 aria-label={t("views.settingsView.tabLanguage")}
-                className="rounded border border-border bg-surface-raised px-2 py-1 text-[12px] text-text"
+                className="rounded border border-border bg-surface-raised px-2 py-1 ui-meta text-text"
                 value={locale}
                 onChange={(event) => {
                   const next = event.currentTarget.value as "zh-CN" | "en-US";
@@ -379,7 +379,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
               </select>
             </Row>
             {settingsMutation.error ? (
-              <div className="px-3 py-2 text-[12px] text-danger">{String(settingsMutation.error)}</div>
+              <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
             ) : null}
           </Section>
         );
@@ -401,7 +401,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                 <span className="flex w-28 shrink-0 items-center gap-1">
                   {s.keys.map((k, i) => (
                     <span key={k} className="inline-flex items-center gap-1">
-                      {i > 0 && <span className="text-[11px] text-text-faint">–</span>}
+                      {i > 0 && <span className="ui-micro text-text-faint">–</span>}
                       <Kbd>{k}</Kbd>
                     </span>
                   ))}
@@ -429,7 +429,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
               label={t("views.settingsView.cacheDirectoryLabel")}
               desc={t("views.settingsView.cacheDirectoryDescription")}
             >
-              <span className="max-w-full break-all font-mono text-[11px] text-text-muted">
+              <span className="max-w-full break-all font-mono ui-micro text-text-muted">
                 .harness/cache/task.sqlite
               </span>
             </Row>
@@ -447,13 +447,13 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
         return (
           <Section title={t("views.settingsView.sectionTerminal")}>
             <Row label={t("views.settingsView.defaultShellLabel")}>
-              <span className="font-mono text-[13px] text-text-muted">/bin/zsh</span>
+              <span className="font-mono ui-body text-text-muted">/bin/zsh</span>
             </Row>
             <Row label={t("views.settingsView.fontLabel")}>
-              <span className="font-mono text-[13px] text-text-muted">Geist Mono</span>
+              <span className="font-mono ui-body text-text-muted">Geist Mono</span>
             </Row>
             <Row label={t("views.settingsView.fontSizeLabel")}>
-              <span className="font-mono text-[13px] text-text-muted">15</span>
+              <span className="font-mono ui-body text-text-muted">15</span>
             </Row>
           </Section>
         );
@@ -485,7 +485,7 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   "text-text-faint last:border-b-0",
                 ].join(" ")}
               >
-                <span className="font-mono text-[12px]">·</span>
+                <span className="font-mono ui-meta">·</span>
                 {t(featureKey)}
               </div>
             ))}
@@ -521,8 +521,8 @@ export function SettingsView({ repoId }: { readonly repoId: string }) {
                   : "text-text-muted hover:bg-surface-raised/50 hover:text-text"
               }`}
             >
-              <span className="text-[14px] font-semibold">{t(tab.labelKey)}</span>
-              <span className="mt-0.5 hidden text-[12px] text-text-faint lg:block">{t(tab.descKey)}</span>
+              <span className="ui-body font-semibold">{t(tab.labelKey)}</span>
+              <span className="mt-0.5 hidden ui-meta text-text-faint lg:block">{t(tab.descKey)}</span>
             </button>
           ))}
         </nav>
@@ -555,7 +555,7 @@ function SettingSelect({
       disabled={disabled}
       className={[
         "w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1",
-        "font-mono text-[12px] text-text disabled:cursor-not-allowed disabled:opacity-40",
+        "font-mono ui-meta text-text disabled:cursor-not-allowed disabled:opacity-40",
       ].join(" ")}
       value={value}
       onChange={(event) => onChange(event.currentTarget.value)}
@@ -587,7 +587,7 @@ function SettingNumberInput({
       type="number"
       min={1}
       step={1}
-      className="w-36 rounded border border-border bg-surface-raised px-2 py-1 font-mono text-[12px] text-text"
+      className="w-36 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
       value={value}
       onChange={(event) => {
         const next = Number(event.currentTarget.value);

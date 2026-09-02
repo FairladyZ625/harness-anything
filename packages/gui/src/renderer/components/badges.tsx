@@ -83,13 +83,13 @@ export function StatusBadge({ status }: { status: SnapshotStatus }) {
   const meta = STATUS_META[status];
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[13px] font-medium"
+      className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 ui-body font-medium"
       style={{
         color: meta.color,
         background: `color-mix(in oklch, ${meta.color} 12%, transparent)`,
       }}
     >
-      <span className="text-[14px]">{meta.icon}</span>
+      <span className="ui-body">{meta.icon}</span>
       {meta.label}
     </span>
   );
@@ -109,18 +109,18 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
   const meta = CLOSEOUT_META[value];
   if (meta.accent) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 text-[13px] font-semibold text-accent-fg">
-        <span className="text-[14px]">{meta.icon}</span>
+      <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 ui-body font-semibold text-accent-fg">
+        <span className="ui-body">{meta.icon}</span>
         {meta.label}
       </span>
     );
   }
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-0.5 text-[13px] font-medium"
+      className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-0.5 ui-body font-medium"
       style={{ color: meta.tone === "danger" ? "var(--color-danger)" : "var(--color-text-muted)" }}
     >
-      <span className="text-[14px]">{meta.icon}</span>
+      <span className="ui-body">{meta.icon}</span>
       {meta.label}
     </span>
   );
@@ -135,8 +135,8 @@ const ENGINE_LABEL: Record<string, string> = {
 
 export function EngineBadge({ engine, locked }: { engine: EngineId; locked: boolean }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono text-[12px] text-text-muted">
-      {locked && <Lock weight="bold" className="text-[12px]" />}
+    <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono ui-meta text-text-muted">
+      {locked && <Lock weight="bold" className="ui-meta" />}
       {ENGINE_LABEL[engine] ?? engine}
     </span>
   );
@@ -148,14 +148,14 @@ export function FreshnessTag({ freshness, lastKnownAt }: { freshness: Freshness;
   if (freshness === "fresh") return null;
   if (freshness === "stale-but-usable") {
     return (
-      <span className="inline-flex items-center gap-1 font-mono text-[12px] text-stale">
+      <span className="inline-flex items-center gap-1 font-mono ui-meta text-stale">
         <ClockCounterClockwise weight="bold" />
         {t("components.badges.lastKnown")} {timeOf(lastKnownAt)}
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 font-mono text-[12px] text-danger">
+    <span className="inline-flex items-center gap-1 font-mono ui-meta text-danger">
       <WarningCircle weight="bold" />
       {t("components.badges.agnosticNoCaching")}
     </span>
@@ -212,8 +212,8 @@ const DECISION_STATE_META: Record<DecisionState, { icon: ReactNode; cls: string;
 export function DecisionStateBadge({ state }: { state: DecisionState }) {
   const meta = DECISION_STATE_META[state];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12px] font-semibold ${meta.cls}`}>
-      <span className="text-[13px]">{meta.icon}</span>
+    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 ui-meta font-semibold ${meta.cls}`}>
+      <span className="ui-body">{meta.icon}</span>
       {meta.label}
     </span>
   );
@@ -234,10 +234,10 @@ export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
   const m = tier ? RISK_META[tier] : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
   return (
     <span
-      className={`inline-flex items-center gap-1 font-mono text-[12px] ${m.cls}`}
+      className={`inline-flex items-center gap-1 font-mono ui-meta ${m.cls}`}
       title={t("components.badges.riskSignificanceDepthReview")}
     >
-      <Scales weight="bold" className="text-[12px]" />
+      <Scales weight="bold" className="ui-meta" />
       {m.label}
     </span>
   );
@@ -255,10 +255,10 @@ export function UrgencyBadge({ urgency }: { urgency?: Urgency }) {
     : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
   return (
     <span
-      className={`inline-flex items-center gap-1 font-mono text-[12px] ${m.cls}`}
+      className={`inline-flex items-center gap-1 font-mono ui-meta ${m.cls}`}
       title={t("components.badges.urgentQueueQueue")}
     >
-      <Lightning weight="bold" className="text-[12px]" />
+      <Lightning weight="bold" className="ui-meta" />
       {m.label}
     </span>
   );
@@ -277,7 +277,7 @@ export function DecisionSourceBadge({
   onNavigate?: () => void;
 }) {
   const className = `inline-flex max-w-full items-center gap-1 rounded border border-accent/30 bg-accent/10 font-mono font-semibold text-accent ${
-    compact ? "px-1.5 py-px text-[11px]" : "px-2 py-0.5 text-[12px]"
+    compact ? "px-1.5 py-px ui-micro" : "px-2 py-0.5 ui-meta"
   }${onNavigate ? " cursor-pointer hover:border-accent/60 hover:bg-accent/15" : ""}`;
   const tooltip = title
     ? t("components.badges.derivedFromDecisionIdTitle", { decisionId, title })
@@ -291,14 +291,14 @@ export function DecisionSourceBadge({
         title={t("components.badges.tooltipClickJump", { tooltip })}
         className={className}
       >
-        <Scales weight="bold" className={compact ? "text-[11px]" : "text-[12px]"} />
+        <Scales weight="bold" className={compact ? "ui-micro" : "ui-meta"} />
         {t("components.badges.derivedFrom2")} {decisionId}
       </button>
     );
   }
   return (
     <span title={tooltip} className={className}>
-      <Scales weight="bold" className={compact ? "text-[11px]" : "text-[12px]"} />
+      <Scales weight="bold" className={compact ? "ui-micro" : "ui-meta"} />
       {t("components.badges.derivedFrom")} {decisionId}
     </span>
   );

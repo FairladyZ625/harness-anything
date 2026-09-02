@@ -29,20 +29,20 @@ export function ParticipantsSidebar({
     : participants;
 
   return (
-    <aside className="flex w-[240px] shrink-0 flex-col border-r border-border bg-surface">
+    <aside className="flex basis-1/5 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <ListChecks weight="duotone" className="text-text-muted" />
-        <span className="font-mono text-[11px] font-semibold text-text">参与者</span>
-        <span className="ml-auto font-mono text-[11px] text-text-faint">{participants.length}</span>
+        <span className="font-mono ui-micro font-semibold text-text">参与者</span>
+        <span className="ml-auto font-mono ui-micro text-text-faint">{participants.length}</span>
       </div>
       <div className="border-b border-border px-2 py-1.5">
         <div className="flex items-center gap-1.5 rounded border border-border bg-surface-raised px-2 py-1">
-          <MagnifyingGlass weight="bold" className="text-[11px] text-text-faint" />
+          <MagnifyingGlass weight="bold" className="ui-micro text-text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索换焦点…"
-            className="flex-1 bg-transparent text-[11px] text-text outline-none placeholder:text-text-faint"
+            className="flex-1 bg-transparent ui-micro text-text outline-none placeholder:text-text-faint"
           />
         </div>
       </div>
@@ -61,18 +61,18 @@ export function ParticipantsSidebar({
                 active ? "bg-surface-raised ring-1 ring-accent/40" : "hover:bg-surface-raised"
               }`}
             >
-              <span className="line-clamp-2 text-[11px] font-medium text-text">{d.title}</span>
+              <span className="line-clamp-2 ui-micro font-medium text-text">{d.title}</span>
               <div className="flex items-center gap-1.5">
                 <DecisionStateBadge state={d.state} />
-                <span className="font-mono text-[11px] text-text-faint">{dayKeyOf(d)}</span>
+                <span className="font-mono ui-micro text-text-faint">{dayKeyOf(d)}</span>
                 {size > 0 && (
-                  <span className="ml-auto rounded bg-surface px-1 font-mono text-[11px] text-text-faint">±{size}</span>
+                  <span className="ml-auto rounded bg-surface px-1 font-mono ui-micro text-text-faint">±{size}</span>
                 )}
               </div>
             </button>
           );
         })}
-        {filtered.length === 0 && <span className="px-2 py-4 text-center text-[11px] text-text-faint">无匹配</span>}
+        {filtered.length === 0 && <span className="px-2 py-4 text-center ui-micro text-text-faint">无匹配</span>}
       </div>
     </aside>
   );

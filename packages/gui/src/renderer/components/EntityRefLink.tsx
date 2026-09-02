@@ -33,7 +33,7 @@ export function EntityRefLink({
       type="button"
       onClick={() => onNavigate(entityRef)}
       title={title ?? entityRef}
-      className={className ?? "font-mono text-[11px] text-accent hover:underline"}
+      className={className ?? "font-mono ui-micro text-accent hover:underline"}
     >
       {children ?? entityRef}
     </button>

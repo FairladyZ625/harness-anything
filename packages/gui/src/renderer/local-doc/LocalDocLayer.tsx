@@ -57,18 +57,18 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface px-3 py-2">
           <FileText weight="duotone" className="shrink-0 text-text-muted" />
-          <span className="shrink-0 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-text-faint">
+          <span className="shrink-0 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
             {t("components.localDoc.title")}
           </span>
           <span
-            className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted"
+            className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted"
             data-testid="local-doc-path"
             title={path}
           >
             {query.data?.ok === true ? query.data.path : path}
           </span>
           {query.data?.ok === true && (
-            <span className="shrink-0 font-mono text-[10px] text-text-faint">
+            <span className="shrink-0 font-mono ui-micro text-text-faint">
               {t("components.localDoc.sizeBytes", { count: query.data.sizeBytes })}
             </span>
           )}
@@ -87,7 +87,7 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
           {query.isPending ? (
-            <p data-testid="local-doc-loading" className="font-mono text-[12px] text-text-faint">
+            <p data-testid="local-doc-loading" className="font-mono ui-meta text-text-faint">
               {t("components.localDoc.loading")}
             </p>
           ) : query.data === undefined || !query.data.ok ? (
@@ -107,7 +107,7 @@ function LocalDocOverlay({ path, onClose }: { readonly path: string; readonly on
               data-testid="local-doc-plain"
               className={
                 "whitespace-pre-wrap break-words rounded-md border border-border bg-surface p-4 " +
-                "font-mono text-[12px] leading-5 text-text"
+                "font-mono ui-meta leading-5 text-text"
               }
             >
               {query.data.content}
@@ -143,8 +143,8 @@ function LocalDocError({
       data-testid={`local-doc-error-${result.code}`}
       className="rounded-md border border-danger/40 bg-danger/5 px-4 py-3"
     >
-      <p className="text-[12px] font-medium text-danger">{message}</p>
-      <p className="mt-1 break-all font-mono text-[10px] text-text-faint">{result.path}</p>
+      <p className="ui-meta font-medium text-danger">{message}</p>
+      <p className="mt-1 break-all font-mono ui-micro text-text-faint">{result.path}</p>
     </div>
   );
 }

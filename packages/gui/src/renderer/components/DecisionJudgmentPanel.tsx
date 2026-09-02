@@ -85,7 +85,7 @@ export function DecisionJudgmentPanel({
               setError(null);
             }}
             disabled={pending}
-            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors duration-100 disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-border text-text hover:border-border-strong hover:bg-surface-raised"}`}
+            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 ui-meta font-semibold transition-colors duration-100 disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-border text-text hover:border-border-strong hover:bg-surface-raised"}`}
           >
             {item === "accept" ? (
               <CheckCircle weight="bold" />
@@ -100,7 +100,7 @@ export function DecisionJudgmentPanel({
       </div>
       {action && (
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2.5">
-          <label className="block text-[11px] font-semibold text-text-muted">
+          <label className="block ui-micro font-semibold text-text-muted">
             {t("views.decisionsVerdict.actionRationaleLabel", { action: t(actionLabel[action]) })}
           </label>
           <textarea
@@ -110,10 +110,10 @@ export function DecisionJudgmentPanel({
             rows={2}
             maxLength={199}
             disabled={pending}
-            className="mt-1 w-full rounded-md border border-border bg-surface p-2 text-[12px] leading-relaxed text-text outline-none transition-colors duration-100 focus:border-accent"
+            className="mt-1 w-full rounded-md border border-border bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-accent"
           />
           {action === "accept" && !evidenceReachable && (
-            <label className="mt-2 block text-[11px] font-semibold text-stale">
+            <label className="mt-2 block ui-micro font-semibold text-stale">
               {t("views.decisionsVerdict.judgmentOnlyRationaleLabel")}
               <textarea
                 value={judgmentOnly}
@@ -122,23 +122,23 @@ export function DecisionJudgmentPanel({
                 rows={2}
                 maxLength={199}
                 disabled={pending}
-                className="mt-1 w-full rounded-md border border-stale/50 bg-surface p-2 text-[12px] leading-relaxed text-text outline-none transition-colors duration-100 focus:border-stale"
+                className="mt-1 w-full rounded-md border border-stale/50 bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-stale"
               />
             </label>
           )}
-          {error && <div className="mt-1 text-[11px] text-danger">{error}</div>}
+          {error && <div className="mt-1 ui-micro text-danger">{error}</div>}
           <div className="mt-2 flex justify-end gap-2">
             <button
               onClick={() => setAction(null)}
               disabled={pending}
-              className="rounded-md px-2 py-1 text-[11px] text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+              className="rounded-md px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
             >
               取消
             </button>
             <button
               onClick={submit}
               disabled={pending}
-              className="rounded-md bg-accent px-3 py-1 text-[11px] font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
+              className="rounded-md bg-accent px-3 py-1 ui-micro font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
             >
               {t("views.decisionsVerdict.confirmAction", { action: t(actionLabel[action]) })}
             </button>

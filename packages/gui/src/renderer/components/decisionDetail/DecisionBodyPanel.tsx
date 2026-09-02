@@ -28,7 +28,7 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
   });
   if (query.isPending) {
     return (
-      <p data-testid="decision-body-loading" className="font-mono text-[12px] text-text-faint">
+      <p data-testid="decision-body-loading" className="font-mono ui-meta text-text-faint">
         {t("views.decisionDetailView.bodyLoading")}
       </p>
     );
@@ -37,7 +37,7 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
     return (
       <p
         data-testid="decision-body-error"
-        className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 font-mono text-[12px] text-danger"
+        className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2 font-mono ui-meta text-danger"
       >
         {t("views.decisionDetailView.bodyFailed", {
           detail: query.error instanceof Error ? query.error.message : String(query.error),
@@ -49,7 +49,7 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
     return (
       <p
         data-testid="decision-body-pending"
-        className="rounded-md border border-stale/40 bg-stale/5 px-3 py-2 font-mono text-[12px] text-stale"
+        className="rounded-md border border-stale/40 bg-stale/5 px-3 py-2 font-mono ui-meta text-stale"
       >
         {t("views.decisionDetailView.bodyPending")}
         {query.data.hint ? ` · ${query.data.hint}` : ""}
@@ -61,7 +61,7 @@ export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; deci
     return (
       <p
         data-testid="decision-body-unavailable"
-        className="rounded-md border border-border bg-surface-raised px-3 py-2 font-mono text-[12px] text-text-muted"
+        className="rounded-md border border-border bg-surface-raised px-3 py-2 font-mono ui-meta text-text-muted"
       >
         {t("views.decisionDetailView.bodyUnavailable")}
       </p>

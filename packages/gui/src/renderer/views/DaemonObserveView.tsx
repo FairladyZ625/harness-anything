@@ -45,24 +45,24 @@ const MODE_LABEL: Record<ObserveTailMode, () => string> = {
 
 // G36:长 Tailwind 串按段拼装,单行不超过 120 列;两处共用的工具按钮类只留一份。
 const PANE_TOOL_BUTTON = [
-  "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px]",
+  "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta",
   "text-text-muted hover:border-border-strong hover:text-text",
 ].join(" ");
 const PANE_STATUS_STRIP = [
   "flex items-center justify-between border-b border-border px-3 py-1",
-  "font-mono text-[10px] text-text-faint",
+  "font-mono ui-micro text-text-faint",
 ].join(" ");
 const PANE_FILTER_INPUT = [
-  "w-36 rounded border border-border-strong bg-surface px-2 py-1 font-mono text-[11px]",
+  "w-36 rounded border border-border-strong bg-surface px-2 py-1 font-mono ui-micro",
   "text-text outline-none focus-visible:border-accent",
 ].join(" ");
 const PANE_JUMP_BUTTON = [
   "inline-flex items-center justify-center gap-1 border-t border-border px-2 py-1",
-  "text-[11px] text-accent hover:bg-surface-raised",
+  "ui-micro text-accent hover:bg-surface-raised",
 ].join(" ");
 const kindOptionClass = (selected: boolean) =>
   [
-    "px-2.5 py-0.5 text-[11px]",
+    "px-2.5 py-0.5 ui-micro",
     selected ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface",
   ].join(" ");
 
@@ -98,17 +98,17 @@ export function DaemonObserveView({
         <h1 className="ui-title font-semibold">{t("shell.nav.daemonObserve")}</h1>
         {repoId ? (
           <span className="flex min-w-0 flex-col">
-            <span className="truncate font-mono text-[12px] text-text" title={repoId}>
+            <span className="truncate font-mono ui-meta text-text" title={repoId}>
               {label}
             </span>
             {repo?.canonicalRoot ? (
-              <span className="truncate font-mono text-[10px] text-text-faint" title={repo.canonicalRoot}>
+              <span className="truncate font-mono ui-micro text-text-faint" title={repo.canonicalRoot}>
                 {repo.canonicalRoot}
               </span>
             ) : null}
           </span>
         ) : (
-          <span className="font-mono text-[12px] text-status-blocked">{t("views.daemonObserve.repoMissing")}</span>
+          <span className="font-mono ui-meta text-status-blocked">{t("views.daemonObserve.repoMissing")}</span>
         )}
       </header>
       {repoId === null ? null : (
@@ -186,7 +186,7 @@ function DaemonTailPane({
       className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <h2 className="text-[13px] font-semibold">
+        <h2 className="ui-body font-semibold">
           {isLogPane ? t("views.daemonObserve.logTitle") : t("views.daemonObserve.eventsTitle")}
         </h2>
         {kindOptions && onKindChange ? (
@@ -207,7 +207,7 @@ function DaemonTailPane({
           </span>
         ) : null}
         {snapshot.mode === null ? null : (
-          <span className="font-mono text-[10px] text-text-faint" title={snapshot.mode}>
+          <span className="font-mono ui-micro text-text-faint" title={snapshot.mode}>
             {MODE_LABEL[snapshot.mode]()}
           </span>
         )}
@@ -249,7 +249,7 @@ function DaemonTailPane({
       {snapshot.status === "unavailable" ? (
         <p
           data-testid={`observe-unavailable-${kind}`}
-          className="border-b border-border bg-status-blocked/5 px-3 py-2 text-[12px] text-status-blocked"
+          className="border-b border-border bg-status-blocked/5 px-3 py-2 ui-meta text-status-blocked"
         >
           {t("views.daemonObserve.unavailableTitle")} {unavailableText(snapshot)}
         </p>
@@ -257,7 +257,7 @@ function DaemonTailPane({
       {snapshot.status === "gap" ? (
         <p
           data-testid={`observe-gap-${kind}`}
-          className="border-b border-border bg-stale/10 px-3 py-2 text-[12px] text-stale"
+          className="border-b border-border bg-stale/10 px-3 py-2 ui-meta text-stale"
         >
           {t("views.daemonObserve.gapTitle")} {gapText(snapshot)}
         </p>
@@ -265,7 +265,7 @@ function DaemonTailPane({
       {snapshot.status === "error" ? (
         <p
           data-testid={`observe-error-${kind}`}
-          className="border-b border-border bg-status-blocked/5 px-3 py-2 text-[12px] text-status-blocked"
+          className="border-b border-border bg-status-blocked/5 px-3 py-2 ui-meta text-status-blocked"
         >
           {t("views.daemonObserve.errorTitle")} {snapshot.error}
         </p>
@@ -293,7 +293,7 @@ function DaemonTailPane({
           }
         }}
         // 历史页在顶部插入后由上面的高度差显式恢复视口;关闭浏览器锚定以免双重补偿。
-        className="min-h-0 flex-1 overflow-y-auto py-1 font-mono text-[11px] leading-relaxed [overflow-anchor:none]"
+        className="min-h-0 flex-1 overflow-y-auto py-1 font-mono ui-micro leading-relaxed [overflow-anchor:none]"
       >
         {rows.length === 0 ? (
           snapshot.status === "live" || snapshot.status === "idle" ? (
@@ -339,7 +339,7 @@ function ObserveRowView({
     return (
       <li
         data-testid="observe-gap-marker"
-        className="my-1 border-y border-dashed border-stale/50 bg-stale/5 px-2 py-1 text-[10px] text-stale"
+        className="my-1 border-y border-dashed border-stale/50 bg-stale/5 px-2 py-1 ui-micro text-stale"
       >
         {t("views.daemonObserve.gapMarker", { fileId: row.gapMarker.requestedFileId })}
       </li>
@@ -362,7 +362,7 @@ function ObserveRowView({
             entityRef={chip.ref}
             onNavigate={onNavigateEntity}
             title={chip.ref}
-            className="inline-flex items-baseline gap-0.5 font-mono text-[10.5px] text-accent hover:underline"
+            className="inline-flex items-baseline gap-0.5 font-mono ui-micro text-accent hover:underline"
           >
             <span className="text-text-faint">{chip.kind}</span>
             <span className="max-w-[16ch] truncate">{chip.label}</span>

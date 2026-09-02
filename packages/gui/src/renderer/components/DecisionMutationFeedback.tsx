@@ -15,7 +15,7 @@ export function DecisionMutationFeedback({
         ? "border-danger/40 bg-danger/10 text-danger"
         : "border-stale/40 bg-stale/10 text-stale";
   return (
-    <div className={`mt-2 rounded-md border p-2 font-mono text-[11px] ${tone}`}>
+    <div className={`mt-2 rounded-md border p-2 font-mono ui-micro ${tone}`}>
       <div>
         {feedback.state} · {feedback.kind} · opId: {feedback.opId}
       </div>
@@ -28,13 +28,13 @@ export function DecisionMutationFeedback({
       {feedback.state === "pending" && feedback.opId !== "awaiting-receipt" && onCheckReceipt && (
         <button
           onClick={onCheckReceipt}
-          className="mt-1 rounded-md border border-current px-2 py-1 font-sans text-[11px] transition-colors duration-100 hover:bg-surface-raised/60"
+          className="mt-1 rounded-md border border-current px-2 py-1 font-sans ui-micro transition-colors duration-100 hover:bg-surface-raised/60"
         >
           receipt-show（不重放 mutation）
         </button>
       )}
       {feedback.receipt && (
-        <div className="mt-1 break-all text-[11px] opacity-80">
+        <div className="mt-1 break-all ui-micro opacity-80">
           consentId: {feedback.receipt.consentId ?? "proposal/N/A"} · path: {feedback.receipt.path ?? "—"}
           <br />
           commitSha: {feedback.receipt.commitSha ?? "—"} · documentSha256: {feedback.receipt.documentSha256 ?? "—"} ·

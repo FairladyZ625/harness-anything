@@ -40,7 +40,7 @@ export function RuntimeModelEditor({
       >
         {options.length ? (
           options.map((model) => (
-            <label key={model} className="flex items-center gap-2 text-[11px]">
+            <label key={model} className="flex items-center gap-2 ui-micro">
               <input
                 type="checkbox"
                 checked={effectiveModels.includes(model)}
@@ -51,11 +51,11 @@ export function RuntimeModelEditor({
             </label>
           ))
         ) : (
-          <span className="text-[11px] text-text-faint">{t("agentRuntime.modelDetectionUnavailable")}</span>
+          <span className="ui-micro text-text-faint">{t("agentRuntime.modelDetectionUnavailable")}</span>
         )}
       </div>
       {defaultModel !== undefined && onDefaultModelChange && (
-        <label className="grid gap-0.5 text-[11px] text-text-muted">
+        <label className="grid gap-0.5 ui-micro text-text-muted">
           {t("agentRuntime.defaultModel")}
           <select
             data-testid={`${testIdPrefix}-default-model`}

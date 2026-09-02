@@ -79,7 +79,7 @@ export function PresetDetailView({
             <ArrowLeft weight="bold" />
           </button>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-1 font-mono text-[9px] leading-3 text-text-faint">
+            <div className="flex min-w-0 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
               <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
                 {projectName}
               </button>
@@ -88,10 +88,10 @@ export function PresetDetailView({
                 {fromViewLabel}
               </button>
               <CaretRight weight="bold" className="shrink-0" />
-              <span className="truncate font-mono text-[9px] leading-3 text-text-muted">{presetId}</span>
+              <span className="truncate font-mono ui-micro leading-3 text-text-muted">{presetId}</span>
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">
-              <h1 className="truncate text-[16px] font-semibold leading-5 tracking-[-0.01em] text-text">
+              <h1 className="truncate ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
                 {row?.title ?? presetId}
               </h1>
               {row ? <PresetBadge value={row.sourceKind} /> : null}
@@ -102,7 +102,7 @@ export function PresetDetailView({
           <details className="group relative shrink-0">
             <summary
               className={[
-                "list-none rounded-md border border-border px-2 py-1.5 font-mono text-[10px] text-text-muted",
+                "list-none rounded-md border border-border px-2 py-1.5 font-mono ui-micro text-text-muted",
                 "hover:border-border-strong hover:bg-surface-raised hover:text-text",
                 "[&::-webkit-details-marker]:hidden",
               ].join(" ")}
@@ -132,10 +132,10 @@ export function PresetDetailView({
                   <PresetShaField name="resolved.digest" value={detail.data.resolved.digest} />
                 ) : (
                   <>
-                    <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">
+                    <dt className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">
                       DIGEST
                     </dt>
-                    <dd className="mt-1 font-mono text-[11px] text-text-faint">—</dd>
+                    <dd className="mt-1 font-mono ui-micro text-text-faint">—</dd>
                   </>
                 )}
               </div>
@@ -164,12 +164,12 @@ export function PresetDetailView({
               onClick={() => setActiveTab(tab.id)}
               onKeyDown={(event) => navigateTabs(event, index, setActiveTab)}
               className={[
-                "relative flex h-8 shrink-0 items-center gap-1 px-2 text-[11px] font-medium",
+                "relative flex h-8 shrink-0 items-center gap-1 px-2 ui-micro font-medium",
                 "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
                 active ? "text-text" : "text-text-faint hover:text-text-muted",
               ].join(" ")}
             >
-              <Icon weight={active ? "bold" : "regular"} className="text-[12px]" />
+              <Icon weight={active ? "bold" : "regular"} className="ui-meta" />
               {tab.id === "overview" ? t("views.presetDetailView.overviewTab") : t("views.presetDetailView.packageTab")}
               {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
             </button>
@@ -196,18 +196,18 @@ export function PresetDetailView({
             data-testid="preset-detail-panel-scroll"
           >
             {detail.isPending ? (
-              <p className="text-[12px] text-text-faint">{t("views.presetsView.resolving", { locale })}</p>
+              <p className="ui-meta text-text-faint">{t("views.presetsView.resolving", { locale })}</p>
             ) : detail.isError ? (
-              <p className="text-[12px] text-status-blocked">
+              <p className="ui-meta text-status-blocked">
                 {t("views.presetsView.unknownNotProjected")}:{" "}
                 {detail.error instanceof Error ? detail.error.message : t("views.presetsView.notSelected")}
               </p>
             ) : !detail.data ? (
-              <p className="text-[12px] text-text-faint">{t("views.presetsView.notSelected")}</p>
+              <p className="ui-meta text-text-faint">{t("views.presetsView.notSelected")}</p>
             ) : activeTab === "overview" ? (
               <PresetOverviewTab detail={detail.data} row={row} locale={locale} />
             ) : documents.length === 0 ? (
-              <p className="text-[12px] text-text-faint">{t("views.presetDetailView.noDocuments")}</p>
+              <p className="ui-meta text-text-faint">{t("views.presetDetailView.noDocuments")}</p>
             ) : activeDoc && documents.some((document) => document.path === activeDoc) ? (
               <PresetDocumentPanel document={documents.find((document) => document.path === activeDoc)!} />
             ) : (
@@ -231,8 +231,8 @@ function IdentityItem({
 }) {
   return (
     <div className={`min-w-0 border-r border-b border-border/70 px-3 py-2 ${wide ? "sm:col-span-2" : ""}`}>
-      <dt className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
-      <dd title={value} className="mt-1 min-w-0 truncate font-mono text-[11px] text-text-muted">
+      <dt className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">{label}</dt>
+      <dd title={value} className="mt-1 min-w-0 truncate font-mono ui-micro text-text-muted">
         {value}
       </dd>
     </div>

@@ -115,7 +115,7 @@ export function SessionsPanel({
         />
       </Crumbs>
       {error ? (
-        <p role="alert" className="text-[11px] text-status-blocked">
+        <p role="alert" className="ui-micro text-status-blocked">
           {error}
         </p>
       ) : session === null ? (
@@ -218,7 +218,7 @@ export function SessionDetailView({
         <CardBody>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Avatar id={agentName ?? session.instanceId} />
-            <b className="text-[13px] font-[650]">
+            <b className="ui-body font-[650]">
               {agentName ?? (
                 <EntityRefLink
                   entityRef={`provider/${session.instanceId}`}
@@ -235,14 +235,14 @@ export function SessionDetailView({
                 data-testid="session-owner-squad"
                 className={
                   "inline-flex items-center gap-1 rounded-[3px] border border-border-strong " +
-                  "px-1.5 text-[10px] text-text-muted"
+                  "px-1.5 ui-micro text-text-muted"
                 }
               >
                 <LiveDot state="idle" />
                 {squadName}
               </span>
             )}
-            <span className="flex min-w-0 items-center gap-1 font-mono text-[10px] text-text-faint">
+            <span className="flex min-w-0 items-center gap-1 font-mono ui-micro text-text-faint">
               <EntityRefLink
                 entityRef={`provider/${session.instanceId}`}
                 onNavigate={onNavigateEntity}
@@ -255,11 +255,11 @@ export function SessionDetailView({
                 : ""}
             </span>
           </div>
-          <h3 className="mb-1 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">
+          <h3 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
             {t("agentRuntime.sessionTaskSection")}
           </h3>
           {target === null ? (
-            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">
+            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
               {t("agentRuntime.sessionTaskNone")}
             </div>
           ) : (
@@ -274,11 +274,9 @@ export function SessionDetailView({
                 "hover:border-accent/50 hover:bg-accent/[0.06]"
               }
             >
-              <span className="min-w-0 flex-1 truncate text-[12px] font-[550]">
-                {target.taskTitle ?? target.taskId}
-              </span>
-              <span className="shrink-0 font-mono text-[10px] text-text-faint">{target.taskId}</span>
-              <span aria-hidden className="shrink-0 text-[10px] text-text-faint">
+              <span className="min-w-0 flex-1 truncate ui-meta font-[550]">{target.taskTitle ?? target.taskId}</span>
+              <span className="shrink-0 font-mono ui-micro text-text-faint">{target.taskId}</span>
+              <span aria-hidden className="shrink-0 ui-micro text-text-faint">
                 ↗
               </span>
             </button>
@@ -286,7 +284,7 @@ export function SessionDetailView({
           {/* 该任务 Decision:全局关系里 decision→task 边派生;无边时整段隐藏(不占位)。 */}
           {target !== null && decisionRefs.length > 0 && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-text-faint">
+              <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
                 {t("agentRuntime.sessionsTaskDecisionLabel")}
               </span>
               {decisionRefs.map((decisionRef) => (
@@ -296,7 +294,7 @@ export function SessionDetailView({
                   onNavigate={onNavigateEntity}
                   title={decisionRef}
                   className={
-                    "rounded border border-border px-1.5 py-px font-mono text-[10px] text-text-muted " +
+                    "rounded border border-border px-1.5 py-px font-mono ui-micro text-text-muted " +
                     "hover:border-accent hover:text-accent"
                   }
                 >
@@ -313,7 +311,7 @@ export function SessionDetailView({
         </CardHead>
         <CardBody>
           {result === null ? (
-            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 text-[11px] text-text-faint">
+            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
               {t("agentRuntime.noResultYet")}
             </div>
           ) : (

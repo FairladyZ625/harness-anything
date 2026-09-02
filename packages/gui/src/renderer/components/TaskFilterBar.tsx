@@ -29,12 +29,12 @@ function Select<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[13px] text-text-faint">
+    <label className="flex items-center gap-1.5 ui-body text-text-faint">
       {label}
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[13px] text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
+        className="rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none transition-colors duration-100 hover:border-border-strong focus:border-border-strong"
       >
         {values.map((item) => (
           <option key={item} value={item}>
@@ -82,17 +82,17 @@ function StatusMultiSelect({
 
   return (
     <div ref={containerRef} className="relative">
-      <label className="flex items-center gap-1.5 text-[13px] text-text-faint">
+      <label className="flex items-center gap-1.5 ui-body text-text-faint">
         {t("components.taskFilterBar.status")}
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className={`inline-flex items-center gap-1 rounded-md border border-border bg-surface-raised px-2 py-1.5 text-[13px] text-text outline-none hover:border-border-strong ${
+          className={`inline-flex items-center gap-1 rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none hover:border-border-strong ${
             selected.length > 0 ? "border-border-strong" : ""
           }`}
         >
           <span>{label}</span>
-          <CaretDown weight="bold" className="text-[11px] text-text-faint" />
+          <CaretDown weight="bold" className="ui-micro text-text-faint" />
         </button>
       </label>
       {open && (
@@ -105,16 +105,16 @@ function StatusMultiSelect({
                 key={status}
                 type="button"
                 onClick={() => toggle(status)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] hover:bg-surface"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left ui-body hover:bg-surface"
               >
                 <span
                   className={`grid size-4 shrink-0 place-items-center rounded border ${
                     checked ? "border-accent bg-accent text-accent-fg" : "border-border"
                   }`}
                 >
-                  {checked && <Check weight="bold" className="text-[11px]" />}
+                  {checked && <Check weight="bold" className="ui-micro" />}
                 </span>
-                <span style={{ color: meta?.color }} className="text-[14px]">
+                <span style={{ color: meta?.color }} className="ui-body">
                   {meta?.icon}
                 </span>
                 <span className="text-text">{meta?.label ?? status}</span>
@@ -125,7 +125,7 @@ function StatusMultiSelect({
             <button
               type="button"
               onClick={() => onChange([])}
-              className="mt-1 w-full rounded border border-border px-2 py-1 text-[12px] text-text-muted hover:bg-surface hover:text-text"
+              className="mt-1 w-full rounded border border-border px-2 py-1 ui-meta text-text-muted hover:bg-surface hover:text-text"
             >
               {t("components.taskFilterBar.clearStatusFilter")}
             </button>
@@ -170,7 +170,7 @@ export function TaskFilterBar({
             value={filters.query}
             onChange={(event) => patch({ query: event.target.value })}
             placeholder={t("components.taskFilterBar.searchTasksModulesStatusWithinContextLabel", { contextLabel })}
-            className="min-w-0 flex-1 bg-transparent text-[15px] text-text outline-none placeholder:text-text-faint"
+            className="min-w-0 flex-1 bg-transparent ui-prose text-text outline-none placeholder:text-text-faint"
           />
         </label>
 
@@ -205,7 +205,7 @@ export function TaskFilterBar({
           role="switch"
           aria-checked={filters.includeArchived}
           onClick={() => patch({ includeArchived: !filters.includeArchived })}
-          className={`rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-100 ${
+          className={`rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
             filters.includeArchived
               ? "border-border-strong bg-surface-raised text-text"
               : "border-border text-text-muted hover:bg-surface-raised"
@@ -220,14 +220,14 @@ export function TaskFilterBar({
             role="switch"
             aria-checked={filters.favoritesOnly}
             onClick={() => patch({ favoritesOnly: !filters.favoritesOnly })}
-            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-[13px] transition-colors duration-100 ${
+            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
               filters.favoritesOnly
                 ? "border-accent bg-accent/10 text-accent"
                 : "border-border text-text-muted hover:bg-surface-raised"
             }`}
             title={t("components.taskFilterBar.viewOnlyFavoriteTasksFavoriteCountTotal", { favoriteCount })}
           >
-            <Star weight={filters.favoritesOnly ? "fill" : "bold"} className="text-[12px]" />
+            <Star weight={filters.favoritesOnly ? "fill" : "bold"} className="ui-meta" />
             {t("components.taskFilterBar.viewOnlyCollection")} {favoriteCount}
           </button>
         )}
@@ -235,7 +235,7 @@ export function TaskFilterBar({
         {active && (
           <button
             onClick={() => onChange(DEFAULT_TASK_FILTERS)}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-[13px] text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" />
             {t("components.taskFilterBar.clear")}
@@ -243,7 +243,7 @@ export function TaskFilterBar({
         )}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[12px] text-text-faint">
+      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
         <span>{t("components.taskFilterBar.filteredTaskCount", { filteredCount, totalCount: tasks.length })}</span>
         {chips.length > 0 ? (
           chips.map((chip) => (

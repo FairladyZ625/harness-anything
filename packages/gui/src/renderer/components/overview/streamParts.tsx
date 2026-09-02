@@ -10,7 +10,7 @@ import { formatTime } from "../../model/time.ts";
 
 /** 分段切换钮(与旧总览/看板共用的视觉)。 */
 export const seg = (active: boolean) =>
-  `rounded px-2 py-0.5 font-mono text-[11px] tabular-nums ${
+  `rounded px-2 py-0.5 font-mono ui-micro tabular-nums ${
     active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
   }`;
 
@@ -44,21 +44,10 @@ export function StreamTabs<T extends string>({
   );
 }
 
-/** 内部滚动的行容器:高度有上限;行集由各流完整渲染,滚动即出口。 */
-export function StreamBody({
-  children,
-  testId,
-  maxHeightClass = "max-h-[24rem]",
-}: {
-  children: React.ReactNode;
-  testId?: string;
-  maxHeightClass?: string;
-}) {
+/** 内部滚动的行容器:填满父容器的可用高度,行集由各流完整渲染。 */
+export function StreamBody({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
-    <div
-      className={`${maxHeightClass} min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1 xl:max-h-none`}
-      data-testid={testId}
-    >
+    <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1 xl:max-h-none" data-testid={testId}>
       {children}
     </div>
   );
@@ -66,9 +55,7 @@ export function StreamBody({
 
 export function StreamEmpty({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-md border border-border bg-surface-raised px-3 py-4 text-[13px] text-text-muted">
-      {children}
-    </p>
+    <p className="rounded-md border border-border bg-surface-raised px-3 py-4 ui-body text-text-muted">{children}</p>
   );
 }
 
@@ -77,7 +64,7 @@ export function StreamExitButton({ label, onClick, title }: { label: string; onC
     <button
       onClick={onClick}
       title={title ?? label}
-      className="ml-auto shrink-0 rounded border border-border px-2 py-1 font-mono text-[11px] text-accent hover:bg-surface-raised"
+      className="ml-auto shrink-0 rounded border border-border px-2 py-1 font-mono ui-micro text-accent hover:bg-surface-raised"
     >
       {label}
     </button>

@@ -68,11 +68,11 @@ export function AppSidebar({
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="flex items-center gap-2 px-3 pt-3 pb-1">
-          <span className="font-mono text-[11px] font-semibold tracking-wide text-text-muted">HARNESS</span>
+          <span className="font-mono ui-micro font-semibold tracking-wide text-text-muted">HARNESS</span>
           <span
             title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
             className={`inline-flex items-center gap-1 rounded border border-border px-1 py-px
-              font-mono text-[10px] text-text-faint`}
+              font-mono ui-micro text-text-faint`}
           >
             <CloudSlash weight="bold" />
             {t("components.appSidebar.local")}
@@ -98,7 +98,7 @@ export function AppSidebar({
               <FolderSimple weight="duotone" className="shrink-0 text-text-muted" />
               <span className="min-w-0 flex-1">
                 <span className="block truncate">{project.name}</span>
-                <span className="block truncate font-mono text-[11px] text-text-faint">{project.preset}</span>
+                <span className="block truncate font-mono ui-micro text-text-faint">{project.preset}</span>
               </span>
               <CaretUpDown weight="bold" className="shrink-0 text-text-faint" />
             </button>
@@ -117,7 +117,7 @@ export function AppSidebar({
         {NAV_GROUPS.map((group, groupIndex) => (
           <div key={group.id}>
             <div
-              className={`px-3 font-mono text-[12px] uppercase tracking-wide text-text-faint
+              className={`px-3 font-mono ui-meta uppercase tracking-wide text-text-faint
                 ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}
             >
               {t(group.labelKey)}
@@ -153,13 +153,13 @@ export function AppSidebar({
         >
           <span
             className={`grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised
-              font-mono text-[11px] font-semibold text-text-muted`}
+              font-mono ui-micro font-semibold text-text-muted`}
           >
             Z
           </span>
           <span className="min-w-0">
             <span className="block truncate text-xs text-text">{t("components.appSidebar.localMode2")}</span>
-            <span className="block truncate text-[10px] text-text-faint">
+            <span className="block truncate ui-micro text-text-faint">
               {t("components.appSidebar.accountSynchronizationV2")}
             </span>
           </span>

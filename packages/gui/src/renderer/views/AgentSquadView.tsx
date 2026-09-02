@@ -171,8 +171,8 @@ export function AgentSquadView({
   return (
     <section data-testid="agent-squad-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="text-[13px] tracking-[0.02em]">{t("agentRuntime.agentsTitle")}</b>
-        <span className="truncate font-mono text-[10.5px] text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
+        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.agentsTitle")}</b>
+        <span className="truncate font-mono ui-micro text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
         <span className="flex-1" />
         <Badge>{t("agentRuntime.agentCount", { count: agents.length })}</Badge>
         <Badge>{t("agentRuntime.squadCount", { count: squads.length })}</Badge>
@@ -184,7 +184,7 @@ export function AgentSquadView({
         <p
           role="alert"
           data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono text-[11px]
+          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro
         text-status-blocked"
         >
           {t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}
@@ -194,7 +194,7 @@ export function AgentSquadView({
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono text-[11px] ${
+          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro ${
             workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"
           }`}
         >
@@ -293,7 +293,7 @@ export function AgentSquadView({
       {workspace.settlement && (
         <p
           role="status"
-          className="shrink-0 border-t border-border px-3.5 py-1 font-mono text-[10.5px]
+          className="shrink-0 border-t border-border px-3.5 py-1 font-mono ui-micro
         text-text-faint"
         >
           <Hint>

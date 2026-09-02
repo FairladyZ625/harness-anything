@@ -43,10 +43,10 @@ export function ProviderInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t("agentRuntime.inspectorRuntime")}
-      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
     >
       <h2
-        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
         tracking-[0.09em] text-text-faint"
       >
         {t("agentRuntime.inspectorRuntime")}
@@ -87,10 +87,10 @@ export function IdentityInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
-      className="w-[300px] shrink-0 overflow-y-auto border-l border-border bg-surface"
+      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
     >
       <h2
-        className="sticky top-0 border-b border-border bg-surface px-3 py-2 text-[10.5px] font-bold uppercase
+        className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
         tracking-[0.09em] text-text-faint"
       >
         {t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
@@ -120,7 +120,7 @@ export function IdentityInspector({
 function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
   return (
     <section className="border-b border-border px-3 py-2 last:border-b-0">
-      <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.07em] text-text-faint">{title}</h3>
+      <h3 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">{title}</h3>
       {children}
     </section>
   );
@@ -143,10 +143,10 @@ function LiveSessionRow({
     >
       <LiveDot state={LIVENESS_DOT[session.liveness] ?? "idle"} tip={session.liveness} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11.5px]">{session.instanceId}</span>
-        <span className="block truncate font-mono text-[10px] text-text-faint">{session.runtimeSessionId}</span>
+        <span className="block truncate ui-micro">{session.instanceId}</span>
+        <span className="block truncate font-mono ui-micro text-text-faint">{session.runtimeSessionId}</span>
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(session.activity.lastObservedAt, { style: "time" }) ?? session.activity.lastObservedAt}
       </span>
     </button>
@@ -170,12 +170,12 @@ function DispatchSessionRow({
     >
       <LiveDot state={sessionStatusDot[row.status as SessionStatus] ?? "idle"} tip={row.status} />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[11.5px]">{row.agentName ?? row.instanceId}</span>
-        <span className="block truncate font-mono text-[10px] text-text-faint">
+        <span className="block truncate ui-micro">{row.agentName ?? row.instanceId}</span>
+        <span className="block truncate font-mono ui-micro text-text-faint">
           {row.taskTitle ?? row.runtimeSessionId}
         </span>
       </span>
-      <span className="shrink-0 font-mono text-[9.5px] text-text-faint">
+      <span className="shrink-0 font-mono ui-micro text-text-faint">
         {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
       </span>
     </button>
@@ -198,7 +198,7 @@ function RuntimeFacts({
     authText = runtimeAuthPresentationText(instance, auth);
   return (
     <Section title={t("agentRuntime.inspectorHealth")}>
-      <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 text-[11px]">
+      <div data-auth-status={auth.state} className="mb-2 flex items-center gap-1.5 ui-micro">
         <CapDot state={auth.cap} tip={authText} />
         <span>{authText}</span>
       </div>
@@ -245,7 +245,7 @@ function AgentFacts({
           <KVRow name="validity">{agent.validity}</KVRow>
         </KV>
         {agent.issues.map((issue) => (
-          <p key={issue.code} className="mt-1 text-[10.5px] text-status-blocked">
+          <p key={issue.code} className="mt-1 ui-micro text-status-blocked">
             {issue.code}: {issue.message}
           </p>
         ))}
@@ -263,8 +263,8 @@ function AgentFacts({
             >
               <KindDot kind="any" />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-[11.5px]">{squad.name}</span>
-                <span className="block font-mono text-[10px] text-text-faint">
+                <span className="block truncate ui-micro">{squad.name}</span>
+                <span className="block font-mono ui-micro text-text-faint">
                   {squad.leader === agent.id ? t("agentRuntime.roleCommander") : t("agentRuntime.roleWorker")}
                 </span>
               </span>
@@ -296,8 +296,8 @@ function SquadFacts({
         className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
       >
         <Avatar id={squad.leader} />
-        <span className="min-w-0 flex-1 truncate text-[11.5px]">{squad.leader}</span>
-        <span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleCommander")}</span>
+        <span className="min-w-0 flex-1 truncate ui-micro">{squad.leader}</span>
+        <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.roleCommander")}</span>
       </button>
       {squad.workers.map((worker) => (
         <button
@@ -307,8 +307,8 @@ function SquadFacts({
           className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised"
         >
           <Avatar id={worker} />
-          <span className="min-w-0 flex-1 truncate text-[11.5px]">{worker}</span>
-          <span className="font-mono text-[10px] text-text-faint">{t("agentRuntime.roleWorker")}</span>
+          <span className="min-w-0 flex-1 truncate ui-micro">{worker}</span>
+          <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.roleWorker")}</span>
         </button>
       ))}
     </Section>

@@ -74,10 +74,10 @@ export function QuickSwitcher({
       style={position}
     >
       <div className="flex shrink-0 items-center justify-between px-1 pb-2">
-        <span className="font-mono text-[11px] uppercase tracking-wide text-text-faint">
+        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
           {t("components.appSidebar.quickSwitch")}
         </span>
-        <span className="font-mono text-[11px] text-text-faint">
+        <span className="font-mono ui-micro text-text-faint">
           {t("components.appSidebar.projectCount", { count: repos.length })}
         </span>
       </div>
@@ -94,7 +94,7 @@ export function QuickSwitcher({
       <div className="mt-2 grid shrink-0 grid-cols-2 gap-1.5 border-t border-border pt-2">
         <button
           onClick={onOpenProjectManager}
-          className={`rounded-md border border-border px-2 py-1.5 text-left text-[12px] font-medium
+          className={`rounded-md border border-border px-2 py-1.5 text-left ui-meta font-medium
             text-text-muted hover:border-border-strong hover:text-text`}
         >
           {t("components.appSidebar.manageAll")}
@@ -102,7 +102,7 @@ export function QuickSwitcher({
         <button
           disabled
           className={`inline-flex items-center justify-center gap-1 rounded-md border border-border
-            px-2 py-1.5 text-[12px] text-text-faint opacity-70`}
+            px-2 py-1.5 ui-meta text-text-faint opacity-70`}
         >
           <WarningCircle weight="bold" />
           {t("components.appSidebar.localMode")}

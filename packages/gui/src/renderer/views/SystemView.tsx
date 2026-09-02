@@ -19,8 +19,8 @@ const uptime = (uptimeMs: number | undefined): string => formatUptimeMs(uptimeMs
 function Field({ name, value, title }: { readonly name: string; readonly value: string; readonly title?: string }) {
   return (
     <div>
-      <dt className="font-mono text-[10px] uppercase text-text-faint">{name}</dt>
-      <dd className="break-all font-mono text-[12px] text-text-muted" title={title}>
+      <dt className="font-mono ui-micro uppercase text-text-faint">{name}</dt>
+      <dd className="break-all font-mono ui-meta text-text-muted" title={title}>
         {value}
       </dd>
     </div>
@@ -29,7 +29,7 @@ function Field({ name, value, title }: { readonly name: string; readonly value: 
 
 function ReachabilityBadge() {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-status-done/15 px-2.5 py-1 text-[12px] font-semibold text-status-done">
+    <span className="inline-flex items-center gap-1.5 rounded-md bg-status-done/15 px-2.5 py-1 ui-meta font-semibold text-status-done">
       <span className="size-2 rounded-full bg-status-done" aria-hidden />
       {t("views.settingsView.systemRunning")}
     </span>
@@ -67,39 +67,39 @@ function RepoRow({
     <tr className={`border-b border-border last:border-b-0 ${isCurrent ? "bg-surface-raised/40" : ""}`}>
       <td className="px-3 py-2 align-top">
         <span className="flex flex-col gap-0.5">
-          <span className="font-mono text-[12px] text-text">{label}</span>
-          {repo.displayName ? <span className="font-mono text-[10px] text-text-faint">{repo.repoId}</span> : null}
+          <span className="font-mono ui-meta text-text">{label}</span>
+          {repo.displayName ? <span className="font-mono ui-micro text-text-faint">{repo.repoId}</span> : null}
           {isCurrent ? (
-            <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
+            <span className="ui-micro font-medium uppercase tracking-wide text-text-muted">
               {t("views.settingsView.systemCurrentRepo")}
             </span>
           ) : null}
         </span>
       </td>
       <td className="max-w-[16rem] px-3 py-2 align-top">
-        <span className="block truncate font-mono text-[11px] text-text-muted" title={repo.canonicalRoot}>
+        <span className="block truncate font-mono ui-micro text-text-muted" title={repo.canonicalRoot}>
           {repo.canonicalRoot || dash()}
         </span>
       </td>
       <td className="px-3 py-2 align-top">
         <span
-          className={`inline-flex items-center gap-1 font-mono text-[12px] ${REPO_STATE[repo.cellState][0]}`}
+          className={`inline-flex items-center gap-1 font-mono ui-meta ${REPO_STATE[repo.cellState][0]}`}
           title={repo.cellState}
         >
           <span className="size-1.5 rounded-full bg-current" aria-hidden />
           {t(`views.systemView.${REPO_STATE[repo.cellState][1]}`)}
         </span>
         {repo.registrationState === "disabled" ? (
-          <span className="ml-1 font-mono text-[10px] text-text-faint">
+          <span className="ml-1 font-mono ui-micro text-text-faint">
             ({t("views.systemView.registrationDisabled")})
           </span>
         ) : null}
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="font-mono text-[12px] text-text-muted">{repo.queueDepth ?? dash()}</span>
+        <span className="font-mono ui-meta text-text-muted">{repo.queueDepth ?? dash()}</span>
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="font-mono text-[12px] text-text-muted">
+        <span className="font-mono ui-meta text-text-muted">
           {repo.lockState === "held"
             ? t("views.systemView.lockHeld")
             : repo.lockState === "not_applicable"
@@ -109,11 +109,11 @@ function RepoRow({
       </td>
       <td className="max-w-[16rem] px-3 py-2 align-top">
         {error ? (
-          <span className="block truncate text-[12px] text-status-blocked" title={error}>
+          <span className="block truncate ui-meta text-status-blocked" title={error}>
             {error}
           </span>
         ) : (
-          <span className="font-mono text-[11px] text-text-faint">{dash()}</span>
+          <span className="font-mono ui-micro text-text-faint">{dash()}</span>
         )}
       </td>
       <td className="px-3 py-2 text-right align-top">
@@ -125,7 +125,7 @@ function RepoRow({
             title={t("views.systemView.openObserve")}
             onClick={() => openObserve(repo.repoId)}
             className={[
-              "rounded-md border border-border-strong px-2.5 py-1 text-[12px] font-medium text-accent",
+              "rounded-md border border-border-strong px-2.5 py-1 ui-meta font-medium text-accent",
               "hover:bg-surface-raised",
             ].join(" ")}
           >
@@ -164,14 +164,14 @@ export function SystemView({
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="ui-title font-semibold">{t("shell.nav.system")}</h1>
-          <span className="font-mono text-[11px] text-text-faint">
+          <span className="font-mono ui-micro text-text-faint">
             {daemon.daemonId} · pid {daemon.pid}
           </span>
           <div className="ml-auto flex gap-2">
             <button
               disabled={!activeRepoId || control.busy}
               onClick={() => void control.request("refresh")}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[12px] text-text-muted disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta text-text-muted disabled:opacity-50"
             >
               <ArrowClockwise />
               {t("views.settingsView.systemRefresh")}
@@ -180,7 +180,7 @@ export function SystemView({
         </div>
         {receipt && (
           <div
-            className={`mt-2 rounded border px-2 py-1.5 font-mono text-[11px] ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
+            className={`mt-2 rounded border px-2 py-1.5 font-mono ui-micro ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
           >
             <span>
               {t("views.systemView.operationId")} {receipt.operationId} · {receipt.kind} · {receipt.phase}
@@ -197,12 +197,12 @@ export function SystemView({
       <div data-testid="system-content" className="grid w-full gap-4 p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <section className="rounded-lg border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-[13px] font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
+            <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
             <ReachabilityBadge />
           </div>
           {daemon.buildStale ? (
             <p
-              className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/5 px-2 py-1.5 text-[12px] text-status-blocked"
+              className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/5 px-2 py-1.5 ui-meta text-status-blocked"
               title={`${daemon.buildStale.daemonCommit} → ${daemon.buildStale.clientCommit}`}
             >
               {t("views.systemView.buildStale", {
@@ -263,13 +263,13 @@ export function SystemView({
           </dl>
         </section>
         <section className="rounded-lg border border-border bg-surface">
-          <h2 className="border-b border-border px-3 py-2 text-[13px] font-semibold">
+          <h2 className="border-b border-border px-3 py-2 ui-body font-semibold">
             {t("views.settingsView.systemRepos")}
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] border-collapse text-left">
               <thead>
-                <tr className="border-b border-border font-mono text-[12px] uppercase tracking-wide text-text-faint">
+                <tr className="border-b border-border font-mono ui-meta uppercase tracking-wide text-text-faint">
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRepo")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRoot")}</th>
                   <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColState")}</th>
@@ -294,7 +294,7 @@ export function SystemView({
             </table>
           </div>
           {status.data.repos.some((repo) => repo.generation !== null || repo.recoveryMs !== null) && (
-            <p className="border-t border-border px-3 py-1.5 font-mono text-[10px] text-text-faint">
+            <p className="border-t border-border px-3 py-1.5 font-mono ui-micro text-text-faint">
               {status.data.repos
                 .filter((repo) => repo.generation !== null || repo.recoveryMs !== null)
                 .map(

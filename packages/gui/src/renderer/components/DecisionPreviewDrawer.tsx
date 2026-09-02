@@ -12,7 +12,7 @@ const timeOf = (iso: string | undefined) => (iso ? (formatTime(iso, { style: "mo
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-border px-4 py-3">
-      <div className="mb-2 font-mono text-[12px] uppercase tracking-wide text-text-faint">{title}</div>
+      <div className="mb-2 font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</div>
       {children}
     </section>
   );
@@ -20,20 +20,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function ClaimList({ claims }: { claims: DecisionRow["chosen"] }) {
   if (claims.length === 0)
-    return <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>;
+    return <p className="ui-body text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>;
   return (
     <div className="space-y-2">
       {claims.map((claim) => (
         <div key={claim.id} className="rounded-md bg-surface-raised px-3 py-2">
-          <p className="text-[14px] text-text">{claim.text}</p>
+          <p className="ui-body text-text">{claim.text}</p>
           {claim.rationale && (
-            <p className="mt-1 text-[13px] leading-snug text-text-muted">
+            <p className="mt-1 ui-body leading-snug text-text-muted">
               {t("components.decisionPreviewDrawer.why")}
               {claim.rationale}
             </p>
           )}
           {"whyNot" in claim && claim.whyNot && (
-            <p className="mt-1 text-[13px] leading-snug text-danger">
+            <p className="mt-1 ui-body leading-snug text-danger">
               {t("components.decisionPreviewDrawer.whyNot")}
               {claim.whyNot}
             </p>
@@ -143,13 +143,13 @@ export function DecisionPreviewDrawer({
                   entityRef={`decision/${decision.decisionId}`}
                   onNavigate={() => onOpenDetail(decision.decisionId)}
                   title={decision.decisionId}
-                  className="font-mono text-[13px] text-text-faint hover:text-accent hover:underline"
+                  className="font-mono ui-body text-text-faint hover:text-accent hover:underline"
                 />
                 <DecisionStateBadge state={decision.state} />
                 <RiskTierBadge tier={decision.riskTier} />
                 <UrgencyBadge urgency={decision.urgency} />
               </div>
-              <h2 className="mt-2 flex items-start gap-2 text-[20px] font-semibold leading-tight text-text">
+              <h2 className="mt-2 flex items-start gap-2 ui-heading font-semibold leading-tight text-text">
                 <Scales weight="bold" className="mt-1 shrink-0 text-accent" />
                 {decision.title}
               </h2>
@@ -162,7 +162,7 @@ export function DecisionPreviewDrawer({
               <X weight="bold" />
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px] text-text-faint">
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 font-mono ui-micro text-text-faint">
             <span className="flex min-w-0 items-center gap-1">
               {t("components.decisionPreviewDrawer.proposedBy")}{" "}
               <ActorRef actor={decision.proposedBy} onNavigateEntity={onNavigateEntity} />
@@ -182,7 +182,7 @@ export function DecisionPreviewDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <Section title={t("components.decisionPreviewDrawer.question")}>
-            <p className="text-[15px] leading-relaxed text-text">{decision.question}</p>
+            <p className="ui-prose leading-relaxed text-text">{decision.question}</p>
           </Section>
 
           <Section title={t("components.decisionPreviewDrawer.chosen")}>
@@ -195,9 +195,9 @@ export function DecisionPreviewDrawer({
 
           <Section title={t("components.decisionPreviewDrawer.loadBearingClaims")}>
             {loadBearing.length === 0 ? (
-              <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
+              <p className="ui-body text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
             ) : (
-              <ul className="list-inside list-disc space-y-1 text-[14px] text-text-muted">
+              <ul className="list-inside list-disc space-y-1 ui-body text-text-muted">
                 {loadBearing.map((claim) => (
                   <li key={claim.id}>{claim.text}</li>
                 ))}
@@ -207,9 +207,9 @@ export function DecisionPreviewDrawer({
 
           <Section title={t("components.decisionPreviewDrawer.supersedeChain")}>
             {chain.supersedes.length === 0 && chain.supersededBy.length === 0 && !amended ? (
-              <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
+              <p className="ui-body text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
             ) : (
-              <div className="space-y-1 font-mono text-[12px]">
+              <div className="space-y-1 font-mono ui-meta">
                 {chain.supersedes.length > 0 && (
                   <p className="flex flex-wrap items-center gap-1 text-danger">
                     {t("components.decisionPreviewDrawer.retires")}{" "}
@@ -241,7 +241,7 @@ export function DecisionPreviewDrawer({
 
           <Section title={t("components.decisionPreviewDrawer.derivedTasks")}>
             {spawned.length === 0 ? (
-              <p className="text-[14px] text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
+              <p className="ui-body text-text-faint">{t("components.decisionPreviewDrawer.none")}</p>
             ) : (
               <div className="space-y-1.5">
                 {spawned.map((task) => (
@@ -250,9 +250,9 @@ export function DecisionPreviewDrawer({
                       entityRef={`task/${task.taskId}`}
                       onNavigate={onNavigateEntity}
                       title={task.taskId}
-                      className="font-mono text-[12px] text-text-faint hover:text-accent hover:underline"
+                      className="font-mono ui-meta text-text-faint hover:text-accent hover:underline"
                     />
-                    <span className="ml-2 text-[14px] text-text">{task.title}</span>
+                    <span className="ml-2 ui-body text-text">{task.title}</span>
                   </div>
                 ))}
               </div>
@@ -263,14 +263,14 @@ export function DecisionPreviewDrawer({
         <footer className="flex items-center gap-2 border-t border-border px-4 py-3">
           <button
             onClick={() => onOpenDetail(decision.decisionId)}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-[15px] font-semibold text-accent-fg"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 ui-prose font-semibold text-accent-fg"
           >
             <ArrowSquareOut weight="bold" />
             {t("components.decisionPreviewDrawer.openFullDetails")}
           </button>
           <button
             onClick={onClose}
-            className="rounded-md border border-border px-3 py-2 text-[15px] text-text-muted hover:bg-surface-raised hover:text-text"
+            className="rounded-md border border-border px-3 py-2 ui-prose text-text-muted hover:bg-surface-raised hover:text-text"
           >
             {t("components.decisionPreviewDrawer.closeButton")}
           </button>

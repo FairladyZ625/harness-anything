@@ -13,7 +13,7 @@ export function PhaseSteps({ status }: { status: SnapshotStatus }) {
           status === "cancelled"
           ? "cancelled：终态，不参与阶段流"
           : "unknown：快照展示值，无阶段位置";
-    return <p className="text-[11px] leading-relaxed text-text-faint">{note}</p>;
+    return <p className="ui-micro leading-relaxed text-text-faint">{note}</p>;
   }
   return (
     <div className="flex w-full items-center">
@@ -21,7 +21,7 @@ export function PhaseSteps({ status }: { status: SnapshotStatus }) {
         <Fragment key={s}>
           {i > 0 && <span className={`h-px min-w-1 flex-1 ${i <= idx ? "bg-accent" : "bg-border"}`} />}
           <span
-            className={`rounded px-1 py-0.5 font-mono text-[11px] ${
+            className={`rounded px-1 py-0.5 font-mono ui-micro ${
               i === idx ? "bg-accent font-semibold text-accent-fg" : i < idx ? "text-text-muted" : "text-text-faint"
             }`}
           >

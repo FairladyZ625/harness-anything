@@ -116,7 +116,7 @@ export function LedgerStatusBar({
   return (
     <span
       data-testid={testId}
-      className={`flex h-[22px] min-w-0 items-center gap-1.5 font-mono text-[11px] ${
+      className={`flex h-[22px] min-w-0 items-center gap-1.5 font-mono ui-micro ${
         status.error !== null ? "text-status-blocked" : "text-text-faint"
       }`}
     >
@@ -140,7 +140,7 @@ export function LedgerStatusBar({
         title={t("components.appSidebar.ledgerRefreshTitle")}
         aria-label={t("components.appSidebar.ledgerRefreshTitle")}
         className={[
-          "shrink-0 rounded px-1 text-[11px] text-text-faint",
+          "shrink-0 rounded px-1 ui-micro text-text-faint",
           "hover:bg-surface-raised hover:text-text disabled:opacity-50",
         ].join(" ")}
       >
@@ -188,21 +188,21 @@ export function SystemStatusPanel({
           data-testid="sidebar-system-status-lamp"
           className={`size-2 shrink-0 rounded-full ${HEALTH_LAMP[worst]}`}
         />
-        <span className={`shrink-0 font-mono text-[11px] font-semibold ${HEALTH_TONE[worst]}`}>
+        <span className={`shrink-0 font-mono ui-micro font-semibold ${HEALTH_TONE[worst]}`}>
           {worst === "ok"
             ? t("components.appSidebar.healthOk")
             : worst === "degraded"
               ? t("components.appSidebar.healthDegraded")
               : t("components.appSidebar.healthDown")}
         </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1 pl-1 font-mono text-[11px] text-accent">
+        <span className="ml-auto flex shrink-0 items-center gap-1 pl-1 font-mono ui-micro text-accent">
           <GearSix weight="bold" className="size-3" />
           {t("components.appSidebar.goSystem")}
         </span>
       </button>
       {/* 第二行:观测年龄 + 投影落后 revisions。revisions 计数按约束保持可见(shrink-0)。 */}
       <div
-        className="flex h-[18px] min-w-0 items-center gap-1.5 font-mono text-[11px] text-text-faint"
+        className="flex h-[18px] min-w-0 items-center gap-1.5 font-mono ui-micro text-text-faint"
         title={systemHealthDetail(health)}
       >
         <span className="min-w-0 truncate">

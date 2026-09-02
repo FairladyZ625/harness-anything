@@ -42,12 +42,12 @@ function TaskStreamRow({
         title={`${task.taskId} · ${task.title}`}
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span className="shrink-0 text-[13px]" style={{ color: STATUS_META[task.coordinationStatus].color }}>
+        <span className="shrink-0 ui-body" style={{ color: STATUS_META[task.coordinationStatus].color }}>
           {STATUS_META[task.coordinationStatus].icon}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-text">{task.title}</span>
+        <span className="min-w-0 flex-1 truncate ui-body font-medium text-text">{task.title}</span>
         <StatusBadge status={task.coordinationStatus} />
-        <span className="shrink-0 font-mono text-[11px] tabular-nums text-text-faint">
+        <span className="shrink-0 font-mono ui-micro tabular-nums text-text-faint">
           {streamTime(taskCreatedAt(task))}
         </span>
       </button>
@@ -58,14 +58,14 @@ function TaskStreamRow({
           onClick={() => onSetPin(task, !pinned)}
           aria-pressed={pinned}
           title={pinned ? t("views.overviewView.unpinTitle") : t("views.overviewView.pinTitle")}
-          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[13px] hover:bg-surface ${
+          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
             pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
           <PushPin weight={pinned ? "fill" : "bold"} />
         </button>
       ) : pinned ? (
-        <PushPin weight="fill" className="shrink-0 text-[13px] text-accent" />
+        <PushPin weight="fill" className="shrink-0 ui-body text-accent" />
       ) : null}
     </div>
   );
@@ -154,10 +154,10 @@ export function TaskStream({
           data-testid="task-stream-ahead"
           className="shrink-0 rounded-md border border-dashed border-accent/50 bg-surface/40 p-1"
         >
-          <p className="px-1 pb-1 font-mono text-[11px] text-text-muted" data-testid="task-stream-ahead-label">
+          <p className="px-1 pb-1 font-mono ui-micro text-text-muted" data-testid="task-stream-ahead-label">
             {t("views.overviewView.taskAhead", { count: ahead.length })}
           </p>
-          <div className="max-h-[6rem] space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
+          <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto pr-1" data-testid="task-stream-ahead-rows">
             {ahead.map((task) => (
               <TaskStreamRow key={task.taskId} task={task} onOpenPreview={onOpenPreview} onSetPin={onSetPin} />
             ))}

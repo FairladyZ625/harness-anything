@@ -47,7 +47,7 @@ export function OverviewStatsBar({
         data-testid="overview-stats-toggle"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        className={`flex h-[30px] w-full items-center gap-2 px-5 text-left font-mono text-[11px] ${
+        className={`flex h-[30px] w-full items-center gap-2 px-5 text-left font-mono ui-micro ${
           abnormal ? "text-danger" : "text-text-faint"
         }`}
       >
@@ -74,7 +74,7 @@ export function OverviewStatsBar({
         <div data-testid="overview-stats-detail" className="flex flex-col gap-3 px-5 pb-4 pt-1">
           <AxisBar label={t("views.overviewView.statsTasks")} segments={taskSegments(summary)} />
           <AxisBar label={t("views.overviewView.statsDecisions")} segments={decisionSegments(summary)} />
-          <p className="font-mono text-[11px] text-text-faint">
+          <p className="font-mono ui-micro text-text-faint">
             {revision === null
               ? t("views.overviewView.statsRevisionUnknown")
               : t("views.overviewView.statsRevision", {
