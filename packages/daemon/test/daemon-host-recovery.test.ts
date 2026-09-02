@@ -177,6 +177,7 @@ test("daemon status exposes the writer phase and progress while a repository att
         lastError: null,
         causeClass: null,
         recoveryMs: null,
+        materialization: null,
         attach: {
           phase: "catching-up",
           applied: 4_096,
@@ -220,6 +221,80 @@ test("daemon status exposes the writer phase and progress while a repository att
   } finally {
     releaseOpen();
     await attachments;
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon status turns materialization red, rejects writes, and returns to ok after recovery", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-materialization-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = workspaceId("host-materialization");
+  rosterRepo(rootDir, repoId);
+  const prepared = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "prepare-materialization" });
+  await prepared.close();
+  registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({
+    daemonId: "host-materialization",
+    userRoot,
+    openCell: (cellInput) =>
+      openRepoCell({
+        ...cellInput,
+        walMaterializationTestFault: { point: "before_materialization", failures: 4 },
+      }),
+  });
+  await host.attachmentsSettled();
+  try {
+    const accepted = await host.run(
+      repoId,
+      { kind: "task-create", taskId: "task_materialization_1", title: "Accepted before latch" },
+      auth,
+    );
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await assert.rejects(
+      host.settleMaterialization(repoId, "force injected materialization failures"),
+      (error: unknown) => (error as { readonly code?: string }).code === "publication_indeterminate",
+    );
+    const failed = await waitForRepoMaterialization(host, repoId, "failed");
+    context.diagnostic(`failed daemon status row: ${JSON.stringify(failed)}`);
+    assert.deepEqual(failed.materialization, {
+      state: "failed",
+      lastCheckpointRevision: 1,
+      lastCheckpointAt: "2026-08-27T00:00:00.000Z",
+      pendingWalEvents: 1,
+      reason: "retry_budget_exhausted",
+      lastError: "simulated worker materialization failure",
+    });
+
+    const rejected = await host.run(
+      repoId,
+      { kind: "task-create", taskId: "task_materialization_2", title: "Rejected after latch" },
+      auth,
+    );
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "materialization_failed");
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "materialization-failed",
+      lastCheckpointRevision: 1,
+      lastCheckpointAt: "2026-08-27T00:00:00.000Z",
+      pendingWalEvents: 1,
+      reason: "retry_budget_exhausted",
+      lastError: "simulated worker materialization failure",
+    });
+
+    await host.settleMaterialization(repoId, "materialization recovery control");
+    const healthy = await waitForRepoMaterialization(host, repoId, "ok");
+    context.diagnostic(`recovered daemon status row: ${JSON.stringify(healthy)}`);
+    assert.equal(healthy.materialization?.lastCheckpointRevision, 2);
+    assert.equal(healthy.materialization?.pendingWalEvents, 0);
+    const recovered = await host.run(
+      repoId,
+      { kind: "task-create", taskId: "task_materialization_3", title: "Accepted after recovery" },
+      auth,
+    );
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+  } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
   }
@@ -662,4 +737,17 @@ async function waitControl(host: Awaited<ReturnType<typeof openDaemonHost>>, ope
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   assert.fail(`control ${operationId} did not settle`);
+}
+
+async function waitForRepoMaterialization(
+  host: Awaited<ReturnType<typeof openDaemonHost>>,
+  repoId: string,
+  state: "ok" | "retrying" | "failed",
+): Promise<RepoCellStatus> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const row = host.status().repos.find((repo) => repo.repoId === repoId);
+    if (row?.materialization?.state === state) return row;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`repo ${repoId} materialization did not reach ${state}`);
 }

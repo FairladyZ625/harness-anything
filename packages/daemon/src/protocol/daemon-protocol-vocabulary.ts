@@ -1,6 +1,7 @@
 import type {
   CredentialKind,
   DaemonRepoMode,
+  MaterializationState,
   PeopleCommandClass,
   TaskBoardColumnId,
   TaskCapabilityId,
@@ -60,6 +61,18 @@ export const relationDirectionWords = ["directed", "undirected"] as const;
 export const relationOriginWords = ["declared", "imported_snapshot", "generated", "inferred"] as const;
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
+
+/** Wire mirror of the kernel WAL-to-Git materialization health vocabulary. */
+export const materializationStateWords = Object.freeze([
+  "ok",
+  "retrying",
+  "failed",
+] as const satisfies readonly MaterializationState[]);
+export const materializationStateWordsAreExact: [MaterializationState] extends [
+  (typeof materializationStateWords)[number],
+]
+  ? true
+  : never = true;
 
 // The `task-board-rows` projection's wire mirrors. Same bidirectional check as the other mirrors
 // below: the kernel judgment stays the authority for what a column or a rejection reason means,

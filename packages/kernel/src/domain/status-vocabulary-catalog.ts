@@ -334,6 +334,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["queued", "running", "exhausted", "failed", "drained"],
   },
   {
+    id: "materialization.state",
+    entity: "Materialization",
+    field: "state",
+    module: "packages/kernel/src/store/task-event-store-types.ts",
+    anchor: "materializationStates",
+    words: ["ok", "retrying", "failed"],
+    note: "Health of the WAL-to-Git checkpoint path; failed is a write-admission latch until explicit recovery.",
+  },
+  {
     id: "closeout.readiness",
     entity: "TaskCloseout",
     field: "readiness",
@@ -501,5 +510,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "receiptOutcomeWords",
     words: ["applied", "pending", "no_changes", "indeterminate", "op_rejected"],
     mirrorOf: "receipt.outcome",
+  },
+  {
+    id: "daemon.materialization.state",
+    entity: "DaemonWire",
+    field: "materialization.state",
+    module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+    anchor: "materializationStateWords",
+    words: ["ok", "retrying", "failed"],
+    mirrorOf: "materialization.state",
   },
 ];

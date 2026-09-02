@@ -15,6 +15,7 @@ export type StatusEntity =
   | "AuthorizationDecision"
   | "EntityActionCriterion"
   | "Recovery"
+  | "Materialization"
   | "PresetRun"
   | "TaskCloseout"
   | "CodeDocWitness"

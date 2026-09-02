@@ -60,6 +60,7 @@ export async function openWriterSupervisor(
       lastError: null,
       causeClass: null,
       recoveryMs: null,
+      materialization: null,
       attach: {
         phase: "opening",
         applied: null,

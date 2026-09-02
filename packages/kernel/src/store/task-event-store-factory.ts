@@ -4,6 +4,7 @@ import type { LedgerLayoutState } from "../layout/ledger-object-layout.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 import { CANONICAL_EVENT_REF, TaskEventStoreError } from "./task-event-store-types.ts";
 import { createStoreRuntime, type StoreRuntime } from "./task-event-store-runtime.ts";
+import { localGitObjectRefStore } from "./local-version-control-system.ts";
 import { createPublicationApi } from "./task-event-store-publication.ts";
 import {
   canonicalEventCut,
@@ -89,6 +90,16 @@ function storeApi(
     },
     materialize: () =>
       materialize(runtime.ledger, runtime.repoId, runtime.canonicalCommit, runtime.readHead(), runtime.authoredRef),
+    materializationHealth: () => {
+      const head = runtime.readHead();
+      return {
+        state: "ok",
+        lastCheckpointRevision: head?.revision ?? 0,
+        lastCheckpointAt:
+          head === null ? null : localGitObjectRefStore.commitTimestamp(runtime.repoRoot, runtime.currentCommit().sha),
+        pendingWalEvents: 0,
+      };
+    },
     append: publication.publish,
     migrateLayout: publication.migrateLayout,
     recover: publication.recover,

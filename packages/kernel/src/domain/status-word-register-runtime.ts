@@ -236,4 +236,27 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
     meaning: "Recovery batch drained its items.",
     divergence: "entity-scoped",
   },
+
+  // ---- Materialization.state (WAL-to-Git checkpoint health) ----
+  {
+    word: "ok",
+    entity: "Materialization",
+    field: "state",
+    meaning: "No materialization failure is pending and write admission remains open.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "retrying",
+    entity: "Materialization",
+    field: "state",
+    meaning: "A checkpoint attempt failed but remains within the automatic retry budget.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "failed",
+    entity: "Materialization",
+    field: "state",
+    meaning: "Materialization is latched and new writes are refused until explicit recovery succeeds.",
+    divergence: "entity-scoped",
+  },
 ];

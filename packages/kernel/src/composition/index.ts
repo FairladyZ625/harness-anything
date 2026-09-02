@@ -4,6 +4,7 @@ export {
   canonicalEventCut,
   canonicalEventWritePlan,
   makeTaskEventStore as makeGitEventStore,
+  materializationStates,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
 export {
@@ -22,6 +23,9 @@ export type {
   CanonicalEventStore,
   CanonicalWriteBundle,
   EventPublicationKillpoint,
+  MaterializationFailureReason,
+  MaterializationHealth,
+  MaterializationState,
   PublicationFile,
 } from "../store/task-event-store.ts";
 export { makeTaskProjection, makeTaskProjectionReader } from "../projection/rebuildable-task-projection.ts";

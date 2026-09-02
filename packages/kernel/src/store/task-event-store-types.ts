@@ -15,6 +15,7 @@ export type TaskEventStoreErrorCode =
   | "invalid_store"
   | "invalid_write_plan"
   | "legacy_shape"
+  | "materialization_failed"
   | "op_conflict"
   | "repo_mismatch"
   | "revision_conflict"
@@ -107,6 +108,17 @@ export interface MaterializationReceipt {
   readonly changed: readonly string[];
   readonly conflicts: readonly string[];
 }
+export const materializationStates = Object.freeze(["ok", "retrying", "failed"] as const);
+export type MaterializationState = (typeof materializationStates)[number];
+export type MaterializationFailureReason = "git_diverged" | "retry_budget_exhausted";
+export interface MaterializationHealth {
+  readonly state: MaterializationState;
+  readonly lastCheckpointRevision: number;
+  readonly lastCheckpointAt: string | null;
+  readonly pendingWalEvents: number;
+  readonly reason?: MaterializationFailureReason;
+  readonly lastError?: string;
+}
 export type EventPublicationKillpoint =
   | "before_event_write"
   | "after_event_write"
@@ -142,6 +154,8 @@ export interface CanonicalEventStore {
   }) => CanonicalEventAppendReceipt;
   readonly recover: () => EventRecoveryReceipt;
   readonly materialize: () => MaterializationReceipt;
+  /** Read-only health of the WAL to Git materialization owned by this store. */
+  readonly materializationHealth: () => MaterializationHealth;
   /** Suspends timer/threshold materialization until one explicit batch settlement. */
   readonly beginBulkWrite?: () => { readonly finish: () => Promise<void> };
   readonly configureWalFlushPolicy?: (policy: {
