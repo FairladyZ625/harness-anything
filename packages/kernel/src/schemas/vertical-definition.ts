@@ -115,7 +115,11 @@ const ArtifactRelationSchema = Schema.Struct({
   type: RelationTypeSchema,
   sourceKind: NonBlankStringSchema,
   targetKind: NonBlankStringSchema,
+  reads: NonBlankStringSchema,
+  strength: Schema.Literal("weak", "strong"),
+  rationale: Schema.optional(NonBlankStringSchema),
   decisionClaimRef: NonBlankStringSchema,
+  decisionContentPin: Schema.String.pipe(Schema.pattern(/^sha256:[0-9a-f]{64}$/u)),
 });
 
 const ArtifactEntityKindSchema = Schema.Struct({

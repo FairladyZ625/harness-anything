@@ -1,5 +1,5 @@
-import type { RelationType } from "./entity-relation.ts";
-import { entityTypeContracts, type EntityKind } from "./base-entity.ts";
+import type { RelationStrength, RelationType } from "./entity-relation.ts";
+import { entityTypeContracts } from "./base-entity.ts";
 
 /** Whether the reading of an allowed triple has a registered semantics. */
 export type RelationDirectionRegistration = "ratified" | "unregistered" | "derived";
@@ -12,8 +12,8 @@ export type RelationDirectionRegistration = "ratified" | "unregistered" | "deriv
  */
 export interface CanonicalRelationDirection {
   readonly type: RelationType;
-  readonly sourceKind: EntityKind;
-  readonly targetKind: EntityKind;
+  readonly sourceKind: string;
+  readonly targetKind: string;
   /** dec_mr74sbka: an active edge reads as `source <reads> target` in the storage direction. */
   readonly reads: string;
   /** The retired reverse alias this direction replaced, if the pair had one. The alias
@@ -22,6 +22,16 @@ export interface CanonicalRelationDirection {
   /** "ratified" = registered reading. "unregistered" = the grammar allows the triple but
    * its semantics await an owner decision; new data should avoid leaning on it. */
   readonly registration: RelationDirectionRegistration;
+  /** Code rows leave strength unconstrained. Governed vertical rows pin the only
+   * strength that may be written through that compiled registry revision. */
+  readonly strength?: RelationStrength;
+  /** Present only on governed vertical rows. This is an approval witness, not a
+   * second relation allowlist; writability still derives from this registry row. */
+  readonly governance?: {
+    readonly decisionClaimRef: string;
+    readonly decisionContentPin: `sha256:${string}`;
+    readonly rationale?: string;
+  };
 }
 
 /** Canonical Relation endpoint kinds derive from the BaseEntity contracts. */
@@ -226,6 +236,45 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     return kind === "relation" ? [outgoing] : [outgoing, incoming];
   }),
 ];
+
+/**
+ * Build the one runtime registry consumed by relation admission. Kernel rows stay
+ * authoritative and governed rows can only add new, already-compiled cells.
+ */
+export function composeCanonicalRelationDirections(
+  compiledRows: readonly CanonicalRelationDirection[],
+): readonly CanonicalRelationDirection[] {
+  const rows = new Map<string, CanonicalRelationDirection>();
+  for (const row of [...canonicalRelationDirections, ...compiledRows]) {
+    const key = relationDirectionKey(row),
+      previous = rows.get(key);
+    if (!previous) {
+      rows.set(key, row);
+      continue;
+    }
+    if (!sameDirectionGovernance(previous, row)) {
+      throw new Error(
+        `Conflicting relation direction governance for ${row.sourceKind} --${row.type}--> ${row.targetKind}.`,
+      );
+    }
+  }
+  return Object.freeze([...rows.values()].map((row) => Object.freeze(row)));
+}
+
+export function relationDirectionKey(
+  row: Pick<CanonicalRelationDirection, "sourceKind" | "type" | "targetKind">,
+): string {
+  return `${row.sourceKind}|${row.type}|${row.targetKind}`;
+}
+
+function sameDirectionGovernance(left: CanonicalRelationDirection, right: CanonicalRelationDirection): boolean {
+  return (
+    left.reads === right.reads &&
+    left.registration === right.registration &&
+    left.strength === right.strength &&
+    JSON.stringify(left.governance ?? null) === JSON.stringify(right.governance ?? null)
+  );
+}
 
 /** Minimal structural shape the reverse query needs; callers keep their own richer rows. */
 export interface DirectedRelationEdge {

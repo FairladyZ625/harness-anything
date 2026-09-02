@@ -15,6 +15,11 @@ import {
   noSdkExposure,
   type EntityKindContract,
 } from "./entity-kind-registry.ts";
+import {
+  compileGovernedRelationDirections,
+  type GovernedRelationCompilationAuthority,
+} from "./governed-relation-direction.ts";
+import { composeCanonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 
 export const COMPILED_VERTICAL_CONTRACT_SCHEMA = "compiled-vertical-contract/v1" as const;
 
@@ -42,6 +47,7 @@ export interface CompiledVerticalContract {
 export interface CompiledVerticalRegistry {
   readonly revision: number;
   readonly verticals: readonly CompiledVerticalContract[];
+  readonly relationDirections: readonly CanonicalRelationDirection[];
 }
 
 export class VerticalContractError extends Error {
@@ -57,7 +63,10 @@ export class VerticalContractError extends Error {
  * Pure five-stage compiler: strict decode, uniqueness/portability checks, entity contracts,
  * relation-request decoding, then one deeply immutable value for every consumer.
  */
-export function compileVerticalContract(source: unknown): CompiledVerticalContract {
+export function compileVerticalContract(
+  source: unknown,
+  authority?: GovernedRelationCompilationAuthority,
+): CompiledVerticalContract {
   let definition: VerticalDefinition;
   try {
     definition = decodeVerticalDefinition(source);
@@ -120,12 +129,31 @@ export function compileVerticalContract(source: unknown): CompiledVerticalContra
     });
   });
 
-  return deepFreeze({
+  const compiled = deepFreeze({
     schema: COMPILED_VERTICAL_CONTRACT_SCHEMA,
     typeIdentity: `${definition.id}@${definition.version}`,
     definition,
     artifactKinds: compiledArtifacts,
   });
+  compiledRelationDirections(compiled, authority);
+  return compiled;
+}
+
+export function compiledRelationDirections(
+  compiled: CompiledVerticalContract,
+  authority?: GovernedRelationCompilationAuthority,
+): readonly CanonicalRelationDirection[] {
+  try {
+    return compileGovernedRelationDirections({
+      verticalId: compiled.definition.id,
+      artifacts: compiled.artifactKinds,
+      ...(authority ? { authority } : {}),
+    });
+  } catch (error) {
+    throw new VerticalContractError(
+      `Vertical relation compilation failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -136,6 +164,7 @@ export function acceptVerticalRegistryCandidate(input: {
   readonly current: CompiledVerticalRegistry;
   readonly expectedRevision: number;
   readonly source: unknown;
+  readonly decisionAuthority?: GovernedRelationCompilationAuthority;
 }): CompiledVerticalRegistry {
   if (input.expectedRevision !== input.current.revision) {
     throw Object.assign(
@@ -145,16 +174,23 @@ export function acceptVerticalRegistryCandidate(input: {
       { code: "stale_vertical_registry_revision" },
     );
   }
-  const accepted = compileVerticalContract(input.source),
+  const accepted = compileVerticalContract(input.source, input.decisionAuthority),
     verticals = input.current.verticals
       .filter(({ definition }) => definition.id !== accepted.definition.id)
       .concat(accepted)
-      .sort((left, right) => left.definition.id.localeCompare(right.definition.id));
-  return deepFreeze({ revision: input.current.revision + 1, verticals });
+      .sort((left, right) => left.definition.id.localeCompare(right.definition.id)),
+    relationDirections = composeCanonicalRelationDirections(
+      verticals.flatMap((vertical) => compiledRelationDirections(vertical, input.decisionAuthority)),
+    );
+  return deepFreeze({ revision: input.current.revision + 1, verticals, relationDirections });
 }
 
 export function emptyCompiledVerticalRegistry(): CompiledVerticalRegistry {
-  return Object.freeze({ revision: 0, verticals: Object.freeze([]) });
+  return Object.freeze({
+    revision: 0,
+    verticals: Object.freeze([]),
+    relationDirections: composeCanonicalRelationDirections([]),
+  });
 }
 
 function validateUniqueContracts(

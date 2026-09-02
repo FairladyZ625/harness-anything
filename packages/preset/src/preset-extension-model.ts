@@ -431,7 +431,16 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
             validateObjectKeys(
               relation,
               `${entityPath}.relations[${relationIndex}]`,
-              ["type", "sourceKind", "targetKind", "decisionClaimRef"],
+              [
+                "type",
+                "sourceKind",
+                "targetKind",
+                "reads",
+                "strength",
+                "rationale",
+                "decisionClaimRef",
+                "decisionContentPin",
+              ],
               issues,
             );
           }
