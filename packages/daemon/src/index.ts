@@ -7,6 +7,7 @@ export {
   requestLocalDaemonJsonRpc,
   requestLocalDaemonJsonRpcForTarget,
   resolveLocalDaemonTarget,
+  resolveLocalDaemonTargetFromRepos,
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget,
 } from "./client/local-json-rpc-client.ts";

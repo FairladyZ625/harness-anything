@@ -49,7 +49,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
           daemonFailure("daemon-projection-rebuild", "missing_field", "Add a workspace path after --root."),
           2,
         );
-      const target = resolveLocalDaemonTarget({
+      const target = await resolveLocalDaemonTarget({
         rootDir: path.resolve(suppliedRoot ?? process.cwd()),
         repoIdOverride: daemonOption(argv, "--repo"),
         userRoot,
@@ -182,7 +182,7 @@ async function fleetControl(
       "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
   const edgeTarget = edge
-    ? resolveLocalDaemonTarget({
+    ? await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
         repoIdOverride: flag("--repo"),
         userRoot,
@@ -295,15 +295,14 @@ async function status(
   const root = path.resolve(daemonOption(argv, "--root") ?? process.cwd()),
     repoIdOverride = daemonOption(argv, "--repo") ?? process.env.HARNESS_DAEMON_REPO_ID;
   // Same resolver as every command: canonicalised registry match, and the injected-endpoint conflict check fails closed here too.
-  const resolved = ((): ReturnType<typeof resolveLocalDaemonTarget> | null => {
-    try {
-      return resolveLocalDaemonTarget({ rootDir: root, repoIdOverride, userRoot, daemonId });
-    } catch (error) {
-      if ((error as { readonly code?: unknown }).code === "daemon_target_conflict") throw error;
-      consumeKnownError(error);
-      return null;
-    }
-  })();
+  let resolved: Awaited<ReturnType<typeof resolveLocalDaemonTarget>> | null;
+  try {
+    resolved = await resolveLocalDaemonTarget({ rootDir: root, repoIdOverride, userRoot, daemonId });
+  } catch (error) {
+    if ((error as { readonly code?: unknown }).code === "daemon_target_conflict") throw error;
+    consumeKnownError(error);
+    resolved = null;
+  }
   const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
     result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75);
   const target = {

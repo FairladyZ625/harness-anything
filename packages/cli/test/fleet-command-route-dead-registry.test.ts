@@ -17,11 +17,11 @@ test("a registered repo whose root no longer exists does not break routing for o
     path.join(userRoot, "registry.json"),
     JSON.stringify({
       schema: "harness-daemon-registry/v2",
-      connections: [],
+      connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
       repos: [
-        { repoId: "dead-disabled", canonicalRoot: "/nonexistent/parent/dead-one", state: "disabled", mode: "local" },
-        { repoId: "dead-enabled", canonicalRoot: "/nonexistent/parent/dead-two", state: "enabled", mode: "local" },
-        { repoId: "live", canonicalRoot: liveRoot, state: "enabled", mode: "local" },
+        repo("dead-disabled", "/nonexistent/parent/dead-one", "disabled"),
+        repo("dead-enabled", "/nonexistent/parent/dead-two", "enabled"),
+        repo("live", liveRoot, "enabled"),
       ],
     }),
   );
@@ -29,3 +29,16 @@ test("a registered repo whose root no longer exists does not break routing for o
   // local mode → no fleet reroute; the point is that it resolves instead of throwing invalid_root.
   assert.equal(await fleetEdgeRegistration(command, { HARNESS_DAEMON_USER_ROOT: userRoot }), null);
 });
+
+function repo(repoId: string, canonicalRoot: string, state: "enabled" | "disabled") {
+  return {
+    repoId,
+    canonicalRoot,
+    displayName: repoId,
+    authoredBranch: "main",
+    mode: "local",
+    connectionId: "local",
+    state,
+    registeredAt: "2026-07-07T00:00:00.000Z",
+  };
+}

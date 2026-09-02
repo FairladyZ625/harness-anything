@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,25 +10,46 @@ import { createPresetProcessService } from "../../preset/src/index.ts";
 import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 
-test("local daemon target rejects v1 registries with re-registration guidance", () => {
+test("local daemon target resolves a v1 workspace after the shared registry reader upgrades it", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-v1-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
     userRoot = path.join(fixtureRoot, "user");
   try {
+    mkdirSync(workspaceRoot);
     mkdirSync(userRoot);
     writeFileSync(
       path.join(userRoot, "registry.json"),
-      `${JSON.stringify({ schema: "harness-daemon-registry/v1", repos: [] })}\n`,
+      `${JSON.stringify({
+        schema: "harness-daemon-registry/v1",
+        repos: [
+          {
+            repoId: "legacy",
+            canonicalRoot: workspaceRoot,
+            displayName: "Legacy",
+            authoredBranch: "main",
+            state: "enabled",
+            registeredAt: "2026-07-07T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
     );
-    assert.throws(
-      () => resolveLocalDaemonTarget({ rootDir: fixtureRoot, userRoot, env: {} }),
-      /unsupported daemon registry v1.*re-register/u,
-    );
+
+    const target = await resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: {} });
+    const persisted = JSON.parse(readFileSync(path.join(userRoot, "registry.json"), "utf8")) as {
+      schema: string;
+      repos: Record<string, unknown>[];
+    };
+
+    assert.equal(target.repoId, "legacy");
+    assert.equal(target.canonicalRoot, realpathSync.native(workspaceRoot));
+    assert.equal(persisted.schema, "harness-daemon-registry/v2");
+    assert.equal(persisted.repos[0]?.connectionId, "local");
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }
 });
 
-test("local daemon target resolves a registered workspace from its subdirectory", () => {
+test("local daemon target resolves a registered workspace from its subdirectory", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const workspaceRoot = path.join(fixtureRoot, "workspace"),
     nestedRoot = path.join(workspaceRoot, "harness", "tasks"),
@@ -42,7 +63,7 @@ test("local daemon target resolves a registered workspace from its subdirectory"
       `${JSON.stringify(registry([repo("workspace", canonicalWorkspaceRoot)]), null, 2)}\n`,
     );
 
-    const target = resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
+    const target = await resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
 
     assert.equal(target.repoId, "workspace");
     assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);
@@ -51,7 +72,7 @@ test("local daemon target resolves a registered workspace from its subdirectory"
   }
 });
 
-test("local daemon target chooses the deepest nested registered workspace", () => {
+test("local daemon target chooses the deepest nested registered workspace", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const outerRoot = path.join(fixtureRoot, "outer"),
     innerRoot = path.join(outerRoot, "packages", "inner"),
@@ -67,7 +88,7 @@ test("local daemon target chooses the deepest nested registered workspace", () =
       `${JSON.stringify(registry([repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot)]), null, 2)}\n`,
     );
 
-    const target = resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
+    const target = await resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} });
 
     assert.equal(target.repoId, "inner");
     assert.equal(target.canonicalRoot, canonicalInnerRoot);
@@ -76,7 +97,7 @@ test("local daemon target chooses the deepest nested registered workspace", () =
   }
 });
 
-test("local daemon target rejects a disabled nested workspace instead of falling back to its enabled parent", () => {
+test("local daemon target rejects a disabled nested workspace instead of falling back to its enabled parent", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const outerRoot = path.join(fixtureRoot, "outer"),
     innerRoot = path.join(outerRoot, "packages", "inner"),
@@ -92,7 +113,7 @@ test("local daemon target rejects a disabled nested workspace instead of falling
       `${JSON.stringify(registry([repo("outer", canonicalOuterRoot), repo("inner", canonicalInnerRoot, "disabled")]), null, 2)}\n`,
     );
 
-    assert.throws(
+    await assert.rejects(
       () => resolveLocalDaemonTarget({ rootDir: nestedRoot, userRoot, env: {} }),
       /workspace is not registered/u,
     );
@@ -101,7 +122,7 @@ test("local daemon target rejects a disabled nested workspace instead of falling
   }
 });
 
-test("local daemon target honors an explicit root instead of the process working directory", () => {
+test("local daemon target honors an explicit root instead of the process working directory", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const outerRoot = path.join(fixtureRoot, "outer"),
     innerRoot = path.join(outerRoot, "packages", "inner"),
@@ -119,7 +140,7 @@ test("local daemon target honors an explicit root instead of the process working
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
     if (!parsed.ok) return;
 
-    const target = resolveLocalDaemonTarget({ rootDir: parsed.command.rootDir, userRoot, env: {} });
+    const target = await resolveLocalDaemonTarget({ rootDir: parsed.command.rootDir, userRoot, env: {} });
 
     assert.equal(target.repoId, "outer");
     assert.equal(target.canonicalRoot, canonicalOuterRoot);
@@ -128,7 +149,7 @@ test("local daemon target honors an explicit root instead of the process working
   }
 });
 
-test("local daemon target keeps the environment repo id override authoritative", () => {
+test("local daemon target keeps the environment repo id override authoritative", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const firstRoot = path.join(fixtureRoot, "first"),
     secondRoot = path.join(fixtureRoot, "second"),
@@ -144,7 +165,7 @@ test("local daemon target keeps the environment repo id override authoritative",
       `${JSON.stringify(registry([repo("first", canonicalFirstRoot), repo("second", canonicalSecondRoot)]), null, 2)}\n`,
     );
 
-    const target = resolveLocalDaemonTarget({
+    const target = await resolveLocalDaemonTarget({
       rootDir: firstRoot,
       userRoot,
       env: { HARNESS_DAEMON_REPO_ID: "second" },
@@ -157,7 +178,7 @@ test("local daemon target keeps the environment repo id override authoritative",
   }
 });
 
-test("local daemon target rejects a path outside every registered workspace", () => {
+test("local daemon target rejects a path outside every registered workspace", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const workspaceRoot = path.join(fixtureRoot, "workspace"),
     unrelatedRoot = path.join(fixtureRoot, "unrelated"),
@@ -171,7 +192,7 @@ test("local daemon target rejects a path outside every registered workspace", ()
       `${JSON.stringify(registry([repo("workspace", realpathSync.native(workspaceRoot))]), null, 2)}\n`,
     );
 
-    assert.throws(
+    await assert.rejects(
       () => resolveLocalDaemonTarget({ rootDir: unrelatedRoot, userRoot, env: {} }),
       /workspace is not registered/u,
     );
@@ -197,7 +218,7 @@ test("local daemon target routes a repository worktree to the canonical workspac
       `${JSON.stringify(registry([repo("workspace", canonicalWorkspaceRoot)]), null, 2)}\n`,
     );
 
-    const target = resolveLocalDaemonTarget({ rootDir: worktreeRoot, userRoot, env: {} });
+    const target = await resolveLocalDaemonTarget({ rootDir: worktreeRoot, userRoot, env: {} });
     const layout = resolveHarnessLayout(target.canonicalRoot);
     const presetProcess = createPresetProcessService({
       rootDir: target.canonicalRoot,
@@ -225,7 +246,7 @@ test("local daemon target routes a repository worktree to the canonical workspac
   }
 });
 
-test("local daemon target keeps a matching injected endpoint across an isolated runtime temp directory", () => {
+test("local daemon target keeps a matching injected endpoint across an isolated runtime temp directory", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-endpoint-")),
     workspaceRoot = path.join(fixtureRoot, "workspace"),
     userRoot = path.join(fixtureRoot, "user"),
@@ -240,7 +261,7 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
       path.join(userRoot, "registry.json"),
       `${JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)]), null, 2)}\n`,
     );
-    const target = resolveLocalDaemonTarget({
+    const target = await resolveLocalDaemonTarget({
       rootDir: workspaceRoot,
       userRoot,
       daemonId,
@@ -252,7 +273,7 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
   }
 });
 
-test("local daemon target rejects an injected endpoint owned by another user root", () => {
+test("local daemon target rejects an injected endpoint owned by another user root", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")),
     workspaceRoot = path.join(fixtureRoot, "workspace"),
     userRoot = path.join(fixtureRoot, "isolated-user"),
@@ -268,7 +289,7 @@ test("local daemon target rejects an injected endpoint owned by another user roo
       `${JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)]), null, 2)}\n`,
     );
 
-    assert.throws(
+    await assert.rejects(
       () =>
         resolveLocalDaemonTarget({
           rootDir: workspaceRoot,

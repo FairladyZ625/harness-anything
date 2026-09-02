@@ -140,6 +140,11 @@ export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonR
   const { registryPath } = daemonRegistryPaths(options);
   if (!existsSync(registryPath)) return emptyDaemonRegistry();
   const decoded = JSON.parse(readFileSync(registryPath, "utf8")) as unknown;
+  if (isDaemonRegistryRecord(decoded) && decoded.schema === "harness-daemon-registry/v1") {
+    const upgraded = decodeDaemonRegistry(upgradeDaemonRegistryV1(decoded, registryPath), registryPath);
+    writeDaemonRegistry(upgraded, options);
+    return upgraded;
+  }
   return decodeDaemonRegistry(decoded, registryPath);
 }
 
@@ -394,8 +399,6 @@ function emptyDaemonRegistry(): DaemonRegistry {
 }
 
 function decodeDaemonRegistry(value: unknown, source: string): DaemonRegistry {
-  if (isDaemonRegistryRecord(value) && value.schema === "harness-daemon-registry/v1")
-    throw new Error(`unsupported daemon registry v1 at ${source}; remove it and re-register repositories`);
   if (
     !isDaemonRegistryRecord(value) ||
     value.schema !== daemonRegistrySchema ||
@@ -422,6 +425,25 @@ function decodeDaemonRegistry(value: unknown, source: string): DaemonRegistry {
     }
   });
   return sortDaemonRegistry({ schema: daemonRegistrySchema, connections, repos, invalidRepos });
+}
+
+function upgradeDaemonRegistryV1(value: Record<string, unknown>, source: string): Record<string, unknown> {
+  if (!Array.isArray(value.repos)) throw new Error(`invalid daemon registry at ${source}`);
+  return {
+    schema: daemonRegistrySchema,
+    connections: [localConnection()],
+    repos: value.repos
+      .map((repo) =>
+        isDaemonRegistryRecord(repo)
+          ? {
+              ...repo,
+              mode: repo.mode ?? "local",
+              connectionId: "local",
+            }
+          : repo,
+      )
+      .sort(compareRegistryEntries),
+  };
 }
 
 function decodeDaemonRegistryConnection(value: unknown, source: string): DaemonRegistryConnection {

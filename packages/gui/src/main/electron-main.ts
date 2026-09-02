@@ -14,7 +14,11 @@ import {
 } from "./local-composition-root.ts";
 import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
-import { daemonUserRoot, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
+import {
+  daemonUserRoot,
+  resolveLocalDaemonTarget,
+  resolveLocalDaemonTargetFromRepos,
+} from "../../../daemon/src/client/local-daemon-target.ts";
 import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import {
   evaluateHtmlArtifactAttachment,
@@ -183,7 +187,10 @@ export async function startGuiApp(): Promise<void> {
     ipcMain,
     {
       canonicalRootOf: (repoId) => {
-        const target = resolveLocalDaemonTarget({ rootDir, repoIdOverride: repoId });
+        const target = resolveLocalDaemonTargetFromRepos(
+          { rootDir, repoIdOverride: repoId },
+          readDaemonRegistry({ userRoot: daemonUserRoot() }).repos,
+        );
         if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
         return target.canonicalRoot;
       },
