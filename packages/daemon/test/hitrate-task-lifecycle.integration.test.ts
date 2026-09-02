@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -94,7 +94,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
     assert.equal(started.outcome, "applied", JSON.stringify(started));
-    const events = () => makeTaskEventStore({ repoId, rootDir }).read().events,
+    const events = () => makeTaskEventReader({ repoId, rootDir }).read().events,
       startedEvents = events().length,
       repeated = (await cell.run(
         { kind: "task-start", taskId, executionId: "ignored-new-execution" },
@@ -157,7 +157,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     )) as Record<string, unknown>;
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     assert.equal(reconciled.executionId, executionId);
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(reconciled.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(reconciled.opId));
     assert.equal(event?.type, "code_doc_reconciled");
     if (event?.type !== "code_doc_reconciled") throw new Error("reconcile event missing");
     assert.deepEqual(event.payload.witness, {
@@ -238,7 +238,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       holder,
     );
     assert.equal(repointed.outcome, "applied", JSON.stringify(repointed));
-    const repointEvent = makeTaskEventStore({ repoId, rootDir }).readEvent(String(repointed.opId));
+    const repointEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(repointed.opId));
     assert.equal(repointEvent?.type, "code_doc_repointed");
     if (repointEvent?.type === "code_doc_repointed") {
       assert.equal(repointEvent.payload.record.commitSha, commitSha);
