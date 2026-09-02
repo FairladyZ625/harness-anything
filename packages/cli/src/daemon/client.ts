@@ -154,7 +154,13 @@ export async function runCommandThroughDaemon(
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
   const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
-    requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(rpc.requestLocalDaemonJsonRpcForTarget),
+    // The CLI is the one caller that restarts a drifted daemon (withAutostart), so it alone asks
+    // the daemon to step aside on build drift; attach-only clients keep the loaded build.
+    requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(((target, ...rest) =>
+      rpc.requestLocalDaemonJsonRpcForTarget(
+        { ...target, restartStaleDaemon: true },
+        ...rest,
+      )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show",
     env = options.env ?? process.env;
   if (command.action.kind === "repo-bootstrap") {

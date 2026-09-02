@@ -11,31 +11,80 @@ import type { DaemonAuthenticationContext } from "../src/transport/auth-context.
 test("protocol.hello answers with the daemon's build stamp", async () => {
   let shutdowns = 0;
   const build = { commit: "0123456789abcdef0123456789abcdef01234567" };
-  const server = createJsonRpcProtocolServer({ host: {} as never, build, authContext: { transportKind: "unix-socket" } as DaemonAuthenticationContext, emit: async () => undefined, requestShutdown: () => { shutdowns += 1; } });
+  const server = createJsonRpcProtocolServer({
+    host: {} as never,
+    build,
+    authContext: { transportKind: "unix-socket" } as DaemonAuthenticationContext,
+    emit: async () => undefined,
+    requestShutdown: () => {
+      shutdowns += 1;
+    },
+  });
   try {
-    const hello = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+    const hello = await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
     const result = (hello as { readonly result: { readonly build?: { readonly commit: string | null } } }).result;
-    assert.equal(result.build?.commit, build.commit, "hello must report the stamp supplied by the daemon composition root");
+    assert.equal(
+      result.build?.commit,
+      build.commit,
+      "hello must report the stamp supplied by the daemon composition root",
+    );
     const stop = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
     assert.equal((stop as { readonly result: { readonly ok: boolean } }).result.ok, true, JSON.stringify(stop));
     assert.equal(shutdowns, 1, "an accepted daemon.stop must reach the shutdown owner exactly once");
-  } finally { server.close(); }
+  } finally {
+    server.close();
+  }
 });
 
-test("protocol.hello rejects a stale dist fingerprint and requests one restart", async () => {
+test("protocol.hello keeps serving a drifted build to attach-only callers and steps aside only for a restarting caller", async () => {
   let shutdowns = 0;
   const server = createJsonRpcProtocolServer({
     host: {} as never,
     build: { commit: "loaded" },
-    buildObserver: { status: () => ({ commit: "loaded", entry: "dist", loadedBuildId: "build-a", diskBuildId: "build-b", drifted: true }) },
+    buildObserver: {
+      status: () => ({
+        commit: "loaded",
+        entry: "dist",
+        loadedBuildId: "build-a",
+        diskBuildId: "build-b",
+        drifted: true,
+      }),
+    },
     authContext: { transportKind: "unix-socket" } as DaemonAuthenticationContext,
     emit: async () => undefined,
-    requestShutdown: () => { shutdowns += 1; },
+    requestShutdown: () => {
+      shutdowns += 1;
+    },
   });
   try {
-    const hello = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
-    assert.equal((hello as { readonly result: { readonly code: string } }).result.code, "daemon_build_stale");
+    const attachOnly = await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    assert.equal(
+      (attachOnly as { readonly result: { readonly ok: boolean } }).result.ok,
+      true,
+      "the GUI never restarts the daemon, so drift must not make the daemon leave it",
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(shutdowns, 0);
+    const restarting = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, restartStaleDaemon: true },
+    });
+    assert.equal((restarting as { readonly result: { readonly code: string } }).result.code, "daemon_build_stale");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(shutdowns, 1);
-  } finally { server.close(); }
+  } finally {
+    server.close();
+  }
 });

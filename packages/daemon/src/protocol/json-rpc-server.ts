@@ -138,8 +138,10 @@ export function createJsonRpcProtocolServer(options: {
         Object.assign(options.authContext, {
           sessionEnvironment: params.sessionEnvironment,
         });
+      // A drifted daemon keeps serving attach-only clients (the GUI) on the loaded build; it only
+      // steps aside for a caller that declares it will start the disk build again (the CLI).
       const buildStatus = options.buildObserver?.status();
-      if (buildStatus?.drifted) {
+      if (buildStatus?.drifted && params.restartStaleDaemon === true) {
         const stale = daemonProtocolError(
           "protocol.hello",
           "daemon_build_stale",
