@@ -69,6 +69,45 @@ test("an unknown command domain reports unknown with the available set instead o
   assert.match(logs[0] ?? "", /ha migrate rekey-facts(?: --dry-run)?/u);
 });
 
+test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
+  const parsed = parseThinCommand([
+    "entity",
+    "import",
+    "--kind",
+    "software/coding/architecture-decision-record@1",
+    "--locator",
+    "harness/adr/0001.md",
+    "--expected-version",
+    "0",
+    "--dry-run",
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, {
+    kind: "entity-import",
+    entityKind: "software/coding/architecture-decision-record@1",
+    locator: "harness/adr/0001.md",
+    expectedVersion: 0,
+    dryRun: true,
+  });
+  assert.equal(
+    parseThinCommand([
+      "entity",
+      "import",
+      "--kind",
+      "software/coding/architecture-decision-record@1",
+      "--locator",
+      "moved.md",
+      "--expected-version",
+      "1",
+      "--source-identity",
+      "repo:canonical:old.md",
+    ]).ok,
+    false,
+  );
+});
+
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
@@ -114,7 +153,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-get", "entity-list"],
+    entity: ["entity-get", "entity-import", "entity-list"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],

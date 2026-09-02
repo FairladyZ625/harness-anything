@@ -148,13 +148,20 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
+  artifactEntityActionCatalog,
+  artifactEntityImportActionInput,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,
   requireEntityKindContract,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
+export type {
+  EntityActionContract,
+  EntityKindContract,
+  EntityResidencyFacets,
+  EntityStoreKindContract,
+} from "./entity-kind-registry.ts";
 
 export { deriveUseCaseProjectionInputs } from "./use-case-projection-catalog.ts";
 export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
@@ -162,7 +169,7 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
 export { compileVerticalContract } from "./vertical-contract.ts";
-export type { CompiledVerticalContract } from "./vertical-contract.ts";
+export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export type {
   EntityActionCriterionFailure,
   EntityActionCompileInput,
@@ -274,7 +281,49 @@ export type {
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
 
-export { compileEntityUpsert, entityUpsertWritePlan, isEntityEvent } from "./entity-event.ts";
-export type { EntityEventV1, EntityUpsertBundle } from "./entity-event.ts";
+export {
+  assertEntityEventInputs,
+  compileEntityContentObserved,
+  compileEntityTargetMissing,
+  compileEntityUpsert,
+  contractForDeclarationEvent,
+  entityContentObservedWritePlan,
+  entityTargetMissingWritePlan,
+  entityUpsertWritePlan,
+  isEntityDeclarationEvent,
+  isEntityEvent,
+} from "./entity-event.ts";
+export type {
+  EntityContentObservedBundle,
+  EntityContentObservedEventV1,
+  EntityEventV1,
+  EntityTargetMissingBundle,
+  EntityTargetMissingEventV1,
+  EntityUpsertBundle,
+} from "./entity-event.ts";
+export {
+  ARTIFACT_DESCRIPTOR_FIELDS,
+  artifactDescriptorSchema,
+  artifactEntityContractFromSnapshot,
+  artifactEntityContractSnapshot,
+  artifactImportOperationId,
+  artifactObservationId,
+  canonicalArtifactLocator,
+  canonicalArtifactSourceIdentity,
+  canonicalArtifactUrl,
+  canonicalSourceIdentity,
+  decodeArtifactDescriptor,
+  deriveArtifactContentVersion,
+  deriveArtifactEntityId,
+  encodeArtifactDescriptor,
+} from "./artifact-entity.ts";
+export type {
+  ArtifactContentWitness,
+  ArtifactDescriptor,
+  ArtifactEntityContractSnapshot,
+  ArtifactLocator,
+  ArtifactLocatorKind,
+  ArtifactSourceIdentityInput,
+} from "./artifact-entity.ts";
 export type { CiRunObservationEventV1 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";

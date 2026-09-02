@@ -170,6 +170,8 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
   if (deferredSettlement) void settleAuthoredCandidates(deferredSettlement.actor, deferredSettlement.inventory);
   const currentSessionIdentity = (binding: RepoCellBinding) => resolveWriteSessionIdentity(binding, projection!);
   const entityActionExecutor = makeEntityActionCatalogExecutor({
+    rootDir: context.rootDir,
+    repositoryId: context.input.repoId,
     store,
     projection,
     now: context.now,

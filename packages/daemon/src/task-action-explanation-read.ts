@@ -29,6 +29,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export interface TaskActionExplanationReadDependencies {
@@ -319,6 +320,50 @@ function catalogExplanation(kind: string, binding: RepoCellBinding): EntityActio
   if (kind === "task") return makeTaskActionExplanationService(dependencies).catalog();
   if (kind === "person") return makePersonActionExplanationService(dependencies).catalog();
   if (kind === "squad") return makeSquadActionExplanationService(dependencies).catalog();
+  const artifact = compiledArtifactKinds().find(({ typeIdentity }) => typeIdentity === kind),
+    catalog = artifact?.entityKindContract.actionCatalog;
+  if (artifact && catalog) {
+    const result: EntityActionExplanationSetV1 = {
+        schema: ENTITY_ACTION_EXPLANATION_SCHEMA.id,
+        mode: "catalog",
+        subjects: [
+          {
+            kind,
+            ref: null,
+            revision: null,
+            actions: catalog.actions.map((action) => ({
+              action: {
+                kind,
+                id: action.id,
+                catalogRef: catalog.ref,
+                contractVersion: `${action.version.major}.${action.version.minor}`,
+                explain: action.explain,
+                syntax: {
+                  usage: `ha entity import --kind ${kind} --locator <locator> --expected-version <revision>`,
+                  inputs: action.input.fields,
+                },
+              },
+              target: null,
+              available: null,
+              criteria: action.criteria.map((criterion) => ({
+                ...criterion,
+                status: "not-evaluated" as const,
+                nextActions: [],
+              })),
+              unmetCriteria: [],
+              authorizationDecision: null,
+              nextActions: [],
+              evaluatedAtCut: null,
+            })),
+            failure: null,
+          },
+        ],
+        evaluatedAtCut: null,
+      },
+      issues = validateEntityActionExplanationSet(result);
+    if (issues.length) throw new Error(`Invalid Artifact Action explanation: ${issues.join("; ")}`);
+    return Object.freeze(result);
+  }
   throw invalidCommand(`Entity Action catalog explain does not support ${kind}.`);
 }
 

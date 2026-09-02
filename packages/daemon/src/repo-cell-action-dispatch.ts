@@ -8,6 +8,7 @@ import {
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
   type WriteReceiptDraft as WriteReceipt,
+  type EntityStoreKindContract,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
@@ -21,6 +22,7 @@ import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
+import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -181,6 +183,17 @@ export async function executeAction(
       ),
     );
   }
+  if (action.kind === "entity-import")
+    return cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(
+        action,
+        binding,
+        cell.input.repoId,
+        Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
+      ),
+    );
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "task" && actionContract.execution) {
     const targetIdField = actionContract.execution.targetIdField ?? "taskId",
@@ -256,7 +269,10 @@ export async function executeAction(
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
       kind = cell.requiredCellText(action.entityKind, "entityKind"),
-      entities = createEntityStore(cell.store);
+      entities = createEntityStore(
+        cell.store,
+        compiledArtifactKinds().map(({ entityKindContract }) => entityKindContract as EntityStoreKindContract),
+      );
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),

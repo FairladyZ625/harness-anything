@@ -1,5 +1,6 @@
 import {
   cliInput,
+  defineCenterForwardWriteCommand,
   defineHostAdminCommand,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
@@ -194,10 +195,62 @@ export const agentProtocolCommands = Object.freeze([
     id: "explain",
     actionKind: "entity-action-explain",
     phase: "Ontology-Explain-A",
-    path: ["explain", "<task|person|squad|entity/ref>..."],
-    summary: "Explain a Task, Person, or Squad Action catalog, or evaluate object refs at the current canonical cut.",
+    path: ["explain", "<kind|entity/ref>..."],
+    summary: "Explain a builtin or compiled Artifact Action catalog, or evaluate object refs at the canonical cut.",
     method: "repo.entity.actions.explain",
     inputs: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "entity-import",
+    phase: "Governed-Entity-W1-B",
+    path: ["entity", "import"],
+    summary: "Resolve and import one compiled vertical Artifact Entity through the canonical entity action path.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--kind",
+        "single",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add --kind <vertical/artifact@version>.",
+        },
+        { field: "entityKind" },
+      ),
+      cliInput("--locator", "single", true, {
+        code: "missing_field",
+        nextAction: "Add --locator <repository-path|url|external-key>.",
+      }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add --expected-version <non-negative-entity-revision>.",
+        },
+        { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
+      ),
+      cliInput("--title", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use one non-empty --title value or omit it to use the resolved title.",
+      }),
+      cliInput("--entity-id", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --entity-id only for an explicit relink of an existing Artifact Entity.",
+      }),
+      cliInput("--source-identity", "single", false, {
+        code: "invalid_field",
+        nextAction: "Use --source-identity with --entity-id to preserve identity during relink.",
+      }),
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
   }),
   defineRepoReadCommand({
     id: "entity-get",

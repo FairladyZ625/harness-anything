@@ -1,6 +1,7 @@
 import { validateActorIdentity } from "./actor-identity.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import {
+  artifactEntityActionCatalog,
   getEntityKindContract,
   type EntityActionContract,
   type EntityActionInputField,
@@ -103,7 +104,7 @@ export function validateEntityActionExplainRequest(value: unknown): readonly str
   if (value.mode !== "object" && value.mode !== "catalog") errors.push("Entity Action explain request mode is invalid");
   if (
     value.mode === "catalog" &&
-    (!explanationNonEmpty(value.entityKind) || !getEntityKindContract(String(value.entityKind))?.actionCatalog)
+    (!explanationNonEmpty(value.entityKind) || !explanationCatalog(String(value.entityKind)))
   )
     errors.push("Entity Action catalog explain kind is unsupported");
   if (value.mode === "object" && value.entityKind !== null)
@@ -114,8 +115,8 @@ export function validateEntityActionExplainRequest(value: unknown): readonly str
     errors.push("Entity Action object explain requires 1..500 refs");
   else if (value.mode === "catalog") {
     const selector = value.refs[0];
-    if (value.refs.length > 1 || (selector !== undefined && selector !== "task" && selector !== "person"))
-      errors.push("Entity Action catalog explain accepts at most one supported Task or Person kind selector");
+    if (value.refs.length > 1 || (selector !== undefined && selector !== value.entityKind))
+      errors.push("Entity Action catalog explain accepts at most one matching kind selector");
   }
   return errors;
 }
@@ -182,9 +183,7 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
           explanationRecord(action) && explanationRecord(action.action) ? action.action.id : undefined,
         ),
         canonicalIds =
-          typeof value.kind === "string"
-            ? (getEntityKindContract(value.kind)?.actionCatalog?.actions.map(({ id }) => id) ?? null)
-            : null;
+          typeof value.kind === "string" ? (explanationCatalog(value.kind)?.actions.map(({ id }) => id) ?? null) : null;
       if (canonicalIds === null || JSON.stringify(ids) !== JSON.stringify(canonicalIds))
         errors.push("successful Entity subject actions must follow its canonical catalog order");
     }
@@ -196,7 +195,7 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
   )
     errors.push("only an invalid EntityRef failure may have no kind");
   if (mode === "catalog") {
-    const catalog = typeof value.kind === "string" ? getEntityKindContract(value.kind)?.actionCatalog : null;
+    const catalog = typeof value.kind === "string" ? explanationCatalog(value.kind) : null;
     if (
       catalog === null ||
       catalog === undefined ||
@@ -210,7 +209,7 @@ function validateSubject(value: unknown, mode: unknown, cut: unknown): readonly 
   } else if (
     value.failure === null &&
     (typeof value.kind !== "string" ||
-      !getEntityKindContract(value.kind)?.actionCatalog ||
+      !explanationCatalog(value.kind) ||
       value.ref === null ||
       !positiveInteger(value.revision))
   )
@@ -339,7 +338,7 @@ function validActionDescriptor(value: unknown): boolean {
     Array.isArray(value.syntax.inputs) &&
     value.syntax.inputs.every(validInputField) &&
     canonical !== null &&
-    value.catalogRef === getEntityKindContract(String(value.kind))?.actionCatalog?.ref &&
+    value.catalogRef === explanationCatalog(String(value.kind))?.ref &&
     value.contractVersion === `${canonical.version.major}.${canonical.version.minor}` &&
     value.explain === canonical.explain &&
     JSON.stringify(value.syntax.inputs) === JSON.stringify(canonical.input.fields)
@@ -348,7 +347,18 @@ function validActionDescriptor(value: unknown): boolean {
 
 function actionContract(value: unknown): EntityActionContract | null {
   if (!explanationRecord(value) || typeof value.kind !== "string" || typeof value.id !== "string") return null;
-  return getEntityKindContract(value.kind)?.actionCatalog?.actions.find(({ id }) => id === value.id) ?? null;
+  return explanationCatalog(value.kind)?.actions.find(({ id }) => id === value.id) ?? null;
+}
+
+function explanationCatalog(kind: string) {
+  const registered = getEntityKindContract(kind)?.actionCatalog;
+  if (registered) return registered;
+  if (!/^[a-z0-9][a-z0-9/-]*\/[a-z0-9][a-z0-9-]*@[1-9][0-9]*$/u.test(kind)) return null;
+  return artifactEntityActionCatalog(kind, {
+    field: "entityId",
+    pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{16}$",
+    refTemplate: `${kind}/{id}`,
+  });
 }
 
 function staticCriterion(value: unknown): unknown {

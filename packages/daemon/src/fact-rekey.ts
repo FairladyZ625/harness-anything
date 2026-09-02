@@ -14,6 +14,7 @@ import {
   documentPath,
   eventObjectRelativePath,
   isFactEvent,
+  isEntityDeclarationEvent,
   isEntityEvent,
   isMigrationImportEvent,
   localGitObjectRefStore,
@@ -343,7 +344,7 @@ function buildPlan(rootDir: string, store: CanonicalEventStore): FactRekeyPlan {
   }
   const currentSquadClaims = new Map<string, EntityDeclarationClaimSnapshot>();
   for (const event of events)
-    if (event.schema === "entity-event/v1" && event.payload.entityKind === "squad")
+    if (event.schema === "entity-event/v1" && isEntityDeclarationEvent(event) && event.payload.entityKind === "squad")
       currentSquadClaims.set(event.payload.entityId, event.payload.declarationDocumentClaim);
   const eventRewrites: { event: PersistedCanonicalEventV1; body: string }[] = [],
     rewrittenEntityBlobs = new Map<string, RewrittenEntityBlob>(),
@@ -566,7 +567,7 @@ function rewriteRetiredAgentEntity(
   event: PersistedCanonicalEventV1,
   store: CanonicalEventStore,
 ): { readonly event: CanonicalEventV1; readonly path: string; readonly blob: RewrittenEntityBlob } | null {
-  if (!isEntityEvent(event) || event.payload.entityKind !== "agent") return null;
+  if (!isEntityEvent(event) || !isEntityDeclarationEvent(event) || event.payload.entityKind !== "agent") return null;
   const claim = event.payload.declarationDocumentClaim,
     bytes = store.readContentBlob(claim.sha256);
   if (bytes === null || bytes.byteLength !== claim.size)

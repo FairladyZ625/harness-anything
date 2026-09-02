@@ -1,12 +1,14 @@
 import type { HarnessLayoutInput } from "../layout/index.ts";
 import {
   compileEntityUpsert,
+  contractForDeclarationEvent,
+  isEntityDeclarationEvent,
   isEntityEvent,
   type EntityUpsertBundle,
   type StoredEntityEventV1,
 } from "../domain/entity-event.ts";
 import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
-import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
+import { requireEntityStoreKindContract, type EntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { publicationRefs } from "./task-event-store-git-refs.ts";
@@ -29,17 +31,41 @@ export interface EntityStore {
 
 type EntityEventSource = Pick<CanonicalEventStore, "read" | "readContentBlob">;
 
-export function createEntityStore(source: EntityEventSource): EntityStore {
+export function createEntityStore(
+  source: EntityEventSource,
+  dynamicContracts: readonly EntityStoreKindContract[] = [],
+): EntityStore {
+  const contractForKind = (kind: string): EntityStoreKindContract => {
+    const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
+    if (dynamic) return dynamic;
+    try {
+      return requireEntityStoreKindContract(kind);
+    } catch (error) {
+      const declaration = source
+        .read()
+        .events.find(
+          (event) =>
+            isEntityEvent(event) &&
+            isEntityDeclarationEvent(event) &&
+            event.payload.entityKind === kind &&
+            event.type === "entity_content_observed",
+        );
+      if (declaration && declaration.type === "entity_content_observed")
+        return contractForDeclarationEvent(declaration);
+      throw error;
+    }
+  };
   const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
-    const contract = requireEntityStoreKindContract(kind),
+    const contract = contractForKind(kind),
       latest = new Map<string, StoredEntityEventV1>();
     for (const event of source.read().events) {
-      if (isEntityEvent(event) && event.payload.entityKind === contract.kind) latest.set(event.payload.entityId, event);
+      if (isEntityEvent(event) && isEntityDeclarationEvent(event) && event.payload.entityKind === contract.kind)
+        latest.set(event.payload.entityId, event);
     }
     return latest;
   };
   const records = (kind: string): readonly StoredEntity[] => {
-    const contract = requireEntityStoreKindContract(kind);
+    const contract = contractForKind(kind);
     return [...latestEvents(kind).values()]
       .map((event) => entityEventRecord(event, source, contract))
       .sort((left, right) => left.id.localeCompare(right.id));
@@ -47,7 +73,7 @@ export function createEntityStore(source: EntityEventSource): EntityStore {
   return {
     upsert: compileEntityUpsert,
     get: <T>(kind: string, id: string) => {
-      const contract = requireEntityStoreKindContract(kind),
+      const contract = contractForKind(kind),
         event = latestEvents(kind).get(id);
       return event === undefined ? null : (entityEventRecord(event, source, contract) as StoredEntity<T>);
     },
@@ -74,6 +100,7 @@ function entityEventRecord(
   source: EntityEventSource,
   contract: ReturnType<typeof requireEntityStoreKindContract>,
 ): StoredEntity {
+  if (!isEntityDeclarationEvent(event)) throw new Error("entity target-missing event has no declaration document");
   const claim = event.payload.declarationDocumentClaim,
     bytes = source.readContentBlob(claim.sha256);
   if (!bytes || bytes.byteLength !== claim.size)
@@ -91,7 +118,9 @@ function entityEventRecord(
   } catch {
     throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
   }
-  const entity = interpretEntityValue(contract, decoded),
+  const eventContract = contractForDeclarationEvent(event);
+  if (eventContract.kind !== contract.kind) throw new Error("entity declaration contract kind mismatch");
+  const entity = interpretEntityValue(eventContract, decoded),
     contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
   if (contractErrors.length) throw new Error(contractErrors.join("; "));
   if (entity.id !== event.payload.entityId)

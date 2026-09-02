@@ -35,7 +35,11 @@ test("artifact declarations compile to immutable BaseEntity and generic entity-s
     kind: "generic-entity-store",
     contractRef: "entity-event/v1",
   });
-  assert.equal(artifactContract.entityKindContract.actionCatalog, null);
+  assert.equal(artifactContract.entityKindContract.actionCatalog?.actions[0]?.id, "import");
+  assert.equal(
+    artifactContract.entityKindContract.actionCatalog?.actions[0]?.execution?.implementation,
+    "catalog-runtime",
+  );
   assert.deepEqual(Object.keys(artifactContract.entityKindContract.schema.properties), [
     "schema",
     "typeIdentity",

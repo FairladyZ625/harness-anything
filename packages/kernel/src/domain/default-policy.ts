@@ -23,6 +23,7 @@ const repositoryWriteActions = Object.freeze([
   "doc-materialize",
   "doc-retire",
   "doc-submit",
+  "entity-import",
   "fact-reclassify",
   "fact-record",
   "fact-rekey",

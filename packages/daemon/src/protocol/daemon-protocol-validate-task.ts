@@ -2,6 +2,7 @@ import {
   generatedTaskActionProtocolDeclarations,
   type GeneratedTaskActionProtocolDeclaration,
 } from "./daemon-protocol-commands-task.ts";
+import { artifactEntityImportActionInput } from "../../../kernel/src/index.ts";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA, DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,
@@ -54,12 +55,15 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   const action = (value.payload as JsonObject).action;
   if (!isJsonObject(action) || typeof action.kind !== "string") return [];
   const declaration = taskActionProtocolByIngress.get(action.kind);
-  return declaration ? validateProjectedTaskActionInput(action.kind, declaration.input, action) : [];
+  if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
+  return action.kind === "entity-import"
+    ? validateProjectedTaskActionInput(action.kind, artifactEntityImportActionInput, action)
+    : [];
 }
 
 function validateProjectedTaskActionInput(
   ingress: string,
-  input: GeneratedTaskActionProtocolDeclaration["input"],
+  input: GeneratedTaskActionProtocolDeclaration["input"] | typeof artifactEntityImportActionInput,
   record: Readonly<Record<string, unknown>>,
 ): readonly string[] {
   const allowed = new Set(["kind", "executor", ...input.fields.map(({ field }) => field)]),

@@ -20,9 +20,8 @@ import {
   reduceRuntimeSession,
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
-import { isEntityEvent } from "../domain/entity-event.ts";
+import { contractForDeclarationEvent, isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
 import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
-import { requireEntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
@@ -41,6 +40,7 @@ import { projectMigration } from "./rebuildable-task-projection-migration.ts";
 import { projectDecision, projectFact, projectProgress } from "./rebuildable-task-projection-write-model.ts";
 import { applyTaskEvent } from "./rebuildable-task-projection-task-events.ts";
 import {
+  advanceEntityProjectionRevision,
   deleteEntityProjectionRow,
   projectEmbeddedCanonicalEntities,
   projectInterpretedEntityValue,
@@ -131,6 +131,17 @@ export function applyEvent(
     return;
   }
   if (isEntityEvent(event)) {
+    if (!isEntityDeclarationEvent(event)) {
+      runSql(
+        db,
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+        event.opId,
+        event.workspaceRevision,
+        eventJson,
+      );
+      advanceEntityProjectionRevision(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
+      return;
+    }
     const claim = event.payload.declarationDocumentClaim,
       bytes = readBlob(claim.sha256);
     if (!bytes || bytes.byteLength !== claim.size)
@@ -148,7 +159,7 @@ export function applyEvent(
     } catch {
       throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
     }
-    const contract = requireEntityStoreKindContract(event.payload.entityKind),
+    const contract = contractForDeclarationEvent(event),
       entity = interpretEntityValue(contract, value),
       contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
     if (contractErrors.length) throw new Error(contractErrors.join("; "));
