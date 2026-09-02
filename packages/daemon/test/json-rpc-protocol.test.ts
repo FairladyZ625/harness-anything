@@ -250,6 +250,9 @@ test("relation graph contract accepts the materialized ledger row schema and rej
     { ok: true, ...cut, facet: "factAnchors", ...empty, factAnchors: payload.factAnchors, warnings: [] },
   ];
   for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph(facet), [], String(facet.facet));
+  // Every facet echoes the fact-type vocabulary (empty outside `facts`); it is declared, not required.
+  for (const facet of facets) assert.deepEqual(validateDaemonRelationGraph({ ...facet, domainTypes: [] }), [], `${facet.facet}+domainTypes`);
+  assert.deepEqual(validateDaemonRelationGraph({ ...payload, domainTypes: ["lesson"] }), []);
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[0], facet: "unknown" }), /relation-graph:unknown/u, "facet");
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[1], extra: true }), /relation-graph:facts/u, "extra");
   assertValidationDiagnostic(validateDaemonRelationGraph({ ...facets[2], facts: facets[1]!.facts }), /relation-graph:coverageRows/u, "facts");
