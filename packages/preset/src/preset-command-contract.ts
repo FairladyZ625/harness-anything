@@ -1,6 +1,5 @@
 export interface CliInputError {
   readonly code: string;
-  readonly nextAction: string;
 }
 export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
 export type CommandAdmission = Readonly<
@@ -41,6 +40,7 @@ export interface CliInputFacet {
   readonly error: CliInputError;
   readonly jsonFields?: readonly string[];
   readonly jsonAllowedFields?: readonly string[];
+  readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
   readonly format?: string;
   readonly minLength?: number;
   readonly maxLength?: number;
@@ -95,6 +95,12 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.enum) facts.push(`values: ${input.enum.join(", ")}`);
   if (input.jsonFields) facts.push(`JSON required fields: ${input.jsonFields.join(", ") || "none"}`);
   if (input.jsonAllowedFields) facts.push(`JSON accepted fields: ${input.jsonAllowedFields.join(", ")}`);
+  if (input.jsonEnums)
+    facts.push(
+      `JSON values: ${Object.entries(input.jsonEnums)
+        .map(([field, values]) => `${field}: ${values.join("|")}`)
+        .join(", ")}`,
+    );
   if (input.format) facts.push(`format: ${input.format}`);
   else if (input.regex) facts.push(`pattern: /${input.regex}/u`);
   const bounds =
@@ -112,7 +118,6 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.requires?.length) facts.push(`requires: ${input.requires.join(", ")}`);
   if (input.requiresAny?.length) facts.push(`requires one of: ${input.requiresAny.join(", ")}`);
   if (input.conflictsWith?.length) facts.push(`mutually exclusive with: ${input.conflictsWith.join(", ")}`);
-  if (parameterRelationHint(input.error.nextAction)) facts.push(`relation: ${input.error.nextAction}`);
   return `${input.name} — ${facts.join("; ")}`;
 }
 export function cliCommandHelp(inputs: readonly CliInputFacet[]): string {
@@ -213,57 +218,38 @@ export const presetCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Add --title <title>, provide it in structured input, or select --from-legacy <id>.",
         },
         { field: "title" },
       ),
-      cliInput(
-        "--id",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --id only with exactly one of --migration, --import, or --admin." },
-        { field: "taskId" },
-      ),
-      cliInput(
-        "--idempotency-key",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use one stable non-empty --idempotency-key." },
-        { field: "idempotencyKey" },
-      ),
-      cliInput(
-        "--parent",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use an existing task id for --parent." },
-        { field: "parentTaskId" },
-      ),
+      cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" }),
+      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "idempotencyKey" }),
+      cliInput("--parent", "single", false, { code: "invalid_field" }, { field: "parentTaskId" }),
       cliInput(
         "--kind",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use feat, fix, refactor, docs, test, or chore for --kind." },
+        { code: "invalid_field" },
         { field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
       ),
       cliInput(
         "--risk-tier",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use low, medium, or high for --risk-tier." },
+        { code: "invalid_field" },
         { field: "riskTier", enum: ["low", "medium", "high"] },
       ),
       cliInput(
         "--urgency",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use low, medium, or high for --urgency." },
+        { code: "invalid_field" },
         { field: "urgency", enum: ["low", "medium", "high"] },
       ),
       cliInput(
         "--from-file",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use exactly one structured input source: --from-file or --json-input." },
+        { code: "invalid_field" },
         {
           field: "fromFile",
           jsonFields: ["title"],
@@ -275,42 +261,24 @@ export const presetCommands = Object.freeze([
         "--json-input",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use exactly one structured input source: --from-file or --json-input." },
+        { code: "invalid_field" },
         {
           field: "jsonInput",
           jsonFields: ["title"],
           jsonAllowedFields: taskCreateJsonFields,
+          format: "<json|@->",
           conflictsWith: ["--from-file"],
         },
       ),
-      cliInput(
-        "--vertical",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use software/coding or another installed vertical id." },
-        { field: "verticalId" },
-      ),
-      cliInput(
-        "--preset",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Run ha preset list --json and choose an available preset id." },
-        { field: "presetId" },
-      ),
-      cliInput(
-        "--profile",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Choose a profile declared by the selected preset." },
-        { field: "profileId" },
-      ),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
+      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
+      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
       cliInput(
         "--module",
         "single",
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a registered module key or provide the complete --register-module field group.",
         },
         { field: "moduleKey" },
       ),
@@ -320,7 +288,6 @@ export const presetCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Provide --register-module, --module-title, --module-prefix, and --module-scope together.",
         },
         { field: "registerModuleKey" },
       ),
@@ -330,7 +297,6 @@ export const presetCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Provide --register-module, --module-title, --module-prefix, and --module-scope together.",
         },
         { field: "moduleTitle" },
       ),
@@ -340,7 +306,6 @@ export const presetCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Provide --register-module, --module-title, --module-prefix, and --module-scope together.",
         },
         { field: "modulePrefix" },
       ),
@@ -350,7 +315,6 @@ export const presetCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Provide --register-module, --module-title, --module-prefix, and --module-scope together.",
         },
         { field: "moduleScope" },
       ),
@@ -358,65 +322,23 @@ export const presetCommands = Object.freeze([
         "--slug",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use a lowercase kebab-case task slug." },
+        { code: "invalid_field" },
         { field: "slug", regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
       ),
-      cliInput(
-        "--surface",
-        "repeated",
-        false,
-        { code: "invalid_field", nextAction: "Use a non-empty command, flag, file path, or identifier for --surface." },
-        { field: "surfaces" },
-      ),
+      cliInput("--surface", "repeated", false, { code: "invalid_field" }, { field: "surfaces" }),
       cliInput(
         "--task-class",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use standard, milestone, epic, or long_running for --task-class." },
+        { code: "invalid_field" },
         { field: "taskClass", enum: ["standard", "milestone", "epic", "long_running"] },
       ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-      cliInput(
-        "--locale",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use zh-CN or en-US for --locale." },
-        { field: "locale", enum: ["zh-CN", "en-US"] },
-      ),
-      cliInput(
-        "--from-legacy",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use one legacy task id for --from-legacy." },
-        { field: "fromLegacyId" },
-      ),
-      cliInput(
-        "--migration",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use exactly one of --migration, --import, or --admin with --id." },
-        { field: "migration" },
-      ),
-      cliInput(
-        "--import",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use exactly one of --migration, --import, or --admin with --id." },
-        { field: "import" },
-      ),
-      cliInput(
-        "--admin",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use exactly one of --migration, --import, or --admin with --id." },
-        { field: "admin" },
-      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
+      cliInput("--from-legacy", "single", false, { code: "invalid_field" }, { field: "fromLegacyId" }),
+      cliInput("--migration", "boolean", false, { code: "invalid_field" }, { field: "migration" }),
+      cliInput("--import", "boolean", false, { code: "invalid_field" }, { field: "import" }),
+      cliInput("--admin", "boolean", false, { code: "invalid_field" }, { field: "admin" }),
     ],
   }),
   defineRepoReadCommand({
@@ -425,15 +347,7 @@ export const presetCommands = Object.freeze([
     path: ["preset", "list"],
     summary: "List effective preset packages and blocked shadows.",
     method: "repo.preset.list",
-    inputs: [
-      cliInput(
-        "--vertical",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --vertical with a non-empty value." },
-        { field: "verticalId" },
-      ),
-    ],
+    inputs: [cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" })],
   }),
   defineRepoReadCommand({
     id: "preset-inspect",
@@ -443,27 +357,9 @@ export const presetCommands = Object.freeze([
     method: "repo.preset.inspect",
     positional: "presetId",
     inputs: [
-      cliInput(
-        "--profile",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --profile with a non-empty value." },
-        { field: "profileId" },
-      ),
-      cliInput(
-        "--vertical",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --vertical with a non-empty value." },
-        { field: "verticalId" },
-      ),
-      cliInput(
-        "--locale",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --locale with a non-empty value." },
-        { field: "locale" },
-      ),
+      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
+      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale" }),
     ],
   }),
   defineRepoReadCommand({
@@ -474,18 +370,12 @@ export const presetCommands = Object.freeze([
     method: "repo.preset.check",
     positional: "presetId",
     inputs: [
-      cliInput(
-        "--vertical",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --vertical with a non-empty value." },
-        { field: "verticalId" },
-      ),
+      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
       cliInput(
         "--snapshot-digest",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use a sha256: preset snapshot digest." },
+        { code: "invalid_field" },
         { field: "snapshotDigest", regex: "^sha256:[0-9a-f]{64}$" },
       ),
     ],
@@ -496,15 +386,7 @@ export const presetCommands = Object.freeze([
     path: ["preset", "validate"],
     summary: "Validate one self-contained preset package.",
     method: "repo.preset.validate",
-    inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "--source is required." },
-        { field: "packageSource" },
-      ),
-    ],
+    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
   }),
   defineLedgerWriteCommand({
     id: "preset-install",
@@ -513,20 +395,8 @@ export const presetCommands = Object.freeze([
     summary: "Install a whole package behind an atomic active pointer.",
     method: "repo.preset.install",
     inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "--source is required." },
-        { field: "packageSource" },
-      ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineLedgerWriteCommand({
@@ -535,15 +405,7 @@ export const presetCommands = Object.freeze([
     path: ["preset", "seed"],
     summary: "Seed bundled packages into user active pointers.",
     method: "repo.preset.seed",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineRepoReadCommand({
     id: "preset-audit",
@@ -551,15 +413,7 @@ export const presetCommands = Object.freeze([
     path: ["preset", "audit"],
     summary: "Audit the effective preset inventory and its issues.",
     method: "repo.preset.audit",
-    inputs: [
-      cliInput(
-        "--vertical",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --vertical with a non-empty value." },
-        { field: "verticalId" },
-      ),
-    ],
+    inputs: [cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" })],
   }),
   defineLedgerWriteCommand({
     id: "preset-uninstall",
@@ -568,15 +422,7 @@ export const presetCommands = Object.freeze([
     summary: "Remove only the user active pointer.",
     method: "repo.preset.uninstall",
     positional: "presetId",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
     id: "preset-upgrade",
@@ -593,15 +439,7 @@ export const presetCommands = Object.freeze([
     path: ["vertical", "validate"],
     summary: "Validate the builtin software/coding declaration and its catalog closure.",
     method: "repo.vertical.validate",
-    inputs: [
-      cliInput(
-        "--source",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use software/coding; custom verticals are unavailable." },
-        { field: "verticalSource" },
-      ),
-    ],
+    inputs: [cliInput("--source", "single", false, { code: "invalid_field" }, { field: "verticalSource" })],
   }),
   defineRepoReadCommand({
     id: "template-list",
@@ -619,13 +457,7 @@ export const presetCommands = Object.freeze([
     method: "repo.template.render",
     positional: "templateRef",
     inputs: [
-      cliInput(
-        "--locale",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use zh-CN or en-US." },
-        { field: "locale", enum: ["zh-CN", "en-US"] },
-      ),
+      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
     ],
   }),
   defineRepoReadCommand({
@@ -655,27 +487,9 @@ export const presetCommands = Object.freeze([
     positionalRegex: "^vertical:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
     actionDefaults: { schema: "vertical-script-action/v1", taskId: null, inputs: {}, dryRun: false },
     inputs: [
-      cliInput(
-        "--task",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --task with a non-empty value." },
-        { field: "taskId" },
-      ),
-      cliInput(
-        "--inputs",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "--inputs must be a JSON object of string values." },
-        { field: "inputs", codec: "json" },
-      ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
+      cliInput("--inputs", "single", false, { code: "invalid_field" }, { field: "inputs", codec: "json" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineLedgerWriteCommand({
@@ -687,27 +501,9 @@ export const presetCommands = Object.freeze([
     positional: "presetTarget",
     positionalFields: ["presetId", "entrypoint"],
     inputs: [
-      cliInput(
-        "--task",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use --task with a non-empty value." },
-        { field: "taskId" },
-      ),
-      cliInput(
-        "--inputs",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "--inputs must be a JSON object." },
-        { field: "inputs", codec: "json" },
-      ),
-      cliInput(
-        "--idempotency-key",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "--idempotency-key is required." },
-        { field: "idempotencyKey" },
-      ),
+      cliInput("--task", "single", false, { code: "invalid_field" }, { field: "taskId" }),
+      cliInput("--inputs", "single", false, { code: "invalid_field" }, { field: "inputs", codec: "json" }),
+      cliInput("--idempotency-key", "single", true, { code: "missing_field" }, { field: "idempotencyKey" }),
     ],
   }),
 ] as const);

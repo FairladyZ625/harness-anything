@@ -1,6 +1,8 @@
-import { spawn,
+import {
+  spawn,
   /* @gate-identity check-sync-subprocess/sync-subprocess-010 */
-  spawnSync } from "node:child_process";
+  spawnSync,
+} from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -184,10 +186,11 @@ function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number
   let changed = true;
   while (changed) {
     changed = false;
-    for (const row of rows) if (!selected.has(row.pid) && selected.has(row.parentPid)) {
-      selected.add(row.pid);
-      changed = true;
-    }
+    for (const row of rows)
+      if (!selected.has(row.pid) && selected.has(row.parentPid)) {
+        selected.add(row.pid);
+        changed = true;
+      }
   }
   return rows.filter((row) => selected.has(row.pid));
 }
@@ -198,22 +201,33 @@ function signalRuntimeTargets(
   ownProcessGroupId: number | null,
   signal: NodeJS.Signals,
 ): void {
-  const groups = [...new Set(rows.map(({ processGroupId }) => processGroupId).filter((group) => group > 0))]
-    .sort((left, right) => Number(left === rootPid) - Number(right === rootPid));
+  const groups = [...new Set(rows.map(({ processGroupId }) => processGroupId).filter((group) => group > 0))].sort(
+    (left, right) => Number(left === rootPid) - Number(right === rootPid),
+  );
   for (const processGroupId of groups) {
     if (processGroupId === ownProcessGroupId) continue;
-    try { process.kill(-processGroupId, signal); }
-    catch (error) { if (childProcessErrorCode(error) !== "ESRCH") throw error; consumeKnownError(error); }
+    try {
+      process.kill(-processGroupId, signal);
+    } catch (error) {
+      if (childProcessErrorCode(error) !== "ESRCH") throw error;
+      consumeKnownError(error);
+    }
   }
-  if (groups.includes(ownProcessGroupId ?? -1)) for (const { pid } of rows) {
-    if (pid === process.pid) continue;
-    try { process.kill(pid, signal); }
-    catch (error) { if (childProcessErrorCode(error) !== "ESRCH") throw error; consumeKnownError(error); }
-  }
+  if (groups.includes(ownProcessGroupId ?? -1))
+    for (const { pid } of rows) {
+      if (pid === process.pid) continue;
+      try {
+        process.kill(pid, signal);
+      } catch (error) {
+        if (childProcessErrorCode(error) !== "ESRCH") throw error;
+        consumeKnownError(error);
+      }
+    }
 }
 
 async function survivingRuntimePids(pids: readonly number[]): Promise<readonly number[]> {
-  const wanted = new Set(pids), rows = await readPosixProcessRows();
+  const wanted = new Set(pids),
+    rows = await readPosixProcessRows();
   return rows.filter(({ pid }) => wanted.has(pid)).map(({ pid }) => pid);
 }
 
@@ -234,11 +248,18 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
     return;
   }
   let allRows: readonly PosixProcessRow[];
-  try { allRows = await readPosixProcessRows(); }
-  catch (error) { consumeKnownError(error); terminateRuntimePid(rootPid); return; }
-  const rows = descendantProcessRows(allRows, rootPid), pids = rows.map(({ pid }) => pid),
-    processGroupIds = [...new Set(rows.map(({ processGroupId }) => processGroupId))]
-      .sort((left, right) => left - right),
+  try {
+    allRows = await readPosixProcessRows();
+  } catch (error) {
+    consumeKnownError(error);
+    terminateRuntimePid(rootPid);
+    return;
+  }
+  const rows = descendantProcessRows(allRows, rootPid),
+    pids = rows.map(({ pid }) => pid),
+    processGroupIds = [...new Set(rows.map(({ processGroupId }) => processGroupId))].sort(
+      (left, right) => left - right,
+    ),
     ownProcessGroupId = allRows.find(({ pid }) => pid === process.pid)?.processGroupId ?? null;
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
     kind: "process_descendants",
@@ -250,7 +271,12 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
   signalRuntimeTargets(rows, rootPid, ownProcessGroupId, "SIGTERM");
   let survivors = await awaitRuntimeProcessExit(pids, 500);
   if (survivors.length > 0) {
-    signalRuntimeTargets(rows.filter(({ pid }) => survivors.includes(pid)), rootPid, ownProcessGroupId, "SIGKILL");
+    signalRuntimeTargets(
+      rows.filter(({ pid }) => survivors.includes(pid)),
+      rootPid,
+      ownProcessGroupId,
+      "SIGKILL",
+    );
     survivors = await awaitRuntimeProcessExit(pids, 500);
   }
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
@@ -259,14 +285,20 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
     rootPid,
     survivorPids: survivors,
   });
-  if (survivors.length > 0) throw runtimeSpawnError(
-    "runtime_cancel_failed",
-    `Runtime cancel left descendant processes alive: ${survivors.join(", ")}.`,
-  );
+  if (survivors.length > 0)
+    throw runtimeSpawnError(
+      "runtime_cancel_failed",
+      `Runtime cancel left descendant processes alive: ${survivors.join(", ")}.`,
+    );
 }
 
 export function runtimePidIsAlive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (error) { return childProcessErrorCode(error) === "EPERM"; }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return childProcessErrorCode(error) === "EPERM";
+  }
 }
 
 export function launchExitNotification(input: {
@@ -278,7 +310,6 @@ export function launchExitNotification(input: {
     readonly runtimeSessionId: string;
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled";
     readonly exitCode: number | null;
-    readonly nextAction: string;
   };
   readonly now: () => string;
   readonly timeoutMs?: number;
@@ -394,9 +425,7 @@ export function launchNative(
   persistence: { readonly rootDir: string; readonly dispatchId: string },
 ): RuntimeProcess {
   const command = nativeCommand(input);
-  const workerHost = import.meta.url.endsWith(".js")
-    ? "./runtime-worker-host.js"
-    : "./runtime-worker-host.ts";
+  const workerHost = import.meta.url.endsWith(".js") ? "./runtime-worker-host.js" : "./runtime-worker-host.ts";
   const entry = fileURLToPath(new URL(workerHost, import.meta.url));
   const child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
     detached: true,
@@ -412,16 +441,18 @@ export function launchNative(
     pid,
   });
   child.stdin?.on("error", consumeKnownError);
-  child.stdin?.end(JSON.stringify({
-    ...persistence,
-    executablePath: command.executablePath,
-    args: command.args,
-    cwd: input.cwd,
-    env: input.env,
-    prompt: input.prompt,
-    windowsVerbatimArguments:
-      process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
-  }));
+  child.stdin?.end(
+    JSON.stringify({
+      ...persistence,
+      executablePath: command.executablePath,
+      args: command.args,
+      cwd: input.cwd,
+      env: input.env,
+      prompt: input.prompt,
+      windowsVerbatimArguments:
+        process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
+    }),
+  );
   child.unref();
   return observed;
 }
@@ -481,12 +512,10 @@ function observeDispatchProcess(
         if (record?.kind === "provider_event") {
           if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
           else emitOutput(`${JSON.stringify(record.event)}\n`);
-        }
-        else if (record?.kind === "provider_output_invalid") {
+        } else if (record?.kind === "provider_output_invalid") {
           if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
           else emitOutput(`${String(record.output)}\n`);
-        }
-        else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
+        } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
         else if (record?.kind === "process_exit") {
           emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
         }
@@ -525,7 +554,7 @@ function parseDispatchProcessRecord(line: string): Record<string, unknown> | nul
   try {
     const value: unknown = JSON.parse(line);
     return value !== null && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, unknown>
+      ? (value as Record<string, unknown>)
       : null;
   } catch (error) {
     consumeKnownError(error);

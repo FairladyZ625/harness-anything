@@ -270,7 +270,7 @@ export async function completeTask(
     return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
   }
   return cell.completionSettlement(
-    cell.rejected(facadeOpId, "facade_replay_exhausted", `ha receipt show ${facadeOpId}`),
+    cell.rejected(facadeOpId, "facade_replay_exhausted"),
     (await cell.service.read(taskId)).snapshot,
     executionId,
     steps,

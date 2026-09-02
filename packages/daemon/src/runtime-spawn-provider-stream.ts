@@ -46,10 +46,9 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
             );
           })();
   if (!published.event) {
-    const nextAction = typeof published.receipt.nextAction === "string" ? published.receipt.nextAction : null;
     throw context.runtimeSpawnError(
       typeof published.receipt.code === "string" ? published.receipt.code : "runtime_event_rejected",
-      nextAction ?? `RuntimeSession Action ${type} was ${String(published.receipt.outcome ?? "rejected")}.`,
+      `RuntimeSession Action ${type} was ${String(published.receipt.outcome ?? "rejected")}.`,
     );
   }
   if (!runtimeEventHasType(published.event, type))

@@ -249,7 +249,6 @@ export function publishDocIntent(
         envelope.opId,
         "op_conflict",
         detail(intent, input.store.currentCut(), "op_conflict", null),
-        "query the existing operation before resubmitting",
       );
     }
     if (input.projection.readOperation(existing.opId) === null)
@@ -267,11 +266,10 @@ export function publishDocIntent(
         receiptId: envelope.opId,
         code: "projection_pending",
         origin: "N/A",
-        nextAction: `run ha receipt show ${envelope.opId} after the canonical projection catches up`,
       };
     recycleClaims(input.rootDir, intent);
     return {
-      ...rejectDocSyncAction(envelope.opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction),
+      ...rejectDocSyncAction(envelope.opId, adjudication.code, adjudication.detail),
       authorizationDecision: adjudication.authorizationDecision,
     };
   }

@@ -120,7 +120,7 @@ export async function publishExit(
         if (archived.outcome !== "applied")
           throw context.runtimeSpawnError(
             "runtime_archive_failed",
-            archived.nextAction ?? `Runtime archive ${active.dispatchId} was not applied.`,
+            `Runtime archive ${active.dispatchId} was not applied.`,
           );
       } catch (error) {
         consumeKnownError(error);
@@ -228,7 +228,6 @@ export async function publishExit(
             runtimeSessionId: active.runtimeSessionId,
             outcome,
             exitCode: cancelled ? null : code,
-            nextAction: `ha runtime status ${active.runtimeSessionId} --wait`,
           },
           now: context.input.now,
         }),
@@ -306,11 +305,10 @@ export function applied(
       },
     };
   return canonicalVisible
-    ? { ...base, outcome: "applied" as const, nextAction: null }
+    ? { ...base, outcome: "applied" as const }
     : {
         ...base,
         outcome: "pending" as const,
-        nextAction: `Query receipt ${event.opId}; its canonical publication cut is not exact.`,
       };
 }
 
@@ -331,10 +329,6 @@ export function controlReceipt(
       evidence: `runtime-cancel:${detail}:${runtimeSessionId}`,
       visibility: "center" as const,
       detail,
-      nextAction:
-        detail === "cancelled"
-          ? null
-          : `No active edge process exists for ${runtimeSessionId}; query center status before retrying.`,
     };
   const store = context.requiredRuntimeStore(context.input),
     published = store.readEvent(opId),
@@ -360,14 +354,9 @@ export function controlReceipt(
       detail,
     };
   return canonicalVisible
-    ? { ...base, outcome: "applied" as const, nextAction: null }
+    ? { ...base, outcome: "applied" as const }
     : {
         ...base,
         outcome: "pending" as const,
-        nextAction: [
-          "No canonical cancellation event exists for ",
-          `${runtimeSessionId}`,
-          "; query the runtime before retrying.",
-        ].join(""),
       };
 }

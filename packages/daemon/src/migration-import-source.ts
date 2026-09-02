@@ -229,20 +229,8 @@ export function combineMigrationReceipts(
       ? {
           code: "migration_reconciliation_failed",
           origin: "migration-import",
-          nextAction: [
-            "Source ",
-            `${processed}`,
-            " failed before the remaining sources ran. Repair the reported source or ",
-            "resolution and rerun the same ordered --source list; completed source ",
-            "imports are incremental no-ops.",
-          ].join(""),
         }
-      : {
-          nextAction:
-            exitCode === 3
-              ? "Review all listed skips, repair the source Git snapshots, and rerun the same ordered --source list."
-              : "All Git sources reconciled; the ordered batch may be rerun safely.",
-        }),
+      : {}),
   };
 }
 

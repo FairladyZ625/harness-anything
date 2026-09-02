@@ -232,7 +232,7 @@ export function migrateTaskContracts(
         manual: report.filter((row) => row.status === "manual"),
       },
       cell.store.readHead()?.revision ?? 0,
-      "Run task contract migrate --apply to publish the eligible backfill events.",
+      "task-contract-migrate",
     );
   const backfills = report.filter((row) => row.status === "backfill" || row.status === "repair"),
     steps = backfills.map(({ taskId }) =>
@@ -293,7 +293,6 @@ export function upsertEntity(
         canonicalVisible: false,
         worktreeVisible: false,
       },
-      nextAction: "Remove --dry-run to publish this declaration through the canonical event stream.",
     };
   const compiled = createEntityStore(cell.store).upsert({
       entityKind: prepared.entityKind,
@@ -350,6 +349,5 @@ export function upsertEntity(
     : {
         outcome: "pending",
         ...receipt,
-        nextAction: `Retry after the projection records declaration event ${compiled.event.opId}.`,
       };
 }

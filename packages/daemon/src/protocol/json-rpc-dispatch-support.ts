@@ -70,12 +70,11 @@ export function resultErrorCode(result: object): string | null {
 }
 export function resultErrorDetail(result: object): string | null {
   if (resultOk(result)) return null;
-  const error = "error" in result ? result.error : undefined,
+  const diagnostic = "diagnostic" in result ? result.diagnostic : undefined,
     detail =
-      (isJsonObject(error) && typeof error.hint === "string" ? error.hint : null) ??
-      ("nextAction" in result && typeof result.nextAction === "string" ? result.nextAction : null) ??
+      (isJsonObject(diagnostic) ? JSON.stringify(diagnostic) : null) ??
       ("evidence" in result && typeof result.evidence === "string" ? result.evidence : null);
-  return detail?.split(/;\s*/u, 1)[0]?.slice(0, 500) ?? "Unknown request failure.";
+  return detail?.slice(0, 500) ?? "Unknown request failure.";
 }
 export function rpcError(id: JsonRpcId, errorCode: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code: errorCode, message } };

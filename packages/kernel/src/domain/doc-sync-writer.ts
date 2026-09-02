@@ -64,7 +64,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
     changes: DocEventMutation[] = [],
     blobs: DocContentBlob[] = [];
   const authorizationDecision = input.authorizationDecision ?? null;
-  const reject = (code: string, nextAction: string): DocWriteDecision => ({
+  const reject = (code: string): DocWriteDecision => ({
     accepted: false,
     code,
     authorizationDecision,
@@ -78,7 +78,6 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       differences,
       unresolvedTouches,
       deletions,
-      nextAction,
     },
   });
   const retirementReason = input.retirementReason?.trim();
@@ -89,22 +88,16 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       input.intent.changes[0]?.candidate !== null ||
       input.intent.executionId !== null)
   )
-    return reject(
-      "invalid_retirement",
-      "retire exactly one canonical document with a non-empty reason outside an execution lease",
-    );
+    return reject("invalid_retirement");
   const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null;
   if (
     input.intent.executionId === null
       ? input.lease !== null || runtimeActor
       : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId
   )
-    return reject(
-      "lease_conflict",
-      "refresh status and submit through the matching execution or repository prose channel",
-    );
+    return reject("lease_conflict");
   if (requireAuthorization && input.intent.executionId !== null && authorizationDecision?.outcome !== "allowed")
-    return reject("authorization_denied", "retry through the center AuthorizationPort with an allowed decision");
+    return reject("authorization_denied");
   const directHolder =
       input.lease !== null &&
       isSameExecution(input.lease.actor, input.actor) &&
@@ -113,13 +106,9 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       input.lease !== null &&
       input.runtimeBinding !== undefined &&
       isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
-  if (input.intent.executionId !== null && !directHolder && !runtimeWorker)
-    return reject("lease_conflict", "submit as the canonical execution holder or a verified task-bound RuntimeSession");
+  if (input.intent.executionId !== null && !directHolder && !runtimeWorker) return reject("lease_conflict");
   if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha))
-    return reject(
-      "base_ledger_changed",
-      "run ha doc status, then ha doc sync --dry-run --path <path> for the fresh base and resubmit with a new opId",
-    );
+    return reject("base_ledger_changed");
   for (const [index, change] of input.intent.changes.entries()) {
     const current = input.documents[index] ?? null,
       route = resolveDocRoute(change.path),
@@ -141,12 +130,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       );
     if (!route.allowed)
       unresolvedTouches.push(touch(change.path, null, "path is owned by a typed route", route.requiredRoute));
-    if (change.baseBlobSha256 !== (current?.blobSha256 ?? null))
-      return reject(
-        "base_blob_changed",
-        "run ha doc status, then ha doc sync --dry-run --path <path> for the changed document " +
-          "and resubmit with a new opId",
-      );
+    if (change.baseBlobSha256 !== (current?.blobSha256 ?? null)) return reject("base_blob_changed");
     const prosePolicyUpgradeFrom =
         change.policyId === DOC_POLICY_ID &&
         classifyTextualArtifactPath(change.path)?.policyId === DOC_POLICY_ID &&
@@ -163,7 +147,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
         policyUpgrade === null &&
         current.policyId !== change.policyId)
     )
-      return reject("semantic_policy_changed", "refresh status after the content policy change");
+      return reject("semantic_policy_changed");
     if (change.candidate === null) {
       if (change.baseBlobSha256 !== null) {
         deletions.push({
@@ -194,7 +178,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       claim.byteLength !== change.candidate.size ||
       sha256Bytes(claim ?? new Uint8Array()) !== change.candidate.sha256
     )
-      return reject("content_claim_mismatch", "upload a claim whose hash and size match the descriptor");
+      return reject("content_claim_mismatch");
     let body: string;
     try {
       body = new TextDecoder("utf-8", { fatal: true }).decode(claim);
@@ -232,20 +216,9 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       body,
     });
   }
-  if (deletions.length && retirementReason === undefined)
-    return reject(
-      "deletion_forbidden",
-      "run ha doc retire --path <path> --reason <reason> for an intentional retirement, or restore the document",
-    );
-  if (retirementReason !== undefined && deletions.length !== 1)
-    return reject("document_not_found", "retire a document that still exists in the canonical projection");
-  if (unresolvedTouches.length)
-    return reject(
-      "unresolved_touch",
-      unresolvedTouches.some(({ reason }) => reason === "claim is not canonical LF text")
-        ? "convert the claim to LF line endings, then resubmit the same document with a new opId"
-        : "resolve denied, ambiguous, heading, or machine-owned touches before resubmitting",
-    );
+  if (deletions.length && retirementReason === undefined) return reject("deletion_forbidden");
+  if (retirementReason !== undefined && deletions.length !== 1) return reject("document_not_found");
+  if (unresolvedTouches.length) return reject("unresolved_touch");
   const event: CurrentDocEventV1 = {
     schema: "doc-event/v1",
     eventId: input.eventId,

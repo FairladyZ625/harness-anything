@@ -4,6 +4,7 @@ import { parseProjected } from "./thin-command-projection.ts";
 import { parseContractMigrate, parseTaskArchive, parseTaskDelete } from "./thin-command-task-admin.ts";
 import { parseCodeDoc, parseCodeDocRepoint, parseProgress } from "./thin-command-task-evidence.ts";
 import { parseAmend, parseSupersede } from "./thin-command-task-relations.ts";
+import { renderCliGuidance } from "./guidance-plane.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseTask(
@@ -107,5 +108,9 @@ export function parseTask(
     });
   if (id === "task-code-doc-reconcile") return parseCodeDoc(rootDir, repoId, json, args, taskId, inputs);
   if (id === "task-code-doc-repoint") return parseCodeDocRepoint(rootDir, repoId, json, args, taskId, inputs);
-  return rejected("unsupported_command", `Run ${inputs.get(id)!.helpCommand}.`, json);
+  return rejected(
+    "unsupported_command",
+    renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
+    json,
+  );
 }

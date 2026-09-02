@@ -41,6 +41,16 @@ export type ReceiptDiagnostic =
       readonly pendingWalEvents: number;
       readonly reason: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
       readonly lastError: string;
+    }
+  | {
+      readonly kind: "invalid-enum";
+      readonly field: string;
+      readonly actual: string;
+      readonly allowedValues: readonly string[];
+    }
+  | {
+      readonly kind: "failure";
+      readonly code: string;
     };
 
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
@@ -108,7 +118,8 @@ export interface DocSyncReceiptDetail {
   readonly differences: readonly DocSyncDifference[];
   readonly unresolvedTouches: readonly DocSyncUnresolvedTouch[];
   readonly deletions: readonly DocSyncDeletion[];
-  readonly nextAction: string;
+  /** Legacy read compatibility only. New writers emit structured guidance on the receipt. */
+  readonly nextAction?: string;
 }
 export interface EntityUpsertReceiptDetail {
   readonly kind: "entity_upsert";
@@ -129,7 +140,6 @@ export interface WriteReceiptDraft {
   readonly revision?: number;
   readonly code?: string;
   readonly origin?: string;
-  readonly nextAction?: string;
   readonly evidence?: string;
   readonly visibility?: ReceiptVisibility;
   readonly proof?: ReceiptProof;
@@ -144,6 +154,8 @@ export interface WriteReceiptDraft {
     readonly revision: number | null;
   } | null;
   readonly rejectionExplanation?: string | null;
+  /** Legacy read compatibility only. New writers emit guidance or diagnostic. */
+  readonly nextAction?: string;
   readonly nextActions?: readonly string[];
   readonly guidance?: readonly ReceiptGuidanceContractEntry[];
   readonly diagnostic?: ReceiptDiagnostic;
@@ -166,7 +178,6 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "revision",
     "code",
     "origin",
-    "nextAction",
     "evidence",
     "visibility",
     "proof",
@@ -176,6 +187,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "effects",
     "updatedProjection",
     "rejectionExplanation",
+    "nextAction",
     "nextActions",
     "guidance",
     "diagnostic",
@@ -191,8 +203,10 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("receipt outcome is invalid");
   if (!isNonEmptyString(value.opId)) errors.push("opId is required");
   if ("revision" in value && !cut(value.revision)) errors.push("revision must be a non-negative integer");
-  for (const field of ["code", "origin", "nextAction", "evidence"] as const)
+  for (const field of ["code", "origin", "evidence"] as const)
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
+  if ("nextAction" in value && !isNonEmptyString(value.nextAction))
+    errors.push("nextAction must be a non-empty string");
   if (
     "unmetCriteria" in value &&
     (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isEntityActionUnmetCriterion(entry)))
@@ -302,21 +316,25 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     (!cut(value.revision) || !isNonEmptyString(value.evidence))
   )
     errors.push(`${String(value.outcome)} requires revision and evidence`);
-  if (
-    value.outcome === "no_changes" &&
-    (value.code !== "no_changes" || !isNonEmptyString(value.origin) || !isNonEmptyString(value.nextAction))
-  )
-    errors.push("no_changes requires code, origin, and nextAction");
+  if (value.outcome === "no_changes" && (value.code !== "no_changes" || !isNonEmptyString(value.origin)))
+    errors.push("no_changes requires code and origin");
+  const hasStructuredRemediation =
+      (Array.isArray(value.guidance) && value.guidance.length > 0) || isReceiptDiagnostic(value.diagnostic),
+    hasLegacyRemediation = isNonEmptyString(value.nextAction);
   if (
     value.outcome === "pending" &&
-    (!cut(value.revision) ||
-      !isNonEmptyString(value.evidence) ||
-      (!isNonEmptyString(value.nextAction) && (!Array.isArray(value.guidance) || value.guidance.length === 0)))
+    (!cut(value.revision) || !isNonEmptyString(value.evidence) || (!hasStructuredRemediation && !hasLegacyRemediation))
   )
-    errors.push("pending requires committed evidence, revision, and nextAction or guidance");
+    errors.push("pending requires committed evidence, revision, and remediation guidance");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")
-    for (const field of ["code", "origin", "nextAction"] as const)
+    for (const field of ["code", "origin"] as const)
       if (!isNonEmptyString(value[field])) errors.push(`${field} is required for ${value.outcome}`);
+  if (
+    (value.outcome === "indeterminate" || value.outcome === "op_rejected") &&
+    !hasStructuredRemediation &&
+    !hasLegacyRemediation
+  )
+    errors.push("nextAction is required when structured guidance and diagnostic are absent");
   if (!isNonEmptyString(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
     errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
@@ -374,6 +392,16 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
         value.reason === "retry_budget_exhausted") &&
       isNonEmptyString(value.lastError)
     );
+  if (value.kind === "invalid-enum")
+    return (
+      exact(value, ["kind", "field", "actual", "allowedValues"]) &&
+      isNonEmptyString(value.field) &&
+      typeof value.actual === "string" &&
+      Array.isArray(value.allowedValues) &&
+      value.allowedValues.length > 0 &&
+      value.allowedValues.every(isNonEmptyString)
+    );
+  if (value.kind === "failure") return exact(value, ["kind", "code"]) && isNonEmptyString(value.code);
   return (
     value.kind === "missing-sections" &&
     exact(value, ["kind", "documentPath", "diskDiffers", "missingSections"]) &&
@@ -422,24 +450,25 @@ function validAuthorizationDecision(value: unknown): value is AuthorizationDecis
   );
 }
 function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolean {
+  const fields = [
+    "kind",
+    "code",
+    "baseLedgerSha",
+    "currentLedgerSha",
+    "paths",
+    "holder",
+    "differences",
+    "unresolvedTouches",
+    "deletions",
+    ...(value.nextAction === undefined ? [] : ["nextAction"]),
+  ];
   return (
-    exact(value, [
-      "kind",
-      "code",
-      "baseLedgerSha",
-      "currentLedgerSha",
-      "paths",
-      "holder",
-      "differences",
-      "unresolvedTouches",
-      "deletions",
-      "nextAction",
-    ]) &&
+    exact(value, fields) &&
     value.kind === "doc_sync" &&
     isNonEmptyString(value.code) &&
+    (value.nextAction === undefined || isNonEmptyString(value.nextAction)) &&
     receiptLedgerIdentity(value.baseLedgerSha) &&
     ledgerCut(value.currentLedgerSha) &&
-    isNonEmptyString(value.nextAction) &&
     Array.isArray(value.paths) &&
     value.paths.every(
       (row) =>

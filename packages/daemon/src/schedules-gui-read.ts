@@ -160,21 +160,13 @@ function admissionFacet(
   mode: DaemonRepoMode,
 ): ScheduleGuiActionFacet {
   const admission = admitRepoMode(mode, commandDescriptorForAction(actionKind), "local");
-  return admission.ok
-    ? { available: true, code: null, nextAction: null }
-    : { available: false, code: admission.code, nextAction: admission.nextAction };
+  return scheduleActionFacet(admission.ok, admission.ok ? null : admission.code);
 }
 
 function deleteFacet(mode: DaemonRepoMode, active: ScheduleV1["status"]["activeRun"]): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-delete", mode);
   if (!admission.available) return admission;
-  return active === null
-    ? admission
-    : {
-        available: false,
-        code: "schedule_single_flight_active",
-        nextAction: `Occurrence ${active.occurrenceId} must settle before deleting the Schedule.`,
-      };
+  return active === null ? admission : scheduleActionFacet(false, "schedule_single_flight_active");
 }
 
 function runNowFacet(input: {
@@ -187,32 +179,13 @@ function runNowFacet(input: {
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
   if (!admission.available) return admission;
-  if (input.targetKind === "squad")
-    return {
-      available: false,
-      code: "schedule_target_unavailable",
-      nextAction: "Squad targets are schema placeholders and do not have a Schedule dispatch route yet.",
-    };
-  if (input.state === "paused")
-    return {
-      available: false,
-      code: "schedule_paused",
-      nextAction: "Enable the Schedule before claiming a manual occurrence.",
-    };
-  if (input.active)
-    return {
-      available: false,
-      code: "schedule_single_flight_active",
-      nextAction: `Occurrence ${input.active.occurrenceId} is already claimed by node ${input.active.nodeId}.`,
-    };
-  if (input.availability === "local") return { available: true, code: null, nextAction: null };
-  const nextAction =
-    input.availability === "claimed-elsewhere"
-      ? "The active claim is owned by another node; watch its run projection here."
-      : input.availability === "unassigned"
-        ? "No fleet edge holds this Schedule; add a schedule assignment to the roster before expecting runs."
-        : `Execution belongs to node ${input.claimNodeId ?? "another node"}; run it there.`;
-  return { available: false, code: "not_execution_node", nextAction };
+  if (input.targetKind === "squad") return scheduleActionFacet(false, "schedule_target_unavailable");
+  if (input.state === "paused") return scheduleActionFacet(false, "schedule_paused");
+  if (input.active) return scheduleActionFacet(false, "schedule_single_flight_active");
+  return scheduleActionFacet(
+    input.availability === "local",
+    input.availability === "local" ? null : "not_execution_node",
+  );
 }
 
 function stateFacet(
@@ -224,14 +197,12 @@ function stateFacet(
   if (!admission.available) return admission;
   // Domain no-op guard: the GUI never offers an action the cell would answer no_changes.
   const wanted = actionKind === "schedule-enable" ? "paused" : "armed";
-  return state === wanted
-    ? admission
-    : {
-        available: false,
-        code: "no_changes",
-        nextAction:
-          actionKind === "schedule-enable" ? "The Schedule is already armed." : "The Schedule is already paused.",
-      };
+  return state === wanted ? admission : scheduleActionFacet(false, "no_changes");
+}
+
+function scheduleActionFacet(available: boolean, code: string | null): ScheduleGuiActionFacet {
+  const nextAction = code;
+  return { available, code, nextAction };
 }
 
 function activeRunDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["activeRun"] {

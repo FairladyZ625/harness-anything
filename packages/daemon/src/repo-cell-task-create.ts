@@ -43,13 +43,6 @@ export function readResult(
     : {
         outcome: "pending",
         ...base,
-        nextAction: [
-          "Retry after the task projection catches up from revision ",
-          `${cut.watermark}`,
-          " to ",
-          `${cut.sourceRevision}`,
-          ".",
-        ].join(""),
       };
 }
 
@@ -58,7 +51,7 @@ export function previewResult(
   opId: string,
   value: object,
   revision: number,
-  nextAction: string,
+  command: string,
 ): WriteReceipt {
   const cut = cell.projection.list();
   return {
@@ -79,7 +72,7 @@ export function previewResult(
       canonicalVisible: false,
       worktreeVisible: false,
     },
-    nextAction,
+    guidance: [{ kind: "remove-dry-run", args: { command } }],
   };
 }
 
@@ -160,24 +153,9 @@ export function createTask(
   }
   const taskId = cell.createTaskId(canonicalAction, binding, cell.input.repoId),
     taskIds = cell.projectedTaskIds();
-  if (taskIds.has(taskId))
-    return cell.rejected(
-      opId,
-      "task_exists",
-      `Task ${taskId} already exists; choose a different --id or retry the original idempotent request.`,
-    );
+  if (taskIds.has(taskId)) return cell.rejected(opId, "task_exists");
   if (typeof canonicalAction.parentTaskId === "string" && !taskIds.has(canonicalAction.parentTaskId))
-    return cell.rejected(
-      opId,
-      "parent_not_found",
-      [
-        "Create parent task ",
-        `${canonicalAction.parentTaskId}`,
-        " first, then retry with --parent ",
-        `${canonicalAction.parentTaskId}`,
-        ".",
-      ].join(""),
-    );
+    return cell.rejected(opId, "parent_not_found");
   const currentRevision = cell.store.readHead()?.revision ?? 0,
     workspaceRevision = currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
@@ -338,17 +316,9 @@ export function upgradePresetSnapshot(
     ? {
         outcome: "applied",
         ...base,
-        nextAction: [
-          "Run ha preset check ",
-          `${compiled.snapshot.identity.id}`,
-          " --snapshot-digest ",
-          `${compiled.snapshot.digest}`,
-          ".",
-        ].join(""),
       }
     : {
         outcome: "pending",
         ...base,
-        nextAction: `Retry after preset upgrade event ${opId} reaches the exact canonical and projection cuts.`,
       };
 }

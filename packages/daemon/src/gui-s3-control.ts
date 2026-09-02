@@ -13,7 +13,6 @@ export interface DaemonControlReceipt extends JsonObject {
   readonly before: JsonObject | null;
   readonly after: JsonObject | null;
   readonly error: JsonObject | null;
-  readonly nextAction: string | null;
   readonly authorizationDecision: JsonObject | null;
 }
 export interface CatalogRereadReceipt extends JsonObject {
@@ -220,7 +219,7 @@ export function validateDaemonControlReceipt(value: unknown): readonly string[] 
       before: "nullable-object",
       after: "nullable-object",
       error: "nullable-object",
-      nextAction: "null-string",
+
       authorizationDecision: "nullable-object",
     },
     "daemon control receipt",
@@ -466,7 +465,7 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       evidence: "string",
       visibility: "string",
       proof: "object",
-      nextAction: "null-string",
+
       authorizationDecision: "nullable-object",
     },
     "runtime spawn receipt",

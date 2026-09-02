@@ -1,9 +1,7 @@
 import type { TaskProjection } from "../../kernel/src/index.ts";
 import {
-  canStartExecution,
   documentPath,
   resolveDocRoute,
-  runtimeSessionIdFromActor,
   stableStringify,
   type DocSyncReceiptDetail,
   type DocWriteIntent,
@@ -12,7 +10,7 @@ import {
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
-import { blockedCandidateNextAction, detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
+import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof } from "./doc-sync-files.ts";
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
@@ -35,7 +33,6 @@ export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlement
           worktreeVisible: false,
         },
         detail,
-        nextAction: detail.nextAction,
       }
     : {
         outcome: "applied",
@@ -71,20 +68,6 @@ function statusSummary(scan: DocCandidateScan): string {
 }
 
 export function scanDetail(input: Input, scan: DocCandidateScan, code: string): DocSyncReceiptDetail {
-  const hasConflict = scan.rows.some((row) => row.conflicts.length),
-    deletion = scan.rows.find((row) => row.state === "deletion"),
-    executionChoice =
-      scan.executionCandidates.length > 1
-        ? "run the task command for the matching execution; task documents are discovered automatically"
-        : null,
-    leaseConflict =
-      executionChoice !== null
-        ? null
-        : (leaseConflictNextAction(input, scan) ??
-          (code === "lease_conflict"
-            ? "refresh status and submit through the matching execution or repository prose channel"
-            : null)),
-    blocked = scan.rows.find((row) => row.state === "blocked");
   return {
     kind: "doc_sync",
     code,
@@ -118,92 +101,11 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
         baseBlobSha256: row.baseBlobSha256!,
         source: "intent" as const,
       })),
-    nextAction: hasConflict
-      ? [
-          "merge the listed conflict scratch into the canonical file, then run ha doc ",
-          "conflict resolve <conflict-id>; use discard-local or overwrite-center ",
-          "when either side should win unchanged",
-        ].join("")
-      : deletion
-        ? blockedCandidateNextAction(
-            deletion,
-            [
-              "run ha doc retire --path ",
-              deletion.path,
-              ' --reason "<reason>" for intentional retirement, or restore the ',
-              "document and rerun ha doc sync --submit",
-            ].join(""),
-          )
-        : (executionChoice ??
-          leaseConflict ??
-          (blocked
-            ? blockedCandidateNextAction(blocked)
-            : scan.rows.some((row) => row.state === "eligible")
-              ? "submit this selection against the reported automatic base"
-              : scan.rows.some((row) => row.state === "inapplicable")
-                ? "no action required; inapplicable candidates are outside doc sync"
-                : "no action required")),
   };
 }
 
-// dec_01KXGDXZG03JZRGTW8V91H11ER CH1(二): a lease_conflict receipt must name the
-// command that actually unblocks this caller. The old single hint ("rerun with
-// an explicit execution id was itself a dead end for every non-holder, and for a
-// lapsed runtime lease the working recovery is the same release+re-enter
-// round `ha task progress append` already names (task-progress-event.ts).
-export function leaseConflictNextAction(input: Input, scan: DocCandidateScan): string | null {
-  const row = scan.rows.find((candidate) => candidate.rejectionCode === "lease_conflict");
-  if (row === undefined) return null;
-  if (runtimeSessionIdFromActor(input.binding.actor) === null)
-    return scan.executionId === null
-      ? "rerun ha doc sync --submit to submit through the repository prose channel"
-      : [
-          "execution ",
-          `${scan.executionId}`,
-          " is not held by this principal; rerun ha doc sync --submit to submit through the repository prose channel",
-        ].join("");
-  const taskId = input.projection.taskIdForDocumentPath(row.path),
-    lease = taskId === null ? null : input.projection.currentLease(taskId, input.now());
-  if (lease?.phase === "orphaned") {
-    const task = input.projection.read(lease.taskId),
-      reentry = task.snapshot.task !== null && canStartExecution({ ...task.snapshot, lease: null }, lease.executionId);
-    return reentry
-      ? [
-          "the lease for execution ",
-          `${lease.executionId}`,
-          " lapsed at ",
-          `${lease.expiresAt}`,
-          "; run ha task release ",
-          `${lease.taskId}`,
-          ", then re-enter the round with ha task start ",
-          `${lease.taskId}`,
-          " --execution-id ",
-          `${lease.executionId}`,
-          "",
-        ].join("")
-      : [
-          "the lease for execution ",
-          `${lease.executionId}`,
-          " lapsed at ",
-          `${lease.expiresAt}`,
-          " and this lifecycle state has no lease re-entry; the dispatcher must ",
-          "re-dispatch, or rerun ha doc sync --submit from a non-runtime principal ",
-          "through the repository prose channel",
-        ].join("");
-  }
-  return [
-    "no live execution lease covers ",
-    `${row.path}`,
-    " for this runtime session; submit through the lease-brokered task ",
-    "command for a bound execution, or have the dispatcher re-dispatch (a ",
-    "non-runtime principal may rerun ha doc sync --submit through the ",
-    "repository prose channel)",
-  ].join("");
-}
-
 export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
-  const revision = input.store.readHead()?.revision ?? 0,
-    nextAction = "no eligible document changes to submit";
+  const revision = input.store.readHead()?.revision ?? 0;
   return {
     outcome: "no_changes",
     opId: `noop:${scan.baseLedgerSha.headDigest}`,
@@ -213,8 +115,7 @@ export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt
     evidence: "doc-sync:no-op",
     visibility: "center",
     proof: proof(revision, revision, true, true),
-    nextAction,
-    detail: { ...scanDetail(input, scan, "no_changes"), nextAction },
+    detail: scanDetail(input, scan, "no_changes"),
     summary: submitSummary("no_changes", [], scan),
   };
 }
@@ -226,12 +127,10 @@ export function scannerSettlement(
 ): DocSettlementReceipt {
   const receiptDetail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
     scanned = scanDetail(input, scan, receipt.outcome),
-    skipped = scanned.unresolvedTouches.length + scanned.deletions.length,
     detail = receiptDetail && {
       ...receiptDetail,
       unresolvedTouches: scanned.unresolvedTouches,
       deletions: scanned.deletions,
-      nextAction: skipped ? scanned.nextAction : receiptDetail.nextAction,
     };
   return {
     ...receipt,
@@ -313,10 +212,6 @@ export function admissionRejection(
         code: "task_docs_require_task_command",
         detail: {
           ...rejected,
-          nextAction: [
-            "run the task command (it carries its task documents automatically), or ",
-            "submit with the held --execution-id as the current holder",
-          ].join(""),
         },
       };
     }
@@ -331,7 +226,6 @@ export function admissionRejection(
     code: "assignment_scope_mismatch",
     detail: {
       ...rejected,
-      nextAction: "submit only paths in the authenticated assignment scope",
     },
   };
 }

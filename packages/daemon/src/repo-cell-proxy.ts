@@ -225,7 +225,6 @@ export async function openRepoCellProxy(
         outcome: "op_rejected",
         opId: operationId(action, binding, input.repoId, 0),
         code: "repo_unavailable",
-        nextAction: "RepoCell closed before this queued command could execute.",
       } as never;
     if (action.kind === "task-list" && supervisor.status().state === "attached")
       return query((projection) => legacyTaskList(projection, action, binding, input));
@@ -239,7 +238,6 @@ export async function openRepoCellProxy(
         outcome: "op_rejected",
         opId: "closed",
         code: "repo_unavailable",
-        nextAction: "Re-open the repository before retrying the command.",
       } as never;
     return supervisor.request("run", { action }, binding, signal);
   };
@@ -428,10 +426,6 @@ function legacyTaskList(
       : {
           outcome: "pending" as const,
           ...base,
-          nextAction: [
-            `Retry after the task projection catches up from revision ${cut?.watermark ?? 0}`,
-            `to ${cut?.sourceRevision ?? revision}.`,
-          ].join(" "),
         };
   };
   return listTasks(

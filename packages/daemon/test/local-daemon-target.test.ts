@@ -299,16 +299,14 @@ test("local daemon target rejects an injected endpoint owned by another user roo
         }),
       (error: unknown) => {
         assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
-        for (const value of [
+        assert.deepEqual((error as { readonly params?: unknown }).params, {
           endpoint,
-          localUserDaemonEndpoint(userRoot, daemonId),
+          expected: localUserDaemonEndpoint(userRoot, daemonId),
           userRoot,
           daemonId,
-          "runtime-worker",
-          canonicalWorkspaceRoot,
-        ])
-          assert.match(String(error), new RegExp(escapeRegExp(value), "u"));
-        assert.match(String(error), /Unset HARNESS_DAEMON_ENDPOINT/u);
+          repoId: "runtime-worker",
+          canonicalRoot: canonicalWorkspaceRoot,
+        });
         return true;
       },
     );
@@ -335,7 +333,4 @@ function registry(repos: readonly ReturnType<typeof repo>[]) {
     connections: [{ id: "local", kind: "local", displayName: "This device", state: "enabled" }],
     repos,
   };
-}
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }

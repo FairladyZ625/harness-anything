@@ -6,13 +6,7 @@ import {
   type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import {
-  actionCriterionFailure,
-  cellCodedError,
-  cellCriterionError,
-  cellErrorCode,
-  cellErrorMessage,
-} from "./repo-cell-errors.ts";
+import { actionCriterionFailure, cellCodedError, cellCriterionError, cellErrorCode } from "./repo-cell-errors.ts";
 import { gateChecks, selectedReviewId } from "./repo-cell-proof.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 import { diagnosticForError } from "./receipt-guidance.ts";
@@ -41,10 +35,7 @@ export function completionSettlement(
   steps: readonly WriteReceipt[],
   stoppedAt: string,
 ): WriteReceipt {
-  const command =
-      receipt.outcome === "pending" || receipt.outcome === "indeterminate"
-        ? `ha receipt show ${receipt.opId}`
-        : (receipt.nextAction ?? `ha receipt show ${receipt.opId}`),
+  const command = `ha receipt show ${receipt.opId}`,
     reason =
       receipt.outcome === "indeterminate"
         ? "The publication outcome is unknown; query the stable receipt before any retry."
@@ -103,14 +94,14 @@ export function completionStopped(
   } as WriteReceipt;
 }
 
-export function rejected(opId: string, code: string, nextAction: string): WriteReceipt {
+export function rejected(opId: string, code: string): WriteReceipt {
   return {
     outcome: "op_rejected",
     opId,
     code,
     origin: "daemon",
-    nextAction,
     evidence: `rejection:${code}`,
+    diagnostic: { kind: "failure", code },
   };
 }
 
@@ -129,12 +120,9 @@ export function failed(
           code,
           origin: error instanceof VcsCommandError ? error.origin : "daemon",
           evidence: error instanceof VcsCommandError ? `git-failure:${error.command}` : "publication-cut:indeterminate",
-          nextAction:
-            error instanceof VcsCommandError
-              ? `repair the Git object store and retry: ${error.message}`
-              : cellErrorMessage(error),
+          guidance: [{ kind: "retry-receipt", args: { opId } }],
         }
-      : rejected(opId, code, cellErrorMessage(error));
+      : rejected(opId, code);
   const diagnostic = diagnosticForError(error),
     diagnosed = diagnostic ? { ...receipt, diagnostic } : receipt,
     criterionFailure = actionCriterionFailure(error);

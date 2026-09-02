@@ -13,6 +13,7 @@ import {
   type CloseoutCiJudgment,
   type CloseoutSnapshot,
   type LeaseV1,
+  type ReceiptDiagnostic,
   type SubmissionV1,
   type TaskCloseoutPacket,
   type WriteReceiptDraft as WriteReceipt,
@@ -61,8 +62,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     executionId = typeof action.executionId === "string" ? action.executionId : undefined;
   const snapshot = await dependencies.read(),
     task = snapshot.task;
-  if (!task || task.taskId !== taskId)
-    return reject(opId, "task_not_found", "Run ha task list and choose an existing task id.");
+  if (!task || task.taskId !== taskId) return reject(opId, "task_not_found", { commands: ["ha task list"] });
   if (action.printSchema === true) return discoveryReceipt(opId, snapshot, taskCloseoutPacketSchema);
   if (action.printTemplate === true) {
     const submitted = currentExecutionCuts(snapshot).some(
@@ -81,11 +81,16 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   try {
     judgment = readJudgment(() => dependencies.readWorkspaceText(dependencies.rootDir, fromFile, "fromFile"));
   } catch (error) {
-    return reject(
-      opId,
-      "invalid_judgment",
-      `${error instanceof Error ? error.message : String(error)} Repair the packet, then run ${invocation}.`,
-    );
+    return reject(opId, "invalid_judgment", {
+      commands: [invocation],
+      diagnostic: {
+        kind: "validation",
+        entity: "task-closeout-packet",
+        field: "packet",
+        actual: error instanceof Error ? error.message : String(error),
+        expectation: "a valid closeout packet",
+      },
+    });
   }
   const repairCandidates = currentExecutionCuts(snapshot).filter(
       (candidate) =>
@@ -106,54 +111,46 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     return { ...shown, taskId, summary: `task ${taskId} is already done`, steps: [] } as WriteReceipt;
   }
   if (task.status === "planned")
-    return reject(
-      opId,
-      "not_started",
-      `Run ha task start ${taskId} --execution-id <execution-id>, then run ${invocation}.`,
-    );
+    return reject(opId, "not_started", {
+      commands: [`ha task start ${taskId} --execution-id <execution-id>`, invocation],
+    });
   if (task.status === "blocked")
-    return reject(
-      opId,
-      "task_blocked",
-      declareExecutor
-        ? `Run ha task transition ${taskId} active, then run ${declareExecutor}, then run ${invocation}.`
-        : `Run ha task transition ${taskId} active, then run ${invocation}.`,
-    );
+    return reject(opId, "task_blocked", {
+      commands: [`ha task transition ${taskId} active`, ...(declareExecutor ? [declareExecutor] : []), invocation],
+    });
   if (task.status === "cancelled")
-    return reject(
-      opId,
-      "terminal_task",
-      `Run ha task supersede ${taskId} --title <follow-up-title> to create new work; ` +
-        `the cancelled task cannot be closed out.`,
-    );
+    return reject(opId, "terminal_task", {
+      commands: [`ha task supersede ${taskId} --title <follow-up-title>`],
+    });
   if (task.status !== "active" && task.status !== "in_review")
-    return reject(
-      opId,
-      "invalid_transition",
-      `Run ha task show ${taskId}, repair its lifecycle state, then run ${invocation}.`,
-    );
+    return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`, invocation] });
   const ciIssue = ciJudgmentIssue(task.completionGateIds, judgment.completion.ci);
-  if (ciIssue) return reject(opId, "invalid_judgment", `${ciIssue} Repair the packet, then run ${invocation}.`);
+  if (ciIssue)
+    return reject(opId, "invalid_judgment", {
+      commands: [invocation],
+      diagnostic: {
+        kind: "validation",
+        entity: "task-closeout-packet",
+        field: "completion.ci",
+        actual: ciIssue,
+        expectation: task.completionGateIds.includes(ciGateId) ? "passed" : "not_applicable",
+      },
+    });
   if (task.status === "active" && declareExecutor)
-    return reject(opId, "executor_missing", `Run ${declareExecutor}, then run ${invocation}.`);
+    return reject(opId, "executor_missing", { commands: [declareExecutor, invocation] });
   let stage = 0,
     submitActor: ActorIdentity | null = null,
     submission: SubmissionV1;
   if (task.status === "active") {
     if (!judgment.submission)
-      return reject(
-        opId,
-        "submission_required",
-        `packet.submission is required while ${taskId} has an active Execution. ` +
-          `Run ha task closeout ${taskId} --print-template, fill it, then run ${invocation}.`,
-      );
+      return reject(opId, "submission_required", {
+        commands: [`ha task closeout ${taskId} --print-template`, invocation],
+      });
     submission = judgment.submission;
     if (!snapshot.lease)
-      return reject(
-        opId,
-        "lease_required",
-        `Run ha task start ${taskId} --execution-id <execution-id>, then run ${invocation}.`,
-      );
+      return reject(opId, "lease_required", {
+        commands: [`ha task start ${taskId} --execution-id <execution-id>`, invocation],
+      });
     if (executionId && snapshot.lease.executionId !== executionId)
       return candidateRejection(opId, taskId, fromFile, [snapshot.lease.executionId]);
     const active = snapshot.executions.find(
@@ -163,12 +160,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         candidate.state === "active" &&
         candidate.submission === null,
     );
-    if (!active)
-      return reject(
-        opId,
-        "invalid_transition",
-        `Run ha task show ${taskId}, restore one active leased execution, then run ${invocation}.`,
-      );
+    if (!active) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`, invocation] });
     submitActor = snapshot.lease.actor;
   } else {
     const cuts = currentExecutionCuts(snapshot),
@@ -181,25 +173,19 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         cuts.map((candidate) => candidate.executionId),
       );
     const selected = candidates[0]!;
-    if (!selected.submission)
-      return reject(
-        opId,
-        "invalid_transition",
-        `Execution ${selected.executionId} has no canonical submission; ` +
-          `run ha task show ${taskId}, then repair its lifecycle state.`,
-      );
+    if (!selected.submission) return reject(opId, "invalid_transition", { commands: [`ha task show ${taskId}`] });
     submission = selected.submission;
     if (judgment.submission && !sameSubmission(selected.submission, judgment.submission))
-      return reject(
-        opId,
-        "submission_mismatch",
-        [
-          `Execution ${selected.executionId} is already locked to this submission:\n`,
-          `${JSON.stringify(selected.submission, null, 2)}\n`,
-          `Remove the submission section from ${fromFile} to resume from review, ` +
-            `or replace it with the exact content above, then run ${invocation}.`,
-        ].join(""),
-      );
+      return reject(opId, "submission_mismatch", {
+        commands: [invocation],
+        diagnostic: {
+          kind: "validation",
+          entity: `execution/${selected.executionId}`,
+          field: "submission",
+          actual: JSON.stringify(judgment.submission),
+          expectation: JSON.stringify(selected.submission),
+        },
+      });
     const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review);
     const assessed = closeoutReadiness(
       executionId
@@ -212,11 +198,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         : snapshot,
     );
     if (assessed.blocker === "projection_unknown")
-      return reject(
-        opId,
-        "projection_unknown",
-        `Run ha task show ${taskId}, wait for a complete projection, then run ${invocation}.`,
-      );
+      return reject(opId, "projection_unknown", { commands: [`ha task show ${taskId}`, invocation] });
     stage = assessed.blocker === "review" ? 1 : assessed.blocker === "consent" ? 2 : 3;
     if (
       stage > 1 &&
@@ -241,16 +223,12 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   const closeoutAuthorization = dependencies.authorizationDecision;
   if (!task.createdBy || !isSamePerson(task.createdBy, caller))
     return {
-      ...reject(
-        opId,
-        "actor_unauthorized",
-        `The Task owner (${task.createdBy.principal.personId}) must run ${invocation}.`,
-      ),
+      ...reject(opId, "actor_unauthorized", { commands: [invocation] }),
       authorizationDecision: closeoutAuthorization,
     };
   if (stage <= 0 && (!snapshot.lease || !isSameExecution(snapshot.lease.actor, caller)))
     return {
-      ...reject(opId, "actor_unauthorized", `The active lease holder must run ${invocation}.`),
+      ...reject(opId, "actor_unauthorized", { commands: [invocation] }),
       authorizationDecision: closeoutAuthorization,
     };
   if (!dependencies.presetSnapshotCurrent()) {
@@ -275,14 +253,12 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     if (stopped) return stopped;
     if (judgment.review.verdict !== "approved")
       return {
-        ...reject(
-          opId,
-          judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved",
-          judgment.review.verdict === "changes_requested"
-            ? `Run ha task start ${taskId} --execution-id <execution-id>, address the requested changes, ` +
-                `then run ${invocation} with the next judgment.`
-            : `Have an independent arbiter record an approved judgment, then run ${invocation}.`,
-        ),
+        ...reject(opId, judgment.review.verdict === "changes_requested" ? "changes_requested" : "review_not_approved", {
+          commands:
+            judgment.review.verdict === "changes_requested"
+              ? [`ha task start ${taskId} --execution-id <execution-id>`, invocation]
+              : [invocation],
+        }),
         stoppedAt: "review-execution",
         steps,
       } as WriteReceipt;
@@ -320,24 +296,12 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     const receipt = await dependencies.invoke(name, leaf, actor);
     steps.push({ stage: name, ...receipt });
     if (receipt.outcome === "applied") return null;
-    const row = receipt as WriteReceipt & { readonly next?: readonly { readonly command?: string }[] },
-      candidate = receipt.nextAction ?? row.next?.[0]?.command ?? "",
-      fallback =
-        name === "preset-upgrade"
-          ? `Retry ${invocation} after the preset upgrade reaches the canonical projection.`
-          : name === "submit"
-            ? `The active lease holder must run ${invocation}.`
-            : name === "review-execution"
-              ? `Have an independent arbiter run ${invocation}.`
-              : name === "review-consent"
-                ? `The Task owner must run ${invocation}.`
-                : `Run ha task complete ${taskId} to inspect the blocking gate, then retry ${invocation}.`,
-      nextAction = /\bha\s/u.test(candidate) ? candidate : fallback;
+    const commands = name === "complete" ? [`ha task complete ${taskId}`, invocation] : [invocation];
     return {
       ...receipt,
       authorizationDecision: receipt.authorizationDecision ?? closeoutAuthorization,
       code: receipt.code ?? "closeout_stopped",
-      nextAction,
+      guidance: receipt.guidance && receipt.guidance.length > 0 ? receipt.guidance : commandGuidance(commands),
       stoppedAt: name,
       steps,
     } as WriteReceipt;
@@ -404,20 +368,31 @@ function candidateRejection(
   fromFile: string,
   candidates: readonly string[],
 ): WriteReceipt {
-  const commands = candidates.map((candidate) => closeoutInvocation(taskId, fromFile, candidate)),
-    candidateList = candidates.length ? candidates.join(", ") : "none",
-    instruction = commands.length
-      ? `Choose one explicitly: ${commands.join(" or ")}.`
-      : `Run ha task submit ${taskId} --json-input '<submission-json>', ` +
-        `then run ${closeoutInvocation(taskId, fromFile)}.`;
-  return reject(
-    opId,
-    "ambiguous_execution",
-    `Current submitted execution candidates: ${candidateList}. ` + instruction,
-  );
+  const commands = candidates.map((candidate) => closeoutInvocation(taskId, fromFile, candidate));
+  return reject(opId, "ambiguous_execution", {
+    commands:
+      commands.length > 0
+        ? commands
+        : [`ha task submit ${taskId} --json-input '<submission-json>'`, closeoutInvocation(taskId, fromFile)],
+  });
 }
-function reject(opId: string, code: string, nextAction: string): WriteReceipt {
-  return { outcome: "op_rejected", opId, code, origin: "daemon", evidence: `rejection:${code}`, nextAction };
+function reject(
+  opId: string,
+  code: string,
+  detail: { readonly commands?: readonly string[]; readonly diagnostic?: ReceiptDiagnostic } = {},
+): WriteReceipt {
+  return {
+    outcome: "op_rejected",
+    opId,
+    code,
+    origin: "daemon",
+    evidence: `rejection:${code}`,
+    ...(detail.commands?.length ? { guidance: commandGuidance(detail.commands) } : {}),
+    ...(detail.diagnostic ? { diagnostic: detail.diagnostic } : {}),
+  };
+}
+function commandGuidance(commands: readonly string[]) {
+  return commands.map((command) => ({ kind: "run-command" as const, args: { command } }));
 }
 function sameSubmission(left: SubmissionV1, right: SubmissionV1): boolean {
   return stableStringify(left) === stableStringify(right);

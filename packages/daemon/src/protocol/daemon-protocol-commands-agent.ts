@@ -21,13 +21,11 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --limit with an integer from 1 to 500 (applied per agenda source).",
         },
         { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the non-empty nextCursor returned by the previous agenda page.",
       }),
     ],
   }),
@@ -48,7 +46,6 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add one or more --source <git-repository-path> values.",
         },
         { field: "sourceRoots" },
       ),
@@ -58,17 +55,10 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --resolve <repo-relative-path>=destination|source once per reported conflict.",
         },
         { regex: "^.+=(?:destination|source)$" },
       ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineLedgerWriteCommand({
@@ -78,15 +68,7 @@ export const agentProtocolCommands = Object.freeze([
     summary:
       "Re-key facts in a committed canonical repository; stop daemon writers first and use --dry-run before applying.",
     method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
     id: "relation-events-migrate",
@@ -96,15 +78,7 @@ export const agentProtocolCommands = Object.freeze([
       "Upcast historical relation events to the current record shape: derived strength, active|retired state, " +
       "target witness at the event cut. Stop daemon writers first; --dry-run reports the rewrites.",
     method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
     id: "decision-digests-migrate",
@@ -114,15 +88,7 @@ export const agentProtocolCommands = Object.freeze([
       "Restamp historical decision consent and content-pin machine digests under the current projection " +
       "derivation. Stop daemon writers first; --dry-run reports the rewrites.",
     method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
     id: "dispatch-records-migrate",
@@ -132,15 +98,7 @@ export const agentProtocolCommands = Object.freeze([
       "Recover missing RuntimeSession lifecycle events from canonical runtime-dispatch/v1 task artifacts. " +
       "Use --dry-run to report import-full, settle-tail, and skip decisions before applying.",
     method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
-    ],
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineCenterForwardWriteCommand({
     id: "entity-migrate-squads",
@@ -185,7 +143,6 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --agent <designer-agent-id>.",
         },
         { field: "agentId" },
       ),
@@ -195,7 +152,6 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --prompt <Agent requirement>.",
         },
         { field: "prompt" },
       ),
@@ -205,8 +161,6 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction:
-            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         {
           enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
@@ -219,7 +173,6 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use one model supported by the runtime instance.",
         },
         { field: "model" },
       ),
@@ -229,7 +182,6 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
         },
         { field: "cwd" },
       ),
@@ -239,7 +191,6 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use one active task id for --task.",
         },
         { field: "taskId" },
       ),
@@ -293,7 +244,6 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --registry-revision sha256:<current bundled vertical digest>.",
         },
         { regex: "^sha256:[0-9a-f]{64}$" },
       ),
@@ -301,27 +251,20 @@ export const agentProtocolCommands = Object.freeze([
         "--op-id",
         "single",
         true,
-        { code: "missing_field", nextAction: "Add one stable portable migration --op-id." },
+        { code: "missing_field" },
         { field: "migrationOpId", regex: "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$" },
       ),
       cliInput("--source-root", "single", true, {
         code: "missing_field",
-        nextAction: "Add --source-root <repo-relative-dir> for the ADR Markdown files.",
       }),
       cliInput(
         "--expect-count",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use a non-negative integer --expect-count or omit the check." },
+        { code: "invalid_field" },
         { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -337,13 +280,11 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --kind <vertical/artifact@version>.",
         },
         { field: "entityKind" },
       ),
       cliInput("--locator", "single", true, {
         code: "missing_field",
-        nextAction: "Add --locator <repository-path|url|external-key>.",
       }),
       cliInput(
         "--expected-version",
@@ -351,29 +292,19 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --expected-version <non-negative-entity-revision>.",
         },
         { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" },
       ),
       cliInput("--title", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty --title value or omit it to use the resolved title.",
       }),
       cliInput("--entity-id", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --entity-id only for an explicit relink of an existing Artifact Entity.",
       }),
       cliInput("--source-identity", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --source-identity with --entity-id to preserve identity during relink.",
       }),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineRepoReadCommand({
@@ -386,7 +317,6 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--id", "single", true, {
         code: "missing_field",
-        nextAction: "Add --id <entity-id>.",
       }),
     ],
   }),
@@ -422,15 +352,7 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agent", "validate"],
     summary: "Validate one Agent declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "Add --source <agent-package>." },
-        { field: "packageSource" },
-      ),
-    ],
+    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
   }),
   defineLedgerWriteCommand({
     id: "agent-install",
@@ -439,20 +361,8 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Install an Agent declaration into the repository entity store.",
     method: "repo.task.run",
     inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "Add --source <agent-package>." },
-        { field: "packageSource" },
-      ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineRepoReadCommand({
@@ -482,7 +392,6 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--instance", "single", true, {
         code: "missing_field",
-        nextAction: "Add --instance <runtime-instance-id>.",
       }),
       cliInput(
         "--effort",
@@ -490,14 +399,11 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction:
-            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
       cliInput("--model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model supported by the runtime instance.",
       }),
       cliInput(
         "--permission-mode",
@@ -505,21 +411,17 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction: "Use bypass, workspace-write, or read-only for every Squad dispatch.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
       }),
       cliInput("--task", "single", true, {
         code: "missing_field",
-        nextAction: "Add --task <active-task-id> so every squad report is archived.",
       }),
       cliInput("--prompt", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --prompt <text> only as an override; omit it to derive the mission from --task.",
       }),
     ],
   }),
@@ -529,15 +431,7 @@ export const agentProtocolCommands = Object.freeze([
     path: ["squad", "validate"],
     summary: "Validate one Squad declaration package before installing it.",
     method: "repo.task.read",
-    inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "Add --source <squad-package>." },
-        { field: "packageSource" },
-      ),
-    ],
+    inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
   }),
   defineLedgerWriteCommand({
     id: "squad-install",
@@ -546,20 +440,8 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Install a Squad declaration into the repository entity store.",
     method: "repo.task.run",
     inputs: [
-      cliInput(
-        "--source",
-        "single",
-        true,
-        { code: "missing_field", nextAction: "Add --source <squad-package>." },
-        { field: "packageSource" },
-      ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineHostAdminCommand({
@@ -575,15 +457,12 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
-        nextAction: "Init requires repo-id, person-id, and display-name.",
       }),
       cliInput("--person-id", "single", true, {
         code: "missing_field",
-        nextAction: "Init requires repo-id, person-id, and display-name.",
       }),
       cliInput("--display-name", "single", true, {
         code: "missing_field",
-        nextAction: "Init requires repo-id, person-id, and display-name.",
       }),
       cliInput(
         "--name",
@@ -591,17 +470,14 @@ export const agentProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "--name must be one non-empty line.",
         },
         { regex: "^[^\\r\\n]+$" },
       ),
       cliInput("--configure-only", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --configure-only once.",
       }),
       cliInput("--add-npm-scripts", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --add-npm-scripts once.",
       }),
     ],
   }),

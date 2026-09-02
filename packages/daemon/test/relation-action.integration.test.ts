@@ -44,6 +44,36 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     ] as const)
       assert.equal((await cell.run({ kind: "task-create", taskId, title }, binding)).outcome, "applied");
 
+    const beforeMissingEndpoints = makeTaskEventReader({ repoId, rootDir }).read().events.length,
+      missingSource = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: "task/missing_source",
+          targetRef: "task/task_relation_b",
+          relationType: "depends-on",
+          rationale: "A missing source must not publish a relation.",
+          expectedVersion: 0,
+        },
+        binding,
+      );
+    assert.equal(missingSource.outcome, "op_rejected", JSON.stringify(missingSource));
+    assert.equal(missingSource.code, "entity_not_found", JSON.stringify(missingSource));
+    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().events.length, beforeMissingEndpoints);
+    const missingTarget = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: "task/task_relation_a",
+        targetRef: "task/missing_target",
+        relationType: "depends-on",
+        rationale: "A missing target must not publish a relation.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(missingTarget.outcome, "op_rejected", JSON.stringify(missingTarget));
+    assert.equal(missingTarget.code, "entity_not_found", JSON.stringify(missingTarget));
+    assert.equal(makeTaskEventReader({ repoId, rootDir }).read().events.length, beforeMissingEndpoints);
+
     const identity = {
         source: "task/task_relation_a",
         target: "task/task_relation_b",

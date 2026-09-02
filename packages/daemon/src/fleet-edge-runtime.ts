@@ -275,7 +275,7 @@ export function openFleetEdgeRuntime(input: {
           ...peer,
           repoId: request.repoId,
           archive: archive as unknown as Readonly<Record<string, unknown>>,
-        })) as { readonly outcome: string; readonly nextAction?: string },
+        })) as { readonly outcome: string },
     },
     stream,
     now,

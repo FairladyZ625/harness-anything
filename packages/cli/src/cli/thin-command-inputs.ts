@@ -38,8 +38,7 @@ export function isInput(value: unknown): value is ThinCliInput {
     Object.hasOwn(input, "required") &&
     typeof input.required === "boolean" &&
     input.error !== undefined &&
-    typeof input.error.code === "string" &&
-    nonEmpty(input.error.nextAction)
+    typeof input.error.code === "string"
   );
 }
 

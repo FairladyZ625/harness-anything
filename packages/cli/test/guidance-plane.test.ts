@@ -65,6 +65,22 @@ test("failure guidance renders structured missing-section, validator, and worksp
     }).hint,
     "fromFile must name a readable UTF-8 file inside workspace root /repo.",
   );
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      code: "invalid_command",
+      diagnostic: {
+        kind: "invalid-enum",
+        field: "verdict",
+        actual: "approve",
+        allowedValues: ["approved", "changes_requested", "dismissed"],
+      },
+    }),
+    {
+      stream: "stderr",
+      text: "error code=invalid_command hint=verdict must be one of approved, changes_requested, dismissed; received approve.",
+    },
+  );
 });
 
 test("receipt registry preserves migrated family goldens", () => {

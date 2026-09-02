@@ -5,14 +5,11 @@ import {
 } from "./daemon-protocol-vocabulary.ts";
 import { cliInput, defineCenterForwardWriteCommand } from "../../../preset/src/preset-command-contract.ts";
 
-const invalid = (nextAction: string) => ({ code: "invalid_field", nextAction });
-const expectedVersion = cliInput(
-  "--expected-version",
-  "single",
-  true,
-  invalid("Supply the current Relation aggregate revision (0 when creating a new relation)."),
-  { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
-);
+const invalid = () => ({ code: "invalid_field" });
+const expectedVersion = cliInput("--expected-version", "single", true, invalid(), {
+  regex: "^(?:0|[1-9][0-9]*)$",
+  projection: "number" as const,
+});
 
 export const relationProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
@@ -22,15 +19,15 @@ export const relationProtocolCommands = Object.freeze([
     summary: "Create a first-class Relation aggregate under its revision fence.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source-ref", "single", true, invalid("Use a canonical registered Entity ref as --source-ref.")),
-      cliInput("--target-ref", "single", true, invalid("Use a canonical registered Entity ref as --target-ref.")),
-      cliInput("--type", "single", true, invalid("Use a registered canonical relation type."), {
+      cliInput("--source-ref", "single", true, invalid()),
+      cliInput("--target-ref", "single", true, invalid()),
+      cliInput("--type", "single", true, invalid(), {
         field: "relationType",
         enum: relationTypes,
       }),
-      cliInput("--direction", "single", false, invalid("Use directed or undirected."), { enum: relationDirections }),
-      cliInput("--origin", "single", false, invalid("Use a registered Relation origin."), { enum: relationOrigins }),
-      cliInput("--rationale", "single", true, invalid("Supply a non-empty relation rationale.")),
+      cliInput("--direction", "single", false, invalid(), { enum: relationDirections }),
+      cliInput("--origin", "single", false, invalid(), { enum: relationOrigins }),
+      cliInput("--rationale", "single", true, invalid()),
       expectedVersion,
     ],
   }),
@@ -40,7 +37,7 @@ export const relationProtocolCommands = Object.freeze([
     path: ["relation", "unrelate", "<relation-id>"],
     summary: "Retire a Relation aggregate under its revision fence.",
     method: "repo.task.run",
-    inputs: [cliInput("--reason", "single", true, invalid("Supply a non-empty retirement reason.")), expectedVersion],
+    inputs: [cliInput("--reason", "single", true, invalid()), expectedVersion],
   }),
   defineCenterForwardWriteCommand({
     id: "relation-reconfirm",
@@ -48,9 +45,6 @@ export const relationProtocolCommands = Object.freeze([
     path: ["relation", "reconfirm", "<relation-id>"],
     summary: "Reconfirm a Relation against the target version at the current canonical cut.",
     method: "repo.task.run",
-    inputs: [
-      cliInput("--rationale", "single", true, invalid("Supply a non-empty reconfirmation rationale.")),
-      expectedVersion,
-    ],
+    inputs: [cliInput("--rationale", "single", true, invalid()), expectedVersion],
   }),
 ] as const);

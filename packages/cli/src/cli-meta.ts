@@ -1,8 +1,4 @@
-import {
-  deriveCliCapabilities,
-  parseThinCommand,
-  renderThinCapabilities,
-} from "./cli/thin-command.ts";
+import { deriveCliCapabilities, parseThinCommand, renderThinCapabilities } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,11 +13,7 @@ export function resolveCliVersion(): string {
         readonly name?: unknown;
         readonly version?: unknown;
       };
-      if (
-        pkg.name === "@harness-anything/cli" &&
-        typeof pkg.version === "string"
-      )
-        return pkg.version;
+      if (pkg.name === "@harness-anything/cli" && typeof pkg.version === "string") return pkg.version;
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -30,10 +22,7 @@ export function resolveCliVersion(): string {
   throw new Error("CLI version could not be derived from package.json.");
 }
 
-export function emitMeta(
-  command: "version" | "capabilities",
-  json: boolean,
-): number {
+export function emitMeta(command: "version" | "capabilities", json: boolean): number {
   if (command === "capabilities") {
     const capabilities = deriveCliCapabilities();
     console.log(json ? JSON.stringify(capabilities) : renderThinCapabilities());
@@ -55,11 +44,7 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
 > {
   if (argv[0] !== "task" || argv[1] !== "create") return [];
   const globals = argv.flatMap((value, index) =>
-      value === "--json"
-        ? [value]
-        : value === "--root" || value === "--repo"
-          ? [value, argv[index + 1] ?? ""]
-          : [],
+      value === "--json" ? [value] : value === "--root" || value === "--repo" ? [value, argv[index + 1] ?? ""] : [],
     ),
     parsed = parseThinCommand(["preset", "list", ...globals]);
   if (!parsed.ok) return [];
@@ -67,10 +52,7 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
     const receipt = await runCommandThroughDaemon(parsed.command, undefined, {
         autostart: false,
       }),
-      rows =
-        typeof receipt.evidence === "string"
-          ? (JSON.parse(receipt.evidence) as unknown)
-          : null;
+      rows = typeof receipt.evidence === "string" ? (JSON.parse(receipt.evidence) as unknown) : null;
     return Array.isArray(rows)
       ? rows.filter(
           (
@@ -85,8 +67,7 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
             !!row &&
             typeof row === "object" &&
             ["id", "title", "description", "validity"].every(
-              (key) =>
-                typeof (row as Record<string, unknown>)[key] === "string",
+              (key) => typeof (row as Record<string, unknown>)[key] === "string",
             ),
         )
       : [];
@@ -95,11 +76,7 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
   }
 }
 
-export function cliFailure(
-  command: string,
-  code: string,
-  nextAction: string,
-): Record<string, unknown> {
+export function cliFailure(command: string, code: string, expectation: string): Record<string, unknown> {
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -109,7 +86,13 @@ export function cliFailure(
     origin: "cli",
     code,
     evidence: `rejection:${code}`,
-    error: { code, hint: nextAction },
-    nextAction,
+    error: { code },
+    diagnostic: {
+      kind: "validation",
+      entity: "cli-command",
+      field: "input",
+      actual: code,
+      expectation,
+    },
   };
 }

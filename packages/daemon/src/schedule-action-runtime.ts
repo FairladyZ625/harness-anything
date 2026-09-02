@@ -207,7 +207,6 @@ function publishScheduleDraft(
     : ({
         outcome: "pending",
         ...base,
-        nextAction: `Run ha receipt show ${compiled.event.opId} before retrying.`,
       } as WriteReceipt);
 }
 

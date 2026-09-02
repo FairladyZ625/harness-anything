@@ -95,7 +95,6 @@ export async function executeAction(
           }),
           visibility: "center",
           proof,
-          nextAction: `Retry projection rebuild after the canonical source settles at revision ${sourceRevision}.`,
         };
   }
   if (action.kind === "ledger-migrate") {
@@ -140,13 +139,6 @@ export async function executeAction(
       : ({
           outcome: "pending",
           ...receipt,
-          nextAction: [
-            "Retry after the task projection catches up from revision ",
-            `${projected.watermark}`,
-            " to ",
-            `${projected.sourceRevision}`,
-            ".",
-          ].join(""),
         } as WriteReceipt);
   }
   if (action.kind === "receipt-show") {
@@ -339,13 +331,6 @@ export async function executeAction(
         : {
             outcome: "pending",
             ...base,
-            nextAction: [
-              "Retry after the task projection catches up from revision ",
-              `${cut.watermark}`,
-              " to ",
-              `${cut.sourceRevision}`,
-              ".",
-            ].join(""),
           };
     }
     const durable = action.dryRun !== true;
@@ -362,9 +347,6 @@ export async function executeAction(
         canonicalVisible: false,
         worktreeVisible: durable,
       },
-      nextAction: durable
-        ? "This local preset write has no canonical event; do not treat it as canonical settlement."
-        : "Remove --dry-run to perform the local preset write; it will remain non-canonical.",
     };
   }
   const entering = cell.taskWipEnteringAction(action);

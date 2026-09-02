@@ -60,10 +60,17 @@ export function resolveLocalDaemonEndpoint(input: {
   // directory. Its basename still carries the hash of the sealed (userRoot, daemonId) pair.
   if (process.platform !== "win32" ? path.basename(endpoint) === path.basename(expected) : endpoint === expected)
     return endpoint;
-  const repoId = input.repoId ?? null,
-    canonicalRoot = input.canonicalRoot ?? null;
-  const nextAction = `Daemon target conflict: injected target endpoint=${JSON.stringify(endpoint)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}; resolved registry target endpoint=${JSON.stringify(expected)} userRoot=${JSON.stringify(userRoot)} daemonId=${JSON.stringify(daemonId)} repoId=${JSON.stringify(repoId)} canonicalRoot=${JSON.stringify(canonicalRoot)}. Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.`;
-  throw Object.assign(new Error(nextAction), { code: "daemon_target_conflict", nextAction });
+  throw Object.assign(new Error("daemon_target_conflict"), {
+    code: "daemon_target_conflict",
+    params: {
+      endpoint,
+      expected,
+      userRoot,
+      daemonId,
+      repoId: input.repoId ?? null,
+      canonicalRoot: input.canonicalRoot ?? null,
+    },
+  });
 }
 export async function resolveLocalDaemonTarget(input: LocalDaemonTargetInput): Promise<LocalDaemonTarget> {
   const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(input.env ?? process.env));

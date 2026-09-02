@@ -189,7 +189,7 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
     code: result.code,
     origin: "doc-sync-contract",
     evidence: `contract-rejection:${result.code}`,
-    nextAction: result.detail.nextAction,
+    diagnostic: { kind: "failure", code: result.code },
     detail: result.detail,
     authorizationDecision: result.authorizationDecision!,
   };

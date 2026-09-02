@@ -24,7 +24,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--reason", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty --reason, or omit it for the standard release audit.",
       }),
     ],
   }),
@@ -39,7 +38,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
-        nextAction: "Pass --execution-id <execution-id> only when the daemon cannot derive a unique candidate.",
       }),
       cliInput(
         "--agent",
@@ -47,15 +45,11 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction:
-            "Name an agent id or runtime-session:<id> from ha task dispatches; " +
-            "omit it when exactly one dispatch matches.",
         },
         { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$" },
       ),
       cliInput("--reason", "single", true, {
         code: "missing_field",
-        nextAction: "Add --reason <auditable-recovery-reason>.",
       }),
     ],
   }),
@@ -68,11 +62,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--force", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --force once.",
       }),
       cliInput("--reason", "single", false, {
         code: "missing_field",
-        nextAction: "Use one non-empty --reason.",
       }),
     ],
   }),
@@ -89,7 +81,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use --set <title|parentTaskId|workKind|riskTier|urgency|moduleKey|taskClass|pinned>:<value>.",
         },
         { regex: "^[A-Za-z][A-Za-z0-9]*:.+$" },
       ),
@@ -120,15 +111,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Choose exactly one of --dry-run or --apply.",
       }),
       cliInput("--apply", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Choose exactly one of --dry-run or --apply.",
       }),
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one existing task id with --task.",
       }),
     ],
   }),
@@ -141,32 +129,27 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--ids", "single", false, {
         code: "invalid_field",
-        nextAction: "Use comma-separated task ids, or select one positional id.",
       }),
       cliInput(
         "--filter",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use --filter state:<status>." },
+        { code: "invalid_field" },
         {
           regex: "^state:(?:planned|active|blocked|in_review|done|cancelled)$",
         },
       ),
       cliInput("--before", "single", false, {
         code: "invalid_field",
-        nextAction: "Use an ISO-compatible date with --before.",
       }),
       cliInput("--reason", "single", true, {
         code: "missing_field",
-        nextAction: "Add --reason <auditable-reason>.",
       }),
       cliInput("--archived-by", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty actor id for --archived-by.",
       }),
       cliInput("--archive-field", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one declared archive field.",
       }),
     ],
   }),
@@ -179,7 +162,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--title", "single", false, {
         code: "invalid_field",
-        nextAction: "Choose --title for new work or --by for an existing replacement, not both.",
       }),
       cliInput(
         "--slug",
@@ -187,29 +169,23 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a lowercase kebab-case slug with --title.",
         },
         { regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
       ),
       cliInput("--by", "single", false, {
         code: "invalid_field",
-        nextAction: "Choose --title or --by; existing replacements also require matching --confirm.",
       }),
       cliInput("--confirm", "single", false, {
         code: "invalid_field",
-        nextAction: "With --by, pass --confirm <old-task-id>.",
       }),
       cliInput("--reason", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty auditable reason.",
       }),
       cliInput("--deleted-by", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty actor id for --deleted-by.",
       }),
       cliInput("--allow-open-findings", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --allow-open-findings once after reviewing unresolved findings.",
       }),
     ],
   }),
@@ -222,23 +198,18 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--soft", "single", false, {
         code: "invalid_field",
-        nextAction: "Choose exactly one of --soft <task-id> or --hard <task-id>.",
       }),
       cliInput("--hard", "single", false, {
         code: "invalid_field",
-        nextAction: "Production rejects hard delete; select the exact task only to receive the governed repair.",
       }),
       cliInput("--confirm", "single", false, {
         code: "invalid_field",
-        nextAction: "Local hard-delete compatibility requires matching --confirm, but production will still reject it.",
       }),
       cliInput("--reason", "single", false, {
         code: "missing_field",
-        nextAction: "Soft delete requires --reason <auditable-reason>.",
       }),
       cliInput("--deleted-by", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty actor id for --deleted-by.",
       }),
     ],
   }),
@@ -251,7 +222,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--reason", "single", true, {
         code: "missing_field",
-        nextAction: "Add --reason <auditable-reason>; terminal Tasks require supersede.",
       }),
     ],
   }),
@@ -264,7 +234,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--reviewer", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty reviewer id.",
       }),
     ],
   }),
@@ -281,7 +250,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use planned, active, blocked, in_review, done, or cancelled.",
         },
         {
           enum: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
@@ -289,11 +257,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
       cliInput("--module", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one module key.",
       }),
       cliInput("--search", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a non-empty title or task-id search.",
       }),
       cliInput(
         "--kind",
@@ -301,27 +267,13 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use feat, fix, refactor, docs, test, or chore.",
         },
         { enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
       ),
-      cliInput(
-        "--risk-tier",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use low, medium, or high." },
-        { enum: ["low", "medium", "high"] },
-      ),
-      cliInput(
-        "--urgency",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use low, medium, or high." },
-        { enum: ["low", "medium", "high"] },
-      ),
+      cliInput("--risk-tier", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
+      cliInput("--urgency", "single", false, { code: "invalid_field" }, { enum: ["low", "medium", "high"] }),
       cliInput("--parent", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one parent task id.",
       }),
       cliInput(
         "--depth",
@@ -329,7 +281,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --depth <positive-integer|all> together with --parent <task-id>.",
         },
         { regex: "^(?:[1-9][0-9]*|all)$" },
       ),
@@ -339,7 +290,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --updated-after.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -351,7 +301,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --updated-before.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -363,13 +312,11 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an integer from 1 to 500 with --limit.",
         },
         { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the cursor returned by the previous page.",
       }),
     ],
   }),
@@ -382,19 +329,15 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--entity", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a canonical registered Entity ref.",
       }),
       cliInput("--source", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a canonical entity ref for --source.",
       }),
       cliInput("--target", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a canonical entity ref for --target.",
       }),
       cliInput("--type", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a declared relation type.",
       }),
       cliInput(
         "--state",
@@ -402,7 +345,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use active or retired.",
         },
         { enum: relationStateWords },
       ),
@@ -412,7 +354,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use current, suspect, or orphaned.",
         },
         { enum: relationFreshnessWords },
       ),
@@ -422,7 +363,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --updated-after.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -434,7 +374,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --updated-before.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -446,13 +385,11 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an integer from 1 to 500 with --limit.",
         },
         { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the cursor returned by the previous page.",
       }),
     ],
   }),

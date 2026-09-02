@@ -29,11 +29,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
-        nextAction: "Register requires --repo-id.",
       }),
       cliInput("--root", "single", false, {
         code: "missing_field",
-        nextAction: "Workspace-backed registration requires --root.",
       }),
       cliInput(
         "--mode",
@@ -41,21 +39,17 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use local, remote-proxy, remote-center, or remote-edge.",
         },
         { enum: daemonRepoModeWords },
       ),
       cliInput("--endpoint", "single", false, {
         code: "invalid_field",
-        nextAction: "Use tcp://host:port or an absolute socket path.",
       }),
       cliInput("--connection", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a registered connection id.",
       }),
       cliInput("--display-name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a non-empty display name.",
       }),
     ],
   }),
@@ -68,34 +62,30 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
-        nextAction: "Update requires --repo-id.",
       }),
       cliInput("--display-name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a non-empty display name.",
       }),
       cliInput(
         "--mode",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use a registered repo mode." },
+        { code: "invalid_field" },
         {
           enum: daemonRepoModeWords,
         },
       ),
       cliInput("--connection", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a registered connection id.",
       }),
       cliInput("--endpoint", "single", false, {
         code: "invalid_field",
-        nextAction: "Use tcp://host:port or an absolute socket path.",
       }),
       cliInput(
         "--state",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use enabled or disabled." },
+        { code: "invalid_field" },
         {
           enum: ["enabled", "disabled"],
         },
@@ -111,7 +101,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--repo-id", "single", true, {
         code: "missing_field",
-        nextAction: "Unregister requires --repo-id.",
       }),
     ],
   }),
@@ -124,15 +113,12 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--connection", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a lowercase connection id.",
       }),
       cliInput("--display-name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a non-empty display name.",
       }),
       cliInput("--endpoint", "single", true, {
         code: "missing_field",
-        nextAction: "Connection add requires --endpoint.",
       }),
     ],
   }),
@@ -145,21 +131,18 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--connection", "single", true, {
         code: "missing_field",
-        nextAction: "Connection update requires --connection.",
       }),
       cliInput("--display-name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a non-empty display name.",
       }),
       cliInput("--endpoint", "single", false, {
         code: "invalid_field",
-        nextAction: "Use tcp://host:port or an absolute socket path.",
       }),
       cliInput(
         "--state",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use enabled or disabled." },
+        { code: "invalid_field" },
         {
           enum: ["enabled", "disabled"],
         },
@@ -175,7 +158,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--connection", "single", true, {
         code: "missing_field",
-        nextAction: "Connection remove requires --connection.",
       }),
     ],
   }),
@@ -188,7 +170,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--endpoint", "single", true, {
         code: "missing_field",
-        nextAction: "Connection probe requires --endpoint.",
       }),
     ],
   }),
@@ -221,13 +202,11 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Runtime instance create requires --id.",
         },
         { regex: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" },
       ),
       cliInput("--name", "single", true, {
         code: "missing_field",
-        nextAction: "Runtime instance create requires --name.",
       }),
       cliInput(
         "--kind",
@@ -235,31 +214,20 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Runtime kind must be claude, codex, or agy.",
         },
         { enum: ["claude", "codex", "agy"] },
       ),
       cliInput("--installation", "single", false, {
         code: "invalid_field",
-        nextAction: [
-          "Choose an installation returned by runtime instance list, or omit it ",
-          "when the kind has exactly one witnessed installation.",
-        ].join(""),
       }),
       cliInput("--provider", "single", true, {
         code: "missing_field",
-        nextAction: "Runtime instance create requires --provider.",
       }),
       cliInput("--model", "repeated", true, {
         code: "missing_field",
-        nextAction: [
-          "Runtime instance create requires at least one --model; repeat --model to ",
-          "let one instance serve several models.",
-        ].join(""),
       }),
       cliInput("--default-model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model from the --model set; the first --model is the default when omitted.",
       }),
       cliInput(
         "--permission-mode",
@@ -267,7 +235,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction: "Use bypass (default, full access), workspace-write, or read-only.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
@@ -277,39 +244,26 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_isolation",
-          nextAction: [
-            "Use enforced or operator-environment; codex defaults to enforced and ",
-            "requires it for API-key auth, and agy always reuses the operator ",
-            "environment.",
-          ].join(""),
         },
         { enum: ["enforced", "operator-environment"] },
       ),
       cliInput("--effort", "single", false, {
         code: "invalid_field",
-        nextAction:
-          "Use a kind-supported reasoning effort: agy low, medium, high; " +
-          "Claude or Codex minimal, low, medium, high, xhigh, max.",
       }),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-        nextAction: "Use --fast only for a Codex runtime instance.",
       }),
       cliInput("--base-url", "single", false, {
         code: "invalid_field",
-        nextAction: "Use an HTTPS or loopback HTTP API base URL.",
       }),
       cliInput("--wire-api", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one Codex provider wire API identifier.",
       }),
       cliInput("--requires-openai-auth", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --requires-openai-auth only for a Codex provider.",
       }),
       cliInput("--http-header", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Use --http-header Name=Value only for non-secret static Codex provider headers.",
       }),
       cliInput(
         "--auth",
@@ -317,7 +271,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Auth mode must be subscription or api-key.",
         },
         { enum: ["subscription", "api-key"] },
       ),
@@ -327,10 +280,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: [
-            "Use an opaque credential:v1 reference (legacy keychain: references ",
-            "resolve on macOS only); never pass the API key.",
-          ].join(""),
         },
         { regex: credentialReferenceRegex },
       ),
@@ -350,10 +299,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: [
-            "Use an opaque credential:v1 reference (legacy keychain: references ",
-            "resolve on macOS only); never pass the GitHub token.",
-          ].join(""),
         },
         { regex: credentialReferenceRegex },
       ),
@@ -380,7 +325,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --all to include disabled runtime instances.",
       }),
     ],
   }),
@@ -394,7 +338,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--probe", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --probe once to actively verify provider authentication.",
       }),
     ],
   }),
@@ -420,27 +363,21 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty --name.",
       }),
       cliInput("--installation", "single", false, {
         code: "invalid_field",
-        nextAction: "Choose a same-kind installation returned by runtime instance list.",
       }),
       cliInput("--model", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Repeat --model once per supported model.",
       }),
       cliInput("--default-model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model from the updated --model set.",
       }),
       cliInput("--base-url", "single", false, {
         code: "invalid_base_url",
-        nextAction: "Use an absolute HTTPS base URL, or an empty --base-url to return to the official endpoint.",
       }),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-        nextAction: "Use --fast only for a Codex runtime instance.",
       }),
       cliInput(
         "--permission-mode",
@@ -448,7 +385,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction: "Use bypass, workspace-write, or read-only.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
@@ -458,21 +394,14 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_isolation",
-          nextAction: [
-            "Use enforced or operator-environment; codex defaults to enforced and ",
-            "requires it for API-key auth, and agy always reuses the operator ",
-            "environment.",
-          ].join(""),
         },
         { enum: ["enforced", "operator-environment"] },
       ),
       cliInput("--enable", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --enable or --disable, not both.",
       }),
       cliInput("--disable", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --enable or --disable, not both.",
       }),
     ],
   }),
@@ -486,7 +415,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--idempotency-key", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
       }),
     ],
   }),
@@ -500,7 +428,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--idempotency-key", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
       }),
     ],
   }),

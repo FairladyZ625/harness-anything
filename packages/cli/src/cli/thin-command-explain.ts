@@ -1,9 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
+import { renderCliGuidance } from "./guidance-plane.ts";
 import type { ThinHelpOverlayRoute, ThinParseResult } from "./thin-command-types.ts";
-
-const explainUsage =
-  "Use ha explain task|person|squad|<artifact-type@version> for a catalog, or ha explain <entity-ref>... for objects.";
 
 export function taskExplainHelpOverlay(argv: readonly string[]): ThinHelpOverlayRoute | undefined {
   const args = stripGlobals(argv);
@@ -13,7 +11,7 @@ export function taskExplainHelpOverlay(argv: readonly string[]): ThinHelpOverlay
     return {
       ok: false,
       code: "invalid_field",
-      nextAction: "Use ha task --help --explain task/<task-id> with exactly one Task ref.",
+      nextAction: renderCliGuidance("task-explain-overlay", {}),
       json: argv.includes("--json"),
     };
   const rootDir = globalOption(argv, "--root"),
@@ -68,7 +66,7 @@ export function parseExplain(
     targets.length > 500 ||
     targets.some((target) => !nonEmpty(target) || target.startsWith("--"))
   )
-    return rejected("invalid_field", explainUsage, json);
+    return rejected("invalid_field", renderCliGuidance("explain-usage", {}), json);
   return accepted(
     rootDir,
     repoId,

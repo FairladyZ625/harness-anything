@@ -274,7 +274,7 @@ export function scanDocCandidates(input: {
       );
     return scannedCandidateRow(
       decision.code === "deletion_forbidden" ? "deletion" : "blocked",
-      unresolved[0]?.reason ?? decision.detail.nextAction,
+      unresolved[0]?.reason ?? decision.code,
       bytes,
       base,
       candidate,

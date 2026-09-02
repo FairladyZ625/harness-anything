@@ -119,7 +119,7 @@ export async function runArtifactEntityImport(input: {
         workspaceRevision: (input.store.readHead()?.revision ?? 0) + 1,
       },
     );
-  if (input.action.dryRun === true) return previewReceipt(prepared.preview, input, prepared.contract);
+  if (input.action.dryRun === true) return previewReceipt(prepared.preview, input);
   if (prepared.replay) return artifactReplayReceipt(prepared.replay, prepared.preview, input.authorizationDecision);
   const appended = input.store.append(prepared.bundle);
   input.projection.apply(prepared.bundle.event, prepared.bundle.plan);
@@ -152,7 +152,6 @@ export async function runArtifactEntityImport(input: {
     : {
         outcome: "pending",
         ...base,
-        nextAction: `Query receipt ${prepared.bundle.event.opId} after the Entity projection catches up.`,
       };
 }
 
@@ -239,7 +238,6 @@ function readEntityOperation(store: CanonicalEventStore, opId: string): EntityEv
 function previewReceipt(
   preview: Awaited<ReturnType<ReturnType<typeof makeArtifactEntityService>["prepare"]>>["preview"],
   input: Pick<Parameters<typeof runArtifactEntityImport>[0], "store" | "authorizationDecision">,
-  contract: CompiledArtifactKindContract,
 ): ArtifactImportReceipt {
   const revision = input.store.readHead()?.revision ?? 0;
   return {
@@ -259,7 +257,6 @@ function previewReceipt(
     authorizationDecision: input.authorizationDecision,
     effects: [],
     updatedProjection: null,
-    nextAction: `Remove --dry-run to run ${contract.typeIdentity}.import.`,
   };
 }
 

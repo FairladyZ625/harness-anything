@@ -29,14 +29,16 @@ export function executeRelationAction(input: {
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
 }): WriteReceipt {
   const { action, authorizationDecision, binding, contract, opId, occurredAt } = input,
-    expectedVersion = action.expectedVersion;
+    expectedVersion = action.expectedVersion,
+    sourceRef = action.kind === "relation-relate" ? requiredRelationText(action.sourceRef, "sourceRef") : null,
+    requestedTargetRef = action.kind === "relation-relate" ? requiredRelationText(action.targetRef, "targetRef") : null;
   if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0)
     reject("invalid_command", "Relation actions require a non-negative integer expectedVersion.");
   const requestedRelationId =
       action.kind === "relation-relate"
         ? deriveRelationId({
-            source: requiredRelationText(action.sourceRef, "sourceRef"),
-            target: requiredRelationText(action.targetRef, "targetRef"),
+            source: sourceRef!,
+            target: requestedTargetRef!,
             type: requiredRelationText(action.relationType, "relationType") as never,
             direction: (typeof action.direction === "string" ? action.direction : "directed") as "directed",
           })
@@ -46,11 +48,16 @@ export function executeRelationAction(input: {
           readonly workspaceRevision?: number;
         })
       | undefined,
-    targetRef = action.kind === "relation-relate" ? String(action.targetRef) : current?.targetRef,
+    targetRef = requestedTargetRef ?? current?.targetRef,
+    source = sourceRef ? input.projection.readEntityVersionWitness(sourceRef) : null,
     target = targetRef ? input.projection.readEntityVersionWitness(targetRef) : null,
     replay = input.store.readEvent(opId),
-    headRevision = input.store.readHead()?.revision ?? 0,
-    draft = replay
+    headRevision = input.store.readHead()?.revision ?? 0;
+  if (action.kind === "relation-relate") {
+    if (source?.currentVersion === null) reject("entity_not_found", `Relation source ${sourceRef} does not exist.`);
+    if (target?.currentVersion === null) reject("entity_not_found", `Relation target ${targetRef} does not exist.`);
+  }
+  const draft = replay
       ? null
       : contract.execution.compile?.({
           action,
@@ -147,7 +154,6 @@ export function executeRelationAction(input: {
     },
     authorizationDecision,
     relationId,
-    ...(!visible ? { nextAction: `Query receipt ${opId} after the Relation projection catches up.` } : {}),
   } as WriteReceipt;
 }
 

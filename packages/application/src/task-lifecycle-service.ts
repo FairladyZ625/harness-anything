@@ -145,7 +145,6 @@ export function makeTaskLifecycleService(options: {
           commandType: command.type,
           targets: Object.freeze([]),
         }) as unknown as FrozenWritePlan,
-        nextAction: "retry task lifecycle read: projection catch-up is pending",
       };
     const claim =
       command.type === "StartExecution"
@@ -481,7 +480,6 @@ function pendingReceipt(
     },
     snapshot: read.snapshot,
     frozenPlan: plan,
-    nextAction: `retry task lifecycle read: ${reason}`,
   };
 }
 function samePublishedEvent(published: TaskEventV1 | null, expected: TaskEventV1): boolean {

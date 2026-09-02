@@ -17,8 +17,9 @@ interface GeneratedTaskActionInputField {
   readonly cli?: {
     readonly name: string;
     readonly kind: "single" | "repeated" | "boolean";
-    readonly error: { readonly code: string; readonly nextAction: string };
+    readonly error: { readonly code: string };
     readonly jsonFields?: readonly string[];
+    readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
     readonly projection?: "number" | "fact-hold-array";
@@ -75,7 +76,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use one execution id, or omit it for deterministic allocation.",
             },
           },
         },
@@ -90,7 +90,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use a positive lease duration in milliseconds.",
             },
           },
         },
@@ -103,7 +102,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "boolean",
             error: {
               code: "invalid_field",
-              nextAction: "Use --dry-run once to preview lease admission.",
             },
           },
         },
@@ -156,7 +154,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use one execution id only to assert the authenticated active lease explicitly.",
             },
           },
         },
@@ -179,8 +176,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction:
-                "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
             },
           },
         },
@@ -198,13 +193,12 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
               "residualRisks",
               "commitSha",
             ],
+            format: "<json|@->",
             conflictsWith: ["--from-file"],
             name: "--json-input",
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction:
-                "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
             },
           },
         },
@@ -263,7 +257,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use one named current submitted execution only when the daemon reports ambiguity.",
             },
           },
         },
@@ -276,7 +269,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "missing_field",
-              nextAction: "Review requires a review id.",
             },
           },
         },
@@ -286,11 +278,13 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
           required: true,
           cli: {
             jsonFields: ["verdict", "reason", "evidenceChecked"],
+            jsonEnums: {
+              verdict: ["approved", "changes_requested", "dismissed"],
+            },
             name: "--from-file",
             kind: "single",
             error: {
               code: "missing_field",
-              nextAction: "Review requires a complete review JSON packet.",
             },
           },
         },
@@ -343,7 +337,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use one closeout execution id only when the daemon reports ambiguity.",
             },
           },
         },
@@ -357,7 +350,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "single",
             error: {
               code: "invalid_field",
-              nextAction: "Use --ci passed only for a successful canonical checker result.",
             },
           },
         },
@@ -370,8 +362,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "repeated",
             error: {
               code: "invalid_field",
-              nextAction:
-                "Provide each canonical code path; the submitted commit and iteration are derived automatically.",
             },
           },
         },
@@ -387,7 +377,6 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
             kind: "repeated",
             error: {
               code: "invalid_field",
-              nextAction: "Use --fact-holds F-XXXXXXXX:<non-empty-rationale> once per standing upstream Fact.",
             },
           },
         },
@@ -499,7 +488,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--text", "single", true, {
         code: "missing_field",
-        nextAction: "Add --text <progress-text>.",
       }),
       cliInput(
         "--evidence",
@@ -507,7 +495,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --evidence <type>:<path>:<summary> with a canonical relative path.",
         },
         {
           format: "<type>:<path>:<summary>",
@@ -525,11 +512,9 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--source", "single", true, {
         code: "missing_field",
-        nextAction: "Add --source <untracked-file>.",
       }),
       cliInput("--destination", "single", true, {
         code: "missing_field",
-        nextAction: "Add --destination <artifact-path>.",
       }),
     ],
   }),
@@ -545,7 +530,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --execution-id only when closeout lists multiple current submitted execution candidates.",
       }),
       cliInput(
         "--from-file",
@@ -553,7 +537,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Choose exactly one of --from-file <judgment.json>, --print-template, or --print-schema.",
         },
         {
           jsonFields: ["review", "consent", "completion"],
@@ -568,7 +551,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --print-template without --from-file or --print-schema.",
         },
         { conflictsWith: ["--from-file", "--print-schema"] },
       ),
@@ -578,7 +560,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --print-schema without --from-file or --print-template.",
         },
         { conflictsWith: ["--from-file", "--print-template", "--execution-id"] },
       ),
@@ -593,15 +574,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--execution-id", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one named approved Review execution only when the daemon reports ambiguity.",
       }),
       cliInput("--review-id", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one named approved Review only when the daemon reports ambiguity.",
       }),
       cliInput("--consent-id", "single", true, {
         code: "invalid_field",
-        nextAction: "Consent requires a consent id.",
       }),
       cliInput(
         "--from-file",
@@ -609,10 +587,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: [
-            "Omit --from-file to pin the selected recorded Review, or supply ",
-            "reviewDigest and contentDigest JSON to pin them yourself.",
-          ].join(""),
         },
         { jsonFields: consentJsonFields },
       ),
@@ -627,7 +601,6 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--path", "repeated", true, {
         code: "missing_field",
-        nextAction: "Provide each canonical path declared by completion.codeDocPaths.",
       }),
     ],
   }),
@@ -640,15 +613,12 @@ export const taskExecutionProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--record", "single", true, {
         code: "missing_field",
-        nextAction: "Repoint requires the active anchor record identifier.",
       }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Use canonical repository-relative paths, or omit --path to mark the record known-invalid.",
       }),
       cliInput("--reason", "single", true, {
         code: "missing_field",
-        nextAction: "Repoint requires an audit reason.",
       }),
     ],
   }),

@@ -140,7 +140,7 @@ export function makeSquadCoordinator(input: {
         outcome: "running",
         squadRunId,
         leaderRuntimeSessionId: running.currentLeaderRuntimeSessionId,
-        nextAction: `ha squad status ${squadRunId}`,
+
         summary: `squad-run ${squadId}: ${squadRunId}`,
         exitCode: 0,
       };
@@ -238,7 +238,7 @@ export function makeSquadCoordinator(input: {
       squadRunId,
       status: "cancelled",
       summary: `squad-run ${state.squadId}: cancelled`,
-      nextAction: null,
+
       exitCode: 0,
     };
   };
