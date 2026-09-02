@@ -12,10 +12,7 @@ import { parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-v
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-import {
-  seedTriadicEvents,
-  writeTriadicLedger,
-} from "../test-support/triadic-ledger.mjs";
+import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
@@ -74,15 +71,11 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       bridge.invoke("getTasks", { repoId: repoBId }),
     ]);
     assert.deepEqual(
-      parseDaemonGuiReadResult("repo.tasks.list", repoA).rows.map(
-        ({ taskId }) => taskId,
-      ),
+      parseDaemonGuiReadResult("repo.tasks.list", repoA).rows.map(({ taskId }) => taskId),
       ["task-gui-smoke", "task-repo-a"],
     );
     assert.deepEqual(
-      parseDaemonGuiReadResult("repo.tasks.list", repoB).rows.map(
-        ({ taskId }) => taskId,
-      ),
+      parseDaemonGuiReadResult("repo.tasks.list", repoB).rows.map(({ taskId }) => taskId),
       ["task-repo-b"],
     );
     const [graphA, graphB, catalogA, catalogB] = await Promise.all([
@@ -91,33 +84,15 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       bridge.invoke("getCatalogSnapshot", { repoId: fixture.repoId }),
       bridge.invoke("getCatalogSnapshot", { repoId: repoBId }),
     ]);
-    assert.equal(
-      parseDaemonGuiReadResult("repo.triadic.relationGraph", graphA).edges
-        .length > 0,
-      true,
-    );
-    assert.equal(
-      parseDaemonGuiReadResult("repo.triadic.relationGraph", graphB).edges
-        .length,
-      0,
-    );
+    assert.equal(parseDaemonGuiReadResult("repo.triadic.relationGraph", graphA).edges.length > 0, true);
+    assert.equal(parseDaemonGuiReadResult("repo.triadic.relationGraph", graphB).edges.length, 0);
     assert.deepEqual(
-      [
-        (catalogA as { repoId: string }).repoId,
-        (catalogB as { repoId: string }).repoId,
-      ],
+      [(catalogA as { repoId: string }).repoId, (catalogB as { repoId: string }).repoId],
       [fixture.repoId, repoBId],
     );
-    const system = parseDaemonGuiReadResult(
-      "daemon.gui.system.read",
-      await bridge.invoke("getSystemStatus", null),
-    );
+    const system = parseDaemonGuiReadResult("daemon.gui.system.read", await bridge.invoke("getSystemStatus", null));
     assert.deepEqual(
-      system.repos.map((repo) => [
-        repo.repoId,
-        repo.registrationState,
-        repo.cellState,
-      ]),
+      system.repos.map((repo) => [repo.repoId, repo.registrationState, repo.cellState]),
       [
         [fixture.repoId, "enabled", "attached"],
         [repoBId, "enabled", "attached"],
@@ -136,11 +111,8 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
     );
     assert.deepEqual(
       afterDisable.repos.find((repo) => repo.repoId === repoBId) && {
-        registrationState: afterDisable.repos.find(
-          (repo) => repo.repoId === repoBId,
-        )?.registrationState,
-        cellState: afterDisable.repos.find((repo) => repo.repoId === repoBId)
-          ?.cellState,
+        registrationState: afterDisable.repos.find((repo) => repo.repoId === repoBId)?.registrationState,
+        cellState: afterDisable.repos.find((repo) => repo.repoId === repoBId)?.cellState,
       },
       { registrationState: "disabled", cellState: "not_loaded" },
     );
@@ -148,8 +120,9 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       repoId: repoBId,
     })) as Failure;
     assert.equal(denied.ok, false);
-    assert.equal(denied.error?.code, "daemon_unavailable");
+    assert.equal(denied.error?.code, "workspace_not_registered");
     assert.match(denied.error?.hint ?? "", /workspace is not registered/u);
+    assert.doesNotMatch(denied.error?.hint ?? "", /attach-only/u, "an unregistered workspace is not a missing daemon");
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
@@ -185,9 +158,7 @@ test("daemon runtime stream reconnects after transport loss from the last delive
             params: { payload?: { afterCursor?: string } };
           };
           if (request.method === "protocol.hello") {
-            socket.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`,
-            );
+            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
             continue;
           }
           attempts.push(request.params.payload?.afterCursor ?? "missing");
@@ -196,9 +167,7 @@ test("daemon runtime stream reconnects after transport loss from the last delive
               `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, status: "attached", runtimeSessionId: "runtime-reconnect", cursor: "stream:0", events: [] } })}\n${JSON.stringify({ jsonrpc: "2.0", method: "repo.agentRuntime.attach.frame", params: { schema: "agent-runtime-attach-event/v1", type: "heartbeat", runtimeSessionId: "runtime-reconnect", cursor: "stream:1", occurredAt: "2026-08-13T00:00:00.000Z" } })}\n`,
               () => {
                 socket.destroy();
-                server.close(() =>
-                  setTimeout(() => server.listen(socketPath), 120),
-                );
+                server.close(() => setTimeout(() => server.listen(socketPath), 120));
               },
             );
           } else {

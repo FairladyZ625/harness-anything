@@ -55,6 +55,8 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
 export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
     id: "daemon.relation-graph/v1",
     required: Object.freeze(["ok", "edges", "coverageRows", "factAnchors", "facts", "warnings"]),
+    // The fact facet carries the fact-type vocabulary; the other facets echo it empty.
+    optional: Object.freeze(["domainTypes"]),
     canonicalCut: Object.freeze(["status", "watermark", "sourceRevision"]),
   }),
   DAEMON_DECISION_LIST_SCHEMA = Object.freeze({

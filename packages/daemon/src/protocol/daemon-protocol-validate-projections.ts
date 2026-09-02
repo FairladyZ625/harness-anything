@@ -147,7 +147,10 @@ export function validateDaemonRelationGraph(value: unknown): readonly string[] {
       ...(full && value.page !== undefined ? ["page"] : []),
       ...(full ? [] : ["facet"]),
     ];
-  const shapeError = recordShapeError(entityId, value, topFields);
+  const shapeError = recordShapeError(entityId, value, topFields, [
+    ...topFields,
+    ...DAEMON_RELATION_GRAPH_SCHEMA.optional,
+  ]);
   if (shapeError) return [shapeError];
   for (const [field, actual, valid, expectation] of [
     ["ok", value.ok, value.ok === true, "must be true"],
