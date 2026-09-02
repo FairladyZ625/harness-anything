@@ -37,7 +37,6 @@ import {
   closeDatabase,
   discardDatabase,
   ProjectionIdentityMismatchError,
-  projectionSchemaVersion,
   withDatabase,
   withQueryOnlyDatabaseSession,
 } from "./rebuildable-task-projection-database.ts";
@@ -267,7 +266,19 @@ export function makeTaskProjectionReader(options: {
     path: projectionPath,
     withSession: (read) =>
       withQueryOnlyDatabaseSession(projectionPath, readHead, (db) => {
-        const observedSchema = projectionSchemaVersion(db);
+        const row = db
+          .prepare(
+            [
+              "SELECT meta.schema_version, meta.watermark, event.event_json",
+              "FROM projection_meta AS meta",
+              "LEFT JOIN event_index AS event ON event.workspace_revision = meta.watermark",
+              "WHERE meta.singleton = 1",
+            ].join(" "),
+          )
+          .get() as
+          | { readonly schema_version: number; readonly watermark: number; readonly event_json: string | null }
+          | undefined;
+        const observedSchema = row?.schema_version ?? null;
         if (observedSchema !== taskProjectionSchemaVersion)
           throw Object.assign(
             new Error(
@@ -275,25 +286,19 @@ export function makeTaskProjectionReader(options: {
             ),
             { code: "kernel_schema_mismatch" },
           );
-        const row = db.prepare("SELECT watermark FROM projection_meta WHERE singleton = 1").get() as
-          | { readonly watermark: number }
-          | undefined;
         if (row === undefined) throw new Error("projection metadata is unavailable");
         const watermark = Number(row.watermark),
-          event =
-            watermark === 0
-              ? undefined
-              : (db.prepare("SELECT event_json FROM event_index WHERE workspace_revision = ?").get(watermark) as
-                  | { readonly event_json: string }
-                  | undefined);
-        if (watermark > 0 && event === undefined)
+          eventJson = row.event_json ?? undefined;
+        if (watermark > 0 && eventJson === undefined)
           throw new Error(`projection completed cut ${watermark} has no canonical event`);
         publishedHead =
-          event === undefined
+          eventJson === undefined
             ? null
             : {
                 revision: watermark,
-                eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(JSON.parse(event.event_json)))}`,
+                // event_index stores serializePersistedCanonicalEvent(event).trimEnd();
+                // restore its one canonical newline without reparsing/canonicalizing on every read.
+                eventDigest: `sha256:${sha256Text(`${eventJson}\n`)}`,
               };
         try {
           return read(queries);
