@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { withStdoutReservedForJson } from "./gui-e2e/emit-json.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
@@ -417,11 +418,11 @@ async function main(argv) {
 // 入口不用顶层 await:gui-e2e.mjs 静态导入本模块,而本模块的 --agent-run 又动态导入 gui-e2e.mjs;
 // 顶层 await 会让模块停在「求值中」,对方的导入永远等不到(Node 退出码 13 unsettled top-level await)。
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  void (async () => {
-    try {
-      console.log(JSON.stringify(await main(process.argv.slice(2))));
-    } catch (error) {
-      console.error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
-    }
-  })();
+  void withStdoutReservedForJson(
+    () => main(process.argv.slice(2)),
+    (error) => ({
+      schema: "e2e-probe-result/v1",
+      outcome: "failed",
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );

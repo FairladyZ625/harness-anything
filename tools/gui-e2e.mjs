@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { catalog, selectScenarios } from "./gui-e2e/catalog.mjs";
+import { withStdoutReservedForJson } from "./gui-e2e/emit-json.mjs";
 import { prepareE2EProbeGui, recordE2EProbeFailure } from "./e2e-probe.mjs";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
@@ -116,34 +117,15 @@ async function main(argv) {
   return result;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  // 契约:stdout 只有最后那一个 JSON 对象。daemon 夹具(WAL materializer 等)直接写
-  // process.stdout,单靠改 console.log 拦不住,运行期间把 stdout.write 一并导到 stderr。
-  const writeDiagnostic = console.log,
-    writeStdout = process.stdout.write.bind(process.stdout);
-  console.log = (...args) => console.error(...args);
-  process.stdout.write = (chunk, ...rest) => process.stderr.write(chunk, ...rest);
-  const emit = (line) => {
-    process.stdout.write = writeStdout;
-    writeStdout(`${line}\n`);
-  };
-  try {
-    const result = await main(process.argv.slice(2));
-    emit(JSON.stringify(result));
-  } catch (error) {
-    emit(
-      JSON.stringify({
-        schema: "gui-e2e-result/v1",
-        outcome: "failed",
-        runId: null,
-        lanes: [],
-        scenarios: [],
-        message: error instanceof Error ? error.message : String(error),
-      }),
-    );
-    process.exitCode = 1;
-  } finally {
-    console.log = writeDiagnostic;
-    process.stdout.write = writeStdout;
-  }
-}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  void withStdoutReservedForJson(
+    () => main(process.argv.slice(2)),
+    (error) => ({
+      schema: "gui-e2e-result/v1",
+      outcome: "failed",
+      runId: null,
+      lanes: [],
+      scenarios: [],
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
