@@ -48,8 +48,9 @@ import type { WalMaterializationRequestV1, WalMaterializationResponseV1 } from "
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
-const DEFAULT_RETRY_LIMIT = 4;
-const DEFAULT_RETRY_BASE_MS = 50;
+// Retry transient Git locks/resource pressure for ~32s before imposing fail-closed recovery cost.
+const DEFAULT_RETRY_LIMIT = 8;
+const DEFAULT_RETRY_BASE_MS = 250;
 
 export interface WalFlushPolicy {
   readonly adaptive: boolean;

@@ -241,7 +241,7 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
     openCell: (cellInput) =>
       openRepoCell({
         ...cellInput,
-        walMaterializationTestFault: { point: "before_materialization", failures: 4 },
+        walMaterializationTestFault: { point: "before_materialization", failures: 8 },
       }),
   });
   await host.attachmentsSettled();
