@@ -1,0 +1,30 @@
+{
+  "schema": "runtime-dispatch/v1",
+  "dispatchId": "dispatch_60759907a4d1701d8bafd9a1",
+  "taskId": "task_fb00bd6d1f8dfcd79559d14401",
+  "executionId": "exe_7e61f0bfc3ed39c61c122650fc",
+  "agentId": "sol",
+  "agentName": "Sol · 承重实现 Worker",
+  "instanceId": "test-codex-sol",
+  "model": "gpt-5.6-sol",
+  "reasoningEffort": "xhigh",
+  "fast": false,
+  "cwd": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/.worktrees/edgegui-remote-proxy",
+  "missionRef": "tasks/task_fb00bd6d1f8dfcd79559d14401-edgegui-w2-windows-edge-cold-start-gap/artifacts/missions/dispatch_60759907a4d1701d8bafd9a1.md",
+  "runtimeSessionId": "runtime_710b779ab8ba2fff014a4619",
+  "providerSessionId": "01a06133-bd0d-7e93-b160-524b835f3eea",
+  "startedAt": "2026-09-02T08:19:24.834Z",
+  "endedAt": "2026-09-02T08:31:28.690Z",
+  "outcome": "succeeded",
+  "exitCode": 0,
+  "resultRef": "artifact:runtime-result/sha256/ac8f7df1366f2eb8b751982b853f738633a88866d26c24c437d32e1bea8f1a56",
+  "eventStreamRef": "file:.harness/runtime/dispatches/dispatch_60759907a4d1701d8bafd9a1.jsonl",
+  "attemptGroupId": "dispatch_60759907a4d1701d8bafd9a1",
+  "attemptIndex": 0,
+  "provider": {
+    "instance": "test-codex-sol",
+    "model": "gpt-5.6-sol"
+  },
+  "classification": "worker_stop",
+  "reason": "Worker completed the attempt successfully."
+}

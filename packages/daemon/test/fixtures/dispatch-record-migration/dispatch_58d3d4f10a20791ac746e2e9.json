@@ -1,0 +1,28 @@
+{
+  "schema": "runtime-dispatch/v1",
+  "dispatchId": "dispatch_58d3d4f10a20791ac746e2e9",
+  "taskId": "task_18982bc70674d9fd6ffbf5e13d",
+  "executionId": "exe_51896e0c628430e011275d4f14",
+  "instanceId": "claude-opus",
+  "model": "opus",
+  "reasoningEffort": "xhigh",
+  "fast": false,
+  "cwd": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/.worktrees/tasks-list-capabilities",
+  "missionRef": "tasks/task_18982bc70674d9fd6ffbf5e13d-4-1b-tasks-list-board-visibility-capabilities-kernel-use-case-projection/artifacts/missions/dispatch_58d3d4f10a20791ac746e2e9.md",
+  "runtimeSessionId": "runtime_3df05182640b62f3453fc657",
+  "providerSessionId": "d2ba7f36-f966-41fc-bf7d-3a5a376920d2",
+  "startedAt": "2026-09-02T07:52:11.858Z",
+  "endedAt": "2026-09-02T08:17:59.781Z",
+  "outcome": "succeeded",
+  "exitCode": 0,
+  "resultRef": "artifact:runtime-result/sha256/784e6bacb670620fa8b681b4aa205dd35ece49036a4d3cdef7a9bf5fe085ccaa",
+  "eventStreamRef": "file:.harness/runtime/dispatches/dispatch_58d3d4f10a20791ac746e2e9.jsonl",
+  "attemptGroupId": "dispatch_58d3d4f10a20791ac746e2e9",
+  "attemptIndex": 0,
+  "provider": {
+    "instance": "claude-opus",
+    "model": "opus"
+  },
+  "classification": "worker_stop",
+  "reason": "Worker completed the attempt successfully."
+}

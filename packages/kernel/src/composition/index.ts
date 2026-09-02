@@ -12,6 +12,8 @@ export {
 } from "../store/wal-shadow-event-store.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
+export { runDispatchRecordMigration } from "../store/dispatch-record-migration.ts";
+export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-migration.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";
 export type {
   CanonicalContentBlob,

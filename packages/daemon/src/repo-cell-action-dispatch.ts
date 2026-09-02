@@ -8,6 +8,7 @@ import {
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
+  runDispatchRecordMigration,
   runEventShapeMigration,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -58,6 +59,17 @@ export async function executeAction(
       rootDir: cell.rootDir,
       store: cell.store,
       now: cell.now,
+    });
+  if (action.kind === "dispatch-records-migrate")
+    return runDispatchRecordMigration({
+      dryRun: action.dryRun === true,
+      actor: binding.actor,
+      source: binding.source,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
+      settleLease: (settlement) => cell.settleRuntimeExecutionLease(settlement, binding),
     });
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);

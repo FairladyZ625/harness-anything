@@ -3,6 +3,7 @@ import type {
   CanonicalEventAppendReceipt,
   CanonicalEventStore,
   DaemonRepoMode,
+  DispatchRecordLeaseSettlement,
   EventPublicationKillpoint,
   RepositorySettingsV1,
   SettingsV1,
@@ -209,6 +210,10 @@ export interface RepoCellRuntimeContext extends RepoCellActionContext {
 
 export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
   readonly settings: RepoCellSettingsState;
+  readonly settleRuntimeExecutionLease: (
+    settlement: DispatchRecordLeaseSettlement,
+    binding: RepoCellBinding,
+  ) => Promise<void>;
 }
 
 export function createRepoCellActionContext(bindings: {

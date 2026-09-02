@@ -108,6 +108,14 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
   );
 });
 
+test("dispatch record migration projects its dry-run flag into the daemon Action", () => {
+  const parsed = parseThinCommand(["migrate", "dispatch-records", "--dry-run"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
+});
+
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
@@ -163,7 +171,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
     init: ["repo-bootstrap"],
-    migrate: ["decision-digests-migrate", "fact-rekey", "ledger-migrate", "migrate-import", "relation-events-migrate"],
+    migrate: [
+      "decision-digests-migrate",
+      "dispatch-records-migrate",
+      "fact-rekey",
+      "ledger-migrate",
+      "migrate-import",
+      "relation-events-migrate",
+    ],
     preset: [
       "preset-audit",
       "preset-check",

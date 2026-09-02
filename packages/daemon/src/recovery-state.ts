@@ -6,6 +6,7 @@ export interface RecoveryCommandPolicy {
 
 const recoveryCommands: Readonly<Record<string, RecoveryCommandPolicy>> = Object.freeze({
   "decision-digests-migrate": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
+  "dispatch-records-migrate": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "fact-rekey": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "ledger-migrate": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "migrate-import": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),

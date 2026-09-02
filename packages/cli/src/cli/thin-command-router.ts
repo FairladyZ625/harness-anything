@@ -52,7 +52,12 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (route.id === "fact-rekey" || route.id === "relation-events-migrate" || route.id === "decision-digests-migrate") {
+  if (
+    route.id === "fact-rekey" ||
+    route.id === "relation-events-migrate" ||
+    route.id === "decision-digests-migrate" ||
+    route.id === "dispatch-records-migrate"
+  ) {
     const f = readFlags(route.id, args.slice(2), inputs);
     return f.ok
       ? accepted(rootDir, repoId, json, {

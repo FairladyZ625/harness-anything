@@ -1,0 +1,30 @@
+{
+  "schema": "runtime-dispatch/v1",
+  "dispatchId": "dispatch_eab77a4427332feaf90333a2",
+  "taskId": "task_ad427ea46be084becae89cc5ca",
+  "executionId": "exe_4d74c4f4317b1a3efff5939a2a",
+  "agentId": "glm-5-3",
+  "agentName": "GLM-5.3 · GUI 实现 Worker",
+  "instanceId": "glm-work",
+  "model": "GLM-5.3[1m]",
+  "reasoningEffort": null,
+  "fast": false,
+  "cwd": "/Users/lizeyu/Projects/coding-agent-harness/harness-anything/.worktrees/edgegui-w3-gui",
+  "missionRef": "tasks/task_ad427ea46be084becae89cc5ca-edgegui-w3-connection-mode-settings-plane/artifacts/missions/dispatch_eab77a4427332feaf90333a2.md",
+  "runtimeSessionId": "runtime_0a16eba5ba49268de695cd68",
+  "providerSessionId": "5d355525-335b-4c05-89b1-de5f0140d5d3",
+  "startedAt": "2026-09-02T07:27:47.151Z",
+  "endedAt": "2026-09-02T08:21:43.182Z",
+  "outcome": "failed",
+  "exitCode": 1,
+  "resultRef": "artifact:runtime-result/sha256/13440c62b454f07f50bcd419d8fb11a4fef0f605b737504c448fed67a07fa575",
+  "eventStreamRef": "file:.harness/runtime/dispatches/dispatch_eab77a4427332feaf90333a2.jsonl",
+  "attemptGroupId": "attempt_7ba1c4954a8c03a7418fce18",
+  "attemptIndex": 0,
+  "provider": {
+    "instance": "glm-work",
+    "model": "GLM-5.3[1m]"
+  },
+  "classification": "provider_fault",
+  "reason": "Provider rate limited the attempt (HTTP 429): API Error: Request rejected (429) · [1308][已达到 5 小时的使用上限。您的限额将在 2026-09-02 20:21:49 重置。][20260902162142cf8a320747a34ccf]"
+}
