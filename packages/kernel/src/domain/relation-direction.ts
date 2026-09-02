@@ -1,5 +1,5 @@
 import type { RelationStrength, RelationType } from "./entity-relation.ts";
-import { entityTypeContracts, type EntityKind } from "./base-entity.ts";
+import { entityTypeContracts } from "./base-entity.ts";
 
 /** Whether the reading of an allowed triple has a registered semantics. */
 export type RelationDirectionRegistration = "ratified" | "unregistered" | "derived";
