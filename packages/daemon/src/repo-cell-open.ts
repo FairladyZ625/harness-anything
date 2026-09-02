@@ -324,6 +324,7 @@ export async function openRepoWriterCell(
     if (force) recoveryProbe.begin(Date.parse(now()));
     recoveryReplacement = (async () => {
       let candidate: Awaited<ReturnType<typeof initialize>> | undefined;
+      let adoptedIndeterminate = false;
       try {
         // A replacement is a single-owner lifecycle transaction. Quiesce and close the
         // old mutable WAL owner before a candidate can even be initialized, then publish
@@ -342,18 +343,26 @@ export async function openRepoWriterCell(
           }
         }
         candidate = await initialize();
-        const probeIndeterminate = candidate.recovery.status === "indeterminate";
-        if (probeIndeterminate)
-          throw cellCodedError(
-            candidate.recovery.errorCode ?? "publication_indeterminate",
-            candidate.recovery.error ??
-              `startup recovery ${candidate.recovery.status} after ${candidate.recovery.elapsedMs.toFixed(3)}ms`,
-          );
-        candidate.projection.list();
+        // Adopt the candidate's store as soon as it opens: the quiesce above already closed
+        // the prior store, so this is the only live store left, and a store-only recovery
+        // command (relation-events-migrate, decision-digests-migrate, projection-rebuild's own
+        // store.readHead(), ...) must be able to run against it even while the probes below
+        // stay indeterminate -- repairing that indeterminate state is what those commands exist
+        // to do. Only `state` gates on the probes; the store is live regardless.
         ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
         candidate = undefined;
         coreClosedForReplacement = false;
         knownTaskIds = null;
+        if (recovery.status === "indeterminate") {
+          adoptedIndeterminate = true;
+          throw cellCodedError(
+            recovery.errorCode ?? "publication_indeterminate",
+            recovery.error ?? `startup recovery ${recovery.status} after ${recovery.elapsedMs.toFixed(3)}ms`,
+          );
+        }
+        // Opening a reader generation is also a structural probe: a watermark can be current
+        // while a persisted snapshot row is corrupt.
+        projection.list();
         state = "attached";
         lastError = null;
         causeClass = null;
@@ -362,6 +371,7 @@ export async function openRepoWriterCell(
       } catch (error) {
         consumeKnownError(error);
         if (candidate) {
+          // initialize() itself threw before a store ever opened: nothing to adopt.
           candidate.replica.close();
           candidate.projection.close();
           try {
@@ -369,6 +379,10 @@ export async function openRepoWriterCell(
           } catch (cleanupError) {
             consumeKnownError(cleanupError);
           }
+          recoveryUncertain = true;
+        } else if (!adoptedIndeterminate) {
+          // The adopted candidate's post-catch-up structural probe (projection.list()) failed:
+          // a stronger signal than the plain indeterminate recovery.status above.
           recoveryUncertain = true;
         }
         lastError = cellErrorMessage(error);
