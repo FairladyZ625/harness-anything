@@ -15,7 +15,7 @@
     "package:linux:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --linux AppImage deb --x64",
     "preview": "vite preview --host 127.0.0.1",
     "test:gui": "vitest run --config vitest.config.ts",
-    "test:e2e": "node ../../tools/gui-e2e.mjs --lane isolated"
+    "test:e2e": "npm run build && npm run build:preload && node --test e2e/*.e2e.mjs"
   },
   "exports": {
     ".": "./src/index.ts"
