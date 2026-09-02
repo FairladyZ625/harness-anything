@@ -1,5 +1,6 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
   blockingOf,
@@ -76,6 +77,12 @@ export interface RepoCellCore {
   readonly replica: ReturnType<typeof openReplicaCutSource>;
 }
 
+export function daemonWalMaterializationWorkerUrl(moduleUrl: string | URL = import.meta.url): URL {
+  const currentModuleUrl = new URL(moduleUrl),
+    extension = path.extname(fileURLToPath(currentModuleUrl));
+  return new URL(`./wal-materialization-daemon-worker${extension}`, currentModuleUrl);
+}
+
 export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
   let pendingSettlement: { readonly actor: ActorIdentity; readonly inventory: unknown | null } | null = null;
@@ -131,7 +138,7 @@ export function initializeRepoCell(context: RepoCellCoreInput): RepoCellCore {
     authoredBranch: context.authoredBranch,
     killpoint: context.input.killpoint,
     afterFlush: settleAuthoredCandidates,
-    walMaterializationWorkerUrl: new URL("./wal-materialization-daemon-worker.ts", import.meta.url),
+    walMaterializationWorkerUrl: daemonWalMaterializationWorkerUrl(),
     walMaterializationTestFault: context.input.walMaterializationTestFault,
     walMaterializationFence: () => context.activeWriterEpochFenceDescriptor,
     beforeAppend: () => context.activeWriterEpochGuard?.(),

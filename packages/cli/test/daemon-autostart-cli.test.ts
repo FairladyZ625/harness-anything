@@ -46,6 +46,9 @@ test("registered checkout autostarts the daemon while its worktree only connects
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.root, fixture.userRoot, "autostart");
     const status = run(fixture.root, fixture.userRoot, ["daemon", "status"]);
+    assert.equal(status.entry, "source");
+    assert.equal(typeof (status.build as { readonly commit?: unknown }).commit, "string");
+    assert.match(String(status.summary), /entry=source commit=[0-9a-f]{40}/u);
     assert.deepEqual(status.target, {
       endpoint: localUserDaemonEndpoint(fixture.userRoot, "default"),
       daemonId: "default",
@@ -77,10 +80,9 @@ test("registered checkout autostarts the daemon while its worktree only connects
       "stop receipt settles only after pid and socket are gone",
     );
     const lifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default");
-    assert.equal(
-      lifecycle.some((record) => record.event === "process_start"),
-      true,
-    );
+    const processStart = lifecycle.find((record) => record.event === "process_start");
+    assert.equal(processStart?.entry, "source");
+    assert.match(processStart?.commit ?? "", /^[0-9a-f]{40}$/u);
     assert.equal(
       lifecycle.some((record) => record.event === "socket_bound"),
       true,

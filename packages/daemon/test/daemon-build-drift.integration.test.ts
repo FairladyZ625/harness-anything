@@ -22,6 +22,8 @@ test("a dist rebuild is observable while the daemon keeps serving and its runtim
     const worker = await host.spawnRuntime(repoId, { runtimeInstanceId: "build-drift-worker", cwd: { scope: "repo-root" }, prompt: "Keep running across the dist rebuild.", taskId: null, idempotencyKey: "build-drift-worker" }, auth);
     assert.equal(worker.outcome, "applied", JSON.stringify(worker));
     const matched = host.status();
+    assert.equal(matched.entry, "dist");
+    assert.match(matched.summary, /entry=dist commit=/u);
     assert.deepEqual(matched.build, { ...matched.build, loadedBuildId: "build-a", diskBuildId: "build-a", drifted: false });
     assert.doesNotMatch(matched.summary, /build drift/u);
 

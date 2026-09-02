@@ -499,6 +499,7 @@ export interface DaemonStatusResult {
   readonly daemonId: string;
   readonly pid: number;
   readonly startedAt: string;
+  readonly entry: "source" | "dist";
   readonly build: {
     readonly version: string;
     readonly commit: string | null;

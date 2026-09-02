@@ -6,7 +6,7 @@ export function createDaemonHostLifecycleApi(
 ): Pick<DaemonHost, "status" | "startAttachments" | "attachmentsSettled" | "close"> {
   return {
     status: () => {
-      const observedBuild = context.buildObserver.status(),
+      const { entry, ...observedBuild } = context.buildObserver.status(),
         build = {
           ...observedBuild,
           version: process.env.npm_package_version ?? "0.0.0",
@@ -16,6 +16,10 @@ export function createDaemonHostLifecycleApi(
           `${process.pid}`,
           " repos=",
           `${context.cells.size + context.warming.size + context.unavailable.size}`,
+          " entry=",
+          entry,
+          " commit=",
+          build.commit ?? "unknown",
           "",
         ].join(""),
         summary = observedBuild.drifted
@@ -34,6 +38,7 @@ export function createDaemonHostLifecycleApi(
         daemonId: context.input.daemonId,
         pid: process.pid,
         startedAt: context.startedAt,
+        entry,
         build,
         repos: [
           ...[...context.cells.values()].map((cell) => cell.status()),
