@@ -275,6 +275,42 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  nightly-cli-command-timing:
+    # Rebuilds the per-command CLI timing surface every night and holds it against the committed
+    # ratio ratchet. Nothing here is a wall-clock bound: each command is divided by the same
+    # compiled CLI's --help no-op measured in the same round, so a slow runner moves both arms and
+    # the verdict does not move. dec_9B75595FC45E01DDFD0938FE95/CH4 lands a new lane as
+    # non-required first, so this runs on the nightly schedule and manual dispatch only, never on
+    # pull_request/push, and is never a required context. A red night produces the measurement
+    # artifact; it does not block a merge.
+    if: github.event_name != 'pull_request' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The timing ratchet compares committed limits with the immediately preceding revision.
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # The measured subject is the packaged CLI, not the TypeScript entry: process startup and
+      # static module loading are most of what an ordinary command costs, and only the compiled
+      # entry has the real ones.
+      - run: npm run build -w @harness-anything/cli
+      - name: Measure per-command CLI timing and enforce the committed ratio ratchet
+        run: node tools/measure-cli-command-timing.mjs --out tmp/cli-command-timing/measurement.json && node tools/gates/cli-command-timing.mjs --base HEAD^ --measurement tmp/cli-command-timing/measurement.json --mode ratchet
+      - name: Preserve the measurement whether or not the ratchet held
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-command-timing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tmp/cli-command-timing/
+          if-no-files-found: error
+          retention-days: 14
+
   boundaries:
     if: github.event_name == 'pull_request'
     permissions:
