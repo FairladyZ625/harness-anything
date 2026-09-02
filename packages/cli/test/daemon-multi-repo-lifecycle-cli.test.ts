@@ -304,7 +304,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       eligiblePath = "context/this-session.md",
       blockedFile = path.join(fixture.alpha, "harness", blockedPath);
     mkdirSync(path.dirname(blockedFile), { recursive: true });
-    writeFileSync(blockedFile, "# Stable\n");
+    const stableMachineDocument = "---\nschema: stable\n---\n# Stable\n";
+    writeFileSync(blockedFile, stableMachineDocument);
     // Same background local-repair reconciliation as the notes submit above (repo-cell
     // settleAuthoredCandidates): it may incorporate this freshly authored doc first, which leaves this
     // explicit submit nothing to apply. Both outcomes mean the doc reached canonical.
@@ -313,22 +314,22 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       stableSubmit.outcome === "applied" || stableSubmit.outcome === "no_changes",
       `submit must reconcile the authored doc (applied or no_changes), saw ${JSON.stringify(stableSubmit)}`,
     );
-    writeFileSync(blockedFile, "# Renamed\n");
+    writeFileSync(blockedFile, "---\nschema: changed\n---\n# Stable\n");
     writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
     // The background reconciliation issues this exact command — doc-submit over an empty selection.
     // Whichever sweep runs first applies context/this-session.md and skips the blocked
     // context/other-session.md; the sweep that runs second has no eligible row left and rejects on the
     // blocked row alone, which is the decided contract (doc-sync-slice-a-implicit-lease: "a blocked-only
     // implicit submit must reject without publishing an event"). Asserting one outcome raced that sweep
-    // (flake). What holds either way: the blocked path is reported against its missing base region, the
+    // (flake). What holds either way: the blocked path is reported against its changed machine region, the
     // eligible doc reaches canonical, and the blocked edit does not.
     const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]),
-      blockedTouch = 'context/other-session.md\tbase region is missing: "# Stable"';
+      blockedTouch = "context/other-session.md\tmachine region changed";
     if (partial.status === 0) {
       assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
       assert.match(
         String(partial.receipt.summary),
-        /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tbase region is missing: "# Stable"/u,
+        /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tmachine region changed/u,
       );
     } else {
       assert.equal(partial.receipt.outcome, "op_rejected", JSON.stringify(partial.receipt));
@@ -345,7 +346,10 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence,
       "# Eligible\n",
     );
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", blockedPath]).evidence, "# Stable\n");
+    assert.equal(
+      run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", blockedPath]).evidence,
+      stableMachineDocument,
+    );
     const spoof = await requestLocalDaemonJsonRpc(
       fixture.alpha,
       "repo.task.create",
