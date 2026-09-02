@@ -181,6 +181,7 @@ export {
   canonicalRelationIdentityInput,
   deriveRelationId,
   isAllowedRelationKindTriple,
+  normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,
   relationStates,

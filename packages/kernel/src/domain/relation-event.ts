@@ -2,6 +2,7 @@ import { projectBaseEntityAtCut, requireEntityTypeContract, type BaseEntity } fr
 import {
   deriveRelationId,
   isAllowedRelationKindTriple,
+  normalizeLegacyRelationState,
   relationStrengthForType,
   relationDirections,
   relationOrigins,
@@ -559,13 +560,9 @@ function eventRecord(record: EntityRelationRecord): RelationEventRecord {
 }
 
 function migrationRelationRecord(record: EntityRelationRecord): RelationEventRecord {
-  const state = record.state as unknown,
-    isRetiredLegacyState = state === "edge_retired";
-  if (!isRetiredLegacyState && !(relationStates as readonly unknown[]).includes(state))
-    throw new Error(`relation migration state is invalid: ${String(state)}`);
   return {
     ...eventRecord(record),
-    state: isRetiredLegacyState ? "retired" : record.state,
+    state: normalizeLegacyRelationState(record.state),
   };
 }
 

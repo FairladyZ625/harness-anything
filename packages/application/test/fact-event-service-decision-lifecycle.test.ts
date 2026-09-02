@@ -86,7 +86,7 @@ test("Decision transition matrix, transport arbiter, claims, historical relation
     recordDecision(service, projection, decisionEvent(5, "decision_related", undefined, relation));
     recordDecision(service, projection, decisionEvent(6, "decision_relation_retired", undefined, relationId));
     const edge = projection.readDecisionGraph().edges[0]!;
-    assert.equal(edge.state, "edge_retired");
+    assert.equal(edge.state, "retired");
     assert.equal(store.readHead()?.revision, 6);
     assert.equal(
       recordDecision(service, projection, decisionEvent(7, "decision_retired")).decision.state,

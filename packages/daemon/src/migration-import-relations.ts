@@ -2,6 +2,7 @@ import {
   consumeKnownError,
   deriveRelationId,
   isMigrationImportEvent,
+  normalizeLegacyRelationState,
   parseEntityRef,
   relationStrengthForType,
   sha256Text,
@@ -96,7 +97,7 @@ export function reboundRelation(context: MigrationRelationsContext, row: Relatio
     strength: relationStrengthForType(row.relationType),
     origin: truthGap ? row.origin : "imported_snapshot",
     rationale: row.rationale,
-    state: truthGap || String(row.state) === "retired" ? "retired" : row.state,
+    state: truthGap ? "retired" : normalizeLegacyRelationState(row.state),
   };
   const legacyRelationId = [...context.cold.legacyRelationIds.entries()].find(
     ([, canonicalId]) => canonicalId === row.relationId,

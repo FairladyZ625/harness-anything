@@ -55,6 +55,12 @@ export function relationStrengthForType(type: RelationType): RelationStrength {
   return type === "relates" ? "weak" : "strong";
 }
 
+export function normalizeLegacyRelationState(state: unknown): RelationState {
+  if (state === "edge_retired") return "retired";
+  if ((relationStates as readonly unknown[]).includes(state)) return state as RelationState;
+  throw new Error(`relation migration state is invalid: ${String(state)}`);
+}
+
 export function relationConsumability(
   edge: Pick<EntityRelationRecord, "strength"> & { readonly freshness: RelationFreshness },
 ): RelationConsumability {
