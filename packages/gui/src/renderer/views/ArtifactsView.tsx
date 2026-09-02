@@ -316,7 +316,7 @@ function ArtifactPreviewPane({
   readonly onNavigateTask: (taskId: string) => void;
 }) {
   const document = useTaskDocumentQuery(repoId, row?.taskId ?? "", row?.path ?? null);
-  // 纯展示(remote-proxy)仓的「打开」走物化副本(主进程 §3.4 统一面),按钮旁标注服务器副本。
+  // 纯展示(remote-proxy)仓的「打开」走主进程物化副本统一面,按钮旁标注服务器副本。
   const remoteProxy = useRepoRow(repoId)?.mode === "remote-proxy";
   const [openError, setOpenError] = useState<string | null>(null);
   const openExternally = useCallback(async () => {
@@ -401,7 +401,10 @@ function ArtifactPreviewBody({
           <span
             data-testid="artifact-server-copy-note"
             title={t("artifacts.preview.serverCopyTitle")}
-            className="inline-flex shrink-0 items-center rounded border border-accent/40 px-1 py-px font-mono ui-micro text-accent"
+            className={
+              "inline-flex shrink-0 items-center rounded border " +
+              "border-accent/40 px-1 py-px font-mono ui-micro text-accent"
+            }
           >
             {t("artifacts.preview.serverCopy")}
           </span>

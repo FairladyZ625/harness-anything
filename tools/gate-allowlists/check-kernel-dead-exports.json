@@ -148,12 +148,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "DaemonRegistry",
-        "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
-        "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "DaemonRegistryRepo",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",

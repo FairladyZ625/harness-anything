@@ -114,7 +114,10 @@ export function RepositoriesAndConnectionsView({
             setAddingConnection(true);
             setSelection({ kind: "connection", id: "local" });
           }}
-          className="mt-1 flex items-center gap-1.5 rounded-md border border-dashed border-border px-2 py-1.5 ui-meta text-text-muted hover:border-border-strong hover:text-text"
+          className={
+            "mt-1 flex items-center gap-1.5 rounded-md border border-dashed " +
+            "border-border px-2 py-1.5 ui-meta text-text-muted hover:border-border-strong hover:text-text"
+          }
         >
           <Plus weight="bold" className="size-3.5 shrink-0" />
           {t("views.repositories.addConnection")}

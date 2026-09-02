@@ -142,7 +142,10 @@ export function AddLocalRepositoryPanel({
               <input
                 data-testid="add-local-repo-id"
                 aria-label={t("views.repositories.repoIdLabel")}
-                className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+                className={
+                  "w-72 max-w-full rounded border border-border " +
+                  "bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+                }
                 value={repoId}
                 onChange={(event) => setRepoId(event.target.value)}
               />
@@ -153,7 +156,10 @@ export function AddLocalRepositoryPanel({
                   <input
                     data-testid="add-local-person-id"
                     aria-label={t("views.repositories.personIdLabel")}
-                    className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+                    className={
+                      "w-72 max-w-full rounded border border-border " +
+                      "bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+                    }
                     value={personId}
                     onChange={(event) => setPersonId(event.target.value)}
                   />
@@ -162,7 +168,9 @@ export function AddLocalRepositoryPanel({
                   <input
                     data-testid="add-local-display-name"
                     aria-label={t("views.repositories.ownerNameLabel")}
-                    className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1 ui-meta text-text"
+                    className={
+                      "w-72 max-w-full rounded border border-border " + "bg-surface-raised px-2 py-1 ui-meta text-text"
+                    }
                     value={displayName}
                     onChange={(event) => setDisplayName(event.target.value)}
                   />
@@ -171,7 +179,9 @@ export function AddLocalRepositoryPanel({
                   <input
                     data-testid="add-local-workspace-name"
                     aria-label={t("views.repositories.workspaceNameLabel")}
-                    className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1 ui-meta text-text"
+                    className={
+                      "w-72 max-w-full rounded border border-border " + "bg-surface-raised px-2 py-1 ui-meta text-text"
+                    }
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                   />

@@ -252,7 +252,10 @@ export function ConnectionDetailPanel({
                         data-testid={`probe-repo-check-${repo.repoId}`}
                         disabled={registered || repo.mode === null}
                         onClick={() => toggleRepo(repo.repoId)}
-                        className="inline-flex items-center gap-1.5 rounded px-1 py-0.5 ui-meta text-text disabled:cursor-not-allowed disabled:opacity-50"
+                        className={
+                          "inline-flex items-center gap-1.5 rounded px-1 " +
+                          "py-0.5 ui-meta text-text disabled:cursor-not-allowed disabled:opacity-50"
+                        }
                         title={registered ? t("views.repositories.probeRepoRegistered") : repo.repoId}
                       >
                         {checked.has(repo.repoId) ? (

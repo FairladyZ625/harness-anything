@@ -3,12 +3,7 @@
   "rows": [
     {
       "id": "lifecycle.event-publication",
-      "actions": [
-        "task-create",
-        "task-submit",
-        "task-review-execution",
-        "task-complete"
-      ],
+      "actions": ["task-create", "task-submit", "task-review-execution", "task-complete"],
       "authority": "packages/daemon/src/repo-cell.ts",
       "store": "packages/kernel/src/store/task-event-store.ts",
       "leasePolicy": "domain-contract",
@@ -21,11 +16,7 @@
     },
     {
       "id": "workspace.bootstrap",
-      "actions": [
-        "repo-bootstrap",
-        "daemon-repo-register",
-        "daemon-repo-unregister"
-      ],
+      "actions": ["repo-bootstrap", "daemon-repo-register", "daemon-repo-unregister"],
       "authority": "packages/daemon/src/daemon-host.ts",
       "evidence": [
         "packages/daemon/src/daemon-host.ts",
@@ -35,10 +26,7 @@
     },
     {
       "id": "daemon.runtime-control",
-      "actions": [
-        "daemon-start",
-        "daemon-stop"
-      ],
+      "actions": ["daemon-start", "daemon-stop"],
       "authority": "packages/daemon/src/runtime.ts",
       "evidence": [
         "packages/cli/src/daemon/control.ts",
@@ -51,9 +39,7 @@
       "actions": [],
       "source": "task-event-store",
       "authority": "packages/kernel/src/projection/rebuildable-task-projection.ts",
-      "evidence": [
-        "packages/kernel/src/projection/rebuildable-task-projection.ts"
-      ]
+      "evidence": ["packages/kernel/src/projection/rebuildable-task-projection.ts"]
     }
   ],
   "physicalWriteFiles": [
@@ -81,6 +67,7 @@
     "packages/daemon/src/runtime.ts",
     "packages/daemon/src/transport/unix-socket.ts",
     "packages/daemon/src/writer-epoch.ts",
+    "packages/gui/src/main/artifact-open-ipc.ts",
     "packages/kernel/src/daemon/registry.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
