@@ -12,6 +12,7 @@ const cli = path.resolve("packages/cli/src/index.ts");
 test("daemon control renders status and fails closed when repository materialization is red", () => {
   const fixture = setup();
   let canonical: string | null = null;
+  const indexLock = path.join(fixture.repo, ".git", "index.lock");
   try {
     assert.equal(runJson(fixture, ["daemon", "start", "--service"]).ok, true);
 
@@ -36,6 +37,52 @@ test("daemon control renders status and fails closed when repository materializa
     const healthyStatus = runJson(fixture, ["daemon", "status"]),
       healthyRepo = (healthyStatus.repos as readonly Record<string, unknown>[])[0]!;
     assert.deepEqual((healthyRepo.materialization as Record<string, unknown>).state, "ok");
+
+    writeFileSync(indexLock, "held by CLI contract test\n");
+    const lockAccepted = runJson(fixture, ["task", "create", "--title", "Accepted into WAL before lock retry"]);
+    assert.equal(lockAccepted.outcome, "applied", JSON.stringify(lockAccepted));
+    let retryingRepo: Record<string, unknown> | null = null;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const retryingStatus = runJson(fixture, ["daemon", "status"]),
+        candidate = (retryingStatus.repos as readonly Record<string, unknown>[])[0],
+        materialization = candidate?.materialization as Record<string, unknown> | null;
+      if (materialization?.state === "retrying") {
+        retryingRepo = candidate!;
+        break;
+      }
+    }
+    assert.ok(retryingRepo, "daemon status did not expose the transient Git lock retry");
+    const retryingHealth = retryingRepo.materialization as Record<string, unknown>;
+    assert.equal(retryingHealth.reason, undefined);
+    assert.equal(Number.isSafeInteger(retryingHealth.retryElapsedMs), true);
+    assert.match(String(retryingHealth.lastError), /index\.lock[\s\S]*File exists/iu);
+    const humanRetrying = runText(fixture, ["daemon", "status"]);
+    assert.equal(humanRetrying.status, 0, humanRetrying.stderr);
+    assert.match(humanRetrying.stdout, /state=retrying waitedMs=[0-9]+/u);
+    assert.match(humanRetrying.stdout, /lastError=.*index\.lock/u);
+    const retryingWrite = runJsonResult(fixture, ["task", "create", "--title", "Rejected during lock retry"]);
+    assert.equal(retryingWrite.status, 1, retryingWrite.stderr);
+    assert.equal(retryingWrite.receipt.code, "materialization_failed");
+    assert.equal((retryingWrite.receipt.diagnostic as Record<string, unknown>).kind, "materialization-retrying");
+    assert.equal((retryingWrite.receipt.diagnostic as Record<string, unknown>).state, "retrying");
+    assert.equal((retryingWrite.receipt.diagnostic as Record<string, unknown>).reason, undefined);
+    rmSync(indexLock, { force: true });
+    let lockRecovered = false;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const recoveredStatus = runJson(fixture, ["daemon", "status"]),
+        materialization = (recoveredStatus.repos as readonly Record<string, unknown>[])[0]?.materialization as Record<
+          string,
+          unknown
+        > | null;
+      if (materialization?.state === "ok" && materialization.pendingWalEvents === 0) {
+        lockRecovered = true;
+        break;
+      }
+    }
+    assert.equal(lockRecovered, true, "transient Git lock did not self-heal and checkpoint its WAL");
+    const lockRecoveredWrite = runJson(fixture, ["task", "create", "--title", "Accepted without daemon restart"]);
+    assert.equal(lockRecoveredWrite.outcome, "applied", JSON.stringify(lockRecoveredWrite));
+    waitForMaterializationOk(fixture);
 
     const preparedTask = runJson(fixture, ["task", "create", "--title", "Accepted before materialization latch"]);
     assert.equal(preparedTask.outcome, "applied", JSON.stringify(preparedTask));
@@ -69,18 +116,10 @@ test("daemon control renders status and fails closed when repository materializa
     assert.equal((rejected.receipt.diagnostic as Record<string, unknown>).reason, "git_diverged");
 
     git(fixture.repo, "reset", "--hard", canonical);
-    assert.equal(runJson(fixture, ["daemon", "stop"]).ok, true);
-    assert.equal(runJson(fixture, ["daemon", "start", "--service"]).ok, true);
-    let recoveredRepo: Record<string, unknown> | null = null;
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const recoveredStatus = runJson(fixture, ["daemon", "status"]),
-        candidate = (recoveredStatus.repos as readonly Record<string, unknown>[])[0];
-      if ((candidate?.materialization as Record<string, unknown> | null)?.state === "ok") {
-        recoveredRepo = candidate!;
-        break;
-      }
-    }
-    assert.ok(recoveredRepo, "restarted daemon did not publish recovered materialization health");
+    const recoveryProbe = runJsonResult(fixture, ["task", "create", "--title", "Probe repaired latch"]);
+    assert.equal(recoveryProbe.status, 1, recoveryProbe.stderr);
+    assert.equal(recoveryProbe.receipt.code, "materialization_failed");
+    waitForMaterializationOk(fixture);
     const recoveredWrite = runJson(fixture, ["task", "create", "--title", "Accepted after recovery"]);
     assert.equal(recoveredWrite.outcome, "applied", JSON.stringify(recoveredWrite));
 
@@ -98,6 +137,7 @@ test("daemon control renders status and fails closed when repository materializa
     assert.match(alreadyUnregistered.stdout, /repoId=receipt/u);
     assert.match(alreadyUnregistered.stdout, /changed=false/u);
   } finally {
+    rmSync(indexLock, { force: true });
     if (canonical !== null) {
       git(fixture.repo, "reset", "--hard", canonical);
     }
@@ -136,6 +176,18 @@ function setup(): { readonly root: string; readonly repo: string; readonly userR
   git(repo, "commit", "--quiet", "-m", "fixture");
   seedSettingsEvent({ rootDir: repo, repoId: "receipt" });
   return { root, repo, userRoot };
+}
+
+function waitForMaterializationOk(fixture: ReturnType<typeof setup>): void {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const status = runJson(fixture, ["daemon", "status"]),
+      materialization = (status.repos as readonly Record<string, unknown>[])[0]?.materialization as Record<
+        string,
+        unknown
+      > | null;
+    if (materialization?.state === "ok" && materialization.pendingWalEvents === 0) return;
+  }
+  assert.fail("daemon materialization did not return to ok with an empty WAL");
 }
 function runJson(fixture: ReturnType<typeof setup>, args: readonly string[]): Record<string, unknown> {
   const result = spawnSync(process.execPath, [cli, "--root", fixture.repo, "--json", ...args], {

@@ -50,6 +50,7 @@ export async function openWriterSupervisor(
     closed = false,
     opened = false,
     restartAttempt = 0,
+    statusObservedAt = Date.now(),
     status: RepoCellStatus = {
       repoId: input.repoId,
       rootDir: input.rootDir,
@@ -132,7 +133,7 @@ export async function openWriterSupervisor(
       });
     },
     control: sendControl,
-    status: () => status,
+    status: () => statusWithCurrentRetryElapsed(status, statusObservedAt),
     bootstrapReceipt: () => publishedBootstrapReceipt,
     close: async () => {
       if (closed) return;
@@ -200,7 +201,10 @@ export async function openWriterSupervisor(
           const published = message.status;
           if (published && typeof published === "object") {
             const attaching = published.state === "warming";
-            if (!settled || !attaching) status = published;
+            if (!settled || !attaching) {
+              status = published;
+              statusObservedAt = Date.now();
+            }
             if (!settled && attaching) options.onAttachStatus?.(published);
             if (
               !settled &&
@@ -398,6 +402,18 @@ export async function openWriterSupervisor(
       ...event,
     } satisfies RuntimeProcessEventV1);
   }
+}
+
+function statusWithCurrentRetryElapsed(status: RepoCellStatus, observedAt: number): RepoCellStatus {
+  const materialization = status.materialization;
+  if (materialization?.state !== "retrying" || materialization.retryElapsedMs === undefined) return status;
+  return {
+    ...status,
+    materialization: {
+      ...materialization,
+      retryElapsedMs: materialization.retryElapsedMs + Math.max(0, Date.now() - observedAt),
+    },
+  };
 }
 
 function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {

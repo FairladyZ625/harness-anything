@@ -380,10 +380,133 @@ test("materialization retry classification admits only recognized transient fail
   );
   assert.equal(
     isRetryableWalMaterializationError(
+      new Error(
+        "Command failed: git update-index\nfatal: Unable to create '/repo/.git/index.lock': File exists.\n\n" +
+          "Another git process seems to be running in this repository.",
+      ),
+    ),
+    true,
+  );
+  assert.equal(isRetryableWalMaterializationError(Object.assign(new Error("resource busy"), { code: "EBUSY" })), true);
+  assert.equal(
+    isRetryableWalMaterializationError(
       Object.assign(new Error("writer epoch is stale"), { code: "writer_epoch_stale" }),
     ),
     false,
   );
+});
+
+test("a temporary real Git index lock reports retrying and self-heals without restart", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const lockPath = path.join(rootDir, ".git", "index.lock"),
+      warnings: string[] = [],
+      originalWarn = console.warn;
+    let retryingHealth: ReturnType<ReturnType<typeof makeWalShadowEventStore>["materializationHealth"]> | null = null,
+      retryingError: Record<string, unknown> | null = null,
+      observeRetry!: () => void;
+    const retryObserved = new Promise<void>((resolve) => {
+      observeRetry = resolve;
+    });
+    let store!: ReturnType<typeof makeWalShadowEventStore>;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      store = makeWalShadowEventStore({
+        repoId: "wal-temporary-index-lock",
+        rootDir,
+        walFlushEvents: 1,
+        walFlushMs: 60_000,
+        walRetryLimit: 3,
+        walRetryBaseMs: 1,
+        onMaterializationHealthChange: (health) => {
+          if (health.state !== "retrying" || retryingHealth !== null) return;
+          retryingHealth = health;
+          try {
+            store.append(taskBundle(2, "blocked during retry\n"));
+            assert.fail("a new write must be refused while the durable WAL is retrying");
+          } catch (error) {
+            retryingError = error as Record<string, unknown>;
+          }
+          rmSync(lockPath, { force: true });
+          observeRetry();
+        },
+      });
+      writeFileSync(lockPath, "held by contract test\n");
+      assert.equal(store.append(taskBundle(1, "temporary lock\n")).status, "applied");
+      await retryObserved;
+      await store.drain();
+    } finally {
+      console.warn = originalWarn;
+      rmSync(lockPath, { force: true });
+    }
+    assert.equal(retryingHealth?.state, "retrying");
+    assert.equal(retryingHealth?.reason, undefined);
+    assert.equal(Number.isSafeInteger(retryingHealth?.retryElapsedMs), true);
+    assert.match(retryingHealth?.lastError ?? "", /index\.lock[\s\S]*File exists/iu);
+    assert.equal(retryingError?.code, "materialization_failed");
+    assert.deepEqual((retryingError?.diagnostic as Record<string, unknown>).kind, "materialization-retrying");
+    assert.equal((retryingError?.diagnostic as Record<string, unknown>).state, "retrying");
+    assert.equal(Number.isSafeInteger((retryingError?.diagnostic as Record<string, unknown>).retryElapsedMs), true);
+    assert.equal(warnings.filter((warning) => warning.includes("materialization failed")).length, 1);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
+    assert.deepEqual(store.materializationHealth(), {
+      state: "ok",
+      lastCheckpointRevision: 1,
+      lastCheckpointAt: "2026-08-20T00:00:00.000Z",
+      pendingWalEvents: 0,
+    });
+  });
+});
+
+test("a persistent real Git index lock exhausts retries and keeps the bounded red light", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const lockPath = path.join(rootDir, ".git", "index.lock"),
+      warnings: string[] = [],
+      originalWarn = console.warn;
+    const store = makeWalShadowEventStore({
+      repoId: "wal-persistent-index-lock",
+      rootDir,
+      walFlushEvents: 1,
+      walFlushMs: 60_000,
+      walRetryLimit: 2,
+      walRetryBaseMs: 1,
+    });
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      writeFileSync(lockPath, "held by contract test\n");
+      assert.equal(store.append(taskBundle(1, "persistent lock\n")).status, "applied");
+      const failed = await waitForMaterializationState(store, "failed");
+      assert.equal(failed.reason, "retry_budget_exhausted");
+      assert.notEqual(failed.reason, "deterministic_failure");
+      assert.equal(failed.pendingWalEvents, 1);
+      assert.match(failed.lastError ?? "", /index\.lock[\s\S]*File exists/iu);
+      assert.throws(
+        () => store.append(taskBundle(2, "still blocked\n")),
+        (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+      );
+      await waitForMaterializationState(store, "failed");
+      rmSync(lockPath, { force: true });
+      assert.throws(
+        () => store.append(taskBundle(2, "recovery probe\n")),
+        (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+      );
+      await waitForMaterializationState(store, "ok");
+      assert.equal(store.append(taskBundle(2, "accepted after repair\n")).status, "applied");
+      await store.drain();
+    } finally {
+      console.warn = originalWarn;
+      rmSync(lockPath, { force: true });
+    }
+    assert.equal(warnings.filter((warning) => warning.includes("materialization failed")).length, 4);
+    assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
+    assert.deepEqual(store.materializationHealth(), {
+      state: "ok",
+      lastCheckpointRevision: 2,
+      lastCheckpointAt: "2026-08-20T00:00:00.000Z",
+      pendingWalEvents: 0,
+    });
+  });
 });
 
 test("deterministic materialization failure latches before drain consumes the retry budget", async () => {
@@ -504,7 +627,6 @@ test("a master branch forked from canonical rejects writes until refs are repair
       assert.equal(failed.lastCheckpointRevision, 0);
       assert.equal(failed.lastCheckpointAt, null);
       assert.equal(failed.pendingWalEvents, 1);
-      const processesAfterDivergence = localGitObjectRefStore.processCount();
       assert.throws(
         () => store.append(taskBundle(2, "must not queue\n")),
         (error: unknown) => {
@@ -521,12 +643,13 @@ test("a master branch forked from canonical rejects writes until refs are repair
           ]),
         (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
       );
+      const processesAfterExplicitProbes = localGitObjectRefStore.processCount();
       await new Promise((resolve) => setTimeout(resolve, 25));
       assert.equal(errors.filter((line) => line.includes("materializer stopped")).length, 1);
       assert.equal(
         localGitObjectRefStore.processCount(),
-        processesAfterDivergence,
-        "a stopped materializer must not spin Git calls",
+        processesAfterExplicitProbes,
+        "a stopped materializer must not spin Git calls between explicit recovery probes",
       );
       const stopped = store.recover();
       assert.equal(stopped.status, "indeterminate");

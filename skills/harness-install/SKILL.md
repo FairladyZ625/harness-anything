@@ -646,8 +646,10 @@ Tell the user, in their own terms:
 - **never run `git commit` inside `harness/`.** The ledger's HEAD must be the
   last event commit; an extra commit on top breaks the compare-and-swap and every
   later write fails with `publication_indeterminate`. Recovery is a `git reset`
-  to the sha the error calls `expected` **followed by a daemon restart** — a
-  reset alone leaves the daemon answering from a latched failure;
+  to the sha the error calls `expected`, followed by retrying the write. The
+  repository recovery path re-probes the repaired refs and resumes without a
+  daemon restart; wait for `ha daemon status` to return to `ok` before retrying
+  again if the first retry reports the old latch;
 - **which files the install left uncommitted in the project** — `AGENTS.md`,
   `CLAUDE.md`, `.gitignore` — and that committing them is theirs to decide;
 - **the two `HARNESS_ACTOR` values** the loop used, and that review independence

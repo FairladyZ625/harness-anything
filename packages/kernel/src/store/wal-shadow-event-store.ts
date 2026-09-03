@@ -145,6 +145,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let timer: ReturnType<typeof setTimeout> | null = null;
   let immediate: ReturnType<typeof setImmediate> | null = null;
   let consecutiveFailures = 0;
+  let retryStartedAt: number | null = null;
   let lastFlushError: string | null = null;
   let failureLatch: { readonly reason: MaterializationFailureReason; readonly lastError: string } | null = null;
   let lastCheckpointAt =
@@ -188,10 +189,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const pendingCount = (): number => pendingWalRecords.length;
   const hasWalRecords = (): boolean => wal.records().length > 0;
   const materializationHealth = (): MaterializationHealth => ({
-    state: failureLatch !== null ? "failed" : consecutiveFailures > 0 ? "retrying" : "ok",
+    state: failureLatch !== null ? "failed" : retryStartedAt !== null ? "retrying" : "ok",
     lastCheckpointRevision: gitHead?.revision ?? 0,
     lastCheckpointAt,
     pendingWalEvents: pendingCount(),
+    ...(failureLatch === null && retryStartedAt !== null
+      ? { retryElapsedMs: Math.max(0, Math.round(performance.now() - retryStartedAt)) }
+      : {}),
     ...(failureLatch ? { reason: failureLatch.reason, lastError: failureLatch.lastError } : {}),
     ...(failureLatch === null && lastFlushError !== null ? { lastError: lastFlushError } : {}),
   });
@@ -228,8 +232,41 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       { ...data, data, diagnostic: { kind: "materialization-failed", ...data } as const },
     );
   };
+  const materializationRetryingError = (): TaskEventStoreError => {
+    const health = materializationHealth();
+    if (health.state !== "retrying" || health.lastError === undefined || health.retryElapsedMs === undefined)
+      throw new TaskEventStoreError("invalid_store", "materialization retry has no retry details");
+    const data = {
+      state: health.state,
+      lastCheckpointRevision: health.lastCheckpointRevision,
+      lastCheckpointAt: health.lastCheckpointAt,
+      pendingWalEvents: health.pendingWalEvents,
+      retryElapsedMs: health.retryElapsedMs,
+      lastError: health.lastError,
+    } as const;
+    return Object.assign(
+      new TaskEventStoreError(
+        "materialization_failed",
+        `Git materialization is retrying after a transient failure; waited ${health.retryElapsedMs}ms`,
+      ),
+      { ...data, data, diagnostic: { kind: "materialization-retrying", ...data } as const },
+    );
+  };
   const assertMaterializationWritable = (): void => {
-    if (failureLatch !== null) throw materializationFailedError();
+    if (failureLatch !== null) {
+      const failure = materializationFailedError();
+      const activeFlush = inFlightFlush;
+      if (activeFlush === null) recover();
+      else
+        void activeFlush.then(
+          () => {
+            if (failureLatch !== null) recover();
+          },
+          (error: unknown) => consumeKnownError(error),
+        );
+      throw failure;
+    }
+    if (retryStartedAt !== null) throw materializationRetryingError();
   };
   const flushPolicy = (): WalFlushPolicy => {
     const configured = configuredFlushPolicy;
@@ -408,6 +445,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       const attempt = consecutiveFailures + 1;
       console.info(`[wal-materializer] materialized revisions ${range} (${context}, attempt ${attempt})`);
       consecutiveFailures = 0;
+      retryStartedAt = null;
       lastFlushError = null;
       failureLatch = null;
       notifyHealthChange();
@@ -425,12 +463,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       ) {
         latchMaterializationFailure("deterministic_failure", error);
         console.error(
-          `[wal-materializer] deterministic failure; materializer stopped: ${walShadowErrorMessage(error)}`,
+          `[wal-materializer] deterministic failure (${context}); materializer stopped: ${walShadowErrorMessage(error)}`,
         );
         consumeKnownError(error);
         return false;
       }
       consecutiveFailures += 1;
+      retryStartedAt ??= performance.now();
       lastFlushError = walShadowErrorMessage(error);
       const failedAttempt = `${consecutiveFailures}/${retryLimit}`;
       console.warn(
@@ -494,11 +533,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     }, delay);
     timer.unref?.();
   };
-  const scheduleFlush = (): void => {
+  const scheduleFlush = (force = false): void => {
     if (closed || bulkWriteActive || failureLatch !== null || !hasWalRecords()) return;
     const policy = flushPolicy(),
       threshold = effectiveEventThreshold(policy),
-      thresholdReached = pendingCount() >= threshold || wal.head().lastOffset >= policy.bytes;
+      thresholdReached = force || pendingCount() >= threshold || wal.head().lastOffset >= policy.bytes;
     if (inFlightFlush) {
       coalescedFlush = { context: "coalesced", compactWorktree: false };
       return;
@@ -665,7 +704,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     return receipt;
   };
   const recover = (): EventRecoveryReceipt => {
-    const started = performance.now();
+    const started = performance.now(),
+      recoveringRetry = retryStartedAt !== null || failureLatch !== null,
+      recoveryError = lastFlushError;
     // Recovery is the full audit entry point: forget any in-process validation floor so the
     // next read revalidates every content claim in the ledger from scratch.
     contentValidatedThrough = 0;
@@ -703,16 +744,17 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         ...(error instanceof TaskEventStoreError ? { errorCode: error.code } : {}),
       };
     }
-    failureLatch = null;
-    consecutiveFailures = 0;
-    lastFlushError = null;
-    notifyHealthChange();
     const records = wal.records();
     const hadWalRecords = records.length > 0;
     const hadPendingPublication = (records.at(-1)?.revision ?? 0) > (gitHead?.revision ?? 0);
+    failureLatch = null;
+    consecutiveFailures = 0;
+    retryStartedAt = recoveringRetry && hadWalRecords ? (retryStartedAt ?? performance.now()) : null;
+    lastFlushError = retryStartedAt === null ? null : recoveryError;
+    notifyHealthChange();
     if (hadWalRecords) {
       recoveryMaterializationPending = true;
-      scheduleFlush();
+      scheduleFlush(true);
     }
     if (recovered.status !== "none" || !hadWalRecords) return recovered;
     return {

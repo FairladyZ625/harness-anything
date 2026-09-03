@@ -50,7 +50,16 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
       `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
       `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
-      "Repair the cause, then use repository recovery/drain or restart the daemon before retrying writes.",
+      "Repair the cause, then retry the write; the repository recovery path will re-probe and resume without a daemon restart.",
+  ],
+  [
+    "failure:materialization-retrying",
+    (args) =>
+      `WAL-to-Git materialization is retrying: waited=${numberArg(args, "retryElapsedMs")}ms ` +
+      `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
+      `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
+      `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
+      "New writes are temporarily refused while the durable WAL retries; wait and retry the write without restarting the daemon.",
   ],
   [
     "failure:invalid-enum",
@@ -172,6 +181,8 @@ function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {
   if (diagnostic.kind === "missing-sections") return renderTemplate("failure", "missing-sections", diagnostic);
   if (diagnostic.kind === "materialization-failed")
     return renderTemplate("failure", "materialization-failed", diagnostic);
+  if (diagnostic.kind === "materialization-retrying")
+    return renderTemplate("failure", "materialization-retrying", diagnostic);
   if (diagnostic.kind === "invalid-enum") return renderTemplate("failure", "invalid-enum", diagnostic);
   if (diagnostic.kind === "failure") return renderTemplate("failure", "failure", diagnostic);
   return null;

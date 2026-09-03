@@ -323,7 +323,34 @@ function assessDaemonStatus(result: Record<string, unknown>): {
   readonly receipt: Record<string, unknown>;
   readonly exitCode: 0 | 1;
 } {
-  const failedRows = (Array.isArray(result.repos) ? result.repos : []).filter(
+  const rows = Array.isArray(result.repos) ? result.repos : [],
+    retryingRows = rows.flatMap((value) => {
+      if (!statusRecord(value) || !statusRecord(value.materialization)) return [];
+      const health = value.materialization;
+      if (
+        health.state !== "retrying" ||
+        typeof value.repoId !== "string" ||
+        !Number.isSafeInteger(health.lastCheckpointRevision) ||
+        !Number.isSafeInteger(health.pendingWalEvents) ||
+        !Number.isSafeInteger(health.retryElapsedMs) ||
+        typeof health.lastError !== "string"
+      )
+        return [];
+      return [
+        `repo=${value.repoId} state=retrying waitedMs=${String(health.retryElapsedMs)} ` +
+          `lastCheckpointRevision=${String(health.lastCheckpointRevision)} ` +
+          `pendingWalEvents=${String(health.pendingWalEvents)} ` +
+          `lastError=${health.lastError.replace(/\s+/gu, " ").trim()}`,
+      ];
+    }),
+    assessedResult =
+      retryingRows.length === 0
+        ? result
+        : {
+            ...result,
+            summary: `${String(result.summary ?? "daemon status")}\nWAL-to-Git materialization retrying: ${retryingRows.join("; ")}`,
+          },
+    failedRows = rows.filter(
       (value) => statusRecord(value) && statusRecord(value.materialization) && value.materialization.state === "failed",
     ),
     failures = failedRows.flatMap((value) => {
@@ -353,7 +380,7 @@ function assessDaemonStatus(result: Record<string, unknown>): {
         },
       ];
     });
-  if (failedRows.length === 0) return { receipt: result, exitCode: 0 };
+  if (failedRows.length === 0) return { receipt: assessedResult, exitCode: 0 };
   const first = failures[0],
     details = failedRows
       .map((value) => {
@@ -371,11 +398,11 @@ function assessDaemonStatus(result: Record<string, unknown>): {
       .join("; "),
     hint =
       `WAL-to-Git materialization failed: ${details}. Repair the reported cause, then use the existing ` +
-      "repository recovery/drain path (or restart the daemon for startup recovery) before retrying writes.";
+      "repository recovery path by retrying the write; no daemon restart is required.";
   return {
     exitCode: 1,
     receipt: {
-      ...result,
+      ...assessedResult,
       ok: false,
       outcome: "op_rejected",
       code: "materialization_failed",

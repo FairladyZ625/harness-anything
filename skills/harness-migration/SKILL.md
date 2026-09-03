@@ -933,17 +933,15 @@ the daemon; reconcile before publishing: cannot lock ref 'refs/heads/master':
 is at <your commit> but expected <last event commit>
 ```
 
-Two things about that message are worth knowing in advance, because they cost a
-real operator most of an hour:
+Two things about that message are worth knowing in advance:
 
-- **Recovery takes both a `git reset` and a daemon restart, in that order, and
-  neither alone is enough.** Reset back to the expected commit — the sha the
-  message calls `expected`, which appears nowhere on disk to search for — then
-  restart the daemon. `publication_indeterminate` is a fatal cell error: it
-  latches the RepoCell and replays the cached failure on every later write, so
-  after a reset alone you will still see the identical message and conclude the
-  reset failed. It did not; the daemon is answering from a latch. Restarting
-  without the reset fails too, because the ref really is wrong.
+- **Recovery is a `git reset` followed by a write retry, not a daemon restart.**
+  Reset back to the expected commit — the sha the message calls `expected`,
+  which appears nowhere on disk to search for — then retry the command. The
+  repository recovery path re-probes the repaired refs and resumes
+  materialization. The first retry can still report the old latch while that
+  recovery settles; wait for `ha daemon status` to return to `ok`, then retry
+  again. Retrying without the reset still fails because the ref really is wrong.
 - **`reconcile` names no command.** There is no `ha reconcile`; the word
   describes an outcome, not a path. The recovery is the `git reset` above.
 
@@ -1094,8 +1092,8 @@ success and failure paths.
 - **`git commit` inside the ledger wedges every write** with
   `publication_indeterminate`, and the hint's word "reconcile" corresponds to no
   command. Recovery is `git reset` to the sha the message calls `expected`
-  **followed by a daemon restart** — a reset alone leaves the cell latched and
-  reproduces the identical error. See step 9.
+  followed by retrying the write; the repository recovery path clears the latch
+  after it verifies the repaired refs, without restarting the daemon. See step 9.
 - **The expected first read after an import is `status: "ready"` with a
   plausible row count.** Two real migrations of 695 and 963 events both answered
   immediately; treat a normal answer as normal and move on. The exception is

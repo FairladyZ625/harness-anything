@@ -174,7 +174,7 @@ dry-run。
 | 报告 | 含义 | 动作 |
 | --- | --- | --- |
 | `recovery_conflict` | 另一条恢复命令已持有该仓库的单写者恢复准入。 | 等 hint 点名的那条命令 settle，再重跑。不要另开第二条路。 |
-| `publication_indeterminate`（带 `git … update-ref …` 提示） | daemon 之外有人 commit 过，台账分支不再指向最后一个已发布事件 commit。 | 原样执行报错里打印的那条 `git -C … update-ref …`——它只移动分支指针，不动任何文件——然后 `ha daemon stop`，再重试恢复。 |
+| `publication_indeterminate`（带 `git … update-ref …` 提示） | daemon 之外有人 commit 过，台账分支不再指向最后一个已发布事件 commit。 | 原样执行报错里打印的那条 `git -C … update-ref …`——它只移动分支指针，不动任何文件——然后重试恢复。仓库会在不重启 daemon 的情况下重新探测已修复的 refs；若第一次重试仍返回旧闩，等 `ha daemon status` 回到 `ok` 后再重试一次。 |
 | 源因未完全提交被拒收 | 台账工作树有未提交改动。 | 提交（或移开）后重跑 dry-run。不要迁移脏切面。 |
 | `migration_projection_oracle_cut_mismatch` | 过期的派生投影与 canonical 事件头不一致。 | oracle 会自行回落到一次性重建。若报错持续，停掉源的写入者并读内层原因。不要手工删除或移动 `.harness/cache/task.sqlite`——过期缓存会被就地重建，把它移开只会得到同样的判定。 |
 | 缺 provenance 形态之外的 typed 拒绝 | 台账里有本恢复不重述的无效事件。 | 保留台账，收集点名的事件与 schema，然后报告。为未描述的形状猜一个重述不是恢复。 |
@@ -201,8 +201,7 @@ dry-run 不发布任何东西，也不清闩。它存在的意义是让你在任
 
 **我需要停 daemon 吗？**
 不需要。恢复命令走 daemon 的单写队列；正是这条队列让重写变得安全。要停的是这个仓库的
-*其他* 写入者。`ha daemon stop` 只出现在上面 `publication_indeterminate` 的恢复里，而且
-那是跟在 ref 修复之后的动作。
+*其他* 写入者。修复 `publication_indeterminate` 后，重试命令会让常驻 daemon 重新探测并清闩。
 
 **其他面上的计数不是零，怎么办？**
 停下来，先读报告再决定。本页描述的恢复，其唯一计划的工作量就是 provenance 重述；另一个
