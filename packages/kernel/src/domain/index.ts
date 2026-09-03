@@ -17,12 +17,6 @@ export type {
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
-export {
-  decisionCapabilities,
-  decisionCapabilityIds,
-  decisionCapabilityReasons,
-  decisionClaimsOpen,
-} from "./decision-board-projection.ts";
 export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
@@ -75,11 +69,10 @@ export {
   closeoutReadinesses,
   currentExecutionCuts,
   currentSubmittedExecutions,
-  closeoutGateOk,
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
-export { blockingLabels, blockingOf } from "./task-blocking.ts";
+export { blockingOf } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
@@ -89,7 +82,7 @@ export {
 } from "./transition-document-readiness.ts";
 export type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
-export { coverageIsCovered, freshnessReasonOf } from "./decision-coverage.ts";
+export { freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";
 
 export { assessFactRetirement, validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
@@ -97,15 +90,7 @@ export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
-export {
-  taskBoardPlacement,
-  taskCapabilities,
-  taskPhase,
-  taskPhaseReasons,
-  taskPhaseSteps,
-  taskRisk,
-  taskVisibility,
-} from "./task-board-projection.ts";
+export { taskBoardPlacement, taskCapabilities, taskPhase, taskRisk, taskVisibility } from "./task-board-projection.ts";
 export type {
   TaskBoardColumnId,
   TaskCapabilityId,

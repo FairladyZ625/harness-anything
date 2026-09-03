@@ -1,12 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  decisionCapabilities,
-  decisionClaimsOpen,
-  relationIsCurrent,
-  type DecisionState,
-} from "../../kernel/src/index.ts";
+import { decisionCapabilities, decisionClaimsOpen } from "../../kernel/src/domain/decision-board-projection.ts";
+import { relationIsCurrent, type DecisionState } from "../../kernel/src/index.ts";
 import { validateDaemonDecisionList, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
 
 test("decision full rows carry kernel capabilities while summary rows stay narrow", () => {
