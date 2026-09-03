@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import type { AgentEntityRow } from "../../agent-entity-client.ts";
+import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import {
   runtimeAuthPresentation,
@@ -56,7 +56,7 @@ import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 type Props = {
   readonly instance: RuntimeInstanceSummary;
   readonly installations: readonly RuntimeInstallationRow[];
-  readonly agents: readonly AgentEntityRow[];
+  readonly agents: readonly AgentEntityAvailableRow[];
   readonly liveSessions: number;
   readonly busy: boolean;
   readonly authProbeState?: RuntimeAuthProbeState;

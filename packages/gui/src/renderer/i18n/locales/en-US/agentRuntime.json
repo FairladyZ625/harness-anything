@@ -381,5 +381,7 @@
   "agentRuntime.cockpitNoWorkers": "No workers dispatched yet by this Commander run.",
   "agentRuntime.cockpitWorkersOf": "Workers dispatched by {name}",
   "agentRuntime.cockpitUnboundWorkers": "Worker runs without a parent-session edge",
-  "agentRuntime.cockpitUnboundWorkersHint": "Recorded before the parent edge existed; grouped by squad and delegation."
+  "agentRuntime.cockpitUnboundWorkersHint": "Recorded before the parent edge existed; grouped by squad and delegation.",
+  "agentRuntime.catalogInvalid": "Invalid",
+  "agentRuntime.catalogMissing": "Missing"
 }

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { getEntityKindContract, makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -149,6 +150,45 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
   }
 });
 
+test("Squad list retains one invalid declaration projection beside healthy rows", async () => {
+  const rootDir = workspace("invalid-list-row"),
+    repoId = workspaceId("squad-action-invalid-list-row");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "squad-action-invalid-list-row" });
+    await installFixture(cell);
+    const invalidId = "broken-squad",
+      installed = await cell.run(
+        { kind: "squad-install", declaration: { ...squad, id: invalidId, name: "Broken Squad" } },
+        owner,
+      );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    corruptSquadProjection(rootDir, invalidId);
+
+    const listed = await cell.run({ kind: "squad-list" }, owner),
+      rows = evidence(listed).squads as Array<Record<string, unknown>>;
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    assert.deepEqual(
+      rows.find(({ id }) => id === invalidId),
+      {
+        id: invalidId,
+        layer: "user",
+        state: "invalid",
+        error: {
+          code: "invalid_entity_contract",
+          hint: 'squad declaration is missing required field "leader".',
+        },
+      },
+    );
+    const healthy = rows.find(({ id }) => id === squad.id);
+    assert.equal(healthy?.validity, "valid");
+    assert.equal(Object.hasOwn(healthy ?? {}, "state"), false);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("two actors contending for one Task fence reject the non-holder before Squad state or artifacts", async () => {
   const rootDir = workspace("fence"),
     repoId = workspaceId("squad-action-fence"),
@@ -233,4 +273,16 @@ function workspace(name: string): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-squad-action-${name}-`));
   initRepo(rootDir);
   return rootDir;
+}
+
+function corruptSquadProjection(rootDir: string, squadId: string): void {
+  const database = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite")),
+    { leader: _leader, ...invalid } = { ...squad, id: squadId, name: "Broken Squad" };
+  try {
+    database
+      .prepare("UPDATE entity_projection SET value_json = ? WHERE entity_kind = 'squad' AND entity_id = ?")
+      .run(JSON.stringify(invalid), squadId);
+  } finally {
+    database.close();
+  }
 }

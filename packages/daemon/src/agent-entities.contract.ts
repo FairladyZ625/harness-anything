@@ -102,6 +102,7 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
 }
 const agentCatalogRowFields = Object.freeze(["id", "name", "runtimeType", "role", "layer", "validity", "issues"]),
   squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer", "validity", "issues"]),
+  degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
     "id",
     "name",
@@ -126,15 +127,36 @@ function catalogErrors(
   if (!isEntityRecord(value) || !Array.isArray(value[field]))
     return [...errors, `${schema} field "${field}" must be an array.`];
   value[field].forEach((row, index) =>
-    errors.push(
-      ...entityReadRowErrors(row, rowFields, `${field}[${index}]`),
-      ...(isEntityRecord(row) ? rowChecks(row) : []),
-      ...(isEntityRecord(row) && Array.isArray(row.issues)
-        ? row.issues.flatMap(entityIssueRow)
-        : [`${field}[${index}] field "issues" must be an array.`]),
-    ),
+    errors.push(...catalogRowErrors(row, rowFields, rowChecks, `${field}[${index}]`)),
   );
   return errors;
+}
+function catalogRowErrors(
+  row: unknown,
+  rowFields: readonly string[],
+  rowChecks: (row: Record<string, unknown>) => readonly string[],
+  prefix: string,
+): readonly string[] {
+  if (isEntityRecord(row) && Object.hasOwn(row, "state")) {
+    const errors = [...entityReadRowErrors(row, degradedCatalogRowFields, prefix)];
+    if (!(entityNonEmpty(row.id) && row.layer === "user" && ["invalid", "missing"].includes(String(row.state))))
+      errors.push(`${prefix} degraded rows need an id, user layer, and invalid or missing state.`);
+    if (
+      !isEntityRecord(row.error) ||
+      Object.keys(row.error).length !== 2 ||
+      !entityNonEmpty(row.error.code) ||
+      !entityNonEmpty(row.error.hint)
+    )
+      errors.push(`${prefix} degraded rows need an exact non-empty error {code, hint}.`);
+    return errors;
+  }
+  return [
+    ...entityReadRowErrors(row, rowFields, prefix),
+    ...(isEntityRecord(row) ? rowChecks(row) : []),
+    ...(isEntityRecord(row) && Array.isArray(row.issues)
+      ? row.issues.flatMap(entityIssueRow)
+      : [`${prefix} field "issues" must be an array.`]),
+  ];
 }
 function detailErrors(
   value: unknown,

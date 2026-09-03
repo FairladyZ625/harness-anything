@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
-import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
+import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { formatTime } from "../../model/time.ts";
 import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
@@ -74,8 +74,8 @@ export function IdentityInspector({
   onOpenSession,
 }: {
   readonly selection: RuntimeSelection;
-  readonly agents: readonly AgentEntityRow[];
-  readonly squads: readonly SquadEntityRow[];
+  readonly agents: readonly AgentEntityAvailableRow[];
+  readonly squads: readonly SquadEntityAvailableRow[];
   readonly rows: readonly RuntimeDockRow[];
   readonly onSelect: (selection: RuntimeSelection) => void;
   readonly onOpenSession: OpenSession;
@@ -224,8 +224,8 @@ function AgentFacts({
   squads,
   onSelect,
 }: {
-  readonly agent: AgentEntityRow | null;
-  readonly squads: readonly SquadEntityRow[];
+  readonly agent: AgentEntityAvailableRow | null;
+  readonly squads: readonly SquadEntityAvailableRow[];
   readonly onSelect: (selection: RuntimeSelection) => void;
 }) {
   if (!agent)
@@ -279,7 +279,7 @@ function SquadFacts({
   squad,
   onSelect,
 }: {
-  readonly squad: SquadEntityRow | null;
+  readonly squad: SquadEntityAvailableRow | null;
   readonly onSelect: (selection: RuntimeSelection) => void;
 }) {
   if (!squad)

@@ -3,6 +3,7 @@ import {
   renderEntityActionExplanation,
   type EntityActionExplanationRenderInput,
 } from "./entity-action-explain-render.ts";
+import { consumeKnownError } from "../daemon/client.ts";
 import { humanError, renderReceiptGuidance } from "./guidance-plane.ts";
 import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./thin-command-schedule.ts";
 
@@ -30,6 +31,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-list", renderScheduleReceipt],
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
+  ["squad-list", renderSquadListReceipt],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
@@ -112,6 +114,36 @@ function renderScheduleReceipt(receipt: Record<string, unknown>): string {
     renderScheduleRuns(receipt) ??
     renderSuccessfulReceipt(receipt)
   );
+}
+
+function renderSquadListReceipt(receipt: Record<string, unknown>): string {
+  if (typeof receipt.evidence !== "string") return renderSuccessfulReceipt(receipt);
+  try {
+    const parsed: unknown = JSON.parse(receipt.evidence);
+    if (!isRecord(parsed) || parsed.schema !== "squad-list/v1" || !Array.isArray(parsed.squads))
+      return renderSuccessfulReceipt(receipt);
+    if (parsed.squads.length === 0) return "No squads.";
+    return parsed.squads.map(squadListColumns).join("\n");
+  } catch (error) {
+    consumeKnownError(error);
+    return renderSuccessfulReceipt(receipt);
+  }
+}
+
+function squadListColumns(value: unknown): string {
+  if (!isRecord(value) || typeof value.id !== "string") throw new TypeError("Squad list row is invalid.");
+  if (value.state === "invalid") {
+    if (!isRecord(value.error) || typeof value.error.code !== "string" || typeof value.error.hint !== "string")
+      throw new TypeError("Degraded Squad list row is missing its structured error.");
+    return [value.id, value.state, `${value.error.code}: ${value.error.hint}`].join("\t");
+  }
+  if (value.validity !== "valid" && value.validity !== "blocked")
+    throw new TypeError("Available Squad list row is missing its validity.");
+  return [value.id, value.validity, "none"].join("\t");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function renderInitReceipt(receipt: Record<string, unknown>): string {

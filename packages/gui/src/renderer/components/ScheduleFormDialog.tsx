@@ -1,11 +1,13 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type {
+import {
+  isAvailableScheduleGuiAgentOption,
+  type ScheduleGuiAgentOptionDto,
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
+import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
 // purpose → outcome routing → mission). Two write paths are still pending the
@@ -73,7 +75,12 @@ export function ScheduleForm({
   readonly onCancel: () => void;
   readonly onSubmit: (input: ScheduleDefinitionInput) => void;
 }) {
-  const initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
+  const availableAgents = options.agents.filter(isAvailableScheduleGuiAgentOption),
+    unavailableAgents = options.agents.filter(
+      (option): option is Extract<ScheduleGuiAgentOptionDto, { readonly state: "invalid" | "missing" }> =>
+        !isAvailableScheduleGuiAgentOption(option),
+    ),
+    initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
     duration = durationOf(initial?.trigger.everyMs ?? 30 * UNIT_MS.m),
     [scheduleId, setScheduleId] = useState(initial?.scheduleId ?? ""),
     [name, setName] = useState(initial?.name ?? ""),
@@ -84,7 +91,7 @@ export function ScheduleForm({
     [cronTime, setCronTime] = useState("02:30"),
     [cronWeekdays, setCronWeekdays] = useState<ReadonlySet<number>>(() => new Set([1])),
     [cronTimezone, setCronTimezone] = useState("UTC"),
-    [agentId, setAgentId] = useState(initialAgentTarget?.agentId ?? options.agents[0]?.agentId ?? ""),
+    [agentId, setAgentId] = useState(initialAgentTarget?.agentId ?? availableAgents[0]?.agentId ?? ""),
     [runtimeInstanceId, setRuntimeInstanceId] = useState(initialAgentTarget?.runtimeInstanceId ?? ""),
     [model, setModel] = useState(initialAgentTarget?.model ?? ""),
     [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
@@ -100,7 +107,7 @@ export function ScheduleForm({
       notify: false,
       remediationTask: false,
     });
-  const agent = options.agents.find((candidate) => candidate.agentId === agentId) ?? null,
+  const agent = availableAgents.find((candidate) => candidate.agentId === agentId) ?? null,
     compatibleInstances = useMemo(
       () =>
         options.instances.filter(
@@ -323,12 +330,22 @@ export function ScheduleForm({
                 setFast(false);
               }}
             >
-              {options.agents.map((option) => (
+              {availableAgents.map((option) => (
                 <option key={option.agentId} value={option.agentId}>
                   {option.name} · {option.agentId}
                 </option>
               ))}
             </select>
+            {unavailableAgents.map((option) => (
+              <span
+                key={option.agentId}
+                data-testid={`schedule-agent-option-${option.agentId}`}
+                className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint"
+              >
+                {option.agentId}
+                <Badge tip={option.error.hint}>{scheduleAgentStateLabels()[option.state]}</Badge>
+              </span>
+            ))}
           </FormField>
           <FormField label={t("schedules.fields.instance")}>
             <select
@@ -534,6 +551,13 @@ export function ScheduleForm({
       </div>
     </div>
   );
+}
+
+function scheduleAgentStateLabels(): Readonly<Record<"invalid" | "missing", string>> {
+  return {
+    invalid: t("agentRuntime.catalogInvalid"),
+    missing: t("agentRuntime.catalogMissing"),
+  };
 }
 
 export function ScheduleFormDialog({

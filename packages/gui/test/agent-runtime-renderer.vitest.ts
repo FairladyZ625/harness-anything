@@ -557,6 +557,40 @@ describe("agent runtime renderer", () => {
     );
     for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
+  it("keeps invalid and missing identity rows visible as disabled grey hints", () => {
+    const markup = renderToStaticMarkup(
+      createElement(IdentityRail, {
+        agents: [
+          ...agentRows,
+          {
+            id: "broken-agent",
+            layer: "user",
+            state: "invalid",
+            error: { code: "invalid_entity_contract", hint: "Repair broken-agent." },
+          },
+        ] as never,
+        squads: [
+          ...squadRows,
+          {
+            id: "orphan-squad",
+            layer: "user",
+            state: "missing",
+            error: { code: "squad_agent_not_found", hint: "Install the missing Agent." },
+          },
+        ] as never,
+        selection: null,
+        onSelect: noop,
+        onNew: noop,
+      }),
+    );
+    expect(markup).toMatch(/rail-agent-broken-agent[^>]*disabled/u);
+    expect(markup).toMatch(/rail-squad-orphan-squad[^>]*disabled/u);
+    expect(markup).toContain("Repair broken-agent.");
+    expect(markup).toContain("Install the missing Agent.");
+    expect(markup).toContain("Invalid");
+    expect(markup).toContain("Missing");
+    expect(markup).not.toContain("runtime-read-error");
+  });
   it("renders the agent and squad declarations behind showAgent/showSquad", () => {
     const agent = renderToStaticMarkup(
       createElement(AgentCard, {

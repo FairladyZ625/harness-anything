@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { agentEntityClient } from "../agent-entity-client.ts";
+import { isAvailableSquadRunSummary } from "../../../../daemon/src/squad-run-contract.ts";
+import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
@@ -251,20 +252,24 @@ export function SessionsView({
           (row) => row.taskId === selectedRow.taskId && row.runtimeSessionId !== selectedRow.runtimeSessionId,
         );
   const liveCount = groups.reduce((total, group) => total + group.runningCount, 0);
-  const activeRunCount = runs.filter((run) => run.phase !== "converged" && run.phase !== "failed").length;
+  const availableRuns = runs.filter(isAvailableSquadRunSummary);
+  const activeRunCount = availableRuns.filter((run) => run.phase !== "converged" && run.phase !== "failed").length;
 
   const squads = useQuery({
     queryKey: ["squads", repoId],
     queryFn: () => agentEntityClient.listSquads(repoId),
     staleTime: 4_000,
   });
-  const squadNames = useMemo(() => new Map((squads.data ?? []).map((squad) => [squad.id, squad.name])), [squads.data]);
+  const squadNames = useMemo(
+    () => new Map((squads.data ?? []).filter(isAvailableSquadEntityRow).map((squad) => [squad.id, squad.name])),
+    [squads.data],
+  );
 
   // 小队编排详情(G12 §2b/§2c):选中行的 repo.squad.run.read,渲染 leader 轮次 →
   // worker 派工链扇出树;只有显式点击行才读取详情,切换范围后若该 run 不在列表则
   // 回到空选中。读面收敛在 useSquadRunDetail(与失效键同源)。
   const selectedSquadRun =
-    selectedSquadRunId === null ? null : (runs.find((run) => run.squadRunId === selectedSquadRunId) ?? null);
+    selectedSquadRunId === null ? null : (availableRuns.find((run) => run.squadRunId === selectedSquadRunId) ?? null);
   const squadRunDetail = useSquadRunDetail(
     repoId,
     segment === "squads" && selectedSquadRun !== null ? selectedSquadRun.squadRunId : null,

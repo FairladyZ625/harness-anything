@@ -41,6 +41,10 @@ const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], Mess
   unassigned: "schedules.availability.unassigned",
   "not-on-this-node": "schedules.availability.notOnThisNode",
 };
+const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
+  invalid: "agentRuntime.catalogInvalid",
+  missing: "agentRuntime.catalogMissing",
+};
 const OUTCOME_META: Record<string, MessageKey> = {
   succeeded: "schedules.outcome.succeeded",
   failed: "schedules.outcome.failed",
@@ -449,11 +453,16 @@ function ScheduleListPane({
                       )}
                     </td>
                     <td className="px-2.5 py-1.5">
-                      {t(
-                        scheduleRowTargetKind(row) === "squad"
-                          ? "schedules.executor.squad"
-                          : "schedules.executor.agent",
-                      )}
+                      <span className="inline-flex items-center gap-1.5">
+                        {t(
+                          scheduleRowTargetKind(row) === "squad"
+                            ? "schedules.executor.squad"
+                            : "schedules.executor.agent",
+                        )}
+                        {row.targetState !== undefined && row.targetError !== undefined && (
+                          <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>
+                        )}
+                      </span>
                     </td>
                     <td className="px-2.5 py-1.5">
                       <Chip tone="mono" tip={t("schedules.triggerTip")}>
