@@ -10,6 +10,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -367,6 +368,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       const temporary = path.join(path.dirname(target), `.ha-visible-${process.pid}-${index}`);
       /* @gate-identity check-bypass-write-boundary/bypass-write-076 */
       mkdirSync(path.dirname(target), { recursive: true });
+      sweepStaleSettlementMarkers(path.dirname(target));
       removeNode(temporary);
       if (file.mode === "120000")
         /* @gate-identity check-bypass-write-boundary/bypass-write-077 */
@@ -505,6 +507,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const directory of directories) {
       /* @gate-identity check-bypass-write-boundary/bypass-write-083 */
       mkdirSync(directory, { recursive: true });
+      sweepStaleSettlementMarkers(directory);
     }
     const regular = pending.filter(({ mode }) => mode === "100644"),
       links = pending.filter(({ mode }) => mode === "120000"),
@@ -619,6 +622,49 @@ function removeNode(target: string): void {
     unlinkSync(target);
   } catch (error) {
     consumeKnownError(error);
+  }
+}
+// Settlement markers sit beside their target because rename(2) is only atomic
+// within one filesystem, and "same directory" is the one placement that
+// guarantees it. The cost is that a process killed between the durable write
+// and the rename leaves `.ha-settle-<pid>-<index>` (or `.ha-visible-...`)
+// behind forever; F-B16F8586 counted 1225 of them after two `daemon stop
+// --force`. The first time this process settles into a directory it removes
+// every marker whose owner pid no longer exists. Sweeping once per process
+// bounds the readdir cost to the directories a process ever touches, and the
+// failure that produces leftovers (a killed writer) is followed by a new
+// process anyway. Its own pid is never touched: an in-flight marker of this
+// process is only ever reclaimed by the same-index removeNode above.
+const settlementMarkerPattern = /^\.ha-(?:settle|visible)-([1-9][0-9]*)-[0-9]+$/u,
+  sweptMarkerDirectories = new Set<string>();
+function sweepStaleSettlementMarkers(directory: string): void {
+  if (sweptMarkerDirectories.has(directory)) return;
+  sweptMarkerDirectories.add(directory);
+  let names: readonly string[];
+  try {
+    names = readdirSync(directory);
+  } catch (error) {
+    consumeKnownError(error);
+    return;
+  }
+  for (const name of names) {
+    const pid = Number(settlementMarkerPattern.exec(name)?.[1]);
+    if (!Number.isSafeInteger(pid) || pid === process.pid || processMayBeAlive(pid)) continue;
+    removeNode(path.join(directory, name));
+  }
+}
+/**
+ * Only ESRCH proves the owner is gone; EPERM or any other probe failure keeps the
+ * marker (fail-safe toward not deleting).
+ */
+function processMayBeAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH") return false;
+    consumeKnownError(error);
+    return true;
   }
 }
 function gitBlobOid(body: string): string {
