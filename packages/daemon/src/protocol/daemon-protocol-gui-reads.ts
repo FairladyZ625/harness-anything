@@ -208,7 +208,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.kinds.read",
-    phase: "W2-0-GUI",
+    phase: "Governed-Entity-W2-0",
     method: "repo.entity.kinds.read",
     requiresRepo: true,
     params: shape({ repo: shape({ repoId: "string" }) }),
@@ -224,7 +224,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.rows.read",
-    phase: "W2-0-GUI",
+    phase: "Governed-Entity-W2-0",
     method: "repo.entity.rows.read",
     requiresRepo: true,
     params: shape({ repo: shape({ repoId: "string" }) }),
@@ -240,7 +240,7 @@ export const daemonGuiReadMethods = Object.freeze([
   },
   {
     id: "entity.locator.read",
-    phase: "W2-0-GUI",
+    phase: "Governed-Entity-W2-0",
     method: "repo.entity.locator.read",
     requiresRepo: true,
     params: shape({

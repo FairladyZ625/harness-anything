@@ -1,4 +1,5 @@
 import { shape } from "./daemon-protocol-gui-types.ts";
+import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -170,18 +171,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/decision-control/:decisionId/defer",
     "arbiter",
   ),
-  // 声明实体的新建入口(task_0df76ed3fb Goal 4):复用 CLI `ha entity import` 的同一个
-  // center 单写路与 entity revision fence,不新造第二条写路。GUI 只递 kind/locator/title,
-  // relink 语义的 entityId/sourceIdentity 不开放给渲染层。
-  guiAction(
-    "entity.import",
-    "repo.entity.import",
-    "entity-import",
-    shape({ entityKind: "string", locator: "string", expectedVersion: "number", title: "string?" }),
-    "importEntity",
-    "/api/entities/import",
-    "repo-write",
-  ),
+  ...entityImportGuiActions,
   guiAction(
     "receipt.show",
     "repo.receipt.show",
@@ -254,26 +244,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "repo-write",
     DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
-  guiS3Action(
-    "agent.entity.write",
-    "repo.agent.entity.write",
-    "agent-install",
-    shape({ declaration: "json" }),
-    "saveAgent",
-    "/api/agents",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
-  ),
-  guiS3Action(
-    "squad.entity.write",
-    "repo.squad.entity.write",
-    "squad-install",
-    shape({ declaration: "json" }),
-    "saveSquad",
-    "/api/squads",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
-  ),
+  ...entityDeclarationGuiActions,
   guiAction(
     "schedule.create",
     "repo.schedule.create",

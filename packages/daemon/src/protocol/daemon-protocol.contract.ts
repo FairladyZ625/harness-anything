@@ -717,6 +717,7 @@ export default Object.freeze({
     "PLT-EdgeGUI-W2",
     "Governed-Entity-W1-D",
     "Governed-Entity-W1-F",
+    "Governed-Entity-W2-0",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
