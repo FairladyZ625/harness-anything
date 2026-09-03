@@ -37,6 +37,7 @@ import {
 } from "./repo-cell-action-context.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
+import { publishTaskArtifact } from "./doc-sync-actions.ts";
 import {
   cellCodedError,
   cellCriterionError,
@@ -552,6 +553,31 @@ export async function openRepoWriterCell(
           return extracted.lifecycleAction(action, { ...binding, authorizationDecision });
         },
       });
+    },
+    publishSynthesisReport: async (report, binding) => {
+      const action = { kind: "task-artifact-add", taskId: report.taskId },
+        authorizedBinding = authorizeRuntimeAction(action, binding, `squad-synthesis-report:${report.squadRunId}`),
+        receipt = publishTaskArtifact(
+          {
+            binding: authorizedBinding,
+            workspaceId: input.repoId,
+            rootDir,
+            store,
+            projection,
+            now,
+            killpoint: input.killpoint,
+          },
+          {
+            taskId: report.taskId,
+            destination: report.reportPath,
+            bytes: Buffer.from(report.body),
+          },
+        );
+      if (receipt.outcome !== "applied" && receipt.outcome !== "pending")
+        throw cellCodedError(
+          receipt.code ?? "squad_report_publication_failed",
+          `Squad synthesis report was ${receipt.outcome}.`,
+        );
     },
     runtimeSpawner: () => ({
       spawn: (payload, binding) => {
