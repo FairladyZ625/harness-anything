@@ -6,10 +6,6 @@
 // and stale identities.
 // prettier-ignore
 export const guiStatusJudgmentBaseline = Object.freeze([
-  { key: "gui-status-001", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["blocked","in_review","open","terminal","unknown"] }, // proper-subset: blocked, in_review, open, terminal, unknown @ boardOrder
-  { key: "gui-status-002", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["ready"] }, // point-comparison: ready @ buildGuiViewModel.reviewQueue
-  { key: "gui-status-003", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ buildGuiViewModelFromTaskProjection
-  { key: "gui-status-004", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ readGuiTaskListResult
   { key: "gui-status-005", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["covered"] }, // point-comparison: covered @ FactInspector.coveredDecisionIds
   { key: "gui-status-016", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["active","done","in_review","planned"] }, // proper-subset: active, done, in_review, planned @ STEP_FLOW
   { key: "gui-status-017", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["blocked"] }, // point-comparison: blocked @ PhaseSteps.note
