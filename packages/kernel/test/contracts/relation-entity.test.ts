@@ -202,7 +202,7 @@ test("entity_migrated is valid Relation genesis and replacement is an explicit f
 });
 
 test("a governed migration witness admits only its pinned artifact Relation direction", () => {
-  const sourceRef = "software/coding/architecture-decision-record@1/ADR-1234567890ABCDEF",
+  const sourceRef = "software/coding/architecture-decision-record@1/ADR-1234567890abcdef",
     relation = record(sourceRef, "decision/dec_ADR_0001_TEST"),
     registry: GovernedRelationRegistryWitness = {
       schema: "governed-relation-registry-witness/v1",
@@ -210,7 +210,7 @@ test("a governed migration witness admits only its pinned artifact Relation dire
       artifactEndpoints: [
         {
           kind: "software/coding/architecture-decision-record@1",
-          idPattern: "^ADR-[A-F0-9]{16}$",
+          idPattern: "^ADR-[a-f0-9]{16}$",
           refTemplate: "software/coding/architecture-decision-record@1/{id}",
         },
       ],
@@ -257,6 +257,19 @@ test("a governed migration witness admits only its pinned artifact Relation dire
         entity: {
           ...migrated.payload.entity,
           registry: { ...registry, direction: { ...registry.direction, targetKind: "task" } },
+        },
+      },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateCurrentMigrationImportEvent({
+      ...migrated,
+      payload: {
+        ...migrated.payload,
+        entity: {
+          ...migrated.payload.entity,
+          registry: { ...registry, artifactEndpoints: [{ ...registry.artifactEndpoints[0]!, idPattern: "^ADR-x$" }] },
         },
       },
     }),

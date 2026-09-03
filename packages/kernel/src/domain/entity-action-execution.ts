@@ -9,6 +9,7 @@ import {
 } from "./decision-event.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
+import type { CanonicalRelationDirection } from "./relation-direction.ts";
 import {
   compileRelationCreatedEvent,
   compileRelationReconfirmedEvent,
@@ -101,6 +102,8 @@ export interface EntityActionCompileInput {
   readonly currentDocumentBody?: string;
   readonly priorTargetVersion?: EntityVersion | null;
   readonly currentTargetVersion?: EntityVersion | null;
+  /** The composed direction registry (kernel rows plus the compiled vertical rows) admitting the write. */
+  readonly relationDirections?: readonly CanonicalRelationDirection[];
   readonly coverage?: {
     readonly decisionId: string;
     readonly taskId: string;
@@ -311,6 +314,7 @@ export function relationActionCompiler(id: "relate" | "unrelate" | "reconfirm"):
         opId: input.opId,
         occurredAt: input.occurredAt,
         workspaceRevision: input.workspaceRevision,
+        ...(input.relationDirections ? { directions: input.relationDirections } : {}),
       }),
     };
   };

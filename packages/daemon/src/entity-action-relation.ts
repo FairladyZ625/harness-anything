@@ -12,6 +12,7 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 type ExecutableRelationAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -69,6 +70,7 @@ export function executeRelationAction(input: {
           workspaceRevision: headRevision + 1,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
+          relationDirections: relationDirectionRegistry(),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))
