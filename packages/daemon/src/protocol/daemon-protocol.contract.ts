@@ -15,6 +15,7 @@ import {
   executionStateWords,
   executionV1StateWords,
   leasePhaseWords,
+  materializationStateWords,
   packageDispositionWords,
   receiptOutcomeWords,
   relationStateWords,
@@ -28,6 +29,7 @@ export {
   executionStateWords,
   executionV1StateWords,
   leasePhaseWords,
+  materializationStateWords,
   packageDispositionWords,
   receiptOutcomeWords,
   relationStateWords,
@@ -594,6 +596,14 @@ export interface DaemonStatusResult {
     readonly lastError: string | null;
     readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
     readonly recoveryMs: number | null;
+    readonly materialization: {
+      readonly state: (typeof materializationStateWords)[number];
+      readonly lastCheckpointRevision: number;
+      readonly lastCheckpointAt: string | null;
+      readonly pendingWalEvents: number;
+      readonly reason?: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
+      readonly lastError?: string;
+    } | null;
   }[];
   readonly summary: string;
 }

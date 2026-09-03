@@ -5,6 +5,7 @@ import {
   type AuthorizationDecision,
   type CanonicalEventCut,
   type DaemonRepoMode,
+  type MaterializationHealth,
   type RoleBinding,
   type WriteReceipt,
   type WriteReceiptDraft,
@@ -100,6 +101,7 @@ export interface RepoCellStatus {
   readonly lastError: string | null;
   readonly causeClass: "data-shape" | "infrastructure" | "projection" | null;
   readonly recoveryMs: number | null;
+  readonly materialization: MaterializationHealth | null;
   readonly attach?: RepoCellAttachProgress;
 }
 

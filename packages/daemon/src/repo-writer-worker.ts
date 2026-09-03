@@ -122,6 +122,11 @@ async function startRepoWriterWorker(): Promise<void> {
               },
             }
           : {}),
+        onMaterializationHealthChange: (materialization) => {
+          const status = cell === null ? { ...openingStatus, materialization } : cell.status();
+          openingStatus = status;
+          postStatus({ kind: "status", status });
+        },
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onOpenProgress: (progress) => {
           if (cell !== null) return;
@@ -156,6 +161,7 @@ async function startRepoWriterWorker(): Promise<void> {
       lastError: null,
       causeClass: null,
       recoveryMs: null,
+      materialization: null,
       attach,
     };
   }

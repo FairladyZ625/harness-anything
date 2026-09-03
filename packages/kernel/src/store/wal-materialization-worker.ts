@@ -1,4 +1,5 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { VcsCommandError } from "../ports/version-control-system.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -9,7 +10,7 @@ import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "./task-event-store.ts";
 import { openWalDurablePrefix, type WalEventRecord } from "./wal-event-log.ts";
-import { flushWalToGit, WalMaterializerDivergedError } from "./wal-git-materializer.ts";
+import { flushWalToGit, WalMaterializerDivergedError, WalMaterializerRefChangedError } from "./wal-git-materializer.ts";
 import {
   WAL_MATERIALIZATION_RESPONSE_SCHEMA,
   type WalBaselineDeltaV1,
@@ -106,7 +107,7 @@ export function runWalMaterializationRequest(
       };
     return response;
   } catch (error) {
-    return failureResponse(request.requestId, request.cut, error);
+    return failureResponse(request.requestId, request.cut, error, request.testFault !== undefined);
   }
 }
 
@@ -144,8 +145,15 @@ function failureResponse(
   requestId: string,
   cut: WalMaterializationRequestV1["cut"] | null,
   error: unknown,
+  injectedTransientFault = false,
 ): WalMaterializationFailureV1 {
   const failure = error instanceof Error ? error : new Error(String(error));
+  const classification =
+    failure instanceof WalMaterializerDivergedError
+      ? "git_diverged"
+      : injectedTransientFault || isRetryableWalMaterializationError(failure)
+        ? "retryable"
+        : "deterministic_failure";
   return {
     schema: WAL_MATERIALIZATION_RESPONSE_SCHEMA,
     requestId,
@@ -159,9 +167,33 @@ function failureResponse(
     error: {
       name: failure.name,
       message: failure.message,
-      code: failure instanceof TaskEventStoreError ? failure.code : null,
-      diverged: failure instanceof WalMaterializerDivergedError,
+      code: materializationErrorCode(failure),
+      classification,
       canonicalSha: failure instanceof WalMaterializerDivergedError ? failure.canonicalSha : null,
     },
   };
+}
+
+const transientSystemErrorCodes = new Set(["EAGAIN", "EBUSY", "EINTR", "EMFILE", "ENFILE", "ENOBUFS", "ETIMEDOUT"]);
+const transientGitLock =
+  /(?:another git process seems to be running|(?:unable to create|could not lock)[^\n]*\.lock['"]?: file exists)/iu;
+
+// Retry only proven ref races or recognized Git lock/resource/I/O pressure; invariant failures latch.
+export function isRetryableWalMaterializationError(error: unknown): boolean {
+  if (error instanceof WalMaterializerRefChangedError) return true;
+  const systemCode = materializationErrorCode(error);
+  if (systemCode !== null && transientSystemErrorCodes.has(systemCode)) return true;
+  if (error instanceof VcsCommandError) {
+    if (typeof error.exitCode === "string" && transientSystemErrorCodes.has(error.exitCode)) return true;
+    return transientGitLock.test(error.stderrSummary ?? "");
+  }
+  return (
+    error instanceof Error &&
+    new RegExp(`\\b(?:${[...transientSystemErrorCodes].join("|")})\\b`, "u").test(error.message)
+  );
+}
+
+function materializationErrorCode(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
 }

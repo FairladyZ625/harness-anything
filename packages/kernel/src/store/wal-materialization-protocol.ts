@@ -89,7 +89,7 @@ export interface WalMaterializationFailureV1 {
     readonly name: string;
     readonly message: string;
     readonly code: string | null;
-    readonly diverged: boolean;
+    readonly classification: "git_diverged" | "retryable" | "deterministic_failure";
     readonly canonicalSha: string | null;
   };
 }

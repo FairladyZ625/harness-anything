@@ -164,6 +164,8 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Test seam for controlling WAL materialization without wall-clock scheduling. */
   readonly onStoreOpened?: (store: CanonicalEventStore) => void;
+  /** Internal writer status bridge for asynchronous materialization health changes. */
+  readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
   /** Test seam for injecting a failure inside the WAL materialization worker. */
   readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
   readonly now?: () => string;

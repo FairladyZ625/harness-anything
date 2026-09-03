@@ -58,6 +58,7 @@ export interface RepoCellCoreInput {
     readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
+    readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
     readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   };
   readonly rootDir: string;
@@ -136,6 +137,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     authoredBranch: context.authoredBranch,
     killpoint: context.input.killpoint,
     afterFlush: settleAuthoredCandidates,
+    onMaterializationHealthChange: context.input.onMaterializationHealthChange,
     walMaterialize: (config, request) => {
       const response = runWalMaterializationRequest(config, request, {
         withFinalizeFence: (fence, operation) => withWriterEpochFenceDescriptor(fence, operation),

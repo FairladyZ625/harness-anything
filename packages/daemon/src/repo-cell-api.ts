@@ -937,6 +937,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       lastError: context.lastError,
       causeClass: context.causeClass,
       recoveryMs: context.recovery.elapsedMs,
+      materialization: context.store.materializationHealth(),
     }),
     settlePendingMaterialization: async (settlementContext) => {
       await context.tail;

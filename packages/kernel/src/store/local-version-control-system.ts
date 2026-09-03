@@ -228,6 +228,13 @@ function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8A
 }
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
+  commitTimestamp: (repoRoot: string, commit: string): string | null => {
+    const output = localGitBytes(repoRoot, ["cat-file", "commit", commit]).toString("utf8"),
+      seconds = /^committer .+ ([0-9]+) [+-][0-9]{4}$/mu.exec(output)?.[1];
+    if (seconds === undefined) return null;
+    const timestamp = new Date(Number(seconds) * 1_000);
+    return Number.isNaN(timestamp.valueOf()) ? null : timestamp.toISOString();
+  },
   blobOid: (body: string | Uint8Array) => gitBlobOidBytes(typeof body === "string" ? Buffer.from(body) : body),
   resolveCommit: (repoRoot: string, revision: string) => runGit(repoRoot, "rev-parse", revision).trim(),
   currentBranch: (repoRoot: string): string | null => {

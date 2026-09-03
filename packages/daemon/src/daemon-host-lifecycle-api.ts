@@ -23,6 +23,7 @@ export function createDaemonHostLifecycleApi(
             generation: null,
             queueDepth: null,
             recoveryMs: null,
+            materialization: null,
             lastError: null,
             causeClass: null,
           })),

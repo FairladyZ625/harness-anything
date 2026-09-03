@@ -45,6 +45,15 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ],
   ["failure:missing-sections", renderMissingSections],
   [
+    "failure:materialization-failed",
+    (args) =>
+      `WAL-to-Git materialization failed: reason=${textArg(args, "reason")} ` +
+      `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
+      `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
+      `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
+      "Repair the cause, then use repository recovery/drain or restart the daemon before retrying writes.",
+  ],
+  [
     "failure:unmet-criteria",
     (args) =>
       `Unmet criteria: ${(args.criteria as readonly { readonly ref: string; readonly explain: string }[])
@@ -103,6 +112,8 @@ function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {
   if (diagnostic.kind === "validation") return renderTemplate("failure", "validation", diagnostic);
   if (diagnostic.kind === "workspace-boundary") return renderTemplate("failure", "workspace-boundary", diagnostic);
   if (diagnostic.kind === "missing-sections") return renderTemplate("failure", "missing-sections", diagnostic);
+  if (diagnostic.kind === "materialization-failed")
+    return renderTemplate("failure", "materialization-failed", diagnostic);
   return null;
 }
 
@@ -158,6 +169,19 @@ function stringListArg(args: GuidanceArgs, field: string): readonly string[] {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string" && entry.length > 0))
     throw new TypeError(`Guidance argument ${field} is missing.`);
   return value;
+}
+
+function numberArg(args: GuidanceArgs, field: string): number {
+  const value = args[field];
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
+    throw new TypeError(`Guidance argument ${field} is missing.`);
+  return value;
+}
+
+function nullableTextArg(args: GuidanceArgs, field: string): string {
+  const value = args[field];
+  if (value === null) return "none";
+  return textArg(args, field);
 }
 
 function record(value: unknown): value is Record<string, unknown> {

@@ -24,6 +24,8 @@ import {
   type EventFileBatch,
   type EventRecoveryReceipt,
   type MaterializationReceipt,
+  type MaterializationFailureReason,
+  type MaterializationHealth,
   type PublicationFile,
   validateCanonicalWriteBundle,
 } from "./task-event-store.ts";
@@ -41,13 +43,14 @@ import type {
   WalMaterializationFailureV1,
   WalMaterializationSuccessV1,
 } from "./wal-materialization-protocol.ts";
-import { runWalMaterializationRequest } from "./wal-materialization-worker.ts";
+import { isRetryableWalMaterializationError, runWalMaterializationRequest } from "./wal-materialization-worker.ts";
 import type { WalMaterializationRequestV1, WalMaterializationResponseV1 } from "./wal-materialization-protocol.ts";
 
 export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError };
 
-const DEFAULT_RETRY_LIMIT = 4;
-const DEFAULT_RETRY_BASE_MS = 50;
+// Retry transient Git locks/resource pressure for ~32s before imposing fail-closed recovery cost.
+const DEFAULT_RETRY_LIMIT = 8;
+const DEFAULT_RETRY_BASE_MS = 250;
 
 export interface WalFlushPolicy {
   readonly adaptive: boolean;
@@ -79,6 +82,8 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
     readonly durationMs: number;
     readonly throughRevision: number;
   }) => void;
+  /** Publishes health changes through the owning writer cell's existing status channel. */
+  readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly walMaterializationTestFault?: {
     readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
     readonly failures: number;
@@ -120,7 +125,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let immediate: ReturnType<typeof setImmediate> | null = null;
   let consecutiveFailures = 0;
   let lastFlushError: string | null = null;
-  let divergedError: WalMaterializerDivergedError | null = null;
+  let failureLatch: { readonly reason: MaterializationFailureReason; readonly lastError: string } | null = null;
+  let lastCheckpointAt =
+    gitHead === null ? null : localGitObjectRefStore.commitTimestamp(ledger.rootDir, git.currentCommit().sha);
   let lastSettlementFingerprint: string | null = null;
   let pendingWalRecords = wal.records().filter((record) => record.revision > (gitHead?.revision ?? 0));
   let walByOpId = new Map(wal.records().map((record) => [record.opId, record.event] as const));
@@ -141,6 +148,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const reloadGit = (advancedBaseline?: GitBaseline): void => {
     git = makeGitEventStore(gitOptions);
     gitHead = git.readHead();
+    lastCheckpointAt =
+      gitHead === null ? null : localGitObjectRefStore.commitTimestamp(ledger.rootDir, git.currentCommit().sha);
     gitLayout = git.layout();
     gitBaseline = advancedBaseline ?? readGitBaseline(ledger, git.currentCommit().sha);
     gitStream = null;
@@ -157,6 +166,50 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const stream = (): CanonicalEventStreamV1 => (mergedStream ??= mergeStream(readGitStream(), wal.records()));
   const pendingCount = (): number => pendingWalRecords.length;
   const hasWalRecords = (): boolean => wal.records().length > 0;
+  const materializationHealth = (): MaterializationHealth => ({
+    state: failureLatch !== null ? "failed" : consecutiveFailures > 0 ? "retrying" : "ok",
+    lastCheckpointRevision: gitHead?.revision ?? 0,
+    lastCheckpointAt,
+    pendingWalEvents: pendingCount(),
+    ...(failureLatch ? { reason: failureLatch.reason, lastError: failureLatch.lastError } : {}),
+    ...(failureLatch === null && lastFlushError !== null ? { lastError: lastFlushError } : {}),
+  });
+  const notifyHealthChange = (): void => {
+    try {
+      options.onMaterializationHealthChange?.(materializationHealth());
+    } catch (error) {
+      console.warn(`[wal-materializer] materialization health publication failed: ${walShadowErrorMessage(error)}`);
+      consumeKnownError(error);
+    }
+  };
+  const latchMaterializationFailure = (reason: MaterializationFailureReason, error: unknown): void => {
+    lastFlushError = walShadowErrorMessage(error);
+    failureLatch = { reason, lastError: lastFlushError };
+    clearSchedule();
+    notifyHealthChange();
+  };
+  const materializationFailedError = (): TaskEventStoreError => {
+    const health = materializationHealth();
+    if (health.state !== "failed" || health.reason === undefined || health.lastError === undefined)
+      throw new TaskEventStoreError("invalid_store", "materialization failure latch has no failure details");
+    const data = {
+      lastCheckpointRevision: health.lastCheckpointRevision,
+      lastCheckpointAt: health.lastCheckpointAt,
+      pendingWalEvents: health.pendingWalEvents,
+      reason: health.reason,
+      lastError: health.lastError,
+    } as const;
+    return Object.assign(
+      new TaskEventStoreError(
+        "materialization_failed",
+        `Git materialization is latched after ${health.reason}; recover the repository before writing again`,
+      ),
+      { ...data, data, diagnostic: { kind: "materialization-failed", ...data } as const },
+    );
+  };
+  const assertMaterializationWritable = (): void => {
+    if (failureLatch !== null) throw materializationFailedError();
+  };
   const flushPolicy = (): WalFlushPolicy => {
     const configured = configuredFlushPolicy;
     return {
@@ -206,8 +259,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     );
     return { canonical: refs.get("refs/ha/canonical") ?? null, authored: refs.get(`refs/heads/${branch}`) ?? null };
   };
-  const resumeAfterRepair = (): boolean => {
-    if (divergedError === null) return true;
+  const repairedDivergence = (): boolean => {
+    if (failureLatch?.reason !== "git_diverged") return true;
     let refs: ReturnType<typeof publicationRefs>;
     try {
       refs = publicationRefs();
@@ -223,9 +276,6 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       consumeKnownError(error);
       return false;
     }
-    divergedError = null;
-    consecutiveFailures = 0;
-    lastFlushError = null;
     return true;
   };
   const reportSpan = (name: "materialization" | "fingerprint", durationMs: number, throughRevision: number): void => {
@@ -283,12 +333,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       contentValidatedThrough = Math.max(contentValidatedThrough, response.git.head.revision);
     lastFlushDurationMs = response.spans.materializationMs;
     lastSettlementFingerprint = response.settlementFingerprint;
+    lastCheckpointAt = durableRecord?.event.occurredAt ?? null;
     reportSpan("materialization", response.spans.materializationMs, requestCut.throughRevision);
     reportSpan("fingerprint", response.spans.fingerprintMs, requestCut.throughRevision);
     trackSettlement(response.settlementIntent);
   };
   const materializationError = (failure: WalMaterializationFailureV1): Error => {
-    if (failure.error.diverged)
+    if (failure.error.classification === "git_diverged")
       return new WalMaterializerDivergedError(
         ledger.rootDir,
         `refs/heads/${options.authoredBranch ?? "HEAD"}`,
@@ -300,7 +351,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     );
   };
   const executeFlush = async (context: string, compactWorktree: boolean): Promise<boolean> => {
-    if (divergedError !== null) return false;
+    if (failureLatch !== null) return false;
     const cut = captureWalDurableCut(wal);
     if (cut === null) return true;
     const first = wal.records()[0]?.revision ?? cut.throughRevision,
@@ -310,6 +361,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           ? { point: options.walMaterializationTestFault.point }
           : undefined;
     if (fault) remainingTestFaults -= 1;
+    let responseClassification: WalMaterializationFailureV1["error"]["classification"] | undefined;
     try {
       const response = await materialize(materializationConfig, {
         schema: "harness-wal-materialization-request/v1",
@@ -326,20 +378,34 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         fence: pendingMaterializationFence,
         ...(fault ? { testFault: fault } : {}),
       });
-      if (response.outcome === "failed") throw materializationError(response);
+      if (response.outcome === "failed") {
+        responseClassification = response.error.classification;
+        throw materializationError(response);
+      }
       acceptMaterializedCut(cut, response, gitRevisionBeforeFlush);
       const range = `${first}-${cut.throughRevision}`;
       const attempt = consecutiveFailures + 1;
       console.info(`[wal-materializer] materialized revisions ${range} (${context}, attempt ${attempt})`);
       consecutiveFailures = 0;
       lastFlushError = null;
+      failureLatch = null;
+      notifyHealthChange();
       return true;
     } catch (error) {
-      if (error instanceof WalMaterializerDivergedError) {
-        divergedError = error;
-        lastFlushError = error.message;
-        clearSchedule();
-        console.error(`[wal-materializer] diverged; materializer stopped: ${error.message}`);
+      if (responseClassification === "git_diverged" || error instanceof WalMaterializerDivergedError) {
+        latchMaterializationFailure("git_diverged", error);
+        console.error(`[wal-materializer] diverged; materializer stopped: ${walShadowErrorMessage(error)}`);
+        consumeKnownError(error);
+        return false;
+      }
+      if (
+        responseClassification === "deterministic_failure" ||
+        (responseClassification === undefined && !isRetryableWalMaterializationError(error))
+      ) {
+        latchMaterializationFailure("deterministic_failure", error);
+        console.error(
+          `[wal-materializer] deterministic failure; materializer stopped: ${walShadowErrorMessage(error)}`,
+        );
         consumeKnownError(error);
         return false;
       }
@@ -350,6 +416,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         `[wal-materializer] materialization failed (${context}, attempt ${failedAttempt}); ` +
           `acknowledged WAL writes remain valid: ${lastFlushError}`,
       );
+      if (consecutiveFailures >= retryLimit) latchMaterializationFailure("retry_budget_exhausted", error);
+      else notifyHealthChange();
       consumeKnownError(error);
       return false;
     }
@@ -395,14 +463,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     return inFlightFlush;
   };
   const scheduleRetry = (): void => {
-    if (closed || divergedError !== null || !hasWalRecords() || consecutiveFailures >= retryLimit) {
-      if (consecutiveFailures >= retryLimit)
-        console.warn(
-          `[wal-materializer] retry budget exhausted after ${retryLimit} attempts; ` +
-            "the next write, recovery, or drain will retry the pending WAL cut",
-        );
-      return;
-    }
+    if (closed || failureLatch !== null || !hasWalRecords()) return;
     const delay = retryBaseMs * 2 ** Math.max(0, consecutiveFailures - 1);
     timer = setTimeout(() => {
       timer = null;
@@ -413,7 +474,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     timer.unref?.();
   };
   const scheduleFlush = (): void => {
-    if (closed || bulkWriteActive || divergedError !== null || !hasWalRecords()) return;
+    if (closed || bulkWriteActive || failureLatch !== null || !hasWalRecords()) return;
     const policy = flushPolicy(),
       threshold = effectiveEventThreshold(policy),
       thresholdReached = pendingCount() >= threshold || wal.head().lastOffset >= policy.bytes;
@@ -491,6 +552,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     additionalFiles: readonly PublicationFile[] = [],
   ): CanonicalEventAppendReceipt => {
     assertMutableStore();
+    assertMaterializationWritable();
     if (additionalFiles.length > 0 || (bundle.preceding?.length ?? 0) > 0) {
       if (hasWalRecords()) {
         scheduleFlush();
@@ -544,6 +606,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       pendingWalRecords.push(appendedRecord);
       walByOpId.set(bundle.event.opId, bundle.event);
       latestPendingClaims = applyDocumentClaims(new Map(latestPendingClaims), bundle.event);
+      notifyHealthChange();
       if (mergedStream !== null) {
         if (mergedStream === gitStream)
           mergedStream = { ...mergedStream, events: [...mergedStream.events, bundle.event] };
@@ -585,12 +648,12 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     // Recovery is the full audit entry point: forget any in-process validation floor so the
     // next read revalidates every content claim in the ledger from scratch.
     contentValidatedThrough = 0;
-    if (!resumeAfterRepair())
+    if (!repairedDivergence())
       return {
         status: "indeterminate",
         publications: 0,
         elapsedMs: performance.now() - started,
-        error: divergedError?.message ?? "WAL materializer remains stopped until Git refs are repaired",
+        error: failureLatch?.lastError ?? "WAL materializer remains stopped until Git refs are repaired",
         errorCode: "publication_indeterminate",
       };
     let recovered: EventRecoveryReceipt;
@@ -617,7 +680,10 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         ...(error instanceof TaskEventStoreError ? { errorCode: error.code } : {}),
       };
     }
+    failureLatch = null;
     consecutiveFailures = 0;
+    lastFlushError = null;
+    notifyHealthChange();
     const records = wal.records();
     const hadWalRecords = records.length > 0;
     const hadPendingPublication = (records.at(-1)?.revision ?? 0) > (gitHead?.revision ?? 0);
@@ -640,13 +706,13 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       return;
     }
     try {
-      if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
-      consecutiveFailures = 0;
+      if (failureLatch !== null && recover().status === "indeterminate") throw materializationFailedError();
       let attempt = 1;
       while (hasWalRecords() || settlementFutures.size > 0) {
         if (hasWalRecords()) {
           const succeeded = await queueFlush("drain");
           if (!succeeded && hasWalRecords()) {
+            if (failureLatch !== null) throw materializationFailedError();
             if (attempt >= retryLimit)
               throw new TaskEventStoreError(
                 "publication_indeterminate",
@@ -668,10 +734,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   const flushPending = async (context: string, compactWorktree = false): Promise<void> => {
     assertMutableStore();
     clearSchedule();
-    if (!resumeAfterRepair() && divergedError !== null) throw divergedError;
-    consecutiveFailures = 0;
+    if (failureLatch !== null && recover().status === "indeterminate") throw materializationFailedError();
+    clearSchedule();
     for (let attempt = 1; hasWalRecords() && attempt <= retryLimit; attempt += 1) {
       if ((await queueFlush(context, compactWorktree)) && !hasWalRecords()) return;
+      if (failureLatch !== null) throw materializationFailedError();
       if (attempt < retryLimit) await wait(retryBaseMs * 2 ** (attempt - 1));
     }
     if (hasWalRecords())
@@ -683,6 +750,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   };
   const beginBulkWrite = (): { readonly finish: () => Promise<void> } => {
     assertMutableStore();
+    assertMaterializationWritable();
     if (closed || bulkWriteActive) throw new TaskEventStoreError("invalid_store", "a WAL bulk write is already active");
     bulkWriteActive = true;
     clearSchedule();
@@ -731,9 +799,11 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     },
     readBatch,
     readContentBlob: (sha256) => wal.readContentBlob(sha256) ?? git.readContentBlob(sha256),
+    materializationHealth,
     append,
     migrateLayout: (migration) => {
       assertMutableStore();
+      assertMaterializationWritable();
       if (hasWalRecords()) {
         scheduleFlush();
         throw new TaskEventStoreError("publication_indeterminate", "WAL must drain before a ledger layout migration");

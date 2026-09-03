@@ -301,6 +301,8 @@ export type {
   PublicationFile,
   EntityStore,
   EventPublicationKillpoint,
+  MaterializationHealth,
+  MaterializationState,
   ProjectionPage,
   ReplicaProjectionBasis,
   TaskIndexProjectionRow,

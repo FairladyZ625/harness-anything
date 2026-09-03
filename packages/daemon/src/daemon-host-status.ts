@@ -33,6 +33,7 @@ export function invalidRegistryStatus(repo: InvalidDaemonRegistryRepo): RepoCell
     generation: null,
     queueDepth: null,
     recoveryMs: null,
+    materialization: null,
     lastError: repo.error,
     causeClass: "infrastructure",
   };

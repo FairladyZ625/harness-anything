@@ -33,6 +33,14 @@ export type ReceiptDiagnostic =
       readonly kind: "workspace-boundary";
       readonly field: string;
       readonly workspaceRoot: string;
+    }
+  | {
+      readonly kind: "materialization-failed";
+      readonly lastCheckpointRevision: number;
+      readonly lastCheckpointAt: string | null;
+      readonly pendingWalEvents: number;
+      readonly reason: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
+      readonly lastError: string;
     };
 
 export type ReceiptVisibility = "center" | { readonly kind: "replica"; readonly viewId: string };
@@ -354,6 +362,17 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
       exact(value, ["kind", "field", "workspaceRoot"]) &&
       isNonEmptyString(value.field) &&
       isNonEmptyString(value.workspaceRoot)
+    );
+  if (value.kind === "materialization-failed")
+    return (
+      exact(value, ["kind", "lastCheckpointRevision", "lastCheckpointAt", "pendingWalEvents", "reason", "lastError"]) &&
+      cut(value.lastCheckpointRevision) &&
+      (value.lastCheckpointAt === null || isNonEmptyString(value.lastCheckpointAt)) &&
+      cut(value.pendingWalEvents) &&
+      (value.reason === "git_diverged" ||
+        value.reason === "deterministic_failure" ||
+        value.reason === "retry_budget_exhausted") &&
+      isNonEmptyString(value.lastError)
     );
   return (
     value.kind === "missing-sections" &&

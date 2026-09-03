@@ -1151,11 +1151,15 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(failedRow?.exitCode, 1);
     assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
     assert.equal(failedRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
+    const healthAfterRuntimeFailure = (run(root, env, ["daemon", "status"]).repos as Array<Record<string, unknown>>)[0]
+      ?.materialization as Record<string, unknown>;
+    assert.equal(healthAfterRuntimeFailure.state, "ok", JSON.stringify(healthAfterRuntimeFailure));
     context.diagnostic(
       `detach -> task wait failure: ${JSON.stringify({
         detached: detachedFailure,
         wait: failureWait.receipt,
         dispatch: failedRow,
+        materialization: healthAfterRuntimeFailure,
       })}`,
     );
     const events = existsSync(tracker) ? readFileSync(tracker, "utf8").trim().split("\n").filter(Boolean) : [],

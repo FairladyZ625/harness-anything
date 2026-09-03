@@ -1,6 +1,7 @@
 // Public compatibility façade for the canonical task event store.
 export {
   CANONICAL_EVENT_REF,
+  materializationStates,
   TaskEventStoreError,
   type CanonicalContentBlob,
   type CanonicalEventAppendReceipt,
@@ -13,6 +14,9 @@ export {
   type EventPublicationKillpoint,
   type EventRecoveryReceipt,
   type MaterializationReceipt,
+  type MaterializationFailureReason,
+  type MaterializationHealth,
+  type MaterializationState,
   type PublicationFile,
   type PublicationMetrics,
   type TaskEventStoreErrorCode,

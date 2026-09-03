@@ -75,7 +75,10 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return serve(userRoot, daemonId, finish);
     }
     if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
-    if (command === "status") return finish(await status(userRoot, daemonId, argv), 0);
+    if (command === "status") {
+      const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
+      return finish(assessed.receipt, assessed.exitCode);
+    }
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
@@ -314,6 +317,93 @@ async function status(
     },
     detail = `target: endpoint=${endpoint} daemonId=${daemonId} userRoot=${userRoot} repoId=${target.repoId ?? "none"} canonicalRoot=${target.canonicalRoot ?? "none"}`;
   return { ...result, target, summary: `${String(result.summary ?? "daemon status")}\n${detail}` };
+}
+
+function assessDaemonStatus(result: Record<string, unknown>): {
+  readonly receipt: Record<string, unknown>;
+  readonly exitCode: 0 | 1;
+} {
+  const failedRows = (Array.isArray(result.repos) ? result.repos : []).filter(
+      (value) => statusRecord(value) && statusRecord(value.materialization) && value.materialization.state === "failed",
+    ),
+    failures = failedRows.flatMap((value) => {
+      if (!statusRecord(value) || !statusRecord(value.materialization)) return [];
+      const health = value.materialization;
+      if (
+        typeof value.repoId !== "string" ||
+        !Number.isSafeInteger(health.lastCheckpointRevision) ||
+        Number(health.lastCheckpointRevision) < 0 ||
+        !Number.isSafeInteger(health.pendingWalEvents) ||
+        Number(health.pendingWalEvents) < 0 ||
+        (health.lastCheckpointAt !== null && typeof health.lastCheckpointAt !== "string") ||
+        (health.reason !== "git_diverged" &&
+          health.reason !== "deterministic_failure" &&
+          health.reason !== "retry_budget_exhausted") ||
+        typeof health.lastError !== "string"
+      )
+        return [];
+      return [
+        {
+          repoId: value.repoId,
+          lastCheckpointRevision: health.lastCheckpointRevision as number,
+          lastCheckpointAt: typeof health.lastCheckpointAt === "string" ? health.lastCheckpointAt : null,
+          pendingWalEvents: health.pendingWalEvents as number,
+          reason: health.reason as "git_diverged" | "deterministic_failure" | "retry_budget_exhausted",
+          lastError: health.lastError,
+        },
+      ];
+    });
+  if (failedRows.length === 0) return { receipt: result, exitCode: 0 };
+  const first = failures[0],
+    details = failedRows
+      .map((value) => {
+        if (!statusRecord(value) || !statusRecord(value.materialization))
+          return "repo=unknown state=failed details=malformed";
+        const health = value.materialization;
+        return (
+          `repo=${String(value.repoId ?? "unknown")} state=failed reason=${String(health.reason ?? "unknown")} ` +
+          `lastCheckpointRevision=${String(health.lastCheckpointRevision ?? "unknown")} ` +
+          `lastCheckpointAt=${String(health.lastCheckpointAt ?? "none")} ` +
+          `pendingWalEvents=${String(health.pendingWalEvents ?? "unknown")} ` +
+          `lastError=${String(health.lastError ?? "missing")}`
+        );
+      })
+      .join("; "),
+    hint =
+      `WAL-to-Git materialization failed: ${details}. Repair the reported cause, then use the existing ` +
+      "repository recovery/drain path (or restart the daemon for startup recovery) before retrying writes.";
+  return {
+    exitCode: 1,
+    receipt: {
+      ...result,
+      ok: false,
+      outcome: "op_rejected",
+      code: "materialization_failed",
+      origin: "cli",
+      evidence: `materialization-failed:${failedRows
+        .map((value) => (statusRecord(value) ? String(value.repoId ?? "unknown") : "unknown"))
+        .join(",")}`,
+      nextAction: hint,
+      error: { code: "materialization_failed", hint },
+      ...(first ? { diagnostic: { kind: "materialization-failed", ...withoutRepoId(first) } } : {}),
+    },
+  };
+}
+
+function withoutRepoId(failure: {
+  readonly repoId: string;
+  readonly lastCheckpointRevision: number;
+  readonly lastCheckpointAt: string | null;
+  readonly pendingWalEvents: number;
+  readonly reason: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
+  readonly lastError: string;
+}) {
+  const { repoId: _repoId, ...diagnostic } = failure;
+  return diagnostic;
+}
+
+function statusRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 async function requestCooperativeStop(
   userRoot: string,
