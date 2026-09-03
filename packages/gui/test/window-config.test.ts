@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertDevRendererUrl,
+  devRendererOriginFrom,
   createGuiContentSecurityPolicy,
   createGuiWindowOptions,
   guiContentSecurityPolicy,
@@ -91,4 +92,11 @@ test("the main window enables only the policy-guarded HTML artifact webview surf
   assert.equal(options.webPreferences.contextIsolation, true);
   assert.equal(options.webPreferences.sandbox, true);
   assert.equal(options.webPreferences.webSecurity, true);
+});
+
+test("dev renderer origin follows the loopback URL the dev script passes and ignores anything else", () => {
+  assert.equal(devRendererOriginFrom("http://127.0.0.1:5174"), "http://127.0.0.1:5174");
+  assert.equal(devRendererOriginFrom("http://localhost:5174"), "http://127.0.0.1:5173");
+  assert.equal(devRendererOriginFrom("not a url"), "http://127.0.0.1:5173");
+  assert.equal(devRendererOriginFrom(undefined), "http://127.0.0.1:5173");
 });
