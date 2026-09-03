@@ -1,7 +1,5 @@
 import type { ArtifactStore, ProjectionWarning, TaskProjectionRow } from "../../kernel/src/index.ts";
 import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
-export { commandReceiptEnvelope } from "./command-receipt.ts";
-export type { CommandFailureReceipt, CommandReceipt, CommandReceiptEnvelope } from "./command-receipt.ts";
 export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,
