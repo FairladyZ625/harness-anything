@@ -54,21 +54,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
-    id: "task-transition",
-    phase: "W3",
-    path: ["task", "transition", "<task-id>", "<planned|active|blocked|in_review|done|cancelled>"],
-    summary: "Move lifecycle status; done and in_review remain reserved for complete and submit.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput("--force", "boolean", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--reason", "single", false, {
-        code: "missing_field",
-      }),
-    ],
-  }),
-  defineLedgerWriteCommand({
     id: "task-amend",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],

@@ -2,6 +2,7 @@ import {
   REPLAY_TASK_GRAPH,
   classifyTextualArtifactPath,
   currentTaskForWrite,
+  getExecutableEntityAction,
   presetSnapshotUpgradeWritePlan,
   sha256Text,
   slugifyTaskTitle,
@@ -138,7 +139,13 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       }),
     ),
     bySlot = new Map(prose.map((document) => [document.slot, document]));
-  for (const slot of ["task.plan", "task.closeout", "task.artifacts.keep"])
+  const createAction = getExecutableEntityAction("task-create");
+  if (!createAction) throw bootstrapFailure("invalid_scaffold", "task.create descriptor is missing.");
+  const requiredSlots = [
+    ...createAction.ownedArtifacts.filter(({ scaffoldRequired }) => scaffoldRequired).map(({ slot }) => slot),
+    ...createAction.managedDocuments.filter(({ scaffoldRequired }) => scaffoldRequired).map(({ slot }) => slot),
+  ];
+  for (const slot of requiredSlots)
     if (!bySlot.has(slot)) throw bootstrapFailure("invalid_scaffold", `Base scaffold slot ${slot} cannot be removed.`);
   const presetScripts = resolved.scripts.map(
     (script): CompiledTaskDocument => ({

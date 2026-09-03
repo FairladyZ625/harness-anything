@@ -18,7 +18,8 @@ export type {
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
 export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
-export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
+export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
+export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export type {
@@ -32,11 +33,7 @@ export type {
   Sha256Fingerprint,
 } from "./task.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
-export {
-  TASK_LIFECYCLE_COMMAND_CATALOG,
-  TASK_LIFECYCLE_TRANSITIONS,
-  taskLifecycleReturnsForCommand,
-} from "./task-lifecycle.contract.ts";
+export { TASK_LIFECYCLE_COMMAND_CATALOG, TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
 export type {
   CompleteTaskCommand,
   CreateReplayTaskCommand,
@@ -176,7 +173,7 @@ export {
   getTaskActionForTransition,
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
-export type { EntityActionContract, EntityResidencyFacets } from "./entity-kind-registry.ts";
+export type { EntityActionContract, EntityActionInputField, EntityResidencyFacets } from "./entity-kind-registry.ts";
 
 export { deriveUseCaseProjectionInputs } from "./use-case-projection-catalog.ts";
 export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";

@@ -17,5 +17,5 @@ export function projectedTaskActionHelpRows(): readonly TaskActionHelpRow[] {
 }
 
 function commandKey(usage: string): string {
-  return usage.split(" ").slice(0, 3).join(" ");
+  return usage.split(/ (?=<|\[)/u, 1)[0]!;
 }

@@ -1,3 +1,5 @@
+import { getExecutableEntityAction } from "./entity-kind-registry.ts";
+
 type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
 type TransitionDocumentPlaceholderCode =
   | "plan_placeholder"
@@ -12,10 +14,8 @@ interface TransitionDocumentBinding {
 }
 
 const transitionDocumentBindings: readonly TransitionDocumentBinding[] = Object.freeze([
-  { transition: "task.start", documentKind: "task.plan" },
   { transition: "runtime.run", documentKind: "task.plan" },
   { transition: "squad.run", documentKind: "task.plan" },
-  { transition: "task.complete", documentKind: "task.closeout" },
   { transition: "decision.accept", documentKind: "decision.body" },
   { transition: "agent.install", documentKind: "agent.instructions" },
   { transition: "squad.install", documentKind: "squad.roster" },
@@ -151,6 +151,11 @@ export function assessTransitionDocument(kind: TransitionDocumentKind, body: str
 }
 
 export function requireTransitionDocumentKind(transition: string): TransitionDocumentKind {
+  if (transition.startsWith("task.")) {
+    const action = getExecutableEntityAction(transition.replace(".", "-")),
+      document = action?.managedDocuments.find((candidate) => candidate.readinessRequired);
+    if (document) return document.slot as TransitionDocumentKind;
+  }
   const binding = transitionDocumentBindings.find((candidate) => candidate.transition === transition);
   if (!binding) throw new Error(`Transition ${transition} has no canonical document binding.`);
   return binding.documentKind;

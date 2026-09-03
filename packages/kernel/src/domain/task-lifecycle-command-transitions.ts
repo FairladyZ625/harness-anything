@@ -14,7 +14,6 @@ import type {
 import { isSameExecution } from "./actor-domain-services.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
-import { taskCreateReturnsContract } from "./receipt-guidance.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type {
   CreateReplayTaskCommand,
@@ -39,12 +38,7 @@ import {
 
 // Creation, execution, and aggregate-status transition definitions.
 export const create: Transition = {
-  id: "create_replay_task",
-  commandType: "CreateReplayTask",
-  from: "missing",
-  proof: ["taskIdUnique", "actorBinding", "validGraph"],
-  eventType: "task_created",
-  returns: taskCreateReturnsContract,
+  actionId: "create",
   matches: (command) => command.type === "CreateReplayTask",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as CreateReplayTaskCommand,
@@ -119,11 +113,7 @@ export function allowsTaskStatusMove(
   );
 }
 export const start: Transition = {
-  id: "start_execution",
-  commandType: "StartExecution",
-  from: "planned|active/implementation|planned|active|in_review/recoverable-review",
-  proof: ["actorBinding", "reservation"],
-  eventType: "execution_started",
+  actionId: "start",
   matches: (command) => command.type === "StartExecution",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as StartExecutionCommand,
@@ -226,11 +216,7 @@ function transitionTask(
   };
 }
 export const block: Transition = {
-  id: "block_task",
-  commandType: "TransitionTask",
-  from: "planned|active|in_review",
-  proof: [],
-  eventType: "task_transitioned",
+  actionId: "transition",
   matches: (command) => command.type === "TransitionTask" && command.status === "blocked",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
@@ -251,11 +237,7 @@ export const block: Transition = {
  * except force stays cancel-specific: reinstate restores recorded state rather than destroying it.
  * Dispatches ahead of unblock so a cancelled→active command lands here, not on the blocked-only entry. */
 export const reinstate: Transition = {
-  id: "reinstate_task",
-  commandType: "TransitionTask",
-  from: "cancelled",
-  proof: ["auditedReason"],
-  eventType: "task_transitioned",
+  actionId: "transition",
   matches: (command, snapshot) =>
     command.type === "TransitionTask" &&
     (reinstateTaskTargets as readonly DomainStatus[]).includes(command.status) &&
@@ -287,11 +269,7 @@ export const reinstate: Transition = {
     ),
 };
 export const returnToPlanned: Transition = {
-  id: "return_to_planned",
-  commandType: "TransitionTask",
-  from: "active",
-  proof: ["auditedReason"],
-  eventType: "task_transitioned",
+  actionId: "transition",
   matches: (command, snapshot) =>
     command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
   validate: (snapshot, raw) => {
@@ -315,11 +293,7 @@ export const returnToPlanned: Transition = {
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "planned"),
 };
 export const unblock: Transition = {
-  id: "unblock_task",
-  commandType: "TransitionTask",
-  from: "blocked",
-  proof: [],
-  eventType: "task_transitioned",
+  actionId: "transition",
   matches: (command) => command.type === "TransitionTask" && command.status === "active",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
@@ -331,11 +305,7 @@ export const unblock: Transition = {
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "active"),
 };
 export const cancel: Transition = {
-  id: "cancel_task",
-  commandType: "TransitionTask",
-  from: "planned|active|blocked|in_review",
-  proof: ["forcedReason"],
-  eventType: "task_transitioned",
+  actionId: "transition",
   matches: (command) => command.type === "TransitionTask" && command.status === "cancelled",
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
@@ -349,11 +319,7 @@ export const cancel: Transition = {
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "cancelled"),
 };
 export const submit: Transition = {
-  id: "submit_execution",
-  commandType: "SubmitExecution",
-  from: "active/implementation",
-  proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
-  eventType: "execution_submitted",
+  actionId: "submit",
   matches: (command) => command.type === "SubmitExecution",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as SubmitExecutionCommand,

@@ -3,24 +3,26 @@ import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
 import { TASK_V2_SCHEMA } from "./task.ts";
 import { TASK_EDGE_TAKEN_SCHEMA } from "./task-graph.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
+import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 
 // CLI-facing catalog, projection fields, and contract descriptor.
 export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(
-  TASK_LIFECYCLE_TRANSITIONS.map((value) =>
-    Object.freeze({
-      id: value.id,
-      commandType: value.commandType,
-      from: value.from,
-      proof: value.proof,
-      eventType: value.eventType,
-      returns: value.returns ?? null,
-    }),
-  ),
+  [...new Set(TASK_LIFECYCLE_TRANSITIONS.map((value) => value.actionId))].map((actionId) => {
+    const action = getTaskActionForTransition(actionId),
+      lifecycle = action?.execution?.lifecycle;
+    if (!action || !lifecycle) throw new Error(`Task lifecycle transition references undeclared action ${actionId}.`);
+    return Object.freeze({
+      id: lifecycle.transitionId,
+      actionId,
+      commandType: lifecycle.commandType,
+      from: action.stateTransition?.from ?? [],
+      proof: lifecycle.proof,
+      eventType: lifecycle.eventType,
+      returns: action.returns,
+    });
+  }),
 );
 export type TaskLifecycleCliCatalogEntry = (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
-export function taskLifecycleReturnsForCommand(commandType: string) {
-  return TASK_LIFECYCLE_COMMAND_CATALOG.find((entry) => entry.commandType === commandType)?.returns ?? null;
-}
 export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({
   task: TASK_V2_SCHEMA.required,
   execution: EXECUTION_V1_SCHEMA.required,

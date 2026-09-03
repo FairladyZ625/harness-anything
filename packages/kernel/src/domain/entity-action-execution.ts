@@ -51,6 +51,8 @@ export interface EntityActionExecutionContract {
     readonly commandType: string;
     readonly targetIdField: string;
     readonly coordination: "reserve" | "execute";
+    readonly eventType: string;
+    readonly proof: readonly string[];
   };
 }
 

@@ -1,3 +1,6 @@
+import { brotliDecompressSync } from "node:zlib";
+import type { EntityActionContract, EntityActionInputField } from "../../kernel/src/index.ts";
+
 export interface CliInputError {
   readonly code: string;
 }
@@ -123,27 +126,101 @@ export function cliInputHelp(input: CliInputFacet): string {
 export function cliCommandHelp(inputs: readonly CliInputFacet[]): string {
   return inputs.map((input) => `    ${cliInputHelp(input)}`).join("\n");
 }
-export const taskCreateJsonFields = Object.freeze([
-  "title",
-  "taskId",
-  "idempotencyKey",
-  "parentTaskId",
-  "workKind",
-  "riskTier",
-  "urgency",
-  "verticalId",
-  "presetId",
-  "profileId",
-  "moduleKey",
-  "registerModule",
-  "slug",
-  "surfaces",
-  "taskClass",
-  "locale",
-  "fromLegacyId",
-  "createMode",
-] as const);
-export const consentJsonFields = Object.freeze(["reviewDigest", "contentDigest"] as const);
+export type GeneratedTaskActionInputField = Pick<
+  EntityActionInputField,
+  "field" | "type" | "required" | "enum" | "regex"
+> & { readonly cli?: Omit<NonNullable<EntityActionInputField["cli"]>, "jsonSchema"> };
+// prettier-ignore
+export interface GeneratedTaskActionProtocolDeclaration {
+  readonly id: string;
+  readonly input: { readonly schema: "entity-action-input/v1"; readonly fields: readonly GeneratedTaskActionInputField[];
+    readonly exactlyOneOf: readonly (readonly string[])[] };
+  readonly explain: string;
+  readonly execution: Pick<NonNullable<EntityActionContract["execution"]>, "ingress" | "topology"> & {
+    readonly lifecycle: Pick<NonNullable<NonNullable<EntityActionContract["execution"]>["lifecycle"]>,
+      "transitionId" | "commandType" | "targetIdField" | "coordination"> };
+}
+interface GeneratedTaskActionProtocolProjection {
+  readonly writeReceiptFields: readonly string[];
+  readonly taskCreateResultFields: readonly string[];
+  readonly actions: readonly GeneratedTaskActionProtocolDeclaration[];
+}
+
+// task-action-projection:generated:start
+const TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI = [
+  "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",
+].join("");
+const taskActionDescriptorProjection = JSON.parse(
+  brotliDecompressSync(Buffer.from(TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI, "base64")).toString("utf8"),
+) as GeneratedTaskActionProtocolProjection;
+// task-action-projection:generated:end
+
+const allTaskActionProtocolDeclarations = taskActionDescriptorProjection.actions,
+  taskCreateAction = allTaskActionProtocolDeclarations.find(({ id }) => id === "create");
+if (!taskCreateAction) throw new Error("task.create action projection is missing.");
+export function taskCreateEnum(field: string): readonly string[] {
+  const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
+  if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
+  return values;
+}
+const taskCreatePacketFieldNames = taskCreateAction.input.fields.find(({ field }) => field === "fromFile")?.cli
+  ?.jsonAllowedFields;
+if (!taskCreatePacketFieldNames) throw new Error("task.create packet projection is missing.");
+const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) =>
+  taskCreatePacketFieldNames.includes(field),
+);
+export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
+export const generatedTaskActionProtocolDeclarations = Object.freeze(
+  allTaskActionProtocolDeclarations.filter(({ id }) => id !== "create"),
+);
+export const generatedWriteReceiptFields = Object.freeze([...taskActionDescriptorProjection.writeReceiptFields]);
+export const generatedTaskCreateResultFields = Object.freeze(
+  taskActionDescriptorProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
+);
+
+const taskCreateCliInputs = Object.freeze(
+  taskCreateAction.input.fields.flatMap((field) => {
+    if (!field.cli) return [];
+    const cli = field.cli;
+    return [
+      cliInput(cli.name, cli.kind, field.required, cli.error, {
+        field: field.field,
+        ...(field.enum ? { enum: field.enum } : {}),
+        ...(field.regex ? { regex: field.regex } : {}),
+        ...cli,
+      }),
+    ];
+  }),
+);
+const consentJsonFieldProjection = generatedTaskActionProtocolDeclarations
+  .find(({ id }) => id === "consent")
+  ?.input.fields.find(({ field }) => field === "fromFile")?.cli?.jsonAllowedFields;
+if (!consentJsonFieldProjection) throw new Error("task.consent packet projection is missing.");
+export const consentJsonFields = Object.freeze([...consentJsonFieldProjection]);
 export const decisionProposalJsonFields = Object.freeze([
   "title",
   "question",
@@ -211,135 +288,7 @@ export const presetCommands = Object.freeze([
     path: ["task", "create"],
     summary: "Create a task package with its complete metadata.",
     method: "repo.task.create",
-    inputs: [
-      cliInput(
-        "--title",
-        "single",
-        false,
-        {
-          code: "missing_field",
-        },
-        { field: "title" },
-      ),
-      cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" }),
-      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "idempotencyKey" }),
-      cliInput("--parent", "single", false, { code: "invalid_field" }, { field: "parentTaskId" }),
-      cliInput(
-        "--kind",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
-      ),
-      cliInput(
-        "--risk-tier",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "riskTier", enum: ["low", "medium", "high"] },
-      ),
-      cliInput(
-        "--urgency",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "urgency", enum: ["low", "medium", "high"] },
-      ),
-      cliInput(
-        "--from-file",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "fromFile",
-          jsonFields: ["title"],
-          jsonAllowedFields: taskCreateJsonFields,
-          conflictsWith: ["--json-input"],
-        },
-      ),
-      cliInput(
-        "--json-input",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "jsonInput",
-          jsonFields: ["title"],
-          jsonAllowedFields: taskCreateJsonFields,
-          format: "<json|@->",
-          conflictsWith: ["--from-file"],
-        },
-      ),
-      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
-      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
-      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
-      cliInput(
-        "--module",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleKey" },
-      ),
-      cliInput(
-        "--register-module",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "registerModuleKey" },
-      ),
-      cliInput(
-        "--module-title",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleTitle" },
-      ),
-      cliInput(
-        "--module-prefix",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "modulePrefix" },
-      ),
-      cliInput(
-        "--module-scope",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleScope" },
-      ),
-      cliInput(
-        "--slug",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "slug", regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
-      ),
-      cliInput("--surface", "repeated", false, { code: "invalid_field" }, { field: "surfaces" }),
-      cliInput(
-        "--task-class",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "taskClass", enum: ["standard", "milestone", "epic", "long_running"] },
-      ),
-      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
-      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
-      cliInput("--from-legacy", "single", false, { code: "invalid_field" }, { field: "fromLegacyId" }),
-      cliInput("--migration", "boolean", false, { code: "invalid_field" }, { field: "migration" }),
-      cliInput("--import", "boolean", false, { code: "invalid_field" }, { field: "import" }),
-      cliInput("--admin", "boolean", false, { code: "invalid_field" }, { field: "admin" }),
-    ],
+    inputs: taskCreateCliInputs,
   }),
   defineRepoReadCommand({
     id: "preset-list",
@@ -507,29 +456,21 @@ export const presetCommands = Object.freeze([
     ],
   }),
 ] as const);
-const taskCreateRpcFields: RpcShape["fields"] = {
-  title: "string?",
-  taskId: "string?",
-  idempotencyKey: "string?",
-  parentTaskId: "string?",
-  workKind: "string?",
-  riskTier: "string?",
-  urgency: "string?",
-  fromFile: "string?",
-  jsonInput: "string?",
-  verticalId: "string?",
-  presetId: "string?",
-  profileId: "string?",
-  moduleKey: "string?",
-  registerModule: "json?",
-  slug: "string?",
-  surfaces: "array?",
-  taskClass: "string?",
-  dryRun: "boolean?",
-  locale: "string?",
-  fromLegacyId: "string?",
-  createMode: "string?",
-};
+const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
+  ...taskCreatePacketFields.map((field) => [
+    field.field,
+    field.type === "json-object"
+      ? "json?"
+      : field.type?.endsWith("-array")
+        ? "array?"
+        : field.type === "boolean"
+          ? "boolean?"
+          : "string?",
+  ]),
+  ["fromFile", "string?"],
+  ["jsonInput", "string?"],
+  ["dryRun", "boolean?"],
+]);
 export const presetMethods = Object.freeze([
   ...presetCommands.map((command) => {
     const positional = "positional" in command ? command.positional : undefined,

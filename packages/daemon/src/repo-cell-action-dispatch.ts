@@ -193,6 +193,11 @@ export async function executeAction(
     );
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "task" && actionContract.execution) {
+    if (action.kind === "task-create") {
+      const entering = cell.taskWipEnteringAction(action);
+      if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
+      return cell.createTask(cell.taskCreateAction(cell.rootDir, action), binding);
+    }
     const targetIdField = actionContract.execution.targetIdField ?? "taskId",
       targetId =
         typeof action[targetIdField] === "string" && action[targetIdField] ? String(action[targetIdField]) : null,
@@ -349,9 +354,6 @@ export async function executeAction(
       },
     };
   }
-  const entering = cell.taskWipEnteringAction(action);
-  if (entering) cell.assertTaskWipCapacity(entering.taskId, entering.nextStatus);
-  if (action.kind === "task-create") return cell.createTask(cell.taskCreateAction(cell.rootDir, action), binding);
   if (isDocAction(action.kind))
     return runDocAction({
       action,

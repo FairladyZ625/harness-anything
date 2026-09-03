@@ -10,10 +10,9 @@ import type { ActorAxes, ContractValidationIssue, TaskClass, TaskV2 } from "./ta
 import { TASK_EDGE_TAKEN_SCHEMA, TASK_GRAPH_V1_SCHEMA } from "./task-graph.ts";
 import type { TaskEdgeTaken, TaskGraphV1 } from "./task-graph.ts";
 import type { NormalizedCommandEnvelope } from "./write-chain.contract.ts";
-import type { LeaseChangeReason, TaskEventType, TaskEventV1 } from "./task-lifecycle-event.ts";
+import type { LeaseChangeReason, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
-import type { ActionReturnsContract } from "./receipt-guidance.ts";
 
 // Shared public contract shapes and internal transition protocol.
 export interface TaskLifecycleSnapshot {
@@ -221,12 +220,7 @@ export interface TransitionResult {
   readonly event: TaskEventV1;
 }
 export interface Transition {
-  readonly id: string;
-  readonly commandType: TaskLifecycleCommand["type"];
-  readonly from: string;
-  readonly proof: readonly string[];
-  readonly eventType: TaskEventType;
-  readonly returns?: ActionReturnsContract;
+  readonly actionId: string;
   readonly matches: (command: TaskLifecycleCommand, snapshot: TaskLifecycleSnapshot) => boolean;
   readonly validate: (
     snapshot: TaskLifecycleSnapshot,

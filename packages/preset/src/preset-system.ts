@@ -8,6 +8,7 @@ import {
   type TaskClass,
   type WriteSource,
 } from "../../kernel/src/index.ts";
+import { taskCreateEnum } from "./preset-command-contract.ts";
 import {
   compilePresetSnapshotUpgrade,
   compileTaskBootstrap,
@@ -27,6 +28,11 @@ import {
   validatePresetPackage,
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
+
+type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
+type PriorityTier = NonNullable<Parameters<typeof compileTaskPackage>[0]["riskTier"]>;
+const taskWorkKinds = taskCreateEnum("workKind") as readonly TaskWorkKind[],
+  priorityTiers = taskCreateEnum("riskTier") as readonly PriorityTier[];
 
 type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
 interface Defaults {
@@ -268,15 +274,9 @@ function taskPackageFields(
       ? { idempotencyKey: optionalActionText(action.idempotencyKey)! }
       : {}),
     ...(optionalActionText(action.parentTaskId) ? { parentTaskId: optionalActionText(action.parentTaskId)! } : {}),
-    ...(oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const)
-      ? { workKind: oneOf(action.workKind, ["feat", "fix", "refactor", "docs", "test", "chore"] as const)! }
-      : {}),
-    ...(oneOf(action.riskTier, ["low", "medium", "high"] as const)
-      ? { riskTier: oneOf(action.riskTier, ["low", "medium", "high"] as const)! }
-      : {}),
-    ...(oneOf(action.urgency, ["low", "medium", "high"] as const)
-      ? { urgency: oneOf(action.urgency, ["low", "medium", "high"] as const)! }
-      : {}),
+    ...(oneOf(action.workKind, taskWorkKinds) ? { workKind: oneOf(action.workKind, taskWorkKinds)! } : {}),
+    ...(oneOf(action.riskTier, priorityTiers) ? { riskTier: oneOf(action.riskTier, priorityTiers)! } : {}),
+    ...(oneOf(action.urgency, priorityTiers) ? { urgency: oneOf(action.urgency, priorityTiers)! } : {}),
     ...(optionalActionText(action.moduleKey) ? { moduleKey: optionalActionText(action.moduleKey)! } : {}),
     ...(register
       ? {

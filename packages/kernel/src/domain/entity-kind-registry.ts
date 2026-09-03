@@ -46,7 +46,13 @@ import { createRuntimeSessionActionCatalog } from "./runtime-session-action-cont
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
 import { createSquadActionCatalog } from "./squad-action-contract.ts";
-import type { ActionReturnsContract } from "./receipt-guidance.ts";
+import {
+  DEFAULT_ENTITY_ACTION_RESULT_CONTRACT,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
+  withDerivedActionReturns,
+  type ActionReturnsContract,
+  type EntityActionDescriptorFacets,
+} from "./entity-action-descriptor.ts";
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 
 export type EntityStorageForm =
@@ -182,7 +188,7 @@ export interface EntitySdkExposure {
   readonly agentCapability: { readonly target: string; readonly schemaId: string } | null;
 }
 
-export interface EntityActionContract {
+export interface EntityActionContract extends EntityActionDescriptorFacets {
   readonly id: string;
   readonly version: ContractVersion;
   readonly actor: {
@@ -222,7 +228,7 @@ export interface EntityActionContract {
 
 export interface EntityActionInputField {
   readonly field: string;
-  readonly type:
+  readonly type?:
     | "string"
     | "number"
     | "boolean"
@@ -230,15 +236,33 @@ export interface EntityActionInputField {
     | "fact-hold-array"
     | "json-object"
     | "json-object-array";
+  readonly value?:
+    | { readonly kind: "string"; readonly enumRef?: readonly string[]; readonly regex?: string }
+    | { readonly kind: "number" }
+    | { readonly kind: "boolean" }
+    | { readonly kind: "array"; readonly items: NonNullable<EntityActionInputField["value"]> }
+    | {
+        readonly kind: "object";
+        readonly schemaRef?: string;
+        readonly fields: readonly EntityActionInputField[];
+      };
   readonly required: boolean;
   readonly enum?: readonly string[];
   readonly regex?: string;
+  readonly schemaRef?: string;
+  readonly fields?: readonly EntityActionInputField[];
+  readonly items?: EntityActionInputField;
   readonly cli?: {
     readonly name: string;
     readonly kind: "single" | "repeated" | "boolean";
     readonly error: { readonly code: string };
     readonly jsonFields?: readonly string[];
+    readonly jsonAllowedFields?: readonly string[];
     readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
+    readonly jsonSchema?: {
+      readonly schemaRef: string;
+      readonly fields: readonly EntityActionInputField[];
+    };
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
     readonly projection?: "number" | "fact-hold-array";
@@ -246,7 +270,7 @@ export interface EntityActionInputField {
 }
 
 export interface EntityActionInputContract {
-  readonly schema: "entity-action-input/v1";
+  readonly schema: "entity-action-input/v1" | "entity-action-input/v2";
   readonly fields: readonly EntityActionInputField[];
   readonly exactlyOneOf: readonly (readonly string[])[];
 }
@@ -303,8 +327,8 @@ const entityAction = (
   id: string,
   sdkExposure: EntitySdkExposure = noSdkExposure,
   execution: EntityActionExecutionContract | null = null,
-): EntityActionContract =>
-  Object.freeze({
+): EntityActionContract => {
+  const descriptor: EntityActionContract = {
     id,
     version: CONTRACT_VERSION_1_0,
     actor: Object.freeze({ source: "authenticated-binding" as const, authorityRef: "actor-identity/v1" }),
@@ -314,11 +338,20 @@ const entityAction = (
     criteria: Object.freeze([]),
     concurrency: defaultConcurrency(kind, identity.refTemplate),
     effects: Object.freeze([]),
-    returns: actionResultContract,
+    stateTransition: null,
+    result: DEFAULT_ENTITY_ACTION_RESULT_CONTRACT,
+    failureCodes: Object.freeze([]),
+    publication: null,
+    ownedArtifacts: Object.freeze([]),
+    managedDocuments: Object.freeze([]),
+    followUps: Object.freeze([]),
+    returns: Object.freeze({ schema: "action-result/v1", fields: Object.freeze([]), guidance: Object.freeze([]) }),
     explain: `${kind}.${id} is declared but has no executable implementation.`,
     sdkExposure,
     execution,
-  });
+  };
+  return withDerivedActionReturns(descriptor);
+};
 const noActionCatalog = (ref: string, reason: string) => Object.freeze({ ref, actions: Object.freeze([]), reason });
 
 const executionContract = (
@@ -331,21 +364,6 @@ const emptyActionInput: EntityActionInputContract = Object.freeze({
   schema: "entity-action-input/v1",
   fields: Object.freeze([]),
   exactlyOneOf: Object.freeze([]),
-});
-const actionResultContract = Object.freeze({
-  schema: "action-result/v1" as const,
-  fields: Object.freeze([
-    "outcome",
-    "opId",
-    "unmetCriteria",
-    "effects",
-    "updatedProjection",
-    "rejectionExplanation",
-    "nextAction",
-    "nextActions",
-    "guidance",
-  ]),
-  guidance: Object.freeze([]),
 });
 const defaultConcurrency = (kind: string, refTemplate: string): EntityActionContract["concurrency"] =>
   Object.freeze({
@@ -527,39 +545,36 @@ const executableAction = (
   read = false,
 ) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
-const taskActionCatalog = createTaskActionCatalog(
-  (id) => entityAction("task", taskIdentity, id, taskExposure),
-  actionResultContract,
-);
+const taskActionCatalog = createTaskActionCatalog((id) => entityAction("task", taskIdentity, id, taskExposure));
 
 const scheduleActionCatalog = createScheduleActionCatalog(
   (id) => entityAction("schedule", scheduleIdentity, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const agentActionCatalog = createAgentActionCatalog(
   (id) => entityAction("agent", agentIdentity, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
   (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const settingsActionCatalog = createSettingsActionCatalog(
   (id) => entityAction("settings", settingsIdentity, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const personActionCatalog = createPersonActionCatalog(
   (id) => entityAction("person", personIdentity, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const squadActionCatalog = createSquadActionCatalog(
   (id) => entityAction("squad", requireEntityTypeContract("squad").id, id),
-  actionResultContract,
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
 const factActionCatalog = Object.freeze({
@@ -1018,9 +1033,9 @@ export function getExecutableEntityAction(ingress: string): EntityActionContract
   return undefined;
 }
 
-export function getTaskActionForTransition(transitionId: string): EntityActionContract | undefined {
+export function getTaskActionForTransition(actionId: string): EntityActionContract | undefined {
   return getEntityKindContract("task")?.actionCatalog?.actions.find(
-    (action) => action.execution?.lifecycle?.transitionId === transitionId,
+    (action) => action.id === actionId || action.execution?.lifecycle?.transitionId === actionId,
   );
 }
 
