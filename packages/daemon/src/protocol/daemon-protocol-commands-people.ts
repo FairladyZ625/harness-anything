@@ -35,16 +35,27 @@ const peopleWriteTopology = {
   },
   textInput = (name: string, required: boolean) =>
     cliInput(name, "single", required, { code: "invalid_field" }, { minLength: 1 }),
-  fromFileInput = (requiredFields: readonly string[], allowedFields: readonly string[]) =>
+  packetInputs = (requiredFields: readonly string[], allowedFields: readonly string[]) => [
     cliInput(
       "--from-file",
       "single",
       false,
-      {
-        code: "invalid_field",
-      },
-      { jsonFields: requiredFields, jsonAllowedFields: allowedFields },
+      { code: "invalid_field" },
+      { jsonFields: requiredFields, jsonAllowedFields: allowedFields, conflictsWith: ["--json-input"] },
     ),
+    cliInput(
+      "--json-input",
+      "single",
+      false,
+      { code: "invalid_field" },
+      {
+        jsonFields: requiredFields,
+        jsonAllowedFields: allowedFields,
+        format: "<json|@->",
+        conflictsWith: ["--from-file"],
+      },
+    ),
+  ],
   personIdInput = () =>
     cliInput(
       "--person-id",
@@ -116,7 +127,7 @@ export const peopleProtocolCommands = Object.freeze([
     summary: "Add a Person to people.yaml through the canonical Action writer.",
     method: "repo.task.run",
     inputs: [
-      fromFileInput(peopleAddJsonFields, peopleAddJsonAllowedFields),
+      ...packetInputs(peopleAddJsonFields, peopleAddJsonAllowedFields),
       personIdInput(),
       cliInput(
         "--display-name",
@@ -154,7 +165,7 @@ export const peopleProtocolCommands = Object.freeze([
     summary: "Declare one Actor role on one EntityRef through the canonical Action writer.",
     method: "repo.task.run",
     inputs: [
-      fromFileInput(peopleBindJsonFields, peopleBindJsonAllowedFields),
+      ...packetInputs(peopleBindJsonFields, peopleBindJsonAllowedFields),
       actorInput(),
       roleInput(),
       textInput("--target", false),
@@ -171,7 +182,7 @@ export const peopleProtocolCommands = Object.freeze([
     summary: "Delegate a closed Action set from the authenticated principal to one RuntimeSession.",
     method: "repo.task.run",
     inputs: [
-      fromFileInput(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
+      ...packetInputs(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
       tokenIdInput(),
       cliInput(
         "--runtime-session-id",
@@ -217,7 +228,7 @@ export const peopleProtocolCommands = Object.freeze([
     summary: "Revoke one DelegatedExecutionToken through the canonical Action writer.",
     method: "repo.task.run",
     inputs: [
-      fromFileInput(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
+      ...packetInputs(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
       tokenIdInput(),
       idempotencyInput(),
     ],
@@ -231,7 +242,7 @@ export const peopleProtocolCommands = Object.freeze([
     summary: "Set one Person role and its command classes through the canonical Action writer.",
     method: "repo.task.run",
     inputs: [
-      fromFileInput(peopleSetRoleJsonFields, peopleSetRoleJsonAllowedFields),
+      ...packetInputs(peopleSetRoleJsonFields, peopleSetRoleJsonAllowedFields),
       personIdInput(),
       roleInput(),
       commandClassInput(),
@@ -246,7 +257,11 @@ export const peopleProtocolCommands = Object.freeze([
     path: ["people", "remove"],
     summary: "Remove a Person from people.yaml through the canonical Action writer.",
     method: "repo.task.run",
-    inputs: [fromFileInput(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields), personIdInput(), idempotencyInput()],
+    inputs: [
+      ...packetInputs(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields),
+      personIdInput(),
+      idempotencyInput(),
+    ],
     ...peopleWriteTopology,
   }),
 ]);

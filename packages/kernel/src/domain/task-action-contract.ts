@@ -217,16 +217,26 @@ const taskActionDeclarations = Object.freeze([
     topology: "local-arbiter",
     coordination: "execute",
     targetIdField: "taskId",
-    input: actionInput([
-      taskIdInput,
-      expectedVersionInput,
-      cliField("executionId", "string", false, "--execution-id", "single"),
-      cliField("reviewId", "string", true, "--review-id", "single"),
-      cliField("fromFile", "string", true, "--from-file", "single", {
-        jsonFields: TASK_REVIEW_JSON_FIELDS,
-        jsonEnums: { verdict: REVIEW_V1_SCHEMA.verdicts },
-      }),
-    ]),
+    input: actionInput(
+      [
+        taskIdInput,
+        expectedVersionInput,
+        cliField("executionId", "string", false, "--execution-id", "single"),
+        cliField("reviewId", "string", true, "--review-id", "single"),
+        cliField("fromFile", "string", false, "--from-file", "single", {
+          jsonFields: TASK_REVIEW_JSON_FIELDS,
+          jsonEnums: { verdict: REVIEW_V1_SCHEMA.verdicts },
+          conflictsWith: ["--json-input"],
+        }),
+        cliField("jsonInput", "string", false, "--json-input", "single", {
+          jsonFields: TASK_REVIEW_JSON_FIELDS,
+          jsonEnums: { verdict: REVIEW_V1_SCHEMA.verdicts },
+          format: "<json|@->",
+          conflictsWith: ["--from-file"],
+        }),
+      ],
+      [["fromFile", "jsonInput"]],
+    ),
     policyAction: "task-review-execution",
     criteria: Object.freeze([
       {

@@ -189,7 +189,6 @@ function peopleContract(required: readonly string[], allowed: readonly string[])
   return {
     required,
     allowed,
-    source: "from-file",
     invalid: invalidPersonCommand,
     messages: {
       parse: "People input must be one UTF-8 JSON object; repair the JSON and retry",

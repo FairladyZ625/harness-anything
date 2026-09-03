@@ -143,12 +143,11 @@ function setup(
     }> = [],
     run = () =>
       runTaskCloseoutAction({
-        rootDir,
         action: closeoutAction,
         caller: setupCaller,
         authorizationDecision: { ...authorizationDecision, actor: setupCaller },
         opId: "op-closeout",
-        readWorkspaceText,
+        readPacket: () => readWorkspaceText(rootDir, fromFile, "fromFile"),
         read: async () => initial as never,
         presetSnapshotCurrent: () => presetSnapshotCurrent,
         invoke: async (stage, action, stepActor) => {

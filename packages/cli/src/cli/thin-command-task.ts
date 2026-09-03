@@ -67,13 +67,16 @@ export function parseTask(
     const f = readFlags(id, args.slice(3), inputs);
     if (!f.ok) return rejected(f.code, f.nextAction, json);
     const fromFile = f.one.get("--from-file"),
+      jsonInput = f.one.get("--json-input"),
       printTemplate = f.booleans.has("--print-template"),
       printSchema = f.booleans.has("--print-schema"),
-      modes = Number(fromFile !== undefined) + Number(printTemplate) + Number(printSchema);
+      modes = Number(fromFile !== undefined || jsonInput !== undefined) + Number(printTemplate) + Number(printSchema);
+    if (fromFile !== undefined && jsonInput !== undefined)
+      return rejected("invalid_field", "Use only one of --from-file <path> or --json-input <json|@->.", json);
     if (modes !== 1)
       return rejected(
         modes === 0 ? "missing_field" : "invalid_field",
-        "Choose exactly one of --from-file <judgment.json>, --print-template, or --print-schema.",
+        "Choose exactly one of --from-file <path>, --json-input <json|@->, --print-template, or --print-schema.",
         json,
       );
     const executionId = f.one.get("--execution-id");
@@ -84,6 +87,7 @@ export function parseTask(
       taskId,
       ...(executionId ? { executionId } : {}),
       ...(fromFile ? { fromFile } : {}),
+      ...(jsonInput ? { jsonInput } : {}),
       ...(printTemplate ? { printTemplate: true } : {}),
       ...(printSchema ? { printSchema: true } : {}),
     });
@@ -101,11 +105,17 @@ export function parseTask(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (id === "task-review-consent")
-    return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
+  if (id === "task-review-consent") {
+    const projected = parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
       commandType: "RecordReviewConsent",
     });
+    return projected.ok &&
+      projected.command.action.fromFile !== undefined &&
+      projected.command.action.jsonInput !== undefined
+      ? rejected("invalid_field", "Use only one of --from-file <path> or --json-input <json|@->.", json)
+      : projected;
+  }
   if (id === "task-code-doc-reconcile") return parseCodeDoc(rootDir, repoId, json, args, taskId, inputs);
   if (id === "task-code-doc-repoint") return parseCodeDocRepoint(rootDir, repoId, json, args, taskId, inputs);
   return rejected(
