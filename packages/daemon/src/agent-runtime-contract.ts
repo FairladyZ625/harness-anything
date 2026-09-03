@@ -156,6 +156,26 @@ export type AgentRuntimeEventsResult = {
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
 export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "unattributed";
 export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "lost";
+/**
+ * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
+ * the words the group DTO can report. The kernel keeps its semantic-state list private, so the
+ * two halves are pinned together here rather than restated per caller.
+ */
+export const agentRuntimeSessionGroupStatusWords = Object.freeze([
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "ended-indeterminate",
+  "unavailable",
+  "unknown",
+  "lost",
+] as const satisfies readonly AgentRuntimeSessionGroupStatus[]);
+export const agentRuntimeSessionGroupStatusWordsAreExact: [AgentRuntimeSessionGroupStatus] extends [
+  (typeof agentRuntimeSessionGroupStatusWords)[number],
+]
+  ? true
+  : never = true;
 export interface AgentRuntimeSessionGroupRoundDto {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;

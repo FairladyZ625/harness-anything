@@ -12,6 +12,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import {
+  agentRuntimeSessionGroupStatusWords,
   coded,
   type AgentRuntimeEventsResult,
   type AgentRuntimeInstallationDto,
@@ -19,6 +20,7 @@ import {
   type AgentRuntimeAttemptChainDto,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupsResult,
+  type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeSessionResult,
   isAgentDefinitionSnapshot,
 } from "./agent-runtime-contract.ts";
@@ -317,6 +319,7 @@ function sessionGroupsQuery(
   readonly tokens: readonly string[];
   readonly agentId: string | null;
   readonly squadId: string | null;
+  readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit: number;
 } {
   const keys = Object.keys(payload),
@@ -325,20 +328,23 @@ function sessionGroupsQuery(
     query = payload.query,
     agentId = payload.agentId,
     squadId = payload.squadId,
+    status = payload.status,
     limit = payload.limit;
   if (
-    keys.some((key) => !["groupBy", "since", "query", "agentId", "squadId", "limit"].includes(key)) ||
+    keys.some((key) => !["groupBy", "since", "query", "agentId", "squadId", "status", "limit"].includes(key)) ||
     (groupBy !== undefined && !["task", "squad", "agent", "day"].includes(String(groupBy))) ||
     (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
     (query !== undefined && typeof query !== "string") ||
     (agentId !== undefined && (typeof agentId !== "string" || !agentId)) ||
     (squadId !== undefined && (typeof squadId !== "string" || !squadId)) ||
+    (status !== undefined && !isSessionGroupStatusSelection(status)) ||
     (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000)) ||
     !Number.isFinite(Date.parse(now))
   )
     throw coded(
       "invalid_request",
-      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, and limit 1..1000.",
+      "Agent runtime session groups accept groupBy, ISO since, text query, exact agent/squad ids, " +
+        `status among ${agentRuntimeSessionGroupStatusWords.join(", ")}, and limit 1..1000.`,
     );
   return {
     groupBy: groupBy === "squad" || groupBy === "agent" || groupBy === "day" ? groupBy : "task",
@@ -349,8 +355,20 @@ function sessionGroupsQuery(
     tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
     agentId: typeof agentId === "string" ? agentId : null,
     squadId: typeof squadId === "string" ? squadId : null,
+    status: status === undefined ? [] : (status as readonly AgentRuntimeSessionGroupStatus[]),
     limit: typeof limit === "number" ? limit : 200,
   };
+}
+
+/**
+ * A status selection is a non-empty array of the group status words. An empty array is rejected
+ * rather than read as "no filter": the caller that sends one meant to narrow and would otherwise
+ * be handed every session back without being told why.
+ */
+function isSessionGroupStatusSelection(value: unknown): boolean {
+  const words: readonly string[] = agentRuntimeSessionGroupStatusWords;
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.every((entry) => typeof entry === "string" && words.includes(entry));
 }
 
 function overviewQuery(payload: Readonly<Record<string, unknown>>): {

@@ -20,6 +20,11 @@ interface AgentRuntimeSessionGroupsQuery {
   /** 精确归属过滤(G12 §4b):按派工行的 agentId/squadId 精确匹配,替代子串检索。 */
   readonly agentId: string | null;
   readonly squadId: string | null;
+  /**
+   * 状态维度筛选:成员级、与检索词同层。空集合表示不筛。作用在成员而非组的
+   * `latestStatus` 上——后者会把「含 failed 成员但最新是 succeeded」的组整个滤掉。
+   */
+  readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit: number;
 }
 
@@ -56,7 +61,11 @@ export function buildAgentRuntimeSessionGroups(input: {
         input,
       ),
     ),
-    filtered = members.filter((member) => input.query.tokens.every((token) => member.searchable.includes(token))),
+    filtered = members.filter(
+      (member) =>
+        (input.query.status.length === 0 || input.query.status.includes(member.status)) &&
+        input.query.tokens.every((token) => member.searchable.includes(token)),
+    ),
     accumulators = new Map<string, GroupAccumulator>();
   for (const member of filtered) addMember(accumulators, member);
   const allGroups = [...accumulators.values()].map(finishGroup).sort(compareGroups),

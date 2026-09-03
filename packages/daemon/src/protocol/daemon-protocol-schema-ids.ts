@@ -226,6 +226,7 @@ export const daemonUseCaseProjectionPayloadShape = shape({
   squadId: "string?",
   since: "string?",
   query: "string?",
+  status: "array?",
   limit: "number?",
 });
 

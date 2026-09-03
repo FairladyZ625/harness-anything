@@ -71,6 +71,9 @@ test("session groups are contracted as a use-case projection with bounded daemon
   assert.notDeepEqual(call({ cursor: "not-in-v1" }), []);
   assert.notDeepEqual(call({ agentId: "" }), []);
   assert.notDeepEqual(call({ squadId: 7 }), []);
+  // 状态筛选是同一条读的一个入参,不是第二个读:传输层收数组、拒非数组。
+  assert.deepEqual(call({ groupBy: "task", status: ["failed", "lost"] }), []);
+  assert.notDeepEqual(call({ status: "failed" }), []);
 });
 
 test("session groups default to active plus 24h and group/filter/limit before returning exact totals", () => {
@@ -359,4 +362,107 @@ test("session-group activity is derived from time instants, so mixed ISO precisi
     groups.map(({ key }) => key),
     ["task-mixed", "task-other"],
   );
+});
+
+/** 状态筛选与桶命名共用的读模型:与上面几个用例同一份 fixture,只是不再重复注入样板。 */
+function statusReads() {
+  return makeAgentRuntimeReadModel({
+    projection: projectionFixture(),
+    store: {} as never,
+    stream: {} as never,
+    now: () => "2026-08-26T12:00:00.000Z",
+    readDispatches: ({ sessions: selected }) => {
+      const taskIds = new Set(selected.flatMap((session) => session.taskBindings.map(({ taskId }) => taskId)));
+      return dispatches.filter(({ taskId }) => taskIds.has(taskId));
+    },
+  });
+}
+
+const SINCE_ALL = "2026-08-01T00:00:00.000Z";
+
+test("session groups narrow by status on the daemon side, as a set, composed with every other filter", () => {
+  const reads = statusReads(),
+    unfiltered = reads.sessionGroups({ since: SINCE_ALL });
+  assert.deepEqual(unfiltered.totals, { groups: 4, sessions: 4 });
+
+  // 单状态:严格小于不过滤,且留下的组成员状态确实匹配。
+  const failed = parseSessionGroupsProjection(reads.sessionGroups({ since: SINCE_ALL, status: ["failed"] }));
+  assert.deepEqual(
+    failed.groups.map(({ key, latestStatus, sessionCount }) => ({ key, latestStatus, sessionCount })),
+    [{ key: "task-b", latestStatus: "failed", sessionCount: 1 }],
+  );
+  assert.deepEqual(failed.totals, { groups: 1, sessions: 1 });
+  assert.equal(failed.totals.sessions < unfiltered.totals.sessions, true);
+
+  // 集合语义:检索框的 token 是 AND,写不出「failed 或 running」;status 是 OR。
+  assert.deepEqual(reads.sessionGroups({ since: SINCE_ALL, query: "failed running" }).totals, {
+    groups: 0,
+    sessions: 0,
+  });
+  const eitherOr = reads.sessionGroups({ since: SINCE_ALL, status: ["failed", "running"] });
+  assert.deepEqual(eitherOr.groups.map(({ key }) => key).sort(), ["task-b", "task-c"]);
+  assert.deepEqual(eitherOr.totals, { groups: 2, sessions: 2 });
+
+  // 与 groupBy / query / agentId 组合:三个维度同时生效,不是任取其一。
+  const combined = reads.sessionGroups({
+    groupBy: "agent",
+    since: SINCE_ALL,
+    status: ["running"],
+    query: "luna",
+  });
+  assert.deepEqual(
+    combined.groups.map(({ key, sessionCount }) => ({ key, sessionCount })),
+    [{ key: "luna", sessionCount: 1 }],
+  );
+  assert.deepEqual(reads.sessionGroups({ since: SINCE_ALL, status: ["running"], agentId: "sol" }).totals, {
+    groups: 0,
+    sessions: 0,
+  });
+
+  // truncated 跟着过滤后的集合走,不是过滤前的组数。
+  const truncated = reads.sessionGroups({ since: SINCE_ALL, status: ["failed", "running"], limit: 1 });
+  assert.equal(truncated.truncated, true);
+  assert.deepEqual(truncated.totals, { groups: 2, sessions: 2 });
+  assert.equal(reads.sessionGroups({ since: SINCE_ALL, status: ["failed"], limit: 1 }).truncated, false);
+
+  // 非法取值报 invalid_request,不静默忽略;空数组同样被拒(发空集的调用方想收窄)。
+  for (const status of [["nope"], [], "failed", ["failed", 7]])
+    assert.throws(
+      () => reads.sessionGroups({ since: SINCE_ALL, status }),
+      (error: unknown) => (error as { code?: string }).code === "invalid_request",
+      `status ${JSON.stringify(status)} must be rejected, not silently ignored`,
+    );
+});
+
+test("status narrowing selects members, not the group's latestStatus", () => {
+  // 同一个任务的两条会话:较新的成功、较早的失败。按组的 latestStatus 过滤会把整组滤掉;
+  // 按成员过滤必须留下这个组,并且组头仍报它自己的 latestStatus。
+  const mixed: readonly RuntimeSession[] = [
+    runtimeSession("runtime-late", "instance-m", "2026-08-26T11:30:00.000Z", "exited", "succeeded", ["task-m"]),
+    runtimeSession("runtime-early", "instance-m", "2026-08-26T10:30:00.000Z", "exited", "failed", ["task-m"]),
+  ];
+  const reads = makeAgentRuntimeReadModel({
+    projection: {
+      readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+      readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
+      readRuntimeSessions: () => mixed,
+      readRuntimeDispatches: () => mixed.map(runtimeDispatch),
+      readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
+        rows: taskIds.map((taskId) => ({ taskId, title: taskId, packagePath: null, sessions: mixed })),
+      }),
+      read: (taskId: string) => ({ snapshot: { task: { title: taskId } } }),
+      getEntity: (_kind: string, id: string) => ({ value: { name: id } }),
+    } as unknown as TaskProjection,
+    store: {} as never,
+    stream: {} as never,
+    now: () => "2026-08-26T12:00:00.000Z",
+    readDispatches: () => [],
+  });
+  assert.equal(reads.sessionGroups({}).groups.find(({ key }) => key === "task-m")?.latestStatus, "succeeded");
+  const failedMembers = reads.sessionGroups({ status: ["failed"] });
+  assert.deepEqual(
+    failedMembers.groups.map(({ key, sessionCount, latestStatus }) => ({ key, sessionCount, latestStatus })),
+    [{ key: "task-m", sessionCount: 1, latestStatus: "failed" }],
+  );
+  assert.deepEqual(failedMembers.totals, { groups: 1, sessions: 1 });
 });
