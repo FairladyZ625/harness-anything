@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { ArrowClockwise } from "@phosphor-icons/react";
 import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../system-data.ts";
+import { DaemonTailPane, type ObserveLogKind } from "../components/observe/DaemonTailPane.tsx";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime, formatUptimeMs } from "../model/time.ts";
@@ -13,6 +15,12 @@ import { RepoModeBadge } from "../components/RepoModeBadge.tsx";
  * gui-system-status/v1 契约里没有投影,呈现为「—」并在 title 说明,不伪造。
  * 机器值(generation 序号、recovery 毫秒)保留为次级行,不再作为唯一呈现。
  */
+// G36:长 Tailwind 串按段拼装,单行不超过 120 列。
+const LOGS_NOTICE = [
+  "rounded-lg border border-status-blocked/30 bg-status-blocked/5",
+  "px-3 py-2 ui-meta text-status-blocked",
+].join(" ");
+
 const dash = () => t("views.settingsView.systemUnknownDash");
 const dateTime = (iso: string) => formatTime(iso, { style: "date-time-seconds" }) ?? dash();
 const uptime = (uptimeMs: number | undefined): string => formatUptimeMs(uptimeMs, dash());
@@ -44,6 +52,19 @@ const REPO_STATE = {
   unavailable: ["text-status-blocked", "stateUnavailable"],
   not_loaded: ["text-text-muted", "stateNotLoaded"],
 } as const;
+
+/**
+ * `observe.tail` 是 requiresRepo 的读面,守护进程自己的日志也要借一个已挂载仓做路由。
+ * 系统页优先借当前仓,否则借任一已挂载仓;一个都没有时返回 null,
+ * 由调用方显式说明为何读不到。
+ */
+export function observeRouteRepoId(
+  repos: ReadonlyArray<Pick<SystemRepoRow, "repoId" | "cellState">>,
+  activeRepoId: string | null,
+): string | null {
+  const attached = repos.filter((repo) => repo.cellState === "attached");
+  return attached.find((repo) => repo.repoId === activeRepoId)?.repoId ?? attached[0]?.repoId ?? null;
+}
 
 /** 全局队列深度:daemon 契约未投影,由各仓队列求和派生(archive 线 service.queue.depth 的等价口径)。 */
 export function totalQueueDepth(repos: ReadonlyArray<Pick<SystemRepoRow, "queueDepth">>): number | null {
@@ -144,14 +165,17 @@ function RepoRow({
 export function SystemView({
   activeRepoId,
   onOpenObserve,
+  onNavigateEntity,
 }: {
   readonly activeRepoId: string | null;
   /** 打开某仓的 daemon 观察详情页(事件流 + 日志流);attached 仓才有入口。 */
   readonly onOpenObserve: (repoId: string) => void;
+  readonly onNavigateEntity: (ref: string) => void;
 }) {
   const status = useSystemStatusQuery(),
     control = useDaemonControl(activeRepoId),
-    receipt = control.receipt;
+    receipt = control.receipt,
+    [logKind, setLogKind] = useState<ObserveLogKind>("lifecycle");
   if (status.isPending) return <div className="p-6 text-text-faint">{t("views.settingsView.systemLoading")}</div>;
   if (status.isError || !status.data)
     return (
@@ -162,7 +186,8 @@ export function SystemView({
   const daemon = status.data.daemon,
     attached = status.data.repos.filter((repo) => repo.cellState === "attached").length,
     unavailable = status.data.repos.filter((repo) => repo.cellState === "unavailable").length,
-    queueDepth = totalQueueDepth(status.data.repos);
+    queueDepth = totalQueueDepth(status.data.repos),
+    logRepoId = observeRouteRepoId(status.data.repos, activeRepoId);
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
@@ -311,6 +336,37 @@ export function SystemView({
           )}
         </section>
       </div>
+      <section data-testid="system-daemon-logs" className="flex h-[24rem] min-h-0 w-full flex-col px-4 pb-4">
+        <p data-testid="system-daemon-logs-scope" className="pb-1.5 ui-micro text-text-faint">
+          {t("views.systemView.logsScope", { daemonId: daemon.daemonId })}
+        </p>
+        {logRepoId === null ? (
+          <p data-testid="system-daemon-logs-unavailable" className={LOGS_NOTICE}>
+            {t("views.systemView.logsNoRoute")}
+          </p>
+        ) : (
+          <DaemonTailPane
+            key={logKind}
+            repoId={logRepoId}
+            kind={logKind}
+            title={t("views.systemView.logsTitle")}
+            kindOptions={[
+              {
+                value: "lifecycle",
+                label: t("views.systemView.logsKindLifecycle"),
+                tip: t("views.systemView.logsKindLifecycleTip"),
+              },
+              {
+                value: "daemon-log",
+                label: t("views.systemView.logsKindConn"),
+                tip: t("views.systemView.logsKindConnTip"),
+              },
+            ]}
+            onKindChange={setLogKind}
+            onNavigateEntity={(ref) => onNavigateEntity(`repo/${logRepoId}/${ref}`)}
+          />
+        )}
+      </section>
     </div>
   );
 }

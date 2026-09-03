@@ -692,6 +692,7 @@ function AppShell() {
               ) : view === "system" ? (
                 <SystemView
                   activeRepoId={activeRepoId}
+                  onNavigateEntity={navigateToEntity}
                   onOpenObserve={(repoId) =>
                     navigate({
                       view: "daemonObserve",

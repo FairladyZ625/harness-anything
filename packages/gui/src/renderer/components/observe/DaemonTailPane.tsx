@@ -30,8 +30,8 @@ import {
  * an empty list.
  */
 
-/** 日志栏可切的 kind(events 之外的每一路都是日志形状的行)。 */
-export type ObserveLogKind = Extract<ObserveTailKind, "repo-log" | "daemon-log">;
+/** 可切的日志来源:词表由 daemon 的 observe.tail kind 决定,GUI 不另写一份来源清单。 */
+export type ObserveLogKind = Exclude<ObserveTailKind, "events">;
 
 const TAIL_FOLLOW_MS = 1_000,
   TAIL_CATCHUP_MS = 0,
@@ -79,12 +79,15 @@ function rowTone(ok: boolean | null): string {
 export function DaemonTailPane({
   repoId,
   kind,
+  title,
   kindOptions,
   onKindChange,
   onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly kind: ObserveTailKind;
+  /** Overrides the default pane heading; the System tab names the sink it is showing. */
+  readonly title?: string;
   readonly kindOptions?: readonly { readonly value: ObserveLogKind; readonly label: string; readonly tip?: string }[];
   readonly onKindChange?: (kind: ObserveLogKind) => void;
   readonly onNavigateEntity: (ref: string) => void;
@@ -125,7 +128,7 @@ export function DaemonTailPane({
     >
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">
-          {isLogPane ? t("views.daemonObserve.logTitle") : t("views.daemonObserve.eventsTitle")}
+          {title ?? (isLogPane ? t("views.daemonObserve.logTitle") : t("views.daemonObserve.eventsTitle"))}
         </h2>
         {kindOptions && onKindChange ? (
           <span role="group" className="inline-flex overflow-hidden rounded border border-border-strong">

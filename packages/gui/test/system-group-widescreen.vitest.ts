@@ -206,7 +206,11 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
       : testId === "adapters-content"
         ? createElement(AdaptersView, { repoId: REPO_ID, tasks: [] })
         : testId === "system-content"
-          ? createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: () => undefined })
+          ? createElement(SystemView, {
+              activeRepoId: REPO_ID,
+              onOpenObserve: () => undefined,
+              onNavigateEntity: () => undefined,
+            })
           : createElement(SettingsView, { repoId: REPO_ID }),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
@@ -235,7 +239,11 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
 
   it("system 仓库表截断列宽保留(有意列宽),表体仍随外层铺满", async () => {
     const container = await mountView(
-      createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: () => undefined }),
+      createElement(SystemView, {
+        activeRepoId: REPO_ID,
+        onOpenObserve: () => undefined,
+        onNavigateEntity: () => undefined,
+      }),
     );
     const cappedCells = container.querySelectorAll("td.max-w-\\[16rem\\]");
     expect(cappedCells.length).toBeGreaterThan(0);
@@ -246,7 +254,11 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
   it("attached 仓库行最右侧显示明确的观察按钮", async () => {
     const opened: string[] = [],
       container = await mountView(
-        createElement(SystemView, { activeRepoId: REPO_ID, onOpenObserve: (repoId) => opened.push(repoId) }),
+        createElement(SystemView, {
+          activeRepoId: REPO_ID,
+          onOpenObserve: (repoId: string) => opened.push(repoId),
+          onNavigateEntity: () => undefined,
+        }),
       ),
       button = container.querySelector('[data-testid="system-repo-observe"]') as HTMLButtonElement;
     expect(button).toBeTruthy();

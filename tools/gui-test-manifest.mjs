@@ -82,4 +82,5 @@ export const guiVitestManifest = [
   "packages/gui/test/view-in-graph-button.vitest.tsx",
   "packages/gui/test/local-doc-reader.vitest.tsx",
   "packages/gui/test/markdown-links.vitest.ts",
+  "packages/gui/test/system-observe.vitest.ts",
 ];
