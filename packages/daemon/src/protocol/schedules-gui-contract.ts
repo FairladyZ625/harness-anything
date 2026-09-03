@@ -1,3 +1,4 @@
+import { SCHEDULE_MIN_EVERY_MS } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
 /** Schedule GUI wire contract(S4)。一次 `repo.schedules.list` 的 DTO 是定义 ledger +
@@ -219,7 +220,7 @@ function validTriggerDto(value: unknown): boolean {
     Object.keys(value).length === 5 &&
     ((value.kind === "interval" &&
       Number.isSafeInteger(value.everyMs) &&
-      Number(value.everyMs) >= 60_000 &&
+      Number(value.everyMs) >= SCHEDULE_MIN_EVERY_MS &&
       value.expression === null &&
       value.timezone === null) ||
       (value.kind === "cron" &&

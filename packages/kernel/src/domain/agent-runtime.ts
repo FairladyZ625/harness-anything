@@ -268,6 +268,30 @@ export function runtimeSessionInActivityWindow(
   );
 }
 
+/** 活动时间派生的唯一实现(取最新 + 排序比较)。语义与上面的 runtimeSessionInActivityWindow
+ * 一致:比时间瞬值而非字符串,不同毫秒精度/秒精度的 ISO 戳不会因字典序错判先后或进出窗口。
+ * timestamp() 只要求以 `Z` 结尾的合法 ISO,小数秒可选且位数不限,所以同一条流上会共存
+ * `...:00Z` 与 `...:00.001Z`;字典序下 `"Z"(0x5A) > "."(0x2E)`,更早的那条会被判成更晚。
+ * 跨节点聚合读尤其吃这个:一次聚合的成员会话可以散在不同边缘节点,每条 lastObservedAt 来自
+ * 各自事件的 occurredAt,精度并不统一。非法 ISO 直接抛错(fail-closed),与 since 的处置相同。 */
+export function compareRuntimeActivity(left: string, right: string): number {
+  return runtimeActivityTime(left) - runtimeActivityTime(right);
+}
+
+/** 一组已落盘观测时间按瞬值取 max。epoch 仅是空集的 max 恒等元,不是读取兜底:它出现在结果里
+ * 只意味着这一组确实一条已落盘观测都没有。 */
+export function latestRuntimeActivityAt(stamps: Iterable<string>): string {
+  let latest = "1970-01-01T00:00:00.000Z";
+  for (const stamp of stamps) if (compareRuntimeActivity(stamp, latest) > 0) latest = stamp;
+  return latest;
+}
+
+function runtimeActivityTime(stamp: string): number {
+  const time = Date.parse(stamp);
+  if (!Number.isFinite(time)) throw new Error("runtime activity derivation requires an ISO timestamp");
+  return time;
+}
+
 interface RuntimePayloads {
   readonly runtime_installation_observed: {
     readonly installationId: string;

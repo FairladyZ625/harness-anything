@@ -1,5 +1,12 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
+  parseScheduleDuration,
+  scheduleDurationUnitMs,
+  scheduleDurationUnits,
+  splitScheduleDuration,
+  type ScheduleDurationUnit,
+} from "../../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
+import {
   isAvailableScheduleGuiAgentOption,
   type ScheduleGuiAgentOptionDto,
   ScheduleGuiOptionsDto,
@@ -15,19 +22,20 @@ import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar }
 // those segments render as selectable scaffolding with the boundary stated in
 // the UI — cron blocks the save, mode/routing ride along unpersisted — instead of
 // silently dropping the user's choice or fabricating a save.
-type DurationUnit = "m" | "h" | "d";
-const UNIT_MS: Record<DurationUnit, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
+/** 时长控件的单位表来自 protocol 的唯一词表(`daemon-protocol-vocabulary.ts`),表单不再自带
+ * 一份:少一个单位就等于把不能被它整除的 everyMs 在打开表单时四舍五入掉,保存即静默改写。 */
+const UNIT_LABEL_KEY: Readonly<Record<ScheduleDurationUnit, MessageKey>> = {
+  ms: "schedules.form.milliseconds",
+  s: "schedules.form.seconds",
+  m: "schedules.form.minutes",
+  h: "schedules.form.hours",
+  d: "schedules.form.days",
+};
 type TriggerKind = "interval" | "cron";
 type CronFrequency = "daily" | "weekly";
 /** Cron weekday numbers, displayed Monday-first; 0 = Sunday. */
 const CRON_WEEKDAYS: readonly number[] = [1, 2, 3, 4, 5, 6, 0];
 const WEEKDAY_KEY = (day: number): MessageKey => `schedules.form.cron.weekday.${day === 0 ? 7 : day}` as MessageKey;
-
-function durationOf(everyMs: number): { readonly amount: string; readonly unit: DurationUnit } {
-  for (const unit of ["d", "h", "m"] as const)
-    if (everyMs % UNIT_MS[unit] === 0) return { amount: String(everyMs / UNIT_MS[unit]), unit };
-  return { amount: String(Math.max(1, Math.round(everyMs / UNIT_MS.m))), unit: "m" };
-}
 
 /** Calendar UI → cron expression (design Q5 leaning b): the builder emits the
  * trigger spec the daemon will evaluate; the renderer never computes nextRun. */
@@ -81,12 +89,12 @@ export function ScheduleForm({
         !isAvailableScheduleGuiAgentOption(option),
     ),
     initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
-    duration = durationOf(initial?.trigger.everyMs ?? 30 * UNIT_MS.m),
+    duration = splitScheduleDuration(initial?.trigger.everyMs ?? 30 * scheduleDurationUnitMs("m")),
     [scheduleId, setScheduleId] = useState(initial?.scheduleId ?? ""),
     [name, setName] = useState(initial?.name ?? ""),
     [triggerKind, setTriggerKind] = useState<TriggerKind>("interval"),
-    [amount, setAmount] = useState(duration.amount),
-    [unit, setUnit] = useState<DurationUnit>(duration.unit),
+    [amount, setAmount] = useState(String(duration.amount)),
+    [unit, setUnit] = useState<ScheduleDurationUnit>(duration.unit),
     [cronFrequency, setCronFrequency] = useState<CronFrequency>("daily"),
     [cronTime, setCronTime] = useState("02:30"),
     [cronWeekdays, setCronWeekdays] = useState<ReadonlySet<number>>(() => new Set([1])),
@@ -127,13 +135,10 @@ export function ScheduleForm({
       () => buildCronExpression(cronFrequency, cronTime, cronWeekdays),
       [cronFrequency, cronTime, cronWeekdays],
     ),
-    numericAmount = Number(amount),
+    // 词表既是校验也是换算:能被 parse 读回的就是合法间隔,下限也由词表持有,表单不再自带门槛。
+    intervalMs = parseScheduleDuration(`${amount}${unit}`),
     duplicate = initial === null && scheduleIds.includes(scheduleId),
-    intervalReady =
-      Number.isSafeInteger(numericAmount) &&
-      numericAmount > 0 &&
-      Number.isSafeInteger(numericAmount * UNIT_MS[unit]) &&
-      numericAmount * UNIT_MS[unit] >= UNIT_MS.m,
+    intervalReady = intervalMs !== null,
     ready =
       /^[a-z0-9][a-z0-9-]{0,63}$/u.test(scheduleId) &&
       !duplicate &&
@@ -147,11 +152,11 @@ export function ScheduleForm({
       mission.trim().length > 0 &&
       options.cwd.includes(cwd);
   const submit = () => {
-    if (!ready || instance === null) return;
+    if (!ready || instance === null || intervalMs === null) return;
     const base: ScheduleDefinitionInput = {
       scheduleId,
       name: name.trim(),
-      everyMs: numericAmount * UNIT_MS[unit],
+      everyMs: intervalMs,
       agentId,
       runtimeInstanceId: instance.instanceId,
       mission: mission.trim(),
@@ -218,11 +223,13 @@ export function ScheduleForm({
                   data-testid="schedule-form-unit"
                   className="control"
                   value={unit}
-                  onChange={(event) => setUnit(event.target.value as DurationUnit)}
+                  onChange={(event) => setUnit(event.target.value as ScheduleDurationUnit)}
                 >
-                  <option value="m">{t("schedules.form.minutes")}</option>
-                  <option value="h">{t("schedules.form.hours")}</option>
-                  <option value="d">{t("schedules.form.days")}</option>
+                  {scheduleDurationUnits.map((option) => (
+                    <option key={option} value={option}>
+                      {t(UNIT_LABEL_KEY[option])}
+                    </option>
+                  ))}
                 </select>
               </span>
             </FormField>

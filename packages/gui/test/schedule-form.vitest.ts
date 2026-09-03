@@ -236,3 +236,33 @@ describe("segmented guided form (M5)", () => {
     );
   });
 });
+
+describe("interval round-trip (schedule duration vocabulary)", () => {
+  it("re-saves a 90s interval unchanged instead of rounding it to the nearest minute", async () => {
+    const onSubmit = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(ScheduleFormDialog, {
+          options,
+          scheduleIds: [],
+          initial: {
+            ...initialRow,
+            trigger: { ...initialRow.trigger, kind: "interval", everyMs: 90_000, summary: "every 90s" },
+          } as ScheduleGuiRowDto,
+          busy: false,
+          error: null,
+          onCancel: () => undefined,
+          onSubmit,
+        }),
+      );
+    });
+    mounted.push({ root, container });
+    // 只改 mission,不碰时长控件:保存不得改写 everyMs。
+    await setValue(container, "schedule-form-mission", "Keep the mainline green, again.");
+    await click(container, "schedule-form-submit");
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ everyMs: 90_000 }));
+  });
+});

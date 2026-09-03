@@ -1,4 +1,10 @@
-import { runtimeSessionIsRunning, runtimeSessionSemanticState, type RuntimeSession } from "../../kernel/src/index.ts";
+import {
+  compareRuntimeActivity,
+  latestRuntimeActivityAt,
+  runtimeSessionIsRunning,
+  runtimeSessionSemanticState,
+  type RuntimeSession,
+} from "../../kernel/src/index.ts";
 import type {
   AgentRuntimeSessionGroupBy,
   AgentRuntimeSessionGroupDto,
@@ -222,10 +228,7 @@ function finishGroup(group: GroupAccumulator): AgentRuntimeSessionGroupDto {
   const members = [...group.members.values()],
     rounds = [...group.rounds.values()].sort(compareMembers),
     latest = rounds[0] ?? members.sort(compareMembers)[0] ?? null,
-    latestActivityAt = members.reduce(
-      (value, member) => (member.session.lastObservedAt > value ? member.session.lastObservedAt : value),
-      "1970-01-01T00:00:00.000Z",
-    );
+    latestActivityAt = latestRuntimeActivityAt(members.map((member) => member.session.lastObservedAt));
   return {
     ...group.identity,
     latestStatus: latest?.status ?? "unknown",
@@ -283,7 +286,7 @@ function compareGroups(left: AgentRuntimeSessionGroupDto, right: AgentRuntimeSes
   return (
     unattributedOrder ||
     runningOrder ||
-    right.latestActivityAt.localeCompare(left.latestActivityAt) ||
+    compareRuntimeActivity(right.latestActivityAt, left.latestActivityAt) ||
     left.key.localeCompare(right.key)
   );
 }

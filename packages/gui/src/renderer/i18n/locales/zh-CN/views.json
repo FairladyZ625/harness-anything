@@ -482,6 +482,8 @@
   "schedules.form.every": "间隔",
   "schedules.form.everyAmount": "间隔数值",
   "schedules.form.everyUnit": "间隔单位",
+  "schedules.form.milliseconds": "毫秒",
+  "schedules.form.seconds": "秒",
   "schedules.form.minutes": "分钟",
   "schedules.form.hours": "小时",
   "schedules.form.days": "天",

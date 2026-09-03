@@ -1,6 +1,8 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
+  compareRuntimeActivity,
+  latestRuntimeActivityAt,
   runtimeProtocolFamilies,
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,

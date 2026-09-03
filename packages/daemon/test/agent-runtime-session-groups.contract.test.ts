@@ -312,3 +312,51 @@ function dispatch(
     ...optional,
   };
 }
+
+/** 阴性对照:`timestamp()` 允许小数秒可选且位数不限,所以同一条流上会同时出现
+ * `...:00Z` 与 `...:00.001Z`。字典序下 `"Z"(0x5A) > "."(0x2E)`,更早的那条会被判成更晚——
+ * 取 max 与分组排序都必须按时间瞬值判定。 */
+const mixedPrecisionSessions: readonly RuntimeSession[] = [
+  runtimeSession("runtime-coarse", "instance-x", "2026-08-27T10:00:00Z", "exited", "succeeded", ["task-mixed"]),
+  runtimeSession("runtime-fine", "instance-x", "2026-08-27T10:00:00.001Z", "exited", "succeeded", ["task-mixed"]),
+  runtimeSession("runtime-other", "instance-y", "2026-08-27T09:00:00Z", "exited", "succeeded", ["task-other"]),
+];
+
+function mixedPrecisionProjection(): TaskProjection {
+  return {
+    readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+    readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
+    readRuntimeSessions: () => mixedPrecisionSessions,
+    readRuntimeDispatches: () => mixedPrecisionSessions.map(runtimeDispatch),
+    readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
+      rows: taskIds.map((taskId) => ({
+        taskId,
+        title: taskId,
+        packagePath: null,
+        sessions: mixedPrecisionSessions.filter((session) =>
+          session.taskBindings.some((binding) => binding.taskId === taskId),
+        ),
+      })),
+    }),
+    read: (taskId: string) => ({ snapshot: { task: { title: taskId } } }),
+    getEntity: (kind: string, id: string) => ({ value: { name: id } }),
+  } as unknown as TaskProjection;
+}
+
+test("session-group activity is derived from time instants, so mixed ISO precision never inverts the order", () => {
+  const reads = makeAgentRuntimeReadModel({
+    projection: mixedPrecisionProjection(),
+    store: {} as never,
+    stream: {} as never,
+    now: () => "2026-08-27T12:00:00.000Z",
+    readDispatches: () => [],
+  });
+  const groups = reads.sessionGroups({ groupBy: "task", since: "2026-08-27T00:00:00.000Z" }).groups;
+  const mixed = groups.find(({ key }) => key === "task-mixed");
+  assert.equal(mixed?.latestActivityAt, "2026-08-27T10:00:00.001Z");
+  // 排序键同样按瞬值:两个组的活动时间只差 1ms,字典序会把 09:00:00Z 的组排到前面。
+  assert.deepEqual(
+    groups.map(({ key }) => key),
+    ["task-mixed", "task-other"],
+  );
+});

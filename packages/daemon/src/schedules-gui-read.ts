@@ -12,6 +12,7 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
+import { formatScheduleDuration } from "./protocol/daemon-protocol-vocabulary.ts";
 import type {
   ScheduleExecutionAvailability,
   ScheduleGuiAgentOptionDto,
@@ -69,7 +70,7 @@ function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
       everyMs: trigger.everyMs,
       expression: null,
       timezone: null,
-      summary: `every ${formatEveryMs(trigger.everyMs)}`,
+      summary: `every ${formatScheduleDuration(trigger.everyMs)}`,
     };
   return {
     kind: "cron",
@@ -78,16 +79,6 @@ function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
     timezone: trigger.timezone,
     summary: `${trigger.expression} (${trigger.timezone})`,
   };
-}
-
-function formatEveryMs(everyMs: number): string {
-  const units: readonly [number, string][] = [
-    [86_400_000, "d"],
-    [3_600_000, "h"],
-    [60_000, "m"],
-  ];
-  for (const [size, suffix] of units) if (everyMs >= size && everyMs % size === 0) return `${everyMs / size}${suffix}`;
-  return `${Math.max(1, Math.round(everyMs / 1000))}s`;
 }
 
 function viewerNodeIdOf(mode: DaemonRepoMode, rootDir: string): string | null {
