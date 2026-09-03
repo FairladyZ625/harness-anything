@@ -2,7 +2,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { brotliCompressSync, constants } from "node:zlib";
+import { format } from "prettier";
+import prettierConfig from "../prettier.config.mjs";
 import { getEntityKindContract } from "../packages/kernel/src/index.ts";
 
 const target = path.resolve(import.meta.dirname, "../packages/preset/src/preset-command-contract.ts"),
@@ -11,6 +12,7 @@ const target = path.resolve(import.meta.dirname, "../packages/preset/src/preset-
 
 function projectField(field) {
   const jsonSchema = field.cli?.jsonSchema,
+    defaultError = field.required ? "missing_field" : "invalid_field",
     jsonEnums =
       jsonSchema &&
       Object.fromEntries(
@@ -20,14 +22,15 @@ function projectField(field) {
       );
   return {
     field: field.field,
-    ...(field.type ? { type: field.type } : {}),
-    required: field.required,
+    ...(field.type && field.type !== "string" ? { type: field.type } : {}),
+    ...(field.required ? { required: true } : {}),
     ...(field.enum ? { enum: field.enum } : {}),
     ...(field.regex ? { regex: field.regex } : {}),
     ...(field.cli
       ? {
           cli: {
-            ...Object.fromEntries(Object.entries(field.cli).filter(([key]) => key !== "jsonSchema")),
+            ...Object.fromEntries(Object.entries(field.cli).filter(([key]) => key !== "jsonSchema" && key !== "error")),
+            ...(field.cli.error.code === defaultError ? {} : { error: field.cli.error.code }),
             ...(jsonSchema
               ? {
                   jsonFields: jsonSchema.fields.filter(({ required }) => required).map(({ field }) => field),
@@ -76,19 +79,59 @@ export function projectTaskActions() {
   };
 }
 
-export function renderTaskActionProtocolProjection() {
-  const encoded = brotliCompressSync(JSON.stringify(projectTaskActions()), {
-      params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
-    }).toString("base64"),
-    chunks = encoded.match(/[\s\S]{1,112}/gu) ?? [];
-  return [
-    startMarker,
-    `const TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI = [\n${chunks.map((chunk) => `  "${chunk}",`).join("\n")}\n].join("");`,
-    "const taskActionDescriptorProjection = JSON.parse(",
-    '  brotliDecompressSync(Buffer.from(TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI, "base64")).toString("utf8"),',
-    ") as GeneratedTaskActionProtocolProjection;",
-    endMarker,
-  ].join("\n");
+function inlineJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(inlineJson).join(", ")}]`;
+  return `{ ${Object.entries(value)
+    .map(([key, item]) => `${JSON.stringify(key)}: ${inlineJson(item)}`)
+    .join(", ")} }`;
+}
+
+function readableJson(value, depth = 0) {
+  const indentation = "  ".repeat(depth),
+    inline = inlineJson(value);
+  if (indentation.length + inline.length <= 120) return inline;
+  const childIndentation = "  ".repeat(depth + 1);
+  if (Array.isArray(value))
+    return `[\n${value
+      .map((item) => `${childIndentation}${readableJson(item, depth + 1)}`)
+      .join(",\n")}\n${indentation}]`;
+  const entries = Object.entries(value).map(([key, item]) => {
+      const prefix = `${JSON.stringify(key)}:`,
+        rendered = readableJson(item, depth + 1),
+        firstLine = `${childIndentation}${prefix} ${rendered.split("\n", 1)[0]}`;
+      if (firstLine.length <= 120) return `${prefix} ${rendered}`;
+      const nestedIndentation = "  ".repeat(depth + 2),
+        nested = readableJson(item, depth + 2);
+      return `${prefix}\n${nestedIndentation}${nested}`;
+    }),
+    groups = [];
+  let current = "";
+  for (const entry of entries) {
+    const candidate = current ? `${current}, ${entry}` : `${childIndentation}${entry}`;
+    if (!entry.includes("\n") && candidate.length <= 120) {
+      current = candidate;
+      continue;
+    }
+    if (current) groups.push(current);
+    current = "";
+    groups.push(`${childIndentation}${entry}`);
+  }
+  if (current) groups.push(current);
+  return `{\n${groups.join(",\n")}\n${indentation}}`;
+}
+
+export async function renderTaskActionProtocolProjection() {
+  const projection = readableJson(projectTaskActions()),
+    rendered = await format(
+      [
+        startMarker,
+        `const taskActionDescriptorProjection = ${projection} as GeneratedTaskActionProtocolProjection;`,
+        endMarker,
+      ].join("\n"),
+      { ...prettierConfig, parser: "typescript" },
+    );
+  return rendered.trimEnd();
 }
 
 function region(source) {
@@ -98,13 +141,13 @@ function region(source) {
   return source.slice(start, end + endMarker.length);
 }
 
-export function generateTaskActionProtocolProjection(check = false) {
+export async function generateTaskActionProtocolProjection(check = false) {
   const source = readFileSync(target, "utf8"),
     current = region(source),
-    expected = renderTaskActionProtocolProjection();
+    expected = await renderTaskActionProtocolProjection();
   if (check && current !== expected) throw new Error("Task Action protocol projection is stale; run its generator.");
   if (!check) writeFileSync(target, source.replace(current, expected));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  generateTaskActionProtocolProjection(process.argv.includes("--check"));
+  await generateTaskActionProtocolProjection(process.argv.includes("--check"));

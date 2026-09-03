@@ -236,16 +236,111 @@ const mutationConcurrency: EntityActionContract["concurrency"] = Object.freeze({
 });
 const criterion = (ref: string, failureCode: string, explain: string) => Object.freeze({ ref, failureCode, explain });
 
+const lifecycleSpecs = Object.freeze({
+  create: {
+    ingress: "task-create",
+    commandType: "CreateReplayTask",
+    transitionId: "create_replay_task",
+    implementation: "task-lifecycle",
+    topology: "center-forward-write",
+    coordination: "execute",
+    eventType: "task_created",
+    proof: ["taskIdUnique", "actorBinding", "validGraph"],
+  },
+  start: {
+    ingress: "task-start",
+    commandType: "StartExecution",
+    transitionId: "start_execution",
+    implementation: "task-lifecycle",
+    topology: "center-forward-write",
+    coordination: "reserve",
+    eventType: "execution_started",
+    proof: ["actorBinding", "reservation"],
+  },
+  transition: {
+    ingress: "task-transition",
+    commandType: "TransitionTask",
+    transitionId: "transition_task",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "task_transitioned",
+    proof: ["auditedReasonWhenRequired"],
+  },
+  submit: {
+    ingress: "task-submit",
+    commandType: "SubmitExecution",
+    transitionId: "submit_execution",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "execution_submitted",
+    proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
+  },
+  review: {
+    ingress: "task-review-execution",
+    commandType: "RecordReview",
+    transitionId: "record_execution_review",
+    implementation: "task-lifecycle",
+    topology: "local-arbiter",
+    coordination: "execute",
+    eventType: "review_recorded",
+    proof: ["independentActor", "execution-review@v1", "contentCut"],
+  },
+  consent: {
+    ingress: "task-review-consent",
+    commandType: "RecordReviewConsent",
+    transitionId: "record_review_consent",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "review_consent_recorded",
+    proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
+  },
+  reconcile: {
+    ingress: "task-code-doc-reconcile",
+    commandType: "ReconcileCodeDoc",
+    transitionId: "reconcile_code_doc",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "code_doc_reconciled",
+    proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
+  },
+  repoint: {
+    ingress: "task-code-doc-repoint",
+    commandType: "RepointCodeDoc",
+    transitionId: "repoint_code_doc",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "code_doc_repointed",
+    proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
+  },
+  complete: {
+    ingress: "task-complete",
+    commandType: "CompleteTask",
+    transitionId: "complete_task",
+    implementation: "task-completion",
+    topology: "ledger-write",
+    coordination: "execute",
+    eventType: "task_completed",
+    proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
+  },
+} as const);
+type LifecycleId = keyof typeof lifecycleSpecs;
+type LifecycleSpec = (typeof lifecycleSpecs)[LifecycleId];
+
 interface Declaration {
   readonly id: string;
-  readonly ingress: string;
-  readonly commandType: string | null;
-  readonly transitionId: string | null;
-  readonly implementation: "task-lifecycle" | "task-completion" | "catalog-runtime";
-  readonly topology: "center-forward-write" | "ledger-write" | "local-arbiter";
-  readonly coordination: "reserve" | "execute" | null;
-  readonly eventType: string | null;
-  readonly proof: readonly string[];
+  readonly ingress: LifecycleSpec["ingress"] | `task-${string}`;
+  readonly commandType: LifecycleSpec["commandType"] | null;
+  readonly transitionId: LifecycleSpec["transitionId"] | null;
+  readonly implementation: LifecycleSpec["implementation"] | "catalog-runtime";
+  readonly topology: LifecycleSpec["topology"];
+  readonly coordination: LifecycleSpec["coordination"] | null;
+  readonly eventType: LifecycleSpec["eventType"] | null;
+  readonly proof: LifecycleSpec["proof"] | readonly [];
   readonly targetIdField: string;
   readonly input: EntityActionInputContract;
   readonly policyAction: string;
@@ -254,118 +349,17 @@ interface Declaration {
   readonly explain: string;
 }
 
-const lifecycleSpecs = Object.freeze({
-  create: [
-    "task-create",
-    "CreateReplayTask",
-    "create_replay_task",
-    "task-lifecycle",
-    "center-forward-write",
-    "execute",
-    "task_created",
-    ["taskIdUnique", "actorBinding", "validGraph"],
-  ],
-  start: [
-    "task-start",
-    "StartExecution",
-    "start_execution",
-    "task-lifecycle",
-    "center-forward-write",
-    "reserve",
-    "execution_started",
-    ["actorBinding", "reservation"],
-  ],
-  transition: [
-    "task-transition",
-    "TransitionTask",
-    "transition_task",
-    "task-lifecycle",
-    "ledger-write",
-    "execute",
-    "task_transitioned",
-    ["auditedReasonWhenRequired"],
-  ],
-  submit: [
-    "task-submit",
-    "SubmitExecution",
-    "submit_execution",
-    "task-lifecycle",
-    "ledger-write",
-    "execute",
-    "execution_submitted",
-    ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
-  ],
-  review: [
-    "task-review-execution",
-    "RecordReview",
-    "record_execution_review",
-    "task-lifecycle",
-    "local-arbiter",
-    "execute",
-    "review_recorded",
-    ["independentActor", "execution-review@v1", "contentCut"],
-  ],
-  consent: [
-    "task-review-consent",
-    "RecordReviewConsent",
-    "record_review_consent",
-    "task-lifecycle",
-    "ledger-write",
-    "execute",
-    "review_consent_recorded",
-    ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
-  ],
-  reconcile: [
-    "task-code-doc-reconcile",
-    "ReconcileCodeDoc",
-    "reconcile_code_doc",
-    "task-lifecycle",
-    "ledger-write",
-    "execute",
-    "code_doc_reconciled",
-    ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
-  ],
-  repoint: [
-    "task-code-doc-repoint",
-    "RepointCodeDoc",
-    "repoint_code_doc",
-    "task-lifecycle",
-    "ledger-write",
-    "execute",
-    "code_doc_repointed",
-    ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
-  ],
-  complete: [
-    "task-complete",
-    "CompleteTask",
-    "complete_task",
-    "task-completion",
-    "ledger-write",
-    "execute",
-    "task_completed",
-    ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
-  ],
-} as const);
-type LifecycleId = keyof typeof lifecycleSpecs;
 const lifecycle = (
   id: LifecycleId,
   value: Pick<Declaration, "input" | "criteria" | "concurrency" | "explain">,
 ): Declaration => {
-  const [ingress, commandType, transitionId, implementation, topology, coordination, eventType, proof] =
-    lifecycleSpecs[id];
+  const spec = lifecycleSpecs[id];
   return Object.freeze({
     ...value,
     id,
-    ingress,
-    commandType,
-    transitionId,
-    implementation,
-    topology,
-    coordination,
-    eventType,
-    proof,
+    ...spec,
     targetIdField: "taskId",
-    policyAction: ingress,
+    policyAction: spec.ingress,
   });
 };
 const mutation = (
@@ -385,7 +379,7 @@ const mutation = (
     topology: id === "release" ? "center-forward-write" : "ledger-write",
     coordination: null,
     eventType: null,
-    proof: Object.freeze([]),
+    proof: Object.freeze([] as const),
     targetIdField,
     input: actionInput,
     policyAction: `task-${id}`,

@@ -1,17 +1,24 @@
-import { brotliDecompressSync } from "node:zlib";
-import type { EntityActionContract, EntityActionInputField } from "../../kernel/src/index.ts";
+import type {
+  CliInputError,
+  CliInputFacet,
+  CommandAdmission,
+  CommandAdmissionRoute,
+  CommandTopology,
+  GeneratedTaskActionProtocolProjection,
+  RpcShape,
+} from "./preset-command-contract-support.ts";
 
-export interface CliInputError {
-  readonly code: string;
-}
-export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
-export type CommandAdmission = Readonly<
-  Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
->;
-export interface CommandTopology {
-  readonly commandClass: "admin" | "repo-write" | "repo-read" | "arbiter";
-  readonly admission: CommandAdmission;
-}
+export type {
+  CliInputError,
+  CliInputFacet,
+  CommandAdmission,
+  CommandAdmissionRoute,
+  CommandTopology,
+  GeneratedTaskActionInputField,
+  GeneratedTaskActionProtocolDeclaration,
+  RpcShape,
+} from "./preset-command-contract-support.ts";
+
 const commandTopology = (
   commandClass: CommandTopology["commandClass"],
   center: CommandAdmissionRoute,
@@ -34,37 +41,9 @@ export const repoReadCommandTopology = commandTopology("repo-read", "direct", "d
   centerRepairWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
   localArbiterCommandTopology = commandTopology("arbiter", "rejected", "rejected"),
   hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
-export interface CliInputFacet {
-  readonly name: string;
-  readonly kind: "single" | "repeated" | "boolean";
-  readonly required: boolean;
-  readonly enum?: readonly string[];
-  readonly regex?: string;
-  readonly error: CliInputError;
-  readonly jsonFields?: readonly string[];
-  readonly jsonAllowedFields?: readonly string[];
-  readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
-  readonly format?: string;
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly lengthUnit?: "characters" | "bytes";
-  readonly minItems?: number;
-  readonly maxItems?: number;
-  readonly unique?: boolean;
-  readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
-  readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
-  readonly requires?: readonly string[];
-  readonly requiresAny?: readonly string[];
-  readonly conflictsWith?: readonly string[];
-}
-export type RpcShape = {
-  readonly fields: Readonly<
-    Record<string, "string" | "number" | "boolean?" | "string?" | "json" | "json?" | "array" | "array?" | RpcShape>
-  >;
-  readonly open?: boolean;
-};
 const shape = (fields: RpcShape["fields"]): RpcShape => ({ fields }),
   repo = shape({ repoId: "string" });
+
 export function cliInput<const Extra extends Readonly<Record<string, unknown>> = Readonly<Record<string, never>>>(
   name: string,
   kind: CliInputFacet["kind"],
@@ -76,6 +55,7 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
     CliInputFacet & Extra
   >;
 }
+
 export function regexLength(regex: string | undefined): readonly [number, number] | undefined {
   const match = regex?.match(
     /^\^(?:\[(?:\\.|[^\]\\\r\n])*\]|\\(?:[dDsSwW]|[pP]\{[^}\r\n]+\})|\.)(?:\{(\d+)(?:,(\d+))?\})\$$/u,
@@ -85,11 +65,13 @@ export function regexLength(regex: string | undefined): readonly [number, number
     max = Number(match[2] ?? match[1]);
   return Number.isSafeInteger(min) && Number.isSafeInteger(max) ? [min, max] : undefined;
 }
+
 export function parameterRelationHint(value: string): boolean {
   return /(?:\b(?:exactly one|one of|either|together|not both|only valid|requires|without|with)\b|,\s*or\b)/iu.test(
     value,
   );
 }
+
 export function cliInputHelp(input: CliInputFacet): string {
   const facts = [
     input.required ? "required" : input.requiredWhen ? "conditionally required" : "optional",
@@ -123,123 +105,11 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.conflictsWith?.length) facts.push(`mutually exclusive with: ${input.conflictsWith.join(", ")}`);
   return `${input.name} — ${facts.join("; ")}`;
 }
+
 export function cliCommandHelp(inputs: readonly CliInputFacet[]): string {
   return inputs.map((input) => `    ${cliInputHelp(input)}`).join("\n");
 }
-export type GeneratedTaskActionInputField = Pick<
-  EntityActionInputField,
-  "field" | "type" | "required" | "enum" | "regex"
-> & { readonly cli?: Omit<NonNullable<EntityActionInputField["cli"]>, "jsonSchema"> };
-export interface GeneratedTaskActionProtocolDeclaration {
-  readonly id: string;
-  readonly input: {
-    readonly schema: "entity-action-input/v1";
-    readonly fields: readonly GeneratedTaskActionInputField[];
-    readonly exactlyOneOf: readonly (readonly string[])[];
-  };
-  readonly explain: string;
-  readonly execution: Pick<NonNullable<EntityActionContract["execution"]>, "ingress" | "topology"> & {
-    readonly lifecycle: Pick<
-      NonNullable<NonNullable<EntityActionContract["execution"]>["lifecycle"]>,
-      "transitionId" | "commandType" | "targetIdField" | "coordination"
-    >;
-  };
-}
-interface GeneratedTaskActionProtocolProjection {
-  readonly writeReceiptFields: readonly string[];
-  readonly taskCreateResultFields: readonly string[];
-  readonly actions: readonly GeneratedTaskActionProtocolDeclaration[];
-}
 
-// task-action-projection:generated:start
-const TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI = [
-  "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",
-].join("");
-const taskActionDescriptorProjection = JSON.parse(
-  brotliDecompressSync(Buffer.from(TASK_ACTION_DESCRIPTOR_PROJECTION_BROTLI, "base64")).toString("utf8"),
-) as GeneratedTaskActionProtocolProjection;
-// task-action-projection:generated:end
-
-const allTaskActionProtocolDeclarations = taskActionDescriptorProjection.actions,
-  taskCreateAction = allTaskActionProtocolDeclarations.find(({ id }) => id === "create");
-if (!taskCreateAction) throw new Error("task.create action projection is missing.");
-export function taskCreateEnum(field: string): readonly string[] {
-  const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
-  if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
-  return values;
-}
-const taskCreatePacketFieldNames = taskCreateAction.input.fields.find(({ field }) => field === "fromFile")?.cli
-  ?.jsonAllowedFields;
-if (!taskCreatePacketFieldNames) throw new Error("task.create packet projection is missing.");
-const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) =>
-  taskCreatePacketFieldNames.includes(field),
-);
-export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
-export const generatedTaskActionProtocolDeclarations = Object.freeze(
-  allTaskActionProtocolDeclarations.filter(({ id }) => id !== "create"),
-);
-export const generatedWriteReceiptFields = Object.freeze([...taskActionDescriptorProjection.writeReceiptFields]);
-export const generatedTaskCreateResultFields = Object.freeze(
-  taskActionDescriptorProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
-);
-
-const taskCreateCliInputs = Object.freeze(
-  taskCreateAction.input.fields.flatMap((field) => {
-    if (!field.cli) return [];
-    const cli = field.cli;
-    return [
-      cliInput(cli.name, cli.kind, field.required, cli.error, {
-        field: field.field,
-        ...(field.enum ? { enum: field.enum } : {}),
-        ...(field.regex ? { regex: field.regex } : {}),
-        ...cli,
-      }),
-    ];
-  }),
-);
-const consentJsonFieldProjection = generatedTaskActionProtocolDeclarations
-  .find(({ id }) => id === "consent")
-  ?.input.fields.find(({ field }) => field === "fromFile")?.cli?.jsonAllowedFields;
-if (!consentJsonFieldProjection) throw new Error("task.consent packet projection is missing.");
-export const consentJsonFields = Object.freeze([...consentJsonFieldProjection]);
-export const decisionProposalJsonFields = Object.freeze([
-  "title",
-  "question",
-  "riskTier",
-  "urgency",
-  "vertical",
-  "preset",
-  "decisionClass",
-  "appliesTo",
-  "chosen",
-  "rejected",
-  "claims",
-  "fulfillments",
-] as const);
 export function defineCliCommand<
   const Command extends {
     readonly path: readonly string[];
@@ -268,6 +138,7 @@ export function defineCliCommand<
   // is the source of truth, so a positional like <task-id> survives every rebuild automatically.
   return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help });
 }
+
 type CliCommandDeclaration = {
   readonly path: readonly string[];
   readonly syntaxPath?: readonly string[];
@@ -285,6 +156,611 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineCenterRepairWriteCommand = defineTopologyCommand(centerRepairWriteCommandTopology),
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),
   defineHostAdminCommand = defineTopologyCommand(hostAdminCommandTopology);
+
+export const decisionProposalJsonFields = Object.freeze([
+  "title",
+  "question",
+  "riskTier",
+  "urgency",
+  "vertical",
+  "preset",
+  "decisionClass",
+  "appliesTo",
+  "chosen",
+  "rejected",
+  "claims",
+  "fulfillments",
+] as const);
+
+// task-action-projection:generated:start
+const taskActionDescriptorProjection = {
+  writeReceiptFields: [
+    "outcome",
+    "opId",
+    "authorizationDecision",
+    "revision",
+    "code",
+    "origin",
+    "evidence",
+    "visibility",
+    "proof",
+    "detail",
+    "commitSha",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextAction",
+    "nextActions",
+    "guidance",
+    "diagnostic",
+    "cut",
+  ],
+  taskCreateResultFields: [
+    "outcome",
+    "opId",
+    "authorizationDecision",
+    "revision",
+    "code",
+    "origin",
+    "evidence",
+    "visibility",
+    "proof",
+    "detail",
+    "commitSha",
+    "unmetCriteria",
+    "effects",
+    "updatedProjection",
+    "rejectionExplanation",
+    "nextAction",
+    "nextActions",
+    "guidance",
+    "diagnostic",
+    "cut",
+    "taskId",
+    "status",
+    "packagePath",
+    "generatedPaths",
+    "presetDigest",
+    "scaffoldDigest",
+    "presetId",
+    "profileId",
+    "outputShape",
+    "completionGates",
+    "dryRun",
+  ],
+  actions: [
+    {
+      id: "create",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "title", cli: { name: "--title", kind: "single", error: "missing_field" } },
+          { field: "taskId", cli: { name: "--id", kind: "single" } },
+          { field: "idempotencyKey", cli: { name: "--idempotency-key", kind: "single" } },
+          { field: "parentTaskId", cli: { name: "--parent", kind: "single" } },
+          {
+            field: "workKind",
+            enum: ["feat", "fix", "refactor", "docs", "test", "chore"],
+            cli: { name: "--kind", kind: "single" },
+          },
+          { field: "riskTier", enum: ["low", "medium", "high"], cli: { name: "--risk-tier", kind: "single" } },
+          { field: "urgency", enum: ["low", "medium", "high"], cli: { name: "--urgency", kind: "single" } },
+          {
+            field: "fromFile",
+            cli: {
+              conflictsWith: ["--json-input"],
+              name: "--from-file",
+              kind: "single",
+              jsonFields: ["title"],
+              jsonAllowedFields: [
+                "title",
+                "taskId",
+                "idempotencyKey",
+                "parentTaskId",
+                "workKind",
+                "riskTier",
+                "urgency",
+                "verticalId",
+                "presetId",
+                "profileId",
+                "moduleKey",
+                "registerModule",
+                "slug",
+                "surfaces",
+                "taskClass",
+                "locale",
+                "fromLegacyId",
+                "createMode",
+              ],
+              jsonEnums: {
+                workKind: ["feat", "fix", "refactor", "docs", "test", "chore"],
+                riskTier: ["low", "medium", "high"],
+                urgency: ["low", "medium", "high"],
+                taskClass: ["standard", "milestone", "epic", "long_running"],
+                locale: ["en-US", "zh-CN"],
+                createMode: ["migration", "import", "admin"],
+              },
+            },
+          },
+          {
+            field: "jsonInput",
+            cli: {
+              format: "<json|@->",
+              conflictsWith: ["--from-file"],
+              name: "--json-input",
+              kind: "single",
+              jsonFields: ["title"],
+              jsonAllowedFields: [
+                "title",
+                "taskId",
+                "idempotencyKey",
+                "parentTaskId",
+                "workKind",
+                "riskTier",
+                "urgency",
+                "verticalId",
+                "presetId",
+                "profileId",
+                "moduleKey",
+                "registerModule",
+                "slug",
+                "surfaces",
+                "taskClass",
+                "locale",
+                "fromLegacyId",
+                "createMode",
+              ],
+              jsonEnums: {
+                workKind: ["feat", "fix", "refactor", "docs", "test", "chore"],
+                riskTier: ["low", "medium", "high"],
+                urgency: ["low", "medium", "high"],
+                taskClass: ["standard", "milestone", "epic", "long_running"],
+                locale: ["en-US", "zh-CN"],
+                createMode: ["migration", "import", "admin"],
+              },
+            },
+          },
+          { field: "verticalId", cli: { name: "--vertical", kind: "single" } },
+          { field: "presetId", cli: { name: "--preset", kind: "single" } },
+          { field: "profileId", cli: { name: "--profile", kind: "single" } },
+          { field: "moduleKey", cli: { name: "--module", kind: "single" } },
+          { field: "registerModuleKey", cli: { name: "--register-module", kind: "single" } },
+          { field: "moduleTitle", cli: { name: "--module-title", kind: "single" } },
+          { field: "modulePrefix", cli: { name: "--module-prefix", kind: "single" } },
+          { field: "moduleScope", cli: { name: "--module-scope", kind: "single" } },
+          {
+            field: "slug",
+            regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$",
+            cli: { name: "--slug", kind: "single" },
+          },
+          { field: "surfaces", type: "string-array", cli: { name: "--surface", kind: "repeated" } },
+          {
+            field: "taskClass",
+            enum: ["standard", "milestone", "epic", "long_running"],
+            cli: { name: "--task-class", kind: "single" },
+          },
+          { field: "dryRun", type: "boolean", cli: { name: "--dry-run", kind: "boolean" } },
+          { field: "locale", enum: ["en-US", "zh-CN"], cli: { name: "--locale", kind: "single" } },
+          { field: "fromLegacyId", cli: { name: "--from-legacy", kind: "single" } },
+          { field: "migration", type: "boolean", cli: { name: "--migration", kind: "boolean" } },
+          { field: "import", type: "boolean", cli: { name: "--import", kind: "boolean" } },
+          { field: "admin", type: "boolean", cli: { name: "--admin", kind: "boolean" } },
+          { field: "registerModule", type: "json-object" },
+          { field: "createMode", enum: ["migration", "import", "admin"] },
+          { field: "commandType", enum: ["CreateReplayTask"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Create a canonical replay/v1 Task and its declared scaffold artifacts.",
+      execution: {
+        ingress: "task-create",
+        topology: "center-forward-write",
+        lifecycle: {
+          transitionId: "create_replay_task",
+          commandType: "CreateReplayTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "start",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId", cli: { name: "--execution-id", kind: "single" } },
+          {
+            field: "ttlMs",
+            type: "number",
+            regex: "^[1-9][0-9]*$",
+            cli: { projection: "number", name: "--ttl-ms", kind: "single" },
+          },
+          { field: "dryRun", type: "boolean", cli: { name: "--dry-run", kind: "boolean" } },
+          { field: "commandType", enum: ["StartExecution"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Acquire or idempotently reuse the authenticated actor's execution lease.",
+      execution: {
+        ingress: "task-start",
+        topology: "center-forward-write",
+        lifecycle: {
+          transitionId: "start_execution",
+          commandType: "StartExecution",
+          targetIdField: "executionId",
+          coordination: "reserve",
+        },
+      },
+    },
+    {
+      id: "transition",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          {
+            field: "status",
+            required: true,
+            enum: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+          },
+          { field: "reason", cli: { name: "--reason", kind: "single" } },
+          { field: "force", type: "boolean", cli: { name: "--force", kind: "boolean" } },
+          { field: "commandType", enum: ["TransitionTask"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Move the canonical Task status while preserving its independent graph cursor.",
+      execution: {
+        ingress: "task-transition",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "transition_task",
+          commandType: "TransitionTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "submit",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId", cli: { name: "--execution-id", kind: "single" } },
+          { field: "amend", type: "boolean", cli: { name: "--amend", kind: "boolean" } },
+          { field: "completionClaim" },
+          { field: "deliverables", type: "string-array" },
+          { field: "outputs", type: "string-array" },
+          { field: "verificationNotes", type: "string-array" },
+          { field: "knownGaps", type: "string-array" },
+          { field: "residualRisks", type: "string-array" },
+          { field: "commitSha" },
+          {
+            field: "fromFile",
+            cli: {
+              conflictsWith: ["--json-input"],
+              name: "--from-file",
+              kind: "single",
+              jsonFields: [
+                "completionClaim",
+                "deliverables",
+                "outputs",
+                "verificationNotes",
+                "knownGaps",
+                "residualRisks",
+                "commitSha",
+              ],
+              jsonAllowedFields: [
+                "completionClaim",
+                "deliverables",
+                "outputs",
+                "verificationNotes",
+                "knownGaps",
+                "residualRisks",
+                "commitSha",
+              ],
+            },
+          },
+          {
+            field: "jsonInput",
+            cli: {
+              format: "<json|@->",
+              conflictsWith: ["--from-file"],
+              name: "--json-input",
+              kind: "single",
+              jsonFields: [
+                "completionClaim",
+                "deliverables",
+                "outputs",
+                "verificationNotes",
+                "knownGaps",
+                "residualRisks",
+                "commitSha",
+              ],
+              jsonAllowedFields: [
+                "completionClaim",
+                "deliverables",
+                "outputs",
+                "verificationNotes",
+                "knownGaps",
+                "residualRisks",
+                "commitSha",
+              ],
+            },
+          },
+          { field: "verb", enum: ["submit"] },
+          { field: "commandType", enum: ["SubmitExecution"] },
+        ],
+        exactlyOneOf: [["fromFile", "jsonInput"]],
+      },
+      explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
+      execution: {
+        ingress: "task-submit",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "submit_execution",
+          commandType: "SubmitExecution",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "review",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId", cli: { name: "--execution-id", kind: "single" } },
+          { field: "reviewId", required: true, cli: { name: "--review-id", kind: "single" } },
+          { field: "verdict", enum: ["approved", "changes_requested", "dismissed"] },
+          { field: "reason" },
+          { field: "evidenceChecked", type: "string-array" },
+          {
+            field: "fromFile",
+            cli: {
+              conflictsWith: ["--json-input"],
+              name: "--from-file",
+              kind: "single",
+              jsonFields: ["verdict", "reason", "evidenceChecked"],
+              jsonAllowedFields: ["verdict", "reason", "evidenceChecked"],
+              jsonEnums: { verdict: ["approved", "changes_requested", "dismissed"] },
+            },
+          },
+          {
+            field: "jsonInput",
+            cli: {
+              format: "<json|@->",
+              conflictsWith: ["--from-file"],
+              name: "--json-input",
+              kind: "single",
+              jsonFields: ["verdict", "reason", "evidenceChecked"],
+              jsonAllowedFields: ["verdict", "reason", "evidenceChecked"],
+              jsonEnums: { verdict: ["approved", "changes_requested", "dismissed"] },
+            },
+          },
+          { field: "commandType", enum: ["RecordReview"] },
+        ],
+        exactlyOneOf: [["fromFile", "jsonInput"]],
+      },
+      explain: "Record an independent, content-pinned review for the submitted execution.",
+      execution: {
+        ingress: "task-review-execution",
+        topology: "local-arbiter",
+        lifecycle: {
+          transitionId: "record_execution_review",
+          commandType: "RecordReview",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "consent",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId", cli: { name: "--execution-id", kind: "single" } },
+          { field: "reviewId", cli: { name: "--review-id", kind: "single" } },
+          {
+            field: "consentId",
+            required: true,
+            cli: { name: "--consent-id", kind: "single", error: "invalid_field" },
+          },
+          { field: "reviewDigest" },
+          { field: "contentDigest" },
+          {
+            field: "fromFile",
+            cli: {
+              conflictsWith: ["--json-input"],
+              name: "--from-file",
+              kind: "single",
+              jsonFields: ["reviewDigest", "contentDigest"],
+              jsonAllowedFields: ["reviewDigest", "contentDigest"],
+            },
+          },
+          {
+            field: "jsonInput",
+            cli: {
+              format: "<json|@->",
+              conflictsWith: ["--from-file"],
+              name: "--json-input",
+              kind: "single",
+              jsonFields: ["reviewDigest", "contentDigest"],
+              jsonAllowedFields: ["reviewDigest", "contentDigest"],
+            },
+          },
+          { field: "commandType", enum: ["RecordReviewConsent"] },
+        ],
+        exactlyOneOf: [["fromFile", "jsonInput"]],
+      },
+      explain: "Select a recorded Review with content-pinned owner consent.",
+      execution: {
+        ingress: "task-review-consent",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "record_review_consent",
+          commandType: "RecordReviewConsent",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "reconcile",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId" },
+          { field: "witnessId" },
+          { field: "commitSha" },
+          { field: "iteration", type: "number" },
+          {
+            field: "paths",
+            type: "string-array",
+            required: true,
+            cli: { name: "--path", kind: "repeated" },
+          },
+          { field: "commandType", enum: ["ReconcileCodeDoc"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Publish a typed code-doc witness.",
+      execution: {
+        ingress: "task-code-doc-reconcile",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "reconcile_code_doc",
+          commandType: "ReconcileCodeDoc",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "repoint",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "record", required: true, cli: { name: "--record", kind: "single" } },
+          { field: "repointId" },
+          { field: "commitSha" },
+          { field: "paths", type: "string-array", cli: { name: "--path", kind: "repeated" } },
+          { field: "reason", required: true, cli: { name: "--reason", kind: "single" } },
+          { field: "commandType", enum: ["RepointCodeDoc"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Append an audited code-doc witness correction for a completed task.",
+      execution: {
+        ingress: "task-code-doc-repoint",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "repoint_code_doc",
+          commandType: "RepointCodeDoc",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
+      id: "complete",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", required: true },
+          { field: "expectedVersion", type: "number" },
+          { field: "executionId", cli: { name: "--execution-id", kind: "single" } },
+          { field: "ci", enum: ["passed"], cli: { name: "--ci", kind: "single" } },
+          { field: "paths", type: "string-array", cli: { name: "--path", kind: "repeated" } },
+          {
+            field: "factHolds",
+            type: "fact-hold-array",
+            regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
+            cli: {
+              format: "<fact-id>:<rationale>",
+              projection: "fact-hold-array",
+              name: "--fact-holds",
+              kind: "repeated",
+            },
+          },
+          { field: "verb", enum: ["complete"] },
+          { field: "commandType", enum: ["CompleteTask"] },
+        ],
+        exactlyOneOf: [],
+      },
+      explain: "Complete the reviewed execution after canonical closeout readiness and gate checks.",
+      execution: {
+        ingress: "task-complete",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "complete_task",
+          commandType: "CompleteTask",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+  ],
+} as GeneratedTaskActionProtocolProjection;
+// task-action-projection:generated:end
+
+const allTaskActionProtocolDeclarations = taskActionDescriptorProjection.actions,
+  taskCreateAction = allTaskActionProtocolDeclarations.find(({ id }) => id === "create");
+if (!taskCreateAction) throw new Error("task.create action projection is missing.");
+export function taskCreateEnum(field: string): readonly string[] {
+  const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
+  if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
+  return values;
+}
+const taskCreatePacketFieldNames = taskCreateAction.input.fields.find(({ field }) => field === "fromFile")?.cli
+  ?.jsonAllowedFields;
+if (!taskCreatePacketFieldNames) throw new Error("task.create packet projection is missing.");
+const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) =>
+  taskCreatePacketFieldNames.includes(field),
+);
+export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
+export const generatedTaskActionProtocolDeclarations = Object.freeze(
+  allTaskActionProtocolDeclarations.filter(({ id }) => id !== "create"),
+);
+export const generatedWriteReceiptFields = Object.freeze([...taskActionDescriptorProjection.writeReceiptFields]);
+export const generatedTaskCreateResultFields = Object.freeze(
+  taskActionDescriptorProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
+);
+
+const taskCreateCliInputs = Object.freeze(
+  taskCreateAction.input.fields.flatMap((field) => {
+    if (!field.cli) return [];
+    const cli = field.cli,
+      error = Object.freeze({ code: cli.error ?? (field.required ? "missing_field" : "invalid_field") });
+    return [
+      cliInput(cli.name, cli.kind, field.required === true, error, {
+        field: field.field,
+        ...(field.enum ? { enum: field.enum } : {}),
+        ...(field.regex ? { regex: field.regex } : {}),
+        ...cli,
+      }),
+    ];
+  }),
+);
+const consentJsonFieldProjection = generatedTaskActionProtocolDeclarations
+  .find(({ id }) => id === "consent")
+  ?.input.fields.find(({ field }) => field === "fromFile")?.cli?.jsonAllowedFields;
+if (!consentJsonFieldProjection) throw new Error("task.consent packet projection is missing.");
+export const consentJsonFields = Object.freeze([...consentJsonFieldProjection]);
 export const presetCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-create",

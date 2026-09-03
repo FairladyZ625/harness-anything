@@ -32,7 +32,10 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
             Object.freeze({
               ...field.cli,
               field: field.field,
-              required: field.required,
+              required: field.required === true,
+              error: Object.freeze({
+                code: field.cli.error ?? (field.required ? "missing_field" : "invalid_field"),
+              }),
               ...(field.enum ? { enum: field.enum } : {}),
               ...(field.regex ? { regex: field.regex } : {}),
             }),

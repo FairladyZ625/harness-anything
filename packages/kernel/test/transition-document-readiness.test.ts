@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   assessTransitionDocument,
   assertTransitionDocumentReady,
+  getTaskActionForTransition,
   requireTransitionDocumentKind,
 } from "../src/index.ts";
 
@@ -47,6 +48,16 @@ test("transition document bindings enumerate canonical consumers and omit milest
     ],
   );
   assert.throws(() => requireTransitionDocumentKind("milestone.closeout"), /no canonical document binding/u);
+});
+
+test("task document readiness resolves a dotted transition id directly from its descriptor", () => {
+  const transition = "task.complete",
+    action = getTaskActionForTransition(transition);
+  assert.equal(action?.id, "complete");
+  assert.equal(
+    action?.managedDocuments.find(({ readinessRequired }) => readinessRequired)?.slot,
+    requireTransitionDocumentKind(transition),
+  );
 });
 
 test("task plan rejects pure scaffolds but accepts a retained scaffold sentence plus concrete content", () => {

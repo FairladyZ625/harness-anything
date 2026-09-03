@@ -52,6 +52,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       action.effects.every(({ ref }) => ref.includes("task-lifecycle") || ref.includes("task-mutation")),
       action.id,
     );
+    assert.equal(action.result.schema, "entity-action-result/v2");
     assert.equal(action.returns.schema, "action-result/v1");
     assert.deepEqual(validateEntityActionDescriptor(action), [], action.id);
     assert.ok(action.explain.length > 0);
@@ -75,6 +76,132 @@ test("all public Task writes are complete executable Action contracts", () => {
     "contract-migrate",
   ]);
   assert.deepEqual(explainEntityKind("agent").transitions.available, ["install", "validate", "list", "inspect"]);
+});
+
+test("named lifecycle specifications preserve every execution metadata field", () => {
+  const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [];
+  assert.deepEqual(
+    actions.flatMap((action) => {
+      const execution = action.execution,
+        lifecycle = execution?.lifecycle;
+      return execution && lifecycle
+        ? [
+            {
+              id: action.id,
+              ingress: execution.ingress,
+              commandType: lifecycle.commandType,
+              transitionId: lifecycle.transitionId,
+              implementation: execution.implementation,
+              topology: execution.topology,
+              coordination: lifecycle.coordination,
+              eventType: lifecycle.eventType,
+              proof: lifecycle.proof,
+            },
+          ]
+        : [];
+    }),
+    [
+      {
+        id: "create",
+        ingress: "task-create",
+        commandType: "CreateReplayTask",
+        transitionId: "create_replay_task",
+        implementation: "task-lifecycle",
+        topology: "center-forward-write",
+        coordination: "execute",
+        eventType: "task_created",
+        proof: ["taskIdUnique", "actorBinding", "validGraph"],
+      },
+      {
+        id: "start",
+        ingress: "task-start",
+        commandType: "StartExecution",
+        transitionId: "start_execution",
+        implementation: "task-lifecycle",
+        topology: "center-forward-write",
+        coordination: "reserve",
+        eventType: "execution_started",
+        proof: ["actorBinding", "reservation"],
+      },
+      {
+        id: "transition",
+        ingress: "task-transition",
+        commandType: "TransitionTask",
+        transitionId: "transition_task",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "task_transitioned",
+        proof: ["auditedReasonWhenRequired"],
+      },
+      {
+        id: "submit",
+        ingress: "task-submit",
+        commandType: "SubmitExecution",
+        transitionId: "submit_execution",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "execution_submitted",
+        proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
+      },
+      {
+        id: "review",
+        ingress: "task-review-execution",
+        commandType: "RecordReview",
+        transitionId: "record_execution_review",
+        implementation: "task-lifecycle",
+        topology: "local-arbiter",
+        coordination: "execute",
+        eventType: "review_recorded",
+        proof: ["independentActor", "execution-review@v1", "contentCut"],
+      },
+      {
+        id: "consent",
+        ingress: "task-review-consent",
+        commandType: "RecordReviewConsent",
+        transitionId: "record_review_consent",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "review_consent_recorded",
+        proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
+      },
+      {
+        id: "reconcile",
+        ingress: "task-code-doc-reconcile",
+        commandType: "ReconcileCodeDoc",
+        transitionId: "reconcile_code_doc",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "code_doc_reconciled",
+        proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
+      },
+      {
+        id: "repoint",
+        ingress: "task-code-doc-repoint",
+        commandType: "RepointCodeDoc",
+        transitionId: "repoint_code_doc",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "code_doc_repointed",
+        proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
+      },
+      {
+        id: "complete",
+        ingress: "task-complete",
+        commandType: "CompleteTask",
+        transitionId: "complete_task",
+        implementation: "task-completion",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "task_completed",
+        proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
+      },
+    ],
+  );
 });
 
 test("task creation result and all seven guidance entries derive from its descriptor", () => {

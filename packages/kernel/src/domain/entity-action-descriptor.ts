@@ -52,7 +52,7 @@ export interface EntityActionStateTransition {
 }
 
 export interface EntityActionResultContract {
-  readonly schema: "entity-action-result/v1" | "entity-action-result/v2";
+  readonly schema: "entity-action-result/v2";
   readonly baseSchemaRef?: string;
   readonly fields: readonly EntityActionInputField[];
   readonly obligations?: readonly {
@@ -110,7 +110,7 @@ export interface EntityActionDescriptorFacets {
 }
 
 export const DEFAULT_ENTITY_ACTION_RESULT_CONTRACT: EntityActionResultContract = Object.freeze({
-  schema: "entity-action-result/v1",
+  schema: "entity-action-result/v2",
   fields: Object.freeze([
     { field: "outcome", type: "string" as const, required: true },
     { field: "opId", type: "string" as const, required: true },

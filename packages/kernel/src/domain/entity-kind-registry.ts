@@ -1033,9 +1033,12 @@ export function getExecutableEntityAction(ingress: string): EntityActionContract
   return undefined;
 }
 
-export function getTaskActionForTransition(actionId: string): EntityActionContract | undefined {
+export function getTaskActionForTransition(transitionId: string): EntityActionContract | undefined {
   return getEntityKindContract("task")?.actionCatalog?.actions.find(
-    (action) => action.id === actionId || action.execution?.lifecycle?.transitionId === actionId,
+    (action) =>
+      action.id === transitionId ||
+      `task.${action.id}` === transitionId ||
+      action.execution?.lifecycle?.transitionId === transitionId,
   );
 }
 

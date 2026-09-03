@@ -1,4 +1,4 @@
-import { getExecutableEntityAction } from "./entity-kind-registry.ts";
+import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 
 type TransitionDocumentKind = "task.plan" | "task.closeout" | "decision.body" | "agent.instructions" | "squad.roster";
 type TransitionDocumentPlaceholderCode =
@@ -152,7 +152,7 @@ export function assessTransitionDocument(kind: TransitionDocumentKind, body: str
 
 export function requireTransitionDocumentKind(transition: string): TransitionDocumentKind {
   if (transition.startsWith("task.")) {
-    const action = getExecutableEntityAction(transition.replace(".", "-")),
+    const action = getTaskActionForTransition(transition),
       document = action?.managedDocuments.find((candidate) => candidate.readinessRequired);
     if (document) return document.slot as TransitionDocumentKind;
   }
