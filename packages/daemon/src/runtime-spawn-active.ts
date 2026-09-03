@@ -22,6 +22,8 @@ type ActiveRuntimeBase = Omit<
   | "lossReason"
   | "lossSignal"
   | "lossExitCode"
+  | "descendantsAlive"
+  | "worktreeDirty"
   | "toolCallObserved"
   | "providerFault"
   | "fallbackAttempt"
@@ -50,6 +52,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lossReason: null,
     lossSignal: null,
     lossExitCode: null,
+    descendantsAlive: false,
+    worktreeDirty: false,
     toolCallObserved: false,
     providerFault: null,
   };

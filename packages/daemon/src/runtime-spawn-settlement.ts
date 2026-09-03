@@ -4,8 +4,9 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+import { runtimeDescendantsAlive } from "./runtime-spawn-process.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, workerWorktreeDirty } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -38,6 +39,16 @@ export async function publishExit(
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
+    // Only a clean provider exit can still be claimed as success, so only that exit is worth the
+    // two observations that can take the claim away (`runtimeExitOutcome` reads them nowhere else).
+    if (!cancelled && code === 0) {
+      active.descendantsAlive = await runtimeDescendantsAlive(active.process.pid);
+      if (active.task)
+        active.worktreeDirty = await workerWorktreeDirty({
+          cwd: active.cwd,
+          canonicalRoot: context.input.rootDir,
+        });
+    }
     const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
       attemptOutcome = {
         ...classifiedAttempt,

@@ -82,6 +82,12 @@ test("attempt-bound classification falls back only before tools or for recognize
   const succeeded = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
   assert.deepEqual(pick(succeeded), { outcome: "succeeded", classification: "worker_stop" });
   assert.match(succeeded.reason, /successfully/u);
+  const descendantsAlive = classifyRuntimeExit(active({ descendantsAlive: true } as Partial<ActiveRuntime>), 0);
+  assert.deepEqual(pick(descendantsAlive), { outcome: "unknown", classification: "worker_stop" });
+  assert.match(descendantsAlive.reason, /descendant processes are still running/u);
+  const worktreeDirty = classifyRuntimeExit(active({ worktreeDirty: true } as Partial<ActiveRuntime>), 0);
+  assert.deepEqual(pick(worktreeDirty), { outcome: "unknown", classification: "worker_stop" });
+  assert.match(worktreeDirty.reason, /uncommitted changes/u);
   assert.deepEqual(pick(classifyRuntimeExit(active({ cancelRequested: true, toolCallObserved: false }), 1)), {
     outcome: "cancelled",
     classification: "worker_stop",
