@@ -4,6 +4,8 @@ import { incomingRelations } from "../model/relation-direction.ts";
 import { resolveTaskModule, resolveFactModule, UNPROJECTED_MODULE } from "./moduleAssignment";
 import { buildGenealogyEdges } from "./genealogy";
 import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
+import type { EntityKind } from "./endpoint";
+import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import type { GraphFocusSelection } from "./focusSet";
 import { isInGraphFocusSet } from "./focusSet";
@@ -26,7 +28,8 @@ import { endpointToNodeId } from "./endpoint";
 
 export type TerritorySkel = "task" | "decision" | "fact" | "unified";
 
-export type TerritoryEntity = "task" | "decision" | "fact" | "agent" | "schedule";
+/** 领地里的实体种类:与图节点同一个开放取值域(见 graph/endpoint.ts)。 */
+export type TerritoryEntity = EntityKind;
 
 export interface TerritoryChip {
   navRef: string;
@@ -350,7 +353,7 @@ function countUnprojectedChips(zones: ReadonlyArray<TerritoryZone>): number {
   return count;
 }
 
-/** 全域 partition:五实体合图(task + decision + fact + agent + schedule)。 */
+/** 全域 partition:内建实体 + 声明实体合图。声明 kind 不改代码就多一块领地。 */
 export function partitionAll(
   tasks: ReadonlyArray<TaskRow>,
   decisions: ReadonlyArray<DecisionRow>,
@@ -359,6 +362,8 @@ export function partitionAll(
   relations: ReadonlyArray<RelationEdge>,
   agents: ReadonlyArray<AgentNodeRow> = [],
   schedules: ReadonlyArray<ScheduleNodeRow> = [],
+  governed: ReadonlyArray<GovernedEntityRow> = [],
+  kindLabel: (kind: string) => string = (kind) => kind,
 ): TerritoryPartition {
   const taskZones = partitionTasks(tasks);
   const { zones: decisionZones, landing } = partitionDecisions(decisions, relations);
@@ -369,8 +374,38 @@ export function partitionAll(
     ...factZones,
     ...partitionAgents(agents),
     ...partitionSchedules(schedules),
+    ...partitionGoverned(governed, kindLabel),
   ];
   return { zones, landing, unprojectedCount: countUnprojectedChips(zones) };
+}
+
+/**
+ * 声明实体层:每个声明 kind 一块领地,chip 副标是它的 locator 指针。
+ * 分块规则来自数据本身(kind),不是一份写死的 zone 表。
+ */
+export function partitionGoverned(
+  rows: ReadonlyArray<GovernedEntityRow>,
+  kindLabel: (kind: string) => string = (kind) => kind,
+): TerritoryZone[] {
+  const byKind = new Map<string, GovernedEntityRow[]>();
+  for (const row of rows) {
+    const list = byKind.get(row.kind);
+    if (list) list.push(row);
+    else byKind.set(row.kind, [row]);
+  }
+  return [...byKind.entries()].map(([kind, kindRows]) => ({
+    zoneId: `governed:${kind}`,
+    title: kindLabel(kind),
+    entity: kind,
+    moduleId: kind,
+    chips: kindRows.map((row) => ({
+      navRef: row.ref,
+      label: governedEntityLabel(row),
+      ...(governedEntitySub(row) ? { sub: governedEntitySub(row) as string } : {}),
+      entity: kind,
+      moduleId: kind,
+    })),
+  }));
 }
 
 /** 运行时身份层:一个 zone(量级个位数;chip 副标带被派 task 数)。 */
@@ -464,6 +499,8 @@ export function partitionForSkel(
   coverageRows: ReadonlyArray<RelationCoverageRow> = [],
   agents: ReadonlyArray<AgentNodeRow> = [],
   schedules: ReadonlyArray<ScheduleNodeRow> = [],
+  governed: ReadonlyArray<GovernedEntityRow> = [],
+  kindLabel: (kind: string) => string = (kind) => kind,
 ): TerritoryPartition {
   if (skel === "task") {
     const zones = partitionTasks(tasks);
@@ -477,5 +514,5 @@ export function partitionForSkel(
     const zones = partitionFactsByAnomaly(facts, factAnchors, tasks, relations, coverageRows);
     return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
   }
-  return partitionAll(tasks, decisions, facts, factAnchors, relations, agents, schedules);
+  return partitionAll(tasks, decisions, facts, factAnchors, relations, agents, schedules, governed, kindLabel);
 }

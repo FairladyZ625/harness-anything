@@ -6,6 +6,7 @@ import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badge
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
 import { moduleDisplayLabel } from "../moduleAssignment";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
+import { entityKindVisual } from "../kindVisuals";
 import type { EgoFlowNode } from "../egoCanvas.ts";
 import type { AgentNodeRow, ScheduleNodeRow } from "../runtimeEntities.ts";
 
@@ -21,16 +22,6 @@ import type { AgentNodeRow, ScheduleNodeRow } from "../runtimeEntities.ts";
  * 标题 + 一行事实行,复用同一壳,不另立第二套节点组件。
  */
 
-type Entity = "task" | "decision" | "fact" | "agent" | "schedule";
-
-const AXIS_VAR: Record<Entity, string> = {
-  task: "var(--color-axis-execution)",
-  decision: "var(--color-axis-authority)",
-  fact: "var(--color-axis-evidence)",
-  agent: "var(--color-axis-assoc)",
-  schedule: "var(--color-axis-assoc)",
-};
-const KIND_LETTER: Record<Entity, string> = { task: "T", decision: "D", fact: "F", agent: "A", schedule: "S" };
 const HANDLE_CLS = "!h-2 !w-2 !min-w-2 !min-h-2 !border-0 !bg-[var(--color-border-strong)]";
 
 function EgoHandles() {
@@ -43,8 +34,9 @@ function EgoHandles() {
 }
 
 export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
-  const entity: Entity = data.entity;
-  const axis = AXIS_VAR[entity];
+  const entity = data.entity;
+  const visual = entityKindVisual(entity);
+  const axis = visual.axisVar;
   const focus = Boolean(data.focus);
   const opacity = data.dimmed ? 0.22 : 1;
   const borderColor = focus || selected ? axis : "var(--color-border-strong)";
@@ -69,7 +61,7 @@ export function EgoNode({ data, selected }: NodeProps<EgoFlowNode>) {
           className="grid size-[18px] shrink-0 place-items-center rounded ui-micro font-mono font-bold"
           style={{ backgroundColor: `color-mix(in srgb, ${axis} 18%, transparent)`, color: axis }}
         >
-          {KIND_LETTER[entity]}
+          {visual.letter}
         </span>
         {entity === "task" && (
           <span

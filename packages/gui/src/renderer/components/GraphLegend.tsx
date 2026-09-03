@@ -2,6 +2,8 @@ import { useState } from "react";
 import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import { AXIS_COLOR_VAR, axisLabel, FULFILLMENT_COLOR_VAR, FULFILLMENT_LABEL, KIND_LABEL } from "../graph/constants.ts";
 import { legendSampleKinds, visualForKind } from "../graph/relationVisual.ts";
+import { entityKindAxisVar } from "../graph/kindVisuals.ts";
+import type { EntityTypeOption } from "./GraphFilterPanel.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -12,15 +14,16 @@ import { t } from "../i18n/index.tsx";
  * uncovered)。默认折叠,不抢画布空间;数据全部来自现有投影字段。
  */
 
-const ENTITY_CHIPS: ReadonlyArray<{ color: string; label: string }> = [
-  { color: "var(--color-axis-execution)", label: "task" },
-  { color: "var(--color-axis-authority)", label: "decision" },
-  { color: "var(--color-axis-evidence)", label: "fact" },
-];
-
 const FULFILLMENT_ORDER = ["evidenced", "delivered", "standing-policy", "unknown"] as const;
 
-export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
+export function GraphLegend({
+  showFulfillment,
+  entityKinds,
+}: {
+  showFulfillment: boolean;
+  /** 图上会出现的实体种类(已注册 kind 读面派生);图例不持有第二份清单。 */
+  entityKinds: readonly EntityTypeOption[];
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div data-testid="graph-legend" className="contents">
@@ -37,14 +40,10 @@ export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
         <div data-testid="graph-legend-body" className="flex w-full basis-full flex-col gap-x-4 gap-y-1 pt-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
             <span className="text-text-faint">实体</span>
-            {ENTITY_CHIPS.map((chip) => (
-              <span
-                key={chip.label}
-                className="inline-flex items-center gap-1"
-                data-testid={`graph-legend-entity-${chip.label}`}
-              >
-                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: chip.color }} />
-                {chip.label}
+            {entityKinds.map(({ kind, label }) => (
+              <span key={kind} className="inline-flex items-center gap-1" data-testid={`graph-legend-entity-${kind}`}>
+                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: entityKindAxisVar(kind) }} />
+                {label}
               </span>
             ))}
           </div>

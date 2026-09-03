@@ -30,6 +30,7 @@ import {
   type RelationDirection,
   type RelationType,
 } from "./entity-relation.ts";
+import { boundedContextExceptions, type BoundedContextActionException } from "./entity-bounded-context-exceptions.ts";
 import { relationSchema } from "./entity-kind-relation-schema.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
@@ -304,13 +305,6 @@ export interface EntityKindExplanation {
     readonly rules: readonly PolicyActionRule[];
   } | null;
   readonly boundedContextExceptions: readonly BoundedContextActionException[];
-}
-
-export interface BoundedContextActionException {
-  readonly actions: readonly string[];
-  readonly boundedContext: "preset-library" | "daemon-user-root" | "terminal-host";
-  readonly residency: "runtime-local";
-  readonly reason: string;
 }
 
 const declarationDocument = (pathTemplate: string) =>
@@ -973,46 +967,6 @@ const entityKindContractByKind = new Map<string, EntityKindContract>(
   entityKindContracts.map((contract) => [contract.kind, contract]),
 );
 
-export const boundedContextExceptions: readonly BoundedContextActionException[] = Object.freeze([
-  Object.freeze({
-    actions: Object.freeze(["settings-update"]),
-    boundedContext: "daemon-user-root" as const,
-    residency: "runtime-local" as const,
-    reason: "The locale field is a daemon-local preference and never appears in settings-event/v1.",
-  }),
-  Object.freeze({
-    actions: Object.freeze(["preset-install", "preset-seed", "preset-uninstall"]),
-    boundedContext: "preset-library" as const,
-    residency: "runtime-local" as const,
-    reason: "Preset library installation mutates the selected workspace library and has no canonical repository event.",
-  }),
-  Object.freeze({
-    actions: Object.freeze([
-      "daemon.runtimeInstance.create",
-      "daemon.runtimeInstance.list",
-      "daemon.runtimeInstance.show",
-      "daemon.runtimeInstance.update",
-      "daemon.runtimeInstance.delete",
-    ]),
-    boundedContext: "daemon-user-root" as const,
-    residency: "runtime-local" as const,
-    reason: "Runtime instance configuration belongs to the daemon user's host registry, outside a RepoCell ledger.",
-  }),
-  Object.freeze({
-    actions: Object.freeze([
-      "repo.terminal.spawn",
-      "repo.terminal.input",
-      "repo.terminal.resize",
-      "repo.terminal.detach",
-      "repo.terminal.terminate",
-      "repo.terminal.attach",
-    ]),
-    boundedContext: "terminal-host" as const,
-    residency: "runtime-local" as const,
-    reason: "Terminal process state is ephemeral host state and never claims canonical repository settlement.",
-  }),
-]);
-
 export function getEntityKindContract(kind: string): EntityKindContract | undefined {
   return entityKindContractByKind.get(kind);
 }
@@ -1064,7 +1018,15 @@ export function requireEntityStoreKindContract(kind: string): EntityStoreKindCon
 }
 
 export function explainEntityKind(kind: string): EntityKindExplanation {
-  const contract = requireEntityKindContract(kind);
+  return explainEntityKindContract(requireEntityKindContract(kind));
+}
+
+/**
+ * The one explanation projection. Built-in kinds reach it through `explainEntityKind`;
+ * vertical artifact kinds are compiled outside this registry, so they hand their own
+ * contract to the same function rather than growing a second explanation shape.
+ */
+export function explainEntityKindContract(contract: EntityKindContract): EntityKindExplanation {
   const actions =
     contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [];
   return {

@@ -174,6 +174,11 @@ export {
   requireEntityStoreKindContract,
 } from "./entity-kind-registry.ts";
 export type { EntityActionContract, EntityActionInputField, EntityResidencyFacets } from "./entity-kind-registry.ts";
+// 只导出有消费者的两个:目录构造与结果校验。schema id / 序列化 / 错误类型由
+// daemon 的 schema registry 按路径引用(与 entity-action-explanation 同一惯例),
+// 不进 kernel 公共面。
+export { buildEntityKindCatalog, validateEntityKindCatalog } from "./entity-kind-catalog.ts";
+export type { EntityKindCatalogV1 } from "./entity-kind-catalog.ts";
 
 export { deriveUseCaseProjectionInputs } from "./use-case-projection-catalog.ts";
 export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";

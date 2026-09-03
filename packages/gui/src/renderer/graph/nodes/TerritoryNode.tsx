@@ -1,6 +1,7 @@
 import type { NodeProps } from "@xyflow/react";
 import { ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
 import type { ZoneProgress } from "../territoryProgress";
+import { entityKindAxisVar } from "../kindVisuals";
 import {
   zoneHeaderH,
   ZONE_PROGRESS_H,
@@ -20,16 +21,6 @@ import {
  * (顶层必给,否则 MiniMap 不画)。头部高度必须与布局常量同源(zoneHeaderH)。
  */
 
-type Entity = "task" | "decision" | "fact" | "agent" | "schedule";
-
-const AXIS_VAR: Record<Entity, string> = {
-  task: "var(--color-axis-execution)",
-  decision: "var(--color-axis-authority)",
-  fact: "var(--color-axis-evidence)",
-  agent: "var(--color-axis-assoc)",
-  schedule: "var(--color-axis-assoc)",
-};
-
 /** 看板列段配色(等亮度状态色,与视觉系统同源);段与 `board.columnId` 一一对应。 */
 const PROGRESS_SEGMENTS: ReadonlyArray<{ key: keyof ZoneProgress; label: string; color: string }> = [
   { key: "terminal", label: "终态", color: "var(--color-status-done)" },
@@ -41,7 +32,7 @@ const PROGRESS_SEGMENTS: ReadonlyArray<{ key: keyof ZoneProgress; label: string;
 
 export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
   const zone = data.zone;
-  const axis = AXIS_VAR[zone.entity] ?? AXIS_VAR.task;
+  const axis = entityKindAxisVar(zone.entity);
   const headerH = zoneHeaderH(zone);
   const landing = data.variant === "landing";
 
@@ -151,7 +142,7 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
   }
 
   const chip = data.chip;
-  const axis = AXIS_VAR[chip.entity] ?? AXIS_VAR.task;
+  const axis = entityKindAxisVar(chip.entity);
   return (
     <div
       onClick={(e) => {

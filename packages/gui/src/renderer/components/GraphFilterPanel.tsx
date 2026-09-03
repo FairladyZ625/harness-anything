@@ -36,10 +36,17 @@ import type { DecisionState, RelationKind, SnapshotStatus } from "../model/types
 import { STATUS_META } from "./badges";
 import { t } from "../i18n/index.tsx";
 
-export type EntityType = "decision" | "task" | "fact" | "agent" | "schedule";
+/**
+ * 图节点的实体种类。**没有清单**:取值是 daemon 已注册 kind 读面上的 kind 字符串
+ * (内核内建 kind + 当前仓库 vertical 声明的 kind),筛选面板从 props 收下可选项。
+ */
+export type EntityType = string;
 
-/** 实体种类全集(筛选面板与「缩了几项」计数同源,不各写一份清单)。 */
-export const ENTITY_TYPE_OPTIONS: ReadonlyArray<EntityType> = ["decision", "task", "fact", "agent", "schedule"];
+/** 一个可筛选的实体种类:kind 是机器字面量,label 是声明里的显示名。 */
+export interface EntityTypeOption {
+  readonly kind: EntityType;
+  readonly label: string;
+}
 
 /** 密度分层:重点模式(默认)只看 pinned/在飞/最近变更 + 一跳邻域,其余折叠。 */
 export type GraphDensityMode = "focus" | "all";
@@ -70,6 +77,8 @@ interface Props {
    * 默认 true。
    */
   showEntityTypes?: boolean;
+  /** 可筛选的实体种类;来源是已注册 kind 读面,面板不持有第二份清单。 */
+  entityTypeOptions: readonly EntityTypeOption[];
   /**
    * 密度分层段是否可见。单种类领地下重点集的邻域(decision/fact/agent/schedule)
    * 多半不在场,分层意义小,隐藏;聚光灯 / 全域下保留。默认 true。
@@ -105,6 +114,7 @@ export function GraphFilterPanel({
   filters,
   setFilters,
   availableModules,
+  entityTypeOptions,
   showEntityTypes = true,
   showDensity = true,
   flowMode,
@@ -194,7 +204,7 @@ export function GraphFilterPanel({
   const statusOff = Math.max(0, taskStatusOffCount(entityStatus)) + Math.max(0, decisionStateOffCount(entityStatus));
   const narrowed =
     AXIS_ORDER.filter((a) => !filters.axes[a]).length +
-    (showEntityTypes ? Math.max(0, ENTITY_TYPE_OPTIONS.length - filters.types.size) : 0) +
+    (showEntityTypes ? Math.max(0, entityTypeOptions.length - filters.types.size) : 0) +
     (showDensity && filters.density === "all" ? 1 : 0) +
     Math.max(0, availableModules.length - filters.modules.size) +
     Math.max(0, kindOff) +
@@ -387,19 +397,20 @@ export function GraphFilterPanel({
               <span>{t("components.graphFilterPanel.entityTypes")}</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {ENTITY_TYPE_OPTIONS.map((entityType) => {
-                const active = filters.types.has(entityType);
+              {entityTypeOptions.map(({ kind, label }) => {
+                const active = filters.types.has(kind);
                 return (
                   <button
-                    key={entityType}
-                    onClick={() => toggleType(entityType)}
+                    key={kind}
+                    data-testid={`graph-filter-entity-type-${kind}`}
+                    onClick={() => toggleType(kind)}
                     className={`rounded-md px-2 py-1 ui-micro font-medium transition-colors ${
                       active
                         ? "border border-stale/30 bg-stale/10 text-stale"
                         : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
                     }`}
                   >
-                    {entityType.charAt(0).toUpperCase() + entityType.slice(1)}
+                    {label}
                   </button>
                 );
               })}

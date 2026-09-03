@@ -20,6 +20,21 @@ export const DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA = Object.freeze({
   id: "entity-action-explanation/v1",
 });
 
+export const DAEMON_ENTITY_KIND_CATALOG_SCHEMA = Object.freeze({
+  id: "entity-kind-catalog/v1",
+  required: Object.freeze(["schema", "kinds"]),
+});
+
+export const DAEMON_ENTITY_ROW_LIST_SCHEMA = Object.freeze({
+  id: "entity-row-list/v1",
+  required: Object.freeze(["schema", "ok", "rows"]),
+});
+
+export const DAEMON_ENTITY_LOCATOR_READ_SCHEMA = Object.freeze({
+  id: "entity-locator-read/v1",
+  required: Object.freeze(["schema", "ok", "outcome", "path", "content", "entries"]),
+});
+
 export const DAEMON_CI_OBSERVATORY_SCHEMA = Object.freeze({
   id: "daemon.ci-observatory/v1",
 });

@@ -1,0 +1,10 @@
+{
+  "schema": "entity-locator-read/v1",
+  "ok": true,
+  "outcome": "directory",
+  "path": "harness/adr",
+  "content": "directories carry no content",
+  "sizeBytes": null,
+  "entries": [],
+  "truncated": false
+}

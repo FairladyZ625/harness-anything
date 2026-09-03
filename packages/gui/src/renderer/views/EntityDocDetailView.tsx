@@ -1,5 +1,8 @@
 import { ArrowLeft, ArrowSquareOut, CaretRight } from "@phosphor-icons/react";
-import { ENTITY_DOC_BY_KIND, FACT_TYPE_VOCABULARY, type EntityFieldDoc, type EntityKindDoc } from "../entity-docs.ts";
+import { entityDocIndex, FACT_TYPE_VOCABULARY, type EntityFieldDoc, type EntityKindDoc } from "../entity-docs.ts";
+import { useEntityKindCatalog } from "../entity-kind-data.ts";
+import { findEntityKind, type EntityKindDeclaration } from "../entity-kind-catalog-client.ts";
+import { GovernedEntityPanel } from "../components/entityDoc/GovernedEntityPanel.tsx";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
 
@@ -12,6 +15,7 @@ import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
 export function EntityDocDetailView({
   repoId,
   kind,
+  selectedEntityRef,
   liveCounts,
   projectName,
   fromViewLabel,
@@ -20,13 +24,17 @@ export function EntityDocDetailView({
 }: {
   readonly repoId: string;
   readonly kind: string;
+  /** 声明实体的深链接落点(`<kind>/<entityId>`);null = 只看说明。 */
+  readonly selectedEntityRef: string | null;
   readonly liveCounts: EntityLiveCounts;
   readonly projectName: string;
   readonly fromViewLabel: string;
   readonly onBack: () => void;
   readonly onOpenView: (view: ViewId) => void;
 }) {
-  const doc = ENTITY_DOC_BY_KIND.get(kind) ?? null;
+  const { catalog } = useEntityKindCatalog(repoId);
+  const doc = entityDocIndex(catalog).get(kind) ?? null;
+  const catalogRow = findEntityKind(catalog, kind);
   const factStats = useFactFacetStats(repoId, kind === "fact");
   if (doc === null)
     return (
@@ -203,6 +211,12 @@ export function EntityDocDetailView({
 
         {doc.kind === "fact" && <FactTypeVocabulary stats={factStats} />}
         {doc.kind === "fact" && <FactFacetLive stats={factStats} />}
+        {catalogRow !== null && catalogRow.origin === "vertical" && (
+          <div className="mt-6 max-w-3xl border-t border-border pt-4">
+            <GovernedEntityPanel repoId={repoId} row={catalogRow} selectedEntityRef={selectedEntityRef} />
+          </div>
+        )}
+        {catalogRow?.declaration != null && <DeclarationFacets declaration={catalogRow.declaration} />}
       </main>
     </div>
   );
@@ -348,6 +362,41 @@ function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof useFactFac
           semantic→lesson、procedural→progress、episodic→finding。Type 轴的分布等登记面合入后在此并列。
         </p>
       )}
+    </section>
+  );
+}
+
+/**
+ * 声明的可配置项(governed-entity-design §2 的九项,不多不少)。本波次是**只读呈现**:
+ * 写路在 vertical 声明文件上,GUI 不做第二条编辑入口。
+ */
+function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDeclaration }) {
+  const rows: readonly (readonly [string, string])[] = [
+    ["id", declaration.id],
+    ["version", String(declaration.version)],
+    ["idPrefix", declaration.idPrefix],
+    ["display.singular", declaration.display.singular],
+    ["display.plural", declaration.display.plural],
+    ["descriptorSchemaRef", declaration.descriptorSchemaRef],
+    ["store.pathTemplate", declaration.pathTemplate],
+    ["locatorKinds", declaration.locatorKinds.join(", ")],
+    ["maturityVocabulary", declaration.maturityVocabulary.join(", ") || "(未声明)"],
+  ];
+  return (
+    <section data-testid="entity-declaration-facets" className="mt-6 max-w-3xl border-t border-border pt-4">
+      <h2 className="ui-body font-semibold">声明的可配置项</h2>
+      <p className="mt-1 ui-micro leading-relaxed text-text-faint">
+        这些值来自本仓 vertical 声明。id / version 一起构成身份——改它们是换一个类型,不是改一个字段; display
+        只影响呈现。此面只读,改声明请改 vertical 定义文件。
+      </p>
+      <dl className="mt-2 grid grid-cols-[minmax(140px,auto)_1fr] gap-x-3 gap-y-1">
+        {rows.map(([label, value]) => (
+          <div key={label} className="contents">
+            <dt className="font-mono ui-micro text-text-faint">{label}</dt>
+            <dd className="break-all font-mono ui-meta text-text">{value}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   );
 }

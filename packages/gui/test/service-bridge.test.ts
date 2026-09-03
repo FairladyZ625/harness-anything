@@ -176,7 +176,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                         entityKind: "task",
                                         refs: [],
                                       }
-                                    : scope;
+                                    : contract.id === "entity.locator.read"
+                                      ? {
+                                          ...scope,
+                                          locatorKind: "repository-path",
+                                          locatorValue: `harness/${documentPath}`,
+                                        }
+                                      : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"
@@ -186,12 +192,41 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         assert.equal(parsed.schema, "daemon-control-receipt/v1", contract.method);
       else if (contract.id === "entity.actions.explain")
         assert.equal(parsed.schema, "entity-action-explanation/v1", contract.method);
+      else if (contract.id === "entity.kinds.read")
+        assert.equal(parsed.schema, "entity-kind-catalog/v1", contract.method);
       else assert.equal(parsed.ok, true, `${contract.method}: ${JSON.stringify(parsed)}`);
       results.set(contract.method, result);
     }
     assert.deepEqual(
       [...results.keys()],
       daemonGuiReadMethods.map(({ method }) => method),
+    );
+    // The three declared-entity reads must answer with real content, not just a valid envelope:
+    // the kind universe reaches the GUI from the registry, and a locator resolves to file bytes.
+    const kinds = parseDaemonGuiReadResult("repo.entity.kinds.read", results.get("repo.entity.kinds.read"));
+    const declared = kinds.kinds.find(({ kind }) => kind === "software/coding/architecture-decision-record@1");
+    assert.ok(
+      declared,
+      `the declared ADR kind must reach the GUI: ${JSON.stringify(kinds.kinds.map(({ kind }) => kind))}`,
+    );
+    assert.deepEqual(
+      { origin: declared.origin, importable: declared.importable, prefix: declared.declaration?.idPrefix },
+      { origin: "vertical", importable: true, prefix: "ADR" },
+    );
+    assert.ok(
+      kinds.kinds.some(({ kind, origin }) => kind === "task" && origin === "builtin"),
+      "builtin kinds share the one catalog with declared kinds",
+    );
+    const entityRows = parseDaemonGuiReadResult("repo.entity.rows.read", results.get("repo.entity.rows.read"));
+    assert.deepEqual(
+      entityRows.rows.filter(({ kind }) => !kinds.kinds.some((row) => row.kind === kind)),
+      [],
+      "every entity row names a registered kind",
+    );
+    const locator = parseDaemonGuiReadResult("repo.entity.locator.read", results.get("repo.entity.locator.read"));
+    assert.deepEqual(
+      { outcome: locator.outcome, content: locator.content },
+      { outcome: "file", content: "# Uncommitted filesystem edit\n" },
     );
     // Every catalog projection must answer through the one bridge method, not just the first one
     // the sweep above happens to pick; a name in the catalog with no live read is a dead entry.

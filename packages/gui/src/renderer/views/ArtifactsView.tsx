@@ -22,7 +22,7 @@ import { useTaskDocumentQuery } from "../task-data.ts";
 import { useRepoRow } from "../system-data.ts";
 import { artifactsClient } from "../artifacts-client.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
-import { isHtmlDocument } from "../components/taskDetail/TaskFilesTab.tsx";
+import { isHtmlDocument } from "../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
 
 // Artifacts 抽屉(task_7e713fee 重排):一次 `repo.artifacts.list` 读出跨 task 包的

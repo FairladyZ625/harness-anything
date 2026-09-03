@@ -1,7 +1,9 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge, RelationKind } from "../model/types";
 import type { Node, Edge } from "@xyflow/react";
 import { MarkerType as RFMarkerType } from "@xyflow/react";
-import { parseEndpoint, endpointToNodeId } from "./endpoint";
+import { parseEndpoint, endpointToNodeId, type EntityKind } from "./endpoint";
+import { entityKindVisual } from "./kindVisuals";
+import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
 import { axisForKind, AXIS_COLOR_VAR, type SemanticAxis } from "./constants";
 import { visualForKind, type FlowAnimMode } from "./relationVisual";
 import { scheduleTargetEdges, type AgentNodeRow, type ScheduleNodeRow } from "./runtimeEntities";
@@ -24,11 +26,12 @@ import { STATUS_META } from "../components/badges";
  * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不重排(决策 CH1)。
  */
 
-export type EgoEntity = "task" | "decision" | "fact" | "agent" | "schedule";
+/** 图节点的 kind:内建五类 + 已注册 kind 读面上声明出来的 kind(见 graph/endpoint.ts)。 */
+export type EgoEntity = EntityKind;
 
 export interface EgoNodeMeta {
   entity: EgoEntity;
-  row: TaskRow | DecisionRow | FactRef | AgentNodeRow | ScheduleNodeRow;
+  row: TaskRow | DecisionRow | FactRef | AgentNodeRow | ScheduleNodeRow | GovernedEntityRow;
 }
 
 export type EgoNodeData = Record<string, unknown> & {
@@ -78,7 +81,8 @@ export type EgoAxisFilter = Record<SemanticAxis, boolean>;
 export interface EgoFilters {
   axes: EgoAxisFilter;
   kinds: ReadonlySet<RelationKind>;
-  types: ReadonlySet<string>;
+  /** 选中的实体种类;null = 不按种类筛(调用方没有已注册 kind 清单时的诚实缺省)。 */
+  types: ReadonlySet<string> | null;
   flowMode: FlowAnimMode;
 }
 
@@ -113,6 +117,7 @@ export function buildEgoGraph(
   relations: ReadonlyArray<RelationEdge>,
   factAnchors: ReadonlyArray<{ factRef: string; taskId?: string; factId: string }> = [],
   runtime: { readonly agents?: ReadonlyArray<AgentNodeRow>; readonly schedules?: ReadonlyArray<ScheduleNodeRow> } = {},
+  governed: ReadonlyArray<GovernedEntityRow> = [],
 ): EgoGraph {
   const byId = new Map<string, EgoNodeMeta>();
   for (const t of tasks) byId.set(t.taskId, { entity: "task", row: t });
@@ -120,6 +125,8 @@ export function buildEgoGraph(
   for (const f of facts) byId.set(egoFactRefOf(f), { entity: "fact", row: f });
   for (const a of runtime.agents ?? []) byId.set(a.id, { entity: "agent", row: a });
   for (const s of runtime.schedules ?? []) byId.set(s.id, { entity: "schedule", row: s });
+  // 声明实体:ref 整串即节点 id(与 endpointToNodeId 的兜底同形),kind 即 entity。
+  for (const row of governed) byId.set(row.ref, { entity: row.kind, row });
   for (const anchor of factAnchors) {
     if (byId.has(anchor.factRef)) continue;
     byId.set(anchor.factRef, {
@@ -150,8 +157,9 @@ export function buildEgoGraph(
     addAdj(target, { other: source, dir: "in", axis, kind: edge.kind, edge, key });
   };
 
+  const declaredKinds = [...new Set(governed.map(({ kind }) => kind))];
   relations.forEach((edge, i) => {
-    if (!parseEndpoint(edge.from) || !parseEndpoint(edge.to)) return;
+    if (!parseEndpoint(edge.from, declaredKinds) || !parseEndpoint(edge.to, declaredKinds)) return;
     link(edge, axisForKind(edge.kind), `rel_${i}`);
   });
 
@@ -241,18 +249,8 @@ export function egoOneHopHighlight(graph: EgoGraph, selectId: string | null, axe
 // ── 几何常量(确定性布局) ──
 const CHIP_W = 216;
 const CHIP_H = 46;
-const CARD_W: Record<EgoEntity, number> = { fact: 300, task: 320, decision: 340, agent: 300, schedule: 320 };
-const CARD_W_FOCUS: Record<EgoEntity, number> = {
-  fact: 340,
-  task: 360,
-  decision: 380,
-  agent: 340,
-  schedule: 360,
-};
 const GAP_X = 72;
 const GAP_Y = 36;
-const H_MIN_FOCUS: Record<EgoEntity, number> = { fact: 320, task: 300, decision: 340, agent: 300, schedule: 300 };
-const H_MIN_PERIPH: Record<EgoEntity, number> = { fact: 240, task: 220, decision: 260, agent: 230, schedule: 230 };
 const H_CAP_FOCUS = 640;
 const H_CAP_PERIPH = 480;
 
@@ -294,8 +292,9 @@ export function egoNodeDims(
   isFocus: boolean,
 ): { w: number; h: number } {
   if (!expanded || !row) return { w: CHIP_W, h: CHIP_H };
-  const w = isFocus ? CARD_W_FOCUS[entity] : CARD_W[entity];
-  const minH = isFocus ? H_MIN_FOCUS[entity] : H_MIN_PERIPH[entity];
+  const visual = entityKindVisual(entity);
+  const w = isFocus ? visual.cardWFocus : visual.cardW;
+  const minH = isFocus ? visual.minHFocus : visual.minHPeriph;
   const cap = isFocus ? H_CAP_FOCUS : H_CAP_PERIPH;
   return { w, h: Math.min(Math.max(estimateEgoCardHeight(entity, row, w), minH), cap) };
 }
@@ -339,7 +338,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   if (!focusMeta) return emptyEgoLayout();
 
   const axisOn = (axis: SemanticAxis): boolean => filters.axes[axis];
-  const typeOn = (entity: EgoEntity): boolean => filters.types.has(entity);
+  const typeOn = (entity: EgoEntity): boolean => filters.types === null || filters.types.has(entity);
   const dimOf = (id: string) => {
     const meta = byId.get(id);
     return egoNodeDims(meta?.entity ?? "task", expanded.has(id), meta?.row, id === focusId);
@@ -448,6 +447,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
         entity: meta.entity,
         raw: meta.row,
         label: egoLabelOf(meta),
+        ...(egoSubOf(meta) === undefined ? {} : { sub: egoSubOf(meta) }),
         focus: id === focusId,
         expanded: isExpanded,
         hop: level.get(id) ?? 0,
@@ -493,8 +493,10 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
       markerEnd: { type: RFMarkerType.ArrowClosed, color },
     });
   };
+  // 端点能否成节点由已建好的 byId 决定(它已经含声明实体),不在这里再判一次 kind。
+  const canvasKinds = [...new Set([...input.graph.byId.values()].map(({ entity }) => entity))];
   input.relations.forEach((edge, i) => {
-    if (!parseEndpoint(edge.from) || !parseEndpoint(edge.to)) return;
+    if (!parseEndpoint(edge.from, canvasKinds) || !parseEndpoint(edge.to, canvasKinds)) return;
     emit(edge, axisForKind(edge.kind), `rel_${i}`);
   });
   for (const { edge, key } of synthEdges) emit(edge, "execution", key);
@@ -508,12 +510,25 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
   };
 }
 
+/**
+ * 副标题:声明实体显示它的 locator 指针;内建 kind 的副标由各自的卡片内容负责。
+ * 按行的形状判断,不按 kind 名单——名单会随声明变,行的形状不会。
+ */
+function egoSubOf(meta: EgoNodeMeta): string | undefined {
+  const row = meta.row as Partial<GovernedEntityRow>;
+  return typeof row.ref === "string" && "locator" in row ? governedEntitySub(row as GovernedEntityRow) : undefined;
+}
+
 function egoLabelOf(meta: EgoNodeMeta): string {
   if (meta.entity === "task") return (meta.row as TaskRow).title;
   if (meta.entity === "decision") return (meta.row as DecisionRow).title;
   if (meta.entity === "agent") return (meta.row as AgentNodeRow).name;
   if (meta.entity === "schedule") return (meta.row as ScheduleNodeRow).name;
-  const fact = meta.row as FactRef;
-  // 无正文的 anchor:显示锚点本身,不拿别处的文字冒充观察。
-  return fact.text ? fact.text.slice(0, 60) : fact.anchor;
+  if (meta.entity === "fact") {
+    const fact = meta.row as FactRef;
+    // 无正文的 anchor:显示锚点本身,不拿别处的文字冒充观察。
+    return fact.text ? fact.text.slice(0, 60) : fact.anchor;
+  }
+  // 其余都是声明实体:标题在描述符里,没有就显示 entityId。
+  return governedEntityLabel(meta.row as GovernedEntityRow);
 }

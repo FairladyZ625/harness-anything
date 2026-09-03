@@ -14,12 +14,13 @@ import {
   projectedEntityKinds,
 } from "../../../tools/generate-entity-doc-contract.mjs";
 import {
-  ENTITY_DOC_BY_KIND,
-  ENTITY_DOC_GROUPS,
+  CURATED_ENTITY_DOC_BY_KIND,
+  CURATED_ENTITY_DOC_GROUPS,
   FACT_TYPE_VOCABULARY,
   entityDocKinds,
 } from "../src/renderer/entity-docs.ts";
 import type { EntityFieldDoc } from "../src/renderer/entity-docs.ts";
+import { RELATION_KIND_ORDER } from "../src/renderer/graph/relationVisual.ts";
 
 const decisionPackageSchema = JSON.parse(
   readFileSync(new URL("../../kernel/schemas/json/decision-package.schema.json", import.meta.url), "utf8"),
@@ -45,7 +46,7 @@ const KERNEL_KINDS: readonly string[] = projectedEntityKinds();
 const CATALOG_KINDS: readonly string[] = ["preset", "adapter"];
 
 function fieldsOf(kind: string): readonly EntityFieldDoc[] {
-  const doc = ENTITY_DOC_BY_KIND.get(kind);
+  const doc = CURATED_ENTITY_DOC_BY_KIND.get(kind);
   if (doc === undefined) throw new Error(`entity doc missing for ${kind}`);
   return doc.fields;
 }
@@ -56,9 +57,9 @@ describe("entity docs cover the registered entity universe", () => {
   });
 
   it("every group doc kind is unique and resolvable", () => {
-    const listed = ENTITY_DOC_GROUPS.flatMap((group) => group.docs.map((doc) => doc.kind));
+    const listed = CURATED_ENTITY_DOC_GROUPS.flatMap((group) => group.docs.map((doc) => doc.kind));
     expect(new Set(listed).size).toBe(listed.length);
-    for (const kind of listed) expect(ENTITY_DOC_BY_KIND.get(kind)?.kind).toBe(kind);
+    for (const kind of listed) expect(CURATED_ENTITY_DOC_BY_KIND.get(kind)?.kind).toBe(kind);
   });
 });
 
@@ -74,7 +75,7 @@ describe("per-kind contract against kernel explainEntityKind", () => {
 
   it.each(KERNEL_KINDS)("%s: has a doc entry carrying the kernel contract", (kind) => {
     const explanation = explainEntityKind(kind),
-      doc = ENTITY_DOC_BY_KIND.get(kind);
+      doc = CURATED_ENTITY_DOC_BY_KIND.get(kind);
     expect(doc, `entity doc missing for kernel kind ${kind}`).toBeDefined();
     expect(doc!.schemaId).toBe(explanation.documentSchema.id);
     expect(doc!.actions).toEqual(explanation.transitions.available);
@@ -98,7 +99,7 @@ describe("nested payload fields against the JSON schemas", () => {
       required?: string[];
       properties: Record<string, unknown>;
     };
-    const nested = ENTITY_DOC_BY_KIND.get("fact")!.nestedFields.find((group) => group.container === "payload");
+    const nested = CURATED_ENTITY_DOC_BY_KIND.get("fact")!.nestedFields.find((group) => group.container === "payload");
     expect(nested).toBeDefined();
     for (const field of nested!.fields) {
       expect(
@@ -114,7 +115,7 @@ describe("nested payload fields against the JSON schemas", () => {
       string,
       { required?: string[]; properties: Record<string, unknown> }
     >;
-    const nested = ENTITY_DOC_BY_KIND.get("decision")!.nestedFields;
+    const nested = CURATED_ENTITY_DOC_BY_KIND.get("decision")!.nestedFields;
     const proposal = nested.find((group) => group.container.startsWith("payload(proposal"));
     const accept = nested.find((group) => group.container.startsWith("payload(accept"));
     expect(proposal).toBeDefined();
@@ -144,11 +145,13 @@ describe("relation edges mirror the canonical direction registry", () => {
 
   const documentedTriples = (kind: string) =>
     new Set(
-      (ENTITY_DOC_BY_KIND.get(kind)?.edges ?? []).map((edge) => `${edge.sourceKind}|${edge.type}|${edge.targetKind}`),
+      (CURATED_ENTITY_DOC_BY_KIND.get(kind)?.edges ?? []).map(
+        (edge) => `${edge.sourceKind}|${edge.type}|${edge.targetKind}`,
+      ),
     );
 
   it("every documented edge is an allowed kernel triple", () => {
-    for (const doc of ENTITY_DOC_BY_KIND.values())
+    for (const doc of CURATED_ENTITY_DOC_BY_KIND.values())
       for (const edge of doc.edges) {
         const key = `${edge.sourceKind}|${edge.type}|${edge.targetKind}`;
         expect(
@@ -171,7 +174,7 @@ describe("relation edges mirror the canonical direction registry", () => {
     expect(semanticTriples.length).toBeGreaterThan(0);
     for (const triple of semanticTriples) {
       for (const endpoint of [triple.sourceKind, triple.targetKind]) {
-        const doc = ENTITY_DOC_BY_KIND.get(endpoint);
+        const doc = CURATED_ENTITY_DOC_BY_KIND.get(endpoint);
         if (doc === undefined) continue;
         expect(
           documentedTriples(endpoint).has(`${triple.sourceKind}|${triple.type}|${triple.targetKind}`),
@@ -186,16 +189,25 @@ describe("relation edges mirror the canonical direction registry", () => {
       (triple) => triple.sourceKind === "relation" || triple.targetKind === "relation",
     );
     expect(relationEndpointTriples.length).toBeGreaterThan(0);
-    expect(ENTITY_DOC_BY_KIND.get("relation")!.definition).toMatch(/边本身也可以作为关系端点/u);
+    expect(CURATED_ENTITY_DOC_BY_KIND.get("relation")!.definition).toMatch(/边本身也可以作为关系端点/u);
   });
 });
 
 describe("relation plane vocabulary", () => {
   it("type and state words are the kernel vocabularies verbatim", () => {
-    const doc = ENTITY_DOC_BY_KIND.get("relation")!;
+    const doc = CURATED_ENTITY_DOC_BY_KIND.get("relation")!;
     const words = (field: string) => [...(doc.statuses.find((status) => status.field === field)?.words ?? [])].sort();
     expect(words("type")).toEqual([...relationTypes].sort());
     expect(words("state")).toEqual([...relationStates].sort());
+  });
+
+  /**
+   * 同一个机制的另一处:图筛选/图例的关系类型顺序表是一份本地数组。`KIND_AXIS` 是
+   * `Record<RelationKind, …>`,少一个键编译就红;`RELATION_KIND_ORDER` 是数组,**漏一个
+   * 静默过**——kernel 新增一个关系动词,筛选面板会少一个 chip 而没人知道。这里把它钉住。
+   */
+  it("the relation kind order table covers the kernel vocabulary with no extras", () => {
+    expect([...RELATION_KIND_ORDER].sort()).toEqual([...relationTypes].sort());
   });
 });
 
@@ -203,6 +215,6 @@ describe("fact type vocabulary area follows the controlled read surface", () => 
   it("stores only the ruling anchor and documents the list action", () => {
     expect(FACT_TYPE_VOCABULARY.decisionId).toBe("dec_2935057783CD5D56E9F287AE4D");
     expect(Object.keys(FACT_TYPE_VOCABULARY)).toEqual(["decisionId"]);
-    expect(ENTITY_DOC_BY_KIND.get("fact")?.actions).toContain("type-list");
+    expect(CURATED_ENTITY_DOC_BY_KIND.get("fact")?.actions).toContain("type-list");
   });
 });

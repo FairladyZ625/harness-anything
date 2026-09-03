@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
+import { entityKindAxisVar } from "../graph/kindVisuals.ts";
 
 /**
  * ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。
@@ -13,13 +14,23 @@ export interface PaletteEntry {
   ref: string;
   label: string;
   sub?: string;
-  entity: "task" | "decision" | "fact";
+  /** 实体种类:内建 kind 或已注册 kind 读面上声明出来的 kind,没有清单。 */
+  entity: string;
+}
+
+/** 一条通用搜索行:声明实体从这里进索引,不给每个 kind 加一个形参。 */
+export interface PaletteRow {
+  ref: string;
+  label: string;
+  sub?: string;
+  entity: string;
 }
 
 export function buildPaletteIndex(
   tasks: ReadonlyArray<{ taskId: string; title: string; coordinationStatus?: string }>,
   decisions: ReadonlyArray<{ decisionId: string; title: string; state?: string }>,
   facts: ReadonlyArray<{ anchor: string; taskId?: string; text: string; category?: string }>,
+  extra: ReadonlyArray<PaletteRow> = [],
 ): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
   for (const t of tasks) {
@@ -36,6 +47,7 @@ export function buildPaletteIndex(
       entity: "fact",
     });
   }
+  for (const row of extra) entries.push({ ...row });
   return entries;
 }
 
@@ -50,6 +62,8 @@ export function CommandPalette({
   onSelect: (ref: string) => void;
   onClose: () => void;
 }) {
+  // 搜索范围写在提示语里,取自索引里真实存在的种类——不写死「task / decision / fact」。
+  const placeholder = `搜索 ${[...new Set(entries.map((entry) => entry.entity))].join(" / ") || "实体"},回车跳转…`;
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -113,7 +127,7 @@ export function CommandPalette({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKey}
-            placeholder="搜索 task / decision / fact,回车跳转…"
+            placeholder={placeholder}
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
           />
           <kbd className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-faint">ESC</kbd>
@@ -137,18 +151,8 @@ export function CommandPalette({
                 <span
                   className="rounded px-1.5 py-0.5 font-mono ui-micro font-semibold uppercase"
                   style={{
-                    color:
-                      entry.entity === "task"
-                        ? "var(--color-text-muted)"
-                        : entry.entity === "decision"
-                          ? "var(--color-accent)"
-                          : "var(--color-stale)",
-                    background:
-                      entry.entity === "task"
-                        ? "var(--color-surface-raised)"
-                        : entry.entity === "decision"
-                          ? "color-mix(in oklch, var(--color-accent) 12%, transparent)"
-                          : "color-mix(in oklch, var(--color-stale) 12%, transparent)",
+                    color: entityKindAxisVar(entry.entity),
+                    background: `color-mix(in oklch, ${entityKindAxisVar(entry.entity)} 12%, transparent)`,
                   }}
                 >
                   {entry.entity}

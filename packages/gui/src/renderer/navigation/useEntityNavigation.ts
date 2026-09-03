@@ -23,6 +23,7 @@ export function useEntityNavigation({
   enabledRepoIds,
   openInRepo,
   onRepoUnavailable,
+  declaredKinds = [],
 }: {
   navigate: (fields: Partial<AppLocation>) => void;
   updateLocation: (fields: Partial<AppLocation>) => void;
@@ -32,6 +33,8 @@ export function useEntityNavigation({
   openInRepo: (repoId: string, continueInRepo: () => void) => void;
   /** 目标仓未启用:回 home 并打开项目切换器。 */
   onRepoUnavailable: () => void;
+  /** 已注册 kind 清单(读面派生):声明实体的 ref 靠它路由,本模块不持有副本。 */
+  declaredKinds?: readonly string[];
 }) {
   const [recentRefs, setRecentRefs] = useState<string[]>([]);
 
@@ -61,10 +64,10 @@ export function useEntityNavigation({
         openTaskDetail(ref.slice(5).split("/")[0]);
         return;
       }
-      const target = entityDetailTargetOf(ref);
+      const target = entityDetailTargetOf(ref, declaredKinds);
       if (target) navigate({ ...target, selectedId: null, previewId: null });
     },
-    [navigate, openTaskDetail, remember],
+    [declaredKinds, navigate, openTaskDetail, remember],
   );
 
   // 决策池聚焦跳转:落列表页并高亮滚动到该 decision(池内 tab 自动切换)。
@@ -81,10 +84,10 @@ export function useEntityNavigation({
   // 导航回撤原路返回。runtime 引用不进 recentRefs(那是关系图的邻域记录)。
   const selectRuntimeEntity = useCallback(
     (ref: string) => {
-      const target = entityDetailTargetOf(ref);
+      const target = entityDetailTargetOf(ref, declaredKinds);
       if (target) navigate({ ...target, selectedId: null, previewId: null });
     },
-    [navigate],
+    [declaredKinds, navigate],
   );
 
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓,再在该仓导航。

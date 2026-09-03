@@ -63,6 +63,7 @@ import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
+import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
 
 /**
  * 渲染全量决策行的视图。总览不在决策抽屉关闭时预读完整图;
@@ -92,6 +93,10 @@ function AppShell() {
     if (next !== activeRepoId) setActiveRepoId(next);
   }, [activeRepoId, systemQuery.data?.repos]);
   const projectId = activeRepoId ?? "unselected";
+  // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体说明面同源于此。
+  const entityKinds = useEntityKindOptions(projectId);
+  const governedEntities = useGovernedEntityRows(projectId);
+  const declaredKinds = useMemo(() => entityKinds.map(({ kind }) => kind), [entityKinds]);
   const tasksQuery = useTasksQuery(activeRepoId);
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
 
@@ -320,14 +325,27 @@ function AppShell() {
       navigate({ view: "home" });
       setProjectSwitcherOpen(true);
     },
+    declaredKinds,
   });
 
   // ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。纯前端派生,不消费写 IPC。
   // 决策条目来自常驻的摘要投影,事实条目来自面板打开时才读的事实切面——面板合上
   // 时不持有任何三元投影。
+  // 声明实体一并进搜索范围:索引按行喂,加一个 kind 不改这里的形参。
   const paletteEntries = useMemo(
-    () => buildPaletteIndex(projectTasks, chromeDecisions, paletteFacts.facts),
-    [projectTasks, chromeDecisions, paletteFacts.facts],
+    () =>
+      buildPaletteIndex(
+        projectTasks,
+        chromeDecisions,
+        paletteFacts.facts,
+        governedEntities.map((entity) => ({
+          ref: entity.ref,
+          label: entity.title ?? entity.entityId,
+          ...(entity.locator ? { sub: entity.locator.value } : {}),
+          entity: entity.kind,
+        })),
+      ),
+    [projectTasks, chromeDecisions, paletteFacts.facts, governedEntities],
   );
 
   useAppShortcuts({
@@ -474,6 +492,8 @@ function AppShell() {
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace
+                  entityKinds={entityKinds}
+                  governedEntities={governedEntities}
                   focusedEntityRef={focusedEntityRef}
                   tasks={projectTasks}
                   relations={relations}
@@ -594,10 +614,8 @@ function AppShell() {
                 <EntitiesView
                   repoId={projectId}
                   // 实体说明深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
-                  // 推栈回撤原路返回)。
-                  focusedEntityDocKind={
-                    focusedEntityRef?.startsWith("entitydoc/") ? focusedEntityRef.slice("entitydoc/".length) : null
-                  }
+                  // 推栈回撤原路返回)。声明实体的 <kind>/<id> 也落这里(见 entityRoutes)。
+                  focusedRef={focusedEntityRef}
                   onOpenEntityDoc={(kind) =>
                     navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
                   }

@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { EntitiesView } from "../src/renderer/views/EntitiesView.tsx";
-import { ENTITY_DOC_GROUPS, FACT_TYPE_VOCABULARY } from "../src/renderer/entity-docs.ts";
+import { CURATED_ENTITY_DOC_GROUPS, FACT_TYPE_VOCABULARY } from "../src/renderer/entity-docs.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 
@@ -111,6 +111,9 @@ function stubBridge(
         watermark: 3,
         sourceRevision: 3,
       })),
+      // 已注册 kind 读面:目录分组与详情落点都从这里派生。
+      readEntityKinds: vi.fn(async () => ({ schema: "entity-kind-catalog/v1", kinds: [] })),
+      readEntityRows: vi.fn(async () => ({ schema: "entity-row-list/v1", ok: true, rows: [] })),
       getRelationGraph: vi.fn(async () => {
         calls.relationGraph += 1;
         return {
@@ -151,10 +154,10 @@ async function settle(): Promise<void> {
   });
 }
 
-function view(focusedEntityDocKind: string | null, onOpenView: (view: ViewId) => void = noop) {
+function view(focusedRef: string | null, onOpenView: (view: ViewId) => void = noop) {
   return createElement(EntitiesView, {
     repoId: REPO_ID,
-    focusedEntityDocKind,
+    focusedRef,
     onOpenEntityDoc: noop,
     onExitDetail: noop,
     onOpenView,
@@ -166,9 +169,9 @@ describe("entities catalog", () => {
   it("renders every documented entity as a card grouped by plane", async () => {
     stubBridge();
     const container = await renderSurface(view(null));
-    for (const group of ENTITY_DOC_GROUPS)
+    for (const group of CURATED_ENTITY_DOC_GROUPS)
       expect(container.querySelector(`[data-testid="entity-doc-group-${group.id}"]`)).not.toBeNull();
-    for (const doc of ENTITY_DOC_GROUPS.flatMap((group) => group.docs))
+    for (const doc of CURATED_ENTITY_DOC_GROUPS.flatMap((group) => group.docs))
       expect(container.querySelector(`[data-testid="entity-doc-card-${doc.kind}"]`), doc.kind).not.toBeNull();
   });
 
@@ -186,7 +189,7 @@ describe("entities catalog", () => {
 describe("entity doc detail", () => {
   it("renders definition, fields, statuses, relations, and actions for a triad entity", async () => {
     stubBridge();
-    const container = await renderSurface(view("decision"));
+    const container = await renderSurface(view("entitydoc/decision"));
     await settle();
     const text = container.textContent ?? "";
     expect(container.querySelector('[data-testid="entity-doc-detail-decision"]')).not.toBeNull();
@@ -203,7 +206,7 @@ describe("entity doc detail", () => {
   it("navigates to the entity's live view from the detail header", async () => {
     stubBridge();
     const opened: ViewId[] = [];
-    const container = await renderSurface(view("schedule", (next) => opened.push(next)));
+    const container = await renderSurface(view("entitydoc/schedule", (next) => opened.push(next)));
     await settle();
     const button = container.querySelector<HTMLButtonElement>('button[title*="定时计划"]');
     expect(button).not.toBeNull();
@@ -215,7 +218,7 @@ describe("entity doc detail", () => {
 
   it("renders an honest unknown-kind state instead of guessing", async () => {
     stubBridge();
-    const container = await renderSurface(view("unicorn"));
+    const container = await renderSurface(view("entitydoc/unicorn"));
     expect(container.querySelector('[data-testid="entity-doc-detail-unknown"]')).not.toBeNull();
     expect(container.textContent).toContain("未知实体 kind:unicorn");
   });
@@ -224,7 +227,7 @@ describe("entity doc detail", () => {
 describe("fact type vocabulary area (negative control)", () => {
   it("shows a real empty state with no fabricated types while the fact facet still renders live stats", async () => {
     const calls = stubBridge();
-    const container = await renderSurface(view("fact"));
+    const container = await renderSurface(view("entitydoc/fact"));
     await settle();
     const area = container.querySelector('[data-testid="fact-type-vocabulary"]');
     expect(area).not.toBeNull();
@@ -247,7 +250,7 @@ describe("fact type vocabulary area (negative control)", () => {
       { domainType: "architecture", registeredByFactId: "F-AAAABBBB" },
       { domainType: "bug", registeredByFactId: "F-CCCCDDDD" },
     ]);
-    const container = await renderSurface(view("fact"));
+    const container = await renderSurface(view("entitydoc/fact"));
     await settle();
     const registered = container.querySelector('[data-testid="fact-type-registered-list"]');
     expect(registered?.textContent).toContain("architecture");
@@ -259,7 +262,7 @@ describe("fact type vocabulary area (negative control)", () => {
 
   it("does not read the fact facet for other entities", async () => {
     const calls = stubBridge();
-    await renderSurface(view("task"));
+    await renderSurface(view("entitydoc/task"));
     await settle();
     expect(calls.relationGraph).toBe(0);
   });

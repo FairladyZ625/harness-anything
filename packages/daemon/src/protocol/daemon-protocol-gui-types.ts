@@ -12,6 +12,7 @@ import type {
   TaskProjection,
   SettingsV1,
   EntityActionExplanationSetV1,
+  EntityKindCatalogV1,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
@@ -327,6 +328,9 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
+  readonly "repo.entity.kinds.read": EntityKindCatalogV1;
+  readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
+  readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.settings.read": {
     readonly schema: "daemon.settings-read/v1";
     readonly ok: true;
@@ -388,6 +392,9 @@ export type DaemonGuiReadPayloadMap = {
     readonly entityKind: string | null;
     readonly refs: readonly string[];
   };
+  readonly "repo.entity.kinds.read": Readonly<Record<string, never>>;
+  readonly "repo.entity.rows.read": Readonly<Record<string, never>>;
+  readonly "repo.entity.locator.read": { readonly locatorKind: string; readonly locatorValue: string };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;

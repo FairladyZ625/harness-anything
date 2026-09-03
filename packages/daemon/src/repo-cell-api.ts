@@ -1,5 +1,6 @@
 import {
   assertCurrentWriter,
+  buildEntityKindCatalog,
   deriveUseCaseProjectionInputs,
   durablePolicyActions,
   getExecutableEntityAction,
@@ -21,6 +22,9 @@ import {
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
+import { compiledArtifactKinds } from "./artifact-entity-action.ts";
+import { readDeclaredEntityRows } from "./entity-rows-read.ts";
+import { readEntityLocator } from "./entity-locator-read.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import {
@@ -443,6 +447,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
+    "repo.entity.kinds.read": () => buildEntityKindCatalog(compiledArtifactKinds()),
+    "repo.entity.rows.read": () =>
+      readDeclaredEntityRows({
+        catalog: buildEntityKindCatalog(compiledArtifactKinds()),
+        projection: context.projection,
+      }),
+    "repo.entity.locator.read": (payload: Readonly<Record<string, unknown>>) =>
+      readEntityLocator({
+        rootDir: context.rootDir,
+        locatorKind: context.requiredCellText(payload.locatorKind, "locatorKind"),
+        locatorValue: context.requiredCellText(payload.locatorValue, "locatorValue"),
+      }),
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().agenda(agendaQueryFromPayload(payload)),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),

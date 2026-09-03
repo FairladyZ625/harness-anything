@@ -389,6 +389,9 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // write, so the GUI envelope accepts exactly what that write path produces.
     "mode",
     "report",
+    // entity-import returns the derived entity id on the CLI channel; repo.entity.import is a
+    // named ingress onto that same write, so the GUI envelope accepts what it already produces.
+    "entityId",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {

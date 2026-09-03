@@ -1,8 +1,10 @@
 import { BookOpen } from "@phosphor-icons/react";
-import { ENTITY_DOC_GROUPS, type EntityKindDoc } from "../entity-docs.ts";
+import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
 import { EntityDocDetailView } from "./EntityDocDetailView.tsx";
+import { useEntityKindCatalog } from "../entity-kind-data.ts";
+import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 
 /**
  * 实体说明面(dec_2935057783CD5D56E9F287AE4D CH4):三元语与扩展实体集中在一
@@ -13,26 +15,34 @@ import { EntityDocDetailView } from "./EntityDocDetailView.tsx";
  */
 export function EntitiesView({
   repoId,
-  focusedEntityDocKind,
+  focusedRef,
   onOpenEntityDoc,
   onExitDetail,
   onOpenView,
   projectName,
 }: {
   readonly repoId: string;
-  /** entitydoc/<kind> 深链接解析出的详情落点;null = 目录页。 */
-  readonly focusedEntityDocKind: string | null;
+  /**
+   * 详情落点。两种形态:`entitydoc/<kind>`(打开某 kind 的说明)与声明实体的
+   * `<kind>/<entityId>`(打开该 kind 并选中这一个实体)。null = 目录页。
+   */
+  readonly focusedRef: string | null;
   readonly onOpenEntityDoc: (kind: string) => void;
   readonly onExitDetail: () => void;
   readonly onOpenView: (view: ViewId) => void;
   readonly projectName: string;
 }) {
   const liveCounts = useEntityLiveCounts(repoId);
-  if (focusedEntityDocKind)
+  // 分组来自已注册 kind 读面:声明一个新 kind,这一页不改代码就多一条目录项。
+  const { catalog } = useEntityKindCatalog(repoId);
+  const groups = entityDocGroups(catalog);
+  const focus = resolveEntityDocFocus(focusedRef, catalog);
+  if (focus)
     return (
       <EntityDocDetailView
         repoId={repoId}
-        kind={focusedEntityDocKind}
+        kind={focus.kind}
+        selectedEntityRef={focus.entityRef}
         liveCounts={liveCounts}
         projectName={projectName}
         fromViewLabel={NAV_SELF_LABEL}
@@ -55,7 +65,7 @@ export function EntitiesView({
         </p>
       </header>
       <div data-testid="entities-content" className="w-full space-y-6 p-4">
-        {ENTITY_DOC_GROUPS.map((group) => (
+        {groups.map((group) => (
           <section key={group.id} data-testid={`entity-doc-group-${group.id}`}>
             <div className="mb-2 flex items-baseline gap-2">
               <h2 className="ui-body font-semibold">{group.title}</h2>
@@ -132,4 +142,25 @@ function liveLabel(live: EntityLiveCount): string {
   if (live.state === "ready") return `${live.count}`;
   if (live.state === "error") return "读取失败";
   return "…";
+}
+
+/**
+ * 详情落点解析。`entitydoc/<kind>` 是「看这个 kind 的说明」;声明实体的整条 ref
+ * 是「看这个 kind 的说明,并选中这一个实体」。kind 可以带斜杠,所以按读面上的
+ * kind 清单做最长前缀匹配,不按段数猜。
+ */
+export function resolveEntityDocFocus(
+  ref: string | null,
+  catalog: EntityKindCatalog,
+): { readonly kind: string; readonly entityRef: string | null } | null {
+  if (!ref) return null;
+  if (ref.startsWith("entitydoc/")) {
+    const kind = ref.slice("entitydoc/".length);
+    return kind ? { kind, entityRef: null } : null;
+  }
+  const kind = catalog.kinds
+    .map(({ kind: candidate }) => candidate)
+    .filter((candidate) => ref.startsWith(`${candidate}/`))
+    .sort((left, right) => right.length - left.length)[0];
+  return kind === undefined ? null : { kind, entityRef: ref };
 }

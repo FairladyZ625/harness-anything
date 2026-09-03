@@ -12,6 +12,7 @@ import {
   type EgoHopBudget,
 } from "./egoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GovernedEntityRow } from "./governedEntities";
 
 /**
  * 无限画布 ego 的状态机(dec_01KXBGJQFQARSZHHQW1WADFDNC CH1)。
@@ -59,6 +60,7 @@ export function useEgoCanvas({
   factAnchors,
   agents = [],
   schedules = [],
+  governed = [],
   axes,
   focusRef,
   hops = EGO_DEFAULT_HOPS,
@@ -72,6 +74,8 @@ export function useEgoCanvas({
   factAnchors: ReadonlyArray<FactAnchorRow>;
   agents?: ReadonlyArray<AgentNodeRow>;
   schedules?: ReadonlyArray<ScheduleNodeRow>;
+  /** 声明实体行(vertical kind);缺省 = 该层缺席,图照常。 */
+  governed?: ReadonlyArray<GovernedEntityRow>;
   axes: EgoAxisFilter;
   focusRef: string | null;
   /** 铺开跳数预算(父 ↑ / 子 ↓ 各一)。变更时从当前焦点重铺,累积展开集随之清空。 */
@@ -87,8 +91,8 @@ export function useEgoCanvas({
   const [selectId, setSelectId] = useState<string | null>(null);
 
   const graph = useMemo(
-    () => buildEgoGraph(tasks, decisions, facts, relations, factAnchors, { agents, schedules }),
-    [tasks, decisions, facts, relations, factAnchors, agents, schedules],
+    () => buildEgoGraph(tasks, decisions, facts, relations, factAnchors, { agents, schedules }, governed),
+    [tasks, decisions, facts, relations, factAnchors, agents, schedules, governed],
   );
 
   const highlight = useMemo(() => egoOneHopHighlight(graph, selectId, axes), [graph, selectId, axes]);
