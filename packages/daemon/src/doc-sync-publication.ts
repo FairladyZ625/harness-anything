@@ -75,10 +75,25 @@ export function archiveRuntimeDispatch(
       .readRuntimeDispatches()
       .find((event) => event.payload.dispatchId === value.dispatchId),
     session = input.projection.readRuntimeSession(value.runtimeSessionId),
-    runtimeActor = input.binding.actor.executor?.id === `runtime-session:${value.runtimeSessionId}`,
-    matchingTask = session?.taskBindings.some(
-      (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
-    );
+    runtimeExecutorId = `runtime-session:${value.runtimeSessionId}`,
+    assignmentScope = input.binding.assignmentScope,
+    runtimeActor = input.binding.actor.executor?.id === runtimeExecutorId,
+    matchingTask =
+      session?.taskBindings.some(
+        (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
+      ) === true ||
+      input.projection
+        .readLeaseIntervals(value.taskId)
+        .some(
+          (interval) =>
+            interval.executionId === value.executionId &&
+            interval.holder.actor.executor?.id === runtimeExecutorId &&
+            interval.holder.actor.principal.personId === input.binding.actor.principal.personId,
+        ) ||
+      (assignmentScope?.repoId === input.workspaceId &&
+        assignmentScope.scope.kind === "task" &&
+        assignmentScope.scope.taskId === value.taskId &&
+        assignmentScope.scope.executionId === value.executionId);
   if (
     occurrence?.payload.runtimeSessionId !== value.runtimeSessionId ||
     occurrence.payload.instanceId !== value.instanceId ||
