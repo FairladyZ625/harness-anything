@@ -16,6 +16,10 @@ export function cellCodedError(code: string, text: string): Error {
   return error;
 }
 
+export function migrationError(code: string, message: string): never {
+  throw Object.assign(new Error(message), { code });
+}
+
 export function cellCriterionError(
   code: string,
   text: string,

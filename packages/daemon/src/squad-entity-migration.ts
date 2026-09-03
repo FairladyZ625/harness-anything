@@ -10,6 +10,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { migrationError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 // One-time cutover for direct-authored Squad declarations. Delete this command after the canonical
@@ -57,7 +58,8 @@ export async function runSquadEntityMigration(
       cell.entityActionRuntimes,
     );
 
-  if (action.dryRun === true) return previewReceipt(cell, action, binding, reportFor(candidates, true));
+  if (action.dryRun === true)
+    return squadMigrationPreviewReceipt(cell, action, binding, squadMigrationReport(candidates, true));
 
   let marker: WriteReceipt | null = null;
   for (const candidate of candidates) {
@@ -74,7 +76,7 @@ export async function runSquadEntityMigration(
         `Squad ${candidate.declaration.id} did not become visible at the canonical projection cut.`,
       );
   }
-  return appliedReceipt(cell, action, binding, reportFor(candidates, false), marker);
+  return squadMigrationAppliedReceipt(cell, action, binding, squadMigrationReport(candidates, false), marker);
 }
 
 function readCandidates(cell: RepoCellOperationalContext, value: unknown): readonly SquadMigrationCandidate[] {
@@ -171,7 +173,7 @@ function childOperationId(
   return cell.operationId(installAction(candidate, dryRun), binding, cell.input.repoId, candidate.currentRevision);
 }
 
-function reportFor(candidates: readonly SquadMigrationCandidate[], dryRun: boolean): SquadMigrationReport {
+function squadMigrationReport(candidates: readonly SquadMigrationCandidate[], dryRun: boolean): SquadMigrationReport {
   return {
     schema: "squad-entity-migration-report/v1",
     mode: dryRun ? "dry-run" : "apply",
@@ -200,7 +202,7 @@ function reportFor(candidates: readonly SquadMigrationCandidate[], dryRun: boole
   };
 }
 
-function previewReceipt(
+function squadMigrationPreviewReceipt(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -226,7 +228,7 @@ function previewReceipt(
   };
 }
 
-function appliedReceipt(
+function squadMigrationAppliedReceipt(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -253,8 +255,4 @@ function appliedReceipt(
 
 function duplicates(values: readonly string[]): readonly string[] {
   return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))].sort();
-}
-
-function migrationError(code: string, message: string): never {
-  throw Object.assign(new Error(message), { code });
 }
