@@ -240,6 +240,22 @@ export interface DecisionLoadBearingClaim {
 }
 
 export type DecisionJudgmentConsent = DecisionProjectionRow["judgmentConsents"][number];
+
+/** 行级决策能力投影:某个裁决动作对这一行是否可做(判定来自 kernel,不是文案)。 */
+export type DecisionCapability = DecisionProjectionRow["capabilities"][number];
+export type DecisionCapabilityId = DecisionCapability["id"];
+
+const decisionCapabilityOf = (
+  row: Pick<DecisionRow, "capabilities">,
+  id: DecisionCapabilityId,
+): DecisionCapability | undefined => row.capabilities.find((capability) => capability.id === id);
+
+/**
+ * 行级裁决能力:accept/reject/defer 三项同一 lifecycle 前置(kernel
+ * `decisionCapabilities`),「这条决策是否待裁」读它,不再比较状态词。
+ */
+export const decisionCan = (row: Pick<DecisionRow, "capabilities">, id: DecisionCapabilityId): boolean =>
+  decisionCapabilityOf(row, id)?.available === true;
 export type DecisionBody = NonNullable<DecisionProjectionRow["body"]>;
 
 export interface ProvenanceEntry {
@@ -255,6 +271,14 @@ export interface DecisionRow {
   path?: string;
   title: string;
   state: DecisionState;
+  /**
+   * 行级能力投影(kernel `decisionCapabilities`):裁决动作对这一行的 lifecycle 前置。
+   * accept/reject/defer 三项同一前置(proposed),深层的 actor/关系准入仍在
+   * `entity.actions.explain` 与提交 admission,不在这里。
+   */
+  capabilities: DecisionProjectionRow["capabilities"];
+  /** 承重 claim 的覆盖债是否仍开口(kernel `decisionClaimsOpen`):proposed 或 in_effect。 */
+  claimsOpen: boolean;
   riskTier?: RiskTier; // 缺失即未知；不得以 UI 默认值合成风险等级
   urgency?: Urgency; // 缺失即未知；不得以 UI 默认值合成紧急等级
   vertical?: string;

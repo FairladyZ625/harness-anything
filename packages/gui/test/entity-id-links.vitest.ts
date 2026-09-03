@@ -14,6 +14,7 @@ import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
 import { freshnessCandidates, inDebtScopeCoverageRows } from "../src/renderer/model/freshness.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
@@ -999,6 +1000,7 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
       rejected: [{ id: "RJ1", text: "不采纳", evidence: [], whyNot: "已否决" }],
       claims: [{ id: "CH1", text: "终态决策的承重论点", loadBearing: true, fulfillment: null }],
       judgmentConsents: [],
+      ...decisionProjectionFields(state),
     });
     const terminalIds = ["dec_g10rejected", "dec_g10superseded", "dec_g10outcomeretired", "dec_g10deferred"] as const;
     const terminalStates: readonly DecisionRow["state"][] = ["rejected", "superseded", "outcome_retired", "deferred"];

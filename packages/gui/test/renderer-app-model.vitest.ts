@@ -365,6 +365,14 @@ describe("renderer app model", () => {
   it("keeps the selected decision card visible and focused under all filters", () => {
     const decision: DecisionRow = {
       decisionId: "dec_gui_smoke",
+      capabilities: [
+        { id: "accept", available: true, reason: null },
+        { id: "reject", available: true, reason: null },
+        { id: "defer", available: true, reason: null },
+        { id: "supersede", available: false, reason: "invalid_transition" },
+        { id: "retire", available: false, reason: "invalid_transition" },
+      ],
+      claimsOpen: true,
       title: "Ship the GUI read surface",
       state: "proposed",
       riskTier: "high",

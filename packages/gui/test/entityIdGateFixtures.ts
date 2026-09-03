@@ -1,4 +1,5 @@
 import type { DecisionRow, FactRef, RelationEdge, TaskRow, Project, EventEntry } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import type {
   AgentRuntimeSessionDto,
@@ -93,6 +94,7 @@ const PROPOSED_DECISION: DecisionRow = {
   claims: [],
   judgmentConsents: [],
   proposedAt: AT,
+  ...decisionProjectionFields("proposed"),
 };
 
 export const FIXTURE_DECISIONS: DecisionRow[] = [
@@ -109,6 +111,7 @@ export const FIXTURE_DECISIONS: DecisionRow[] = [
     claims: [{ id: "CH1", text: "判据必须是机制不是文案", loadBearing: true, fulfillment: "standing_policy" }],
     judgmentConsents: [],
     proposedAt: AT,
+    ...decisionProjectionFields("in_effect"),
   },
 ];
 

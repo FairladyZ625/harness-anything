@@ -35,15 +35,18 @@ const ENGINE_HINT: Record<string, string> = {
   linear: "由 Linear 管理，去 Linear 改状态",
 };
 
+/**
+ * 卡片悬停提示只答「这行还能做什么」:动作可用性读行级能力投影(kernel
+ * `taskCapabilities`),不再按状态词分支;overlay 提示保留 blockingAssessment 一格。
+ */
 function taskControlHint(task: TaskRow): string {
   if (isExternal(task)) return ENGINE_HINT[task.engine] ?? `由外部引擎 ${task.engine} 管理，GUI 只读`;
   if (task.visibility.archived) return `${task.packageDisposition} package 只读`;
   if (task.blocking === "blocked") return "Blocked 是 relation overlay，不可拖；关系在 canonical 来源处理";
-  if (task.canonicalStatus === "in_review") return "已进入 review；只能查看 canonical settlement";
-  if (task.canonicalStatus === "done") return "任务已完成，状态只读";
-  return task.canonicalStatus === "planned"
-    ? "可拖到 Active 申请 execution lease"
-    : "Active 状态请在详情追加 progress 或 request review";
+  if (taskCan(task, "review")) return "已进入 review；只能查看 canonical settlement";
+  if (taskCan(task, "start")) return "可拖到 Active 申请 execution lease";
+  if (taskCan(task, "progress") || taskCan(task, "submit")) return "Active 状态请在详情追加 progress 或 request review";
+  return "当前无可用动作，原因见详情控制面板";
 }
 
 function Card({

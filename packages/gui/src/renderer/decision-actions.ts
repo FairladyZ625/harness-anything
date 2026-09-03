@@ -215,11 +215,12 @@ export function useDecisionActions(repoId: string) {
             hint: "receipt 已 applied 但未返回 decisionId；用 opId 查询，勿重放 mutation。",
           });
         const reread = await refresh(),
+          // 可见 = 新提案出现在 canonical 投影且仍待裁:裁决能力的 lifecycle 前置
+          // (kernel decisionCapabilities)由投影逐行给出,renderer 不再比较状态词。
           visible = reread.decisions.decisions.some(
             (decision) =>
               decision.decisionId === decisionId &&
-              /* @gate-identity check-gui-status-judgments/gui-status-020 */
-              decision.state === "proposed",
+              decision.capabilities.some((capability) => capability.id === "accept" && capability.available),
           );
         if (visible) {
           pendingResolvers.current.delete(operationKey("proposal"));

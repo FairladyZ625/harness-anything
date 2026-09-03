@@ -1,13 +1,37 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
 import { groupDecisions, UNASSIGNED_GROUP } from "../src/renderer/model/decision-pool-grouping.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
 
 function dec(id: string, patch: Partial<DecisionRow> = {}): DecisionRow {
-  return {
-    decisionId: id, title: id, state: "proposed", question: "Q?",
-    chosen: [], rejected: [], claims: [], proposedAt: "2026-08-01T00:00:00.000Z",
-  } as DecisionRow, { ...({ decisionId: id, title: id, state: "proposed", question: "Q?", chosen: [], rejected: [], claims: [], proposedAt: "2026-08-01T00:00:00.000Z" } as DecisionRow), ...patch } as DecisionRow;
+  return (
+    {
+      decisionId: id,
+      title: id,
+      state: "proposed",
+      question: "Q?",
+      chosen: [],
+      rejected: [],
+      claims: [],
+      proposedAt: "2026-08-01T00:00:00.000Z",
+      ...decisionProjectionFields("proposed"),
+    } as DecisionRow,
+    {
+      ...({
+        decisionId: id,
+        title: id,
+        state: "proposed",
+        question: "Q?",
+        chosen: [],
+        rejected: [],
+        claims: [],
+        proposedAt: "2026-08-01T00:00:00.000Z",
+        ...decisionProjectionFields("proposed"),
+      } as DecisionRow),
+      ...patch,
+    } as DecisionRow
+  );
 }
 
 describe("decision pool PLT grouping (REQ-GUI-06)", () => {
@@ -32,10 +56,7 @@ describe("decision pool PLT grouping (REQ-GUI-06)", () => {
 
   it("returns a single flat group when grouping is off, and groups verticals when asked", () => {
     expect(groupDecisions([dec("dec_1")], "none")).toHaveLength(1);
-    const groups = groupDecisions(
-      [dec("dec_1", { vertical: "coding" }), dec("dec_2")],
-      "vertical",
-    );
+    const groups = groupDecisions([dec("dec_1", { vertical: "coding" }), dec("dec_2")], "vertical");
     expect(groups.map((g) => g.title)).toEqual(["coding", "未知 vertical"]);
   });
 });

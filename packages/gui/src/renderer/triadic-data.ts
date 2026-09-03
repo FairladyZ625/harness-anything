@@ -386,6 +386,8 @@ function adaptDecisionRows(
       path: row.path,
       title: row.title,
       state: decisionState(row.state),
+      capabilities: row.capabilities.map((capability) => ({ ...capability })),
+      claimsOpen: row.claimsOpen,
       riskTier: row.riskTier,
       urgency: row.urgency,
       vertical: row.vertical,
