@@ -307,9 +307,17 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     const host = container.querySelector<HTMLElement>('[data-testid="html-artifact-host"]');
     expect(host?.classList.contains("flex-1")).toBe(true);
     expect(host?.classList.contains("min-h-0")).toBe(true);
+    // 尺寸契约:webview 类必须给出撑满 host 的显式宽高。没有这条规则,Electron 的
+    // webview 元素保持 Chromium 替换元素默认值(宽 300 高 150),宿主 bg-white 涂满
+    // 剩余空间——即「只显示标题与第一张卡片」的截断(task_419dc330)。
+    // display 必须是 flex 而非 block:block 下 guest WebContents 不再跟随元素高度,
+    // 停在 150px 默认值,肉眼看到的截断完全一样(e2e artifacts-html-preview 实测)。
     const styles = readFileSync("src/renderer/styles.css", "utf8");
-    expect(styles).not.toMatch(/\.html-artifact-webview\s*\{/u);
-    expect(styles).not.toMatch(/\.html-artifact-preview-fill \.html-artifact-webview\s*\{/u);
+    const webviewRule = styles.match(/\.html-artifact-webview\s*\{([^}]*)\}/u)?.[1];
+    expect(webviewRule).toContain("display: flex");
+    expect(webviewRule).toContain("width: 100%");
+    expect(webviewRule).toContain("height: 100%");
+    expect(webview?.classList.contains("html-artifact-webview")).toBe(true);
   });
 
   it("renders a Markdown artifact with the shared markdown reader, not a webview", async () => {

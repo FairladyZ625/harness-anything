@@ -32,6 +32,7 @@ export async function startGuiResidentDaemonFixture({
       1_000,
     );
     if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+    let packagePath = null;
     if (task) {
       const created = await requestDaemonJsonRpcAt(
         daemon.endpoint,
@@ -40,6 +41,7 @@ export async function startGuiResidentDaemonFixture({
         1_000,
       );
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
+      packagePath = String(created.packagePath);
       await realizeTaskPlanFixture(
         rootDir,
         String(created.packagePath),
@@ -64,6 +66,7 @@ export async function startGuiResidentDaemonFixture({
       userRoot,
       daemonId,
       repoId,
+      packagePath,
       endpoint: daemon.endpoint,
       env: { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: daemonId, HARNESS_DAEMON_REPO_ID: repoId },
       stop,

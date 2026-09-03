@@ -8,6 +8,7 @@ import terminalSidebar from "./scenarios/terminal-sidebar.mjs";
 import terminalTaskTree from "./scenarios/terminal-task-tree.mjs";
 import decisions from "./scenarios/decisions.mjs";
 import sessionsArtifacts from "./scenarios/sessions-artifacts.mjs";
+import artifactsHtmlPreview from "./scenarios/artifacts-html-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
 
 export const catalog = [
@@ -21,6 +22,7 @@ export const catalog = [
   terminalTaskTree,
   decisions,
   sessionsArtifacts,
+  artifactsHtmlPreview,
   settings,
 ];
 

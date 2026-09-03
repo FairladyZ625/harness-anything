@@ -408,6 +408,11 @@ describe("Task detail expression", () => {
     expect(webview.getAttribute("partition")).toBe("html-artifact-preview");
     expect(webview.getAttribute("preload")).toBeNull();
     expect(webview.getAttribute("src")).toMatch(/^data:text\/html;charset=utf-8,/u);
+    // 非 fill 布局:host 必须是定高(h-[42rem]),webview 的 height:100% 才有可解析的
+    // 百分比基准;只给 min-height 时 webview 会落回 150px 默认高(task_419dc330)。
+    const host = byTestId("html-artifact-host");
+    expect(host.classList.contains("h-[42rem]")).toBe(true);
+    expect(webview.classList.contains("html-artifact-webview")).toBe(true);
   });
 });
 
