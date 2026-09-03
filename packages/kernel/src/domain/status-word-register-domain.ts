@@ -159,6 +159,20 @@ export const domainStatusWords: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "ready",
+    entity: "Task",
+    field: "read set projection cut",
+    meaning: "Read set derived at a caught-up cut; the edge list is complete for that revision.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "pending",
+    entity: "Task",
+    field: "read set projection cut",
+    meaning: "Read set derived while the projection still trails the canonical revision.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "covered",
     entity: "Decision",
     field: "claim coverage status",

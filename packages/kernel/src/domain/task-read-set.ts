@@ -9,8 +9,7 @@ export const READ_SET_SCHEMA = "read-set/v1" as const;
  * The three authority classes of `context-assembly-design.md` §4: normative rules
  * (standards, decisions in force), descriptive facts, and historical experience.
  */
-export const readSetAuthorities = ["normative", "descriptive", "historical"] as const;
-export type ReadSetAuthority = (typeof readSetAuthorities)[number];
+export type ReadSetAuthority = "normative" | "descriptive" | "historical";
 
 /**
  * Only the edges the task itself declares enter the read set
@@ -20,27 +19,23 @@ export type ReadSetAuthority = (typeof readSetAuthorities)[number];
  */
 const explicitRelationOrigins: readonly RelationOrigin[] = ["declared", "imported_snapshot"];
 
-export interface ReadSetInclusion {
-  /** W3 adds `context-route` here; this wave derives entries from the task's own edges only. */
-  readonly source: "task-relation";
-  readonly relationId: string;
-  readonly type: RelationType;
-  readonly rationale: string;
-}
-
-/** The relation revisions carried through unchanged so two edge nodes can compare answers. */
-export interface ReadSetEdgeVersions {
-  readonly targetObservedVersion: EntityVersion | null;
-  readonly currentTargetVersion: EntityVersion | null;
-}
-
 export interface ReadSetEntry {
   readonly entityRef: string;
   readonly locator: string | null;
   readonly contentVersion: EntityVersion | null;
   readonly freshness: RelationFreshness;
-  readonly whyIncluded: ReadSetInclusion;
-  readonly edgeVersions: ReadSetEdgeVersions;
+  readonly whyIncluded: {
+    /** W3 adds `context-route` here; this wave derives entries from the task's own edges only. */
+    readonly source: "task-relation";
+    readonly relationId: string;
+    readonly type: RelationType;
+    readonly rationale: string;
+  };
+  /** The relation revisions carried through unchanged so two edge nodes can compare answers. */
+  readonly edgeVersions: {
+    readonly targetObservedVersion: EntityVersion | null;
+    readonly currentTargetVersion: EntityVersion | null;
+  };
   readonly required: boolean;
   readonly authority: ReadSetAuthority;
 }
@@ -78,12 +73,10 @@ export interface TaskReadSetInput {
   readonly projectionCut: ReadSetProjectionCut;
 }
 
-export type ReadSetBlockedCode = "required_target_orphaned" | "required_target_unknown" | "required_locator_unresolved";
-
 export interface ReadSetBlockedReason {
   readonly entityRef: string;
   readonly relationId: string;
-  readonly code: ReadSetBlockedCode;
+  readonly code: "required_target_orphaned" | "required_target_unknown" | "required_locator_unresolved";
   readonly detail: string;
 }
 
@@ -142,6 +135,9 @@ export function deriveTaskReadSet(input: TaskReadSetInput): TaskReadSet {
   });
 }
 
+/** Reading order between the authority classes. */
+const readSetAuthorityRank: Record<ReadSetAuthority, number> = { normative: 0, descriptive: 1, historical: 2 };
+
 function readSetAuthority(entityRef: string): ReadSetAuthority {
   const kind = parseEntityRef(entityRef)?.kind;
   if (kind === "decision" || kind === "policy") return "normative";
@@ -193,8 +189,6 @@ function readSetGaps(
   return reasons;
 }
 
-const readSetAuthorityRank = new Map(readSetAuthorities.map((authority, rank) => [authority, rank]));
-
 /**
  * Stable and independent of any file path: required first, then authority class,
  * relation type, entity ref, and finally the relation id so two edges to the same
@@ -202,7 +196,7 @@ const readSetAuthorityRank = new Map(readSetAuthorities.map((authority, rank) =>
  */
 function compareReadSetEntries(left: ReadSetEntry, right: ReadSetEntry): number {
   if (left.required !== right.required) return left.required ? -1 : 1;
-  const authority = readSetAuthorityRank.get(left.authority)! - readSetAuthorityRank.get(right.authority)!;
+  const authority = readSetAuthorityRank[left.authority] - readSetAuthorityRank[right.authority];
   if (authority !== 0) return authority;
   return (
     compareText(left.whyIncluded.type, right.whyIncluded.type) ||

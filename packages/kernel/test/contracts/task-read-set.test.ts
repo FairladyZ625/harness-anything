@@ -1,8 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveTaskReadSet, READ_SET_SCHEMA } from "../../src/index.ts";
-import type { TaskReadSetCounterpart, TaskReadSetEdge } from "../../src/index.ts";
+import { deriveTaskReadSet, READ_SET_SCHEMA } from "../../src/domain/task-read-set.ts";
+import type { TaskReadSetCounterpart, TaskReadSetEdge } from "../../src/domain/task-read-set.ts";
 
 const taskRef = "task/task_readset0000000000",
   cut = { status: "ready" as const, watermark: 42, sourceRevision: 42 };
