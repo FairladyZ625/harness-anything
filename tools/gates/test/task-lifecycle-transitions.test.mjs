@@ -11,7 +11,7 @@ import {
   TaskLifecycleContractError,
 } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
 import { REPLAY_TASK_GRAPH } from "../../../packages/kernel/src/domain/task-graph.ts";
-import { TASK_LEASE_BROKER_CONTRACT } from "../../../packages/kernel/src/domain/execution.ts";
+import { submissionDigest, TASK_LEASE_BROKER_CONTRACT } from "../../../packages/kernel/src/domain/execution.ts";
 
 const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "owner-agent" } };
 const executor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "worker-agent" } };
@@ -128,6 +128,7 @@ function review(
       commitSha,
       iteration,
       contentDigest,
+      submissionDigest: submissionDigest(submission(commitSha)),
     },
     `${reviewId}-${verdict}`,
   );
