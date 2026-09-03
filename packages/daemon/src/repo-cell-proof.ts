@@ -134,7 +134,11 @@ export async function proofFor(
         : undefined;
     if (!reviewCriterion)
       throw new Error(`Task review criterion ${REVIEW_PROOF_CRITERION} has no capability evaluation.`);
-    if (runtimeBinding !== null)
+    const executionActor = execution?.actor,
+      leaseHolder = snapshot.lease?.executionId === command.executionId ? snapshot.lease.actor : null,
+      runtimeIsExecutionActor = executionActor !== undefined && isSamePerson(executionActor, command.actor),
+      runtimeHoldsLease = leaseHolder !== null && isSamePerson(leaseHolder, command.actor);
+    if (runtimeBinding !== null && (runtimeIsExecutionActor || runtimeHoldsLease))
       throw cellCriterionError(
         "runtime_task_self_review_forbidden",
         "Task review runtime-binding independence proof was not satisfied.",

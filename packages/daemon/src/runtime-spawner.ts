@@ -229,6 +229,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "agentId",
         "targetAgentId",
         "squadId",
+        "role",
         "model",
         "effort",
         "fast",
@@ -266,6 +267,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? undefined
           : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
       squadId = payload.squadId === undefined ? undefined : requiredRuntimeSpawnText(payload.squadId, "squadId"),
+      role = payload.role === undefined ? undefined : requiredRuntimeSpawnText(payload.role, "role"),
       // Delegation provenance: which already-running runtime session invoked this spawn.
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
