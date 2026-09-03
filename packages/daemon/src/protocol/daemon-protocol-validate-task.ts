@@ -109,8 +109,8 @@ function validateProjectedTaskActionInput(
       );
   for (const field of input.fields) {
     const item = record[field.field],
-      type = field.type ?? "string";
-    if (field.required === true && (item === undefined || item === "")) {
+      type = field.type;
+    if (field.required && (item === undefined || item === "")) {
       errors.push(validationError(entityId, `action.${field.field}`, item, "field is required"));
       continue;
     }

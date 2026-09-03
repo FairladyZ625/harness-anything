@@ -40,10 +40,11 @@ export type RpcShape = {
   >;
   readonly open?: boolean;
 };
-export type GeneratedTaskActionInputField = Pick<EntityActionInputField, "field" | "type" | "enum" | "regex"> & {
-  readonly required?: boolean;
+export type GeneratedTaskActionInputField = Pick<EntityActionInputField, "field" | "enum" | "regex"> & {
+  readonly type: NonNullable<EntityActionInputField["type"]>;
+  readonly required: boolean;
   readonly cli?: Omit<NonNullable<EntityActionInputField["cli"]>, "jsonSchema" | "error"> & {
-    readonly error?: string;
+    readonly error: string;
   };
 };
 export interface GeneratedTaskActionProtocolDeclaration {
