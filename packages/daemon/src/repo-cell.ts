@@ -17,6 +17,7 @@ import {
   type ActorIdentity,
   type DaemonRepoMode,
   type DocSyncReceiptDetail,
+  type WalRecoveryProgress,
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
@@ -138,6 +139,17 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     killpoint: context.input.killpoint,
     afterFlush: settleAuthoredCandidates,
     onMaterializationHealthChange: context.input.onMaterializationHealthChange,
+    ...(context.input.onOpenProgress
+      ? {
+          onRecoveryProgress: (progress: WalRecoveryProgress) =>
+            context.input.onOpenProgress?.({
+              phase: "recovering",
+              applied: progress.applied,
+              total: progress.total ?? null,
+              watermark: progress.watermark,
+            }),
+        }
+      : {}),
     walMaterialize: (config, request) => {
       const response = runWalMaterializationRequest(config, request, {
         withFinalizeFence: (fence, operation) => withWriterEpochFenceDescriptor(fence, operation),

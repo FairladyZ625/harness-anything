@@ -10,6 +10,7 @@ export {
   makeWalShadowEventReader as makeTaskEventReader,
   makeWalShadowEventStore as makeTaskEventStore,
 } from "../store/wal-shadow-event-store.ts";
+export type { WalRecoveryProgress } from "../store/wal-shadow-event-store.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { runDispatchRecordMigration } from "../store/dispatch-record-migration.ts";

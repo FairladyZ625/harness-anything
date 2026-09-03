@@ -10,7 +10,7 @@ import { makeTaskProjection, readDaemonRegistry, taskLifecycleWritePlan } from "
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
@@ -199,9 +199,11 @@ test("daemon status exposes the writer phase and progress while a repository att
     attachments = host.attachmentsSettled();
   await progressPublished;
   try {
-    const row = host.status().repos.find((repo) => repo.repoId === "host-attach-progress");
+    const response = { ok: true as const, ...host.status() } satisfies DaemonStatusResult,
+      row = response.repos.find((repo) => repo.repoId === "host-attach-progress");
     context.diagnostic(`ha daemon status repo row: ${JSON.stringify(row)}`);
     assert.equal(row?.state, "warming");
+    assert.match(response.summary, /attaching 0\/1/u);
     assert.deepEqual(row?.attach, {
       phase: "catching-up",
       applied: 4_096,

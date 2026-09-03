@@ -48,9 +48,7 @@ async function startRepoWriterWorker(): Promise<void> {
     total: null,
     watermark: null,
   });
-  postStatus({ kind: "status", status: openingStatus });
-  const heartbeat = setInterval(() => postStatus({ kind: "status", status: openingStatus }), 4_000);
-  heartbeat.unref?.();
+  postStatus({ kind: "attach-progress", status: openingStatus });
 
   parentPort.on("message", (message: unknown) => {
     if (isCapabilityResult(message)) {
@@ -131,7 +129,7 @@ async function startRepoWriterWorker(): Promise<void> {
         onOpenProgress: (progress) => {
           if (cell !== null) return;
           openingStatus = statusDuringOpen(progress);
-          postStatus({ kind: "status", status: openingStatus });
+          postStatus({ kind: "attach-progress", status: openingStatus });
         },
         onRuntimeOutcome: (event) => notify("runtimeOutcome", event),
         onAttemptTerminal: (terminal) => notify("attemptTerminal", terminal),
@@ -146,8 +144,6 @@ async function startRepoWriterWorker(): Promise<void> {
   } catch (error) {
     consumeKnownError(error);
     postStatus({ kind: "closed", error: serializeWriterError(error) });
-  } finally {
-    clearInterval(heartbeat);
   }
 
   function statusDuringOpen(attach: RepoCellAttachProgress): RepoCellStatus {

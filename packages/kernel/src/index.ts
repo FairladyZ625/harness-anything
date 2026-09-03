@@ -312,6 +312,7 @@ export type {
   TaskRelationProjectionRead,
   TaskRelationQuery,
   WalMaterializationFenceV1,
+  WalRecoveryProgress,
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,
