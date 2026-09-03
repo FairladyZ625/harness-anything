@@ -39,6 +39,20 @@ export interface TaskVisibility {
   readonly archived: boolean;
 }
 
+export const taskPhaseSteps = ["planned", "active", "in_review", "done"] as const satisfies readonly DomainStatus[];
+export const taskPhaseReasons = ["blocked_overlay", "terminal_cancelled", "phase_unresolved"] as const;
+export type TaskPhaseReason = (typeof taskPhaseReasons)[number];
+
+export interface TaskPhase {
+  readonly index: number | null;
+  readonly reason: TaskPhaseReason | null;
+  readonly steps: typeof taskPhaseSteps;
+}
+
+export interface TaskRisk {
+  readonly flagged: boolean;
+}
+
 /**
  * Actions a board row gates today. `start` / `submit` / `review` / `complete` are Task Action
  * catalog ids; `progress` is the `task-progress-append` policy action the control panel gates
@@ -104,6 +118,31 @@ export function taskBoardPlacement(row: TaskBoardRowInput): TaskBoardPlacement {
 /** Archived and tombstoned packages are history, not work in flight. */
 export function taskVisibility(row: TaskBoardRowInput): TaskVisibility {
   return Object.freeze({ archived: row.packageDisposition !== "active" });
+}
+
+/** The canonical lifecycle's main delivery path plus an explicit reason for statuses off that path. */
+export function taskPhase(row: TaskBoardRowInput): TaskPhase {
+  const status = coordinationStatusOf(row),
+    index = (taskPhaseSteps as readonly string[]).indexOf(status);
+  return Object.freeze({
+    index: index < 0 ? null : index,
+    reason:
+      status === "blocked"
+        ? "blocked_overlay"
+        : status === "cancelled"
+          ? "terminal_cancelled"
+          : status === "unknown"
+            ? "phase_unresolved"
+            : null,
+    steps: taskPhaseSteps,
+  });
+}
+
+/** Missing closeout evidence and an explicitly failed closeout are the row's two risk signals. */
+export function taskRisk(row: TaskBoardRowInput): TaskRisk {
+  return Object.freeze({
+    flagged: row.closeoutReadiness === "missing" || row.closeoutReadiness === "failed",
+  });
 }
 
 export function taskCapabilities(row: TaskBoardRowInput): readonly TaskCapability[] {

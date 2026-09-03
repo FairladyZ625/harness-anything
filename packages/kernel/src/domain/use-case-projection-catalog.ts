@@ -23,6 +23,7 @@ export const useCaseProjectionNames = Object.freeze([
   "schedule-run-history",
   "runtime-session-groups",
   "task-board-rows",
+  "decision-pool-rows",
 ] as const);
 
 export type UseCaseProjectionName = (typeof useCaseProjectionNames)[number];
@@ -90,6 +91,13 @@ export const useCaseProjectionCatalog: readonly UseCaseProjectionDefinition[] = 
       "views/SwimlaneBoard.tsx",
       "components/TaskControlPanel.tsx",
     ],
+  },
+  {
+    name: "decision-pool-rows",
+    entityKinds: ["decision"],
+    outputSchemaId: "daemon.use-case-projection/v1",
+    version: 1,
+    consumers: ["views/DecisionPoolView.tsx", "views/DecisionsView.tsx"],
   },
 ] as const satisfies readonly UseCaseProjectionDefinition[]);
 

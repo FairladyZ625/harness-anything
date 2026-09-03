@@ -17,6 +17,7 @@ export type {
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
+export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
@@ -72,6 +73,7 @@ export {
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
 export { blockingOf } from "./task-blocking.ts";
+export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
   assessTransitionDocument,
@@ -88,8 +90,13 @@ export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
-export { taskBoardPlacement, taskCapabilities, taskVisibility } from "./task-board-projection.ts";
-export type { TaskBoardColumnId, TaskCapabilityId, TaskCapabilityReason } from "./task-board-projection.ts";
+export { taskBoardPlacement, taskCapabilities, taskPhase, taskRisk, taskVisibility } from "./task-board-projection.ts";
+export type {
+  TaskBoardColumnId,
+  TaskCapabilityId,
+  TaskCapabilityReason,
+  TaskPhaseReason,
+} from "./task-board-projection.ts";
 
 export {
   DEFAULT_TASK_ROOT_THRESHOLD,
@@ -184,6 +191,7 @@ export {
   normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,
+  relationIsCurrent,
   relationStates,
   relationStrengths,
   relationStrengthForType,

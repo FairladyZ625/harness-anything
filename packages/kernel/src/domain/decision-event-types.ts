@@ -25,6 +25,20 @@ export const decisionStates = [
   "superseded",
   "outcome_retired",
 ] as const;
+export const decisionTransitionDefinitions = Object.freeze([
+  { eventType: "decision_accepted", action: "accept", sourceState: "proposed", targetState: "in_effect" },
+  { eventType: "decision_rejected", action: "reject", sourceState: "proposed", targetState: "rejected" },
+  { eventType: "decision_deferred", action: "defer", sourceState: "proposed", targetState: "deferred" },
+  { eventType: "decision_superseded", action: "supersede", sourceState: "in_effect", targetState: "superseded" },
+  { eventType: "decision_retired", action: "retire", sourceState: "in_effect", targetState: "outcome_retired" },
+] as const satisfies readonly {
+  readonly eventType: (typeof decisionEventTypes)[number];
+  readonly action: string;
+  readonly sourceState: (typeof decisionStates)[number];
+  readonly targetState: (typeof decisionStates)[number];
+}[]);
+export type DecisionTransitionDefinition = (typeof decisionTransitionDefinitions)[number];
+export type DecisionTransitionAction = DecisionTransitionDefinition["action"];
 export const policyStates = ["draft", "active", "retired"] as const;
 export type PolicyState = (typeof policyStates)[number];
 export const decisionFulfillmentModes = ["evidenced", "delivered", "standing_policy"] as const;
@@ -136,7 +150,10 @@ export interface DecisionPayloads {
     readonly body: string | null;
   };
 }
-export type DecisionJudgmentAction = "accept" | "reject" | "defer";
+export type DecisionJudgmentAction = Extract<
+  DecisionTransitionDefinition,
+  { readonly sourceState: "proposed" }
+>["action"];
 export interface DecisionJudgmentConsentV1 {
   readonly schema: "decision-judgment-consent/v1";
   readonly consentId: string;
@@ -165,8 +182,11 @@ export type DecisionEventDraftV1 = {
     readonly decisionId: string;
   };
 }[keyof DecisionPayloads];
-export type DecisionOutcomeType = "decision_accepted" | "decision_rejected" | "decision_deferred";
-export type DecisionTransitionType = DecisionOutcomeType | "decision_superseded" | "decision_retired";
+export type DecisionOutcomeType = Extract<
+  DecisionTransitionDefinition,
+  { readonly sourceState: "proposed" }
+>["eventType"];
+export type DecisionTransitionType = DecisionTransitionDefinition["eventType"];
 type DecisionPublishedPayload<T extends keyof DecisionPayloads> = DecisionPayloads[T] &
   DecisionDocumentMutation &
   (T extends DecisionOutcomeType ? { readonly judgmentConsent: DecisionJudgmentConsentV1 } : object) &

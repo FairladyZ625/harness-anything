@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveRelationId, relationTypes } from "../../src/index.ts";
-import { relationConsumability, relationStrengthForType } from "../../src/domain/entity-relation.ts";
+import { relationConsumability, relationIsCurrent, relationStrengthForType } from "../../src/domain/entity-relation.ts";
 import { relationFreshnessAtCut } from "../../src/domain/entity-freshness.ts";
 import {
   compileRelationCreatedEvent,
@@ -51,6 +51,13 @@ test("consumability refuses stale strong edges and only warns for stale weak edg
       freshness === "current" ? "consumable" : "warn",
     );
   }
+});
+
+test("current edges are active and not refused at the same projection cut", () => {
+  assert.equal(relationIsCurrent({ state: "active", strength: "strong", freshness: "current" }), true);
+  assert.equal(relationIsCurrent({ state: "retired", strength: "strong", freshness: "current" }), false);
+  assert.equal(relationIsCurrent({ state: "active", strength: "strong", freshness: "suspect" }), false);
+  assert.equal(relationIsCurrent({ state: "active", strength: "weak", freshness: "suspect" }), true);
 });
 
 test("current relation payloads omit strength while frozen historical readers ignore it and unknown fields", () => {

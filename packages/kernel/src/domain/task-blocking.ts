@@ -1,4 +1,4 @@
-import { relationConsumability, type RelationStrength } from "./entity-relation.ts";
+import { relationConsumability, relationIsCurrent, type RelationStrength } from "./entity-relation.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
 
 export interface BlockingTask {
@@ -25,9 +25,12 @@ export interface BlockingContributor {
 }
 export type BlockingAssessmentState = "blocked" | "clear" | "unknown";
 export type BlockingAvailabilityState = "ready" | "loading" | "error";
+export const blockingLabels = ["relations", "cycle", "unresolved", "none"] as const;
+export type BlockingLabel = (typeof blockingLabels)[number];
 export interface BlockingAssessment {
   readonly taskId: string;
   readonly state: BlockingAssessmentState;
+  readonly label: BlockingLabel;
   readonly blockers: readonly BlockingContributor[];
   readonly warnings: readonly string[];
 }
@@ -74,7 +77,7 @@ export function blockingOf(
       for (const id of known.length ? known : tasks.map(({ taskId: candidate }) => candidate))
         add(warnings, id, `weak blocking relation ${edge.relationId} is ${edge.freshness}`);
     if (
-      edge.state !== "active" ||
+      !relationIsCurrent(edge) ||
       edge.direction !== "directed" ||
       !sourceId ||
       !targetId ||
@@ -104,10 +107,12 @@ export function blockingOf(
   for (const id of cycles) add(warnings, id, "active blocking relation cycle detected; cycle nodes remain blocked");
   return tasks.map(({ taskId: id }) => {
     const taskBlockers = blockers.get(id) ?? [],
-      taskWarnings = [...new Set(warnings.get(id) ?? [])];
+      taskWarnings = [...new Set(warnings.get(id) ?? [])],
+      cycle = cycles.has(id);
     return {
       taskId: id,
-      state: taskBlockers.length || cycles.has(id) ? "blocked" : taskWarnings.length ? "unknown" : "clear",
+      state: taskBlockers.length || cycle ? "blocked" : taskWarnings.length ? "unknown" : "clear",
+      label: taskBlockers.length ? "relations" : cycle ? "cycle" : taskWarnings.length ? "unresolved" : "none",
       blockers: taskBlockers,
       warnings: taskWarnings,
     };

@@ -57,7 +57,7 @@ test("wide and narrow relation reads ignore an authored-only L1/L2 edge", (t) =>
   const wide = read.relationGraph(),
     narrow = read.relationGraphPage({ state: "active" });
 
-  assert.deepEqual(wide.edges, [eventEdge]);
+  assert.deepEqual(wide.edges, [{ ...eventEdge, current: true }]);
   assert.deepEqual(narrow.edges, wide.edges);
   assert.deepEqual(projectionCut(wide), readyCut);
   assert.deepEqual(projectionCut(narrow), readyCut);
@@ -68,7 +68,7 @@ test("pending event truth stays pending and never borrows L1 readiness", (t) => 
     pendingCut = { status: "pending" as const, watermark: 6, sourceRevision: 7 },
     result = queryRead(rootDir, projectionStub({ cut: pendingCut })).relationGraph();
 
-  assert.deepEqual(result.edges, [eventEdge]);
+  assert.deepEqual(result.edges, [{ ...eventEdge, current: true }]);
   assert.deepEqual(projectionCut(result), pendingCut);
   assert.equal(result.warnings[0]?.code, "relation_truth_unavailable");
 });

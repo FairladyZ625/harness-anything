@@ -6,6 +6,8 @@ import {
   closeoutReadiness,
   taskBoardPlacement,
   taskCapabilities,
+  taskPhase,
+  taskRisk,
   taskVisibility,
   type TaskProjection,
   type TaskProjectionListQuery,
@@ -122,6 +124,33 @@ test("capabilities.start.available equals isTaskStartable on every row", () => {
   );
 });
 
+test("phase and risk equal the renderer predicates on every row", () => {
+  const rows = boardRows();
+  for (const row of rows) {
+    const stepFlow = ["planned", "active", "in_review", "done"];
+    assert.deepEqual(row.phase.steps, stepFlow, `${row.taskId} phase steps`);
+    assert.equal(
+      row.phase.index,
+      stepFlow.indexOf(row.coordinationStatus) < 0 ? null : stepFlow.indexOf(row.coordinationStatus),
+    );
+    assert.equal(row.phase.reason === "blocked_overlay", row.coordinationStatus === "blocked");
+    assert.equal(row.phase.reason === "terminal_cancelled", row.coordinationStatus === "cancelled");
+    assert.equal(
+      row.risk.flagged,
+      row.closeoutAssessment.readiness === "missing" || row.closeoutAssessment.readiness === "failed",
+      `${row.taskId} risk`,
+    );
+  }
+  assert.equal(
+    rows.some(({ risk }) => risk.flagged),
+    true,
+    "negative control: the cut contains a risk row",
+  );
+  process.stdout.write(
+    `[PHASE/RISK] ${rows.map((row) => `${row.taskId}=${row.phase.index ?? row.phase.reason}/${row.risk.flagged}`).join(" ")}\n`,
+  );
+});
+
 test("the projected rows are admissible on the wire and carry no free-text reason", () => {
   const result = read().guiTasks();
   assert.deepEqual(result.invalidRows, []);
@@ -146,8 +175,19 @@ test("no capability, column or archived flag is recomputed outside the kernel ju
       board: kernelBoard(row),
       visibility: kernelVisibility(row),
       capabilities: kernelCapabilities(row),
+      phase: taskPhase(kernelInput(row)),
+      risk: taskRisk(kernelInput(row)),
     };
-    assert.deepEqual({ board: row.board, visibility: row.visibility, capabilities: row.capabilities }, recomputed);
+    assert.deepEqual(
+      {
+        board: row.board,
+        visibility: row.visibility,
+        capabilities: row.capabilities,
+        phase: row.phase,
+        risk: row.risk,
+      },
+      recomputed,
+    );
   }
 });
 
@@ -226,7 +266,7 @@ function fixtureRows(): readonly unknown[] {
     taskRow("task_in_review", "in_review", { executions: [submittedExecution()] }),
     taskRow("task_done", "done"),
     taskRow("task_cancelled", "cancelled"),
-    taskRow("task_archived", "planned", { packageDisposition: "archived" }),
+    taskRow("task_archived", "in_review", { packageDisposition: "archived" }),
   ];
 }
 

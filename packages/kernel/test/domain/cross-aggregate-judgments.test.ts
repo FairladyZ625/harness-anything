@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockingOf } from "../../src/domain/task-blocking.ts";
-import { closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
+import { blockingLabels, blockingOf } from "../../src/domain/task-blocking.ts";
+import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReview, reviewDigest } from "../../src/domain/review.ts";
+import { statusWordRegister } from "../../src/domain/status-word-register.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
@@ -90,7 +91,9 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
   assert.equal(closeoutReadiness(closeout("pass")).readiness, "ready");
   const failed = closeoutReadiness(closeout("fail"));
   assert.equal(failed.readiness, "failed");
-  assert.deepEqual(failed.gates, [{ gateId: "ci", status: "failed", detail: "current execution cut did not pass" }]);
+  assert.deepEqual(failed.gates, [
+    { gateId: "ci", status: "failed", ok: false, detail: "current execution cut did not pass" },
+  ]);
   const stale = closeout();
   assert.equal(
     closeoutReadiness({
@@ -108,7 +111,7 @@ test("closeout readiness requires a passing exact-cut gate, not witness existenc
         { ...recovered.gateWitnesses[0]!, witnessId: "witness-2", receiptId: "receipt-2", result: "pass" },
       ],
     }).gates,
-    [{ gateId: "ci", status: "passed" }],
+    [{ gateId: "ci", status: "passed", ok: true }],
   );
 });
 
@@ -240,7 +243,19 @@ test("completed tasks retain passed gate badges from their accepted execution cu
   });
   assert.equal(assessment.readiness, "passed");
   assert.equal(assessment.executionId, "exe-1");
-  assert.deepEqual(assessment.gates, [{ gateId: "ci", status: "passed" }]);
+  assert.deepEqual(assessment.gates, [{ gateId: "ci", status: "passed", ok: true }]);
+});
+
+test("closeout gate ok is the renderer's three-state predicate", () => {
+  assert.deepEqual(
+    ["passed", "failed", "missing", "unknown"].map((status) => [status, closeoutGateOk(status as never)]),
+    [
+      ["passed", true],
+      ["failed", false],
+      ["missing", false],
+      ["unknown", null],
+    ],
+  );
 });
 
 test("fact liveness retires the target of the canonical supersedes-fact edge", () => {
@@ -326,11 +341,11 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     relations,
   );
   assert.deepEqual(
-    rows.map(({ claimRef, status, relationPath }) => ({ claimRef, status, relationPath })),
+    rows.map(({ claimRef, status, covered, relationPath }) => ({ claimRef, status, covered, relationPath })),
     [
-      { claimRef: "decision/d1/C1", status: "covered", relationPath: ["via", "evidence"] },
-      { claimRef: "decision/d1/C2", status: "covered", relationPath: ["delivery"] },
-      { claimRef: "decision/policy/C1", status: "covered", relationPath: ["decision/policy"] },
+      { claimRef: "decision/d1/C1", status: "covered", covered: true, relationPath: ["via", "evidence"] },
+      { claimRef: "decision/d1/C2", status: "covered", covered: true, relationPath: ["delivery"] },
+      { claimRef: "decision/policy/C1", status: "covered", covered: true, relationPath: ["decision/policy"] },
     ],
   );
   const staleStrong = coverageOf(
@@ -342,6 +357,7 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     ),
   );
   assert.equal(staleStrong[0]?.status, "uncovered", "suspect strong evidence is refused");
+  assert.equal(staleStrong[0]?.covered, false);
   const staleWeak = coverageOf(
     decisions,
     [{ ref: "fact/task/F-live" }],
@@ -351,6 +367,7 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     ),
   );
   assert.equal(staleWeak[0]?.status, "covered", "suspect weak context remains warn-only");
+  assert.equal(staleWeak[0]?.covered, true);
 });
 
 test("freshness reason classifies uncovered causes once, in the domain", () => {
@@ -405,10 +422,10 @@ test("blocking applies depends-on to the source and releases it only when the ta
       rationale: "a waits",
     };
   assert.deepEqual(
-    blockingOf(tasks, [relation]).map(({ taskId, state }) => ({ taskId, state })),
+    blockingOf(tasks, [relation]).map(({ taskId, state, label }) => ({ taskId, state, label })),
     [
-      { taskId: "a", state: "blocked" },
-      { taskId: "b", state: "clear" },
+      { taskId: "a", state: "blocked", label: "relations" },
+      { taskId: "b", state: "clear", label: "none" },
     ],
   );
   const refused = blockingOf(tasks, [{ ...relation, freshness: "suspect" as const }]);
@@ -419,6 +436,7 @@ test("blocking applies depends-on to the source and releases it only when the ta
   );
   const warned = blockingOf(tasks, [{ ...relation, strength: "weak" as const, freshness: "suspect" as const }]);
   assert.equal(warned[0]?.state, "blocked");
+  assert.equal(warned[0]?.label, "relations");
   assert.match(warned[0]?.warnings[0] ?? "", /weak blocking relation/u);
   assert.deepEqual(
     blockingOf([{ ...tasks[0]! }, { ...tasks[1]!, status: "done" }], [relation]).map(({ state }) => state),
@@ -426,11 +444,31 @@ test("blocking applies depends-on to the source and releases it only when the ta
   );
   assert.deepEqual(
     blockingOf(tasks, [relation, { ...relation, relationId: "return", sourceRef: "task/b", targetRef: "task/a" }]).map(
-      ({ state, warnings }) => ({ state, cycle: warnings.some((warning) => warning.includes("cycle")) }),
+      ({ state, label, warnings }) => ({ state, label, cycle: warnings.some((warning) => warning.includes("cycle")) }),
     ),
     [
-      { state: "blocked", cycle: true },
-      { state: "blocked", cycle: true },
+      { state: "blocked", label: "relations", cycle: true },
+      { state: "blocked", label: "relations", cycle: true },
     ],
+  );
+  const cycleOnly = blockingOf(
+    tasks.map((task) => ({ ...task, status: "done" })),
+    [
+      { ...relation, targetRef: "task/a" },
+      { ...relation, relationId: "self-b", sourceRef: "task/b", targetRef: "task/b" },
+    ],
+  );
+  assert.deepEqual(
+    cycleOnly.map(({ label }) => label),
+    ["cycle", "cycle"],
+  );
+  assert.deepEqual(
+    refused.map(({ label }) => label),
+    ["unresolved", "unresolved"],
+  );
+  const registered = new Set(statusWordRegister.map(({ word }) => word));
+  assert.deepEqual(
+    blockingLabels.filter((label) => registered.has(label)),
+    [],
   );
 });

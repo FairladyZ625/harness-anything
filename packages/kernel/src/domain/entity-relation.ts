@@ -80,6 +80,16 @@ export function relationConsumability(
   return edge.strength === "weak" ? "warn" : "refuse";
 }
 
+/** Whether an edge currently carries domain semantics at this projection cut. */
+export function relationIsCurrent(
+  edge: Pick<EntityRelationRecord, "strength"> & {
+    readonly state: string;
+    readonly freshness: RelationFreshness;
+  },
+): boolean {
+  return edge.state === "active" && relationConsumability(edge) !== "refuse";
+}
+
 export type EntityRelationValidationIssueCode =
   | "invalid_relation_endpoint"
   | "relation_host_source_mismatch"

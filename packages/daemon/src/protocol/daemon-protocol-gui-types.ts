@@ -489,11 +489,13 @@ type EventProjectionCut = Pick<
   "status" | "watermark" | "sourceRevision"
 >;
 type DaemonRelationGraphProjection = {
-  readonly edges: ReturnType<TaskProjection["readRelationQuery"]>["rows"];
+  readonly edges: readonly DaemonRelationGraphEdgeRow[];
   readonly factAnchors: ReturnType<TaskProjection["readFactAnchors"]>["rows"];
   readonly facts: readonly RelationFactRow[];
   readonly warnings: readonly ProjectionWarning[];
 };
+
+export type DaemonRelationGraphEdgeRow = RelationGraphEdgeRow & { readonly current: boolean };
 
 type ServedCoverageRow = RelationCoverageRow & { readonly freshnessReason?: FreshnessReason };
 
@@ -534,7 +536,7 @@ export type DaemonRelationGraphFacetResult =
         readonly domainTypes: ReturnType<TaskProjection["listFactDomainTypes"]>["domainTypes"];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {
-        readonly edges: readonly RelationGraphEdgeRow[];
+        readonly edges: readonly DaemonRelationGraphEdgeRow[];
       });
 
 export type DaemonRelationGraphResult = DaemonRelationGraphFullResult | DaemonRelationGraphFacetResult;
@@ -703,6 +705,8 @@ export type DaemonTaskSnapshotListResult = {
     readonly board: import("../../../kernel/src/domain/task-board-projection.ts").TaskBoardPlacement;
     readonly visibility: import("../../../kernel/src/domain/task-board-projection.ts").TaskVisibility;
     readonly capabilities: readonly import("../../../kernel/src/domain/task-board-projection.ts").TaskCapability[];
+    readonly phase: import("../../../kernel/src/domain/task-board-projection.ts").TaskPhase;
+    readonly risk: import("../../../kernel/src/domain/task-board-projection.ts").TaskRisk;
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;

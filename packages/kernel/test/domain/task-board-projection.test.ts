@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { domainStatuses, type DomainStatus } from "../../src/domain/lifecycle-status.ts";
+import { explainStatusTransition } from "../../src/domain/lifecycle-status.ts";
 import { statusWordRegister } from "../../src/domain/status-word-register.ts";
 import { createTaskActionCatalog } from "../../src/domain/task-action-contract.ts";
 import {
@@ -12,6 +13,10 @@ import {
   taskCapabilities,
   taskCapabilityIds,
   taskCapabilityReasons,
+  taskPhase,
+  taskPhaseReasons,
+  taskPhaseSteps,
+  taskRisk,
   taskVisibility,
   type TaskBoardRowInput,
   type TaskCapabilityId,
@@ -64,6 +69,45 @@ test("visibility is the package disposition and nothing else", () => {
   assert.deepEqual(taskVisibility(row({ packageDisposition: "tombstoned" })), { archived: true });
   // A cancelled task whose package is still active is not archived: those are two questions.
   assert.deepEqual(taskVisibility(row({ status: "cancelled" })), { archived: false });
+});
+
+test("phase follows the lifecycle main path and codes every off-path reason", () => {
+  assert.deepEqual(taskPhaseSteps, ["planned", "active", "in_review", "done"]);
+  for (const [from, to] of taskPhaseSteps
+    .slice(0, -1)
+    .map((from, index) => [from, taskPhaseSteps[index + 1]!] as const))
+    assert.equal(explainStatusTransition(from, to).allowed, true, `${from} must transition to ${to}`);
+  assert.deepEqual(
+    [...domainStatuses, "unknown" as const].map((status) => {
+      const input = status === "unknown" ? row({ snapshot: { ...emptySnapshot, task: null } }) : row({ status });
+      return { status, ...taskPhase(input) };
+    }),
+    [
+      { status: "planned", index: 0, reason: null, steps: taskPhaseSteps },
+      { status: "active", index: 1, reason: null, steps: taskPhaseSteps },
+      { status: "blocked", index: null, reason: "blocked_overlay", steps: taskPhaseSteps },
+      { status: "in_review", index: 2, reason: null, steps: taskPhaseSteps },
+      { status: "done", index: 3, reason: null, steps: taskPhaseSteps },
+      { status: "cancelled", index: null, reason: "terminal_cancelled", steps: taskPhaseSteps },
+      { status: "unknown", index: null, reason: "phase_unresolved", steps: taskPhaseSteps },
+    ],
+  );
+  const registered = new Set(statusWordRegister.map(({ word }) => word));
+  assert.deepEqual(
+    taskPhaseReasons.filter((reason) => registered.has(reason)),
+    [],
+  );
+});
+
+test("risk is flagged exactly for missing or failed closeout", () => {
+  const table = ["not_required", "missing", "incomplete", "ready", "passed", "failed"] as const;
+  assert.deepEqual(
+    table.map((closeoutReadiness) => ({ closeoutReadiness, ...taskRisk(row({ closeoutReadiness })) })),
+    table.map((closeoutReadiness) => ({
+      closeoutReadiness,
+      flagged: closeoutReadiness === "missing" || closeoutReadiness === "failed",
+    })),
+  );
 });
 
 test("capabilities are the same ids in the same order on every row", () => {

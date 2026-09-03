@@ -18,7 +18,13 @@ import {
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
 import { blockingAssessment, queryPageRow } from "./daemon-protocol-validate-task.ts";
-import { decisionStateWords, factLivenessWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
+import {
+  decisionCapabilityIdWords,
+  decisionCapabilityReasonWords,
+  decisionStateWords,
+  factLivenessWords,
+  taskStatusWords,
+} from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 export function agendaTask(value: unknown): boolean {
@@ -252,7 +258,9 @@ function relationEdgeInvalid(edge: unknown): boolean {
       "ownerRef",
       "sourcePath",
       "recordIndex",
+      "current",
     ]) ||
+    typeof edge.current !== "boolean" ||
     !integer(edge.recordIndex) ||
     (edge.targetObservedVersion !== null &&
       typeof edge.targetObservedVersion !== "string" &&
@@ -279,10 +287,11 @@ function relationEdgeInvalid(edge: unknown): boolean {
 
 function coverageRowInvalid(row: unknown): boolean {
   return (
-    !recordWith(row, ["decisionRef", "claimRef", "status", "fulfillment", "relationPath"]) ||
+    !recordWith(row, ["decisionRef", "claimRef", "status", "covered", "fulfillment", "relationPath"]) ||
     !nonEmpty(row.decisionRef) ||
     !nonEmpty(row.claimRef) ||
     (row.status !== "covered" && row.status !== "uncovered") ||
+    typeof row.covered !== "boolean" ||
     (row.fulfillment !== null && !["evidenced", "delivered", "standing-policy"].includes(String(row.fulfillment))) ||
     (row.refutingFactRefs !== undefined && !stringArray(row.refutingFactRefs)) ||
     !stringArray(row.relationPath) ||
@@ -369,6 +378,19 @@ export function readiness(value: unknown): boolean {
   return true;
 }
 
+function decisionCapabilityList(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length !== decisionCapabilityIdWords.length) return false;
+  return value.every(
+    (capability, index) =>
+      exactRecord(capability, ["id", "available", "reason"]) &&
+      capability.id === decisionCapabilityIdWords[index] &&
+      typeof capability.available === "boolean" &&
+      (capability.reason === null
+        ? capability.available
+        : !capability.available && statusWord(decisionCapabilityReasonWords, capability.reason)),
+  );
+}
+
 export function validateDaemonDecisionList(value: unknown): readonly string[] {
   if (isJsonObject(value) && value.projection === "summary") {
     const firstDecision = Array.isArray(value.decisions) ? value.decisions[0] : undefined,
@@ -424,6 +446,8 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "claims",
       "judgmentConsents",
       "body",
+      "capabilities",
+      "claimsOpen",
     ],
     allowed = [...fields, "provenance", "legacyId", "readiness", "amendments", "contentPins"],
     history = (row: JsonObject) =>
@@ -496,6 +520,8 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !Array.isArray(row.chosen) ||
       !Array.isArray(row.rejected) ||
       !Array.isArray(row.claims) ||
+      !decisionCapabilityList(row.capabilities) ||
+      typeof row.claimsOpen !== "boolean" ||
       (row.provenance !== undefined &&
         (!Array.isArray(row.provenance) || row.provenance.some((entry) => !sessionProvenance(entry)))) ||
       !Array.isArray(row.judgmentConsents) ||

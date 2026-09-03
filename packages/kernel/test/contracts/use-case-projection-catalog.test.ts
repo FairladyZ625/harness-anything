@@ -46,7 +46,7 @@ test("catalog entries carry no transport dimension", () => {
 test("the catalog names exactly the shipped projections", () => {
   assert.deepEqual(
     useCaseProjectionCatalog.map((entry) => entry.name),
-    ["schedule-plane", "schedule-run-history", "runtime-session-groups", "task-board-rows"],
+    ["schedule-plane", "schedule-run-history", "runtime-session-groups", "task-board-rows", "decision-pool-rows"],
   );
   assert.deepEqual([...useCaseProjectionNames].sort(), useCaseProjectionCatalog.map((entry) => entry.name).sort());
   for (const entry of useCaseProjectionCatalog) {
@@ -89,6 +89,9 @@ test("inputs are derived from the registry, not restated", () => {
     "runtime-session-groups relation types must equal the registry's own edge types",
   );
   assert.equal(runtime.relationTypes.includes("executes"), true, "runtime-session declares an executes edge");
+  const decisions = deriveUseCaseProjectionInputs("decision-pool-rows");
+  assert.deepEqual(decisions.entityKinds, ["decision"]);
+  assert.deepEqual(decisions.relationTypes, derivedRelationTypesFor(["decision"]));
 });
 
 test("getUseCaseProjection resolves every declared name and rejects anything else", () => {
