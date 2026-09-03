@@ -12,6 +12,15 @@ for entry in ${PATH:-}; do
 done
 IFS=$old_ifs
 
+# Resolve the real git once, before anything changes directory: a relative PATH entry that
+# names nothing at the shell cwd names a real directory after resolve_repo_root's -C cd,
+# including this wrapper's own tools/git-hooks.
+real_git=$(PATH=$filtered_path command -v git 2>/dev/null) || { printf 'git: not found\n' >&2; exit 127; }
+case $real_git in
+  /*) ;;
+  *) real_git=$(CDPATH= cd -- "$(dirname -- "$real_git")" && pwd -P)/$(basename -- "$real_git") ;;
+esac
+
 # Resolve the repository git itself would operate on: honour leading -C <dir>
 # globals instead of the shell cwd, so a worker touching another repo via -C is
 # not misattributed to the canonical root.
@@ -29,7 +38,7 @@ resolve_repo_root() {
       (*) break ;;
     esac
   done
-  PATH=$filtered_path command git rev-parse --show-toplevel 2>/dev/null || true
+  "$real_git" rev-parse --show-toplevel 2>/dev/null || true
 }
 repo_root=$(resolve_repo_root "$@")
 canonical_root=${HARNESS_CANONICAL_ROOT:-}
@@ -159,4 +168,4 @@ if [ "${HARNESS_TASK_BOUND:-}" = "1" ]; then
   fi
 fi
 
-PATH=$filtered_path exec git "$@"
+PATH=$filtered_path exec "$real_git" "$@"
