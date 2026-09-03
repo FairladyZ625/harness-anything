@@ -7,9 +7,6 @@
 // prettier-ignore
 export const guiStatusJudgmentBaseline = Object.freeze([
   { key: "gui-status-005", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["covered"] }, // point-comparison: covered @ FactInspector.coveredDecisionIds
-  { key: "gui-status-016", classification: "domain-judgment", kind: "group", shape: "proper-subset", words: ["active","done","in_review","planned"] }, // proper-subset: active, done, in_review, planned @ STEP_FLOW
-  { key: "gui-status-017", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["blocked"] }, // point-comparison: blocked @ PhaseSteps.note
-  { key: "gui-status-018", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["cancelled"] }, // point-comparison: cancelled @ PhaseSteps.note
   { key: "gui-status-019", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ decisionHasReachableEvidence
   { key: "gui-status-020", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["proposed"] }, // point-comparison: proposed @ useDecisionActions.propose.finish.visible
   { key: "gui-status-030", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["covered"] }, // point-comparison: covered @ computeFactTriageSignals.citingDecisionIdSet

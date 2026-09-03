@@ -251,6 +251,7 @@ describe("adaptProjectionRows", () => {
         warnings: [],
       },
       risk: { flagged: true },
+      phase: { index: null, reason: "blocked_overlay", steps: ["planned", "active", "in_review", "done"] },
     });
     const [task] = adaptProjectionRows([input], "repo-test", "ready");
     expect(task).toMatchObject({
@@ -261,6 +262,7 @@ describe("adaptProjectionRows", () => {
       gates: [{ name: "ci", ok: false, detail: "current cut failed" }],
       blockers: [{ sourceTaskId: "task-a", targetTaskId: "task-b" }],
       risk: { flagged: true },
+      phase: { index: null, reason: "blocked_overlay", steps: ["planned", "active", "in_review", "done"] },
     });
   });
 

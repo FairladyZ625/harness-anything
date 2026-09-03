@@ -232,7 +232,7 @@ export function TaskDetailView({
                 <IdentityItem
                   label={t("views.taskDetailView.stage")}
                   value={`${task.currentNode ?? "—"} · iteration ${task.iteration ?? "—"}`}
-                  detail={<PhaseSteps status={task.canonicalStatus ?? task.coordinationStatus} />}
+                  detail={<PhaseSteps phase={task.phase} />}
                 />
                 <IdentityItem
                   label="LEASE"

@@ -135,6 +135,12 @@ interface TaskRowFields {
    * 列表的风险计数读它,不再比较 readiness 词。
    */
   risk: TaskSnapshotProjectionRow["risk"];
+  /**
+   * 阶段投影(kernel `taskPhase`):主路径 steps 与行所在的 index,偏离主路径时
+   * 给 reason 码(blocked_overlay / terminal_cancelled / phase_unresolved)。
+   * renderer 只把 reason 码翻成措辞,不再持有阶段流序。
+   */
+  phase: TaskSnapshotProjectionRow["phase"];
   docs: readonly DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;

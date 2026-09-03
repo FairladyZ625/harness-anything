@@ -7,6 +7,7 @@ import { taskCan } from "../src/renderer/model/types.ts";
 import { taskProjectionFields } from "./task-projection-fields.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
+import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
@@ -187,6 +188,27 @@ describe("renderer app model", () => {
   });
 
   // 拖拽起跑的判据不再由 renderer 拼状态词,而是读 daemon 投影的 start 能力。
+  // 阶段位与「为何没有阶段位」都来自投影:renderer 只翻译 reason 码,不比较状态词。
+  it("paints the phase position from the projection and translates off-path reason codes", () => {
+    const steps = ["planned", "active", "in_review", "done"] as const;
+    const activeMarkup = renderToStaticMarkup(createElement(PhaseSteps, { phase: { index: 1, reason: null, steps } }));
+    expect(activeMarkup).toContain("active");
+    expect(activeMarkup).toContain("font-semibold");
+
+    const blocked = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "blocked_overlay", steps } }),
+    );
+    expect(blocked).toContain("relation overlay");
+    const cancelled = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "terminal_cancelled", steps } }),
+    );
+    expect(cancelled).toContain("cancelled：终态");
+    const unresolved = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "phase_unresolved", steps } }),
+    );
+    expect(unresolved).toContain("快照展示值，无阶段位置");
+  });
+
   it("allows drag start exactly when the projected start capability is available", () => {
     const planned: TaskRow = {
       taskId: "task-1",
@@ -255,6 +277,7 @@ describe("renderer app model", () => {
         lastKnownAt: "2026-08-13T00:00:00.000Z",
         gates: [],
         docs: [],
+        ...taskProjectionFields("active", { can: ["progress", "submit"] }),
       };
       const markup = renderToStaticMarkup(
         createElement(

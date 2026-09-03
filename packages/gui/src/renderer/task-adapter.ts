@@ -103,6 +103,7 @@ function adaptProjectionRow(
     visibility: row.visibility,
     capabilities: row.capabilities,
     risk: row.risk,
+    phase: row.phase,
     ...(task.metadata?.riskTier ? { riskTier: task.metadata.riskTier } : {}),
     ...(task.metadata?.urgency ? { urgency: task.metadata.urgency } : {}),
     docs: [],

@@ -29,14 +29,30 @@ const RANK_OF: Record<SnapshotStatus, number> = {
 
 const CAPABILITY_IDS: readonly TaskCapabilityId[] = ["start", "progress", "submit", "review", "complete"];
 
+/**
+ * Mirrors the kernel `taskPhase` judgment (task-board-projection.ts) for the same
+ * reason as the column map above: tests may not deep-import kernel source.
+ */
+const PHASE_STEPS = ["planned", "active", "in_review", "done"] as const;
+const PHASE_OF: Record<SnapshotStatus, { readonly index: number; readonly reason: string | null } | null> = {
+  planned: { index: 0, reason: null },
+  active: { index: 1, reason: null },
+  in_review: { index: 2, reason: null },
+  done: { index: 3, reason: null },
+  blocked: { index: null, reason: "blocked_overlay" },
+  cancelled: { index: null, reason: "terminal_cancelled" },
+  unknown: { index: null, reason: "phase_unresolved" },
+};
+
 export function taskProjectionFields(
   status: SnapshotStatus,
   options: {
     readonly archived?: boolean;
     readonly can?: readonly TaskCapabilityId[];
     readonly risk?: boolean;
+    readonly phase?: Pick<TaskRow["phase"], "index" | "reason">;
   } = {},
-): Pick<TaskRow, "board" | "visibility" | "capabilities" | "risk"> {
+): Pick<TaskRow, "board" | "visibility" | "capabilities" | "risk" | "phase"> {
   const can = new Set(options.can ?? []);
   return {
     board: { columnId: COLUMN_OF[status], rank: RANK_OF[status] },
@@ -47,5 +63,10 @@ export function taskProjectionFields(
       reason: can.has(id) ? null : ("invalid_transition" as const),
     })),
     risk: { flagged: options.risk === true },
+    phase: {
+      steps: PHASE_STEPS,
+      ...(PHASE_OF[status] ?? { index: null, reason: "phase_unresolved" }),
+      ...options.phase,
+    },
   };
 }
