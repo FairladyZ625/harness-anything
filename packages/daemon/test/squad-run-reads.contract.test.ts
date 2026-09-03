@@ -48,7 +48,7 @@ const detail = {
         dispatchId: "dispatch_000000000000000000000001",
         runtimeSessionId: "runtime-leader",
         decision: { kind: "plan", dispatchCount: 1 },
-        resultText: '{"schema":"runtime-batch/v1","dispatches":[{"instance":"i","to":"terra","prompt":"go"}]}',
+        resultText: '{"schema":"runtime-batch/v1","dispatches":[{"to":"terra","prompt":"go"}]}',
         status: "succeeded" as const,
         startedAt: "2026-08-26T00:00:00.000Z",
         endedAt: "2026-08-26T00:05:00.000Z",

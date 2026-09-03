@@ -13,7 +13,7 @@ import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 const LEADER_RESULT_SHA = "a".repeat(64),
   LEADER_RESULT = JSON.stringify({
     schema: "runtime-batch/v1",
-    dispatches: [{ instance: "instance-squad", to: "sol", prompt: "dig the ontology seam" }],
+    dispatches: [{ to: "sol", prompt: "dig the ontology seam" }],
   });
 
 /** 与 production writeState 同构地种一个 run:leader-1 在跑(decision 未解析),

@@ -18,10 +18,13 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     providerLog = path.join(userRoot, "runtime-instances", "resident-worker", "home", ".codex", "provider.jsonl");
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
+  mkdirSync(path.join(parent, "tmp"), { recursive: true });
   writeResidentProvider(path.join(binRoot, "codex"));
-  const env = {
-    ...process.env,
+  const env = isolatedDaemonEnvironment({
     HOME: path.join(parent, "home"),
+    TMPDIR: daemonSocketTemp(parent),
+    TEMP: daemonSocketTemp(parent),
+    TMP: daemonSocketTemp(parent),
     PATH: [
       binRoot,
       ...(process.env.PATH ?? "")
@@ -31,7 +34,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ID: "squad-resident-test",
     HARNESS_ACTOR: "agent:squad-resident-test",
-  };
+  });
   try {
     run(root, env, ["daemon", "start", "--service"]);
     run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
@@ -174,6 +177,217 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   }
 });
 
+test("a Claude leader dispatches Codex workers by each worker declaration and reports a missing kind", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-mixed-runtime-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    binRoot = path.join(parent, "bin"),
+    leaderLog = path.join(root, ".mixed-leader-provider.jsonl");
+  mkdirSync(root, { recursive: true });
+  mkdirSync(binRoot, { recursive: true });
+  mkdirSync(path.join(parent, "tmp"), { recursive: true });
+  writeMixedLeaderProvider(path.join(binRoot, "claude"));
+  writeBlockingWorkerProvider(path.join(binRoot, "codex"));
+  const env = isolatedDaemonEnvironment({
+    HOME: path.join(parent, "home"),
+    USERPROFILE: path.join(parent, "home"),
+    TMPDIR: daemonSocketTemp(parent),
+    TEMP: daemonSocketTemp(parent),
+    TMP: daemonSocketTemp(parent),
+    PATH: [
+      binRoot,
+      ...(process.env.PATH ?? "")
+        .split(path.delimiter)
+        .filter((entry) =>
+          ["claude", "claude.cmd", "claude.exe", "codex", "codex.cmd", "codex.exe"].every(
+            (name) => !existsSync(path.join(entry, name)),
+          ),
+        ),
+    ].join(path.delimiter),
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: "squad-mixed-runtime-test",
+    HARNESS_ACTOR: "agent:squad-mixed-runtime-test",
+  });
+  try {
+    run(root, env, ["daemon", "start", "--service"]);
+    run(root, env, ["init", "--repo-id", "squad-mixed-runtime", "--person-id", "owner", "--display-name", "Owner"]);
+    for (const [id, name, runtimeType, model] of [
+      ["mixed-leader", "Mixed Leader", "claude", "fable"],
+      ["mixed-reconcile", "Mixed Reconcile", "codex", "gpt-5.6-terra"],
+      ["mixed-discrimination", "Mixed Discrimination", "codex", "gpt-5.6-sol"],
+      ["mixed-errorexit", "Mixed Error Exit", "codex", "gpt-5.6-terra"],
+      ["mixed-missing", "Mixed Missing", "agy", "agy-model"],
+    ] as const) {
+      const source = path.join(parent, id);
+      writeIdentity(source, id, name, runtimeType, model);
+      run(root, env, ["agent", "install", "--source", source]);
+    }
+    for (const [id, workers] of [
+      ["mixed-positive", ["mixed-reconcile", "mixed-discrimination", "mixed-errorexit"]],
+      ["mixed-negative", ["mixed-missing"]],
+    ] as const) {
+      const source = path.join(parent, id);
+      mkdirSync(source, { recursive: true });
+      writeFileSync(
+        path.join(source, "squad.json"),
+        JSON.stringify({
+          schema: "squad-declaration/v1",
+          id,
+          name: id,
+          leader: "mixed-leader",
+          workers,
+          leaderTurnBudget: 4,
+          roster: `${workers.join(" -> ")}\nsynthesis -> artifacts/reports/{squadRunId}.md`,
+        }),
+      );
+      run(root, env, ["squad", "install", "--source", source]);
+    }
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "claude-lee",
+      "--name",
+      "Claude Leader",
+      "--kind",
+      "claude",
+      "--provider",
+      "anthropic",
+      "--model",
+      "fable",
+      "--auth",
+      "subscription",
+    ]);
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "test-codex-sol",
+      "--name",
+      "Codex Workers",
+      "--kind",
+      "codex",
+      "--provider",
+      "openai",
+      "--model",
+      "gpt-5.6-terra",
+      "--model",
+      "gpt-5.6-sol",
+      "--auth",
+      "subscription",
+    ]);
+    for (const [taskId, title] of [
+      ["mixed-positive-task", "Mixed positive"],
+      ["mixed-negative-task", "Mixed negative"],
+    ] as const) {
+      const created = run(root, env, ["task", "create", "--id", taskId, "--admin", "--title", title]),
+        packagePath = String(created.packagePath);
+      writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedPlan(title));
+      run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
+    }
+
+    const positive = run(root, env, [
+        "squad",
+        "run",
+        "mixed-positive",
+        "--instance",
+        "claude-lee",
+        "--model",
+        "fable",
+        "--task",
+        "mixed-positive-task",
+        "--cwd",
+        ".",
+        "--prompt",
+        "positive mixed mission",
+      ]),
+      positiveStatus = pollSquadUntil(
+        root,
+        env,
+        String(positive.squadRunId),
+        (status) => status.status === "workers_running" && (status.workers as unknown[] | undefined)?.length === 3,
+      ),
+      positiveWorkers = positiveStatus.workers as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      positiveWorkers.map(({ workerId, instanceId, provider, rejection }) => ({
+        workerId,
+        instanceId,
+        model: (provider as Record<string, unknown>).model,
+        rejection,
+      })),
+      [
+        { workerId: "mixed-reconcile", instanceId: "test-codex-sol", model: "gpt-5.6-terra", rejection: null },
+        {
+          workerId: "mixed-discrimination",
+          instanceId: "test-codex-sol",
+          model: "gpt-5.6-sol",
+          rejection: null,
+        },
+        { workerId: "mixed-errorexit", instanceId: "test-codex-sol", model: "gpt-5.6-terra", rejection: null },
+      ],
+      JSON.stringify(positiveStatus),
+    );
+    assert.equal((positiveStatus.leaders as Array<Record<string, unknown>>)[0]?.instanceId, "claude-lee");
+    assert.equal(
+      ((positiveStatus.leaders as Array<Record<string, unknown>>)[0]?.provider as Record<string, unknown>).model,
+      "fable",
+    );
+    run(root, env, ["squad", "cancel", String(positive.squadRunId)]);
+
+    const negative = run(root, env, [
+        "squad",
+        "run",
+        "mixed-negative",
+        "--instance",
+        "claude-lee",
+        "--model",
+        "fable",
+        "--task",
+        "mixed-negative-task",
+        "--cwd",
+        ".",
+        "--prompt",
+        "negative mixed mission",
+      ]),
+      negativeStatus = pollSquadUntil(root, env, String(negative.squadRunId), (status) => {
+        const workers = status.workers as Array<Record<string, unknown>> | undefined;
+        return (status.leaders as unknown[] | undefined)?.length === 2 && workers?.[0]?.rejection !== null;
+      }),
+      rejection = String((negativeStatus.workers as Array<Record<string, unknown>>)[0]?.rejection),
+      leaderCalls = readFileSync(leaderLog, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>),
+      callback = leaderCalls.find(
+        (call) => call.kind === "callback" && String(call.prompt).includes(String(negative.squadRunId)),
+      );
+    assert.equal(rejection, "Agent mixed-missing requires agy, but no enabled agy instance is available on this node.");
+    assert.deepEqual((negativeStatus.leaders as Array<Record<string, unknown>>)[1]?.trigger, {
+      kind: "worker_rejected",
+      attemptId: "worker-1",
+    });
+    assert.match(String(callback?.prompt), /worker_rejected/u);
+    assert.match(String(callback?.prompt), /no enabled agy instance is available on this node/u);
+    run(root, env, ["squad", "cancel", String(negative.squadRunId)]);
+    process.stdout.write(
+      `squad-mixed-runtime-flow ${JSON.stringify({
+        positive: { squadRunId: positive.squadRunId, status: positiveStatus.status, workers: positiveWorkers },
+        negative: {
+          squadRunId: negative.squadRunId,
+          status: negativeStatus.status,
+          rejection,
+          trigger: (negativeStatus.leaders as Array<Record<string, unknown>>)[1]?.trigger,
+        },
+      })}\n`,
+    );
+  } finally {
+    runMaybe(root, env, ["daemon", "stop"]);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test(
   "same-instance API-key squad workers reuse the materialized bearer",
   { skip: process.platform !== "linux" ? "requires the Linux secret-tool credential backend" : false },
@@ -184,11 +398,14 @@ test(
       binRoot = path.join(parent, "bin");
     mkdirSync(root, { recursive: true });
     mkdirSync(binRoot, { recursive: true });
+    mkdirSync(path.join(parent, "tmp"), { recursive: true });
     writeApiKeyProvider(path.join(binRoot, "codex"));
     const credentialTool = writeCredentialTool(path.join(binRoot, "secret-tool"));
-    const env = {
-      ...process.env,
+    const env = isolatedDaemonEnvironment({
       HOME: path.join(parent, "home"),
+      TMPDIR: daemonSocketTemp(parent),
+      TEMP: daemonSocketTemp(parent),
+      TMP: daemonSocketTemp(parent),
       PATH: [
         binRoot,
         ...(process.env.PATH ?? "")
@@ -200,7 +417,7 @@ test(
       HARNESS_DAEMON_USER_ROOT: userRoot,
       HARNESS_DAEMON_ID: "squad-api-key-test",
       HARNESS_ACTOR: "agent:squad-api-key-test",
-    };
+    });
     try {
       const stored = spawnSync(credentialTool, ["store", "squad-key"], {
         encoding: "utf8",
@@ -315,10 +532,19 @@ test(
 );
 
 function pollSquadStatus(root: string, env: NodeJS.ProcessEnv, squadRunId: string): Record<string, unknown> {
+  return pollSquadUntil(root, env, squadRunId, (status) => status.status === "converged");
+}
+
+function pollSquadUntil(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  squadRunId: string,
+  done: (status: Record<string, unknown>) => boolean,
+): Record<string, unknown> {
   const deadline = Date.now() + 20_000;
   do {
     const current = run(root, env, ["squad", "status", squadRunId]);
-    if (current.status === "converged") return current;
+    if (done(current)) return current;
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
   } while (Date.now() < deadline);
   return run(root, env, ["squad", "status", squadRunId]);
@@ -347,7 +573,27 @@ function runMaybe(
   };
 }
 
-function writeIdentity(target: string, id: string, name: string): void {
+function isolatedDaemonEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of [
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "HARNESS_CANONICAL_ROOT",
+    "HARNESS_DAEMON_ENDPOINT",
+    "HARNESS_DAEMON_ID",
+    "HARNESS_DAEMON_REPO_ID",
+    "HARNESS_DAEMON_USER_ROOT",
+    "HARNESS_TASK_BOUND",
+  ])
+    delete env[key];
+  return { ...env, ...overrides };
+}
+
+function daemonSocketTemp(parent: string): string {
+  return process.platform === "win32" ? path.join(parent, "tmp") : path.join(path.parse(parent).root, "tmp");
+}
+
+function writeIdentity(target: string, id: string, name: string, runtimeType = "codex", model?: string): void {
   mkdirSync(target, { recursive: true });
   writeFileSync(
     path.join(target, "agent.json"),
@@ -356,11 +602,55 @@ function writeIdentity(target: string, id: string, name: string): void {
       id,
       name,
       instructions: `${name} instructions`,
-      runtime_type: "codex",
+      runtime_type: runtimeType,
+      ...(model ? { model } : {}),
       skills: [],
       prompts: [],
       preset: "standard-task",
     }),
+  );
+}
+
+function writeMixedLeaderProvider(target: string): void {
+  writeProviderExecutable(
+    target,
+    `const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("claude mixed-runtime-test"); process.exit(0); }
+if (args[0] === "auth" && args[1] === "status") process.exit(0);
+const prompt = fs.readFileSync(0, "utf8");
+const callback = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");
+fs.appendFileSync(process.cwd() + "/.mixed-leader-provider.jsonl", JSON.stringify({ kind: callback ? "callback" : "initial", args, prompt }) + "\\n");
+const resumedAt = args.indexOf("--resume");
+const sessionId = resumedAt === -1 ? "mixed-leader-" + process.pid : args[resumedAt + 1];
+console.log(JSON.stringify({ type: "system", subtype: "init", session_id: sessionId }));
+if (callback) setInterval(() => undefined, 1000);
+else {
+  const negative = prompt.includes("negative mixed mission");
+  const dispatches = negative
+    ? [{ to: "mixed-missing", prompt: "Missing runtime mission" }]
+    : [
+        { to: "mixed-reconcile", prompt: "Reconcile mission" },
+        { to: "mixed-discrimination", prompt: "Discrimination mission" },
+        { to: "mixed-errorexit", prompt: "Error exit mission" },
+      ];
+  console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: sessionId, result: JSON.stringify({ schema: "runtime-batch/v1", dispatches }), permission_denials: [] }));
+}
+`,
+  );
+}
+
+function writeBlockingWorkerProvider(target: string): void {
+  writeProviderExecutable(
+    target,
+    `const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("codex mixed-runtime-test"); process.exit(0); }
+if (args[0] === "login" && args[1] === "status") process.exit(0);
+fs.readFileSync(0, "utf8");
+console.log(JSON.stringify({ type: "thread.started", thread_id: "mixed-worker-" + process.pid }));
+setInterval(() => undefined, 1000);
+`,
   );
 }
 
@@ -427,12 +717,10 @@ if (initialLeader) {
         schema: "runtime-batch/v1",
         dispatches: [
           {
-            instance: "resident-worker",
             to: "terra",
             prompt: "Terra first mission",
           },
           {
-            instance: "resident-worker",
             to: "luna",
             prompt: "Luna mission",
           },
@@ -448,7 +736,6 @@ if (initialLeader) {
       text: JSON.stringify({
         schema: "runtime-batch/v1",
         dispatches: [{
-          instance: "resident-worker",
           to: "terra",
           prompt: "Terra retry mission",
         }],
@@ -533,7 +820,7 @@ const writeSynthesisReport = () => {
 };
 frame({ type: "thread.started", thread_id: leader ? "leader-api-session" : terra ? "terra-api-session" : "luna-api-session" });
 if (prompt.includes("# Squad dispatch protocol")) {
-  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ instance: "squad-api", to: "terra", prompt: "terra API mission" }, { instance: "squad-api", to: "luna", prompt: "luna API mission" }] }) } });
+  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "terra", prompt: "terra API mission" }, { to: "luna", prompt: "luna API mission" }] }) } });
 } else if (callback) {
   const running = /^worker .*status=running/mu.test(prompt);
   if (running) {
