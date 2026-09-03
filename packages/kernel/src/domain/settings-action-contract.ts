@@ -1,5 +1,4 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
-import { removableLayoutKeys } from "../layout/harness-settings.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -45,7 +44,6 @@ const repositoryFieldNames = Object.freeze([
   "walFlushEvents",
   "walFlushBytes",
   "walFlushMilliseconds",
-  "layoutUnset",
 ] as const);
 
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
@@ -129,7 +127,6 @@ export function createSettingsActionCatalog(
           field("walFlushEvents", "number"),
           field("walFlushBytes", "number"),
           field("walFlushMilliseconds", "number"),
-          field("layoutUnset", "string", false, removableLayoutKeys),
           field("expectedVersion", "number"),
           field("idempotencyKey"),
         ]),
@@ -179,7 +176,6 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
     expectedVersion = input.action.expectedVersion,
     repositoryChangeRequested = repositoryFieldNames.some((name) => Object.hasOwn(input.action, name));
   settingsActionLocale(input.action.locale);
-  settingsLayoutUnset(input.action.layoutUnset);
   if (expectedVersion !== undefined && (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 0))
     rejectSettings("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
   if (!repositoryChangeRequested) return { kind: "no-changes", settings: current, revision };
@@ -231,12 +227,6 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       occurredAt: input.occurredAt,
     }),
   };
-}
-
-function settingsLayoutUnset(value: unknown): void {
-  if (value === undefined) return;
-  if (removableLayoutKeys.includes(value as (typeof removableLayoutKeys)[number])) return;
-  rejectSettings("invalid_command", `layoutUnset must be one of ${removableLayoutKeys.join(", ")}.`);
 }
 
 export function settingsActionLocale(value: unknown): SettingsLocale | undefined {
