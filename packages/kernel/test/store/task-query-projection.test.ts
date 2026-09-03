@@ -260,6 +260,41 @@ test("catch-up reports every bounded round and keeps an omitted progress callbac
   });
 });
 
+test("catch-up does not report rounds whose projection watermark stays fixed", async () => {
+  const event = taskFixture().events[0]!;
+  await withTempStoreAsync(async (rootDir) => {
+    let reads = 0;
+    const progress: number[] = [],
+      projection = makeTaskProjection({
+        rootDir,
+        eventStore: {
+          readHead: () => ({
+            revision: 1,
+            eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+          }),
+          readBatch: () => {
+            reads += 1;
+            if (reads === 4) throw new Error("stop stalled catch-up fixture");
+            return {
+              sourceRevision: 1,
+              events: [],
+              cursor: String(reads),
+              done: false,
+              accessedItems: 1,
+              prefetchContent: () => new Map<string, Uint8Array | null>(),
+            };
+          },
+          readContentBlob: () => null,
+        },
+        onProgress: ({ watermark }) => progress.push(watermark),
+      });
+    assert.throws(() => projection.catchUp(), /stop stalled catch-up fixture/u);
+    assert.equal(reads, 4);
+    assert.deepEqual(progress, []);
+    projection.close();
+  });
+});
+
 test("task runtime batch reads up to 500 ids without a variable SQLite IN list", async () => {
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {

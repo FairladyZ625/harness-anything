@@ -23,7 +23,6 @@ import {
   type CanonicalWriteBundle,
   type EventFileBatch,
   type EventRecoveryReceipt,
-  type MaterializationReceipt,
   type MaterializationFailureReason,
   type MaterializationHealth,
   type PublicationFile,
@@ -34,9 +33,11 @@ import {
   openWalEventLog,
   type WalDurableCutDescriptor,
   type WalEventLog,
+  type WalEventLogProgress,
   type WalEventRecord,
 } from "./wal-event-log.ts";
 import { WalMaterializerDivergedError } from "./wal-git-materializer.ts";
+import { latestDocumentClaims, materializeVisible } from "./wal-visible-materialization.ts";
 import type {
   WalBaselineDeltaV1,
   WalMaterializationFenceV1,
@@ -51,6 +52,7 @@ export { canonicalDocumentClaims, canonicalEventWritePlan, TaskEventStoreError }
 // Retry transient Git locks/resource pressure for ~32s before imposing fail-closed recovery cost.
 const DEFAULT_RETRY_LIMIT = 8;
 const DEFAULT_RETRY_BASE_MS = 250;
+export type WalRecoveryProgress = WalEventLogProgress;
 
 export interface WalFlushPolicy {
   readonly adaptive: boolean;
@@ -84,6 +86,8 @@ type StoreOptions = Parameters<typeof makeGitEventStore>[0] & {
   }) => void;
   /** Publishes health changes through the owning writer cell's existing status channel. */
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
+  /** Reports bounded WAL recovery work through the owning writer cell's attach-progress channel. */
+  readonly onRecoveryProgress?: (progress: WalRecoveryProgress) => void;
   readonly walMaterializationTestFault?: {
     readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
     readonly failures: number;
@@ -111,7 +115,24 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
   let gitStream: CanonicalEventStreamV1 | null = null;
   let mergedStream: CanonicalEventStreamV1 | null = null;
   const mutable = options.mutable !== false;
-  const wal = openWalEventLog(rootDir, { mutable });
+  let reportedRecoveryWork = 0,
+    reportedRecoveryWatermark = 0;
+  const recoveryProgressReporter = (): ((progress: WalRecoveryProgress) => void) | undefined => {
+    const publish = options.onRecoveryProgress;
+    if (publish === undefined) return undefined;
+    const offset = reportedRecoveryWork;
+    return (progress) => {
+      const observed = {
+        applied: offset + progress.applied,
+        ...(progress.total === undefined ? {} : { total: offset + progress.total }),
+        watermark: Math.max(reportedRecoveryWatermark, progress.watermark),
+      };
+      reportedRecoveryWork = Math.max(reportedRecoveryWork, observed.applied);
+      reportedRecoveryWatermark = observed.watermark;
+      publish(observed);
+    };
+  };
+  const wal = openWalEventLog(rootDir, { mutable, onInitialReadProgress: recoveryProgressReporter() });
   const materializationConfig = {
     schema: "harness-wal-materialization-worker/v1",
     repoId: options.repoId,
@@ -660,7 +681,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     try {
       recovered = git.recover();
       reloadGit();
-      const records = wal.records();
+      const records = wal.records(),
+        onRecoveryProgress = recoveryProgressReporter();
       if (records.length > 0)
         materializeVisible(
           ledger,
@@ -669,6 +691,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           gitBaseline.files,
           git.currentCommit(),
           (sha256) => git.readContentBlob(sha256),
+          onRecoveryProgress,
         );
     } catch (error) {
       consumeKnownError(error);
@@ -906,58 +929,6 @@ function makeVisible(
     if (wal.readContentBlob(claim.sha256) === null && supplied === undefined)
       throw new TaskEventStoreError("invalid_store", `visible document ${claim.sha256} is absent from the durable WAL`);
   }
-}
-
-function materializeVisible(
-  ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  wal: WalEventLog,
-  events: CanonicalEventStreamV1["events"],
-  committed: ReadonlyMap<string, GitBaselineNode>,
-  commitSha: ReturnType<CanonicalEventStore["currentCommit"]>,
-  readGitContent: (sha256: string) => Uint8Array | null,
-): MaterializationReceipt {
-  const latest = latestDocumentClaims(events);
-  const changed: string[] = [];
-  const conflicts: string[] = [];
-  const writes: { target: string; body: string; mode: "100644" | "120000" }[] = [];
-  for (const [logical, claim] of [...latest].sort(([left], [right]) => left.localeCompare(right))) {
-    const target = ledgerGitPath(ledger, logical);
-    const physical = pathFor(ledger.rootDir, target);
-    const local = localGitWorktreeSettlement.readNode(physical);
-    // Decide divergence from the worktree hash and the in-memory claim alone; an already-materialized
-    // document is skipped before any canonical blob is read. This keeps materialize proportional to the
-    // number of divergent files, not the size of the whole corpus: a current worktree reads zero blobs
-    // (previously every document forced a `git show`, which wedged the daemon event loop at scale).
-    if (local?.sha256 === claim.sha256 && local.mode === claim.mode) continue;
-    const bytes = wal.readContentBlob(claim.sha256) ?? readGitContent(claim.sha256);
-    if (bytes === null) continue;
-    const base = committed.get(target);
-    if (local !== null && (base === undefined || local.gitOid !== base.oid || local.mode !== base.mode))
-      conflicts.push(
-        localGitWorktreeSettlement.preserveVisibleConflict(
-          ledger.rootDir,
-          physical,
-          target,
-          `${events.at(-1)?.workspaceRevision ?? 0}:${claim.sha256}`,
-        ),
-      );
-    changed.push(logical);
-    writes.push({ target, body: Buffer.from(bytes).toString("utf8"), mode: claim.mode });
-  }
-  localGitWorktreeSettlement.visible(ledger.rootDir, writes);
-  return { status: "visible", commitSha, changed, conflicts };
-}
-
-function latestDocumentClaims(
-  events: CanonicalEventStreamV1["events"],
-): Map<string, { sha256: string; mode: "100644" | "120000" }> {
-  const latest = new Map<string, { sha256: string; mode: "100644" | "120000" }>();
-  for (const event of events) {
-    for (const retirement of canonicalDocumentRetirements(event)) latest.delete(retirement.path);
-    for (const claim of canonicalDocumentClaims(event))
-      latest.set(claim.path, { sha256: claim.sha256, mode: canonicalDocumentMode(event, claim.path) });
-  }
-  return latest;
 }
 
 function applyDocumentClaims(
