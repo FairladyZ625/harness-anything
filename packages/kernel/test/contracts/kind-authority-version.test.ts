@@ -55,6 +55,11 @@ test("one named kind-contract authority explains all thirteen entity kinds with 
         .map(({ id }) => id),
       `${explanation.kind} available Actions`,
     );
+  for (const kind of ["execution", "review", "policy"] as const) {
+    const transitions = explanations.find((explanation) => explanation.kind === kind)?.transitions;
+    assert.deepEqual(transitions?.actions, [], `${kind} declared Actions`);
+    assert.match(transitions?.reason ?? "", /decision\/dec_[A-Z0-9]+\/CH1/u, `${kind} no-Action decision`);
+  }
   assert.deepEqual(explanations.find(({ kind }) => kind === "task")?.sdkExposure, {
     sdk: { target: "TaskCapability", schemaId: "task-frontmatter" },
     agentCapability: { target: "task", schemaId: "task-frontmatter" },

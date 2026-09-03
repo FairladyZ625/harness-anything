@@ -139,6 +139,7 @@ export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> =
   readonly actionCatalog: {
     readonly ref: string;
     readonly actions: readonly EntityActionContract[];
+    readonly reason?: string;
   } | null;
   readonly entityStore: {
     readonly document: {
@@ -267,6 +268,7 @@ export interface EntityKindExplanation {
     readonly catalogRef: string | null;
     readonly available: readonly string[];
     readonly actions: readonly EntityActionExplanation[];
+    readonly reason: string | null;
   };
   readonly authoring: EntityKindContract["authoring"];
   readonly sdkExposure: EntitySdkExposure;
@@ -316,13 +318,7 @@ const entityAction = (
     sdkExposure,
     execution,
   });
-const actionCatalog = (
-  ref: string,
-  kind: string,
-  identity: EntityKindContract["id"],
-  ids: readonly string[],
-  sdkExposure: EntitySdkExposure = noSdkExposure,
-) => Object.freeze({ ref, actions: Object.freeze(ids.map((id) => entityAction(kind, identity, id, sdkExposure))) });
+const noActionCatalog = (ref: string, reason: string) => Object.freeze({ ref, actions: Object.freeze([]), reason });
 
 const executionContract = (
   ingress: string,
@@ -456,7 +452,6 @@ const taskIdentity = requireEntityTypeContract("task").id;
 const factIdentity = requireEntityTypeContract("fact").id;
 const decisionIdentity = requireEntityTypeContract("decision").id;
 const agentIdentity = requireEntityTypeContract("agent").id;
-const policyIdentity = requireEntityTypeContract("policy").id;
 const executionIdentity = requireEntityTypeContract("execution").id;
 const reviewIdentity = requireEntityTypeContract("review").id;
 const runtimeSessionIdentity = requireEntityTypeContract("runtime-session").id;
@@ -781,7 +776,10 @@ export const entityKindContracts = Object.freeze([
     schema: POLICY_DECLARATION_V1_SCHEMA,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
-    actionCatalog: actionCatalog("kernel/policy/v1", "policy", policyIdentity, ["draft", "activate", "retire"]),
+    actionCatalog: noActionCatalog(
+      "kernel/policy/v1",
+      "Declaration entity; no independent write path (decision/dec_6FCDFB67623333335987D2542E/CH1).",
+    ),
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
@@ -836,13 +834,10 @@ export const entityKindContracts = Object.freeze([
       row: { idField: "executionId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "state", words: executionStates }],
-    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "execution", executionIdentity, [
-      "start",
-      "renew",
-      "submit",
-      "complete",
-      "release",
-    ]),
+    actionCatalog: noActionCatalog(
+      "kernel/task-lifecycle/v1",
+      "Task lifecycle projection; no independent actions (decision/dec_A6B0EF213AE9643FD84EC5F197/CH1).",
+    ),
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
@@ -880,7 +875,10 @@ export const entityKindContracts = Object.freeze([
       row: { idField: "reviewId", ownerField: "taskId" },
     },
     statusVocabulary: [{ field: "verdict", words: reviewVerdicts }],
-    actionCatalog: actionCatalog("kernel/task-lifecycle/v1", "review", reviewIdentity, ["record"]),
+    actionCatalog: noActionCatalog(
+      "kernel/task-lifecycle/v1",
+      "Task lifecycle projection; no independent actions (decision/dec_A6B0EF213AE9643FD84EC5F197/CH1).",
+    ),
     entityStore: null,
     authoring: { kind: "task-lifecycle", contractRef: "task-event/v1" },
     sdkExposure: noSdkExposure,
@@ -1070,6 +1068,7 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
       available:
         contract.actionCatalog?.actions.filter(({ execution }) => execution !== null).map(({ id }) => id) ?? [],
       actions,
+      reason: contract.actionCatalog?.reason ?? null,
     },
     authoring: contract.authoring,
     sdkExposure: contract.sdkExposure,
