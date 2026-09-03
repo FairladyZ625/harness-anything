@@ -703,6 +703,8 @@ export type DaemonTaskSnapshotListResult = {
     readonly board: import("../../../kernel/src/domain/task-board-projection.ts").TaskBoardPlacement;
     readonly visibility: import("../../../kernel/src/domain/task-board-projection.ts").TaskVisibility;
     readonly capabilities: readonly import("../../../kernel/src/domain/task-board-projection.ts").TaskCapability[];
+    readonly phase: import("../../../kernel/src/domain/task-board-projection.ts").TaskPhase;
+    readonly risk: import("../../../kernel/src/domain/task-board-projection.ts").TaskRisk;
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;

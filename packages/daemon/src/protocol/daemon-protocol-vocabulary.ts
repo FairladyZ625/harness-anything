@@ -1,11 +1,13 @@
 import type {
   CredentialKind,
+  BlockingLabel,
   DaemonRepoMode,
   MaterializationState,
   PeopleCommandClass,
   TaskBoardColumnId,
   TaskCapabilityId,
   TaskCapabilityReason,
+  TaskPhaseReason,
   UseCaseProjectionName,
 } from "../../../kernel/src/index.ts";
 
@@ -115,6 +117,26 @@ export const taskCapabilityReasonWordsAreExact: [TaskCapabilityReason] extends [
 ]
   ? true
   : never = true;
+
+export const taskPhaseReasonWords = Object.freeze([
+  "blocked_overlay",
+  "terminal_cancelled",
+  "phase_unresolved",
+] as const satisfies readonly TaskPhaseReason[]);
+
+export const taskPhaseReasonWordsAreExact: [TaskPhaseReason] extends [(typeof taskPhaseReasonWords)[number]]
+  ? true
+  : never = true;
+
+export const blockingLabelWords = Object.freeze([
+  "relations",
+  "cycle",
+  "unresolved",
+  "none",
+] as const satisfies readonly BlockingLabel[]);
+
+export const blockingLabelWordsAreExact: [BlockingLabel] extends [(typeof blockingLabelWords)[number]] ? true : never =
+  true;
 
 export const reviewVerdictWords = ["approved", "changes_requested", "dismissed"] as const;
 

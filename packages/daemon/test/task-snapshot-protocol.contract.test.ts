@@ -44,7 +44,7 @@ const row = {
   coordinationStatus: "unknown",
   snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
   closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] },
-  blockingAssessment: { taskId: "task-repoint", state: "clear", blockers: [], warnings: [] },
+  blockingAssessment: { taskId: "task-repoint", state: "clear", label: "none", blockers: [], warnings: [] },
   placement: {
     moduleKeys: [],
     productLines: [],
@@ -66,6 +66,8 @@ const row = {
     { id: "review", available: false, reason: "unknown" },
     { id: "complete", available: false, reason: "unknown" },
   ],
+  phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "in_review", "done"] },
+  risk: { flagged: true },
 } as const;
 const list = {
   ok: true,

@@ -15,6 +15,7 @@ export type CloseoutGateStatus = "passed" | "failed" | "missing" | "unknown";
 export interface CloseoutGateResult {
   readonly gateId: string;
   readonly status: CloseoutGateStatus;
+  readonly ok: boolean | null;
   readonly detail?: string;
 }
 export type CloseoutBlocker = "execution" | "review" | "consent" | "gate" | "lineage" | "projection_unknown";
@@ -140,13 +141,13 @@ export function gateResults(
     const codeDoc = gateId === "code-doc-reconciliation",
       known = !availability || (codeDoc ? availability.codeDocWitnesses : availability.gateWitnesses) === "known";
     if (!executionId || !commitSha || iteration === undefined)
-      return { gateId, status: "missing", detail: "no submitted execution cut" };
-    if (!known) return { gateId, status: "unknown", detail: "witness projection unknown" };
+      return gateResult(gateId, "missing", "no submitted execution cut");
+    if (!known) return gateResult(gateId, "unknown", "witness projection unknown");
     if (codeDoc) {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
       // A valid repoint may bind an archival commit rather than the submitted cut.
-      if (witness?.iteration === iteration) return { gateId, status: "passed" };
-      return { gateId, status: "missing", detail: "current execution cut has no code/doc witness" };
+      if (witness?.iteration === iteration) return gateResult(gateId, "passed");
+      return gateResult(gateId, "missing", "current execution cut has no code/doc witness");
     }
     const exact = snapshot.gateWitnesses.filter(
       (value) =>
@@ -156,11 +157,19 @@ export function gateResults(
         value.iteration === iteration,
     );
     return exact.some(({ result }) => result === "pass")
-      ? { gateId, status: "passed" }
+      ? gateResult(gateId, "passed")
       : exact.length
-        ? { gateId, status: "failed", detail: "current execution cut did not pass" }
-        : { gateId, status: "missing", detail: "current execution cut has no gate witness" };
+        ? gateResult(gateId, "failed", "current execution cut did not pass")
+        : gateResult(gateId, "missing", "current execution cut has no gate witness");
   });
+}
+
+export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {
+  return status === "unknown" ? null : status === "passed";
+}
+
+function gateResult(gateId: string, status: CloseoutGateStatus, detail?: string): CloseoutGateResult {
+  return { gateId, status, ok: closeoutGateOk(status), ...(detail === undefined ? {} : { detail }) };
 }
 
 export function isCloseoutReadiness(value: string): value is CloseoutReadiness {

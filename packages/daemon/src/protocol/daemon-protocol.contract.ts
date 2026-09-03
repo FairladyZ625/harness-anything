@@ -712,6 +712,7 @@ export default Object.freeze({
     "PLT-Ontology-4.1",
     "Governed-Entity-W1-B",
     "Ontology-4.1b",
+    "Ontology-4.1c",
     "PLT-EdgeGUI-W2",
     "Governed-Entity-W1-D",
     "Governed-Entity-W1-E",

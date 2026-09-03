@@ -8,6 +8,8 @@ import {
   freshnessReasonOf,
   taskBoardPlacement,
   taskCapabilities,
+  taskPhase,
+  taskRisk,
   taskVisibility,
   workspaceTaskStatus,
   type FreshnessReason,
@@ -261,6 +263,7 @@ export function makeTaskQueryReadModel(input: {
           blockingAssessment = blockingRows.get(row.taskId) ?? {
             taskId: row.taskId,
             state: "unknown" as const,
+            label: "unresolved" as const,
             blockers: [],
             warnings: ["task snapshot missing from blocking judgment"],
           },
@@ -290,6 +293,8 @@ export function makeTaskQueryReadModel(input: {
           board: taskBoardPlacement(boardRow),
           visibility: taskVisibility(boardRow),
           capabilities: taskCapabilities(boardRow),
+          phase: taskPhase(boardRow),
+          risk: taskRisk(boardRow),
         };
       }),
       ...cut,

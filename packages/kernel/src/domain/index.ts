@@ -68,10 +68,12 @@ export {
   closeoutReadinesses,
   currentExecutionCuts,
   currentSubmittedExecutions,
+  closeoutGateOk,
   isCloseoutReadiness,
 } from "./closeout-readiness.ts";
 export type { CloseoutReadiness, CloseoutSnapshot } from "./closeout-readiness.ts";
-export { blockingOf } from "./task-blocking.ts";
+export { blockingLabels, blockingOf } from "./task-blocking.ts";
+export type { BlockingLabel } from "./task-blocking.ts";
 
 export {
   assessTransitionDocument,
@@ -88,8 +90,21 @@ export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
-export { taskBoardPlacement, taskCapabilities, taskVisibility } from "./task-board-projection.ts";
-export type { TaskBoardColumnId, TaskCapabilityId, TaskCapabilityReason } from "./task-board-projection.ts";
+export {
+  taskBoardPlacement,
+  taskCapabilities,
+  taskPhase,
+  taskPhaseReasons,
+  taskPhaseSteps,
+  taskRisk,
+  taskVisibility,
+} from "./task-board-projection.ts";
+export type {
+  TaskBoardColumnId,
+  TaskCapabilityId,
+  TaskCapabilityReason,
+  TaskPhaseReason,
+} from "./task-board-projection.ts";
 
 export {
   DEFAULT_TASK_ROOT_THRESHOLD,

@@ -28,6 +28,7 @@ import {
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
 import {
+  blockingLabelWords,
   decisionStateWords,
   packageDispositionWords,
   relationFreshnessWords,
@@ -35,6 +36,7 @@ import {
   taskBoardColumnWords,
   taskCapabilityIdWords,
   taskCapabilityReasonWords,
+  taskPhaseReasonWords,
   relationStrengthWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -251,18 +253,22 @@ export function closeoutAssessment(value: unknown): boolean {
   return value.gates.every(
     (gate) =>
       recordWith(gate, ["gateId", "status"]) &&
-      Object.keys(gate).every((key) => ["gateId", "status", "detail"].includes(key)) &&
+      Object.keys(gate).every((key) => ["gateId", "status", "ok", "detail"].includes(key)) &&
+      Object.hasOwn(gate, "ok") &&
       nonEmpty(gate.gateId) &&
       ["passed", "failed", "missing", "unknown"].includes(String(gate.status)) &&
+      (typeof gate.ok === "boolean" || gate.ok === null) &&
+      (gate.status === "unknown" ? gate.ok === null : gate.ok === (gate.status === "passed")) &&
       (gate.detail === undefined || nonEmpty(gate.detail)),
   );
 }
 
 export function blockingAssessment(value: unknown): boolean {
   if (
-    !exactRecord(value, ["taskId", "state", "blockers", "warnings"]) ||
+    !exactRecord(value, ["taskId", "state", "label", "blockers", "warnings"]) ||
     !nonEmpty(value.taskId) ||
     !["blocked", "clear", "unknown"].includes(String(value.state)) ||
+    !blockingLabelWords.includes(value.label as never) ||
     !stringArray(value.warnings) ||
     !Array.isArray(value.blockers)
   )
@@ -304,6 +310,20 @@ export function capabilityList(value: unknown): boolean {
         ? capability.available
         : !capability.available && statusWord(taskCapabilityReasonWords, capability.reason)),
   );
+}
+
+export function taskPhase(value: unknown): boolean {
+  if (!exactRecord(value, ["index", "reason", "steps"])) return false;
+  const steps = value.steps;
+  if (
+    !Array.isArray(steps) ||
+    steps.length !== 4 ||
+    !["planned", "active", "in_review", "done"].every((step, index) => steps[index] === step)
+  )
+    return false;
+  return value.index === null
+    ? statusWord(taskPhaseReasonWords, value.reason)
+    : integer(value.index) && Number(value.index) >= 0 && Number(value.index) < steps.length && value.reason === null;
 }
 
 export function queryPageRow(value: unknown): boolean {
@@ -384,6 +404,8 @@ const taskSnapshotListRowFields = [
   "board",
   "visibility",
   "capabilities",
+  "phase",
+  "risk",
 ] as const;
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
@@ -418,6 +440,8 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (!exactRecord(value.visibility, ["archived"]) || typeof value.visibility.archived !== "boolean")
     errors.push(error("visibility"));
   if (!capabilityList(value.capabilities)) errors.push(error("capabilities"));
+  if (!taskPhase(value.phase)) errors.push(error("phase"));
+  if (!exactRecord(value.risk, ["flagged"]) || typeof value.risk.flagged !== "boolean") errors.push(error("risk"));
   if (!Array.isArray(value.executionEvidence)) errors.push(error("executionEvidence"));
   else
     value.executionEvidence.forEach((item, evidenceIndex) => {
