@@ -1,5 +1,5 @@
+import { SCHEDULE_MIN_EVERY_MS } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
-import { SCHEDULE_MIN_EVERY_MS } from "./schedule-duration-vocabulary.ts";
 
 /** Schedule GUI wire contract(S4)。一次 `repo.schedules.list` 的 DTO 是定义 ledger +
  * 运行投影 + 本 daemon 的 mode/执行权 join;renderer 只格式化,不重算 cron/DST/nextRun,

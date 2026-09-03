@@ -12,7 +12,7 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
-import { formatScheduleDuration } from "./protocol/schedule-duration-vocabulary.ts";
+import { formatScheduleDuration } from "./protocol/daemon-protocol-vocabulary.ts";
 import type {
   ScheduleExecutionAvailability,
   ScheduleGuiAgentOptionDto,

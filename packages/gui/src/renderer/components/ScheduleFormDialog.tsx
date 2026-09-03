@@ -1,17 +1,17 @@
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  isAvailableScheduleGuiAgentOption,
-  type ScheduleGuiAgentOptionDto,
-  ScheduleGuiOptionsDto,
-  ScheduleGuiRowDto,
-} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import {
   parseScheduleDuration,
   scheduleDurationUnitMs,
   scheduleDurationUnits,
   splitScheduleDuration,
   type ScheduleDurationUnit,
-} from "../../../../daemon/src/protocol/schedule-duration-vocabulary.ts";
+} from "../../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
+import {
+  isAvailableScheduleGuiAgentOption,
+  type ScheduleGuiAgentOptionDto,
+  ScheduleGuiOptionsDto,
+  ScheduleGuiRowDto,
+} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
@@ -22,7 +22,7 @@ import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar }
 // those segments render as selectable scaffolding with the boundary stated in
 // the UI — cron blocks the save, mode/routing ride along unpersisted — instead of
 // silently dropping the user's choice or fabricating a save.
-/** 时长控件的单位表来自 protocol 的唯一词表(`schedule-duration-vocabulary.ts`),表单不再自带
+/** 时长控件的单位表来自 protocol 的唯一词表(`daemon-protocol-vocabulary.ts`),表单不再自带
  * 一份:少一个单位就等于把不能被它整除的 everyMs 在打开表单时四舍五入掉,保存即静默改写。 */
 const UNIT_LABEL_KEY: Readonly<Record<ScheduleDurationUnit, MessageKey>> = {
   ms: "schedules.form.milliseconds",

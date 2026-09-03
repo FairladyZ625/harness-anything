@@ -4,7 +4,7 @@ import test from "node:test";
 import { materializePacketStdin } from "../src/index.ts";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { parseScheduleDuration } from "../../daemon/src/protocol/schedule-duration-vocabulary.ts";
+import { parseScheduleDuration } from "../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
 import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "../src/cli/thin-command-schedule.ts";
 
 test("Schedule CLI exposes CRUD and run-control commands with closed inputs", () => {

@@ -3,7 +3,7 @@ import {
   parseScheduleListReceipt,
   type ScheduleListRow,
 } from "../../../daemon/src/protocol/daemon-protocol-validate-results.ts";
-import { parseScheduleDuration } from "../../../daemon/src/protocol/schedule-duration-vocabulary.ts";
+import { parseScheduleDuration } from "../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
 import { validateScheduleRuns, type ScheduleRunsResult } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";

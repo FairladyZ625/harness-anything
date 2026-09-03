@@ -23,7 +23,7 @@ import {
   parseScheduleDuration,
   scheduleDurationUnitMs,
   scheduleDurationUnits,
-} from "../src/protocol/schedule-duration-vocabulary.ts";
+} from "../src/protocol/daemon-protocol-vocabulary.ts";
 import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
 import {
   deriveScheduleExecutionAvailability,
