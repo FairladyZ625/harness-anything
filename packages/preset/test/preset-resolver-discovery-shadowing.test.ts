@@ -67,7 +67,7 @@ test("template and script discovery expose builtin content with typed vertical e
       rootDir,
       action: { kind: "script-list" },
     })) as Array<{ id: string; purpose: string; execution: string }>;
-    assert.equal(scripts.length, 5);
+    assert.equal(scripts.length, 4);
     assert.deepEqual(
       scripts.map(({ id }) => id),
       [...scripts.map(({ id }) => id)].sort(),
@@ -77,7 +77,7 @@ test("template and script discovery expose builtin content with typed vertical e
       rootDir,
       action: {
         kind: "script-inspect",
-        scriptId: "vertical:software-coding:architecture-check",
+        scriptId: "vertical:software-coding:repository-audit",
       },
     })) as {
       schema: string;
@@ -85,19 +85,19 @@ test("template and script discovery expose builtin content with typed vertical e
       execution: { available: boolean; code: string };
     };
     assert.equal(inspected.schema, "vertical-script-inspection/v1");
-    assert.equal(inspected.declaration.command, "scripts/architecture-check.mjs");
+    assert.equal(inspected.declaration.command, "scripts/repository-audit.mjs");
     assert.deepEqual(inspected.declaration.writes, []);
     assert.deepEqual(inspected.execution, {
       available: true,
       code: "script_run_available",
-      nextAction: "Run ha script run vertical:software-coding:architecture-check [--dry-run].",
+      nextAction: "Run ha script run vertical:software-coding:repository-audit [--dry-run].",
     });
     await assert.rejects(
       runPresetAction({
         rootDir,
         action: {
           kind: "script-run",
-          scriptId: "vertical:software-coding:architecture-check",
+          scriptId: "vertical:software-coding:repository-audit",
         },
       }),
       (error: unknown) => (error as { code?: string }).code === "unsupported_command",

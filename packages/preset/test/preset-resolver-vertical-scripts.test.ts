@@ -321,7 +321,6 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     [
       "vertical:software-coding:architecture-init",
       "vertical:software-coding:architecture-snapshot",
-      "vertical:software-coding:architecture-check",
       "vertical:software-coding:repository-audit",
       "vertical:software-coding:decision-conformance",
     ],
@@ -430,7 +429,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
   }
 });
 
-test("all five declared builtin script assets emit accepted deterministic plans", () => {
+test("all four declared builtin script assets emit accepted deterministic plans", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-script-assets-")),
     taskId = "task_01KZXSYDTJ3K1YE88294X33QNW",
     commitSha = "b".repeat(40);
@@ -482,10 +481,6 @@ test("all five declared builtin script assets emit accepted deterministic plans"
       snapshot.changes.map(({ path: target }) => target),
       [`tasks/${taskId}/artifacts/architecture/code-facts.json`],
     );
-    materialize(snapshot);
-    const check = execute("architecture-check", taskId);
-    assert.equal(check.status, "fresh");
-    assert.deepEqual(check.changes, []);
     const audit = execute("repository-audit");
     assert.equal(audit.status, "conformant");
     assert.deepEqual(audit.changes, []);

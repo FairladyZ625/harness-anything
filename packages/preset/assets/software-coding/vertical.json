@@ -143,15 +143,6 @@
       "metadata": { "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.", "purpose": "generate", "contractVersion": "script-entry/v1", "produces": ["{{outputRoot}}/artifacts/architecture/**"] }
     },
     {
-      "id": "vertical:software-coding:architecture-check",
-      "type": "script",
-      "command": "scripts/architecture-check.mjs",
-      "reads": ["{{paths.contextRoot}}/architecture/**", "{{outputRoot}}/artifacts/architecture/**"],
-      "writes": [],
-      "inputs": {},
-      "metadata": { "description": "Inspect deterministic architecture configuration, tool, freshness, and drift state.", "purpose": "audit", "contractVersion": "script-entry/v1", "produces": [] }
-    },
-    {
       "id": "vertical:software-coding:repository-audit",
       "type": "script",
       "command": "scripts/repository-audit.mjs",

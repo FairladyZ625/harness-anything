@@ -426,7 +426,7 @@ So present **one table** and ask for **one confirmation**:
 | path | resolution | what carries over from the old file |
 | --- | --- | --- |
 | `harness/adr/README.md` | destination | when a lightweight ADR fits, `ha decision propose` for load-bearing choices, back-link rule |
-| `harness/context/architecture/README.md` | destination | manifest read order, `architecture-check`, model update boundary |
+| `harness/context/architecture/README.md` | destination | manifest read order, model update boundary |
 | `harness/people.yaml` | **choose** | nothing — see below |
 
 Say plainly: this is the default, and they can override any row to `source` if

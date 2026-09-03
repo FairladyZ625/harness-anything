@@ -9,7 +9,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
     templates = parseThinCommand(["template", "list"]),
     render = parseThinCommand(["template", "render", "template://repository/adr-template@1", "--locale", "zh-CN"]),
     scripts = parseThinCommand(["script", "list"]),
-    inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:architecture-check"]);
+    inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:repository-audit"]);
   assert.equal(
     [vertical, templates, render, scripts, inspect].every((result) => result.ok),
     true,
@@ -30,12 +30,12 @@ test("thin parser derives builtin vertical, template, and script discovery actio
   if (inspect.ok)
     assert.deepEqual(inspect.command.action, {
       kind: "script-inspect",
-      scriptId: "vertical:software-coding:architecture-check",
+      scriptId: "vertical:software-coding:repository-audit",
     });
   const run = parseThinCommand([
     "script",
     "run",
-    "vertical:software-coding:architecture-check",
+    "vertical:software-coding:repository-audit",
     "--task",
     "task-1",
     "--inputs",
@@ -51,7 +51,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
       action: {
         schema: "vertical-script-action/v1",
         kind: "script-run",
-        scriptId: "vertical:software-coding:architecture-check",
+        scriptId: "vertical:software-coding:repository-audit",
         taskId: "task-1",
         inputs: { locale: "en-US" },
         dryRun: true,
@@ -59,7 +59,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
     });
   assert.equal(parseThinCommand(["script", "run", "user-canary/check"]).ok, false);
   assert.equal(
-    parseThinCommand(["script", "run", "vertical:software-coding:architecture-check", "--task-id", "task-1"]).ok,
+    parseThinCommand(["script", "run", "vertical:software-coding:repository-audit", "--task-id", "task-1"]).ok,
     false,
   );
   assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);

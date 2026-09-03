@@ -20,7 +20,7 @@ test("validate, discovery, and create materialization accept one compiled custom
       readonly id: string;
     }>;
     assert.equal(
-      scripts.some(({ id }) => id === "vertical:software-coding:architecture-check"),
+      scripts.some(({ id }) => id === "vertical:software-coding:repository-audit"),
       true,
     );
 
