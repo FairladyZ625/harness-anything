@@ -4,6 +4,7 @@ import {
   isSameExecution,
   isSamePerson,
   parseEntityRef,
+  taskIsDescendantOf,
   type AuthorizationContext,
   type AuthorizationDecision,
   type EntityRef,
@@ -309,7 +310,7 @@ export function authorizeDurableRepoCellAction(
 export function bindVerifiedExecutorClaim(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
-  readonly projection: Pick<TaskProjection, "readRuntimeSession" | "currentLease">;
+  readonly projection: Pick<TaskProjection, "read" | "readRuntimeSession" | "currentLease">;
   readonly now: string;
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
@@ -363,14 +364,39 @@ export function bindVerifiedExecutorClaim(input: {
     executionId = typeof action.executionId === "string" ? action.executionId : null;
   if (session === null)
     throw invalidExecutorBinding("The claimed RuntimeSession is not canonically bound to this Task action.");
-  const taskBinding =
-    taskId === null
-      ? session.taskBindings.length === 1
-        ? session.taskBindings[0]
-        : undefined
-      : session.taskBindings.find(
-          (candidate) => candidate.taskId === taskId && (executionId === null || candidate.executionId === executionId),
-        );
+  const exactBinding =
+      taskId === null
+        ? session.taskBindings.length === 1
+          ? session.taskBindings[0]
+          : undefined
+        : session.taskBindings.find(
+            (candidate) =>
+              candidate.taskId === taskId && (executionId === null || candidate.executionId === executionId),
+          ),
+    descendantBinding =
+      exactBinding === undefined && taskId !== null && (action.kind === "doc-submit" || action.kind === "runtime-spawn")
+        ? session.taskBindings.find((candidate) => {
+            if (
+              !taskIsDescendantOf(
+                taskId,
+                candidate.taskId,
+                (current) => input.projection.read(current).snapshot.task?.metadata?.parentTaskId ?? null,
+              )
+            )
+              return false;
+            const candidateLease = input.projection.currentLease(candidate.taskId, input.now),
+              candidateActor = {
+                principal: input.binding.actor.principal,
+                executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+              };
+            return (
+              candidateLease !== null &&
+              candidateLease.executionId === candidate.executionId &&
+              isSamePerson(candidateLease.actor, candidateActor)
+            );
+          })
+        : undefined,
+    taskBinding = exactBinding ?? descendantBinding;
   if (!taskBinding)
     throw invalidExecutorBinding("The claimed RuntimeSession does not execute the target Task/Execution.");
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),

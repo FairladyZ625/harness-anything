@@ -258,7 +258,17 @@ export function publishDocIntent(
     recycleClaims(input.rootDir, intent);
     return receipt;
   }
-  const adjudication = adjudicateDocIntent(input, intent, claims, lease, envelope.opId, retirementReason);
+  const adjudication = adjudicateDocIntent(
+    {
+      ...input,
+      ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
+    },
+    intent,
+    claims,
+    lease,
+    envelope.opId,
+    retirementReason,
+  );
   if (!adjudication.accepted) {
     if (adjudication.code === "projection_pending")
       return {
