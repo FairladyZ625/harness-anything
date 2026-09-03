@@ -240,6 +240,58 @@ test("same-repo writes advance while a vertical script is running", async (conte
   }
 });
 
+test(
+  "the vertical script child inherits nothing beyond its declared environment keys",
+  {
+    skip:
+      process.platform === "win32" ? "requires POSIX per-process environment introspection (/proc or ps -E)" : false,
+  },
+  async (context) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-script-env-")),
+      blocker = path.join(rootDir, "vertical-script.block"),
+      started = `${blocker}.started`,
+      previousBlocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE,
+      previousProbe = process.env.HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE;
+    initRepo(rootDir);
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    const action = {
+      schema: "vertical-script-action/v1",
+      kind: "script-run",
+      scriptId: "vertical:software-coding:repository-audit",
+      taskId: null,
+      inputs: {},
+      dryRun: true,
+    } as const;
+    const runs: Promise<unknown>[] = [];
+    try {
+      writeFileSync(blocker, "blocked\n", "utf8");
+      process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = blocker;
+      // A parent-only key: if the child inherited process.env at all, this key would show up downstream.
+      process.env.HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE = "parent-only";
+      cell = await openRepoCell({
+        repoId: workspaceId("vertical-script-env"),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "vertical-script-env-test",
+      });
+      runs.push(cell.run(action, binding));
+      await waitForPath(started);
+      const childPid = Number(readFileSync(started, "utf8").trim());
+      assert.equal(Number.isInteger(childPid) && childPid > 0, true, `unusable child pid: ${childPid}`);
+      const observed = childEnvironmentKeys(childPid);
+      context.diagnostic(`vertical script child env keys: ${JSON.stringify(observed)}`);
+      assert.deepEqual(observed, ["HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE", "PATH"]);
+    } finally {
+      rmSync(blocker, { force: true });
+      await Promise.allSettled(runs);
+      if (previousBlocker === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE");
+      else process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = previousBlocker;
+      if (previousProbe === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE");
+      else process.env.HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE = previousProbe;
+      await cell?.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  },
+);
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");
   git(rootDir, "config", "user.name", "Vertical Script Test");
@@ -265,4 +317,22 @@ async function waitForPath(target: string): Promise<void> {
 }
 function delay<T>(milliseconds: number, value: T): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), milliseconds));
+}
+
+// Reads a live child's environment from the operating system rather than from this process, so the
+// assertion observes what was actually handed to the child instead of what the parent believes it sent.
+function childEnvironmentKeys(pid: number): string[] {
+  if (process.platform === "linux")
+    return environmentKeys(readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").filter(Boolean));
+  const argv = processCommand(pid, "-ww"),
+    full = processCommand(pid, "-Ewww");
+  assert.equal(full.startsWith(argv), true, `ps -E output must extend the argv-only output: ${full}`);
+  return environmentKeys(full.slice(argv.length).trim().split(" "));
+}
+function environmentKeys(entries: readonly string[]): string[] {
+  const assignments = entries.filter((entry) => /^[A-Za-z_][A-Za-z0-9_]*=/u.test(entry));
+  return [...new Set(assignments.map((entry) => entry.slice(0, entry.indexOf("="))))].sort();
+}
+function processCommand(pid: number, flags: string): string {
+  return execFileSync("ps", ["-p", String(pid), flags, "-o", "command="], { encoding: "utf8" }).trim();
 }
