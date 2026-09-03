@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
@@ -16,6 +16,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 
@@ -202,41 +203,4 @@ function git(root, ...args) {
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function spawnWithDeadline(command, args, options) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-        ...options,
-        detached: true,
-        stdio: ["ignore", "pipe", "pipe"],
-      }),
-      stdout = [],
-      stderr = [];
-    let timedOut = false;
-    child.stdout.on("data", (chunk) => stdout.push(chunk));
-    child.stderr.on("data", (chunk) => stderr.push(chunk));
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch (error) {
-        if (error?.code !== "ESRCH") reject(error);
-      }
-    }, 2_000);
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("close", (status, signal) => {
-      clearTimeout(timer);
-      resolve({
-        status,
-        signal,
-        stderr: Buffer.concat(stderr).toString("utf8"),
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        timedOut,
-      });
-    });
-  });
 }
