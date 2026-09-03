@@ -125,8 +125,8 @@ export async function publishExit(
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        // The exit event below must still publish: a lost report must not leave the runtime "live".
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
-        throw error;
       }
     }
     if (cancelled) {

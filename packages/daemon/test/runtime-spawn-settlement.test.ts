@@ -55,7 +55,7 @@ test("a non-zero squad leader exit is failed even when its final text declares c
   assert.equal(result.outcome, "failed");
 });
 
-test("terminal settlement does not swallow a runtime archive failure", async () => {
+test("terminal settlement reports a runtime archive failure and still publishes the exit", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-archive-failure-")),
     runtime = active({
       process: {
@@ -97,6 +97,7 @@ test("terminal settlement does not swallow a runtime archive failure", async () 
     }),
     archiveError = new Error("archive publication failed"),
     errors: string[] = [],
+    published: string[] = [],
     originalError = console.error,
     context = {
       exiting: new Set<string>(),
@@ -111,11 +112,17 @@ test("terminal settlement does not swallow a runtime archive failure", async () 
       resultMediaType: "text/markdown",
       runtimeResultText: () => "failed result",
       markProtocolError: () => undefined,
+      publishRuntimeEvent: async (type: string) => {
+        published.push(type);
+        return {};
+      },
+      settleFallback: async () => undefined,
     } as unknown as RuntimeSpawnerContext;
   console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
   try {
-    await assert.rejects(publishExit(context, runtime, 1), archiveError);
+    await publishExit(context, runtime, 1);
     assert.match(errors.join("\n"), /could not be archived: archive publication failed/u);
+    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
   } finally {
     console.error = originalError;
     rmSync(rootDir, { recursive: true, force: true });
