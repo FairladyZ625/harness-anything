@@ -86,6 +86,9 @@ test("all public commands expose the canonical structured input facet", () => {
     "schedule-runs",
   );
   for (const id of [
+    "task-closeout",
+    "task-review-execution",
+    "task-review-consent",
     "people-add",
     "people-set-role",
     "people-bind",
@@ -96,13 +99,22 @@ test("all public commands expose the canonical structured input facet", () => {
     "schedule-update",
     "schedule-delete",
   ]) {
-    const fromFile = daemonProtocolCommands
-      .find((command) => command.id === id)
-      ?.inputs.find((input) => input.name === "--from-file");
-    assert.ok(fromFile, `${id}: --from-file`);
+    const command = daemonProtocolCommands.find((candidate) => candidate.id === id),
+      fromFile = command?.inputs.find((input) => input.name === "--from-file"),
+      jsonInput = command?.inputs.find((input) => input.name === "--json-input");
+    assert.ok(fromFile && jsonInput, `${id}: structured packet inputs`);
     assert.equal(fromFile.kind, "single", id);
     assert.equal((fromFile.jsonFields?.length ?? 0) > 0, true, `${id}: JSON required fields`);
-    assert.equal((fromFile.jsonAllowedFields?.length ?? 0) >= (fromFile.jsonFields?.length ?? 0), true, id);
+    assert.equal(
+      (fromFile.jsonAllowedFields ?? fromFile.jsonFields ?? []).length >= (fromFile.jsonFields?.length ?? 0),
+      true,
+      id,
+    );
+    assert.deepEqual(jsonInput.jsonFields, fromFile.jsonFields, `${id}: JSON required fields match`);
+    assert.deepEqual(jsonInput.jsonAllowedFields, fromFile.jsonAllowedFields, `${id}: JSON allowed fields match`);
+    assert.equal(jsonInput.format, "<json|@->", `${id}: stdin format`);
+    assert.equal(fromFile.conflictsWith?.includes("--json-input"), true, `${id}: file conflict`);
+    assert.equal(jsonInput.conflictsWith?.includes("--from-file"), true, `${id}: inline conflict`);
   }
   const taskSubmit = daemonProtocolCommands.find((command) => command.id === "task-submit"),
     submitFile = taskSubmit?.inputs.find((input) => input.name === "--from-file"),

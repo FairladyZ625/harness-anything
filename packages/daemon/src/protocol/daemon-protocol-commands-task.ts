@@ -275,16 +275,35 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
         {
           field: "fromFile",
           type: "string",
-          required: true,
+          required: false,
           cli: {
             jsonFields: ["verdict", "reason", "evidenceChecked"],
             jsonEnums: {
               verdict: ["approved", "changes_requested", "dismissed"],
             },
+            conflictsWith: ["--json-input"],
             name: "--from-file",
             kind: "single",
             error: {
-              code: "missing_field",
+              code: "invalid_field",
+            },
+          },
+        },
+        {
+          field: "jsonInput",
+          type: "string",
+          required: false,
+          cli: {
+            jsonFields: ["verdict", "reason", "evidenceChecked"],
+            jsonEnums: {
+              verdict: ["approved", "changes_requested", "dismissed"],
+            },
+            format: "<json|@->",
+            conflictsWith: ["--from-file"],
+            name: "--json-input",
+            kind: "single",
+            error: {
+              code: "invalid_field",
             },
           },
         },
@@ -295,7 +314,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
           enum: ["RecordReview"],
         },
       ],
-      exactlyOneOf: [],
+      exactlyOneOf: [["fromFile", "jsonInput"]],
     },
     explain: "Record an independent, content-pinned review for the submitted execution.",
     execution: {
@@ -542,7 +561,19 @@ export const taskExecutionProtocolCommands = Object.freeze([
           jsonFields: ["review", "consent", "completion"],
           jsonAllowedFields: ["submission", "review", "consent", "completion"],
           format: "task-closeout-packet/v1 JSON; run --print-schema for the field contract",
-          conflictsWith: ["--print-template", "--print-schema"],
+          conflictsWith: ["--json-input", "--print-template", "--print-schema"],
+        },
+      ),
+      cliInput(
+        "--json-input",
+        "single",
+        false,
+        { code: "missing_field" },
+        {
+          jsonFields: ["review", "consent", "completion"],
+          jsonAllowedFields: ["submission", "review", "consent", "completion"],
+          format: "<json|@->",
+          conflictsWith: ["--from-file", "--print-template", "--print-schema"],
         },
       ),
       cliInput(
@@ -552,7 +583,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { conflictsWith: ["--from-file", "--print-schema"] },
+        { conflictsWith: ["--from-file", "--json-input", "--print-schema"] },
       ),
       cliInput(
         "--print-schema",
@@ -561,7 +592,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { conflictsWith: ["--from-file", "--print-template", "--execution-id"] },
+        { conflictsWith: ["--from-file", "--json-input", "--print-template", "--execution-id"] },
       ),
     ],
   }),
@@ -588,7 +619,14 @@ export const taskExecutionProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { jsonFields: consentJsonFields },
+        { jsonFields: consentJsonFields, conflictsWith: ["--json-input"] },
+      ),
+      cliInput(
+        "--json-input",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { jsonFields: consentJsonFields, format: "<json|@->", conflictsWith: ["--from-file"] },
       ),
     ],
   }),

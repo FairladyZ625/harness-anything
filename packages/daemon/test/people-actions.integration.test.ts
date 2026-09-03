@@ -256,7 +256,7 @@ test("People Action commands create people.yaml through the null roster transiti
   }
 });
 
-test("People Action commands hydrate closed from-file packets inside the workspace", async () => {
+test("People Action commands hydrate closed file and inline packets", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-people-packets-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -278,12 +278,16 @@ test("People Action commands hydrate closed from-file packets inside the workspa
       }),
     );
     assert.equal((await cell.run({ kind: "people-add", fromFile: "people-add.json" }, binding)).outcome, "applied");
-    writeFileSync(
-      path.join(root, "people-role.json"),
-      JSON.stringify({ personId: "person_alice", role: "reviewer", commandClass: ["repo-read"] }),
-    );
     assert.equal(
-      (await cell.run({ kind: "people-set-role", fromFile: "people-role.json" }, binding)).outcome,
+      (
+        await cell.run(
+          {
+            kind: "people-set-role",
+            jsonInput: JSON.stringify({ personId: "person_alice", role: "reviewer", commandClass: ["repo-read"] }),
+          },
+          binding,
+        )
+      ).outcome,
       "applied",
     );
     writeFileSync(

@@ -161,13 +161,18 @@ function parsePeople(
   if (!projected.ok) return projected;
   const action = projected.command.action,
     fromFile = typeof action.fromFile === "string",
-    directFields = Object.keys(action).filter((field) => field !== "kind" && field !== "fromFile");
-  if (fromFile)
+    jsonInput = typeof action.jsonInput === "string",
+    directFields = Object.keys(action).filter(
+      (field) => field !== "kind" && field !== "fromFile" && field !== "jsonInput",
+    );
+  if (fromFile && jsonInput)
+    return rejected("invalid_field", "Use only one of --from-file <path> or --json-input <json|@->.", json);
+  if (fromFile || jsonInput)
     return directFields.length === 0
       ? projected
       : rejected(
           "invalid_field",
-          "Use --from-file <packet.json> by itself, or provide the complete direct flag set.",
+          "Use one of --from-file <path> or --json-input <json|@-> by itself, or provide the complete direct flag set.",
           json,
         );
   for (const input of peopleRequiredInputs[route.id] ?? []) {

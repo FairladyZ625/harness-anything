@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { materializePacketStdin } from "../src/index.ts";
 
 test("task closeout accepts one execution, template, or schema mode and discloses the packet fields", () => {
   const derived = parseThinCommand(["task", "closeout", "task-closeout", "--from-file", "judgment.json"]),
@@ -14,6 +15,9 @@ test("task closeout accepts one execution, template, or schema mode and disclose
       "--from-file",
       "judgment.json",
     ]),
+    inlinePacket = '{"review":{},"consent":{},"completion":{}}',
+    inline = parseThinCommand(["task", "closeout", "task-closeout", "--json-input", inlinePacket]),
+    stdin = parseThinCommand(["task", "closeout", "task-closeout", "--json-input", "@-"]),
     template = parseThinCommand(["task", "closeout", "task-closeout", "--print-template"]),
     schema = parseThinCommand(["task", "closeout", "task-closeout", "--print-schema"]),
     missing = parseThinCommand(["task", "closeout", "task-closeout"]),
@@ -25,6 +29,15 @@ test("task closeout accepts one execution, template, or schema mode and disclose
       "judgment.json",
       "--print-template",
     ]),
+    conflictingSources = parseThinCommand([
+      "task",
+      "closeout",
+      "task-closeout",
+      "--from-file",
+      "judgment.json",
+      "--json-input",
+      inlinePacket,
+    ]),
     irrelevantSelector = parseThinCommand([
       "task",
       "closeout",
@@ -35,10 +48,13 @@ test("task closeout accepts one execution, template, or schema mode and disclose
     ]);
   assert.equal(derived.ok, true);
   assert.equal(explicit.ok, true);
+  assert.equal(inline.ok, true);
+  assert.equal(stdin.ok, true);
   assert.equal(template.ok, true);
   assert.equal(schema.ok, true);
   assert.equal(missing.ok, false);
   assert.equal(conflicting.ok, false);
+  assert.equal(conflictingSources.ok, false);
   assert.equal(irrelevantSelector.ok, false);
   if (derived.ok)
     assert.deepEqual(derived.command.action, {
@@ -52,6 +68,18 @@ test("task closeout accepts one execution, template, or schema mode and disclose
       taskId: "task-closeout",
       executionId: "execution-closeout",
       fromFile: "judgment.json",
+    });
+  if (inline.ok)
+    assert.deepEqual(inline.command.action, {
+      kind: "task-closeout",
+      taskId: "task-closeout",
+      jsonInput: inlinePacket,
+    });
+  if (stdin.ok)
+    assert.deepEqual(materializePacketStdin(stdin.command, () => inlinePacket).action, {
+      kind: "task-closeout",
+      taskId: "task-closeout",
+      jsonInput: inlinePacket,
     });
   if (template.ok)
     assert.deepEqual(template.command.action, {

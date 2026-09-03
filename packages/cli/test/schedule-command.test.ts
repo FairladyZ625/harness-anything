@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { materializePacketStdin } from "../src/index.ts";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import {
@@ -230,7 +231,19 @@ test("Schedule show, update, and delete expose closed structured packet inputs",
         fromFile: packet,
       });
   }
+  const packet = '{"scheduleId":"probe"}',
+    inline = parseThinCommand(["schedule", "show", "--json-input", packet]),
+    stdin = parseThinCommand(["schedule", "show", "--json-input", "@-"]);
+  assert.equal(inline.ok, true);
+  assert.equal(stdin.ok, true);
+  if (inline.ok) assert.deepEqual(inline.command.action, { kind: "schedule-show", jsonInput: packet });
+  if (stdin.ok)
+    assert.deepEqual(materializePacketStdin(stdin.command, () => packet).action, {
+      kind: "schedule-show",
+      jsonInput: packet,
+    });
   assert.equal(parseThinCommand(["schedule", "update", "probe", "--from-file", "update.json"]).ok, false);
+  assert.equal(parseThinCommand(["schedule", "show", "--from-file", "show.json", "--json-input", packet]).ok, false);
   assert.equal(parseThinCommand(["schedule", "update", "probe", "--mode", "observe"]).ok, false);
 });
 

@@ -2,7 +2,7 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { decisionProposalJsonFields, taskCreateJsonFields } from "../../preset/src/index.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
-import { packetFile, packetJson, workspaceText } from "./repo-cell-packets.ts";
+import { packetRecord, readPacketSource, workspaceText } from "./repo-cell-packets.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -13,7 +13,6 @@ export const taskCreateFields = taskCreateJsonFields;
 export type PacketActionContract = Readonly<{
   required: readonly string[];
   allowed: readonly string[];
-  source: "from-file" | "from-file-or-json-input";
   actionOverrides?: readonly string[];
   invalid: (message: string) => Error;
   messages: Readonly<{
@@ -34,17 +33,8 @@ export function resolvePacketAction(
 ): RepoTaskAction {
   const fromFile = typeof action.fromFile === "string",
     jsonInput = typeof action.jsonInput === "string",
-    hasSource = contract.source === "from-file" ? fromFile : fromFile || jsonInput,
-    sourceFields =
-      contract.source === "from-file"
-        ? fromFile
-          ? ["fromFile"]
-          : contract.allowed
-        : fromFile
-          ? ["fromFile"]
-          : jsonInput
-            ? ["jsonInput"]
-            : contract.allowed,
+    hasSource = fromFile || jsonInput,
+    sourceFields = fromFile ? ["fromFile"] : jsonInput ? ["jsonInput"] : contract.allowed,
     actionAllowed = contract.actionOverrides
       ? new Set(["kind", ...sourceFields, ...contract.actionOverrides])
       : undefined,
@@ -54,10 +44,7 @@ export function resolvePacketAction(
   if (!hasSource) return action;
   let parsed: unknown;
   try {
-    const raw = fromFile
-      ? workspaceText(rootDir, action.fromFile, "fromFile")
-      : requiredCellText(action.jsonInput, "jsonInput");
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(readPacketSource(rootDir, action));
   } catch (error) {
     if (error instanceof SyntaxError) throw contract.invalid(contract.messages.parse);
     throw error;
@@ -94,7 +81,6 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
   const resolved = resolvePacketAction(rootDir, action, {
     required: [],
     allowed: taskCreateFields,
-    source: "from-file-or-json-input",
     invalid: (message) => cellCodedError("invalid_command", message),
     messages: {
       parse: "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
@@ -199,9 +185,7 @@ export function decisionProposalAction(rootDir: string, action: RepoTaskAction):
       "invalid_command",
       "Decision propose requires one structured packet and at most one body source.",
     );
-  const packet = fromFile
-      ? packetFile(rootDir, action.fromFile, decisionProposalFields).value
-      : packetJson(action.jsonInput, decisionProposalFields),
+  const packet = packetRecord(rootDir, action, decisionProposalFields).value,
     body =
       typeof action.body === "string"
         ? action.body

@@ -2,6 +2,7 @@ import { runTaskCloseoutAction } from "../../application/src/task-closeout-actio
 import { closeoutReadiness, type WriteReceiptDraft } from "../../kernel/src/index.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { isPresetSnapshotCurrent } from "./repo-cell-task-progress.ts";
+import { readPacketSource } from "./repo-cell-packets.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
@@ -14,7 +15,6 @@ export async function closeoutTask(
     initial = await cell.service.read(taskId),
     opId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
   return runTaskCloseoutAction({
-    rootDir: cell.rootDir,
     action,
     caller: binding.actor,
     authorizationDecision:
@@ -26,7 +26,7 @@ export async function closeoutTask(
         );
       })(),
     opId,
-    readWorkspaceText: cell.workspaceText,
+    readPacket: () => readPacketSource(cell.rootDir, action),
     read: async () =>
       (await cell.service.read(taskId)).snapshot as Parameters<typeof closeoutReadiness>[0] & {
         readonly revision: number;
@@ -40,7 +40,9 @@ export async function closeoutTask(
         taskId,
         projected.snapshot,
         projected.packagePath,
-        `ha task closeout ${taskId} --from-file ${String(action.fromFile)}`,
+        `ha task closeout ${taskId} ${
+          typeof action.fromFile === "string" ? `--from-file ${action.fromFile}` : "--json-input '<json>'"
+        }`,
       );
     },
     invoke: async (stage, leaf, actor) => {

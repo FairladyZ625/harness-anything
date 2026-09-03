@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializeDecisionStdin } from "../src/index.ts";
+import { materializePacketStdin } from "../src/index.ts";
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {
   const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
@@ -391,7 +391,7 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       body: "# Canonical\n\nInitial prose.\n",
     });
   if (stdin.ok)
-    assert.deepEqual(materializeDecisionStdin(stdin.command, () => packet).action, {
+    assert.deepEqual(materializePacketStdin(stdin.command, () => packet).action, {
       kind: "decision-propose",
       jsonInput: packet,
     });
