@@ -61,7 +61,7 @@ export function HtmlArtifactPreview({
       </header>
       <div
         ref={hostRef}
-        className={fillAvailable ? "min-h-0 min-w-0 flex-1 overflow-hidden bg-white" : "min-h-[42rem] bg-white"}
+        className={fillAvailable ? "min-h-0 min-w-0 flex-1 overflow-hidden bg-white" : "h-[42rem] bg-white"}
         data-testid="html-artifact-host"
       />
     </section>
