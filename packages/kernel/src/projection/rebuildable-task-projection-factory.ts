@@ -143,18 +143,22 @@ export function makeTaskProjection(options: {
       const initialWatermark = withDatabase(projectionPath, readHead, watermark);
       let sqliteTransactions = 0,
         reducedItems = 0,
-        maxBatchItems = 0;
+        maxBatchItems = 0,
+        reportedWatermark = initialWatermark;
       for (;;) {
         const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, options.eventStore, limit));
         sqliteTransactions += round.sqliteTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
         const total = Math.max(0, round.sourceRevision - initialWatermark);
-        onProgress({
-          applied: Math.min(total, Math.max(0, round.watermark - initialWatermark)),
-          total,
-          watermark: round.watermark,
-        });
+        if (round.watermark > reportedWatermark) {
+          onProgress({
+            applied: Math.min(total, Math.max(0, round.watermark - initialWatermark)),
+            total,
+            watermark: round.watermark,
+          });
+          reportedWatermark = round.watermark;
+        }
         if (round.watermark !== round.sourceRevision) continue;
         const settled = withDatabase(projectionPath, readHead, (db) =>
           transaction(db, () => ({

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
-import type { RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
+import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
@@ -166,12 +166,13 @@ export async function openWriterSupervisor(
       };
       const candidate =
         options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
-      let settled = false;
+      let settled = false,
+        lastAttachProgress: RepoCellAttachProgress | null = null;
       let readyWatchdog: ReturnType<typeof setTimeout>;
       const readyInactive = () => {
         if (settled) return;
         settled = true;
-        const error = new Error("RepoWriterCell did not publish ready after 30000ms without a message");
+        const error = new Error("RepoWriterCell did not publish ready after 30000ms without progress");
         if (!opened) closed = true;
         reject(error);
         failActive(error);
@@ -185,7 +186,6 @@ export async function openWriterSupervisor(
       armReadyWatchdog();
       worker = candidate;
       candidate.on("message", (message: unknown) => {
-        if (!settled) armReadyWatchdog();
         if (isReceipt(message)) {
           const operation = pending.get(message.requestId);
           if (!operation) return;
@@ -199,9 +199,19 @@ export async function openWriterSupervisor(
         if (isStatus(message)) {
           const published = message.status;
           if (published && typeof published === "object") {
-            const attachStatus = published.attach !== undefined;
-            if (!settled || !attachStatus) status = published;
-            if (!settled && attachStatus) options.onAttachStatus?.(published);
+            const attaching = published.state === "warming";
+            if (!settled || !attaching) status = published;
+            if (!settled && attaching) options.onAttachStatus?.(published);
+            if (
+              !settled &&
+              attaching &&
+              message.kind === "attach-progress" &&
+              published.attach !== undefined &&
+              attachProgressAdvanced(lastAttachProgress, published.attach)
+            ) {
+              lastAttachProgress = published.attach;
+              armReadyWatchdog();
+            }
           }
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;
@@ -477,6 +487,20 @@ function isReceipt(value: unknown): value is RepoWriterReceiptV1 {
 }
 function isStatus(value: unknown): value is RepoWriterStatusV1 {
   return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-status/v1";
+}
+
+function attachProgressAdvanced(previous: RepoCellAttachProgress | null, next: RepoCellAttachProgress): boolean {
+  if (previous === null) return true;
+  if (previous.phase !== next.phase) return attachPhaseOrder(next.phase) > attachPhaseOrder(previous.phase);
+  if (next.phase === "recovering")
+    return next.applied !== null && (previous.applied === null || next.applied > previous.applied);
+  if (next.phase === "catching-up")
+    return next.watermark !== null && (previous.watermark === null || next.watermark > previous.watermark);
+  return false;
+}
+
+function attachPhaseOrder(phase: RepoCellAttachProgress["phase"]): number {
+  return phase === "opening" ? 0 : phase === "recovering" ? 1 : 2;
 }
 function isCapabilityCall(value: unknown): value is RepoWriterCapabilityCallV1 {
   return isWriterSupervisorMessageRecord(value) && value.schema === "harness-repo-writer-capability-call/v1";

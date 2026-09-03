@@ -566,6 +566,13 @@ export interface DaemonStopResult {
   readonly pid: number;
 }
 
+export interface DaemonRepoAttachProgress {
+  readonly phase: "opening" | "recovering" | "catching-up";
+  readonly applied: number | null;
+  readonly total: number | null;
+  readonly watermark: number | null;
+}
+
 export interface DaemonStatusResult {
   readonly ok: true;
   readonly daemonId: string;
@@ -604,6 +611,7 @@ export interface DaemonStatusResult {
       readonly reason?: "git_diverged" | "deterministic_failure" | "retry_budget_exhausted";
       readonly lastError?: string;
     } | null;
+    readonly attach?: DaemonRepoAttachProgress;
   }[];
   readonly summary: string;
 }

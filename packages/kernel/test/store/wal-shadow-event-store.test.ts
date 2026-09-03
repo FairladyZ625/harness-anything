@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
@@ -670,19 +670,20 @@ test("healthy materialization reports an ok checkpoint before and after a WAL fl
   });
 });
 
-test("restart recovery settles and checkpoints a WAL cut whose Git refs already advanced", async () => {
+test("restart recovery reports bounded progress and checkpoints a WAL cut whose Git refs already advanced", async (context) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const first = makeWalShadowEventStore({
       repoId: "wal-recovery",
       rootDir,
-      walFlushEvents: 64,
+      walFlushEvents: 512,
       walFlushMs: 60_000,
       walRetryLimit: 1,
       walRetryBaseMs: 1,
       walMaterializationTestFault: { point: "after_git_ref_update", failures: 1 },
     });
     const receipt = first.append(taskBundle(1, "recover me\n"));
+    for (let revision = 2; revision <= 257; revision += 1) first.append(taskBundle(revision));
     assert.equal(receipt.commitSha, null);
     await assert.rejects(
       first.drain(),
@@ -690,13 +691,32 @@ test("restart recovery settles and checkpoints a WAL cut whose Git refs already 
     );
     const documentPath = path.join(rootDir, "harness", "tasks", "task-1", "task.md");
     rmSync(documentPath);
-    assert.equal(openWalEventLog(rootDir, { mutable: false }).records().length, 1);
-    const recovered = makeWalShadowEventStore({ repoId: "wal-recovery", rootDir, walFlushMs: 60_000 });
-    recovered.recover();
+    assert.equal(openWalEventLog(rootDir, { mutable: false }).records().length, 257);
+    const progress: Array<{ readonly applied: number; readonly total?: number; readonly watermark: number }> = [],
+      recovered = makeWalShadowEventStore({
+        repoId: "wal-recovery",
+        rootDir,
+        walFlushMs: 60_000,
+        onRecoveryProgress: (observed) => progress.push(observed),
+      }),
+      walPath = path.join(rootDir, ".harness", "wal", "seg-000000.log"),
+      recovery = recovered.recover();
+    context.diagnostic(
+      `recovered ${String(progress.at(-1)?.applied)} work units from ${String(statSync(walPath).size)} WAL bytes in ${recovery.elapsedMs.toFixed(3)}ms`,
+    );
+    assert.deepEqual(progress, [
+      { applied: 256, watermark: 256 },
+      { applied: 257, watermark: 257 },
+      { applied: 513, watermark: 257 },
+      { applied: 769, watermark: 257 },
+      { applied: 770, watermark: 257 },
+      { applied: 771, watermark: 257 },
+      { applied: 772, total: 772, watermark: 257 },
+    ]);
     await recovered.drain();
     assert.equal(readFileSync(documentPath, "utf8"), "recover me\n");
     assert.deepEqual(openWalEventLog(rootDir, { mutable: false }).records(), []);
-    assert.equal(recovered.read().revision, 1);
+    assert.equal(recovered.read().revision, 257);
   });
 });
 
