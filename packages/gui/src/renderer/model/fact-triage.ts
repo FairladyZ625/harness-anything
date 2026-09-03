@@ -1,5 +1,5 @@
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
-import { activeIncomingRelations, incomingRelations } from "./relation-direction.ts";
+import { incomingRelations } from "./relation-direction.ts";
 import type { FactRef, RelationEdge } from "./types";
 
 /**
@@ -51,9 +51,10 @@ export function computeFactTriageSignals(
 
   // Kernel grammar (canonical direction): decision --refuted-by--> fact. The fact that
   // refutes a decision is the contradictory observation that deserves attention; the
-  // edge must be active, while retired/deleted edges remain audit history. The reverse
+  // edges here are current by construction (pipeline collection point); retired/deleted
+  // edges remain audit history. The reverse
   // question goes through the domain query, never the retired invalidated-by alias.
-  const refutingDecisionRefs = activeIncomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
+  const refutingDecisionRefs = incomingRelations(factRef, "refuted-by", relations).map((edge) => edge.from);
   if (refutingDecisionRefs.length > 0) {
     signals.push({
       kind: "INVALIDATED",
@@ -91,9 +92,9 @@ export function computeFactTriageSignals(
 
   // Kernel grammar: fact --supersedes-fact--> old fact. Only the target is stale;
   // the source is the replacement and must not be penalized. Kernel criterion
-  // (fact-liveness): the edge must be state "active" — retired/deleted edges are
-  // audit history and do not supersede.
-  const supersedingRefs = activeIncomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
+  // (fact-liveness): retired/deleted edges are audit history and do not supersede;
+  // currency was settled at the pipeline collection point.
+  const supersedingRefs = incomingRelations(factRef, "supersedes-fact", relations).map((edge) => edge.from);
   if (supersedingRefs.length > 0) {
     signals.push({
       kind: "SUPERSEDED",

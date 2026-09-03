@@ -16,6 +16,7 @@ import { DecisionProposalForm } from "../src/renderer/components/DecisionProposa
 import { taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
+import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -183,8 +184,41 @@ describe("renderer app model", () => {
     } as const;
 
     expect(decisionHasReachableEvidence(decision, [edge])).toBe(true);
-    expect(decisionHasReachableEvidence(decision, [{ ...edge, state: "retired" }])).toBe(false);
     expect(decisionHasReachableEvidence(decision, [{ ...edge, from: "decision/dec_test/C2" }])).toBe(false);
+    // 边的 currency 在管道收口处判定(adaptRelationRows 只留 current):retired 边
+    // 根本进不了这里的输入,这里不再复查状态词。
+    expect(
+      buildTriadicRendererData({
+        graph: {
+          ok: true,
+          edges: [
+            {
+              relationId: "rel_retired",
+              sourceRef: "decision/dec_test/C1",
+              targetRef: "fact/F-live",
+              relationType: "evidenced-by",
+              direction: "directed",
+              strength: "strong",
+              origin: "declared",
+              state: "retired",
+              targetObservedVersion: null,
+              currentTargetVersion: null,
+              freshness: "current",
+              rationale: "audit history",
+              ownerRef: "decision/dec_test",
+              sourcePath: "event:dec_test",
+              recordIndex: 0,
+              current: false,
+            },
+          ],
+          coverageRows: [],
+          factAnchors: [],
+          facts: [],
+          warnings: [],
+        },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      }).relations,
+    ).toEqual([]);
   });
 
   // 拖拽起跑的判据不再由 renderer 拼状态词,而是读 daemon 投影的 start 能力。

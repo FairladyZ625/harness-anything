@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { DecisionProjectionRow, RelationCoverageRow, RelationGraphEdgeRow } from "../api/renderer-dto.ts";
+import type { DecisionProjectionRow, RelationCoverageRow, ServedRelationEdgeRow } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
 import { agentEntityClient } from "./agent-entity-client.ts";
@@ -157,7 +157,7 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
     enabled,
     staleTime: 10_000,
   });
-  const relations = useMemo(() => adaptRelationRows(runtimeEdges.data?.edges ?? []), [runtimeEdges.data]);
+  const relations = useMemo(() => adaptRuntimeRelationRows(runtimeEdges.data?.edges ?? []), [runtimeEdges.data]);
   // 无效声明行(缺 mode 等,#2025 起 list 会降级列出)没有 target agent,进不了图;它们在 Schedules 视图里单独显示。
   const scheduleRows = useMemo(
     () =>
@@ -279,12 +279,14 @@ export function buildTriadicRendererData(input: {
   readonly graph: RelationGraphSuccess;
   readonly decisions: DecisionListSuccess;
 }): TriadicRendererData {
-  const relationRows = input.graph.edges,
+  // current 收口只有 adaptRelationRows 一处;产出边(068 旧自查)与决策→fact 边
+  // (057 旧自查)都消费它过滤后的结果,不再各自复查状态词。
+  const relations = adaptRelationRows(input.graph.edges),
     producedBy = new Map(
-      activeProducesFactRefs(relationRows).map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
+      activeProducesFactRefs(relations).map((row) => [row.targetRef, row.sourceRef.slice("task/".length)] as const),
     );
   return {
-    decisions: adaptDecisionRows(input.decisions.decisions, relationRows, input.graph.coverageRows),
+    decisions: adaptDecisionRows(input.decisions.decisions, relations, input.graph.coverageRows),
     facts: input.graph.facts.map((row) => ({
       anchor: `fact/${row.factId}`,
       ...(producedBy.get(row.ref) ? { taskId: producedBy.get(row.ref) } : {}),
@@ -298,7 +300,7 @@ export function buildTriadicRendererData(input: {
         /* @gate-identity check-gui-status-judgments/gui-status-055 */
         row.liveness === "superseded_fact",
     })),
-    relations: adaptRelationRows(relationRows),
+    relations,
     coverageRows: input.graph.coverageRows,
     factAnchors: input.graph.factAnchors,
     warnings: [...input.graph.warnings, ...input.decisions.warnings],
@@ -320,14 +322,15 @@ const emptyDecisionList: DecisionListSuccess = {
   warnings: [],
 };
 
-function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationEdge[] {
+/**
+ * 领域边的唯一收口:只有投影判为 current 的边(kernel `relationIsCurrent`:active 且
+ * 可消费)进入三元模型;下游每个把边当作「当前关系」的推导都不再自查状态词。
+ * active+strong+suspect/orphaned 的边被 relationConsumability 拒绝,在这里出局。
+ */
+function adaptRelationRows(rows: ReadonlyArray<ServedRelationEdgeRow>): RelationEdge[] {
   const edges: RelationEdge[] = [];
   for (const row of rows) {
-    if (
-      /* @gate-identity check-gui-status-judgments/gui-status-056 */
-      row.state !== "active"
-    )
-      continue;
+    if (!row.current) continue;
     if (!isKernelRelationKind(row.relationType)) continue;
     edges.push({
       relationId: row.relationId,
@@ -343,26 +346,46 @@ function adaptRelationRows(rows: ReadonlyArray<RelationGraphEdgeRow>): RelationE
   return edges;
 }
 
+/**
+ * 运行时平面的边不是领域关系:agent→task 派工边由 daemon 从 dispatch 流头合成
+ * (freshness 恒为 suspect,投影会判 current=false),它们回答「谁被派去做什么」,
+ * 只做形状映射,不过领域 current 收口——否则 Sessions/AgentSquad 会失去全部边。
+ */
+export function adaptRuntimeRelationRows(rows: ReadonlyArray<ServedRelationEdgeRow>): RelationEdge[] {
+  return rows.flatMap((row) =>
+    isKernelRelationKind(row.relationType)
+      ? [
+          {
+            relationId: row.relationId,
+            from: row.sourceRef,
+            to: row.targetRef,
+            kind: row.relationType,
+            direction: row.direction,
+            state: row.state,
+            provenance: row.origin === "imported_snapshot" ? "external-engine" : "local-document",
+            rationale: row.rationale,
+          },
+        ]
+      : [],
+  );
+}
+
 function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
   return Object.hasOwn(KIND_LABEL, value);
 }
 
 function adaptDecisionRows(
   rows: ReadonlyArray<DecisionProjectionRow>,
-  relationRows: ReadonlyArray<RelationGraphEdgeRow>,
+  relations: ReadonlyArray<RelationEdge>,
   coverageRows: ReadonlyArray<RelationCoverageRow>,
 ): DecisionRow[] {
+  // 输入已过 current 收口;这里只把「决策 claim → 支撑 fact」的邻接表建出来。
   const relationsBySource = new Map<string, string[]>();
-  for (const row of relationRows) {
-    if (
-      /* @gate-identity check-gui-status-judgments/gui-status-057 */
-      row.state !== "active"
-    )
-      continue;
-    if (!row.targetRef.startsWith("fact/")) continue;
-    const values = relationsBySource.get(row.sourceRef) ?? [];
-    values.push(row.targetRef);
-    relationsBySource.set(row.sourceRef, values);
+  for (const edge of relations) {
+    if (!edge.to.startsWith("fact/")) continue;
+    const values = relationsBySource.get(edge.from) ?? [];
+    values.push(edge.to);
+    relationsBySource.set(edge.from, values);
   }
   for (const row of coverageRows) {
     if (!row.coveringFactRef) continue;

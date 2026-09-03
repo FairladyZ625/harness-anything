@@ -321,6 +321,14 @@ function DispatchChain({
 }
 
 const EMPTY_DECISION_LIST = { ok: true, decisions: [], warnings: [] } as const;
+const emptyGraph = {
+  ok: true as const,
+  edges: [],
+  coverageRows: [],
+  factAnchors: [],
+  facts: [],
+  warnings: [],
+};
 
 // W5:全局「事实分诊」列表页撤销,triage 信号并入本页签——同一关系投影上现算
 // (buildFactTriage 纯前端派生,不新增读面),带信号的 fact 排前、severity 降序,
@@ -350,21 +358,27 @@ export function TaskEvidenceTab({
     staleTime: 10_000,
   });
   const decisions = decisionRows.data?.decisions ?? [];
+  // 三元读一次、统一过 current 收口:owned 产出边、事实行与 triage 输入共用同一份投影,
+  // 不再各自消费原始边切面。
+  const projected = useMemo(
+    () => buildTriadicRendererData({ graph: graph.data ?? emptyGraph, decisions: EMPTY_DECISION_LIST }),
+    [graph.data],
+  );
   const ownedFactRefs = new Set(
-    activeProducesFactRefs(graph.data?.edges ?? [], `task/${task.taskId}`).map((edge) => edge.targetRef),
+    activeProducesFactRefs(projected.relations, `task/${task.taskId}`).map((edge) => edge.targetRef),
   );
   const facts = (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref));
-  const triageByAnchor = useMemo(() => {
-    if (!graph.data) return new Map<string, FactTriageItem>();
-    const projected = buildTriadicRendererData({ graph: graph.data, decisions: EMPTY_DECISION_LIST });
-    return new Map(
-      buildFactTriage(projected.facts, projected.relations, projected.coverageRows, projected.factAnchors)
-        .filter((item) =>
-          ownedFactRefs.has(item.fact.anchor.startsWith("fact/") ? item.fact.anchor : `fact/${item.fact.anchor}`),
-        )
-        .map((item) => [item.fact.anchor, item]),
-    );
-  }, [graph.data, task.taskId]);
+  const triageByAnchor = useMemo(
+    () =>
+      new Map(
+        buildFactTriage(projected.facts, projected.relations, projected.coverageRows, projected.factAnchors)
+          .filter((item) =>
+            ownedFactRefs.has(item.fact.anchor.startsWith("fact/") ? item.fact.anchor : `fact/${item.fact.anchor}`),
+          )
+          .map((item) => [item.fact.anchor, item]),
+      ),
+    [projected, task.taskId],
+  );
   const orderedFacts = useMemo(() => {
     const anchorOf = (fact: RelationFactRow) => fact.ref;
     const byAnchor = new Map(facts.map((fact) => [anchorOf(fact), fact]));

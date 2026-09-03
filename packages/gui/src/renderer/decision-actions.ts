@@ -85,12 +85,14 @@ export async function settleDecisionReceipt(
   };
 }
 
+/**
+ * 决策的 claim 是否有可达的证据边。输入 relations 已过 current 收口
+ * (triadic-data adaptRelationRows),这里只查方向与端点,不再自查边的状态词。
+ */
 export function decisionHasReachableEvidence(decision: DecisionRow, relations: ReadonlyArray<RelationEdge>): boolean {
   const claimRefs = new Set(decision.claims.map((claim) => `decision/${decision.decisionId}/${claim.id}`));
   return relations.some(
     (relation) =>
-      /* @gate-identity check-gui-status-judgments/gui-status-019 */
-      relation.state === "active" &&
       relation.direction !== "undirected" &&
       claimRefs.has(relation.from) &&
       /^(?:fact|task|decision)\//u.test(relation.to),

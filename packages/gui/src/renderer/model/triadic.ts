@@ -4,7 +4,6 @@ import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "./types";
 type ProducesFactRelation = {
   readonly kind?: string;
   readonly relationType?: string;
-  readonly state?: string;
   readonly from?: string;
   readonly to?: string;
   readonly sourceRef?: string;
@@ -16,7 +15,10 @@ export interface ActiveProducesFactRef {
   readonly targetRef: string;
 }
 
-/** Returns active task-to-fact ownership edges across renderer and bridge row shapes. */
+/**
+ * task→fact 产出边。输入已过 current 收口(triadic-data 的 adaptRelationRows),
+ * 这里只按端点与 kind 筛选,不再自查边的状态词。
+ */
 export function activeProducesFactRefs(
   relations: ReadonlyArray<ProducesFactRelation>,
   taskRef?: string,
@@ -26,8 +28,6 @@ export function activeProducesFactRefs(
     const targetRef = relation.to ?? relation.targetRef;
     if (
       (relation.kind ?? relation.relationType) !== "produces" ||
-      /* @gate-identity check-gui-status-judgments/gui-status-068 */
-      relation.state !== "active" ||
       !sourceRef?.startsWith("task/") ||
       !targetRef?.startsWith("fact/") ||
       (taskRef !== undefined && sourceRef !== taskRef)
@@ -48,8 +48,8 @@ export function normalizeTaskId(raw: string): string {
 
 /**
  * 看板/列表行上的决策来源徽章。第一优先级是 daemon 在 `repo.tasks.list`
- * `placement.spawningDecisionIds` 里推导好的同一批 active directed `derives` 边
- * (F-84CF0391);`relations` 里恰好带着同一切面时结果一致,边切面还没到位时也不缺徽章。
+ * `placement.spawningDecisionIds` 里推导好的同一批 directed `derives` 边
+ * (F-84CF0391);`relations` 已过 current 收口,边切面还没到位时也不缺徽章。
  */
 export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[] = []): string | undefined {
   const fromRow = task.spawningDecisionIds ?? [];
@@ -60,8 +60,6 @@ export function spawningDecisionOf(task: TaskRow, relations: RelationEdge[] = []
         .filter(
           (relation) =>
             relation.kind === "derives" &&
-            /* @gate-identity check-gui-status-judgments/gui-status-037 */
-            relation.state === "active" &&
             relation.direction === "directed" &&
             relation.from.startsWith("decision/") &&
             normalizeTaskId(relation.to) === task.taskId,
@@ -80,8 +78,6 @@ export function derivedTasks(decision: DecisionRow, relations: RelationEdge[], t
       (relation) =>
         relation.from === `decision/${decision.decisionId}` &&
         relation.kind === "derives" &&
-        /* @gate-identity check-gui-status-judgments/gui-status-038 */
-        relation.state === "active" &&
         relation.direction === "directed",
     )
     .map((relation) => normalizeTaskId(relation.to));

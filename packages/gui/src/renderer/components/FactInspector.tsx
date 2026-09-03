@@ -1,7 +1,7 @@
 import { ArrowSquareOut, GitBranch, WarningCircle, X } from "@phosphor-icons/react";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types";
 import { normalizeDecisionId } from "../model/triadic";
-import { activeIncomingRelations, incomingRelations } from "../model/relation-direction.ts";
+import { incomingRelations } from "../model/relation-direction.ts";
 import { CopyContextButton } from "./CopyContextButton";
 import { buildEntityJumpContext } from "../model/copy-context";
 import type { RelationCoverageRow } from "../../api/renderer-dto";
@@ -91,10 +91,10 @@ export function FactInspector({
   const task = ownerTaskId ? tasks.find((candidate) => candidate.taskId === ownerTaskId) : undefined;
   // Current contradiction status follows kernel decision coverage: retired/deleted
   // refuted-by edges remain visible in the incoming audit list, but do not warn here.
-  const contradictions = activeIncomingRelations(fullRef, "refuted-by", relations);
+  const contradictions = incomingRelations(fullRef, "refuted-by", relations);
   // Kernel fact-liveness criterion: only an active supersedes-fact edge marks the
-  // fact replaced; retired/deleted edges are audit history (see activeIncomingRelations).
-  const supersedingRelations = activeIncomingRelations(fullRef, "supersedes-fact", relations);
+  // fact replaced; retired edges are audit history (filtered at the pipeline collection point).
+  const supersedingRelations = incomingRelations(fullRef, "supersedes-fact", relations);
   const directlySupportedDecisionIds = incomingRelations(fullRef, "evidenced-by", relations).map((relation) =>
     normalizeDecisionId(relation.from),
   );

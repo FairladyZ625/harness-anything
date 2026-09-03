@@ -13,6 +13,7 @@ import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import type { ScheduleGuiRowDto } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import { taskProjectionFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
@@ -84,6 +85,7 @@ const task: TaskRow = {
   packagePath: "tasks/task-gui-detail",
   gates: [],
   docs: [],
+  ...taskProjectionFields("in_review"),
 };
 
 describe("graph entry on each graph-focusable detail surface", () => {

@@ -24,6 +24,8 @@ export type {
  * renderer consumes the judgment instead of re-deriving it.
  */
 export type RelationCoverageRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["coverageRows"][number];
+/** 关系图读面真正送达的边行:kernel 行 + daemon 逐行转发的 `current` 判定。 */
+export type ServedRelationEdgeRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["edges"][number];
 export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"]["rows"][number];
 export type TaskSnapshotInvalidRow = DaemonGuiReadResultMap["repo.tasks.list"]["invalidRows"][number];
 /** `repo.agenda.read`: the same supervisory agenda projection the CEO CLI tick reads. */

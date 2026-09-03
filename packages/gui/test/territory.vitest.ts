@@ -217,14 +217,11 @@ describe("fact anomaly classification (TERRITORY-001)", () => {
   });
 
   it("does not classify a fact as contradictory from a retired or deleted refuted-by edge", () => {
+    // retired/deleted 边在管道收口处出局,到达 territory 的模型边全部是当前关系;
+    // 这里复刻收口后的空输入,断言不再有 contradictory 分类。
     const f = fact({ anchor: "fact/F-contr" });
     const covered = new Set([f.anchor]);
-    for (const state of ["retired", "deleted"] as const) {
-      const relations: RelationEdge[] = [
-        { from: "decision/dec_1", to: f.anchor, kind: "refuted-by", state, provenance: "local-document" },
-      ];
-      expect(classifyFactAnomaly(f.anchor, f, relations, covered)).toBe("normal");
-    }
+    expect(classifyFactAnomaly(f.anchor, f, [], covered)).toBe("normal");
   });
 
   it("classifies a fact with invalidated flag as contradictory", () => {
@@ -242,16 +239,11 @@ describe("fact anomaly classification (TERRITORY-001)", () => {
 
   it("does not classify a fact as superseded when the supersedes-fact edge is retired or deleted", () => {
     // Kernel criterion (packages/kernel/src/domain/fact-liveness.ts): only an
-    // ACTIVE incoming supersedes-fact edge retires the fact. Retired/deleted
-    // edges are audit history and must not drive the territory anomaly display.
+    // ACTIVE incoming supersedes-fact edge retires the fact; retired/deleted 边在
+    // 管道收口处出局,到达这里的模型边全部是当前关系。
     const f = fact({ anchor: "fact/F-old" });
     const covered = new Set([f.anchor]);
-    for (const state of ["retired", "deleted"] as const) {
-      const relations: RelationEdge[] = [
-        { from: "fact/F-new", to: f.anchor, kind: "supersedes-fact", state, provenance: "local-document" },
-      ];
-      expect(classifyFactAnomaly(f.anchor, f, relations, covered)).toBe("normal");
-    }
+    expect(classifyFactAnomaly(f.anchor, f, [], covered)).toBe("normal");
   });
 
   it("classifies a low-confidence fact as low-confidence", () => {
