@@ -37,6 +37,7 @@ import {
   listQuery,
   matchesRunQuery,
   runInActivityWindow,
+  squadReadError,
 } from "./squad-run-list.ts";
 import type {
   SquadRunInvalidSummaryDto,
@@ -1043,12 +1044,6 @@ function dispatchRowStamps(row: TaskDispatchRow | undefined): readonly string[] 
 
 function validSquadRunId(value: unknown): value is string {
   return typeof value === "string" && /^squad_[a-f0-9]{24}$/u.test(value);
-}
-
-function squadReadError(code: string, message: string): Error {
-  const error = new Error(message) as Error & { code: string };
-  error.code = code;
-  return error;
 }
 
 function errorText(error: unknown): string {

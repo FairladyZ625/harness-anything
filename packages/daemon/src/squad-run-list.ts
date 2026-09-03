@@ -73,7 +73,7 @@ export function invalidSquadRunProjection(squadRunId: string): SquadRunInvalidSu
   };
 }
 
-function squadReadError(code: string, message: string): Error {
+export function squadReadError(code: string, message: string): Error {
   const error = new Error(message) as Error & { code: string };
   error.code = code;
   return error;
