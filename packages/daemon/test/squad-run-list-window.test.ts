@@ -204,6 +204,8 @@ function coordinator(
       store: () => {
         throw new Error("store is not exercised by the list window");
       },
+      reacquireTaskLease: async () => undefined,
+      publishSynthesisReport: async () => undefined,
       runtimeSpawner: () => {
         throw new Error("runtime spawner is not exercised by the list window");
       },

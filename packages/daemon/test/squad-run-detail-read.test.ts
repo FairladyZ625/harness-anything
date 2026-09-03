@@ -173,6 +173,7 @@ function coordinator(
         readContentBlob: (sha256: string) => (sha256 === LEADER_RESULT_SHA ? options.receiptBlob : null),
       }) as unknown as CanonicalEventStore,
     reacquireTaskLease: async () => undefined,
+    publishSynthesisReport: async () => undefined,
     runtimeSpawner: () => ({
       spawn: async (): Promise<JsonObject> => ({
         ok: true,

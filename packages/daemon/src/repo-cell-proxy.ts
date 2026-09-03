@@ -167,6 +167,7 @@ export async function openRepoCellProxy(
         projection: () => writableProjection,
         store: () => readStore,
         reacquireTaskLease: unsupportedWrite,
+        publishSynthesisReport: unsupportedWrite,
         runtimeSpawner: () => ({ spawn: unsupportedWrite, cancel: unsupportedWrite }),
       }),
       runtimeReads = makeAgentRuntimeReadModel({

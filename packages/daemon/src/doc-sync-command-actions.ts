@@ -263,6 +263,31 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     destinationValue = requiredDocSyncText(input.action.destination, "destination");
   if (!hasExactDocSyncActionFields(input.action, ["kind", "taskId", "source", "destination"]))
     throw docSyncError("invalid_command", "task artifact add requires taskId, source, and destination");
+  const target = taskArtifactTarget(input, taskId, destinationValue),
+    source = artifactSource(input, sourceValue),
+    receipt = publishTaskArtifactBytes(input, target, readFileSync(source.absolute));
+  return receipt.outcome === "applied" || receipt.outcome === "pending"
+    ? { ...receipt, source: source.relative, destination: target.destination }
+    : receipt;
+}
+
+export function publishTaskArtifact(
+  input: Omit<Input, "action">,
+  artifact: {
+    readonly taskId: string;
+    readonly destination: string;
+    readonly bytes: Uint8Array;
+  },
+): ArtifactAddReceipt {
+  const taskId = requiredDocSyncText(artifact.taskId, "taskId"),
+    destinationValue = requiredDocSyncText(artifact.destination, "destination"),
+    action = { kind: "task-artifact-add", taskId },
+    publicationInput: Input = { ...input, action },
+    target = taskArtifactTarget(publicationInput, taskId, destinationValue);
+  return publishTaskArtifactBytes(publicationInput, target, artifact.bytes);
+}
+
+function taskArtifactTarget(input: Input, taskId: string, destinationValue: string) {
   const task = input.projection.read(taskId);
   if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
     throw docSyncError("content_not_ready", `Task ${taskId} is not ready for artifact add`);
@@ -290,23 +315,39 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
     );
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
-    source = artifactSource(input, sourceValue),
     authoredTarget = path.join(layout.authoredRoot, ...destination.split("/")),
     gitTarget = ledgerGitPath(ledger, destination),
     projected = input.projection.readDocument(destination),
     tracked = gitTracked(ledger.rootDir, gitTarget);
+  return {
+    taskId,
+    destination,
+    classification,
+    authoredTarget,
+    gitTarget,
+    ledgerRootDir: ledger.rootDir,
+    projected,
+    tracked,
+  };
+}
+
+function publishTaskArtifactBytes(
+  input: Input,
+  target: ReturnType<typeof taskArtifactTarget>,
+  bytes: Uint8Array,
+): ArtifactAddReceipt {
+  const { taskId, destination, classification, authoredTarget, gitTarget, ledgerRootDir, projected, tracked } = target;
   const projectedEdit =
     projected.document !== null &&
     existsSync(authoredTarget) &&
     sha256Bytes(readFileSync(authoredTarget)) !== projected.document.blobSha256;
-  if (projectedEdit || (tracked && gitModified(ledger.rootDir, gitTarget)))
+  if (projectedEdit || (tracked && gitModified(ledgerRootDir, gitTarget)))
     throw docSyncError(
       "artifact_tracked_edit",
       `destination is a tracked edit; use ha doc sync --submit --path ${destination}`,
     );
   if (tracked || existsSync(authoredTarget) || projected.document !== null) {
-    const bytes = readFileSync(source.absolute),
-      sha = sha256Bytes(bytes),
+    const sha = sha256Bytes(bytes),
       replay =
         existsSync(authoredTarget) &&
         projected.document?.blobSha256 === sha &&
@@ -321,7 +362,7 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
                   ),
               )
           : undefined;
-    if (replay && isDocEvent(replay)) return { ...readDocReceipt(input, replay), source: source.relative, destination };
+    if (replay && isDocEvent(replay)) return { ...readDocReceipt(input, replay), destination };
     throw docSyncError("artifact_collision", `artifact destination already exists: ${destination}`);
   }
   if (projected.watermark !== projected.sourceRevision)
@@ -331,7 +372,6 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
       code: "projection_pending",
       origin: "N/A",
     };
-  const bytes = readFileSync(source.absolute);
   try {
     new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
@@ -362,7 +402,5 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
       input.workspaceId,
     ),
     receipt = publishDocIntent(input, intent, [bytes], lease);
-  return receipt.outcome === "applied" || receipt.outcome === "pending"
-    ? { ...receipt, source: source.relative, destination }
-    : receipt;
+  return receipt.outcome === "applied" || receipt.outcome === "pending" ? { ...receipt, destination } : receipt;
 }

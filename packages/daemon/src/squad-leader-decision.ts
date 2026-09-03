@@ -1,7 +1,7 @@
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
 export type LeaderDecision =
-  | { readonly kind: "converged" }
+  | { readonly kind: "converged"; readonly report: string | null }
   | { readonly kind: "waiting" }
   | {
       readonly kind: "plan";
@@ -14,7 +14,8 @@ export function squadDecisionFromValue(value: unknown): SquadDecision | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
   if (row.schema !== "squad-decision/v1") return null;
-  if (row.action === "converged") return { kind: "converged" };
+  if (row.action === "converged")
+    return { kind: "converged", report: typeof row.report === "string" ? row.report : null };
   if (row.action === "waiting") return { kind: "waiting" };
   return null;
 }
@@ -124,7 +125,8 @@ export function callbackLeaderPrompt(
       "Return runtime-batch/v1 to reassign or add work. " +
       "Every runtime-batch/v1 must contain at least one dispatch. " +
       'Return {"schema":"squad-decision/v1","action":"waiting"} while another worker is running. ' +
-      'Return {"schema":"squad-decision/v1","action":"converged"} only when no worker is running. ' +
+      'Return {"schema":"squad-decision/v1","action":"converged","report":"<non-empty Markdown synthesis>"} ' +
+      "only when no worker is running. " +
       "Return exactly one JSON object and no Markdown.",
     synthesisReportInstruction(state),
     ...statusRows,
@@ -185,11 +187,8 @@ function synthesisReportInstruction(state: LeaderPromptState): string {
   const reportPath = synthesisReportPath(state);
   return reportPath === null
     ? "The squad roster does not declare exactly one synthesis report under artifacts/reports; convergence will fail."
-    : [
-        `Before declaring convergence, write and submit the synthesis report to ${reportPath}.`,
-        `Publish it from an untracked source with ha task artifact add ${state.taskId} --source <source.md> ` +
-          `--destination ${reportPath.slice("artifacts/".length)}.`,
-      ].join(" ");
+    : `Put the complete, non-empty Markdown synthesis in the converged decision's report field. ` +
+        `Harness publishes that field to ${reportPath}; do not write or submit a report file yourself.`;
 }
 
 export function synthesisReportPath(state: { readonly roster: string; readonly squadRunId: string }): string | null {
