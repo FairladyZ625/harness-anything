@@ -15,7 +15,10 @@ import { VcsCommandError } from "../../src/ports/version-control-system.ts";
 import { resolveLedgerGitLayout } from "../../src/store/ledger-git-layout.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "../../src/store/task-event-store.ts";
-import { isRetryableWalMaterializationError } from "../../src/store/wal-materialization-worker.ts";
+import {
+  isRetryableWalMaterializationError,
+  runWalMaterializationRequest,
+} from "../../src/store/wal-materialization-worker.ts";
 import { makeWalShadowEventStore } from "../../src/store/wal-shadow-event-store.ts";
 import { captureWalDurableCut, openWalDurablePrefix, openWalEventLog } from "../../src/store/wal-event-log.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -405,8 +408,7 @@ test("deterministic materialization failure latches before drain consumes the re
             name: "TaskEventStoreError",
             message: "Git cut changed before materialization",
             code: "publication_indeterminate",
-            retryable: false,
-            diverged: false,
+            classification: "deterministic_failure",
             canonicalSha: null,
           },
         };
@@ -545,6 +547,99 @@ test("a master branch forked from canonical rejects writes until refs are repair
     } finally {
       console.error = originalError;
     }
+  });
+});
+
+test("worker failure transport preserves divergence detected during ref finalization", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    let fork = "",
+      moved = false,
+      transportedClassification: string | null = null;
+    const store = makeWalShadowEventStore({
+      repoId: "wal-finalization-diverged",
+      rootDir,
+      walFlushEvents: 1,
+      walFlushMs: 60_000,
+      walMaterializationFence: () => ({
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: rootDir,
+        repoId: "wal-finalization-diverged",
+        epoch: 1,
+        holderId: "finalization-divergence-test",
+      }),
+      walMaterialize: (config, request) => {
+        const response = runWalMaterializationRequest(config, request, {
+          withFinalizeFence: (_fence, operation) => {
+            if (!moved) {
+              git(rootDir, "reset", "--hard", fork);
+              moved = true;
+            }
+            return operation();
+          },
+        });
+        if (response.outcome === "failed") transportedClassification = response.error.classification;
+        return response;
+      },
+    });
+    const canonical = git(rootDir, "rev-parse", "refs/ha/canonical");
+    fork = git(rootDir, "commit-tree", `${canonical}^{tree}`, "-m", "finalization fork");
+    store.append(taskBundle(1, "diverged during finalization\n"));
+    await waitForMaterializationState(store, "failed");
+    assert.equal(transportedClassification, "git_diverged");
+    assert.equal(store.materializationHealth().reason, "git_diverged");
+    git(rootDir, "reset", "--hard", canonical);
+    assert.notEqual(store.recover().status, "indeterminate");
+    await store.settleRecoveryMaterialization?.();
+  });
+});
+
+test("a compatible authored ref race retries the same WAL prefix without latching", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    let advance = "",
+      moved = false,
+      firstClassification: string | null = null;
+    const store = makeWalShadowEventStore({
+      repoId: "wal-finalization-race",
+      rootDir,
+      walFlushEvents: 64,
+      walFlushMs: 60_000,
+      walRetryLimit: 2,
+      walRetryBaseMs: 1,
+      walMaterializationFence: () => ({
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: rootDir,
+        repoId: "wal-finalization-race",
+        epoch: 1,
+        holderId: "finalization-race-test",
+      }),
+      walMaterialize: (config, request) => {
+        const response = runWalMaterializationRequest(config, request, {
+          withFinalizeFence: (_fence, operation) => {
+            if (!moved) {
+              git(rootDir, "reset", "--hard", advance);
+              moved = true;
+            }
+            return operation();
+          },
+        });
+        if (response.outcome === "failed" && firstClassification === null)
+          firstClassification = response.error.classification;
+        return response;
+      },
+    });
+    const canonical = git(rootDir, "rev-parse", "refs/ha/canonical");
+    advance = git(rootDir, "commit-tree", `${canonical}^{tree}`, "-p", canonical, "-m", "compatible advance");
+    store.append(taskBundle(1, "retry compatible finalization\n"));
+    await store.drain();
+    assert.equal(firstClassification, "retryable");
+    assert.deepEqual(store.materializationHealth(), {
+      state: "ok",
+      lastCheckpointRevision: 1,
+      lastCheckpointAt: "2026-08-20T00:00:00.000Z",
+      pendingWalEvents: 0,
+    });
   });
 });
 

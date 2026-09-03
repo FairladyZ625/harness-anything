@@ -1,4 +1,5 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync.contract.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { serializeEventHead, type EventHead } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import type { HarnessLayoutInput } from "../layout/index.ts";
@@ -53,6 +54,14 @@ export class WalMaterializerDivergedError extends TaskEventStoreError {
     );
     this.name = "WalMaterializerDivergedError";
     this.canonicalSha = canonicalSha;
+  }
+}
+
+/** An authored ref advanced compatibly while a WAL commit was being prepared. */
+export class WalMaterializerRefChangedError extends TaskEventStoreError {
+  constructor(authoredRef: string) {
+    super("publication_indeterminate", `${authoredRef} advanced while finalizing WAL materialization; retry the cut`);
+    this.name = "WalMaterializerRefChangedError";
   }
 }
 
@@ -123,17 +132,19 @@ export function flushWalToGit(
       "authored branch is detached; register a default branch before flushing WAL",
     );
   const authoredRef = `refs/heads/${branch}`;
-  const liveRefs = new Map(
-    localGitObjectRefStore
-      .listRefs(ledger.rootDir, ["refs/ha/canonical", authoredRef])
-      .trim()
-      .split(/\r?\n/u)
-      .filter(Boolean)
-      .map((line) => {
-        const [ref, sha] = line.split(" ");
-        return [ref!, sha!] as const;
-      }),
-  );
+  const readLiveRefs = (): Map<string, string> =>
+      new Map(
+        localGitObjectRefStore
+          .listRefs(ledger.rootDir, ["refs/ha/canonical", authoredRef])
+          .trim()
+          .split(/\r?\n/u)
+          .filter(Boolean)
+          .map((line) => {
+            const [ref, sha] = line.split(" ");
+            return [ref!, sha!] as const;
+          }),
+      ),
+    liveRefs = readLiveRefs();
   const canonicalParent = liveRefs.get("refs/ha/canonical");
   const authoredParent = liveRefs.get(authoredRef);
   if (canonicalParent !== parent || authoredParent === undefined)
@@ -170,6 +181,26 @@ export function flushWalToGit(
     localGitWorktreeSettlement.settle(ledger.rootDir, durableFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, documentFiles);
     localGitWorktreeSettlement.index(ledger.rootDir, immutableFiles, true);
+  } catch (error) {
+    try {
+      const currentRefs = readLiveRefs(),
+        currentCanonical = currentRefs.get("refs/ha/canonical"),
+        currentAuthored = currentRefs.get(authoredRef);
+      if (currentCanonical === parent && currentAuthored !== undefined && currentAuthored !== authoredParent) {
+        consumeKnownError(error);
+        if (!localGitObjectRefStore.isAncestor(ledger.rootDir, parent, currentAuthored))
+          throw new WalMaterializerDivergedError(ledger.rootDir, authoredRef, parent);
+        throw new WalMaterializerRefChangedError(authoredRef);
+      }
+    } catch (classificationError) {
+      if (
+        classificationError instanceof WalMaterializerDivergedError ||
+        classificationError instanceof WalMaterializerRefChangedError
+      )
+        throw classificationError;
+      consumeKnownError(classificationError);
+    }
+    throw error;
   } finally {
     localGitObjectRefStore.deleteRef(ledger.rootDir, flushRef);
   }

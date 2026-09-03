@@ -10,7 +10,7 @@ import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { makeTaskEventStore as makeGitEventStore } from "./task-event-store.ts";
 import { openWalDurablePrefix, type WalEventRecord } from "./wal-event-log.ts";
-import { flushWalToGit, WalMaterializerDivergedError } from "./wal-git-materializer.ts";
+import { flushWalToGit, WalMaterializerDivergedError, WalMaterializerRefChangedError } from "./wal-git-materializer.ts";
 import {
   WAL_MATERIALIZATION_RESPONSE_SCHEMA,
   type WalBaselineDeltaV1,
@@ -148,6 +148,12 @@ function failureResponse(
   injectedTransientFault = false,
 ): WalMaterializationFailureV1 {
   const failure = error instanceof Error ? error : new Error(String(error));
+  const classification =
+    failure instanceof WalMaterializerDivergedError
+      ? "git_diverged"
+      : injectedTransientFault || isRetryableWalMaterializationError(failure)
+        ? "retryable"
+        : "deterministic_failure";
   return {
     schema: WAL_MATERIALIZATION_RESPONSE_SCHEMA,
     requestId,
@@ -162,10 +168,7 @@ function failureResponse(
       name: failure.name,
       message: failure.message,
       code: materializationErrorCode(failure),
-      retryable:
-        !(failure instanceof WalMaterializerDivergedError) &&
-        (injectedTransientFault || isRetryableWalMaterializationError(failure)),
-      diverged: failure instanceof WalMaterializerDivergedError,
+      classification,
       canonicalSha: failure instanceof WalMaterializerDivergedError ? failure.canonicalSha : null,
     },
   };
@@ -175,8 +178,9 @@ const transientSystemErrorCodes = new Set(["EAGAIN", "EBUSY", "EINTR", "EMFILE",
 const transientGitLock =
   /(?:another git process seems to be running|(?:unable to create|could not lock)[^\n]*\.lock['"]?: file exists)/iu;
 
-// Retry only recognized Git lock/resource/I/O pressure; protocol, fence, ref/cut, and consistency failures latch.
+// Retry only proven ref races or recognized Git lock/resource/I/O pressure; invariant failures latch.
 export function isRetryableWalMaterializationError(error: unknown): boolean {
+  if (error instanceof WalMaterializerRefChangedError) return true;
   const systemCode = materializationErrorCode(error);
   if (systemCode !== null && transientSystemErrorCodes.has(systemCode)) return true;
   if (error instanceof VcsCommandError) {

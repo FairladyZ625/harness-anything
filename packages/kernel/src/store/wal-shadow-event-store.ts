@@ -339,7 +339,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     trackSettlement(response.settlementIntent);
   };
   const materializationError = (failure: WalMaterializationFailureV1): Error => {
-    if (failure.error.diverged)
+    if (failure.error.classification === "git_diverged")
       return new WalMaterializerDivergedError(
         ledger.rootDir,
         `refs/heads/${options.authoredBranch ?? "HEAD"}`,
@@ -361,7 +361,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
           ? { point: options.walMaterializationTestFault.point }
           : undefined;
     if (fault) remainingTestFaults -= 1;
-    let responseRetryable: boolean | undefined;
+    let responseClassification: WalMaterializationFailureV1["error"]["classification"] | undefined;
     try {
       const response = await materialize(materializationConfig, {
         schema: "harness-wal-materialization-request/v1",
@@ -379,7 +379,7 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
         ...(fault ? { testFault: fault } : {}),
       });
       if (response.outcome === "failed") {
-        responseRetryable = response.error.retryable;
+        responseClassification = response.error.classification;
         throw materializationError(response);
       }
       acceptMaterializedCut(cut, response, gitRevisionBeforeFlush);
@@ -392,13 +392,16 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       notifyHealthChange();
       return true;
     } catch (error) {
-      if (error instanceof WalMaterializerDivergedError) {
+      if (responseClassification === "git_diverged" || error instanceof WalMaterializerDivergedError) {
         latchMaterializationFailure("git_diverged", error);
-        console.error(`[wal-materializer] diverged; materializer stopped: ${error.message}`);
+        console.error(`[wal-materializer] diverged; materializer stopped: ${walShadowErrorMessage(error)}`);
         consumeKnownError(error);
         return false;
       }
-      if (!(responseRetryable ?? isRetryableWalMaterializationError(error))) {
+      if (
+        responseClassification === "deterministic_failure" ||
+        (responseClassification === undefined && !isRetryableWalMaterializationError(error))
+      ) {
         latchMaterializationFailure("deterministic_failure", error);
         console.error(
           `[wal-materializer] deterministic failure; materializer stopped: ${walShadowErrorMessage(error)}`,
