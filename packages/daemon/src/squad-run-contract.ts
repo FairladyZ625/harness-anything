@@ -12,10 +12,22 @@ export interface SquadRunSummaryDto {
   readonly latestActivityAt: string;
 }
 
+export interface SquadRunInvalidSummaryDto {
+  readonly squadRunId: string;
+  readonly projectionState: "invalid";
+  readonly projectionError: { readonly code: "squad_run_projection_invalid"; readonly hint: string };
+}
+
+export type SquadRunListRowDto = SquadRunSummaryDto | SquadRunInvalidSummaryDto;
+
+export function isAvailableSquadRunSummary(row: SquadRunListRowDto): row is SquadRunSummaryDto {
+  return !("projectionState" in row);
+}
+
 export type SquadRunsListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
-  readonly runs: readonly SquadRunSummaryDto[];
+  readonly runs: readonly SquadRunListRowDto[];
   readonly totals: { readonly runs: number };
   readonly truncated: boolean;
   readonly watermark: number;
@@ -61,20 +73,28 @@ export interface SquadRunWorkerAttemptDto {
 /** `ha squad status` 的 statusDto 对 GUI 开放的编排流转扇出树(leaderTurnId 是
  * 父子边,turn.resultText 是该轮 receipt 原文):全部来自 SquadState、既有派工
  * 台账行及其 resultRef 指向的内容包,零新计算。 */
+export interface SquadRunDetailDto {
+  readonly squadRunId: string;
+  readonly squadId: string;
+  readonly taskId: string;
+  readonly mission: string;
+  readonly phase: SquadRunPhase;
+  readonly error: string | null;
+  readonly currentLeaderRuntimeSessionId: string | null;
+  readonly leaderTurns: readonly SquadRunLeaderTurnDto[];
+  readonly workerAttempts: readonly SquadRunWorkerAttemptDto[];
+}
+
+export function isAvailableSquadRunDetail(
+  run: SquadRunDetailDto | SquadRunInvalidSummaryDto,
+): run is SquadRunDetailDto {
+  return !("projectionState" in run);
+}
+
 export type SquadRunReadResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
-  readonly run: {
-    readonly squadRunId: string;
-    readonly squadId: string;
-    readonly taskId: string;
-    readonly mission: string;
-    readonly phase: SquadRunPhase;
-    readonly error: string | null;
-    readonly currentLeaderRuntimeSessionId: string | null;
-    readonly leaderTurns: readonly SquadRunLeaderTurnDto[];
-    readonly workerAttempts: readonly SquadRunWorkerAttemptDto[];
-  };
+  readonly run: SquadRunDetailDto | SquadRunInvalidSummaryDto;
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -111,6 +131,17 @@ export const serializeSquadRunsList = (value: unknown): string =>
   serializeSquadRunContract(value, validateSquadRunsList);
 
 export function validateSquadRunRead(value: unknown): readonly string[] {
+  if (
+    squadRunRecord(value) &&
+    exactSquadRunFields(value, ["ok", "status", "run", "watermark", "sourceRevision"]) &&
+    value.ok === true &&
+    squadRunReadyStatus(value.status) &&
+    validInvalidSquadRunProjection(value.run) &&
+    squadRunCount(value.watermark) &&
+    squadRunCount(value.sourceRevision) &&
+    squadRunSafeKeys(value)
+  )
+    return [];
   return squadRunRecord(value) &&
     exactSquadRunFields(value, ["ok", "status", "run", "watermark", "sourceRevision"]) &&
     value.ok === true &&
@@ -225,7 +256,8 @@ function validSquadRunDecision(value: unknown): value is SquadRunDecisionDto {
   );
 }
 
-function validSquadRunSummary(value: unknown): value is SquadRunSummaryDto {
+function validSquadRunSummary(value: unknown): value is SquadRunListRowDto {
+  if (validInvalidSquadRunProjection(value)) return true;
   return (
     squadRunRecord(value) &&
     exactSquadRunFields(value, [
@@ -243,6 +275,19 @@ function validSquadRunSummary(value: unknown): value is SquadRunSummaryDto {
     phases.includes(value.phase as SquadRunPhase) &&
     [value.leaderTurnCount, value.workerAttemptCount, value.runningCount].every(squadRunCount) &&
     squadRunIso(value.latestActivityAt)
+  );
+}
+
+function validInvalidSquadRunProjection(value: unknown): value is SquadRunInvalidSummaryDto {
+  return (
+    squadRunRecord(value) &&
+    value.projectionState === "invalid" &&
+    exactSquadRunFields(value, ["squadRunId", "projectionState", "projectionError"]) &&
+    squadRunText(value.squadRunId) &&
+    squadRunRecord(value.projectionError) &&
+    exactSquadRunFields(value.projectionError, ["code", "hint"]) &&
+    value.projectionError.code === "squad_run_projection_invalid" &&
+    squadRunText(value.projectionError.hint)
   );
 }
 

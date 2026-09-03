@@ -31,7 +31,7 @@ export type SquadCatalogRow = Omit<SquadDeclarationV1, "roster"> & {
   readonly validity: "valid" | "blocked";
   readonly issues: readonly { readonly code: string; readonly message: string }[];
 };
-export interface AgentEntityGuiRow {
+export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
   readonly runtimeType: string;
@@ -40,7 +40,7 @@ export interface AgentEntityGuiRow {
   readonly validity: "valid" | "blocked";
   readonly issues: readonly { readonly code: string; readonly message: string }[];
 }
-export interface SquadEntityGuiRow {
+export interface SquadEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
   readonly leader: string;
@@ -48,6 +48,22 @@ export interface SquadEntityGuiRow {
   readonly layer: string;
   readonly validity: "valid" | "blocked";
   readonly issues: readonly { readonly code: string; readonly message: string }[];
+}
+export interface AgentEntityGuiDegradedRow {
+  readonly id: string;
+  readonly layer: "user";
+  readonly state: "invalid" | "missing";
+  readonly error: { readonly code: string; readonly hint: string };
+}
+export type AgentEntityGuiRow = AgentEntityGuiAvailableRow | AgentEntityGuiDegradedRow;
+export type SquadEntityGuiRow = SquadEntityGuiAvailableRow | AgentEntityGuiDegradedRow;
+
+export function isAvailableAgentEntityGuiRow(row: AgentEntityGuiRow): row is AgentEntityGuiAvailableRow {
+  return !("state" in row);
+}
+
+export function isAvailableSquadEntityGuiRow(row: SquadEntityGuiRow): row is SquadEntityGuiAvailableRow {
+  return !("state" in row);
 }
 export interface AgentEntityGuiDetail {
   readonly id: string;
@@ -163,19 +179,16 @@ export function readAgentEntityGuiProjection<
     return {
       schema: "agent-entity-catalog/v1",
       ok: true,
-      agents: entities.map(({ value }) =>
-        agentEntityRow({ ...parseAgentDeclarationV1(value), layer: "user", validity: "valid", issues: [] }),
-      ),
+      agents: entities.map((row) => agentEntityCatalogRow(row)),
     } as never;
   }
   if (input.kind === "squad-list") {
-    const entities = readyEntityList(input.projection, "squad");
+    const entities = readyEntityList(input.projection, "squad"),
+      agents = new Map(readyEntityList(input.projection, "agent").map((row) => [row.id, agentEntityCatalogRow(row)]));
     return {
       schema: "squad-entity-catalog/v1",
       ok: true,
-      squads: entities.map(({ value }) =>
-        squadEntityRow({ ...parseSquadDeclarationV1(value), layer: "user", validity: "valid", issues: [] }),
-      ),
+      squads: entities.map((row) => squadEntityCatalogRow(row, agents)),
     } as never;
   }
   const entityId = requiredEntityText(input.entityId, "entityId");
@@ -230,6 +243,73 @@ export function readAgentEntityGuiProjection<
 
 function readyEntityList(projection: Pick<TaskProjection, "listEntities">, kind: AgentEntityKind) {
   return projection.listEntities(kind);
+}
+
+type AgentEntityProjectionRow = ReturnType<Pick<TaskProjection, "listEntities">["listEntities"]>[number];
+
+function projectionEntityState(row: AgentEntityProjectionRow): AgentEntityGuiDegradedRow | null {
+  if (row.freshness === "current") return null;
+  const state = row.freshness === "orphaned" ? "missing" : "invalid";
+  return {
+    id: row.id,
+    layer: "user",
+    state,
+    error: {
+      code: state === "missing" ? `${row.kind}_not_found` : "invalid_entity_projection",
+      hint:
+        state === "missing"
+          ? `${row.id} is not an installed ${row.kind}.`
+          : `${row.kind} projection ${row.id} is not current.`,
+    },
+  };
+}
+
+function invalidEntityCatalogRow(row: AgentEntityProjectionRow, error: unknown): AgentEntityGuiDegradedRow {
+  if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+  return {
+    id: row.id,
+    layer: "user",
+    state: "invalid",
+    error: { code: "invalid_entity_contract", hint: error instanceof Error ? error.message : String(error) },
+  };
+}
+
+function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow {
+  const degraded = projectionEntityState(row);
+  if (degraded) return degraded;
+  try {
+    return agentEntityRow({ ...parseAgentDeclarationV1(row.value), layer: "user", validity: "valid", issues: [] });
+  } catch (error) {
+    return invalidEntityCatalogRow(row, error);
+  }
+}
+
+function squadEntityCatalogRow(
+  row: AgentEntityProjectionRow,
+  agents: ReadonlyMap<string, AgentEntityGuiRow>,
+): SquadEntityGuiRow {
+  const degraded = projectionEntityState(row);
+  if (degraded) return degraded;
+  try {
+    const squad = parseSquadDeclarationV1(row.value),
+      missing = [...new Set([squad.leader, ...squad.workers])].filter((agentId) => {
+        const agent = agents.get(agentId);
+        return agent === undefined || !isAvailableAgentEntityGuiRow(agent);
+      });
+    if (missing.length)
+      return {
+        id: row.id,
+        layer: "user",
+        state: "missing",
+        error: {
+          code: "squad_agent_not_found",
+          hint: `Squad ${squad.id} references unavailable agents: ${missing.join(", ")}.`,
+        },
+      };
+    return squadEntityRow({ ...squad, layer: "user", validity: "valid", issues: [] });
+  } catch (error) {
+    return invalidEntityCatalogRow(row, error);
+  }
 }
 
 function readyEntityValue(
@@ -466,7 +546,7 @@ function listStoredEntities(
     })
     .sort((left, right) => left.id.localeCompare(right.id));
 }
-function agentEntityRow(value: Record<string, unknown>): AgentEntityGuiRow {
+function agentEntityRow(value: Record<string, unknown>): AgentEntityGuiAvailableRow {
   return {
     id: entityText(value.id),
     name: entityText(value.name),
@@ -477,7 +557,7 @@ function agentEntityRow(value: Record<string, unknown>): AgentEntityGuiRow {
     issues: entityIssues(value.issues),
   };
 }
-function squadEntityRow(value: Record<string, unknown>): SquadEntityGuiRow {
+function squadEntityRow(value: Record<string, unknown>): SquadEntityGuiAvailableRow {
   return {
     id: entityText(value.id),
     name: entityText(value.name),

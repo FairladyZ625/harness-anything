@@ -26,6 +26,12 @@ import {
   resolveSquadDispatch,
   runAgentEntityAction,
 } from "../src/agent-entities.ts";
+import {
+  serializeAgentEntityCatalog,
+  serializeSquadEntityCatalog,
+  validateAgentEntityCatalog,
+  validateSquadEntityCatalog,
+} from "../src/agent-entities.contract.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
 import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/index.ts";
 
@@ -618,6 +624,90 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("GUI Agent and Squad catalogs isolate invalid and missing projection rows", () => {
+  const current = {
+      kind: "agent",
+      id: "terra",
+      ownerId: null,
+      workspaceRevision: 3,
+      freshness: "current",
+      currentVersion: 3,
+      value: agent,
+    },
+    invalidAgent = {
+      ...current,
+      id: "broken-agent",
+      workspaceRevision: 4,
+      currentVersion: 4,
+      value: { ...agent, id: "broken-agent", runtime_type: "NOT VALID" },
+    },
+    currentSquad = {
+      kind: "squad",
+      id: "core-squad",
+      ownerId: null,
+      workspaceRevision: 5,
+      freshness: "current",
+      currentVersion: 5,
+      value: squad,
+    },
+    missingMemberSquad = {
+      ...currentSquad,
+      id: "orphan-squad",
+      workspaceRevision: 6,
+      currentVersion: 6,
+      value: { ...squad, id: "orphan-squad", name: "Orphan Squad", leader: "ghost" },
+    },
+    projection = {
+      listEntities: (kind: string) =>
+        kind === "agent" ? [current, invalidAgent] : kind === "squad" ? [currentSquad, missingMemberSquad] : [],
+      getEntity: (kind: string, id: string) => {
+        const rows = kind === "agent" ? [current, invalidAgent] : [currentSquad, missingMemberSquad];
+        return rows.find((row) => row.id === id) ?? null;
+      },
+    } as never;
+
+  const agents = readAgentEntityGuiProjection({ kind: "agent-list", projection }),
+    squads = readAgentEntityGuiProjection({ kind: "squad-list", projection });
+  assert.equal(agents.agents.length, 2);
+  assert.deepEqual(agents.agents[0], {
+    id: "terra",
+    name: "Terra",
+    runtimeType: "codex",
+    role: "worker",
+    layer: "user",
+    validity: "valid",
+    issues: [],
+  });
+  assert.deepEqual(agents.agents[1], {
+    id: "broken-agent",
+    layer: "user",
+    state: "invalid",
+    error: {
+      code: "invalid_entity_contract",
+      hint: 'agent declaration field "runtime_type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.',
+    },
+  });
+  assert.equal(squads.squads.length, 2);
+  assert.deepEqual(squads.squads[1], {
+    id: "orphan-squad",
+    layer: "user",
+    state: "missing",
+    error: {
+      code: "squad_agent_not_found",
+      hint: "Squad orphan-squad references unavailable agents: ghost.",
+    },
+  });
+  assert.deepEqual(validateAgentEntityCatalog(agents), []);
+  assert.deepEqual(validateSquadEntityCatalog(squads), []);
+
+  const healthyAgents = { ...agents, agents: [agents.agents[0]!] },
+    healthySquads = { ...squads, squads: [squads.squads[0]!] };
+  assert.equal(serializeAgentEntityCatalog(healthyAgents), `${JSON.stringify(healthyAgents, null, 2)}\n`);
+  assert.equal(serializeSquadEntityCatalog(healthySquads), `${JSON.stringify(healthySquads, null, 2)}\n`);
+  assert.equal(Object.hasOwn(healthyAgents.agents[0]!, "state"), false);
+  assert.equal(Object.hasOwn(healthySquads.squads[0]!, "state"), false);
 });
 
 test("Squad dispatch resolution selects one declared worker and rejects outsiders or ambiguous lineage", async () => {

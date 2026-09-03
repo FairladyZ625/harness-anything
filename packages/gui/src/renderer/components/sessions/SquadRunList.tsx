@@ -1,7 +1,11 @@
-import type { SquadRunSummaryDto } from "../../../../../daemon/src/squad-run-contract.ts";
+import {
+  isAvailableSquadRunSummary,
+  type SquadRunListRowDto,
+  type SquadRunSummaryDto,
+} from "../../../../../daemon/src/squad-run-contract.ts";
 import { relativeTime, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { LiveDot } from "../runtime/parts.tsx";
+import { Badge, LiveDot } from "../runtime/parts.tsx";
 
 /**
  * 小队编排段:一次 `ha squad run` 一个列表单元。GUI 发起的单次 squad 派工
@@ -19,7 +23,7 @@ export function SquadRunList({
   selectedId,
   onSelectRun,
 }: {
-  readonly runs: readonly SquadRunSummaryDto[];
+  readonly runs: readonly SquadRunListRowDto[];
   readonly truncated: boolean;
   readonly totalRuns: number;
   readonly squadNames: ReadonlyMap<string, string>;
@@ -46,15 +50,34 @@ export function SquadRunList({
           )}
         </p>
       ) : (
-        runs.map((run) => (
-          <RunSection
-            key={run.squadRunId}
-            run={run}
-            squadNames={squadNames}
-            selected={selectedId === run.squadRunId}
-            onSelectRun={onSelectRun}
-          />
-        ))
+        runs.map((run) =>
+          isAvailableSquadRunSummary(run) ? (
+            <RunSection
+              key={run.squadRunId}
+              run={run}
+              squadNames={squadNames}
+              selected={selectedId === run.squadRunId}
+              onSelectRun={onSelectRun}
+            />
+          ) : (
+            <section
+              key={run.squadRunId}
+              data-testid={`squad-run-${run.squadRunId}`}
+              className="border-b border-border"
+            >
+              <button
+                type="button"
+                disabled
+                data-tip={run.projectionError.hint}
+                data-testid={`squad-run-toggle-${run.squadRunId}`}
+                className="flex w-full cursor-not-allowed items-center gap-2 px-4 py-3 text-left opacity-70"
+              >
+                <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-faint">{run.squadRunId}</span>
+                <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
+              </button>
+            </section>
+          ),
+        )
       )}
       {truncated && (
         <p data-testid="squad-runs-truncated" className="border-t border-border px-4 py-2 ui-micro text-text-faint">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
@@ -105,7 +106,7 @@ export function ProvidersView({
               instance={instance}
               installations={installations}
               authProbeState={workspace.authProbeStates.get(instance.instanceId)}
-              agents={workspace.agents.data ?? []}
+              agents={(workspace.agents.data ?? []).filter(isAvailableAgentEntityRow)}
               liveSessions={liveSessions}
               busy={workspace.busy}
               onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}

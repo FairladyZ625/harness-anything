@@ -61,6 +61,13 @@ const armedSchedule = createScheduleV1({
   actor,
   occurredAt: "2026-08-27T07:00:00.000Z",
 });
+const probeAgent = {
+  schema: "agent-declaration/v1",
+  id: "probe-agent",
+  name: "Probe Agent",
+  instructions: "Inspect scheduled work.",
+  runtime_type: "codex",
+};
 
 function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): SchedulesGuiReadContext {
   return {
@@ -69,7 +76,12 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
     now: () => now,
     input: { repoId: "schedule-gui" },
     projection: {
-      listEntities: (kind) => (kind === "schedule" ? [{ value: armedSchedule, workspaceRevision: 3 }] : []),
+      listEntities: (kind) =>
+        kind === "schedule"
+          ? [{ id: armedSchedule.scheduleId, value: armedSchedule, workspaceRevision: 3 }]
+          : kind === "agent"
+            ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
+            : [],
       readTaskStatuses: () => ({ status: "ready", watermark: 9, sourceRevision: 9 }),
     },
     ...overrides,
@@ -221,7 +233,11 @@ test("the schedules list validator locks the joined wire shape", () => {
   assert.equal(row.actions.enable.available, false);
   assert.equal(row.actions.enable.code, "no_changes");
   assert.equal(result.actions.create.available, true);
-  assert.deepEqual(result.options, { agents: [], instances: [], cwd: ["."] });
+  assert.deepEqual(result.options, {
+    agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+    instances: [],
+    cwd: ["."],
+  });
   assert.equal(row.watermarkParent, undefined);
   for (const mutation of [
     (value: SchedulesListResult) => ({ ...value, repoMode: "fleet" }),
@@ -338,6 +354,77 @@ test("malformed definitions degrade to invalid rows while trigger DTO variants r
     [],
     "a cron trigger DTO without its required timezone must stay invalid on the wire",
   );
+});
+
+test("invalid Agent options and schedules with unavailable Agent targets degrade row by row", () => {
+  const invalidAgent = { ...probeAgent, id: "broken-agent", name: "Broken Agent", runtime_type: "NOT VALID" },
+    invalidTarget = {
+      ...armedSchedule,
+      scheduleId: "invalid-target",
+      name: "Invalid target",
+      spec: {
+        ...armedSchedule.spec,
+        target: { ...armedSchedule.spec.target, agentId: "broken-agent" },
+      },
+    },
+    missingTarget = {
+      ...armedSchedule,
+      scheduleId: "missing-target",
+      name: "Missing target",
+      spec: {
+        ...armedSchedule.spec,
+        target: { ...armedSchedule.spec.target, agentId: "ghost-agent" },
+      },
+    },
+    result = readSchedulesGui(
+      guiContext({
+        projection: {
+          listEntities: (kind) =>
+            kind === "schedule"
+              ? [armedSchedule, invalidTarget, missingTarget].map((value, index) => ({
+                  id: value.scheduleId,
+                  value,
+                  workspaceRevision: index + 1,
+                }))
+              : kind === "agent"
+                ? [
+                    { id: probeAgent.id, value: probeAgent, workspaceRevision: 1 },
+                    { id: invalidAgent.id, value: invalidAgent, workspaceRevision: 2 },
+                  ]
+                : [],
+          readTaskStatuses: guiContext().projection.readTaskStatuses,
+        },
+      }),
+    );
+
+  assert.equal(result.options.agents.length, 2);
+  assert.deepEqual(result.options.agents[0], {
+    agentId: "broken-agent",
+    state: "invalid",
+    error: {
+      code: "invalid_entity_contract",
+      hint: (result.options.agents[0] as { readonly error: { readonly hint: string } }).error.hint,
+    },
+  });
+  assert.match((result.options.agents[0] as { readonly error: { readonly hint: string } }).error.hint, /runtime_type/u);
+  assert.deepEqual(result.options.agents[1], {
+    agentId: "probe-agent",
+    name: "Probe Agent",
+    runtimeType: "codex",
+  });
+  const healthy = result.schedules.find((row) => row.scheduleId === "heartbeat-probe")!,
+    invalid = result.schedules.find((row) => row.scheduleId === "invalid-target")!,
+    missing = result.schedules.find((row) => row.scheduleId === "missing-target")!;
+  assert.equal(Object.hasOwn(healthy, "targetState"), false);
+  assert.equal(invalid.state, "armed");
+  assert.equal((invalid as ScheduleGuiRowDto).targetState, "invalid");
+  assert.equal((invalid as ScheduleGuiRowDto).targetError?.code, "invalid_entity_contract");
+  assert.equal((invalid as ScheduleGuiRowDto).actions.runNow.available, false);
+  assert.equal(missing.state, "armed");
+  assert.equal((missing as ScheduleGuiRowDto).targetState, "missing");
+  assert.equal((missing as ScheduleGuiRowDto).targetError?.code, "agent_not_found");
+  assert.equal((missing as ScheduleGuiRowDto).actions.runNow.available, false);
+  assert.deepEqual(validateSchedulesList(result), []);
 });
 
 test("availability distinguishes the four execution states from roster truth", () => {
