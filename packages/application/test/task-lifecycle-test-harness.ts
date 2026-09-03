@@ -3,7 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskLifecycleKillpoint } from "../src/task-lifecycle-service.ts";
-import { normalizeTaskLifecycleCommand, type EventPublicationKillpoint } from "../../kernel/src/index.ts";
+import {
+  normalizeTaskLifecycleCommand,
+  submissionDigest,
+  type EventPublicationKillpoint,
+} from "../../kernel/src/index.ts";
 import { reviewDigest } from "../../kernel/src/index.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
@@ -162,7 +166,12 @@ export function lifecycleHarness() {
         },
       });
     },
-    submit: async (executionId: string, opId = `op-submit-${revision() + 1}`, claim = "implemented") => {
+    submit: async (
+      executionId: string,
+      opId = `op-submit-${revision() + 1}`,
+      claim = "implemented",
+      submittedCommitSha = commitSha,
+    ) => {
       const next = revision() + 1;
       const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
       if (leaseVersion === undefined) throw new Error(`execution ${executionId} has no active lease`);
@@ -181,12 +190,43 @@ export function lifecycleHarness() {
               verificationNotes: ["tests"],
               knownGaps: [],
               residualRisks: [],
-              commitSha,
+              commitSha: submittedCommitSha,
             },
           },
           opId,
         ),
         { actorBinding: owner, leaseVersion, sessionDisposition: "complete" },
+      );
+    },
+    amend: async (
+      executionId: string,
+      opId = `op-amend-${revision() + 1}`,
+      claim = "corrected",
+      submittedCommitSha = commitSha,
+    ) => {
+      const next = revision() + 1;
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "SubmitExecution",
+            taskId: "task-1",
+            executionId,
+            amend: true,
+            submission: {
+              completionClaim: claim,
+              deliverables: [],
+              outputs: [],
+              verificationNotes: ["tests"],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha: submittedCommitSha,
+            },
+          },
+          opId,
+        ),
+        { actorBinding: owner, leaseVersion: null, sessionDisposition: "complete" },
       );
     },
     review: async (
@@ -196,7 +236,9 @@ export function lifecycleHarness() {
       opId = `op-review-${revision() + 1}`,
     ) => {
       const next = revision() + 1;
-      const snapshot = (await service.read("task-1")).snapshot;
+      const snapshot = (await service.read("task-1")).snapshot,
+        submitted = snapshot.executions.find((value) => value.executionId === executionId);
+      if (!submitted?.submission) throw new Error(`execution ${executionId} is not submitted`);
       return service.execute(
         command(
           reviewer,
@@ -209,9 +251,10 @@ export function lifecycleHarness() {
             verdict,
             reason: `${kind} ${verdict}`,
             evidenceChecked: [],
-            commitSha,
+            commitSha: submitted.submission.commitSha,
             iteration: snapshot.task?.iteration ?? 0,
             contentDigest: `sha256:${"b".repeat(64)}`,
+            submissionDigest: submissionDigest(submitted.submission),
           },
           opId,
         ),
@@ -219,6 +262,32 @@ export function lifecycleHarness() {
           actorBinding: reviewer,
           capability: "execution-review@v1",
           capabilityRef: `cap-${opId}`,
+        },
+      );
+    },
+    reconcile: async (executionId: string, reconciledCommitSha: string, opId = `op-code-doc-${revision() + 1}`) => {
+      const next = revision() + 1,
+        snapshot = (await service.read("task-1")).snapshot;
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "ReconcileCodeDoc",
+            taskId: "task-1",
+            executionId,
+            witnessId: `witness-${next}`,
+            commitSha: reconciledCommitSha,
+            iteration: snapshot.task?.iteration ?? 0,
+            paths: [],
+          },
+          opId,
+        ),
+        {
+          actorBinding: owner,
+          capability: "code-doc-reconcile@v1",
+          capabilityRef: `cap-${opId}`,
+          commitPaths: { commitSha: reconciledCommitSha, paths: [] },
         },
       );
     },

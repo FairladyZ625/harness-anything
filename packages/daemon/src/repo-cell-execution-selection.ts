@@ -1,5 +1,5 @@
 import {
-  approvedReviewsForCut,
+  approvedReviewHistoryForExecution,
   closeoutReadiness,
   currentSubmittedExecutions,
   getExecutableEntityAction,
@@ -59,12 +59,7 @@ export function reviewConsentSelection(
     candidates = executions.flatMap((execution) =>
       execution.submission === null
         ? []
-        : approvedReviewsForCut(
-            snapshot.reviews,
-            execution.executionId,
-            execution.submission.commitSha,
-            execution.iteration,
-          )
+        : approvedReviewHistoryForExecution(snapshot.reviews, execution)
             .filter((review) => reviewId === undefined || review.reviewId === reviewId)
             .map((review) => ({
               executionId: execution.executionId,

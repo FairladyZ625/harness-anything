@@ -53,7 +53,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       rootDir,
       repoId,
       () => cell!.run({ kind: "task-submit", taskId, executionId }, otherWriter),
-      ["actor-domain-services/heldLeaseForExecutionActor"],
+      ["repo-cell-proof/proofFor.SubmitExecution"],
     );
     await assertRejectedWithoutMutation(
       rootDir,

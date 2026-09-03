@@ -159,6 +159,9 @@ export function applyTaskEvent(
     );
   if (event.type === "execution_started") replayClaim(db, event);
   if (event.type === "lease_renewed") replayRenew(db, event);
-  if (event.type === "execution_submitted" || event.type === "lease_released")
+  if (
+    (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
+    event.type === "lease_released"
+  )
     replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
 }

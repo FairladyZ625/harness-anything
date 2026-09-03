@@ -188,6 +188,7 @@ export type {
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
+export { isSubmissionId, submissionDigest, submissionId } from "./domain/execution.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
 export {
   contentObjectRelativePath,

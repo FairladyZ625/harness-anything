@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeTaskLifecycleCommand } from "../../kernel/src/index.ts";
+import { normalizeTaskLifecycleCommand, submissionDigest } from "../../kernel/src/index.ts";
 import { commitSha, lifecycleHarness, reviewer } from "./task-lifecycle-test-harness.ts";
 
 test("approval retry reuses Review identity and ignores transport-only metadata", async () => {
@@ -10,6 +10,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
         { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
@@ -24,6 +25,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
           commitSha,
           iteration: 0,
           contentDigest: `sha256:${"b".repeat(64)}` as const,
+          submissionDigest: submissionDigest(submitted),
         },
       ),
       eventId: "event-review-ae",
@@ -54,6 +56,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
         { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
@@ -68,6 +71,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
           commitSha,
           iteration: 0,
           contentDigest: `sha256:${"b".repeat(64)}` as const,
+          submissionDigest: submissionDigest(submitted),
         },
       ),
       eventId: "event-review-drift",

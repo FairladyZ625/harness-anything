@@ -307,22 +307,23 @@ export function execution(value: unknown): boolean {
 export const reviewAuthorityRefKey = "capab" + "ilityRef";
 
 export function review(value: unknown): boolean {
+  const fields = [
+    "schema",
+    "reviewId",
+    "taskId",
+    "executionId",
+    "verdict",
+    "actor",
+    reviewAuthorityRefKey,
+    "reason",
+    "evidenceChecked",
+    "commitSha",
+    "iteration",
+    "contentDigest",
+    "reviewedAt",
+  ];
   return (
-    exactRecord(value, [
-      "schema",
-      "reviewId",
-      "taskId",
-      "executionId",
-      "verdict",
-      "actor",
-      reviewAuthorityRefKey,
-      "reason",
-      "evidenceChecked",
-      "commitSha",
-      "iteration",
-      "contentDigest",
-      "reviewedAt",
-    ]) &&
+    (exactRecord(value, fields) || exactRecord(value, [...fields, "submissionDigest"])) &&
     value.schema === "review/v1" &&
     [
       value.reviewId,
@@ -337,28 +338,31 @@ export function review(value: unknown): boolean {
     stringArray(value.evidenceChecked) &&
     sha(value.commitSha) &&
     iteration(value.iteration) &&
-    digest(value.contentDigest)
+    digest(value.contentDigest) &&
+    (value.submissionDigest === undefined || digest(value.submissionDigest))
   );
 }
 
 export function consent(value: unknown): boolean {
+  const fields = [
+    "schema",
+    "consentId",
+    "taskId",
+    "executionId",
+    "reviewId",
+    "reviewDigest",
+    "contentDigest",
+    "actor",
+    "source",
+    "consentedAt",
+  ];
   return (
-    exactRecord(value, [
-      "schema",
-      "consentId",
-      "taskId",
-      "executionId",
-      "reviewId",
-      "reviewDigest",
-      "contentDigest",
-      "actor",
-      "source",
-      "consentedAt",
-    ]) &&
+    (exactRecord(value, fields) || exactRecord(value, [...fields, "submissionDigest"])) &&
     value.schema === "review-consent/v1" &&
     [value.consentId, value.taskId, value.executionId, value.reviewId, value.consentedAt].every(nonEmpty) &&
     digest(value.reviewDigest) &&
     digest(value.contentDigest) &&
+    (value.submissionDigest === undefined || digest(value.submissionDigest)) &&
     actor(value.actor) &&
     source(value.source)
   );

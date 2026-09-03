@@ -1,5 +1,9 @@
 import type { ExecutionV1 } from "./execution.ts";
-import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
+import {
+  approvedReviewHistoryForExecution,
+  consentedApprovedReviewForExecution,
+  reviewsForExecution,
+} from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { LifecycleDocumentClaim, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
@@ -192,7 +196,10 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
     );
   if (event.type === "execution_started")
     targets.push(lease(event.taskId, "reserve"), lease(event.taskId, "activate"), lease(event.taskId, "release"));
-  if (event.type === "execution_submitted" || event.type === "lease_released")
+  if (
+    (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
+    event.type === "lease_released"
+  )
     targets.push(lease(event.taskId, "release"));
   return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);
 }
@@ -255,23 +262,28 @@ function renderIndex(event: TaskEventV1, snapshot: TaskLifecycleSnapshot, path: 
         ? event.payload.execution
         : snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
     executionId = current?.executionId ?? "",
-    approved = current?.submission
-      ? approvedReviewsForCut(snapshot.reviews, executionId, current.submission.commitSha, current.iteration)
-      : [],
+    approved = current?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, current) : [],
     selected = current?.submission
-      ? consentedApprovedReview(
-          snapshot.reviews,
-          snapshot.consents,
-          executionId,
-          current.submission.commitSha,
-          current.iteration,
-        )
+      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
       : undefined,
     consentReviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>",
-    gateStatus = (gateId: string) =>
-      gateId === "code-doc-reconciliation"
-        ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) !== undefined
-        : snapshot.gateWitnesses.some((value) => value.executionId === executionId && value.gateId === gateId),
+    gateStatus = (gateId: string) => {
+      if (!current?.submission) return false;
+      if (gateId === "code-doc-reconciliation") {
+        const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
+        return (
+          witness?.iteration === current.iteration &&
+          (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission.commitSha)
+        );
+      }
+      return snapshot.gateWitnesses.some(
+        (value) =>
+          value.executionId === executionId &&
+          value.gateId === gateId &&
+          value.commitSha === current.submission?.commitSha &&
+          value.iteration === current.iteration,
+      );
+    },
     missingGate = task.completionGateIds.find((gateId) => !gateStatus(gateId)),
     next =
       task.status === "active"
@@ -364,15 +376,8 @@ function renderModule(snapshot: TaskLifecycleSnapshot): string {
 function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): string {
   const packet = value.submission,
     reviews = snapshot.reviews.filter((candidate) => candidate.executionId === value.executionId),
-    selected = packet
-      ? consentedApprovedReview(
-          snapshot.reviews,
-          snapshot.consents,
-          value.executionId,
-          packet.commitSha,
-          value.iteration,
-        )
-      : undefined,
+    currentReviews = packet ? reviewsForExecution(snapshot.reviews, value) : [],
+    selected = packet ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value) : undefined,
     witness = currentCodeDocRecord(snapshot.codeDocWitnesses, value.executionId),
     gates = snapshot.gateWitnesses.filter((candidate) => candidate.executionId === value.executionId);
   return [
@@ -387,7 +392,11 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Commit: ${packet?.commitSha ?? "pending"}\n`,
     `- Completion claim: ${packet?.completionClaim ?? "pending"}\n`,
     `- Reviews: ${
-      reviews.length ? reviews.map((review) => `${review.reviewId}/${review.verdict}`).join(", ") : "pending"
+      reviews.length
+        ? reviews
+            .map((review) => `${review.reviewId}/${review.verdict}${currentReviews.includes(review) ? "" : "/stale"}`)
+            .join(", ")
+        : "pending"
     }\n`,
     `- Selected review: ${selected?.review.reviewId ?? "pending"}\n`,
     `- Consent: ${selected?.consent.consentId ?? "pending"}\n`,
@@ -422,6 +431,7 @@ function renderReview(value: ReviewV1, consent: ReviewConsentV1 | null): string 
     `- Commit: ${value.commitSha}\n`,
     `- Iteration: ${value.iteration}\n`,
     `- Content digest: ${value.contentDigest}\n`,
+    `- Submission digest: ${value.submissionDigest ?? "legacy-unpinned"}\n`,
     `- Reviewed at: ${value.reviewedAt}\n`,
     `- Consent: ${consent ? consent.consentId : "pending"}\n`,
     `- Consent actor: ${consent?.actor.principal.personId ?? "pending"}\n`,

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import type { ActorIdentity, AuthorizationDecision, WriteReceipt } from "../../kernel/src/index.ts";
 import { runTaskCloseoutAction, type CloseoutStep } from "../../application/src/task-closeout-action.ts";
+import { gateChecks } from "../src/repo-cell-proof.ts";
 import { readWorkspaceText } from "../src/workspace-text-port.ts";
 
 const taskId = "task-closeout",
@@ -234,7 +235,7 @@ test("a submitted execution resumes when the packet omits its locked submission"
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
-test("a mismatched resubmission reports the locked content and the omission repair", async () => {
+test("a mismatched resubmission reports the locked content and the amendment repair", async () => {
   const value = setup(snapshot("in_review", [execution(executionId, "submitted")]));
   writeFileSync(
     path.join(value.rootDir, "judgment.json"),
@@ -247,11 +248,36 @@ test("a mismatched resubmission reports the locked content and the omission repa
     const receipt = await value.run();
     assert.equal(receipt.code, "submission_mismatch");
     assert.match(JSON.stringify(receipt.diagnostic), /\\"completionClaim\\":\\"Complete\.\\"/u);
+    assert.match(guidanceCommands(receipt), /ha task submit .* --amend --json-input/u);
     assert.match(guidanceCommands(receipt), /ha task closeout/u);
     assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
+});
+test("receipt gate checks reject a code-doc witness from the superseded submission cut", () => {
+  const value = snapshot("in_review", [execution(executionId, "submitted")]),
+    stale = {
+      ...value,
+      task: { ...value.task!, completionGateIds: ["code-doc-reconciliation"] },
+      codeDocWitnesses: [
+        {
+          schema: "code-doc-witness/v1",
+          witnessId: "witness-stale",
+          taskId,
+          executionId,
+          commitSha: "b".repeat(40),
+          iteration: 0,
+          paths: ["README.md"],
+          actor: worker,
+          source: "local",
+          reconciledAt: "2026-08-22T00:02:00.000Z",
+        },
+      ],
+    };
+  assert.deepEqual(gateChecks(stale as never, executionId), [
+    { gate: "code-doc-reconciliation", status: "blocked", witnessRef: null },
+  ]);
 });
 test("one invalid closeout response names every bad field", async () => {
   const value = setup();

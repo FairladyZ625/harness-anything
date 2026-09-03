@@ -76,10 +76,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       "invocation-required",
     );
     assert.equal(row(activeOther, "submit").available, false);
-    assert.equal(
-      criterion(row(activeOther, "submit"), "actor-domain-services/heldLeaseForExecutionActor").status,
-      "unmet",
-    );
+    assert.equal(criterion(row(activeOther, "submit"), "repo-cell-proof/proofFor.SubmitExecution").status, "unmet");
 
     const lapsed: TaskLifecycleSnapshot = {
       ...active,
@@ -90,8 +87,14 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
 
     await harness.submit("execution-1");
     const submitted = await snapshot(harness),
+      submittedOwner = row(explain(harness, submitted, owner), "submit"),
       independentReview = row(explain(harness, submitted, reviewer), "review"),
       selfReview = row(explain(harness, submitted, owner), "review");
+    assert.equal(submittedOwner.available, true);
+    assert.match(
+      criterion(submittedOwner, "task-lifecycle-command-transitions/submit.validate").nextActions[0] ?? "",
+      /--amend/u,
+    );
     assert.equal(independentReview.available, true);
     assert.equal(
       criterion(independentReview, "task-lifecycle-review-transitions/review.validate").status,

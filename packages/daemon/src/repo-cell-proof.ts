@@ -3,7 +3,7 @@ import {
   canonicalGateReceipts,
   codeDocRecordId,
   consumeKnownError,
-  consentedApprovedReview,
+  consentedApprovedReviewForExecution,
   currentCodeDocWitness,
   evaluateTaskActionCapability,
   heldLeaseForExecutionActor,
@@ -30,7 +30,7 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } fro
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
-const SUBMIT_LEASE_CRITERION = "actor-domain-services/heldLeaseForExecutionActor";
+const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
 const REVIEW_PROOF_CRITERION = "repo-cell-proof/proofFor.RecordReview";
 const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complete.validate";
 
@@ -73,14 +73,30 @@ export async function proofFor(
   }
   if (command.type === "TransitionTask") return {};
   if (command.type === "SubmitExecution") {
+    if (command.amend === true)
+      return {
+        actorBinding: command.actor,
+        leaseVersion: null,
+        sessionDisposition: "unavailable",
+      };
     const lease = heldLeaseForExecutionActor(snapshot, command.executionId, command.actor);
-    if (!lease)
-      throw cellCriterionError(
-        "lease_required",
-        "Task submit lease proof was not satisfied.",
-        "submit",
-        SUBMIT_LEASE_CRITERION,
+    if (!lease) {
+      const alreadySubmitted = snapshot.executions.some(
+        (execution) => execution.executionId === command.executionId && execution.state === "submitted",
       );
+      throw cellCriterionError(
+        alreadySubmitted ? "invalid_transition" : "lease_required",
+        "Task submit requires the active lease; use --amend only to replace the current submitted packet.",
+        "submit",
+        SUBMIT_PROOF_CRITERION,
+        alreadySubmitted
+          ? [
+              `ha task submit ${command.taskId} --execution-id ${command.executionId} ` +
+                "--amend --json-input '<submission-json>'",
+            ]
+          : [],
+      );
+    }
     return {
       actorBinding: command.actor,
       leaseVersion: lease.version,
@@ -383,8 +399,15 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
     (value) => value.executionId === executionId && value.iteration === snapshot.task?.iteration,
   );
   return (snapshot.task?.completionGateIds ?? []).map((gate) => {
-    const codeDoc =
+    const candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
+      codeDoc =
+        candidate &&
+        execution?.submission &&
+        candidate.iteration === execution.iteration &&
+        (candidate.schema === "code-doc-witness-repoint/v1" || candidate.commitSha === execution.submission.commitSha)
+          ? candidate
+          : undefined,
       witness =
         gate !== "code-doc-reconciliation"
           ? snapshot.gateWitnesses.find(
@@ -392,7 +415,8 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
                 value.gateId === gate &&
                 value.executionId === executionId &&
                 value.commitSha === execution?.submission?.commitSha &&
-                value.iteration === execution?.iteration,
+                value.iteration === execution?.iteration &&
+                value.result === "pass",
             )
           : undefined;
     return {
@@ -406,12 +430,6 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
 export function selectedReviewId(snapshot: Snapshot, executionId: string): string | null {
   const execution = snapshot.executions.find((value) => value.executionId === executionId);
   return execution?.submission
-    ? (consentedApprovedReview(
-        snapshot.reviews,
-        snapshot.consents,
-        executionId,
-        execution.submission.commitSha,
-        execution.iteration,
-      )?.review.reviewId ?? null)
+    ? (consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution)?.review.reviewId ?? null)
     : null;
 }

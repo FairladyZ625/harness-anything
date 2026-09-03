@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
+import { submissionDigest } from "../../src/domain/execution.ts";
 import {
   applyTransition,
   canStartExecution,
@@ -172,6 +173,7 @@ test("a review node with no submitted execution recovers exclusively through Sta
         commitSha: "a".repeat(40),
         iteration: 0,
         contentDigest: `sha256:${"b".repeat(64)}`,
+        submissionDigest: submissionDigest(submitIntent.submission),
       } as const,
       completeIntent = {
         type: "CompleteTask",

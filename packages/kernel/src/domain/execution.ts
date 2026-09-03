@@ -4,6 +4,7 @@ import type { TaskNodeId } from "./task-graph.ts";
 import { timestamp } from "./timestamp.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -20,6 +21,20 @@ export interface SubmissionV1 {
   readonly knownGaps: readonly string[];
   readonly residualRisks: readonly string[];
   readonly commitSha: string;
+}
+export type SubmissionDigest = `sha256:${string}`;
+export type SubmissionId = `submission:${SubmissionDigest}`;
+
+export function submissionDigest(value: SubmissionV1): SubmissionDigest {
+  return `sha256:${sha256Text(stableStringify(value))}`;
+}
+
+export function submissionId(value: SubmissionV1): SubmissionId {
+  return `submission:${submissionDigest(value)}`;
+}
+
+export function isSubmissionId(value: unknown): value is SubmissionId {
+  return typeof value === "string" && /^submission:sha256:[0-9a-f]{64}$/u.test(value);
 }
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
