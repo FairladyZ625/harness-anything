@@ -2,12 +2,17 @@
 set -eu
 
 guard_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+# Delegate only downstream: the real git is the first git in the PATH entries after this
+# wrapper's own directory. An entry upstream of it can lead back here (a test shim that
+# execs `which git`, a second copy of this wrapper installed into a temporary repository),
+# and the repository probe below would then fork the other party, which forks this wrapper
+# again, without bound.
 filtered_path=
 old_ifs=$IFS
 IFS=:
 for entry in ${PATH:-}; do
   # PATH and $0 can spell the same directory differently through filesystem aliases.
-  [ "$entry" -ef "$guard_dir" ] && continue
+  if [ "$entry" -ef "$guard_dir" ]; then filtered_path=; continue; fi
   if [ -n "$filtered_path" ]; then filtered_path="$filtered_path:$entry"; else filtered_path=$entry; fi
 done
 IFS=$old_ifs
