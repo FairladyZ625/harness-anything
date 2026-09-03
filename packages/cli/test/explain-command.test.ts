@@ -82,54 +82,56 @@ test("human renderer exposes availability, reasons, registry guidance, and the e
       },
     }).catalog(),
     renderedCatalog = renderEntityActionExplanation(catalog),
-    renderedObject = renderEntityActionExplanation({
-      schema: "entity-action-explanation/v1",
-      mode: "object",
-      evaluatedAtCut: "canonical:8",
-      subjects: [
-        {
-          kind: "task",
-          ref: "task/task-one",
-          revision: 8,
-          failure: null,
-          actions: [
-            {
-              ...catalog.subjects[0]!.actions[0]!,
-              target: { ref: "task/task-one", revision: 8 },
-              available: false,
-              criteria: [
-                {
-                  ref: "criteria/task-state",
-                  failureCode: "invalid_transition",
-                  explain: "The Task state must permit this Action.",
-                  status: "unmet",
-                  nextActions: ["Move the Task to planned."],
-                },
-              ],
-              unmetCriteria: [
-                {
-                  ref: "criteria/task-state",
-                  failureCode: "invalid_transition",
-                  explain: "The Task state must permit this Action.",
-                },
-              ],
-              authorizationDecision: {
-                policyRef: "default@5",
-                actor: { principal: { personId: "person-explain" }, executor: null },
-                subject: "task/task-one",
-                bindingsUsed: [],
-                outcome: "allowed",
-                reasonCodes: [],
-                nextActions: [],
-                evaluatedAtCut: "canonical:8",
+    start = catalog.subjects[0]!.actions.find(({ action }) => action.id === "start");
+  assert.ok(start);
+  const renderedObject = renderEntityActionExplanation({
+    schema: "entity-action-explanation/v1",
+    mode: "object",
+    evaluatedAtCut: "canonical:8",
+    subjects: [
+      {
+        kind: "task",
+        ref: "task/task-one",
+        revision: 8,
+        failure: null,
+        actions: [
+          {
+            ...start,
+            target: { ref: "task/task-one", revision: 8 },
+            available: false,
+            criteria: [
+              {
+                ref: "criteria/task-state",
+                failureCode: "invalid_transition",
+                explain: "The Task state must permit this Action.",
+                status: "unmet",
+                nextActions: ["Move the Task to planned."],
               },
-              nextActions: ["Move the Task to planned."],
+            ],
+            unmetCriteria: [
+              {
+                ref: "criteria/task-state",
+                failureCode: "invalid_transition",
+                explain: "The Task state must permit this Action.",
+              },
+            ],
+            authorizationDecision: {
+              policyRef: "default@5",
+              actor: { principal: { personId: "person-explain" }, executor: null },
+              subject: "task/task-one",
+              bindingsUsed: [],
+              outcome: "allowed",
+              reasonCodes: [],
+              nextActions: [],
               evaluatedAtCut: "canonical:8",
             },
-          ],
-        },
-      ],
-    });
+            nextActions: ["Move the Task to planned."],
+            evaluatedAtCut: "canonical:8",
+          },
+        ],
+      },
+    ],
+  });
 
   assert.match(renderedCatalog, /catalog; availability is not evaluated/u);
   assert.match(renderedCatalog, /start: not evaluated/u);

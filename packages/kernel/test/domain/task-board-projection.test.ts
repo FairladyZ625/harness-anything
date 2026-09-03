@@ -167,7 +167,6 @@ test("no reason is free text: every word is a rejection code or a registered sta
     createTaskActionCatalog(
       (id) =>
         ({ id, criteria: [], input: { schema: "entity-action-input/v1", fields: [], exactlyOneOf: [] } }) as never,
-      null as never,
     ).actions.flatMap((action) => action.criteria.map((criterion) => criterion.failureCode)),
   );
   const statusWords = new Set(statusWordRegister.map((registration) => registration.word));

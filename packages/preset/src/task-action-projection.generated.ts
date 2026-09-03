@@ -624,7 +624,7 @@ export const taskActionDescriptorProjection = {
           },
           { field: "commandType", type: "string", required: false, enum: ["RecordReviewConsent"] },
         ],
-        exactlyOneOf: [["fromFile", "jsonInput"]],
+        exactlyOneOf: [],
       },
       explain: "Select a recorded Review with content-pinned owner consent.",
       execution: {

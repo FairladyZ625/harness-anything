@@ -4,10 +4,10 @@ import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
 import { priorityTiers, taskWorkKinds } from "./task-metadata.ts";
-import {
-  type EntityActionContract,
-  type EntityActionInputContract,
-  type EntityActionInputField,
+import type {
+  EntityActionContract,
+  EntityActionInputContract,
+  EntityActionInputField,
 } from "./entity-kind-registry.ts";
 import { withDerivedActionReturns } from "./entity-action-descriptor.ts";
 
@@ -520,18 +520,15 @@ const declarations: readonly Declaration[] = Object.freeze([
     explain: "Record an independent, content-pinned review for the submitted execution.",
   }),
   lifecycle("consent", {
-    input: input(
-      [
-        taskId,
-        expectedVersion,
-        cli("executionId", "string", false, "--execution-id"),
-        cli("reviewId", "string", false, "--review-id"),
-        cli("consentId", "string", true, "--consent-id", "single", {}, "invalid_field"),
-        ...optionalPacketFields(consentFields),
-        ...packetSources(REVIEW_CONSENT_V1_SCHEMA.id, consentFields),
-      ],
-      [["fromFile", "jsonInput"]],
-    ),
+    input: input([
+      taskId,
+      expectedVersion,
+      cli("executionId", "string", false, "--execution-id"),
+      cli("reviewId", "string", false, "--review-id"),
+      cli("consentId", "string", true, "--consent-id", "single", {}, "invalid_field"),
+      ...optionalPacketFields(consentFields),
+      ...packetSources(REVIEW_CONSENT_V1_SCHEMA.id, consentFields),
+    ]),
     criteria: Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/consent.validate",
