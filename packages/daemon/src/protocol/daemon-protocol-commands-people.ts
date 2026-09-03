@@ -33,8 +33,8 @@ const peopleWriteTopology = {
       "remote-edge": "via-center-forward" as const,
     },
   },
-  textInput = (name: string, required: boolean, nextAction: string) =>
-    cliInput(name, "single", required, { code: "invalid_field", nextAction }, { minLength: 1 }),
+  textInput = (name: string, required: boolean) =>
+    cliInput(name, "single", required, { code: "invalid_field" }, { minLength: 1 }),
   fromFileInput = (requiredFields: readonly string[], allowedFields: readonly string[]) =>
     cliInput(
       "--from-file",
@@ -42,7 +42,6 @@ const peopleWriteTopology = {
       false,
       {
         code: "invalid_field",
-        nextAction: "Use --from-file <packet.json> by itself, or provide the complete direct flag set.",
       },
       { jsonFields: requiredFields, jsonAllowedFields: allowedFields },
     ),
@@ -53,18 +52,11 @@ const peopleWriteTopology = {
       false,
       {
         code: "missing_field",
-        nextAction: "Use --person-id with a letter-led identifier up to 63 characters, or use --from-file.",
       },
       { regex: "^[A-Za-z][A-Za-z0-9_-]{0,62}$", conflictsWith: ["--from-file"] },
     ),
   roleInput = () =>
-    cliInput(
-      "--role",
-      "single",
-      false,
-      { code: "missing_field", nextAction: "Use --role with one non-empty role identifier, or use --from-file." },
-      { minLength: 1, conflictsWith: ["--from-file"] },
-    ),
+    cliInput("--role", "single", false, { code: "missing_field" }, { minLength: 1, conflictsWith: ["--from-file"] }),
   actorInput = () =>
     cliInput(
       "--actor",
@@ -72,7 +64,6 @@ const peopleWriteTopology = {
       false,
       {
         code: "missing_field",
-        nextAction: "Use --actor person:<id> or executor:<id>, or use --from-file.",
       },
       {
         regex: "^(?:person|executor):[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -86,7 +77,6 @@ const peopleWriteTopology = {
       false,
       {
         code: "missing_field",
-        nextAction: "Use --token-id with a stable det_ identifier, or use --from-file.",
       },
       {
         regex: "^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$",
@@ -100,12 +90,10 @@ const peopleWriteTopology = {
       false,
       {
         code: "missing_field",
-        nextAction: "Repeat --command-class with admin, repo-write, repo-read, or arbiter, or use --from-file.",
       },
       { enum: peopleCommandClassWords, minItems: 1, unique: true, conflictsWith: ["--from-file"] },
     ),
-  idempotencyInput = () =>
-    textInput("--idempotency-key", false, "Use one stable non-empty idempotency key, or omit it."),
+  idempotencyInput = () => textInput("--idempotency-key", false),
   credentialInput = (name: string) =>
     cliInput(
       name,
@@ -113,7 +101,6 @@ const peopleWriteTopology = {
       false,
       {
         code: "invalid_field",
-        nextAction: "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
       },
       {
         requires: ["--credential-kind", "--credential-issuer", "--credential-subject"],
@@ -135,10 +122,10 @@ export const peopleProtocolCommands = Object.freeze([
         "--display-name",
         "single",
         false,
-        { code: "missing_field", nextAction: "Use --display-name with one non-empty line, or use --from-file." },
+        { code: "missing_field" },
         { minLength: 1, conflictsWith: ["--from-file"] },
       ),
-      textInput("--primary-email", false, "Use --primary-email with one non-empty value."),
+      textInput("--primary-email", false),
       roleInput(),
       commandClassInput(),
       cliInput(
@@ -147,7 +134,6 @@ export const peopleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
         },
         {
           enum: credentialKindWords,
@@ -171,8 +157,8 @@ export const peopleProtocolCommands = Object.freeze([
       fromFileInput(peopleBindJsonFields, peopleBindJsonAllowedFields),
       actorInput(),
       roleInput(),
-      textInput("--target", false, "Use --target with one EntityRef, or use --from-file."),
-      textInput("--expires-at", false, "Use an ISO-8601 UTC timestamp ending in Z, or omit it."),
+      textInput("--target", false),
+      textInput("--expires-at", false),
       idempotencyInput(),
     ],
     ...peopleWriteTopology,
@@ -193,7 +179,6 @@ export const peopleProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Use --runtime-session-id with one RuntimeSession identifier, or use --from-file.",
         },
         { regex: "^[A-Za-z0-9][A-Za-z0-9._:-]*$", conflictsWith: ["--from-file"] },
       ),
@@ -203,7 +188,6 @@ export const peopleProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Repeat --action for every delegated Action kind, or use --from-file.",
         },
         {
           regex: "^[A-Za-z][A-Za-z0-9]*(?:[._-][A-Za-z0-9]+)*$",
@@ -218,7 +202,6 @@ export const peopleProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Use --expires-at with an ISO-8601 UTC timestamp ending in Z, or use --from-file.",
         },
         { minLength: 1, conflictsWith: ["--from-file"] },
       ),

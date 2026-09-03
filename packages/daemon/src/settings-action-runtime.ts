@@ -99,7 +99,6 @@ function readSettings(
     : ({
         outcome: "pending",
         ...base,
-        nextAction: `Retry settings read after projection catch-up to revision ${cut.sourceRevision}.`,
       } as WriteReceipt);
 }
 
@@ -136,7 +135,6 @@ async function publishSettingsDraft(
         : {
             code: "no_changes",
             origin: "daemon",
-            nextAction: "No action is required.",
           }),
     } as WriteReceipt;
   }
@@ -172,7 +170,6 @@ async function publishSettingsDraft(
     : ({
         outcome: "pending",
         ...receipt,
-        nextAction: `Run ha receipt show ${draft.bundle.event.opId} before retrying.`,
       } as WriteReceipt);
 }
 

@@ -12,6 +12,10 @@ export const RECEIPT_GUIDANCE_KINDS = Object.freeze([
   "edit-plan",
   "pin-agenda",
   "ledger-managed",
+  "retry-receipt",
+  "run-command",
+  "remove-dry-run",
+  "no-action",
 ] as const);
 export type ReceiptGuidanceKind = (typeof RECEIPT_GUIDANCE_KINDS)[number];
 

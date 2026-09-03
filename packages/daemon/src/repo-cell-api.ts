@@ -202,33 +202,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     if (context.state !== "attached" && !recoveryCommandAllowed)
       return Promise.resolve(
         frameCurrent(
-          context.rejected(
-            context.operationId(action, binding, context.input.repoId, 0),
-            "repo_unavailable",
-            context.latched(),
-          ),
+          context.rejected(context.operationId(action, binding, context.input.repoId, 0), "repo_unavailable"),
           [],
           context.latched(),
         ),
       );
     const claimsRecovery = context.state !== "attached" && recoveryCommand?.settlesLatch === true;
     if (claimsRecovery && settlingRecovery !== null) {
-      const nextAction = [
-        "Recovery command ",
-        `${settlingRecovery}`,
-        " already holds this repository's single-writer recovery ingress; retry ",
-        `${action.kind}`,
-        " after it settles.",
-      ].join("");
       return Promise.resolve(
         frameCurrent(
-          context.rejected(
-            context.operationId(action, binding, context.input.repoId, 0),
-            "recovery_conflict",
-            nextAction,
-          ),
-          [],
-          nextAction,
+          context.rejected(context.operationId(action, binding, context.input.repoId, 0), "recovery_conflict"),
         ),
       );
     }
@@ -277,7 +260,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
               context.rejected(
                 context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
                 "authorization_denied",
-                queuedDecision.nextActions.join(" ") || `Retry ${action.kind} with an authorized RoleBinding.`,
               ),
               queuedDecision,
               [],
@@ -333,7 +315,6 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
                 ...receipt,
                 outcome: "pending",
                 code: "repo_unavailable",
-                nextAction: context.latched(),
               } as WriteReceipt);
         })
         .finally(() => {
@@ -391,27 +372,22 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
               now: context.now(),
             })
           : undefined,
-      reject = (code: string, nextAction: string): PresetRunReceiptV1 => ({
+      reject = (code: string): PresetRunReceiptV1 => ({
         schema: "preset-run-receipt/v1",
         runId: typeof action.runId === "string" ? action.runId : "run_invalid",
         outcome: "op_rejected",
         phase: "op_rejected",
         phases: ["op_rejected"],
         code,
-        nextAction,
         ...(authorizationDecision ? { authorizationDecision } : {}),
       }),
       admission = admitRepoMode(context.mode, command, binding.source);
-    if (authorizationDecision?.outcome === "denied")
-      return reject(
-        "authorization_denied",
-        authorizationDecision.nextActions.join(" ") || "Retry with an authorized RoleBinding.",
-      );
-    if (!admission.ok) return reject(admission.code, admission.nextAction);
+    if (authorizationDecision?.outcome === "denied") return reject("authorization_denied");
+    if (!admission.ok) return reject(admission.code);
     if (context.state !== "attached") await context.attemptRecovery();
-    if (context.state !== "attached") return reject("repo_unavailable", context.latched());
+    if (context.state !== "attached") return reject("repo_unavailable");
     const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
-    if (!queuedAdmission.ok) return reject(queuedAdmission.code, queuedAdmission.nextAction);
+    if (!queuedAdmission.ok) return reject(queuedAdmission.code);
     return action.kind === "preset-run-status"
       ? context.presetProcess.status(context.requiredCellText(action.runId, "runId"))
       : action.kind === "preset-run-start"
@@ -444,13 +420,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
                   return {
                     outcome: receipt.outcome,
                     ...(receipt.code ? { code: receipt.code } : {}),
-                    ...(receipt.nextAction ? { nextAction: receipt.nextAction } : {}),
                   };
                 },
               },
             )
             .then((receipt) => ({ ...receipt, authorizationDecision: authorizationDecision! }))
-        : reject("unsupported_command", "Use repo.preset.run.start or repo.preset.run.status.");
+        : reject("unsupported_command");
   };
   const readHandlers = {
     "repo.ci.observatory.read": (payload: Readonly<Record<string, unknown>>) =>
@@ -977,12 +952,6 @@ function withAuthorizationDecision(
       receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
         ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
         : null,
-    nextActions: Object.freeze([
-      ...new Set([
-        ...(receipt.nextActions ?? []),
-        ...(receipt.nextAction ? [receipt.nextAction] : []),
-        ...authorizationDecision.nextActions,
-      ]),
-    ]),
+    nextActions: Object.freeze([...new Set([...(receipt.nextActions ?? []), ...authorizationDecision.nextActions])]),
   };
 }

@@ -6,11 +6,11 @@ export interface RepoModeAdmission {
   readonly code: string;
   readonly nextAction: string;
 }
-const rejection = (code: string, nextAction: string): RepoModeAdmission => ({
-  ok: false,
-  code,
-  nextAction,
-});
+export function repoModeAdmission(ok: boolean, code: string): RepoModeAdmission {
+  const nextAction = code;
+  return { ok, code, nextAction };
+}
+const rejection = (code: string): RepoModeAdmission => repoModeAdmission(false, code);
 
 /** Resolve field-scoped local effects declared by an executable Entity Action contract. */
 export function entityActionCommandTopology(
@@ -38,36 +38,15 @@ export function admitRepoMode(
   command: Pick<CommandTopology, "admission">,
   source: WriteSource,
 ): RepoModeAdmission {
-  if (mode === "remote-proxy")
-    return rejection(
-      "repo_mode_remote_proxy",
-      "This repository has no local workspace; send repository requests through its remote endpoint.",
-    );
+  if (mode === "remote-proxy") return rejection("repo_mode_remote_proxy");
   const route = command.admission[mode],
     assignment = typeof source === "object" && source.kind === "assignment";
-  if (mode === "local" && source === "remote_direct")
-    return rejection(
-      "repo_mode_rejects_direct_remote",
-      "Use authenticated assignment ingress for remote commands; direct remote writes are not admitted.",
-    );
+  if (mode === "local" && source === "remote_direct") return rejection("repo_mode_rejects_direct_remote");
   if (route === "direct" && !(mode === "remote-edge" && assignment))
-    return { ok: true, code: "repo_mode_admitted", nextAction: "Continue." };
-  if (route === "via-assignment" && assignment)
-    return { ok: true, code: "repo_mode_admitted", nextAction: "Continue." };
-  if (route === "via-assignment")
-    return rejection(
-      "repo_mode_requires_center_ingress",
-      "Send write commands through the authenticated Fleet assignment ingress; local direct writes are disabled for remote-center repositories.",
-    );
-  if (route === "via-center-forward")
-    return rejection(
-      "repo_mode_read_only",
-      "Forward this command to the remote center; the remote-edge repository does not author ledger state.",
-    );
-  if (mode === "remote-edge")
-    return rejection("repo_mode_read_only", "This command has no remote-edge route in its daemon command descriptor.");
-  return rejection(
-    "repo_mode_command_rejected",
-    `The daemon command descriptor explicitly rejects this command in ${mode} mode.`,
-  );
+    return repoModeAdmission(true, "repo_mode_admitted");
+  if (route === "via-assignment" && assignment) return repoModeAdmission(true, "repo_mode_admitted");
+  if (route === "via-assignment") return rejection("repo_mode_requires_center_ingress");
+  if (route === "via-center-forward") return rejection("repo_mode_read_only");
+  if (mode === "remote-edge") return rejection("repo_mode_read_only");
+  return rejection("repo_mode_command_rejected");
 }

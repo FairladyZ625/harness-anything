@@ -139,7 +139,7 @@ test("Squad migration rejects a declaration missing leader before appending any 
       rejected = await cell.run({ kind: "entity-migrate-squads", sourcePaths: [source] }, owner);
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "invalid_manifest");
-    assert.match(String(rejected.nextAction), /missing required field "leader"/u);
+    assert.deepEqual(rejected.diagnostic, { kind: "failure", code: "invalid_manifest" });
     assert.equal(makeTaskEventStore({ repoId, rootDir, mutable: false }).read().revision, before);
     assert.deepEqual(
       evidence(await cell.run({ kind: "entity-list", entityKind: "squad" }, owner)).entities as unknown[],

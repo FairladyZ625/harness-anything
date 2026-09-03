@@ -684,7 +684,7 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     assert.match(String(unavailable.lastError), /event stream head is 1.*revisions 2-5.*cache retained/iu);
     const rebuild = await host.run("ahead-projection", { kind: "projection-rebuild" }, auth);
     assert.equal(rebuild.code, "repo_unavailable");
-    assert.match(String(rebuild.nextAction), /event stream head is 1.*cache retained/iu);
+    assert.deepEqual(rebuild.diagnostic, { kind: "failure", code: "repo_unavailable" });
     assert.deepEqual(readFileSync(projection.path), retained);
   } finally {
     await host.close();

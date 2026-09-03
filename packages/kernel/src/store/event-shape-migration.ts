@@ -187,10 +187,6 @@ export async function runEventShapeMigration(
         canonicalVisible: false,
         worktreeVisible: false,
       },
-      nextAction:
-        rewrites.length === 0
-          ? `Nothing to migrate: every event already has the current ${spec.name} shape.`
-          : `Remove --dry-run to publish the ${spec.name} migration through the canonical event store.`,
     };
   if (gitRevision !== headRevision)
     throw new Error(
@@ -253,9 +249,6 @@ export async function runEventShapeMigration(
     },
     commitSha: appended.commitSha?.sha ?? null,
     cut: appended.cut,
-    nextAction:
-      `Published ${rewrites.length} rewritten events under marker revision ${appended.revision}. ` +
-      "Apply every remaining event-shape migration, then prove the cold rebuild with `ha daemon projection rebuild`.",
   };
 }
 

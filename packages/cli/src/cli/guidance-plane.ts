@@ -30,7 +30,6 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     (args) =>
       `ledger: ${stringListArg(args, "fields").join(" and ")} are coordinator-managed; update them through ha doc sync`,
   ],
-  ["failure:hint", (args) => textArg(args, "hint")],
   [
     "failure:validation",
     (args) =>
@@ -54,17 +53,81 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       "Repair the cause, then use repository recovery/drain or restart the daemon before retrying writes.",
   ],
   [
+    "failure:invalid-enum",
+    (args) =>
+      `${textArg(args, "field")} must be one of ${stringListArg(args, "allowedValues").join(", ")}; ` +
+      `received ${textArg(args, "actual")}.`,
+  ],
+  ["failure:failure", (args) => `Inspect error code ${textArg(args, "code")}, correct the command input, and retry.`],
+  [
     "failure:unmet-criteria",
     (args) =>
       `Unmet criteria: ${(args.criteria as readonly { readonly ref: string; readonly explain: string }[])
         .map((entry) => `${entry.ref} — ${entry.explain}`)
         .join("; ")}`,
   ],
+  ["*:retry-receipt", (args) => `next: ha receipt show ${textArg(args, "opId")}`],
+  ["*:run-command", (args) => `next: ${textArg(args, "command")}`],
+  ["*:remove-dry-run", (args) => `next: remove --dry-run and rerun ${textArg(args, "command")}`],
+  ["*:no-action", () => "next: no action required"],
   [
     "failure:squad-leader",
     (args) => `Leader dispatch rejected: code=${textArg(args, "code")} hint=${textArg(args, "hint")}`,
   ],
+  ["cli:flag-value", (args) => `${textArg(args, "name")} is a flag and takes no value.`],
+  ["cli:duplicate-input", (args) => `${textArg(args, "name")} may appear once.`],
+  ["cli:unknown-input", (args) => `Unknown option ${textArg(args, "name")}. Run ${textArg(args, "helpCommand")}.`],
+  ["cli:missing-input", renderMissingInput],
+  ["cli:invalid-input", renderInvalidInput],
+  ["cli:run-help", (args) => `Run ${textArg(args, "helpCommand")}.`],
+  ["cli:direct-daemon-failure", (args) => textArg(args, "message")],
+  ["cli:daemon-connection-failure", (args) => `Local daemon request failed. Cause: ${textArg(args, "message")}`],
+  ["cli:daemon-build-stale", () => "Restart the local daemon so its build matches this CLI, then retry the command."],
+  [
+    "cli:daemon-target-conflict",
+    (args) =>
+      `Daemon target conflict: injected target endpoint=${JSON.stringify(textArg(args, "endpoint"))} ` +
+      `userRoot=${JSON.stringify(textArg(args, "userRoot"))} daemonId=${JSON.stringify(textArg(args, "daemonId"))} ` +
+      `repoId=${JSON.stringify(args.repoId ?? null)} canonicalRoot=${JSON.stringify(args.canonicalRoot ?? null)}; ` +
+      `resolved registry target endpoint=${JSON.stringify(textArg(args, "expected"))} ` +
+      `userRoot=${JSON.stringify(textArg(args, "userRoot"))} daemonId=${JSON.stringify(textArg(args, "daemonId"))} ` +
+      `repoId=${JSON.stringify(args.repoId ?? null)} canonicalRoot=${JSON.stringify(args.canonicalRoot ?? null)}. ` +
+      "Unset HARNESS_DAEMON_ENDPOINT to use the resolved registry target, or restore the original " +
+      "HARNESS_DAEMON_USER_ROOT and HARNESS_DAEMON_ID before retrying.",
+  ],
+  [
+    "cli:explain-usage",
+    () =>
+      "Use ha explain task|person|squad|<artifact-type@version> for a catalog, or ha explain <entity-ref>... " +
+      "for objects.",
+  ],
+  ["cli:task-explain-overlay", () => "Use ha task --help --explain task/<task-id> with exactly one Task ref."],
+  [
+    "cli:explain-subject-remedy",
+    (args) => `Use a valid EntityRef in place of ${textArg(args, "ref")}, then rerun ha explain.`,
+  ],
+  [
+    "cli:explain-action-remedy",
+    (args) => `Resolve the listed criteria or authorization decision, then retry ${textArg(args, "usage")}.`,
+  ],
+  [
+    "cli:unsupported-command",
+    (args) => {
+      const domain = optionalTextArg(args, "domain"),
+        verb = optionalTextArg(args, "verb"),
+        domains = stringListArg(args, "domains");
+      if (!domain) return `No command domain was named; use one of ${domains.join(", ")}.`;
+      if (!domains.includes(domain)) return `${domain} is not a command domain; use one of ${domains.join(", ")}.`;
+      return verb
+        ? `${domain} has no ${verb} command; run ha ${domain} --help for the commands it does have.`
+        : `ha ${domain} needs a command; run ha ${domain} --help for the commands it has.`;
+    },
+  ],
 ]);
+
+export function renderCliGuidance(kind: string, args: GuidanceArgs): string {
+  return renderTemplate("cli", kind, args);
+}
 
 export function renderReceiptGuidance(receipt: Record<string, unknown>): readonly string[] {
   if (!Array.isArray(receipt.guidance)) return [];
@@ -84,25 +147,20 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     return { code, hint: renderTemplate("failure", "squad-leader", leader) };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
+    declaredGuidance = renderReceiptGuidance(receipt),
     baseHint =
       diagnosticHint ??
-      renderTemplate("failure", "hint", {
-        hint:
-          typeof outer.hint === "string"
-            ? outer.hint
-            : typeof receipt.nextAction === "string"
-              ? receipt.nextAction
-              : typeof receipt.next === "string"
-                ? receipt.next
-                : "Command failed.",
-      }),
-    criteria = Array.isArray(receipt.unmetCriteria)
-      ? receipt.unmetCriteria.flatMap((entry) =>
-          record(entry) && typeof entry.ref === "string" && typeof entry.explain === "string"
-            ? [{ ref: entry.ref, explain: entry.explain }]
-            : [],
-        )
-      : [],
+      (declaredGuidance.length > 0 ? declaredGuidance.join(" ") : null) ??
+      renderTemplate("failure", "failure", { code }),
+    criteria = diagnosticHint
+      ? []
+      : Array.isArray(receipt.unmetCriteria)
+        ? receipt.unmetCriteria.flatMap((entry) =>
+            record(entry) && typeof entry.ref === "string" && typeof entry.explain === "string"
+              ? [{ ref: entry.ref, explain: entry.explain }]
+              : [],
+          )
+        : [],
     hint =
       criteria.length === 0 ? baseHint : `${baseHint} ${renderTemplate("failure", "unmet-criteria", { criteria })}`;
   return { code, hint };
@@ -114,6 +172,8 @@ function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {
   if (diagnostic.kind === "missing-sections") return renderTemplate("failure", "missing-sections", diagnostic);
   if (diagnostic.kind === "materialization-failed")
     return renderTemplate("failure", "materialization-failed", diagnostic);
+  if (diagnostic.kind === "invalid-enum") return renderTemplate("failure", "invalid-enum", diagnostic);
+  if (diagnostic.kind === "failure") return renderTemplate("failure", "failure", diagnostic);
   return null;
 }
 
@@ -142,8 +202,26 @@ function renderMissingSections(args: GuidanceArgs): string {
   ].join("\n");
 }
 
+function renderMissingInput(args: GuidanceArgs): string {
+  return `${textArg(args, "name")} is required. Run ${textArg(args, "helpCommand")} for accepted inputs.`;
+}
+
+function renderInvalidInput(args: GuidanceArgs): string {
+  const name = textArg(args, "name"),
+    values = Array.isArray(args.values) ? stringListArg(args, "values") : [],
+    format = optionalTextArg(args, "format"),
+    pattern = optionalTextArg(args, "pattern"),
+    helpCommand = textArg(args, "helpCommand");
+  if (args.code === "invalid_runtime_effort")
+    return "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.";
+  if (values.length > 0) return `Use ${name} with one of ${values.join(", ")}.`;
+  if (format) return `Use ${name} with format ${format}.`;
+  if (pattern) return `Use ${name} with a value matching /${pattern}/u.`;
+  return `Use one non-empty value for ${name}. Run ${helpCommand} for accepted inputs.`;
+}
+
 function renderTemplate(commandOrSchema: string, kind: string, args: GuidanceArgs): string {
-  const template = guidanceTemplates.get(`${commandOrSchema}:${kind}`);
+  const template = guidanceTemplates.get(`${commandOrSchema}:${kind}`) ?? guidanceTemplates.get(`*:${kind}`);
   if (!template) throw new TypeError(`No CLI guidance template is registered for ${commandOrSchema}:${kind}.`);
   return template(args);
 }
@@ -162,6 +240,11 @@ function textArg(args: GuidanceArgs, field: string): string {
   const value = args[field];
   if (typeof value !== "string" || value.length === 0) throw new TypeError(`Guidance argument ${field} is missing.`);
   return value;
+}
+
+function optionalTextArg(args: GuidanceArgs, field: string): string | null {
+  const value = args[field];
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function stringListArg(args: GuidanceArgs, field: string): readonly string[] {

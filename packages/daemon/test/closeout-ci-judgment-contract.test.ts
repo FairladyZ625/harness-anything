@@ -136,8 +136,8 @@ test("a task whose contract declares no ci gate cannot invent a passing CI judgm
   const { receipt } = await closeout([], "passed");
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "invalid_judgment");
-  assert.match(String(receipt.nextAction), /completion\.ci must be not_applicable/u);
-  assert.match(String(receipt.nextAction), /closeout never invents a CI judgment/u);
+  assert.match(JSON.stringify(receipt.diagnostic), /completion\.ci must be not_applicable/u);
+  assert.match(JSON.stringify(receipt.diagnostic), /closeout never invents a CI judgment/u);
 });
 
 test("a declared ci gate still demands passed, so the original intent is not weakened", async () => {
@@ -149,8 +149,8 @@ test("a declared ci gate cannot be waved away as not_applicable", async () => {
   const { receipt } = await closeout(["ci"], "not_applicable");
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "invalid_judgment");
-  assert.match(String(receipt.nextAction), /completion\.ci must be passed/u);
-  assert.match(String(receipt.nextAction), /closeout never invents a CI judgment/u);
+  assert.match(JSON.stringify(receipt.diagnostic), /completion\.ci must be passed/u);
+  assert.match(JSON.stringify(receipt.diagnostic), /closeout never invents a CI judgment/u);
 });
 
 test("the ci value domain stays closed, so no third token slips through either contract", async () => {
@@ -178,5 +178,5 @@ test("a lifecycle state that blocks closeout is reported before the CI judgment,
   const { receipt } = await closeout([], "passed", "planned");
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "not_started", JSON.stringify(receipt));
-  assert.match(String(receipt.nextAction), /ha task start/u);
+  assert.match(JSON.stringify(receipt.guidance), /ha task start/u);
 });

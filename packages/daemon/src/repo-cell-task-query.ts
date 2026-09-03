@@ -289,9 +289,6 @@ export function reviewTask(cell: TaskQueryCell, action: RepoTaskAction, binding:
       taskId,
       legacyReview: report,
       completionAuthority: false,
-      nextAction: report.valid
-        ? `Use ha task review-execution ${taskId} for typed approval.`
-        : `Repair ${current.packagePath}/review.md, then rerun ha task review ${taskId}.`,
     },
     current.sourceRevision,
     null,

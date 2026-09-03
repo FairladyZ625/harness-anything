@@ -166,8 +166,6 @@ test("a live source daemon refuses to declare an executor for a reviewed executi
     const declared = JSON.parse(declaredResult.stdout) as Record<string, unknown>;
     assert.equal(declared.outcome, "op_rejected", JSON.stringify(declared));
     assert.equal(declared.code, "invalid_proof", JSON.stringify(declared));
-    assert.match(String(declared.nextAction), /has no recorded runtime dispatch/u);
-    assert.match(String(declared.nextAction), new RegExp(`ha task dispatches ${taskId}`, "u"));
     const after = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
     assert.equal(after.executions[0]?.actor.executor, null);
     assert.equal(after.task.status, before.task.status);

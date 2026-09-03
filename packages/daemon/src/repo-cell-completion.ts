@@ -159,6 +159,5 @@ export function taskShowFromProjection(
     : {
         outcome: "pending",
         ...receipt,
-        nextAction: "Retry task show after projection catch-up.",
       };
 }

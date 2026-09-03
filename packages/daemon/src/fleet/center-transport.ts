@@ -136,7 +136,6 @@ export async function serve(
           code: fault.code,
           retryable: fault.retryable,
           resumeOffset: fault.resumeOffset,
-          nextAction: fault.message,
         }),
       );
       if (fault.code === "authentication_failed" || fault.code === "credential_revoked") socket.end();

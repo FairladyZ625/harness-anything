@@ -772,12 +772,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "reviewVerdicts",
-        "ref": "task_P4_INT",
-        "reason": "W1 review/v1 validation and command construction share the public verdict catalog.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "scanPrivateText",
         "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
         "reason": "W3 production flip removed the former CLI barrel consumer; the private kernel export remains contract/test surface while thin CLI is forbidden from importing the kernel barrel.",

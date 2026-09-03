@@ -50,7 +50,7 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     assert.equal(pending.opId, event.opId);
     assert.equal(pending.proof?.committedRevision, event.workspaceRevision);
     assert.equal(pending.proof?.canonicalVisible, false);
-    assert.match(pending.nextAction ?? "", new RegExp(`receipt show ${event.opId}`, "u"));
+    assert.deepEqual(pending.guidance, [{ kind: "retry-receipt", args: { opId: event.opId } }]);
     projection.close();
   } finally {
     await cell.close();
@@ -153,9 +153,6 @@ test("local conflict exits run through the doc-sync write path", async (t) => {
     assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("conflict-"), false);
     const conflicted = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding);
     assert.equal(rows(conflicted.evidence)[0]?.state, "conflict");
-    assert.match(conflicted.detail?.nextAction ?? "", /listed conflict scratch/u);
-    assert.match(conflicted.detail?.nextAction ?? "", /ha doc conflict resolve <conflict-id>/u);
-    assert.doesNotMatch(conflicted.detail?.nextAction ?? "", /doc retire|blocked candidates/iu);
     await t.test("discard-local removes the scratch and retains center bytes", async () => {
       const conflictId = conflictIdOf(first.conflicts[0]!);
       const discarded = await cell.run({ kind: "doc-conflict-discard-local", conflictId }, binding);

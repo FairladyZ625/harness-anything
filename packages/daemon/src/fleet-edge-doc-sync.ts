@@ -97,7 +97,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
           })),
         ),
         gatedPaths: gate,
-        nextAction: conflictHintOf(records),
       });
     }
     // Cache dirty-path base bytes BEFORE the compare pull: the marker cut is
@@ -121,8 +120,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         canonicalOutcome: "applied",
         mirrorOutcome: "applied",
         ...cutOf(pulled.current.cut.revision),
-        nextAction:
-          "Run a task command or ha daemon fleet edge sync first so the mirror view exists, then rerun ha doc sync.",
       });
     const scope = fleetEdgeScopePaths(payload.assignmentId, payload.rosterPath);
     const scan = scanFleetMirrorWorktree(view, payload.workspaceRoot, selection);
@@ -162,12 +159,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         rideAlongTaskPaths: rideAlong,
         outOfScopePaths: outOfScope,
         conflicts: conflictSummaries(settle.conflicts),
-        nextAction:
-          candidates.length > 0
-            ? "Run ha doc sync --submit to push this selection."
-            : settle.outcome === "pull_blocked"
-              ? "Resolve the staged conflicts explicitly; the pull stays blocked until then."
-              : "No shared-surface changes to push.",
       });
     if (settle.outcome === "pull_blocked")
       return fleetDocSyncReceipt(false, "pull_blocked", {
@@ -177,7 +168,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         ...cutOf(pulled.current.cut.revision),
         conflicts: conflictSummaries(settle.conflicts),
         dirtyPaths: settle.dirtyPaths,
-        nextAction: conflictHint(settle.conflicts),
       });
     if (candidates.length === 0)
       return fleetDocSyncReceipt(true, null, {
@@ -188,7 +178,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         blocked: scan.blocked,
         rideAlongTaskPaths: rideAlong,
         outOfScopePaths: outOfScope,
-        nextAction: "Mirror is current; nothing to push on the shared surface.",
       });
     // PUSHING
     const pushed = await runFleetWriteClient({
@@ -224,9 +213,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         pushed: rows,
         conflicts: conflictSummaries(after.conflicts),
         dirtyPaths: after.dirtyPaths,
-        nextAction: blocked
-          ? conflictHint(after.conflicts)
-          : "Shared-surface documents pushed and the mirror is current.",
       });
     }
     if (pushed.center.code !== null && (FLEET_PUSH_CONFLICT_CODES as readonly string[]).includes(pushed.center.code)) {
@@ -243,9 +229,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         code: pushed.center.code,
         pushed: rows,
         conflicts: conflictSummaries(staged.conflicts),
-        nextAction: staged.blocked
-          ? conflictHint(staged.conflicts)
-          : "The center moved while this push was in flight; rerun ha doc sync to compare on the fresh base.",
       });
     }
     return fleetDocSyncReceipt(false, pushed.center.code ?? "doc_push_rejected", {
@@ -254,8 +237,6 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
       mirrorOutcome: "not_pulled",
       code: pushed.center.code,
       pushed: rows,
-      nextAction:
-        "The center refused this submission outright (scope or policy); inspect the receipt and adjust the selection.",
     });
   });
 }
@@ -315,7 +296,6 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         conflictId: record.conflictId,
         state: record.state,
         resolvedVia: record.resolvedVia,
-        nextAction: "This conflict is already resolved.",
       };
     if (payload.action === "resolve") {
       const settled = settleFleetConflictRecord(payload.workspaceRoot, payload.conflictId, "resolve");
@@ -327,9 +307,6 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         conflictId: settled.conflictId,
         state: settled.state,
         paths: settled.paths.map((row) => row.path),
-        nextAction:
-          "Record closed. Merge base/local/center into the registered harness yourself," +
-          " then rerun ha doc sync (or the task command) on the fresh base.",
       };
     }
     const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
@@ -371,8 +348,6 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         canonicalOutcome: "applied",
         mirrorOutcome: "applied",
         paths: settled.paths.map((row) => row.path),
-        nextAction:
-          "Local changes for these paths were discarded; the registered harness now holds the recorded center bytes.",
       };
     }
     // overwrite-center is idempotent and pull-first: if the center already
@@ -434,9 +409,8 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
                 code: "pull_blocked",
                 hint: `The prior overwrite was already canonical, but this pull found another divergence: ${conflictHint(after.conflicts)}`,
               },
-              nextAction: conflictHint(after.conflicts),
             }
-          : { nextAction: "The center already held the staged local bytes; the record is settled." }),
+          : {}),
       };
     }
     const pushed = await runFleetWriteClient({
@@ -509,9 +483,6 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         revision: pushed.center.revision,
         cut: landed.current.cut,
         conflicts: conflictSummaries(after.conflicts),
-        nextAction: blocked
-          ? conflictHint(after.conflicts)
-          : "The staged local bytes now overwrite the recorded center base; the mirror is current.",
       };
     }
     return {
@@ -530,7 +501,6 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         code: "overwrite_not_converged",
         hint: "The overwrite landed at the center but the mirror still diverges on these paths; rerun ha doc sync and inspect the fresh staging.",
       },
-      nextAction: conflictHint(after.conflicts),
     };
   });
 }
@@ -561,7 +531,6 @@ function fleetDocSyncReceipt(
       : {
           error: {
             code: code ?? "doc_sync_failed",
-            hint: typeof fields.nextAction === "string" ? fields.nextAction : "Inspect the doc sync receipt.",
           },
         }),
     ...fields,
@@ -585,12 +554,6 @@ function conflictHint(conflicts: readonly FleetStagedConflict[]): string {
   return first === undefined
     ? "No staged conflict carries this outcome."
     : `Divergence staged at ${first.dir}; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center ${first.conflictId}.`;
-}
-function conflictHintOf(records: readonly FleetConflictRecord[]): string {
-  const first = records[0];
-  return first === undefined
-    ? "Unresolved staged conflicts gate these paths."
-    : `An unresolved staged conflict (${first.conflictId}) gates these paths; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center ${first.conflictId}.`;
 }
 export type { FleetConflictRecord, FleetMirrorView };
 export { FleetEdgeTaskError };

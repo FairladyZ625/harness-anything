@@ -109,6 +109,38 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({
+        verdict: "approve",
+        reason: "The invalid verdict must retain its specific diagnostic.",
+        evidenceChecked: ["integration"],
+      }),
+    );
+    const invalidVerdict = await assertRejectedWithoutMutation(
+      rootDir,
+      repoId,
+      () =>
+        cell!.run(
+          {
+            kind: "task-review-execution",
+            taskId,
+            executionId,
+            reviewId: "review-invalid-verdict",
+            fromFile: "review.json",
+          },
+          reviewer,
+        ),
+      ["task-lifecycle-review-transitions/review.validate"],
+    );
+    assert.equal(invalidVerdict.code, "invalid_command");
+    assert.deepEqual(invalidVerdict.diagnostic, {
+      kind: "invalid-enum",
+      field: "verdict",
+      actual: "approve",
+      allowedValues: ["approved", "changes_requested", "dismissed"],
+    });
+    assert.deepEqual(invalidVerdict.nextActions, []);
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({
         verdict: "approved",
         reason: "Self review must be rejected.",
         evidenceChecked: ["integration"],
@@ -186,8 +218,7 @@ test("publication indeterminate remains operational and never invents an Action 
     assert.equal(receipt.outcome, "indeterminate", JSON.stringify(receipt));
     assert.equal(receipt.code, "publication_indeterminate");
     assert.deepEqual(receipt.unmetCriteria, []);
-    assert.ok(receipt.nextAction);
-    assert.ok(receipt.nextActions?.length);
+    assert.deepEqual(receipt.guidance, [{ kind: "retry-receipt", args: { opId: receipt.opId } }]);
     assert.doesNotMatch(JSON.stringify(receipt), /criteria\/publication_indeterminate/u);
   } finally {
     await cell?.close();

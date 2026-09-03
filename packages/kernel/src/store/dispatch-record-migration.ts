@@ -128,8 +128,7 @@ export async function runDispatchRecordMigration(input: DispatchRecordMigrationI
       (entry) =>
         entry.action === "import-full" || entry.action === "settle-tail" || entry.action === "settle-lease-only",
     );
-  if (input.dryRun || actionable.length === 0)
-    return migrationPreview(headRevision, markerOpId, report, actionable.length);
+  if (input.dryRun || actionable.length === 0) return migrationPreview(headRevision, markerOpId, report);
   if (gitRevision !== headRevision)
     throw new Error(
       `dispatch-records migration requires the WAL to be settled into Git first ` +
@@ -178,13 +177,6 @@ export async function runDispatchRecordMigration(input: DispatchRecordMigrationI
     },
     commitSha: appended.commitSha?.sha ?? null,
     cut: appended.cut,
-    ...(!visible
-      ? { nextAction: `Query receipt ${marker.opId} after canonical publication catches up.` }
-      : {
-          nextAction:
-            `Recovered ${actionable.length} dispatch record(s) with ${appendedEvents} runtime event(s) ` +
-            `and ${releasedLeases} lease release(s). Run ha daemon projection rebuild before continuing replay.`,
-        }),
   };
 }
 
@@ -677,7 +669,6 @@ function migrationPreview(
   headRevision: number,
   markerOpId: string,
   report: ReturnType<typeof dispatchRecordMigrationReport>,
-  actionable: number,
 ): WriteReceiptDraft {
   return {
     outcome: "pending",
@@ -692,10 +683,6 @@ function migrationPreview(
       canonicalVisible: false,
       worktreeVisible: false,
     },
-    nextAction:
-      actionable === 0
-        ? "Nothing to migrate: every dispatch record is already settled or was skipped."
-        : "Remove --dry-run to publish the dispatch-records migration through the canonical event store.",
   };
 }
 

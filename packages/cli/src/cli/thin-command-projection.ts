@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
+import { accepted, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export const projectedAliases: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.freeze({
@@ -100,11 +100,10 @@ export function parseProjected(
     invalidGroup = declaration?.actionConstraints?.find(
       (group) => group.filter((field) => action[field] !== undefined).length !== 1,
     );
-  if (conditionalViolation)
-    return rejected(conditionalViolation.error.code, conditionalViolation.error.nextAction, json);
+  if (conditionalViolation) return rejectInput(inputs, commandId, conditionalViolation.name, json);
   if (invalidGroup) {
     const input = declaration?.inputs.find((candidate) => invalidGroup.includes(candidate.field ?? ""));
-    return rejected(input?.error.code ?? "invalid_field", input?.error.nextAction ?? "Action inputs conflict.", json);
+    return rejectInput(inputs, commandId, input?.name ?? invalidGroup[0] ?? "input", json);
   }
   return accepted(rootDir, repoId, json, action as { readonly kind: string }, method);
 }

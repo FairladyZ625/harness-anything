@@ -84,18 +84,7 @@ export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({
   }),
   DAEMON_PROTOCOL_ERROR_SCHEMA = Object.freeze({
     id: "daemon.protocol-error/v1",
-    required: Object.freeze([
-      "schema",
-      "ok",
-      "command",
-      "outcome",
-      "opId",
-      "origin",
-      "code",
-      "evidence",
-      "error",
-      "nextAction",
-    ]),
+    required: Object.freeze(["schema", "ok", "command", "outcome", "opId", "origin", "code", "evidence", "error"]),
   }),
   DAEMON_GUI_COMMAND_RECEIPT_SCHEMA = Object.freeze({
     id: "command-receipt/v2",

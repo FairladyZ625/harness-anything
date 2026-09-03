@@ -32,7 +32,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
       code: staleLedger.code,
       origin: "doc-sync-contract",
       evidence: `contract-rejection:${staleLedger.code}`,
-      nextAction: staleLedger.detail.nextAction,
+      diagnostic: { kind: "failure", code: staleLedger.code },
       detail: staleLedger.detail,
       authorizationDecision: staleLedger.authorizationDecision!,
     }),
@@ -166,7 +166,7 @@ test("direct CRLF claims name the line-ending repair when the contract rejects t
   if (!result.accepted) {
     assert.equal(result.code, "unresolved_touch");
     assert.equal(result.detail.unresolvedTouches[0]?.reason, "claim is not canonical LF text");
-    assert.match(result.detail.nextAction, /LF line endings.*resubmit/u);
+    assert.equal(result.detail.unresolvedTouches[0]?.requiredRoute, "canonical-utf8-prose");
   }
 });
 

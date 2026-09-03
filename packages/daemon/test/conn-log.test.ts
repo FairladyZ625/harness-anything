@@ -23,10 +23,20 @@ function recordsOf(userRoot: string, daemonId = "test-daemon"): Record<string, u
 }
 const at = (iso: string) => () => new Date(iso);
 
-test("request failure detail selects only the first validator error", () => {
+test("request failure detail records the structured diagnostic instead of prose fallback", () => {
   assert.equal(
-    resultErrorDetail({ ok: false, error: { code: "invalid_result", hint: "first validator error; second error" } }),
-    "first validator error",
+    resultErrorDetail({
+      ok: false,
+      error: { code: "invalid_result" },
+      diagnostic: {
+        kind: "validation",
+        entity: "request",
+        field: "payload",
+        actual: "invalid",
+        expectation: "valid",
+      },
+    }),
+    '{"kind":"validation","entity":"request","field":"payload","actual":"invalid","expectation":"valid"}',
   );
   assert.equal(resultErrorDetail({ ok: true }), null);
 });

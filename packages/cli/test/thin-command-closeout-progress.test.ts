@@ -305,10 +305,7 @@ test("progress append preserves ordered duplicate evidence in its closed daemon 
   ]);
   assert.equal(invalidEvidence.ok, false);
   if (!invalidEvidence.ok)
-    assert.equal(
-      invalidEvidence.nextAction,
-      'Use --evidence <type>:<path>:<summary> with a canonical relative path. Received "bad".',
-    );
+    assert.equal(invalidEvidence.nextAction, 'Use --evidence with format <type>:<path>:<summary>. Received "bad".');
   const oldNote = parseThinCommand(["task", "progress", "append", "task-1", "--note=legacy"]),
     oldEvidence = parseThinCommand([
       "task",

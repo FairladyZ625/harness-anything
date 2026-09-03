@@ -5,6 +5,7 @@ import { readRuntimeBatch } from "./cli-runtime-batch-input.ts";
 import { runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
 import type { RuntimeBatchDeclaration, RuntimeBatchEntry, RuntimeBatchResult } from "./cli-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
+import { humanError } from "./cli/guidance-plane.ts";
 import { consumeKnownError } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
 
@@ -97,7 +98,6 @@ export function runtimeBatchSpawnAction(entry: RuntimeBatchEntry): ThinCommand["
 export function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, receipt: JsonObject): RuntimeBatchResult {
   const spawn =
       receipt.spawn && typeof receipt.spawn === "object" ? (receipt.spawn as Record<string, unknown>) : receipt,
-    error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : undefined,
     result =
       receipt.result && typeof receipt.result === "object" ? (receipt.result as Record<string, unknown>) : undefined,
     outcome = typeof receipt.outcome === "string" ? receipt.outcome : null,
@@ -108,7 +108,8 @@ export function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, rece
           ? "succeeded"
           : outcome === "unknown"
             ? "unknown"
-            : "failed";
+            : "failed",
+    failure = status === "succeeded" ? null : humanError(receipt);
   return {
     index,
     instance: entry.instance,
@@ -126,21 +127,19 @@ export function runtimeBatchResult(index: number, entry: RuntimeBatchEntry, rece
     code:
       typeof receipt.code === "string"
         ? receipt.code
-        : typeof error?.code === "string"
-          ? error.code
+        : failure?.code && failure.code !== "unknown"
+          ? failure.code
           : status === "failed" || status === "unknown"
             ? "runtime_failed"
             : null,
     reason:
       typeof receipt.reason === "string"
         ? receipt.reason
-        : typeof error?.hint === "string"
-          ? error.hint
-          : typeof receipt.nextAction === "string"
-            ? receipt.nextAction
-            : typeof receipt.summary === "string"
-              ? receipt.summary
-              : null,
+        : failure
+          ? failure.hint
+          : typeof receipt.summary === "string"
+            ? receipt.summary
+            : null,
     reportPath: null,
     resultText: typeof result?.text === "string" ? result.text : null,
   };

@@ -373,9 +373,8 @@ test("old-only standards fail closed before repository scaffold publication", ()
         "Owner",
       ]);
     assert.notEqual(rejected.status, 0);
-    const error = rejected.receipt.error as { code?: string; hint?: string };
+    const error = rejected.receipt.error as { code?: string };
     assert.equal(error.code, "standards_migration_required");
-    assert.match(error.hint ?? "", /explicit governance task/u);
     assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before);
     assert.equal(git(fixture.alpha, "status", "--porcelain"), status);
     assert.equal(existsSync(path.join(fixture.alpha, "harness/governance")), false);

@@ -352,11 +352,7 @@ export function openFleetLeaseBroker(options: {
           } catch (error) {
             consumeKnownError(error);
             result = {
-              ...failure(
-                "op_rejected",
-                "task_execute_failed",
-                "The queued command could not be executed; resubmit it.",
-              ),
+              ...failure("op_rejected", "task_execute_failed"),
               opId: head.opId,
             };
             if (coordination === "reserve") {
@@ -400,13 +396,13 @@ export function openFleetLeaseBroker(options: {
       ? { outcome: receipt.outcome, code: receipt.code ?? null, note: "receipt omitted: larger than the frame budget" }
       : receipt;
   }
-  function failure(outcome: "op_rejected" | "wait_expired", code: string, nextAction: string): FleetTaskResultFields {
+  function failure(outcome: "op_rejected" | "wait_expired", code: string): FleetTaskResultFields {
     return {
       outcome,
       opId: "",
       code,
       revision: null,
-      receipt: { outcome: "op_rejected", code, nextAction },
+      receipt: { outcome: "op_rejected", code },
       lease: null,
       queuePosition: null,
     };
@@ -462,7 +458,6 @@ export function openFleetLeaseBroker(options: {
           receipt: {
             outcome: "op_rejected",
             code: "operation_not_published",
-            nextAction: "Query the receipt or reacquire the current writer epoch before retrying.",
           },
           lease: null,
           queuePosition: null,
@@ -530,11 +525,7 @@ export function openFleetLeaseBroker(options: {
       Date.parse(assignment.expiresAt) <= nowMs
     )
       return {
-        ...failure(
-          "op_rejected",
-          "assignment_rejected",
-          "Assignment is absent, expired, or bound to another node or repo.",
-        ),
+        ...failure("op_rejected", "assignment_rejected"),
         opId: frame.opId,
       };
     const action = frame.action,
@@ -542,32 +533,20 @@ export function openFleetLeaseBroker(options: {
       coordination = lifecycleCoordination(action);
     if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind))
       return {
-        ...failure(
-          "op_rejected",
-          "task_command_rejected",
-          "The fleet task channel accepts its closed task command set only.",
-        ),
+        ...failure("op_rejected", "task_command_rejected"),
         opId: frame.opId,
       };
     const actionTaskId = typeof action.taskId === "string" ? action.taskId : null,
       taskId = frame.taskId ?? actionTaskId;
     if (actionTaskId !== null && taskId !== null && actionTaskId !== taskId)
       return {
-        ...failure(
-          "op_rejected",
-          "task_command_rejected",
-          "Lease-bound task commands must carry one consistent taskId.",
-        ),
+        ...failure("op_rejected", "task_command_rejected"),
         opId: frame.opId,
       };
     if (kind === "task-show") {
       if (taskId !== assignment.scope.taskId || frame.docChanges !== null || frame.mirrorBaseCut !== null)
         return {
-          ...failure(
-            "op_rejected",
-            "assignment_scope_mismatch",
-            "Fleet task reads must select the authenticated assignment task without document writes.",
-          ),
+          ...failure("op_rejected", "assignment_scope_mismatch"),
           opId: frame.opId,
         };
       const receipt = await options.host.run(assignment.repoId, action, auth(assignment));
@@ -600,16 +579,12 @@ export function openFleetLeaseBroker(options: {
             queuePosition: null,
           }
         : {
-            ...failure("op_rejected", "op_conflict", "This opId was already used for a different command."),
+            ...failure("op_rejected", "op_conflict"),
             opId: frame.opId,
           };
     if (inFlight.has(frame.opId))
       return {
-        ...failure(
-          "op_rejected",
-          "op_in_flight",
-          "This opId is currently executing; retry the same command to pick up its receipt.",
-        ),
+        ...failure("op_rejected", "op_in_flight"),
         opId: frame.opId,
       };
     if (kind === "task-create") {
@@ -622,11 +597,7 @@ export function openFleetLeaseBroker(options: {
     }
     if (taskId === null)
       return {
-        ...failure(
-          "op_rejected",
-          "task_command_rejected",
-          "Lease-bound task commands must carry one consistent taskId.",
-        ),
+        ...failure("op_rejected", "task_command_rejected"),
         opId: frame.opId,
       };
     const key = taskKey(assignment.repoId, taskId);
@@ -641,7 +612,7 @@ export function openFleetLeaseBroker(options: {
         )
           return {
             result: {
-              ...failure("op_rejected", "op_conflict", "This opId is already queued for a different command."),
+              ...failure("op_rejected", "op_conflict"),
               opId: frame.opId,
             },
           };
@@ -665,18 +636,14 @@ export function openFleetLeaseBroker(options: {
                   queuePosition: null,
                 }
               : {
-                  ...failure("op_rejected", "op_conflict", "This opId was already used for a different command."),
+                  ...failure("op_rejected", "op_conflict"),
                   opId: frame.opId,
                 },
         };
       if (inFlight.has(frame.opId))
         return {
           result: {
-            ...failure(
-              "op_rejected",
-              "op_in_flight",
-              "This opId is currently executing; retry the same command to pick up its receipt.",
-            ),
+            ...failure("op_rejected", "op_in_flight"),
             opId: frame.opId,
           },
         };
@@ -692,11 +659,7 @@ export function openFleetLeaseBroker(options: {
         if (!probe.available && !row)
           return {
             result: {
-              ...failure(
-                "op_rejected",
-                "lease_state_unavailable",
-                "The canonical lease could not be read; retry without changing the opId.",
-              ),
+              ...failure("op_rejected", "lease_state_unavailable"),
               opId: frame.opId,
             },
           };
@@ -755,11 +718,7 @@ export function openFleetLeaseBroker(options: {
     const items = state.queue[key] ?? [];
     if (items.length >= timers.maxQueuePerTask)
       return Promise.resolve({
-        ...failure(
-          "op_rejected",
-          "wait_queue_full",
-          `This task already has ${items.length} waiting commands; retry later.`,
-        ),
+        ...failure("op_rejected", "wait_queue_full"),
         opId,
       });
     const item: WaitItem = {
@@ -779,7 +738,7 @@ export function openFleetLeaseBroker(options: {
     const existing = parks.get(item.opId);
     if (existing && !existing.clientGone())
       return Promise.resolve({
-        ...failure("op_rejected", "op_in_flight", "This queued opId already has a live response channel."),
+        ...failure("op_rejected", "op_in_flight"),
         opId: item.opId,
       });
     if (existing) existing.disconnect();
@@ -798,11 +757,7 @@ export function openFleetLeaseBroker(options: {
       };
       const disconnect = (): void => {
         settle({
-          ...failure(
-            "op_rejected",
-            "client_disconnected",
-            "The waiting client disconnected; the queued command stays persisted until its deadline; re-send the same opId to re-attach.",
-          ),
+          ...failure("op_rejected", "client_disconnected"),
           opId: item.opId,
         });
       };
@@ -822,8 +777,6 @@ export function openFleetLeaseBroker(options: {
             receipt: {
               outcome: "op_rejected",
               code: "wait_expired",
-              nextAction:
-                "The task stayed held by another collaborator past the wait deadline; resubmit the command to re-enter the same automatic flow.",
             },
             lease: null,
             queuePosition: null,
@@ -890,11 +843,7 @@ export function openFleetLeaseBroker(options: {
       clearInterval(reaper);
       for (const [opId, park] of [...parks.entries()])
         park.settle({
-          ...failure(
-            "op_rejected",
-            "center_closing",
-            "The fleet center is shutting down; resubmit to re-attach to the persisted queue.",
-          ),
+          ...failure("op_rejected", "center_closing"),
           opId,
         });
       parks.clear();

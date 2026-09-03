@@ -65,8 +65,6 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       beforeSubmission.unmetCriteria?.map(({ ref }) => ref),
       ["task-lifecycle-review-transitions/review.validate"],
     );
-    assert.match(String(beforeSubmission.nextAction), /requires a submitted execution/u);
-    assert.deepEqual(beforeSubmission.nextActions, [beforeSubmission.nextAction]);
 
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
     const commitSha = git(rootDir, "rev-parse", "HEAD");
@@ -97,7 +95,6 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       { ...human, roleBindings: [], authorizationBindingMode: "declared" },
     );
     assert.equal(withoutRole.code, "authorization_denied");
-    assert.match(String(withoutRole.nextAction), /authorized bindings/u);
 
     // The submitting executor reviewing itself is the one genuinely dependent case.
     const selfReview = await cell.run(
@@ -105,9 +102,6 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       agent,
     );
     assert.equal(selfReview.code, "actor_unauthorized");
-    assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
-    assert.doesNotMatch(String(selfReview.nextAction), /declared no executor/u);
-    assert.deepEqual(selfReview.nextActions, [selfReview.nextAction]);
 
     // The repair the issue could not find: a bare human invocation reviews an agent-declared submission
     // on the very same principal. This is the assertion that falsifies "unreachable on Windows".
@@ -304,9 +298,6 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       refused.unmetCriteria?.map(({ ref }) => ref),
       ["repo-cell-proof/proofFor.RecordReview"],
     );
-    assert.match(String(refused.nextAction), /declared no executor/u);
-    assert.match(String(refused.nextAction), /original start/u);
-    assert.deepEqual(refused.nextActions, [refused.nextAction]);
 
     writeFileSync(
       path.join(rootDir, "external-review.json"),
@@ -413,8 +404,6 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       agent,
     );
     assert.equal(selfReview.code, "actor_unauthorized");
-    assert.match(String(selfReview.nextAction), /independent of the submitting executor/u);
-    assert.deepEqual(selfReview.nextActions, [selfReview.nextAction]);
 
     const reviewed = await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "r3", fromFile: "review.json" },
@@ -430,8 +419,6 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       wrongOwner,
     );
     assert.equal(consent.code, "actor_unauthorized");
-    assert.match(String(consent.nextAction), /personId=0/u);
-    assert.doesNotMatch(String(consent.nextAction), /executor=/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -622,8 +609,6 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       bare,
     );
     assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
-    assert.match(String(denied.nextAction), /has no recorded runtime dispatch/u);
-    assert.match(String(denied.nextAction), new RegExp(`ha task dispatches ${taskId}`, "u"));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -812,11 +797,6 @@ test("task-bound runtime sessions cannot review their own execution across exit 
         arbiter(`runtime-session:${runtimeSessionId}`),
       );
       assert.equal(denied.code, "runtime_task_self_review_forbidden");
-      assert.equal(
-        denied.nextAction,
-        `This runtime is bound to task ${taskId} and execution ${executionId} and cannot review its own work; have an independent human or a runtime with no binding to this task and execution run ha task review-execution ${taskId} --execution-id ${executionId} --review-id ${reviewId} --from-file <review.json>.`,
-      );
-      assert.deepEqual(denied.nextActions, [denied.nextAction]);
       assert.equal(
         (
           await cell.run(

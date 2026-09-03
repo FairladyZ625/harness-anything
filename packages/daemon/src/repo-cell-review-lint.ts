@@ -1,3 +1,4 @@
+import { reviewVerdicts } from "../../kernel/src/index.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 
 export function legacyReviewLint(body: string, taskId: string, reviewerId: string, verifiedAt: string) {
@@ -80,7 +81,12 @@ export function legacyReviewLint(body: string, taskId: string, reviewerId: strin
 
 export function reviewVerdict(value: unknown): "approved" | "changes_requested" | "dismissed" {
   if (value === "approved" || value === "changes_requested" || value === "dismissed") return value;
-  throw cellCodedError("invalid_command", "verdict must be approved, changes_requested, or dismissed.");
+  throw cellCodedError("invalid_command", "verdict must be approved, changes_requested, or dismissed.", {
+    kind: "invalid-enum",
+    field: "verdict",
+    actual: String(value),
+    allowedValues: reviewVerdicts,
+  });
 }
 
 export function iteration(value: unknown): number {

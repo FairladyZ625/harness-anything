@@ -75,7 +75,6 @@ export function adjudicateDocIntent(
       authorizationDecision,
       detail: {
         ...pending,
-        nextAction: `run ha receipt show ${opId} after the canonical projection catches up`,
       },
     };
   }

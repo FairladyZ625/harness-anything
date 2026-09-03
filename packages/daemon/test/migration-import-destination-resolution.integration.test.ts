@@ -319,10 +319,8 @@ test("a destination directory can be kept but cannot be replaced by =source", as
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(unsupported.outcome, "op_rejected");
-    assert.match(
-      String(unsupported.nextAction),
-      /is a directory; =source cannot replace a directory node.*manually.*dry-run/iu,
-    );
+    assert.equal(unsupported.code, "invalid_migration_resolution");
+    assert.deepEqual(unsupported.diagnostic, { kind: "failure", code: "invalid_migration_resolution" });
     const kept = (await cell.run(
       {
         kind: "migrate-import",
@@ -365,17 +363,15 @@ test("resolution declarations reject traversal, duplicates, and paths that are n
         },
         { actor, source: "local" },
       );
-    for (const [values, pattern] of [
-      [["../outside.md=source"], /normalized repository-relative path/u],
-      [
-        ["harness/field-notes/2024/xyz.md=source", "harness/field-notes/2024/xyz.md=destination"],
-        /Duplicate --resolve path/u,
-      ],
-      [["harness/field-notes/2024/xyz.md=source"], /is not currently a destination conflict/u],
+    for (const values of [
+      ["../outside.md=source"],
+      ["harness/field-notes/2024/xyz.md=source", "harness/field-notes/2024/xyz.md=destination"],
+      ["harness/field-notes/2024/xyz.md=source"],
     ] as const) {
       const result = (await run(values)) as Record<string, unknown>;
       assert.equal(result.outcome, "op_rejected");
-      assert.match(String(result.nextAction), pattern);
+      assert.equal(result.code, "invalid_migration_resolution");
+      assert.deepEqual(result.diagnostic, { kind: "failure", code: "invalid_migration_resolution" });
     }
   } finally {
     await cell?.close();
@@ -424,7 +420,8 @@ test("resolution cannot bypass a repository document that is semantically uncarr
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected");
-    assert.match(String(rejected.nextAction), /not currently a destination conflict/u);
+    assert.equal(rejected.code, "invalid_migration_resolution");
+    assert.deepEqual(rejected.diagnostic, { kind: "failure", code: "invalid_migration_resolution" });
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

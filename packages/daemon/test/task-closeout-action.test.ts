@@ -247,8 +247,8 @@ test("a mismatched resubmission reports the locked content and the omission repa
   try {
     const receipt = await value.run();
     assert.equal(receipt.code, "submission_mismatch");
-    assert.match(String(receipt.nextAction), /"completionClaim": "Complete\."/u);
-    assert.match(String(receipt.nextAction), /Remove the submission section/u);
+    assert.match(JSON.stringify(receipt.diagnostic), /\\"completionClaim\\":\\"Complete\.\\"/u);
+    assert.match(guidanceCommands(receipt), /ha task closeout/u);
     assert.equal(value.calls.length, 0);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
@@ -275,7 +275,7 @@ test("one invalid closeout response names every bad field", async () => {
   );
   try {
     const receipt = await value.run(),
-      report = String(receipt.nextAction);
+      report = JSON.stringify(receipt.diagnostic);
     assert.equal(receipt.code, "invalid_judgment");
     for (const field of [
       "packet.submission.completionClaim",
@@ -339,7 +339,7 @@ test("an unblocked reviewed execution with no executor points closeout at audite
     const receipt = await value.run();
     assert.equal(receipt.code, "executor_missing");
     assert.match(
-      String(receipt.nextAction),
+      guidanceCommands(receipt),
       /ha task declare-executor task-closeout --execution-id execution-closeout/u,
     );
     assert.equal(value.calls.length, 0);
@@ -356,7 +356,7 @@ for (const stage of ["submit", "review-execution", "review-consent", "complete"]
       };
       assert.equal(receipt.outcome, "op_rejected");
       assert.equal(receipt.stoppedAt, stage);
-      assert.match(String(receipt.nextAction), /\bha\s/u);
+      assert.match(guidanceCommands(receipt), /\bha\s/u);
     } finally {
       rmSync(value.rootDir, { recursive: true, force: true });
     }
@@ -369,10 +369,10 @@ test("ambiguous submitted cuts fail closed with explicit closeout candidates", a
     const receipt = await value.run();
     assert.equal(receipt.code, "ambiguous_execution");
     assert.match(
-      String(receipt.nextAction),
+      guidanceCommands(receipt),
       /ha task closeout task-closeout --from-file judgment\.json --execution-id execution-a/u,
     );
-    assert.match(String(receipt.nextAction), /--execution-id execution-b/u);
+    assert.match(guidanceCommands(receipt), /--execution-id execution-b/u);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
@@ -386,8 +386,14 @@ test("closeout rejects judgment intent it would otherwise have to invent", async
   try {
     const receipt = await value.run();
     assert.equal(receipt.code, "invalid_judgment");
-    assert.match(String(receipt.nextAction), /ha task closeout/u);
+    assert.match(guidanceCommands(receipt), /ha task closeout/u);
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
 });
+
+function guidanceCommands(receipt: WriteReceipt): string {
+  return (receipt.guidance ?? [])
+    .flatMap((entry) => (typeof entry.args.command === "string" ? [entry.args.command] : []))
+    .join("\n");
+}

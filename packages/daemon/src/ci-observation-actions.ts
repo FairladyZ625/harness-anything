@@ -115,7 +115,6 @@ export async function pullAndIngestCiObservations(
         worktreeVisible: false,
       },
       summary: `Imported ${imported} CI observation artifact(s); ${duplicate} already existed.`,
-      ...(visible ? {} : { nextAction: "Retry after the CI observation projection catches up." }),
     } as WriteReceipt;
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });

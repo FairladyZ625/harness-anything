@@ -49,11 +49,6 @@ test("submit lease refusals name the state-specific command that advances the ex
       withoutLease.unmetCriteria?.map(({ ref }) => ref),
       ["actor-domain-services/heldLeaseForExecutionActor"],
     );
-    assert.equal(
-      withoutLease.nextAction,
-      `The authenticated actor owns the active execution lease at its current version. Then retry ha task submit ${taskId} [--execution-id <execution-id>] [--from-file <from-file>] [--json-input <json-input>].`,
-    );
-    assert.deepEqual(withoutLease.nextActions, [withoutLease.nextAction]);
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, holder)).outcome,
@@ -69,11 +64,6 @@ test("submit lease refusals name the state-specific command that advances the ex
       alreadySubmitted.unmetCriteria?.map(({ ref }) => ref),
       ["task-lifecycle-command-transitions/submit.validate"],
     );
-    assert.equal(
-      alreadySubmitted.nextAction,
-      `Execution ${executionId} is already submitted; run ha task review-execution ${taskId} --execution-id ${executionId} --review-id <review-id> --from-file <review.json>.`,
-    );
-    assert.deepEqual(alreadySubmitted.nextActions, [alreadySubmitted.nextAction]);
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
@@ -120,10 +110,6 @@ test("progress lease mismatch names the holder and a release plus re-entry route
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     const rejected = await cell.run({ kind: "task-progress-append", taskId, text: "Wrong holder." }, next);
     assert.equal(rejected.code, "progress_lease_mismatch", JSON.stringify(rejected));
-    assert.equal(
-      rejected.nextAction,
-      `Progress append requires the active lease holder (personId=person-owner, executor=agent:holder) for execution ${executionId}; that holder must run ha task progress append ${taskId} --text <text>, or run ha task release ${taskId}, then this caller can run ha task start ${taskId} --execution-id ${executionId} before retrying progress append.`,
-    );
     assert.equal((await cell.run({ kind: "task-release", taskId }, holder)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, next)).outcome, "applied");
     assert.equal(
@@ -164,10 +150,6 @@ test("executor declaration and completion context refusals name projection rebui
       declarer,
     );
     assert.equal(declaration.code, "content_not_ready", JSON.stringify(declaration));
-    assert.equal(
-      declaration.nextAction,
-      `Task ${taskId} is not ready for executor declaration; run ha daemon projection rebuild, then retry ha task declare-executor ${taskId} --execution-id ${executionId} --agent <dispatch-agent> --reason <reason>.`,
-    );
     assert.equal((await cell.run({ kind: "projection-rebuild" }, declarer)).outcome, "applied");
     const withoutDispatch = await cell.run(
       { kind: "task-declare-executor", taskId, executionId, reason: "Recover omitted executor" },
@@ -181,10 +163,6 @@ test("executor declaration and completion context refusals name projection rebui
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-three" });
     const metadata = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(metadata.code, "content_not_ready", JSON.stringify(metadata));
-    assert.equal(
-      metadata.nextAction,
-      `Task ${taskId} package metadata is not ready; run ha daemon projection rebuild, then retry ha task complete ${taskId} --execution-id ${executionId}.`,
-    );
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
     assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "review_missing");
     await cell.close();

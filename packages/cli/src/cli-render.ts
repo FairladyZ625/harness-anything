@@ -1,6 +1,7 @@
 import type { RuntimeBatchResult } from "./cli-types.ts";
 import { cliErrorMessage } from "./cli-error.ts";
 import { consumeKnownError } from "./daemon/client.ts";
+import { renderCliGuidance } from "./cli/guidance-plane.ts";
 
 type CliDispatchFailure =
   | { readonly _tag: "DirectDaemonFailure"; readonly errorCode: string; readonly message: string }
@@ -20,12 +21,31 @@ export function cliDispatchError(input: {
     failure = { _tag: "DaemonResponseTimeout", errorCode: input.timeoutCode, message };
   else failure = { _tag: "DaemonUnavailable", errorCode: "daemon_unavailable", message };
   switch (failure._tag) {
-    case "DirectDaemonFailure":
-      return { code: failure.errorCode, hint: failure.message };
+    case "DirectDaemonFailure": {
+      const params = errorParams(input.error),
+        hint =
+          failure.errorCode === "daemon_target_conflict" && params
+            ? renderCliGuidance("daemon-target-conflict", params)
+            : failure.errorCode === "daemon_build_stale"
+              ? renderCliGuidance("daemon-build-stale", {})
+              : renderCliGuidance("direct-daemon-failure", { message: failure.message });
+      return { code: failure.errorCode, hint };
+    }
     case "DaemonResponseTimeout":
     case "DaemonUnavailable":
-      return { code: failure.errorCode, hint: `Local daemon request failed. Cause: ${failure.message}` };
+      return {
+        code: failure.errorCode,
+        hint: renderCliGuidance("daemon-connection-failure", { message: failure.message }),
+      };
   }
+}
+
+function errorParams(error: unknown): Readonly<Record<string, unknown>> | null {
+  if (!error || typeof error !== "object" || !("params" in error)) return null;
+  const params = error.params;
+  return params && typeof params === "object" && !Array.isArray(params)
+    ? (params as Readonly<Record<string, unknown>>)
+    : null;
 }
 
 export function renderRuntimeBatchRow(value: unknown): string {

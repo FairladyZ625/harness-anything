@@ -127,6 +127,5 @@ export function runtimeIngressReceipt(cell: RepoCellActionContext, value: AgentR
       worktreeVisible: null,
     },
     event: value,
-    nextAction: visible ? null : `Query receipt ${value.opId}.`,
   } as unknown as JsonObject;
 }

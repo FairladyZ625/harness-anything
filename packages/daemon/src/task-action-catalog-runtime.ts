@@ -171,7 +171,7 @@ export async function runTaskActionCatalogRuntime(
         admissible: canStartExecution(current.snapshot, executionId),
       },
       current.snapshot.revision,
-      "Remove --dry-run to acquire the lease and publish the execution-start event.",
+      action.kind,
     );
   }
   const command = cell.withServerMeta(
@@ -221,13 +221,8 @@ export async function runTaskActionCatalogRuntime(
       evidence: result.evidence,
       visibility: result.visibility,
       proof: result.proof,
-      nextAction: result.nextAction ?? "Retry receipt show.",
     };
-  return cell.rejected(
-    command.opId,
-    result.code ?? "publication_unknown",
-    result.nextAction ?? "Retry receipt show before resubmitting.",
-  );
+  return cell.rejected(command.opId, result.code ?? "publication_unknown");
 }
 
 function taskActionFailure(
@@ -286,16 +281,17 @@ function taskActionRejection(
       if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${criterionRef} is not declared.`);
       return criterion;
     }),
-    nextActions = Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
+    nextActions = rejected?.diagnostic
+      ? Object.freeze([])
+      : Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
     first = unmetCriteria[0]!;
   return {
     ...(rejected ??
       cell.rejected(
         cell.operationId(action, binding, cell.input.repoId, revision),
         rejectionCode ?? first.failureCode,
-        nextActions[0] ?? first.explain,
       )),
-    nextAction: nextActions[0] ?? first.explain,
+
     evidence: `criterion:${first.ref}`,
     unmetCriteria,
     rejectionExplanation: first.explain,

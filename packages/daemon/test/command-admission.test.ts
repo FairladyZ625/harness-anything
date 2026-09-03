@@ -27,7 +27,7 @@ test("all daemon commands close every repo-mode admission cell", () => {
         assert.equal(assigned.ok, true, `${command.id} ${mode} assignment fixture`);
       } else if (route === "via-center-forward") {
         assert.equal(direct.ok, false, `${command.id} ${mode} forwards instead of executing locally`);
-        assert.match(direct.nextAction, /forward/iu, command.id);
+        assert.equal(direct.nextAction, direct.code, command.id);
       } else {
         assert.equal(direct.ok, false, `${command.id} ${mode} explicitly rejected`);
         assert.equal(assigned.ok, false, `${command.id} ${mode} explicitly rejected for assignments`);

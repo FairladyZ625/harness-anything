@@ -270,16 +270,10 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
 }
 
 function invocationNextActions(action: EntityActionContract): readonly string[] {
-  const required = action.input.fields.flatMap((field) =>
-      field.required && field.cli ? [field.cli.error.nextAction] : [],
-    ),
-    alternatives = action.input.exactlyOneOf.flatMap((group) =>
-      group.flatMap((fieldName) => {
-        const field = action.input.fields.find((candidate) => candidate.field === fieldName);
-        return field?.cli ? [field.cli.error.nextAction] : [];
-      }),
-    );
-  return [...new Set([...required, ...alternatives])];
+  const hasRequiredInvocation =
+    action.input.fields.some((field) => field.required && field.cli !== undefined) ||
+    action.input.exactlyOneOf.length > 0;
+  return hasRequiredInvocation ? [taskActionUsage(action)] : [];
 }
 
 function retryUsage(action: EntityActionContract, taskId = "<task-id>"): string {

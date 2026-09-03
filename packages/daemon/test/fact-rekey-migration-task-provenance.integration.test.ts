@@ -101,7 +101,6 @@ test("fact rekey preserves the typed rejection for a non-target invalid migratio
     const rejected = await cell.run({ kind: "fact-rekey", dryRun: true }, fixture.binding);
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "service_rejected");
-    assert.match(String(rejected.nextAction), /migration task entity is invalid/u);
   } finally {
     await cell?.close();
     rmSync(fixture.rootDir, { recursive: true, force: true });

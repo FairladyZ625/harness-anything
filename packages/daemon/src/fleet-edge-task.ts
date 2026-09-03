@@ -252,7 +252,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
         consumeKnownError(error);
         mirror = {
           outcome: "pull_failed",
-          nextAction: "The center effect stands; rerun ha daemon fleet edge sync to project it into the local mirror.",
+
           error: error instanceof Error ? error.message : String(error),
         };
       }
@@ -275,14 +275,6 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
               code:
                 result.code ??
                 (mirror !== null && mirror.outcome === "pull_blocked" ? "pull_blocked" : "fleet_task_rejected"),
-              hint: conflictNextAction(
-                staged,
-                typeof receipt.nextAction === "string"
-                  ? receipt.nextAction
-                  : conflictCode === null
-                    ? "Inspect the fleet task receipt."
-                    : "Pull the center, rebase the local task documents, and rerun the same command; or resolve the staged conflict explicitly.",
-              ),
             },
           }),
       ...(receipt as Record<string, unknown>),
@@ -354,11 +346,6 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
       mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },
     };
   }
-}
-function conflictNextAction(staged: readonly FleetStagedConflict[], fallback: string): string {
-  return staged.length > 0
-    ? `The command was rejected and its divergence is staged at ${staged[0]!.dir}; exit explicitly with ha doc conflict resolve|discard-local|overwrite-center ${staged[0]!.conflictId}.`
-    : fallback;
 }
 const FLEET_DOC_CONFLICT_CODES = Object.freeze(["mirror_behind_center", "base_blob_changed", "base_ledger_changed"]);
 function transientResult(result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>): boolean {

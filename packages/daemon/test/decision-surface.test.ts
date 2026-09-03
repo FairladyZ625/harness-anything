@@ -71,11 +71,6 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(validatedAfterRelate.outcome, "applied");
     assert.equal(validationAfterRelate.rows[0]?.valid, true);
     assert.deepEqual(validationAfterRelate.rows[0]?.errors, []);
-    assert.match(
-      proposed.nextAction ?? "",
-      /First run `ha fact record`, then `ha relation relate .* --type evidenced-by/u,
-      JSON.stringify(proposed),
-    );
     const amended = await cell.run(
       {
         kind: "decision-amend",

@@ -281,7 +281,6 @@ export async function runCommandThroughDaemon(
           ? {
               error: {
                 code: result.code ?? "preset_run_failed",
-                hint: result.nextAction ?? "Inspect the run receipt.",
               },
             }
           : {}),

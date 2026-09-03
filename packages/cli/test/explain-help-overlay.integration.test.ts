@@ -80,7 +80,6 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     const retired = runJson(root, userRoot, ["entity", "explain", "task"]);
     assert.equal(retired.status, 2);
     assert.equal(retired.value.code, "unsupported_command");
-    assert.match(String(retired.value.nextAction), /ha explain task/u);
 
     assert.deepEqual(store.read(), beforeStream);
     assert.equal(git(root, "status", "--porcelain=v1"), beforeGit);
@@ -182,7 +181,7 @@ function startDaemon(root: string, userRoot: string): void {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     if (runJson(root, userRoot, ["daemon", "status"]).status === 0) return;
   }
-  assert.fail(String(started.value.nextAction));
+  assert.fail(JSON.stringify(started.value));
 }
 
 function runJson(
