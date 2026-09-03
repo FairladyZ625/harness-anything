@@ -63,7 +63,9 @@ test("the folded per-store reads are gone and the net read count fell", () => {
       `${method} must be replaced by a use-case projection`,
     );
   // Baseline at 4221c3148 was 30 named reads plus observeTail; three folded, one unified endpoint.
-  assert.equal(daemonGuiReadMethods.length, 29, "31 array entries minus 3 folded plus 1 unified");
+  // task_0df76ed3fb then added the three entity reads (kinds / rows / locator): the GUI's entity
+  // surface derives from declarations, and those declarations had no read of their own.
+  assert.equal(daemonGuiReadMethods.length, 32, "31 array entries minus 3 folded plus 1 unified plus 3 entity reads");
 });
 
 test("the selector boundary admits and rejects identically for every projection", () => {

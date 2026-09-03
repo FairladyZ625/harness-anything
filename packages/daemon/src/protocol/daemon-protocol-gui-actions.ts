@@ -170,6 +170,18 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/decision-control/:decisionId/defer",
     "arbiter",
   ),
+  // 声明实体的新建入口(task_0df76ed3fb Goal 4):复用 CLI `ha entity import` 的同一个
+  // center 单写路与 entity revision fence,不新造第二条写路。GUI 只递 kind/locator/title,
+  // relink 语义的 entityId/sourceIdentity 不开放给渲染层。
+  guiAction(
+    "entity.import",
+    "repo.entity.import",
+    "entity-import",
+    shape({ entityKind: "string", locator: "string", expectedVersion: "number", title: "string?" }),
+    "importEntity",
+    "/api/entities/import",
+    "repo-write",
+  ),
   guiAction(
     "receipt.show",
     "repo.receipt.show",

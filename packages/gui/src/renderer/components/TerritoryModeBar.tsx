@@ -1,4 +1,5 @@
 import { Panel } from "@xyflow/react";
+import type { TerritorySkel } from "../graph/territory.ts";
 
 /**
  * 实体工作台 3 态模式条(REQ-GUI-03):领地 / 聚光灯 / 演化史。
@@ -7,7 +8,8 @@ import { Panel } from "@xyflow/react";
  * 焦点可用:非 decision 焦点时按钮置灰 + tooltip(指向空态文案)。
  */
 export type WorkspaceMode = "territory" | "spotlight" | "lineage";
-export type TerritorySkel = "task" | "decision" | "fact" | "unified";
+// 领地 skeleton 的取值由分区模块拥有,这里只转出,不写第二份。
+export type { TerritorySkel };
 
 export function TerritoryModeBar({
   mode,

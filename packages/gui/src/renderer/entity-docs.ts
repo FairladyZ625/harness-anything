@@ -1,4 +1,5 @@
 import type { ViewId } from "./navigation/viewHistory.ts";
+import type { EntityKindCatalog, EntityKindRow } from "./entity-kind-catalog-client.ts";
 
 /**
  * 实体说明面(dec_2935057783CD5D56E9F287AE4D CH4)的说明内容目录。
@@ -68,7 +69,7 @@ export interface EntityKindDoc {
 }
 
 export interface EntityDocGroup {
-  readonly id: "triad" | "runtime" | "catalog";
+  readonly id: "triad" | "runtime" | "catalog" | "declared";
   readonly title: string;
   readonly summary: string;
   readonly docs: readonly EntityKindDoc[];
@@ -724,7 +725,70 @@ const adapterDoc: EntityKindDoc = {
   liveCount: "adapters",
 };
 
-export const ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
+/**
+ * 声明实体的说明条目:**由声明派生**,不手写。内建 kind 的「它是什么」那一半是人写的
+ * 策展文案(代码拥有语义,文档写不出来);vertical 声明出来的 kind 没有这样的作者——
+ * 它的语义就是声明本身,所以这里逐字从读面的 declaration / explanation 取,一个字不编。
+ */
+export function governedEntityDoc(row: EntityKindRow): EntityKindDoc {
+  const declaration = row.declaration;
+  return {
+    kind: row.kind,
+    schemaId: row.explanation.documentSchema.id,
+    refTemplate: row.refTemplate,
+    storage: declaration === null ? "账本(声明实体)" : `${declaration.pathTemplate}(账本内声明文件)`,
+    definition:
+      declaration === null
+        ? `由 vertical 声明的实体种类 ${row.kind}。`
+        : `${declaration.display.singular}:由 ${row.verticalId ?? "vertical"} 声明的实体种类。正文不进账本——` +
+          `账本里只有描述符,locator(${declaration.locatorKinds.join(" / ")})指向正文所在。`,
+    fields: row.explanation.documentSchema.fields.map((field) => ({
+      name: field.name,
+      required: field.required,
+      shape: Array.isArray(field.type) ? field.type.join(" | ") : String(field.type),
+      meaning: field.description ?? "",
+    })),
+    nestedFields: noNested,
+    statuses: row.explanation.statusVocabulary.map((entry) => ({ field: entry.field, words: [...entry.words] })),
+    edges: row.explanation.relations.edges.map((edge) => ({
+      type: edge.type,
+      sourceKind: edge.sourceKind,
+      targetKind: edge.targetKind,
+    })),
+    actions: [...row.explanation.transitions.available],
+    guiEntry: null,
+    liveCount: null,
+  };
+}
+
+/**
+ * 说明面的分组。内建三组是策展文案,第四组「声明实体」由已注册 kind 读面派生——
+ * 声明一个新 kind,这一页不改代码就多一条。
+ */
+export function entityDocGroups(catalog: EntityKindCatalog): readonly EntityDocGroup[] {
+  const declared = catalog.kinds.filter(({ origin }) => origin === "vertical").map(governedEntityDoc);
+  return declared.length === 0
+    ? CURATED_ENTITY_DOC_GROUPS
+    : [
+        ...CURATED_ENTITY_DOC_GROUPS,
+        {
+          id: "declared",
+          title: "声明实体",
+          summary: "由本仓 vertical 声明出来的实体种类:内容来自声明本身,不是这一页手写的。",
+          docs: declared,
+        },
+      ];
+}
+
+export function entityDocIndex(catalog: EntityKindCatalog): ReadonlyMap<string, EntityKindDoc> {
+  return new Map(
+    entityDocGroups(catalog)
+      .flatMap((group) => group.docs)
+      .map((doc) => [doc.kind, doc]),
+  );
+}
+
+export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
   {
     id: "triad",
     title: "三元语",
@@ -745,8 +809,9 @@ export const ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
   },
 ];
 
-export const ENTITY_DOC_BY_KIND: ReadonlyMap<string, EntityKindDoc> = new Map(
-  ENTITY_DOC_GROUPS.flatMap((group) => group.docs).map((doc) => [doc.kind, doc]),
+/** 内建策展目录的 kind 索引;声明实体走 entityDocIndex(catalog)。 */
+export const CURATED_ENTITY_DOC_BY_KIND: ReadonlyMap<string, EntityKindDoc> = new Map(
+  CURATED_ENTITY_DOC_GROUPS.flatMap((group) => group.docs).map((doc) => [doc.kind, doc]),
 );
 
-export const entityDocKinds = (): readonly string[] => [...ENTITY_DOC_BY_KIND.keys()];
+export const entityDocKinds = (): readonly string[] => [...CURATED_ENTITY_DOC_BY_KIND.keys()];

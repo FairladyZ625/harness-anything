@@ -14,7 +14,8 @@ import type { TaskRow, RelationEdge, DecisionRow, FactRef } from "../model/types
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { parseEndpoint } from "../graph/endpoint";
 import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNode";
-import { GraphFilterPanel, type GraphFilters } from "../components/GraphFilterPanel";
+import { GraphFilterPanel, type EntityTypeOption, type GraphFilters } from "../components/GraphFilterPanel";
+import type { GovernedEntityRow } from "../graph/governedEntities";
 import { GraphLegend } from "../components/GraphLegend.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { FocusSwitcher } from "../components/FocusSwitcher";
@@ -70,6 +71,10 @@ export interface GraphViewProps {
   entries?: ReadonlyArray<PaletteEntry>;
   /** 点击 ⌘K 徽标打开全局面板。 */
   onOpenPalette?: () => void;
+  /** 可筛选的实体种类(已注册 kind 读面派生);空 = 读面尚未回来,此时按种类不筛。 */
+  entityKinds?: readonly EntityTypeOption[];
+  /** 声明实体行(vertical kind);缺省 = 本仓没有声明实体,图照常。 */
+  governedEntities?: ReadonlyArray<GovernedEntityRow>;
   focusRef: string | null;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
@@ -92,6 +97,8 @@ const EMPTY_ANCHORS: ReadonlyArray<FactAnchorRow> = [];
 const EMPTY_AGENTS: ReadonlyArray<AgentNodeRow> = [];
 const EMPTY_SCHEDULES: ReadonlyArray<ScheduleNodeRow> = [];
 const EMPTY_RELATIONS: ReadonlyArray<RelationEdge> = [];
+const EMPTY_GOVERNED: ReadonlyArray<GovernedEntityRow> = [];
+const EMPTY_KINDS: ReadonlyArray<EntityTypeOption> = [];
 
 function GraphViewInner({
   tasks,
@@ -106,6 +113,8 @@ function GraphViewInner({
   onNavigateEntity,
   onSetTaskPin,
   onFocusEntityChange,
+  entityKinds = EMPTY_KINDS,
+  governedEntities = EMPTY_GOVERNED,
   focusRef,
   viewMode,
   onViewModeChange,
@@ -154,10 +163,16 @@ function GraphViewInner({
   }, []);
 
   const availableModules = useMemo(() => Array.from(new Set(tasks.map((t) => t.module))).sort(), [tasks]);
+  const knownKindsRef = useRef<ReadonlySet<string>>(new Set(entityKinds.map(({ kind }) => kind)));
+  // kind → 显示名:领地分块标题与图例共用读面上的声明显示名,不在图里再写一份。
+  const kindLabelOf = useCallback(
+    (kind: string) => entityKinds.find((option) => option.kind === kind)?.label ?? kind,
+    [entityKinds],
+  );
 
   const [filters, setFilters] = useState<GraphFilters>(() => ({
     modules: new Set(availableModules.length ? availableModules : []),
-    types: new Set(["decision", "task", "fact", "agent", "schedule"] as const),
+    types: new Set(entityKinds.map(({ kind }) => kind)),
     axes: defaultAxisFilter(),
     kinds: defaultKindFilter(),
     entityStatus: defaultEntityStatusFilter(),
@@ -171,6 +186,19 @@ function GraphViewInner({
       return { ...cur, modules: next };
     });
   }, [availableModules]);
+
+  // 声明一个新 kind,筛选面板不改代码就该看见它:新登记的 kind 默认开,消失的 kind
+  // 从选中集里退出,已被用户关掉的旧 kind 保持关。
+  useEffect(() => {
+    setFilters((cur) => {
+      const declared = new Set(entityKinds.map(({ kind }) => kind));
+      const next = new Set([...cur.types].filter((kind) => declared.has(kind)));
+      for (const kind of declared) if (!knownKindsRef.current.has(kind)) next.add(kind);
+      knownKindsRef.current = declared;
+      if (cur.types.size === next.size && [...cur.types].every((kind) => next.has(kind))) return cur;
+      return { ...cur, types: next };
+    });
+  }, [entityKinds]);
 
   // 密度分层(重点模式,task_5ba031c2):默认开,判定本体在 model/taskFilters.ts
   // (isTaskGraphFocusSeed,与看板共用),localStorage 按视图记忆,坏值回落默认开。
@@ -234,10 +262,18 @@ function GraphViewInner({
   // 与可见 chip 一致,不会出现「徽章记了一笔、屏幕纹丝不动」的空筛。fact 不受状态筛选。
   // 降噪(默认隐藏 cancelled/archived task)走同一条行过滤(isTaskArchiveNoise,与看板
   // 共用),所以块/进度计数同样只数可见行;领地 L1 无关系线,隐藏行不留下悬空边。
+  // 已注册 kind 读面还没回来时按种类**不筛**(null):此刻 GUI 并不知道种类全集,
+  // 拿一个空集当全集会把整张图筛没——那是伪造知识,不是空态。
   const territoryTypes = useMemo(
-    () => (skel === "task" || skel === "decision" || skel === "fact" ? new Set<string>([skel]) : filters.types),
-    [skel, filters.types],
+    () =>
+      skel === "task" || skel === "decision" || skel === "fact"
+        ? new Set<string>([skel])
+        : entityKinds.length === 0
+          ? null
+          : filters.types,
+    [skel, filters.types, entityKinds.length],
   );
+  const typeOn = useCallback((kind: string) => territoryTypes === null || territoryTypes.has(kind), [territoryTypes]);
   // 三元边 + 运行时平面边(agent→task 派发)合成一份;memo 保引用稳定,否则
   // ego 图与重点集每个 render 都会重建。
   const graphRelations = useMemo(() => [...relations, ...runtimeRelations], [relations, runtimeRelations]);
@@ -259,7 +295,7 @@ function GraphViewInner({
     if (viewMode !== "territory") return null;
     const taskVisible = (task: TaskRow) =>
       filters.modules.has(task.module) &&
-      territoryTypes.has("task") &&
+      typeOn("task") &&
       taskPassesStatusFilter(task, filters.entityStatus) &&
       (showArchived || !isTaskArchiveNoise(task));
     const visibleTasks = tasks.filter(taskVisible);
@@ -274,20 +310,22 @@ function GraphViewInner({
     const factVisible = (fact: FactRef) => {
       const ownerTaskId = ownerTaskForFact(fact),
         ownerModule = ownerTaskId ? moduleByTaskId.get(ownerTaskId) : undefined;
-      return territoryTypes.has("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
+      return typeOn("fact") && (ownerModule === undefined || filters.modules.has(ownerModule));
     };
     const partition = partitionForSkel(
       skel,
       visibleTasks,
-      territoryTypes.has("decision")
+      typeOn("decision")
         ? decisions.filter((decision) => decisionPassesStateFilter(decision, filters.entityStatus))
         : [],
       facts.filter(factVisible),
       factAnchors ?? [],
       relations,
       coverageRows ?? [],
-      territoryTypes.has("agent") ? agents : [],
-      territoryTypes.has("schedule") ? schedules : [],
+      typeOn("agent") ? agents : [],
+      typeOn("schedule") ? schedules : [],
+      governedEntities.filter(({ kind }) => typeOn(kind)),
+      kindLabelOf,
     );
     return applyTerritoryDensity(partition, focusSelection, revealedZones);
   }, [
@@ -301,10 +339,12 @@ function GraphViewInner({
     coverageRows,
     filters.modules,
     filters.entityStatus,
-    territoryTypes,
+    typeOn,
     showArchived,
     agents,
     schedules,
+    governedEntities,
+    kindLabelOf,
     focusSelection,
     revealedZones,
   ]);
@@ -375,6 +415,7 @@ function GraphViewInner({
       filters={filters}
       setFilters={setFilters}
       availableModules={availableModules}
+      entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
       showDensity={viewMode === "spotlight" || skel === "unified"}
       flowMode={flowMode}
@@ -390,7 +431,7 @@ function GraphViewInner({
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
-        <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} />
+        <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
         {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
         {viewMode === "territory" && (
           <span
@@ -518,12 +559,13 @@ function GraphViewInner({
             factAnchors={factAnchors ?? EMPTY_ANCHORS}
             agents={agents}
             schedules={schedules}
+            governed={governedEntities}
             focusSet={focusSelection}
             densityFocus={density === "focus"}
             filters={{
               axes: filters.axes,
               kinds: filters.kinds,
-              types: filters.types,
+              types: entityKinds.length === 0 ? null : filters.types,
               flowMode,
               statusFilter: filters.entityStatus,
             }}

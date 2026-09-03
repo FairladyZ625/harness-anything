@@ -8,7 +8,11 @@ import {
   validateAgentRuntimeOverview,
   validateAgentRuntimeSession,
 } from "../agent-runtime-contract.ts";
-import { validateEntityActionExplanationSet, validateSettingsV1 } from "../../../kernel/src/index.ts";
+import {
+  validateEntityActionExplanationSet,
+  validateEntityKindCatalog,
+  validateSettingsV1,
+} from "../../../kernel/src/index.ts";
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,
@@ -20,6 +24,8 @@ import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
 import { validateDaemonUseCaseProjection } from "./daemon-protocol-use-case-projection.ts";
+import { validateEntityRowList } from "../entity-rows-read.ts";
+import { validateEntityLocatorRead } from "../entity-locator-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
@@ -90,6 +96,9 @@ const resultValidators = {
   "repo.tasks.list": validateDaemonTaskSnapshotList,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
+  "repo.entity.kinds.read": validateEntityKindCatalog,
+  "repo.entity.rows.read": validateEntityRowList,
+  "repo.entity.locator.read": validateEntityLocatorRead,
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,

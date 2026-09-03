@@ -19,8 +19,14 @@ export interface EntityDetailTarget {
   focusedEntityRef: string;
 }
 
-/** decision/<id> → 决策详情页;fact/<anchor> → 事实详情页;其余 → null。 */
-export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
+/**
+ * decision/<id> → 决策详情页;fact/<anchor> → 事实详情页;其余 → null。
+ *
+ * `declaredKinds` 是已注册 kind 读面上的 kind 清单:声明出来的实体没有专页,统一落
+ * 实体说明面的该 kind 详情(与 entitydoc/<kind> 同一落点),整条 ref 原样下发,由那一页
+ * 选中对应实体。本函数不持有 kind 清单——不传就只认代码里有专页的那些。
+ */
+export function entityDetailTargetOf(ref: string, declaredKinds: readonly string[] = []): EntityDetailTarget | null {
   if (ref.startsWith("decision/")) {
     const decisionId = ref.split("/")[1];
     if (!decisionId) return null;
@@ -57,7 +63,8 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
   // 与 preset/<id> 同一条「目录页内详情」路径——落 entities 视图,focusedEntityRef
   // 区分目录/详情,推栈回撤原路返回。
   if (ref.startsWith("entitydoc/")) {
-    const kind = ref.split("/")[1];
+    // kind 可以带斜杠(vertical type identity 形如 software/coding/x@1),整段保留。
+    const kind = ref.slice("entitydoc/".length);
     if (!kind) return null;
     return { view: "entities", focusedEntityRef: `entitydoc/${kind}` };
   }
@@ -68,5 +75,9 @@ export function entityDetailTargetOf(ref: string): EntityDetailTarget | null {
     if (!id) return null;
     return { view: "sessions", focusedEntityRef: ref };
   }
+  const declared = declaredKinds
+    .filter((kind) => ref.startsWith(`${kind}/`))
+    .sort((left, right) => right.length - left.length)[0];
+  if (declared !== undefined) return { view: "entities", focusedEntityRef: ref };
   return null;
 }

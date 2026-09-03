@@ -6,6 +6,7 @@ import { buildDocTree, projectedDocuments } from "../../model/docTree.ts";
 import type { TaskRow } from "../../model/types.ts";
 import { useTaskDocumentListQuery, useTaskDocumentQuery } from "../../task-data.ts";
 import { DocTree } from "./DocTree.tsx";
+import { isHtmlDocument } from "../../entity-locator-renderer.ts";
 
 interface TaskDocumentSidebarProps {
   readonly task: TaskRow;
@@ -144,10 +145,6 @@ function TaskFileBody({ repoId, taskId, path, packagePath, onOpenDoc }: TaskFile
       {content}
     </>
   );
-}
-
-export function isHtmlDocument(path: string): boolean {
-  return /\.html?$/iu.test(path);
 }
 
 function FileEmpty({ text }: { readonly text: string }) {

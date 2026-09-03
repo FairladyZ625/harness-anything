@@ -23,6 +23,19 @@ function writeHtmlPreviewArtifact(rootDir, packagePath) {
   );
 }
 
+/**
+ * 声明实体的 e2e 素材:一篇 Markdown ADR。实体本身**不在这里 import**——那一步由
+ * 场景在 GUI 上点「新建」完成,才证明得了 GUI 的写入口真的走 entity import。
+ */
+function writeDeclaredEntitySource(rootDir) {
+  const adrRoot = path.join(rootDir, "docs", "adr");
+  mkdirSync(adrRoot, { recursive: true });
+  writeFileSync(
+    path.join(adrRoot, "ADR-0001-declared-entity-probe.md"),
+    "# ADR-0001 · 声明实体探针\n\n这是一篇普通 Markdown:实体只记指针,正文留在这里。\n",
+  );
+}
+
 export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver }) {
   if (lane === "canonical") {
     await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
@@ -47,6 +60,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   }
   writeTriadicLedger(fixture.rootDir);
   writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
+  writeDeclaredEntitySource(fixture.rootDir);
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
   const driver = await startDriver({
     workspaceRoot,

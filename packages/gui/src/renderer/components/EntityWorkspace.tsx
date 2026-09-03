@@ -4,6 +4,8 @@ import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto"
 import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities.ts";
 import { GraphView, type ViewMode } from "../views/GraphView.tsx";
 import type { PaletteEntry } from "./CommandPalette.tsx";
+import type { EntityTypeOption } from "./GraphFilterPanel.tsx";
+import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 import { GenealogyTimelineView } from "../views/GenealogyTimelineView.tsx";
 import { TerritoryModeBar, type WorkspaceMode } from "./TerritoryModeBar.tsx";
 
@@ -42,6 +44,10 @@ export interface EntityWorkspaceProps {
   entries?: ReadonlyArray<PaletteEntry>;
   /** 点击左栏 ⌘K 徽标打开全局面板。 */
   onOpenPalette?: () => void;
+  /** 可筛选的实体种类(已注册 kind 读面派生),透传给 GraphView。 */
+  entityKinds?: readonly EntityTypeOption[];
+  /** 声明实体行(vertical kind),透传给 GraphView。 */
+  governedEntities?: ReadonlyArray<GovernedEntityRow>;
 }
 
 const FOCUS_REF_DECISION = /^decision\//u;
@@ -64,6 +70,8 @@ export function EntityWorkspace({
   recentRefs,
   entries,
   onOpenPalette,
+  entityKinds,
+  governedEntities,
 }: EntityWorkspaceProps) {
   // lineage 仅 decision 有谱系。
   const canShowLineage = focusedEntityRef ? FOCUS_REF_DECISION.test(focusedEntityRef) : false;
@@ -120,6 +128,8 @@ export function EntityWorkspace({
             facts={facts}
             coverageRows={coverageRows}
             factAnchors={factAnchors}
+            entityKinds={entityKinds}
+            governedEntities={governedEntities}
             agents={agents}
             schedules={schedules}
             runtimeRelations={runtimeRelations}

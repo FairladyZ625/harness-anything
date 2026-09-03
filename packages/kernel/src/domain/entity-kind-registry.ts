@@ -1064,7 +1064,15 @@ export function requireEntityStoreKindContract(kind: string): EntityStoreKindCon
 }
 
 export function explainEntityKind(kind: string): EntityKindExplanation {
-  const contract = requireEntityKindContract(kind);
+  return explainEntityKindContract(requireEntityKindContract(kind));
+}
+
+/**
+ * The one explanation projection. Built-in kinds reach it through `explainEntityKind`;
+ * vertical artifact kinds are compiled outside this registry, so they hand their own
+ * contract to the same function rather than growing a second explanation shape.
+ */
+export function explainEntityKindContract(contract: EntityKindContract): EntityKindExplanation {
   const actions =
     contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [];
   return {

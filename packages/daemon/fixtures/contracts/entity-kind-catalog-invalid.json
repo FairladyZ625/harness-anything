@@ -1,0 +1,15 @@
+{
+  "schema": "entity-kind-catalog/v1",
+  "kinds": [
+    {
+      "kind": "software/coding/architecture-decision-record@1",
+      "origin": "vertical",
+      "verticalId": "software/coding",
+      "refTemplate": "software/coding/architecture-decision-record@1/{id}",
+      "relationEndpoint": true,
+      "importable": true,
+      "declaration": null,
+      "explanation": { "schema": "entity-kind-explanation/v1", "kind": "software/coding/architecture-decision-record@1" }
+    }
+  ]
+}

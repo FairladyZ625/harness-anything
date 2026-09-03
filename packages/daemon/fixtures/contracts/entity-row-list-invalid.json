@@ -1,0 +1,14 @@
+{
+  "schema": "entity-row-list/v1",
+  "ok": true,
+  "rows": [
+    {
+      "kind": "software/coding/architecture-decision-record@1",
+      "entityId": "ADR-c3200de073f6646a",
+      "ref": "architecture-decision-record/ADR-c3200de073f6646a",
+      "title": "Invalid ref: not <kind>/<entityId>",
+      "locator": { "kind": "repository-path", "value": "docs-release/README.md" },
+      "revision": 1
+    }
+  ]
+}

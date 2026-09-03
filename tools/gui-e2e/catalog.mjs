@@ -10,6 +10,7 @@ import decisions from "./scenarios/decisions.mjs";
 import sessionsArtifacts from "./scenarios/sessions-artifacts.mjs";
 import artifactsHtmlPreview from "./scenarios/artifacts-html-preview.mjs";
 import settings from "./scenarios/settings-appearance.mjs";
+import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -24,6 +25,7 @@ export const catalog = [
   sessionsArtifacts,
   artifactsHtmlPreview,
   settings,
+  declaredEntityKinds,
 ];
 
 export function selectScenarios({ lane, ids }) {

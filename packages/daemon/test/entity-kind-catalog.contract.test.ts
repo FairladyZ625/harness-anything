@@ -1,0 +1,192 @@
+// harness-test-tier: contract
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { buildEntityKindCatalog, validateEntityKindCatalog } from "../../kernel/src/index.ts";
+import { compiledArtifactKinds } from "../src/artifact-entity-action.ts";
+import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
+import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
+import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+
+const ADR_KIND = "software/coding/architecture-decision-record@1";
+
+/**
+ * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
+ *
+ * 两条不变量:内核内建 kind 与 vertical 声明的 kind 出现在**同一份**清单里且各自
+ * 带同源解释;声明出来的 kind 用完整 type identity(`<vertical>/<id>@<version>`)——
+ * 短名不是它的身份,拿短名去 import 会被拒。
+ */
+test("entity kind catalog carries builtin and declared kinds through the same explanation", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  assert.deepEqual(validateEntityKindCatalog(catalog), []);
+
+  const builtin = catalog.kinds.filter(({ origin }) => origin === "builtin");
+  const declared = catalog.kinds.filter(({ origin }) => origin === "vertical");
+  assert.ok(
+    builtin.some(({ kind }) => kind === "task"),
+    "task must be in the catalog",
+  );
+  assert.ok(
+    builtin.some(({ kind }) => kind === "decision"),
+    "decision must be in the catalog",
+  );
+  assert.ok(declared.length > 0, "the bundled vertical declares at least one artifact kind");
+
+  for (const row of catalog.kinds) {
+    assert.equal(row.explanation.schema, "entity-kind-explanation/v1");
+    assert.equal(row.explanation.kind, row.kind);
+    assert.equal(row.refTemplate, `${row.kind}/{id}`);
+    assert.ok(row.explanation.documentSchema.fields.length > 0, `${row.kind} must explain its fields`);
+  }
+});
+
+test("the declared ADR kind is addressed by its full type identity and is importable", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const adr = catalog.kinds.find(({ kind }) => kind === ADR_KIND);
+  assert.ok(adr, `catalog must carry ${ADR_KIND}`);
+  assert.equal(adr.origin, "vertical");
+  assert.equal(adr.verticalId, "software/coding");
+  assert.equal(adr.importable, true, "an artifact kind with an executable import action is creatable");
+  assert.equal(adr.declaration?.idPrefix, "ADR");
+  assert.deepEqual(adr.declaration?.locatorKinds, ["repository-path"]);
+  // 短名不是身份:目录里不得出现它,否则 GUI 会拿它去调 import 然后被拒。
+  assert.equal(
+    catalog.kinds.some(({ kind }) => kind === "architecture-decision-record"),
+    false,
+  );
+});
+
+test("builtin rows carry no declaration and declared rows always do", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  for (const row of catalog.kinds)
+    assert.equal(row.declaration === null, row.origin === "builtin", `${row.kind} declaration presence`);
+});
+
+/** 阴性对照:vertical 不声明 artifact kind 时,目录里只剩内建 kind——清单确实来自声明。 */
+test("a vertical with no declared artifact kind yields a builtin-only catalog", () => {
+  const catalog = buildEntityKindCatalog([]);
+  assert.deepEqual(validateEntityKindCatalog(catalog), []);
+  assert.equal(
+    catalog.kinds.every(({ origin }) => origin === "builtin"),
+    true,
+  );
+  assert.equal(
+    catalog.kinds.some(({ kind }) => kind === ADR_KIND),
+    false,
+  );
+});
+
+test("entity rows only project declared kinds and keep canonical refs", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const listed: string[] = [];
+  const rows = readDeclaredEntityRows({
+    catalog,
+    projection: {
+      listEntities: (kind: string) => {
+        listed.push(kind);
+        return kind === ADR_KIND
+          ? [
+              {
+                kind,
+                id: "ADR-0123456789abcdef",
+                ownerId: null,
+                workspaceRevision: 42,
+                freshness: "current" as const,
+                currentVersion: null,
+                value: {
+                  title: "ADR-0020 · Decision 与 ADR 边界",
+                  locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
+                },
+              },
+            ]
+          : [];
+      },
+    },
+  });
+  assert.deepEqual(validateEntityRowList(rows), []);
+  assert.equal(
+    listed.includes("task"),
+    false,
+    "builtin kinds have their own read surfaces; this one must not duplicate them",
+  );
+  assert.deepEqual(rows.rows, [
+    {
+      kind: ADR_KIND,
+      entityId: "ADR-0123456789abcdef",
+      ref: `${ADR_KIND}/ADR-0123456789abcdef`,
+      title: "ADR-0020 · Decision 与 ADR 边界",
+      locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
+      revision: 42,
+    },
+  ]);
+});
+
+test("locator read serves repo files and directories and refuses to escape the root", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "entity-locator-"));
+  try {
+    mkdirSync(path.join(root, "docs", "nested"), { recursive: true });
+    writeFileSync(path.join(root, "docs", "note.md"), "# 标题\n正文\n", "utf8");
+    writeFileSync(path.join(root, "docs", "nested", "inner.md"), "inner\n", "utf8");
+
+    const file = readEntityLocator({ rootDir: root, locatorKind: "repository-path", locatorValue: "docs/note.md" });
+    assert.deepEqual(validateEntityLocatorRead(file), []);
+    assert.equal(file.outcome, "file");
+    assert.equal(file.content, "# 标题\n正文\n");
+
+    const dir = readEntityLocator({ rootDir: root, locatorKind: "repository-path", locatorValue: "docs" });
+    assert.deepEqual(validateEntityLocatorRead(dir), []);
+    assert.equal(dir.outcome, "directory");
+    assert.deepEqual(dir.entries.map(({ path: entryPath }) => entryPath).sort(), ["docs/nested", "docs/note.md"]);
+
+    const missing = readEntityLocator({ rootDir: root, locatorKind: "repository-path", locatorValue: "docs/gone.md" });
+    assert.equal(missing.outcome, "missing");
+
+    const external = readEntityLocator({ rootDir: root, locatorKind: "url", locatorValue: "https://example.com/a" });
+    assert.equal(external.outcome, "unsupported");
+
+    const oversize = readEntityLocator({
+      rootDir: root,
+      locatorKind: "repository-path",
+      locatorValue: "docs/note.md",
+      maxBytes: 1,
+    });
+    assert.equal(oversize.outcome, "too-large");
+    assert.equal(oversize.content, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the three entity read methods are registered on the closed GUI read surface", () => {
+  for (const [method, id, bridge] of [
+    ["repo.entity.kinds.read", "entity.kinds.read", "readEntityKinds"],
+    ["repo.entity.rows.read", "entity.rows.read", "readEntityRows"],
+    ["repo.entity.locator.read", "entity.locator.read", "readEntityLocator"],
+  ] as const) {
+    const entry = daemonGuiReadMethods.find((candidate) => candidate.method === method);
+    assert.ok(entry, `${method} must be registered`);
+    assert.equal(entry.id, id);
+    assert.equal(entry.guiBridgeMethod, bridge);
+    assert.equal(entry.commandClass, "repo-read");
+    assert.equal(entry.requiresRepo, true);
+  }
+  validateDaemonRpcCall("repo.entity.kinds.read", { repo: { repoId: "canonical" } });
+  validateDaemonRpcCall("repo.entity.rows.read", { repo: { repoId: "canonical" } });
+  validateDaemonRpcCall("repo.entity.locator.read", {
+    repo: { repoId: "canonical" },
+    payload: { locatorKind: "repository-path", locatorValue: "docs/note.md" },
+  });
+});
+
+test("gui result validation rejects a catalog whose declared row lost its declaration", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const broken = {
+    ...catalog,
+    kinds: catalog.kinds.map((row) => (row.origin === "vertical" ? { ...row, declaration: null } : row)),
+  };
+  assert.throws(() => parseDaemonGuiReadResult("repo.entity.kinds.read", broken));
+});

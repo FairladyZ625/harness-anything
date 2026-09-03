@@ -10,6 +10,7 @@
 import type { DecisionState, SnapshotStatus, TaskRow, DecisionRow, FactRef } from "../model/types";
 import { BOARD_COLUMNS } from "../model/types";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GovernedEntityRow } from "./governedEntities";
 
 export const OTHER_STATUS_BUCKET = "__other__" as const;
 export type OtherStatusBucket = typeof OTHER_STATUS_BUCKET;
@@ -68,13 +69,18 @@ export function decisionStateOffCount(filter: EntityStatusFilterState): number {
   return DECISION_STATE_FILTER_OPTIONS.length + 1 - filter.decisionStates.size;
 }
 
-/** 图节点行联合(五类实体);状态筛选只针对 task/decision。 */
+/**
+ * 图节点行联合。状态筛选按 kind 分支,是因为**每个 kind 的状态词表真的不同**
+ * (task 有 coordinationStatus、decision 有 state、fact 与声明实体没有状态),
+ * 不是一份 kind 清单的副本:没有状态词表的 kind 一律放行。
+ */
 export type GraphNodeStatusRow =
   | TaskRow
   | DecisionRow
   | FactRef
   | AgentNodeRow
   | ScheduleNodeRow
+  | GovernedEntityRow
   | Pick<TaskRow, "coordinationStatus">
   | Pick<DecisionRow, "state">;
 
@@ -86,7 +92,7 @@ export type GraphNodeStatusRow =
  * - decision:看 state 是否命中。
  */
 export function nodePassesEntityStatusFilter(
-  entity: "task" | "decision" | "fact" | "agent" | "schedule" | string,
+  entity: string,
   row: GraphNodeStatusRow | null | undefined,
   filter: EntityStatusFilterState,
 ): boolean {

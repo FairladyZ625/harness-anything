@@ -20,6 +20,7 @@ import { InteractiveEdge } from "./edges/InteractiveEdge";
 import { useColorMode, minimapMaskColor } from "./colorMode";
 import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
+import type { GovernedEntityRow } from "./governedEntities";
 import {
   layoutEgoCanvas,
   type EgoAxisFilter,
@@ -53,7 +54,8 @@ import {
 export interface EgoNeighborhoodFilters {
   axes: EgoAxisFilter;
   kinds: ReadonlySet<RelationKind>;
-  types: ReadonlySet<string>;
+  /** 选中的实体种类;null = 不按种类筛。清单来自已注册 kind 读面,本文件不持有副本。 */
+  types: ReadonlySet<string> | null;
   flowMode: FlowAnimMode;
   /** 实体状态筛选(聚光灯灰化口径);缺省 = 全选不筛。 */
   statusFilter?: EntityStatusFilterState;
@@ -63,7 +65,7 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
   return {
     axes: { authority: true, evidence: true, execution: true, assoc: false },
     kinds: defaultKindFilter(),
-    types: new Set(["decision", "task", "fact", "agent", "schedule"]),
+    types: null,
     flowMode: "focus",
   };
 }
@@ -78,6 +80,8 @@ export type EgoNeighborhoodProps = {
   /** 运行时平面节点行(agent/schedule);缺省 = 该平面缺席,图照常。 */
   agents?: ReadonlyArray<AgentNodeRow>;
   schedules?: ReadonlyArray<ScheduleNodeRow>;
+  /** 声明实体行(vertical kind);缺省 = 该层缺席。 */
+  governed?: ReadonlyArray<GovernedEntityRow>;
   filters?: EgoNeighborhoodFilters;
   /** 铺开跳数预算(父 ↑ / 子 ↓);缺省 = EGO_DEFAULT_HOPS(±2)。 */
   hops?: EgoHopBudget;
@@ -112,6 +116,7 @@ function EgoNeighborhoodInner({
   factAnchors,
   agents,
   schedules,
+  governed,
   filters,
   hops = EGO_DEFAULT_HOPS,
   focusSet = null,
@@ -144,6 +149,7 @@ function EgoNeighborhoodInner({
     factAnchors,
     agents,
     schedules,
+    governed,
     axes: filters.axes,
     focusRef,
     hops,
