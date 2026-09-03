@@ -95,9 +95,6 @@ export function publishExecutedVerticalScript(
         canonicalVisible: false,
         worktreeVisible: false,
       },
-      nextAction: prepared.action.dryRun
-        ? "Remove --dry-run to publish this validated vertical script plan."
-        : "Change the script inputs before retrying; an unchanged plan publishes no canonical event.",
     };
   }
   const receipt = publishVerticalScriptChanges({ ...input }, prepared.action, plan.changes);

@@ -788,19 +788,10 @@ export async function runSingleMigrationImport(
     ...(exitCode === 1
       ? {
           code: "migration_reconciliation_failed",
-          nextAction: authoredCoverage.passed
-            ? "Inspect the unexplained same-cut set difference before retrying."
-            : "Resolve the reported destination preimage or authored integrity conflict before retrying.",
         }
       : !canonicalVisible
-        ? {
-            nextAction: dryRun
-              ? "Remove --dry-run to publish this reconciled migration plan."
-              : `Query receipt ${publicationMarker.event.opId}; the canonical import-map publication is missing.`,
-          }
-        : {
-            nextAction: "Migration reconciliation passed; rerunning or appending another --source is safe.",
-          }),
+        ? {}
+        : {}),
   };
   function addTask(entry: TaskSourceEntry): void {
     return addTaskImpl(extracted, entry);

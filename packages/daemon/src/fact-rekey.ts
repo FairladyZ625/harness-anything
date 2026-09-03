@@ -150,7 +150,6 @@ export function runFactRekey(input: {
         canonicalVisible: true,
         worktreeVisible: true,
       },
-      nextAction: "All migrated records already use current fact, entity, and settings shapes.",
     };
   if (input.action.dryRun === true)
     return {
@@ -171,7 +170,6 @@ export function runFactRekey(input: {
         canonicalVisible: false,
         worktreeVisible: false,
       },
-      nextAction: "Remove --dry-run to publish the fact rekey through the canonical event store.",
     };
 
   const ledger = resolveLedgerGitLayout(input.rootDir),
@@ -263,7 +261,6 @@ export function runFactRekey(input: {
       },
       commitSha: appended.commitSha?.sha ?? null,
       cut,
-      nextAction: "Fact refs are canonical; verify with ha fact search and ha fact show.",
     };
   return receipt;
 }

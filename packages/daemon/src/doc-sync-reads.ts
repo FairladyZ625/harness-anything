@@ -60,7 +60,6 @@ export function readAction(input: Input): WriteReceipt {
       `read:${input.action.kind}:${current.headDigest}`,
       "assignment_scope_mismatch",
       readDetail(input, paths, current, lease, scope),
-      "read only paths in the authenticated assignment scope",
     );
   const reads = paths.map((candidate) => input.projection.readDocument(candidate)),
     revision = input.store.readHead()?.revision ?? 0,
@@ -72,12 +71,7 @@ export function readAction(input: Input): WriteReceipt {
       reads.map((read) => read.document),
     );
   if (input.action.kind === "doc-show" && ready && reads[0]?.document === null)
-    return rejectDocSyncAction(
-      `read:doc-show:${current.headDigest}`,
-      "document_not_found",
-      receiptDetail,
-      "sync the document before showing it",
-    );
+    return rejectDocSyncAction(`read:doc-show:${current.headDigest}`, "document_not_found", receiptDetail);
   const evidence =
     input.action.kind === "doc-show"
       ? (reads[0]?.document?.body ?? "document:not-found")
@@ -100,7 +94,6 @@ export function readAction(input: Input): WriteReceipt {
         visibility: "center",
         proof: proof(revision, Math.min(...reads.map((read) => read.watermark)), false, worktreeVisible),
         detail: receiptDetail,
-        nextAction: receiptDetail.nextAction,
       };
 }
 
@@ -145,7 +138,6 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
               source: "intent",
             },
           ],
-    nextAction: canonicalVisible ? "no action required" : `run ha receipt show ${event.opId} after projection catch-up`,
   };
   const retirementReceipt =
       retirement === null
@@ -191,7 +183,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         outcome: "pending",
         ...common,
         ...identity,
-        nextAction: receiptDetail.nextAction,
+        guidance: [{ kind: "retry-receipt", args: { opId: event.opId } }],
       };
 }
 

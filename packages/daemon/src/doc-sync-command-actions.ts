@@ -115,12 +115,7 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
         .find((candidate) => candidate === "lease_conflict" || candidate === "deletion_forbidden"),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
-      ? rejectDocSyncAction(
-          `scan:${scan.baseLedgerSha.headDigest}`,
-          code ?? "preview_blocked",
-          blocked,
-          blocked.nextAction,
-        )
+      ? rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked)
       : noOp(input, scan);
   }
   const prepared = scan ? intentFromScan(scan, input.workspaceId) : null,
@@ -158,7 +153,6 @@ async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
       evidence: stableStringify({ conflictId, path: conflict.logical, resolvedVia: "discard-local" }),
       visibility: "center",
       proof: proof(revision, revision, true, true),
-      nextAction: `Local conflict scratch was discarded; ${conflict.logical} retains the canonical bytes.`,
     };
   }
   const source = input.action.kind === "doc-conflict-overwrite-center" ? conflict.scratch : conflict.target;
@@ -336,7 +330,6 @@ export function runArtifactAdd(input: Input): ArtifactAddReceipt {
       opId: `artifact:${input.store.currentCut().headDigest}`,
       code: "projection_pending",
       origin: "N/A",
-      nextAction: "retry after the canonical projection catches up",
     };
   const bytes = readFileSync(source.absolute);
   try {

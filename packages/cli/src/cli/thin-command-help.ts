@@ -1,4 +1,5 @@
 import { daemonProtocolCommands, thinCliCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type ThinHelpCatalogEntry = {
   readonly id: string;
@@ -124,9 +125,9 @@ export function unsupportedCommandHint(args: readonly string[]): string {
       .slice(1)
       .filter((token) => !token.startsWith("-"))
       .join(" ");
-  if (domain === undefined) return `No command domain was named; use one of ${domains.join(", ")}.`;
-  if (!domains.includes(domain)) return `${domain} is not a command domain; use one of ${domains.join(", ")}.`;
-  return verb
-    ? `${domain} has no ${verb} command; run ha ${domain} --help for the commands it does have.`
-    : `ha ${domain} needs a command; run ha ${domain} --help for the commands it has.`;
+  return renderCliGuidance("unsupported-command", {
+    domains,
+    ...(domain ? { domain } : {}),
+    ...(verb ? { verb } : {}),
+  });
 }

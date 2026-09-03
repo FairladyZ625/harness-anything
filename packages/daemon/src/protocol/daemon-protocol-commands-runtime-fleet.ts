@@ -23,19 +23,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--agent", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one installed Agent id whose runtime_type matches the instance.",
       }),
       cliInput("--to", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --to <worker-agent-id> only with --agent <leader-agent-id>.",
       }),
       cliInput("--squad", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --squad <squad-id> only with --agent <leader-agent-id>.",
       }),
       cliInput("--model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model supported by the runtime instance.",
       }),
       cliInput(
         "--effort",
@@ -43,14 +39,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction:
-            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-        nextAction: "Use --fast only with a Codex runtime instance.",
       }),
       cliInput(
         "--permission-mode",
@@ -58,18 +51,14 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_permission",
-          nextAction:
-            "Use bypass, workspace-write, or read-only to override the instance permission mode for this dispatch.",
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
       cliInput("--prompt", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --prompt <text>, or omit it with --task to derive the mission from the task package.",
       }),
       cliInput("--mission", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --mission <name> with --task to append artifacts/missions/<name>.md.",
       }),
       cliInput(
         "--wait-projection",
@@ -77,51 +66,32 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a non-negative integer projection wait limit in milliseconds.",
         },
         { regex: "^(?:0|[1-9][0-9]*)$" },
       ),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
       }),
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one active task id for --task.",
       }),
       cliInput("--resume", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one provider session id returned by runtime status.",
       }),
       cliInput("--resume-dispatch", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one dispatch id returned by ha task dispatches.",
       }),
       cliInput("--idempotency-key", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
       }),
       cliInput("--detach", "boolean", false, {
         code: "invalid_field",
-        nextAction: [
-          "Use --detach once to return after the daemon accepts the dispatch, then ",
-          "run ha runtime status <runtime-session-id> --wait.",
-        ].join(""),
       }),
       cliInput("--on-exit", "single", false, {
         code: "invalid_field",
-        nextAction: [
-          "Use --on-exit <executable> only with --detach. The executable receives ",
-          "runtime-session-exited/v1 JSON on stdin, runs without shell parsing in ",
-          "the dispatch cwd, and inherits only PATH, HOME, TMPDIR, LANG, LC_ALL, ",
-          "LC_CTYPE, and SHELL on POSIX or PATH/Path, PATHEXT, SystemRoot, COMSPEC, ",
-          "TEMP, TMP, and USERPROFILE on Windows; provider launch credentials are ",
-          "never inherited.",
-        ].join(""),
       }),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --no-stream once to hide live activity.",
       }),
     ],
   }),
@@ -145,15 +115,12 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --task to list dispatches, or combine it with --wait to wait for all task dispatches.",
       }),
       cliInput("--wait", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --wait once with a runtime session id or --task.",
       }),
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --no-stream only with --wait to hide live activity.",
       }),
     ],
   }),
@@ -174,10 +141,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--force", "boolean", false, {
         code: "invalid_field",
-        nextAction: [
-          "Use --force once, after a cooperative stop times out, to signal the ",
-          "daemon's pid directly and clear its bookkeeping.",
-        ].join(""),
       }),
     ],
   }),
@@ -194,26 +157,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: [
-            "Fleet center start requires --port (0 binds an ephemeral port), --key, ",
-            "--cert, --roster, and --quota-bytes.",
-          ].join(""),
         },
         { regex: "^(?:0|[1-9][0-9]{0,4})$" },
       ),
       cliInput("--key", "single", true, {
         code: "missing_field",
-        nextAction: "Fleet center start requires the TLS private key path --key.",
       }),
       cliInput("--cert", "single", true, {
         code: "missing_field",
-        nextAction: "Fleet center start requires the TLS certificate path --cert.",
       }),
       cliInput("--roster", "single", true, {
         code: "missing_field",
-        nextAction:
-          "Fleet center start requires --roster pointing at a fleet-roster/v2 JSON; " +
-          "fleet-roster/v1 remains read-compatible.",
       }),
       cliInput(
         "--quota-bytes",
@@ -221,17 +175,14 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Fleet center start requires a positive persistent replica disk quota --quota-bytes.",
         },
         { regex: "^[1-9][0-9]{0,15}$" },
       ),
       cliInput("--bind", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one bind hostname or address for --bind; the default is 127.0.0.1.",
       }),
       cliInput("--state-root", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one directory path for --state-root; the default is <user-root>/fleet.",
       }),
     ],
   }),
@@ -244,10 +195,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--host", "single", true, {
         code: "missing_field",
-        nextAction: [
-          "Edge sync requires --host, --port, --ca, --node-id, one credential ",
-          "source, --assignment, --view-root, and --quota-bytes.",
-        ].join(""),
       }),
       cliInput(
         "--port",
@@ -255,13 +202,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use a TCP port from 0 to 65535 for --port.",
         },
         { regex: "^(?:0|[1-9][0-9]{0,4})$" },
       ),
       cliInput("--ca", "single", true, {
         code: "missing_field",
-        nextAction: "Edge sync requires the center CA certificate path --ca.",
       }),
       cliInput(
         "--node-id",
@@ -269,20 +214,14 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use the node id declared in the center roster for --node-id.",
         },
         { regex: "^[A-Za-z0-9_-]{1,96}$" },
       ),
       cliInput("--credential", "single", false, {
         code: "invalid_field",
-        nextAction: [
-          "Use the machine credential issued for --node-id only for an explicit ",
-          "authentication check; production sync should use --roster.",
-        ].join(""),
       }),
       cliInput("--roster", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the mode-0600 fleet-roster/v2 file containing the credential for --node-id.",
       }),
       cliInput(
         "--assignment",
@@ -290,15 +229,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use one assignment id declared in the center roster for --assignment.",
         },
         { regex: "^[A-Za-z0-9_-]{1,96}$" },
       ),
       cliInput("--view-root", "single", true, {
         code: "missing_field",
-        nextAction:
-          "Edge sync requires --view-root for transport state;" +
-          " ledger files materialize in the registered workspace harness.",
       }),
       cliInput(
         "--quota-bytes",
@@ -306,14 +241,11 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Edge sync requires a positive local mirror disk quota --quota-bytes.",
         },
         { regex: "^[1-9][0-9]{0,15}$" },
       ),
       cliInput("--servername", "single", false, {
         code: "invalid_field",
-        nextAction:
-          "Use the TLS server name matching the center certificate for --servername; the default is localhost.",
       }),
       cliInput(
         "--timeout-ms",
@@ -321,7 +253,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a positive response timeout in milliseconds for --timeout-ms; the default is 60000.",
         },
         { regex: "^[1-9][0-9]{0,9}$" },
       ),
@@ -329,10 +260,9 @@ export const runtimeFleetProtocolCommands = Object.freeze([
   }),
 ] as const);
 
-const scheduleIdInput = (verb: string) =>
+const scheduleIdInput = () =>
   cliInput("--idempotency-key", "single", false, {
     code: "invalid_field",
-    nextAction: `Use one stable non-empty --idempotency-key when retrying schedule ${verb}.`,
   });
 
 export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
@@ -365,7 +295,6 @@ const scheduleFromFileInput = (requiredFields: readonly string[], allowedFields:
     false,
     {
       code: "invalid_field",
-      nextAction: "Use --from-file <packet.json> by itself, or provide the direct Schedule arguments.",
     },
     { jsonFields: requiredFields, jsonAllowedFields: allowedFields },
   );
@@ -381,7 +310,6 @@ export const scheduleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--name", "single", true, {
         code: "missing_field",
-        nextAction: "Add --name <schedule-name>.",
       }),
       cliInput(
         "--mode",
@@ -389,41 +317,32 @@ export const scheduleProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --mode detect or --mode remediate.",
         },
         { enum: ["detect", "remediate"] },
       ),
       cliInput("--every", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --every <duration>, for example 30m or 2h; the minimum is 1m.",
       }),
       cliInput("--cron", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one five-field cron expression, for example '30 2 * * *'.",
       }),
       cliInput("--timezone", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one IANA timezone with --cron, for example Asia/Taipei.",
       }),
       cliInput("--agent", "single", true, {
         code: "missing_field",
-        nextAction: "Add --agent <agent-id>.",
       }),
       cliInput("--instance", "single", true, {
         code: "missing_field",
-        nextAction: "Add --instance <runtime-instance-id>.",
       }),
       cliInput("--mission", "single", false, {
         code: "missing_field",
-        nextAction: "Use exactly one of --mission <text> or --mission-file <path>.",
       }),
       cliInput("--mission-file", "single", false, {
         code: "missing_field",
-        nextAction: "Use exactly one of --mission <text> or --mission-file <path>.",
       }),
       cliInput("--model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model supported by the runtime instance.",
       }),
       cliInput(
         "--effort",
@@ -431,24 +350,19 @@ export const scheduleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction:
-            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: scheduleReasoningEfforts },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-        nextAction: "Use --fast only with a Codex runtime instance.",
       }),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a repository-relative directory; omit --cwd for the repository root.",
       }),
       cliInput("--disabled", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --disabled once to create the Schedule paused.",
       }),
-      scheduleIdInput("creation"),
+      scheduleIdInput(),
     ],
   }),
   defineCenterForwardReadCommand({
@@ -471,7 +385,7 @@ export const scheduleProtocolCommands = Object.freeze([
         "--limit",
         "single",
         false,
-        { code: "invalid_field", nextAction: "Use --limit with an integer from 1 to 200." },
+        { code: "invalid_field" },
         { regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$" },
       ),
     ],
@@ -500,45 +414,35 @@ export const scheduleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use detect or remediate.",
         },
         { enum: ["detect", "remediate"] },
       ),
       cliInput("--name", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty Schedule name.",
       }),
       cliInput("--every", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one duration such as 30m or 2h; the minimum is 1m.",
       }),
       cliInput("--cron", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one five-field cron expression, for example '30 2 * * *'.",
       }),
       cliInput("--timezone", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one IANA timezone for a cron trigger, for example Asia/Taipei.",
       }),
       cliInput("--agent", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one declared Agent id.",
       }),
       cliInput("--instance", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one enabled runtime instance id.",
       }),
       cliInput("--mission", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --mission <text> or --mission-file <path>, not both.",
       }),
       cliInput("--mission-file", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --mission <text> or --mission-file <path>, not both.",
       }),
       cliInput("--model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model supported by the runtime instance.",
       }),
       cliInput(
         "--effort",
@@ -546,20 +450,16 @@ export const scheduleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_runtime_effort",
-          nextAction:
-            "Use minimal, low, medium, high, xhigh, or max with Claude or Codex; agy supports low, medium, or high.",
         },
         { enum: scheduleReasoningEfforts },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-        nextAction: "Use --fast only with a Codex runtime instance.",
       }),
       cliInput("--cwd", "single", false, {
         code: "invalid_field",
-        nextAction: "Use a repository-relative directory.",
       }),
-      scheduleIdInput("update"),
+      scheduleIdInput(),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -573,9 +473,8 @@ export const scheduleProtocolCommands = Object.freeze([
       scheduleFromFileInput(scheduleDeleteJsonFields, scheduleDeleteJsonAllowedFields),
       cliInput("--reason", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one non-empty deletion reason, or omit --reason.",
       }),
-      scheduleIdInput("deletion"),
+      scheduleIdInput(),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -585,7 +484,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Arm a paused Schedule without changing its cadence.",
     method: "repo.task.run",
     positional: "scheduleId",
-    inputs: [scheduleIdInput("enable")],
+    inputs: [scheduleIdInput()],
   }),
   defineCenterForwardWriteCommand({
     id: "schedule-disable",
@@ -594,7 +493,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Pause a Schedule without deleting its definition or run history.",
     method: "repo.task.run",
     positional: "scheduleId",
-    inputs: [scheduleIdInput("disable")],
+    inputs: [scheduleIdInput()],
   }),
   defineRuntimeLocalWriteCommand({
     id: "schedule-run-now",
@@ -603,7 +502,7 @@ export const scheduleProtocolCommands = Object.freeze([
     summary: "Claim one manual occurrence and launch it only after the claim is canonical.",
     method: "repo.task.run",
     positional: "scheduleId",
-    inputs: [scheduleIdInput("run-now")],
+    inputs: [scheduleIdInput()],
   }),
   defineRuntimeLocalWriteCommand({
     id: "schedule-settle",

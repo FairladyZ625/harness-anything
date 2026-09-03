@@ -549,7 +549,7 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
     assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
     assert.equal(row.actions.runNow.available, true);
     assert.equal(row.actions.enable.available, false);
-    assert.match(String(row.actions.enable.nextAction), /remote-edge repository does not author ledger state/u);
+    assert.equal(row.actions.enable.nextAction, "repo_mode_read_only");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -645,7 +645,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   );
   assert.equal(claimed.schedules[0]!.executionAvailability, "claimed-elsewhere");
   assert.equal(claimed.schedules[0]!.actions.runNow.code, "schedule_single_flight_active");
-  assert.match(String(claimed.schedules[0]!.actions.runNow.nextAction), /occurrence_single/u);
+  assert.equal(claimed.schedules[0]!.actions.runNow.nextAction, "schedule_single_flight_active");
 });
 
 test("the schedules list schema is registry-closed with a negative fixture", () => {

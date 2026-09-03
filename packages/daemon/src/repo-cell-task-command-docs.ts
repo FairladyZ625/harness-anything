@@ -60,20 +60,7 @@ export async function runTaskCommandWithDocs(
       head === null ||
       mirrorBaseCut.headDigest !== `sha256:${sha256Text(serializeEventHead(head))}`)
   ) {
-    const mirrorLabel =
-      mirrorBaseCut === undefined ? "(none)" : `${mirrorBaseCut.revision}/${mirrorBaseCut.headDigest.slice(0, 16)}`;
-    return cell.rejected(
-      opId,
-      "mirror_behind_center",
-      [
-        "The mirror base cut ",
-        mirrorLabel,
-        " does not match the center head ",
-        `${headRevision}`,
-        "; rerun ha daemon fleet edge sync, then resubmit the command so its ",
-        "documents ride a current base.",
-      ].join(""),
-    );
+    return cell.rejected(opId, "mirror_behind_center");
   }
   const lease = cell.projection.currentLease(taskId, cell.now());
   const intent = parseDocWriteIntent(
@@ -113,7 +100,7 @@ export async function runTaskCommandWithDocs(
   );
   if (!adjudication.accepted)
     return {
-      ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail, adjudication.detail.nextAction),
+      ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail),
       authorizationDecision: adjudication.authorizationDecision,
       taskId,
       docSync: {
@@ -228,7 +215,7 @@ export async function runTaskCommandWithDocs(
       evidence: transition.evidence,
       visibility: transition.visibility,
       proof: transition.proof,
-      nextAction: transition.nextAction ?? "Retry receipt show.",
+
       taskId,
       docSync: {
         outcome: "pending",
@@ -238,11 +225,7 @@ export async function runTaskCommandWithDocs(
       },
     } as WriteReceipt;
   return {
-    ...cell.rejected(
-      command.opId,
-      transition.code ?? "publication_unknown",
-      transition.nextAction ?? "Retry receipt show before resubmitting.",
-    ),
+    ...cell.rejected(command.opId, transition.code ?? "publication_unknown"),
     taskId,
     docSync: {
       outcome: "not_applied",
@@ -290,7 +273,7 @@ export function taskSurfaceWriteAt(
         task: mutation.task,
       },
       snapshot.revision,
-      `Remove --dry-run to publish this validated ${action.kind} event.`,
+      action.kind,
     );
   if (mutation.type === "lease_released" && mutation.execution === undefined) {
     const reservation = mutation.releasedLease;
@@ -330,7 +313,7 @@ export function taskSurfaceWriteAt(
         worktreeVisible: true,
       },
       authorizationDecision: mutation.authorizationDecision ?? null,
-      nextAction: `Reservation released; run ha task start ${taskId} to claim a new execution.`,
+
       taskId,
       executionId: reservation.executionId,
       report: {

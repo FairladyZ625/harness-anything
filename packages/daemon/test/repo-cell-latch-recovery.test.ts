@@ -113,7 +113,8 @@ test("migration import enters a data-shape latch, stays single-flight, and re-pr
       binding,
     );
     assert.equal(latched.outcome, "op_rejected", JSON.stringify(latched));
-    assert.match(String(latched.nextAction), /migration task entity is invalid/u);
+    assert.equal(latched.code, "service_rejected");
+    assert.deepEqual(latched.diagnostic, { kind: "failure", code: "service_rejected" });
     assert.equal(cell.status().state, "unavailable");
     assert.equal(cell.status().causeClass, "data-shape");
     const cache = path.join(destination, ".harness/cache/task.sqlite"),
@@ -125,7 +126,7 @@ test("migration import enters a data-shape latch, stays single-flight, and re-pr
     db.close();
     const failedProbe = await cell.run({ kind: "task-list" }, binding);
     assert.equal(failedProbe.code, "repo_unavailable");
-    assert.match(String(failedProbe.nextAction), /kernel projection schema 999/u);
+    assert.deepEqual(failedProbe.diagnostic, { kind: "failure", code: "repo_unavailable" });
 
     const repaired = new DatabaseSync(cache);
     repaired.prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1").run(row.schema_version);
@@ -195,7 +196,7 @@ test("projection rebuild is executable from a projection latch and settles it", 
     assert.equal(cell.status().causeClass, "projection");
     const blocked = await cell.run({ kind: "task-list" }, binding);
     assert.equal(blocked.code, "repo_unavailable");
-    assert.match(String(blocked.nextAction), /ha daemon projection rebuild/u);
+    assert.deepEqual(blocked.diagnostic, { kind: "failure", code: "repo_unavailable" });
     const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding);
     assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
     assert.equal(cell.status().state, "attached");
@@ -256,10 +257,7 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
     const latchedList = await cell.run({ kind: "task-list" }, binding);
     assert.equal(latchedList.outcome, "op_rejected");
     assert.equal(latchedList.code, "repo_unavailable");
-    assert.match(
-      String(latchedList.nextAction),
-      /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u,
-    );
+    assert.deepEqual(latchedList.diagnostic, { kind: "failure", code: "repo_unavailable" });
     assert.equal(cell.status().state, "unavailable");
     assert.equal(cell.status().causeClass, "data-shape");
     // The fault persists: the next command re-probes, fails the same judgment, and keeps rejecting.
@@ -267,8 +265,7 @@ test("an invalid_store latch re-attaches on the next command after the ledger is
     const stillLatched = await cell.run({ kind: "task-list" }, binding);
     assert.equal(stillLatched.outcome, "op_rejected");
     assert.equal(stillLatched.code, "repo_unavailable");
-    assert.match(String(stillLatched.nextAction), /stays latched until its ledger data verifies/u);
-    assert.match(String(stillLatched.nextAction), /flat\/v1 .* sharded entries/u);
+    assert.deepEqual(stillLatched.diagnostic, { kind: "failure", code: "repo_unavailable" });
     assert.equal(cell.status().state, "unavailable");
     // Repair the data underneath the live cell; the next command re-attaches without a reopen.
     git(rootDir, "rm", "-q", stray);
@@ -466,12 +463,11 @@ test("every latched RepoCell exit declares the latch and the cause identically w
     assert.equal(first.outcome, "op_rejected");
     assert.equal(first.code, "repo_unavailable");
     assert.equal(cell.status().state, "unavailable");
-    assert.match(
-      String(first.nextAction ?? ""),
-      /events root mixes .* flat\/v1 .* sharded entries; run ha migrate ledger/u,
-    );
+    assert.deepEqual(first.diagnostic, { kind: "failure", code: "repo_unavailable" });
     const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
-    const declared = String(write.nextAction ?? ""),
+    assert.equal(write.code, "repo_unavailable");
+    assert.deepEqual(write.diagnostic, { kind: "failure", code: "repo_unavailable" });
+    const declared = String(write.rejectionExplanation ?? ""),
       latched = cell;
     const staleRead = await latched.read("repo.tasks.list");
     assert.equal(staleRead.watermark <= staleRead.sourceRevision, true);

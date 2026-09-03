@@ -198,10 +198,6 @@ export function makeEntityActionCatalogExecutor(input: {
       : {
           outcome: "pending",
           ...base,
-          nextAction:
-            receipts.length === 0
-              ? "No Decisions were available to repin; retry after a Decision is published."
-              : "Query the child Decision receipts and retry after every repin is canonical.",
         };
   };
 
@@ -341,7 +337,6 @@ export function makeEntityActionCatalogExecutor(input: {
       : {
           outcome: "pending",
           ...receipt,
-          nextAction: `Retry after the projection records declaration event ${bundle.event.opId}.`,
         };
   };
 
@@ -404,9 +399,7 @@ export function deriveActionResult(
         ? criterionRefs.map((criterionRef) => resolveActionCriterion(contract, criterionRef))
         : [],
     explanation = rejected
-      ? (unmetCriteria[0]?.explain ??
-        receipt.nextAction ??
-        `Action ${contract.target.kind}.${contract.id} was rejected.`)
+      ? (unmetCriteria[0]?.explain ?? `Action ${contract.target.kind}.${contract.id} was rejected.`)
       : null;
   return {
     ...receipt,
@@ -422,9 +415,7 @@ export function deriveActionResult(
             revision: receipt.revision ?? null,
           },
     rejectionExplanation: explanation,
-    nextActions: Object.freeze([
-      ...new Set([...(receipt.nextActions ?? []), ...(receipt.nextAction ? [receipt.nextAction] : [])]),
-    ]),
+    nextActions: Object.freeze([...(receipt.nextActions ?? [])]),
   };
 }
 
@@ -667,7 +658,6 @@ function factReceipt(
     : {
         outcome: "pending",
         ...base,
-        nextAction: `Query receipt ${event.opId}; its canonical publication cut is not exact.`,
       };
 }
 
@@ -689,7 +679,6 @@ function decisionReceipt(
       event.type === "decision_relation_replaced"
         ? { retiredRelationId: event.payload.relationId, replacementRelationId: event.payload.replacement.relation_id }
         : null,
-    proposalFactHint = missingProposalFactEvidenceHint(event),
     canonicalVisible =
       result.cut.opId === event.opId &&
       result.cut.revision === result.revision &&
@@ -723,15 +712,7 @@ function decisionReceipt(
       consentId,
       authorizationDecision,
     };
-  return canonicalVisible
-    ? { outcome: "applied", ...base, ...(proposalFactHint ? { nextAction: proposalFactHint } : {}) }
-    : {
-        outcome: "pending",
-        ...base,
-        nextAction: [`Query receipt ${event.opId}; its canonical publication cut is not exact.`, proposalFactHint]
-          .filter((value): value is string => value !== null)
-          .join(" "),
-      };
+  return canonicalVisible ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
 }
 
 function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt {
@@ -756,7 +737,6 @@ function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt
       canonicalVisible: false,
       worktreeVisible: false,
     },
-    nextAction: "Remove --dry-run to publish this validated Decision write plan.",
   };
 }
 
@@ -794,7 +774,6 @@ function entityPreview(
     updatedProjection: null,
     rejectionExplanation: null,
     nextActions: ["Remove --dry-run to publish this Agent declaration through the canonical event stream."],
-    nextAction: `Remove --dry-run to run ${contract.execution.ingress}.`,
   };
 }
 
@@ -805,14 +784,6 @@ function preparedEntityReport(action: RepoTaskAction): Readonly<Record<string, u
   return report && typeof report === "object" && !Array.isArray(report)
     ? (report as Readonly<Record<string, unknown>>)
     : {};
-}
-
-function missingProposalFactEvidenceHint(event: DecisionEventV1): string | null {
-  if (event.type !== "decision_proposed") return null;
-  return (
-    "First run `ha fact record`, then `ha relation relate --source-ref decision/<id>/<claim> " +
-    "--target-ref fact/<id> --type evidenced-by --expected-version 0` before accepting this Decision."
-  );
 }
 
 function readReceipt<
@@ -831,9 +802,7 @@ function readReceipt<
       worktreeVisible: null,
     },
   };
-  return read.status === "ready"
-    ? { outcome: "applied", ...base }
-    : { outcome: "pending", ...base, nextAction: `Retry ${command} after projection catch-up.` };
+  return read.status === "ready" ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
 }
 
 function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilters {

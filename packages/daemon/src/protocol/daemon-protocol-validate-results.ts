@@ -103,7 +103,6 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
       ? {
           error: {
             code: typeof fields.code === "string" ? fields.code : "write_rejected",
-            hint: typeof fields.nextAction === "string" ? fields.nextAction : "Inspect the rejection.",
           },
         }
       : {}),
@@ -341,16 +340,13 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     ["command", value.command, nonEmpty(value.command), "must be a non-empty string"],
     ["code", value.code, nonEmpty(value.code), "must be a non-empty string"],
     ["evidence", value.evidence, nonEmpty(value.evidence), "must be a non-empty string"],
-    ["nextAction", value.nextAction, nonEmpty(value.nextAction), "must be a non-empty string"],
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
-  const errorShapeError = recordShapeError(entityId, value.error, ["code", "hint"], undefined, "error");
+  const errorShapeError = recordShapeError(entityId, value.error, ["code"], undefined, "error");
   if (errorShapeError) return [errorShapeError];
   if (!isJsonObject(value.error)) return [];
   if (!nonEmpty(value.error.code))
     return [validationError(entityId, "error.code", value.error.code, "must be a non-empty string")];
-  if (!nonEmpty(value.error.hint))
-    return [validationError(entityId, "error.hint", value.error.hint, "must be a non-empty string")];
   if (value.code !== value.error.code)
     return [validationError(entityId, "error.code", value.error.code, "must equal code")];
   if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
@@ -364,7 +360,6 @@ export const writeReceiptFields = [
     "revision",
     "code",
     "origin",
-    "nextAction",
     "evidence",
     "visibility",
     "proof",
@@ -452,20 +447,20 @@ export function writeReceipt(value: JsonObject): string[] {
     return [validationError(entityId, "evidence", value.evidence, "must be a non-empty string")];
   if (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut))
     return [validationError(entityId, "proof", value.proof, "must prove durable canonical visibility at one cut")];
-  if (pending && !nonEmpty(value.nextAction) && (!Array.isArray(value.guidance) || value.guidance.length === 0))
-    return [validationError(entityId, "guidance", value.guidance, "must include nextAction or structured guidance")];
+  if (pending && (!Array.isArray(value.guidance) || value.guidance.length === 0))
+    return [validationError(entityId, "guidance", value.guidance, "must include structured guidance")];
   if (value.guidance !== undefined && (!Array.isArray(value.guidance) || !value.guidance.every(isStructuredGuidance)))
     return [validationError(entityId, "guidance", value.guidance, "must be structured receipt guidance")];
   if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   if (noChanges) {
-    for (const field of ["code", "origin", "nextAction"] as const)
+    for (const field of ["code", "origin"] as const)
       if (!nonEmpty(value[field]))
         return [validationError(entityId, field, value[field], "must be a non-empty string")];
     if (value.code !== "no_changes") return [validationError(entityId, "code", value.code, "must be no_changes")];
   }
   if (failed) {
-    for (const field of ["code", "origin", "nextAction"] as const)
+    for (const field of ["code", "origin"] as const)
       if (!nonEmpty(value[field]))
         return [validationError(entityId, field, value[field], "must be a non-empty string")];
     if (value.evidence !== undefined && !nonEmpty(value.evidence))
@@ -500,10 +495,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
   else errors.push(...writeReceipt(receipt));
   if (
     (value.ok === false &&
-      (!exactRecord(value.error, ["code", "hint"]) ||
-        !nonEmpty(value.error.code) ||
-        !nonEmpty(value.error.hint) ||
-        value.error.code !== value.code)) ||
+      (!exactRecord(value.error, ["code"]) || !nonEmpty(value.error.code) || value.error.code !== value.code)) ||
     (value.ok === true && value.error !== undefined)
   )
     errors.push(validationError(entityId, "error", value.error, "must match the rejected receipt code"));
@@ -563,8 +555,8 @@ export function daemonProtocolError(
     origin: "daemon",
     code,
     evidence: `rejection:${code}`,
-    error: { code, hint },
-    nextAction: hint,
+    error: { code },
+
     ...(diagnostic ? { diagnostic } : {}),
   };
 }

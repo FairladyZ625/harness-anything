@@ -1,5 +1,6 @@
 import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { cliErrorMessage } from "./cli-error.ts";
+import { cliFailure } from "./cli-meta.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { relayRuntimeAuthTerminal, runCommandThroughDaemon } from "./daemon/client.ts";
 import { randomUUID } from "node:crypto";
@@ -95,16 +96,5 @@ export function renderRuntimeStatus(value: JsonObject): string {
 }
 
 export function runtimeRejected(command: string, code: string, hint: string): JsonObject {
-  return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command,
-    outcome: "op_rejected",
-    opId: "N/A",
-    origin: "cli",
-    code,
-    evidence: `rejection:${code}`,
-    error: { code, hint },
-    nextAction: hint,
-  };
+  return cliFailure(command, code, hint);
 }

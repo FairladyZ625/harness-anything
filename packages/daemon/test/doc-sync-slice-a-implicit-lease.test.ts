@@ -195,7 +195,6 @@ test("a runtime session with multiple matching held executions rejects with exac
     });
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "lease_conflict");
-    assert.match(rejected.nextAction ?? "", /run the task command for the matching execution/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -308,13 +307,9 @@ test("path and implicit submits ride the repository prose channel when the task 
         paths: [`${packagePath}/artifacts/reports/third.md`],
       },
       person,
-    )) as { outcome?: string; code?: string; nextAction?: string };
+    )) as { outcome?: string; code?: string };
     assert.equal(explicit.outcome, "op_rejected");
     assert.equal(explicit.code, "lease_conflict");
-    assert.match(
-      explicit.nextAction ?? "",
-      /execution exec-path-prose is not held by this principal; rerun ha doc sync --submit to submit through the repository prose channel/u,
-    );
     const unnamed = (await cell.run(
       {
         kind: "doc-submit",
@@ -399,17 +394,9 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
     const rejected = (await cell.run({ kind: "doc-submit", paths: [report] }, worker)) as {
       outcome?: string;
       code?: string;
-      nextAction?: string;
-      detail?: { nextAction?: string };
     };
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "lease_conflict");
-    const recipe = new RegExp(
-      `the lease for execution exec-lapsed lapsed at [^;]+; run ha task release ${taskId}, then re-enter the round with ha task start ${taskId} --execution-id exec-lapsed`,
-      "u",
-    );
-    assert.match(rejected.nextAction ?? "", recipe);
-    assert.match(rejected.detail?.nextAction ?? "", recipe);
     // The named recovery is real: same-execution re-entry restores a held lease this principal holds.
     const released = (await cell.run({ kind: "task-release", taskId }, worker)) as { outcome?: string },
       reentered = (await cell.run({ kind: "task-start", taskId, executionId: "exec-lapsed" }, worker)) as {
@@ -548,16 +535,9 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
       store: eventStore,
       projection,
       now: () => now,
-    })) as { outcome?: string; code?: string; nextAction?: string };
+    })) as { outcome?: string; code?: string };
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "lease_conflict");
-    assert.match(
-      rejected.nextAction ?? "",
-      new RegExp(
-        `run ha task release task-recover, then re-enter the round with ha task start task-recover --execution-id exec-recover`,
-        "u",
-      ),
-    );
     phase = "held";
     const recovered = (await runDocAction({
       action,

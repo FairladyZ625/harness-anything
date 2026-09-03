@@ -74,11 +74,7 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
       input.existingOperation?.opId === input.command.opId &&
       input.existingOperation.commandDigest !== input.command.commandDigest
     )
-      return rejectedDecision(
-        input.command.opId,
-        "operation_conflict",
-        "the same opId already names a different command payload",
-      );
+      return rejectedDecision(input.command.opId, "operation_conflict");
     if (input.existingOperation?.opId === input.command.opId)
       return Object.freeze({
         accepted: true,
@@ -94,7 +90,6 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
       visibility: "center",
       code: "publication_unverified",
       origin: "N/A",
-      nextAction: `read operation ${input.command.opId} before retrying`,
     });
     return Object.freeze({ accepted: true, event, frozenPlan, receipt });
   } catch (error) {
@@ -103,10 +98,10 @@ export function decideTaskLifecycleWrite<C extends TaskLifecycleCommand>(input: 
         ? error.code
         : "write_rejected";
     const code = rawCode === "frozen_write_plan" ? "invalid_write_plan" : rawCode;
-    return rejectedDecision(input.command.opId, code, error instanceof Error ? error.message : String(error));
+    return rejectedDecision(input.command.opId, code);
   }
 }
-function rejectedDecision(opId: string, code: string, detail: string): TaskLifecycleWriteDecision {
+function rejectedDecision(opId: string, code: string): TaskLifecycleWriteDecision {
   return Object.freeze({
     accepted: false,
     event: null,
@@ -118,7 +113,6 @@ function rejectedDecision(opId: string, code: string, detail: string): TaskLifec
       code,
       origin: "task-lifecycle-contract",
       evidence: `contract-rejection:${code}`,
-      nextAction: `correct the command or writer proof before retrying: ${detail}`,
     }),
   });
 }

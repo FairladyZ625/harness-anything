@@ -1,4 +1,5 @@
 import type { DaemonGuiReadResultMap } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
+import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type EntityActionExplanationRenderInput = DaemonGuiReadResultMap["repo.entity.actions.explain"];
 
@@ -11,9 +12,9 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
     subjects = value.subjects.flatMap((subject) => {
       if (subject.failure)
         return [
-          `${subject.ref ?? "invalid ref"}: ${subject.failure.code} — ${subject.failure.message}`,
+          `${subject.ref ?? "invalid ref"}: ${subject.failure.code}`,
           `  evaluated cut: ${String(value.evaluatedAtCut)}`,
-          ...subject.failure.nextActions.map((next) => `  next: ${next}`),
+          `  next: ${renderCliGuidance("explain-subject-remedy", { ref: subject.ref ?? "invalid ref" })}`,
         ];
       const subjectHeading = subject.ref
           ? `${subject.ref} @ revision ${String(subject.revision)}`
@@ -36,7 +37,13 @@ export function renderEntityActionExplanation(value: EntityActionExplanationRend
                     `(${row.authorizationDecision.reasonCodes.join(", ")})`,
                 ]
               : []),
-            ...row.nextActions.map((next) => `    next: ${next}`),
+            ...(row.available === false
+              ? [
+                  `    next: ${renderCliGuidance("explain-action-remedy", {
+                    usage: row.action.syntax.usage,
+                  })}`,
+                ]
+              : []),
           ];
         });
       return [subjectHeading, ...actions];

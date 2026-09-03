@@ -10,7 +10,7 @@ import { type RepoTaskAction } from "./repo-cell.ts";
 export function rejectHostAction(
   action: RepoTaskAction,
   errorCode: string,
-  nextAction: string,
+  _legacyGuidance: string,
   diagnostic?: ReceiptDiagnostic,
 ): WriteReceipt {
   return {
@@ -19,12 +19,11 @@ export function rejectHostAction(
     code: errorCode,
     origin: "daemon",
     evidence: `rejection:${errorCode}`,
-    nextAction,
-    ...(diagnostic ? { diagnostic } : {}),
+    diagnostic: diagnostic ?? { kind: "failure", code: errorCode },
   };
 }
 
-export function rejectPresetRun(runId: string, code: string, nextAction: string) {
+export function rejectPresetRun(runId: string, code: string, _legacyGuidance: string) {
   return {
     schema: "preset-run-receipt/v1" as const,
     runId,
@@ -32,7 +31,6 @@ export function rejectPresetRun(runId: string, code: string, nextAction: string)
     phase: "op_rejected" as const,
     phases: ["op_rejected"] as const,
     code,
-    nextAction,
   };
 }
 
@@ -116,7 +114,7 @@ export function failedConfigureVerify(
     next,
     code: "configure_verify_failed",
     error: { code: "configure_verify_failed", hint },
-    nextAction: next,
+
     configureVerify: { ok: false, steps, failedAt, causeCode: code(error) },
   };
 }

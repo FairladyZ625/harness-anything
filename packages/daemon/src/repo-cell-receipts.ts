@@ -45,18 +45,8 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
           code: "publication_indeterminate",
           origin: "daemon",
           evidence: "prepared-recovery:indeterminate",
-          nextAction: [
-            "Repair the prepared publication state, restart the daemon, then run ha ",
-            "receipt show ",
-            `${opId}`,
-            " again before retrying.",
-          ].join(""),
         }
-      : cell.rejected(
-          opId,
-          "operation_not_published",
-          "No committed or recoverable event exists for this opId; the write was not applied and may be retried.",
-        );
+      : cell.rejected(opId, "operation_not_published");
   // Replay receipts name the current canonical cut: the event is reachable there, and replay proves
   // occurrence rather than original publication provenance.
   if (event.schema === "doc-event/v1")
@@ -101,7 +91,6 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
           }),
           visibility: "center",
           proof: { ...proof, worktreeVisible: event.type === "entity_content_observed" },
-          ...(!visible ? { nextAction: `Retry after the projection records observation ${opId}.` } : {}),
         },
         event,
       );
@@ -141,7 +130,6 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
           proof: declarationProof,
           detail,
           ...publication,
-          nextAction: `Retry after the projection records declaration event ${opId}.`,
         };
   }
   if (isTaskEvent(event) && visible)
@@ -171,7 +159,6 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
       evidence: `event-object:${opId}`,
       visibility: "center",
       proof,
-      nextAction: "Projection catch-up may still be pending.",
     },
     event,
   );
@@ -200,7 +187,6 @@ export function canonicalSettlement(
     : {
         ...base,
         outcome: "pending",
-        nextAction: `Query receipt ${event.opId}; its canonical publication cut is not exact.`,
       };
 }
 
@@ -268,6 +254,5 @@ export function progressReceipt(
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,
-    nextAction: `ha task submit ${event.payload.taskId} --json-input '<submission-json>'`,
   };
 }

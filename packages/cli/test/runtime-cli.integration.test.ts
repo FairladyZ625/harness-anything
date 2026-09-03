@@ -237,17 +237,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       placeholderLease = runMaybe(root, env, automaticArgs);
     assert.equal(placeholderLease.status, 1);
     assert.equal(placeholderLease.receipt.code, "plan_placeholder");
-    assert.match(
-      String(placeholderLease.receipt.nextAction),
-      /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
-    );
     assert.deepEqual(placeholderLease.receipt.diagnostic, {
       kind: "missing-sections",
       documentPath: automaticPlanPath,
       diskDiffers: true,
       missingSections: [{ section: "CI/Gate Authority Stop Condition", reason: "empty" }],
     });
-    assert.doesNotMatch(String(placeholderLease.receipt.nextAction), /missing required sections are: Brief/u);
     writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
     const automaticPlanSync = run(root, env, ["doc", "sync", "--submit", "--path", automaticPlanPath]);
     const automaticLease = runMaybe(root, env, automaticArgs);
@@ -259,7 +254,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         before: {
           outcome: placeholderLease.receipt.outcome,
           code: placeholderLease.receipt.code,
-          nextAction: placeholderLease.receipt.nextAction,
+          diagnostic: placeholderLease.receipt.diagnostic,
         },
         sync: { outcome: automaticPlanSync.outcome, summary: automaticPlanSync.summary },
         after: {
@@ -527,10 +522,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ]);
     assert.equal(unsyncedMission.status, 1);
     assert.equal(unsyncedMission.receipt.code, "runtime_mission_unavailable");
-    assert.match(
-      String(unsyncedMission.receipt.nextAction),
-      new RegExp(`ha doc sync --submit --path ${existingMissionPath}`, "u"),
-    );
     mkdirSync(path.join(artifactRoot, "missions"), { recursive: true });
     writeFileSync(path.join(root, "harness", existingMissionPath), "existing mission");
     // Manual sync stays the tested path; a concurrent authored-candidate settlement may have won
@@ -569,7 +560,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         before: {
           outcome: unsyncedMission.receipt.outcome,
           code: unsyncedMission.receipt.code,
-          nextAction: unsyncedMission.receipt.nextAction,
+          diagnostic: unsyncedMission.receipt.diagnostic,
         },
         sync: { outcome: missionSync.outcome, summary: missionSync.summary },
         after: { outcome: reused.outcome, dispatchId: reusedDispatchId },
@@ -715,7 +706,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       nonzeroNotifier,
     ]);
     assert.equal(invalidOnExit.status, 2);
-    assert.match(rejectionHint(invalidOnExit.receipt), /only with --detach/u);
+    assert.equal(invalidOnExit.receipt.code, "invalid_field");
+    assert.equal((invalidOnExit.receipt.diagnostic as Record<string, unknown>).kind, "validation");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const controlNotification = run(root, env, [
         "runtime",
@@ -810,7 +802,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       runtimeSessionId: nonzeroNotification.runtimeSessionId,
       outcome: "succeeded",
       exitCode: 0,
-      nextAction: `ha runtime status ${String(nonzeroNotification.runtimeSessionId)} --wait`,
     });
     assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
     const missingArchive = JSON.parse(
@@ -893,10 +884,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     const unknownDeclaration = runMaybe(root, env, ["runtime", "batch", "batch-unknown-declaration.json"]);
     assert.equal(unknownDeclaration.status, 1);
-    assert.equal(
-      rejectionHint(unknownDeclaration.receipt),
-      'Batch declaration contains an unknown field "permissionMode"; allowed fields: "schema", "maxConcurrency", "dispatches".',
-    );
+    assert.equal(unknownDeclaration.receipt.code, "batch_file_invalid");
+    assert.equal((unknownDeclaration.receipt.diagnostic as Record<string, unknown>).kind, "validation");
     writeFileSync(
       path.join(root, "batch-unknown-dispatch.json"),
       JSON.stringify({
@@ -907,10 +896,8 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     const unknownDispatch = runMaybe(root, env, ["runtime", "batch", "batch-unknown-dispatch.json"]);
     assert.equal(unknownDispatch.status, 1);
-    assert.equal(
-      rejectionHint(unknownDispatch.receipt),
-      'Batch dispatch 0 contains an unknown field "permissionMode"; allowed fields: "instance", "agent", "to", "squad", "model", "effort", "fast", "permission-mode", "prompt", "mission", "wait-projection", "cwd", "task".',
-    );
+    assert.equal(unknownDispatch.receipt.code, "batch_file_invalid");
+    assert.equal((unknownDispatch.receipt.diagnostic as Record<string, unknown>).kind, "validation");
     const unknownSpawn = await runCommandThroughDaemon(
       {
         rootDir: safePath(root),
@@ -931,9 +918,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       { env },
     );
     assert.equal(unknownSpawn.code, "invalid_request");
-    assert.match(rejectionHint(unknownSpawn), /unknown field "permission_mode"/u);
-    for (const field of ["runtimeInstanceId", "permissionMode", "idempotencyKey", "executor"])
-      assert.match(rejectionHint(unknownSpawn), new RegExp(`"${field}"`, "u"));
     const unknownCancel = await runCommandThroughDaemon(
       {
         rootDir: safePath(root),
@@ -946,10 +930,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       { env },
     );
     assert.equal(unknownCancel.code, "invalid_request");
-    assert.equal(
-      rejectionHint(unknownCancel),
-      'params.payload contains an unknown field "force"; allowed fields: "runtimeSessionId".',
-    );
     const unknownFact = await runCommandThroughDaemon(
       {
         rootDir: safePath(root),
@@ -962,10 +942,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       { env: { ...env, HARNESS_ACTOR: "" } },
     );
     assert.equal(unknownFact.code, "invalid_command");
-    assert.equal(
-      rejectionHint(unknownFact),
-      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "domainType", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
-    );
     writeFileSync(
       path.join(root, "batch.json"),
       JSON.stringify(
@@ -1035,7 +1011,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       JSON.stringify(batch.receipt),
     );
     assert.equal(batchRows[0]?.code, "squad_member_not_found");
-    assert.match(String(batchRows[0]?.reason), /missing-agent/u);
     assert.equal(
       successfulBatchRows.every(
         (row) => typeof row.dispatchId === "string" && typeof row.runtimeSessionId === "string",
@@ -1514,15 +1489,6 @@ async function eventuallyRuntimeReaderReuse(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`runtime status wait did not reuse one daemon connection: ${JSON.stringify(observed)}`);
-}
-function rejectionHint(receipt: Record<string, unknown>): string {
-  const error = receipt.error;
-  return error &&
-    typeof error === "object" &&
-    !Array.isArray(error) &&
-    typeof (error as Record<string, unknown>).hint === "string"
-    ? String((error as Record<string, unknown>).hint)
-    : String(receipt.nextAction ?? receipt.reason ?? "");
 }
 function assertTaskMissionPrompt(
   prompt: string,

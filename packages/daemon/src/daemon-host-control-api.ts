@@ -54,7 +54,7 @@ export function createDaemonHostControlApi(
             code: "supervisor_required",
             hint: "Electron main must own restart and its receipt.",
           },
-          nextAction: "Request restart through the local Electron supervisor.",
+
           authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
         };
         context.controls.set(operationId, rejectedReceipt);
@@ -81,7 +81,7 @@ export function createDaemonHostControlApi(
             code: "control_busy",
             hint: `Wait for ${context.latestControl.operationId}.`,
           },
-          nextAction: `Poll ${context.latestControl.operationId}.`,
+
           authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
         };
         context.controls.set(operationId, busy);
@@ -99,7 +99,7 @@ export function createDaemonHostControlApi(
         before,
         after: null,
         error: null,
-        nextAction: `Poll ${operationId}.`,
+
         authorizationDecision: authorizationDecision as unknown as import("./protocol/json-rpc-types.ts").JsonObject,
       };
       context.controls.set(operationId, pending);
@@ -130,7 +130,7 @@ export function createDaemonHostControlApi(
           code: "operation_not_found",
           hint: "No daemon control receipt exists for this operationId.",
         },
-        nextAction: null,
+
         authorizationDecision: null,
       };
     },

@@ -17,7 +17,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use exactly one of decision validate <id> or decision validate --all.",
       }),
     ],
   }),
@@ -31,7 +30,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use exactly one of decision verify <id> or decision verify --all.",
       }),
     ],
   }),
@@ -44,7 +42,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--all", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use exactly one Decision id or --all.",
       }),
       cliInput(
         "--migration-evidence",
@@ -52,7 +49,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use --migration-evidence task/<task-id>/<audit-marker>.",
         },
         { regex: "^task/[^/]+/[^/]+$" },
       ),
@@ -71,7 +67,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use exactly one of --from-file <workspace-packet.json> or --json-input <json|@->.",
         },
         {
           jsonFields: decisionProposalJsonFields,
@@ -84,10 +79,10 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use exactly one of --from-file <workspace-packet.json> or --json-input <json|@->.",
         },
         {
           jsonFields: decisionProposalJsonFields,
+          format: "<json|@->",
           conflictsWith: ["--from-file"],
         },
       ),
@@ -97,7 +92,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use only one of --body or --body-file.",
         },
         {
           requiresAny: ["--from-file", "--json-input"],
@@ -110,7 +104,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use only one of --body or --body-file.",
         },
         {
           requiresAny: ["--from-file", "--json-input"],
@@ -128,7 +121,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--decided-at", "single", false, {
         code: "invalid_field",
-        nextAction: "Use an ISO-8601 timestamp.",
       }),
       cliInput(
         "--judgment-only",
@@ -136,13 +128,11 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Judgment-only acceptance requires an explicit rationale of 1..199 characters.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput("--standing-policy", "boolean", false, {
         code: "invalid_field",
-        nextAction: "--standing-policy is only valid when transitioning to in_effect.",
       }),
       cliInput(
         "--fulfillment",
@@ -150,13 +140,11 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --fulfillment <claim-id>:<evidenced|delivered|standing_policy>.",
         },
         { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$" },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --dry-run once to preview without writing.",
       }),
     ],
   }),
@@ -173,7 +161,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "A rationale of 1..199 characters is required.",
         },
         {
           requiresAny: ["claim-to-evidence relation", "--judgment-only"],
@@ -186,7 +173,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Without claim evidence, --judgment-only requires an explicit rationale of 1..199 characters.",
         },
         { requires: ["--rationale"], regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -205,7 +191,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "A rationale of 1..199 characters is required.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -224,7 +209,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "A rationale of 1..199 characters is required.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -243,7 +227,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "A reason of 1..199 characters is required.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -262,7 +245,6 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "A reason of 1..199 characters is required.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -277,11 +259,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--title", "single", false, {
         code: "invalid_field",
-        nextAction: "--title requires a non-empty title.",
       }),
       cliInput("--standing-policy", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --standing-policy once.",
       }),
       cliInput(
         "--fulfillment",
@@ -289,37 +269,29 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use --fulfillment <claim-id>:<evidenced|delivered|standing_policy>.",
         },
         { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$" },
       ),
       cliInput("--load-bearing", "single", false, {
         code: "invalid_field",
-        nextAction: "Use only one of --load-bearing or --non-load-bearing.",
       }),
       cliInput("--non-load-bearing", "single", false, {
         code: "invalid_field",
-        nextAction: "Use only one of --load-bearing or --non-load-bearing.",
       }),
       cliInput("--set", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Use --set title:<value>.",
       }),
       cliInput("--append", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Use --append <chosen|rejected|claims>:<json-object>.",
       }),
       cliInput("--body", "single", false, {
         code: "invalid_field",
-        nextAction: "Use only one of --body or --body-file.",
       }),
       cliInput("--body-file", "single", false, {
         code: "invalid_field",
-        nextAction: "Use only one of --body or --body-file.",
       }),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --dry-run once to preview without writing.",
       }),
     ],
   }),

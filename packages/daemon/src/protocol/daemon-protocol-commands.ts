@@ -35,18 +35,11 @@ const settingsWriteTopology = {
       false,
       {
         code: "invalid_field",
-        nextAction: `Use ${name} with a non-empty Settings identifier or relative scaffold path.`,
       },
       { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
     ),
   positiveSettingInput = (name: string) =>
-    cliInput(
-      name,
-      "single",
-      false,
-      { code: "invalid_field", nextAction: `Use ${name} with a positive integer.` },
-      { regex: "^[1-9][0-9]*$" },
-    ),
+    cliInput(name, "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$" }),
   settingsProtocolCommands = Object.freeze([
     defineRepoReadCommand({
       id: "settings-read",
@@ -74,19 +67,12 @@ const settingsWriteTopology = {
           false,
           {
             code: "invalid_field",
-            nextAction: "Use --locale en-US or --locale zh-CN.",
           },
           { enum: ["en-US", "zh-CN"] },
         ),
         settingValueInput("--task-scaffold"),
         settingValueInput("--repository-scaffold"),
-        cliInput(
-          "--wal-flush-adaptive",
-          "single",
-          false,
-          { code: "invalid_field", nextAction: "Use --wal-flush-adaptive true or false." },
-          { enum: ["true", "false"] },
-        ),
+        cliInput("--wal-flush-adaptive", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
         positiveSettingInput("--wal-flush-events"),
         positiveSettingInput("--wal-flush-bytes"),
         positiveSettingInput("--wal-flush-milliseconds"),
@@ -96,13 +82,11 @@ const settingsWriteTopology = {
           false,
           {
             code: "invalid_field",
-            nextAction: "Use the non-negative Settings entity revision returned by settings read.",
           },
           { regex: "^(?:0|[1-9][0-9]*)$", projection: "number" as const },
         ),
         cliInput("--idempotency-key", "single", false, {
           code: "invalid_field",
-          nextAction: "Use one stable non-empty idempotency key, or omit it for automatic allocation.",
         }),
       ],
       ...settingsWriteTopology,

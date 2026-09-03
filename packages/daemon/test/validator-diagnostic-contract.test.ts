@@ -283,7 +283,6 @@ const relationGraph = {
           code: "invalid_result",
           evidence: "validation failed",
           error: { code: "invalid_result", hint: "" },
-          nextAction: "inspect the response",
         }),
     },
     {
@@ -297,7 +296,7 @@ const relationGraph = {
           revision: -1,
           code: "invalid_result",
           origin: "daemon",
-          nextAction: "fix the response",
+          diagnostic: { kind: "failure", code: "invalid_result" },
         }),
     },
     {
@@ -313,7 +312,7 @@ const relationGraph = {
           opId: "op-gui-contract",
           code: "invalid_result",
           origin: "daemon",
-          nextAction: "fix the response",
+          diagnostic: { kind: "failure", code: "invalid_result" },
         }),
     },
     {

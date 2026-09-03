@@ -61,7 +61,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
         code: "invalid_transition",
         origin: "daemon",
         evidence: "rejection:invalid_transition",
-        nextAction: "Refresh the Task projection and retry with its current revision.",
+        diagnostic: { kind: "failure", code: "invalid_transition" },
         unmetCriteria: [
           {
             ref: "task-lifecycle-contract-support/revisionIssues",
@@ -81,7 +81,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
   assert.deepEqual(receipt.effects, []);
   assert.equal(receipt.updatedProjection, null);
   assert.match(receipt.rejectionExplanation ?? "", /expectedVersion/u);
-  assert.deepEqual(receipt.nextActions, ["Refresh the Task projection and retry with its current revision."]);
+  assert.deepEqual(receipt.nextActions, []);
 });
 
 test("ambiguous failure codes do not invent a criterion", async () => {

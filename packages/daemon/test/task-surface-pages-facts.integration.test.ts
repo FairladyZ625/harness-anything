@@ -532,16 +532,13 @@ test("fact search action forwards observed-time windows and preserves keyset pag
       binding,
     );
     assert.equal(invalidDate.outcome, "op_rejected");
-    assert.match(String(invalidDate.nextAction), /ISO-8601/u);
+    assert.deepEqual(invalidDate.diagnostic, { kind: "failure", code: "invalid_command" });
     assert.equal(invertedWindow.outcome, "op_rejected");
-    assert.match(String(invertedWindow.nextAction), /later/u);
+    assert.deepEqual(invertedWindow.diagnostic, { kind: "failure", code: "invalid_command" });
     assert.equal(invalidLimit.outcome, "op_rejected");
-    assert.match(String(invalidLimit.nextAction), /between 1 and 500/u);
+    assert.deepEqual(invalidLimit.diagnostic, { kind: "failure", code: "invalid_command" });
     assert.equal(unknownField.outcome, "op_rejected");
-    assert.equal(
-      unknownField.nextAction,
-      'Fact search filters contain an unknown field "permissionMode"; allowed fields: "kind", "query", "taskId", "confidence", "domainType", "memoryClass", "observedAfter", "observedBefore", "limit", "cursor".',
-    );
+    assert.deepEqual(unknownField.diagnostic, { kind: "failure", code: "invalid_command" });
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

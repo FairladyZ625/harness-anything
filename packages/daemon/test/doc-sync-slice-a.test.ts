@@ -107,10 +107,13 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "preview_blocked");
-    assert.match(String(rejected.nextAction), /typed-machine-writer/u);
-    assert.match(String(rejected.nextAction), /machine region changed/u);
-    assert.equal(String(rejected.nextAction).includes(laterBlocked), true);
-    assert.doesNotMatch(String(rejected.nextAction), /ha doc status/u);
+    const detail = rejected.detail as {
+      readonly unresolvedTouches: readonly { readonly path: string; readonly requiredRoute: string }[];
+    };
+    assert.deepEqual(
+      detail.unresolvedTouches.map(({ path, requiredRoute }) => [path, requiredRoute]),
+      [[laterBlocked, "typed-machine-writer"]],
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -135,14 +138,7 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     const missing = await cell.run({ kind: "doc-submit", paths: ["context/missing.md"] }, binding);
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
     assert.equal(missing.code, "document_not_found");
-    assert.equal(
-      missing.nextAction,
-      [
-        "resolve context/missing.md through doc-sync: selected doc-sync path does not match an authored candidate; ",
-        "then rerun ha doc sync --submit",
-      ].join(""),
-    );
-    assert.doesNotMatch(missing.nextAction ?? "", /ha doc status/u);
+    assert.deepEqual(missing.diagnostic, { kind: "failure", code: "document_not_found" });
 
     const clean = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
     assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
@@ -154,21 +150,13 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
   }
 });
 
-test("doc-sync details name only the first unresolved touch already in hand", () => {
+test("doc-sync details retain ordered unresolved touches", () => {
   const first = touch("context/first.md", "refresh-region-policy", 'base region is missing: "# First"'),
     second = touch("context/second.md", "workspace-config", "path is owned by workspace-config"),
     blocked = unresolvedDetail(first, second),
     withoutRows = unresolvedDetail();
-  assert.equal(
-    blocked.nextAction,
-    [
-      'resolve context/first.md through refresh-region-policy: base region is missing: "# First"; ',
-      "then rerun ha doc sync --submit",
-    ].join(""),
-  );
-  assert.equal(blocked.nextAction.includes(second.path), false);
-  assert.doesNotMatch(blocked.nextAction, /ha doc status/u);
-  assert.doesNotMatch(withoutRows.nextAction, /ha doc status/u);
+  assert.deepEqual(blocked.unresolvedTouches, [first, second]);
+  assert.deepEqual(withoutRows.unresolvedTouches, []);
 });
 
 test("repo-cell warning names only the first blocked receipt row", () => {
@@ -247,13 +235,9 @@ test("doc retire deletes one projected document and returns an auditable retirem
     rmSync(path.join(rootDir, "harness", logical));
     const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.equal(rows(mutation.evidence)[0]?.state, "deletion");
-    assert.match(
-      mutation.detail?.nextAction ?? "",
-      /resolve context\/temporary\.md through deletion_forbidden: canonical document is missing from the worktree/u,
-    );
-    assert.match(mutation.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
-    assert.doesNotMatch(mutation.detail?.nextAction ?? "", /ha doc status/u);
-    assert.doesNotMatch(mutation.detail?.nextAction ?? "", /resolve blocked/iu);
+    assert.deepEqual(mutation.detail?.deletions, [
+      { path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"), source: "intent" },
+    ]);
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     assert.equal(retired.proof?.canonicalVisible, true);
@@ -338,7 +322,7 @@ test("doc retire follows status for a Git-tracked document that was never projec
       rows(status.evidence).map((row) => [row.path, row.state]),
       [[logical, "deletion"]],
     );
-    assert.match(status.detail?.nextAction ?? "", new RegExp(`ha doc retire --path ${logical}`, "u"));
+    assert.deepEqual(status.detail?.deletions, [{ path: logical, baseBlobSha256: sha256Text(body), source: "intent" }]);
 
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
@@ -392,7 +376,6 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
       row = rows(status.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
     assert.deepEqual([row?.state, row?.reason], ["inapplicable", "non-textual artifact is outside doc sync"]);
     assert.deepEqual(status.detail?.unresolvedTouches, []);
-    assert.equal(status.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
     const noOp = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
     assert.equal(noOp.outcome, "no_changes");
     assert.equal(noOp.code, "no_changes");
@@ -430,7 +413,6 @@ test("people-registry ownership is inapplicable while typed writable routes rema
       ["inapplicable", "path is owned by people-registry and is outside doc sync"],
     );
     assert.deepEqual(people.detail?.unresolvedTouches, []);
-    assert.equal(people.detail?.nextAction, "no action required; inapplicable candidates are outside doc sync");
     const noOp = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding);
     assert.equal(noOp.outcome, "no_changes");
     assert.equal(noOp.code, "no_changes");

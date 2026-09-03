@@ -816,8 +816,7 @@ export interface DaemonProtocolErrorResult {
   readonly origin: "daemon";
   readonly code: string;
   readonly evidence: string;
-  readonly error: { readonly code: string; readonly hint: string };
-  readonly nextAction: string;
+  readonly error: { readonly code: string };
   readonly diagnostic?: ReceiptDiagnostic;
 }
 

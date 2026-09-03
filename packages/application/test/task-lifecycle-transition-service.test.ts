@@ -665,7 +665,6 @@ test("pending without an event uses an honest receipt", async () => {
   assert.equal("evidence" in receipt, false);
   assert.equal("revision" in receipt, false);
   assert.equal("proof" in receipt, false);
-  assert.match(receipt.nextAction ?? "", /retry.*read/iu);
 });
 
 test("missing canonical append cannot be hidden by a ready projection", async () => {
@@ -718,7 +717,6 @@ test("missing canonical append cannot be hidden by a ready projection", async ()
   assert.equal(receipt.outcome, "pending");
   assert.equal(receipt.proof?.canonicalVisible, false);
   assert.equal(receipt.proof?.durable, false);
-  assert.match(receipt.nextAction ?? "", /canonical event publication is missing/u);
 });
 
 // Every phase of an independent write is O(old events) by construction: store init builds its

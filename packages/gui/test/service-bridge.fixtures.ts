@@ -13,7 +13,7 @@ export function restoreEnv(name: string, value: string | undefined): void {
 }
 export interface Failure {
   readonly ok: boolean;
-  readonly error?: { readonly code: string; readonly hint: string };
+  readonly error?: { readonly code: string; readonly hint?: string };
 }
 export async function seedRuntime(rootDir: string, repoId: string): Promise<void> {
   const store = makeTaskEventStore({ rootDir, repoId }),

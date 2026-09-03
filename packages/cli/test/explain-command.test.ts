@@ -74,7 +74,7 @@ test("explain parser selects catalog/object mode without duplicating EntityRef v
   assert.deepEqual(maximum.command.action.refs, fiveHundredRefs);
 });
 
-test("human renderer exposes availability, reasons, next actions, and the evaluated cut", () => {
+test("human renderer exposes availability, reasons, registry guidance, and the evaluated cut", () => {
   const catalog = makeTaskActionExplanationService({
       actor: { principal: { personId: "person-explain" }, executor: null },
       authorize: () => {
@@ -136,7 +136,11 @@ test("human renderer exposes availability, reasons, next actions, and the evalua
   assert.doesNotMatch(renderedCatalog, /start: (?:available|unavailable)/u);
   assert.match(renderedObject, /start: unavailable/u);
   assert.match(renderedObject, /unmet: criteria\/task-state \[invalid_transition\]/u);
-  assert.match(renderedObject, /next: Move the Task to planned\./u);
+  assert.match(
+    renderedObject,
+    /next: Resolve the listed criteria or authorization decision, then retry ha task start <task-id>.*\./u,
+  );
+  assert.doesNotMatch(renderedObject, /Move the Task to planned\./u);
   assert.match(renderedObject, /evaluated cut: canonical:8/u);
 });
 

@@ -1,6 +1,7 @@
 import { commandDescriptorForAction } from "../../../daemon/src/protocol/daemon-protocol-commands.ts";
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import type { ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
+import type { ThinCliInput, ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
+import { renderCliGuidance } from "./guidance-plane.ts";
 
 // The command descriptor is the single authority on which closed task-action method serves a kind;
 // parsers that pass no explicit method get the descriptor's routing instead of a hardcoded default.
@@ -54,13 +55,13 @@ export function readFlags(
         return {
           ok: false,
           code: "invalid_field",
-          nextAction: `${name} is a flag and takes no value.`,
+          nextAction: renderCliGuidance("flag-value", { name }),
         };
       if (flags.has(name))
         return {
           ok: false,
           code: "duplicate_field",
-          nextAction: `${name} may appear once.`,
+          nextAction: renderCliGuidance("duplicate-input", { name }),
         };
       flags.add(name);
       index += 1;
@@ -72,15 +73,19 @@ export function readFlags(
       return {
         ok: false,
         code: "unknown_field",
-        nextAction: `Unknown option ${name ?? "<missing>"}. Run ${descriptor.helpCommand}.`,
+        nextAction: renderCliGuidance("unknown-input", {
+          name: name ?? "<missing>",
+          helpCommand: descriptor.helpCommand,
+        }),
       };
-    if (!nonEmpty(value) || (inline === undefined && value.startsWith("--"))) return { ok: false, ...input.error };
+    if (!nonEmpty(value) || (inline === undefined && value.startsWith("--")))
+      return { ok: false, code: input.error.code, nextAction: inputGuidance(input, descriptor.helpCommand, true) };
     if (singles.has(input.name)) {
       if (one.has(input.name))
         return {
           ok: false,
           code: "duplicate_field",
-          nextAction: `${input.name} may appear once.`,
+          nextAction: renderCliGuidance("duplicate-input", { name: input.name }),
         };
       one.set(input.name, value);
     } else many.set(input.name, [...(many.get(input.name) ?? []), value]);
@@ -97,7 +102,8 @@ export function readFlags(
           : flags.has(input.name)
             ? [input.name]
             : [];
-    if (input.required && values.length === 0) return { ok: false, ...input.error };
+    if (input.required && values.length === 0)
+      return { ok: false, code: input.error.code, nextAction: inputGuidance(input, descriptor.helpCommand, true) };
     const invalidValue = values.find(
       (value) =>
         (input.enum !== undefined && !input.enum.includes(value)) ||
@@ -107,7 +113,7 @@ export function readFlags(
       return {
         ok: false,
         code: input.error.code,
-        nextAction: input.error.nextAction,
+        nextAction: inputGuidance(input, descriptor.helpCommand, false),
         offendingValue: invalidValue,
       };
   }
@@ -121,7 +127,26 @@ export function rejectInput(
   json: boolean,
 ): ThinParseResult {
   const error = directory.get(commandId)?.inputs.find((input) => input.name === name)?.error;
-  return rejected(error?.code ?? "invalid_field", error?.nextAction ?? `${name} is invalid.`, json);
+  const descriptor = directory.get(commandId),
+    input = descriptor?.inputs.find((candidate) => candidate.name === name);
+  return rejected(
+    error?.code ?? "invalid_field",
+    input
+      ? inputGuidance(input, descriptor?.helpCommand ?? `ha ${commandId} --help`, false)
+      : renderCliGuidance("invalid-input", { name, helpCommand: `ha ${commandId} --help` }),
+    json,
+  );
+}
+
+function inputGuidance(input: ThinCliInput, helpCommand: string, missing: boolean): string {
+  return renderCliGuidance(missing ? "missing-input" : "invalid-input", {
+    code: input.error.code,
+    name: input.name,
+    helpCommand,
+    ...(input.enum ? { values: input.enum } : {}),
+    ...(input.format ? { format: input.format } : {}),
+    ...(input.regex ? { pattern: input.regex } : {}),
+  });
 }
 
 export function accepted(

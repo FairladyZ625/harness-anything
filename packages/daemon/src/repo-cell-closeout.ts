@@ -58,11 +58,7 @@ export async function closeoutTask(
         leafBinding = { ...binding, actor, authorizationDecision };
       if (authorizationDecision.outcome === "denied")
         return {
-          ...cell.rejected(
-            actionId,
-            "authorization_denied",
-            authorizationDecision.nextActions.join(" ") || `Retry ${leafAction.kind} with an authorized RoleBinding.`,
-          ),
+          ...cell.rejected(actionId, "authorization_denied"),
           authorizationDecision,
         };
       if (stage === "task-show") return cell.showTask(taskId);

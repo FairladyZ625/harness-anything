@@ -10,7 +10,7 @@ import { createLocalGuiServiceBridge } from "../src/index.ts";
 
 interface Failure {
   readonly ok: boolean;
-  readonly error?: { readonly code: string; readonly hint: string };
+  readonly error?: { readonly code: string };
 }
 
 function resident(daemon: Awaited<ReturnType<typeof startDaemon>>): RunningDaemon {
@@ -53,8 +53,6 @@ test("GUI bridge is attach-only even when its first request finds no daemon", as
     })) as Failure;
     assert.equal(failure.ok, false);
     assert.equal(failure.error?.code, "daemon_unavailable");
-    assert.match(failure.error?.hint ?? "", /GUI is attach-only and never starts or restarts the daemon/u);
-    assert.match(failure.error?.hint ?? "", /Run `ha gui` from an operator shell/u);
     assert.equal(readDaemonPid(userRoot, daemonId), null, "a first GUI request must not spawn a daemon");
   } finally {
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);

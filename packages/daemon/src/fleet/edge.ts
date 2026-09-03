@@ -86,7 +86,7 @@ export class FleetRemoteError extends Error {
   readonly retryable: boolean;
   readonly resumeOffset: number | null;
   constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>) {
-    super(frame.nextAction);
+    super(frame.code);
     this.code = frame.code;
     this.retryable = frame.retryable;
     this.resumeOffset = frame.resumeOffset;

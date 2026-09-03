@@ -14,7 +14,9 @@ function repoPath(rootDir, absolutePath) {
 
 function walk(directory, files) {
   if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
     if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) walk(fullPath, files);
@@ -32,7 +34,9 @@ export async function loadContracts(rootDir, files = discoverContractFiles(rootD
   const contracts = [];
   for (const file of files) {
     const absolutePath = path.join(rootDir, file);
-    const module = await import(`${pathToFileURL(absolutePath).href}?contract=${encodeURIComponent(String(readFileSync(absolutePath).length))}`);
+    const module = await import(
+      `${pathToFileURL(absolutePath).href}?contract=${encodeURIComponent(String(readFileSync(absolutePath).length))}`
+    );
     contracts.push({ file, declaration: module.default ?? module.contract });
   }
   return contracts;
@@ -40,6 +44,10 @@ export async function loadContracts(rootDir, files = discoverContractFiles(rootD
 
 function entryId(entry) {
   return typeof entry === "string" ? entry : entry?.id;
+}
+
+function nonEmptyStringList(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.length > 0);
 }
 
 function validateCliCommandInputs(entry, source, errors) {
@@ -51,25 +59,60 @@ function validateCliCommandInputs(entry, source, errors) {
   }
   const names = new Set();
   for (const input of entry.inputs) {
-    if (input === null || typeof input !== "object" || typeof input.name !== "string" || !input.name.startsWith("--") || names.has(input.name)
-      || !["single", "repeated", "boolean"].includes(input.kind) || !Object.hasOwn(input, "required") || typeof input.required !== "boolean"
-      || input.error === null || typeof input.error !== "object" || typeof input.error.code !== "string" || typeof input.error.nextAction !== "string" || input.error.nextAction.length === 0) {
+    if (
+      input === null ||
+      typeof input !== "object" ||
+      typeof input.name !== "string" ||
+      !input.name.startsWith("--") ||
+      names.has(input.name) ||
+      !["single", "repeated", "boolean"].includes(input.kind) ||
+      !Object.hasOwn(input, "required") ||
+      typeof input.required !== "boolean" ||
+      input.error === null ||
+      typeof input.error !== "object" ||
+      Array.isArray(input.error) ||
+      typeof input.error.code !== "string" ||
+      input.error.code.length === 0 ||
+      Object.keys(input.error).some((key) => key !== "code")
+    ) {
       errors.push(`${label} has an invalid input facet`);
       continue;
     }
     names.add(input.name);
-    if (input.enum !== undefined && (!Array.isArray(input.enum) || input.enum.length === 0 || input.enum.some((value) => typeof value !== "string" || value.length === 0))) errors.push(`${label}:${input.name} enum is invalid`);
-    if (input.regex !== undefined) try { void new RegExp(input.regex, "u"); } catch (error) { consumeKnownError(error); errors.push(`${label}:${input.name} regex is invalid`); }
+    if (input.enum !== undefined && !nonEmptyStringList(input.enum))
+      errors.push(`${label}:${input.name} enum is invalid`);
+    if (
+      input.jsonEnums !== undefined &&
+      (input.jsonEnums === null ||
+        typeof input.jsonEnums !== "object" ||
+        Array.isArray(input.jsonEnums) ||
+        Object.keys(input.jsonEnums).length === 0 ||
+        Object.entries(input.jsonEnums).some(([field, values]) => field.length === 0 || !nonEmptyStringList(values)))
+    ) {
+      errors.push(`${label}:${input.name} JSON enums are invalid`);
+    }
+    if (input.regex !== undefined)
+      try {
+        void new RegExp(input.regex, "u");
+      } catch (error) {
+        consumeKnownError(error);
+        errors.push(`${label}:${input.name} regex is invalid`);
+      }
   }
-  if (!Array.isArray(entry.flags) || JSON.stringify(entry.flags) !== JSON.stringify(entry.inputs)) errors.push(`${label} flags projection differs from inputs`);
+  if (!Array.isArray(entry.flags) || JSON.stringify(entry.flags) !== JSON.stringify(entry.inputs))
+    errors.push(`${label} flags projection differs from inputs`);
 }
 
-function consumeKnownError(error) { void error; }
+function consumeKnownError(error) {
+  void error;
+}
 
 export function assertPhaseAppendOnly(previous, current, source = "contract") {
   if (!Array.isArray(previous) || !Array.isArray(current)) return [`${source}: phases must be arrays`];
   if (current.length < previous.length || previous.some((phase, index) => current[index] !== phase)) {
-    return [`${source}: phases are append-only; expected prefix ${JSON.stringify(previous)}, got ${JSON.stringify(current)}`];
+    return [
+      `${source}: phases are append-only; expected prefix ${JSON.stringify(previous)}, got ${JSON.stringify(current)}`,
+    ];
   }
   return [];
 }
@@ -150,9 +193,10 @@ function validateCatalogProjection(rootDir, contract, errors) {
     gates: (contract.declaration.gates ?? []).map(entryId),
     guards: (contract.declaration.guards ?? []).map(entryId),
     schemas: (contract.declaration.schemas ?? []).map(entryId),
-    phases: contract.declaration.phases ?? []
+    phases: contract.declaration.phases ?? [],
   };
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) errors.push(`${catalog}: catalog projection differs from ${contract.file}`);
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    errors.push(`${catalog}: catalog projection differs from ${contract.file}`);
 }
 
 export function validateDerivedContracts(rootDir, contracts) {
@@ -164,8 +208,10 @@ export function validateDerivedContracts(rootDir, contracts) {
       errors.push(`${contract.file}: default export must be a contract object`);
       continue;
     }
-    if (typeof declaration.id !== "string" || declaration.id.length === 0) errors.push(`${contract.file}: contract id is required`);
-    if (!Array.isArray(declaration.phases) || declaration.phases.length === 0) errors.push(`${contract.file}: phases must be a non-empty array`);
+    if (typeof declaration.id !== "string" || declaration.id.length === 0)
+      errors.push(`${contract.file}: contract id is required`);
+    if (!Array.isArray(declaration.phases) || declaration.phases.length === 0)
+      errors.push(`${contract.file}: phases must be a non-empty array`);
     else {
       const uniquePhases = new Set(declaration.phases);
       if (uniquePhases.size !== declaration.phases.length) errors.push(`${contract.file}: phases contain duplicates`);
@@ -185,9 +231,15 @@ export function validateDerivedContracts(rootDir, contracts) {
           continue;
         }
         const key = `${domain}:${id}`;
-        if (seen.has(key)) errors.push(`${contract.file}: duplicate ${domain} id ${id}; first declared in ${seen.get(key)}`);
+        if (seen.has(key))
+          errors.push(`${contract.file}: duplicate ${domain} id ${id}; first declared in ${seen.get(key)}`);
         else seen.set(key, contract.file);
-        if (domain !== "schemas" && typeof entry === "object" && entry !== null && !declaration.phases.includes(entry.phase)) {
+        if (
+          domain !== "schemas" &&
+          typeof entry === "object" &&
+          entry !== null &&
+          !declaration.phases.includes(entry.phase)
+        ) {
           errors.push(`${contract.file}: ${domain} ${id} uses undeclared phase ${entry.phase}`);
         }
         if (domain === "commands") validateCliCommandInputs(entry, contract.file, errors);

@@ -6,13 +6,15 @@ import {
   entityActionCriterionFailure,
   normalizeDomainError,
   type EntityActionCriterionFailure,
+  type ReceiptDiagnostic,
 } from "../../kernel/src/index.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
-export function cellCodedError(code: string, text: string): Error {
-  const error = new Error(text) as Error & { code: string };
+export function cellCodedError(code: string, text: string, diagnostic?: ReceiptDiagnostic): Error {
+  const error = new Error(text) as Error & { code: string; diagnostic?: ReceiptDiagnostic };
   error.code = code;
+  if (diagnostic) error.diagnostic = diagnostic;
   return error;
 }
 

@@ -57,9 +57,6 @@ export function readDetail(
     differences: [],
     unresolvedTouches,
     deletions: [],
-    nextAction: reads.every((read) => read.status === "ready")
-      ? "submit against this base cut"
-      : "retry after projection catch-up",
   };
 }
 
@@ -85,9 +82,6 @@ export function detail(
     differences: [],
     unresolvedTouches,
     deletions: [],
-    nextAction: unresolvedTouches[0]
-      ? blockedCandidateNextAction(unresolvedTouches[0])
-      : "run ha doc sync --dry-run --path <path> and resubmit with a new opId",
   };
 }
 

@@ -91,7 +91,6 @@ export async function reacquireSquadTaskLease(input: {
   readonly start: (executionId?: string) => Promise<{
     readonly outcome: string;
     readonly code?: string;
-    readonly nextAction?: string;
   }>;
 }): Promise<void> {
   const execution = input.snapshot.executions.find(
@@ -102,7 +101,7 @@ export async function reacquireSquadTaskLease(input: {
     if (started.outcome === "applied") return;
     throw cellCriterionError(
       started.code ?? "runtime_task_lease_required",
-      started.nextAction ?? `Task ${input.taskId} could not acquire an execution lease for squad dispatch.`,
+      `Task ${input.taskId} could not acquire an execution lease for squad dispatch.`,
       "run",
       "squad/execution-lease-reacquisition",
       [`Run ha task show ${input.taskId}, resolve its execution state, then retry the Squad run.`],
@@ -742,7 +741,7 @@ export async function openRepoWriterCell(
       if (released.outcome !== "applied")
         throw cellCodedError(
           released.code ?? "runtime_task_lease_required",
-          released.nextAction ?? `Task ${taskId} lease could not be released for runtime dispatch.`,
+          `Task ${taskId} lease could not be released for runtime dispatch.`,
         );
       lease = projection.currentLease(taskId, now());
       if (lease?.phase === "held" || lease?.phase === "reserving")
@@ -759,7 +758,7 @@ export async function openRepoWriterCell(
       throw Object.assign(
         cellCodedError(
           started.code ?? "runtime_task_lease_required",
-          started.nextAction ?? `Task ${taskId} could not acquire a RuntimeSession execution lease.`,
+          `Task ${taskId} could not acquire a RuntimeSession execution lease.`,
         ),
         started.diagnostic ? { diagnostic: started.diagnostic } : {},
       );

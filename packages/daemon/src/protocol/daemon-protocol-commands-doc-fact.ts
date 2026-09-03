@@ -16,11 +16,9 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --task <task-id> to scan only that task package; omit it for workspace prose.",
       }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
-        nextAction: "--path requires an authored-relative path.",
       }),
     ],
   }),
@@ -34,11 +32,9 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --task <task-id> to preview only that task package; omit it for workspace prose.",
       }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
-        nextAction: "--path requires an authored-relative path.",
       }),
     ],
   }),
@@ -52,11 +48,9 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "Use --task <task-id> to sync only that task package; omit it for workspace prose.",
       }),
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
-        nextAction: "--path requires an authored-relative path.",
       }),
     ],
   }),
@@ -77,7 +71,6 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
-        nextAction: "Add --path <authored-relative-path>.",
       }),
     ],
   }),
@@ -90,11 +83,9 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--path", "single", true, {
         code: "missing_field",
-        nextAction: "Add --path <authored-relative-path>.",
       }),
       cliInput("--reason", "single", true, {
         code: "missing_field",
-        nextAction: "Add --reason <auditable-retirement-reason>.",
       }),
     ],
   }),
@@ -136,7 +127,6 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--type", "repeated", true, {
         code: "missing_field",
-        nextAction: "Add one or more registered --type values.",
       }),
       cliInput(
         "--rationale",
@@ -144,7 +134,6 @@ export const docFactProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add --rationale <why> with at most 199 characters.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -160,7 +149,6 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--source", "single", true, {
         code: "missing_field",
-        nextAction: "Add --source <source> describing the registration basis.",
       }),
     ],
   }),
@@ -182,7 +170,6 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "missing_field",
-        nextAction: "Use --statement or --text with --source; optionally name a task positionally or with --task.",
       }),
       cliInput(
         "--statement",
@@ -190,7 +177,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Use --statement or --text with --source; optionally name a task positionally or with --task.",
         },
         { conflictsWith: ["--text"] },
       ),
@@ -200,13 +186,11 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "missing_field",
-          nextAction: "Use either --statement or --text for the observed fact.",
         },
         { conflictsWith: ["--statement"] },
       ),
       cliInput("--source", "single", true, {
         code: "missing_field",
-        nextAction: "Add --source <source>; use --statement <observation> or --text <observation> for the Fact text.",
       }),
       cliInput(
         "--observed-at",
@@ -214,7 +198,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp for --observed-at.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -226,7 +209,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Confidence must be low, medium, or high.",
         },
         { enum: ["low", "medium", "high"] },
       ),
@@ -236,17 +218,14 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Memory class must be semantic, episodic, or procedural.",
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
       cliInput("--type", "repeated", false, {
         code: "invalid_field",
-        nextAction: "Fact type must be 1 to 64 characters without surrounding whitespace or control characters.",
       }),
       cliInput("--memory-tag", "repeated", false, {
         code: "invalid_field",
-        nextAction: "--memory-tag requires a non-empty value.",
       }),
       cliInput(
         "--wait-projection",
@@ -254,13 +233,11 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use a non-negative integer projection wait limit in milliseconds.",
         },
         { regex: "^(?:0|[1-9][0-9]*)$" },
       ),
       cliInput("--supersedes", "single", false, {
         code: "invalid_field",
-        nextAction: "Pair --supersedes with a rationale of at most 199 characters.",
       }),
       cliInput(
         "--rationale",
@@ -268,7 +245,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Pair --supersedes with a rationale of at most 199 characters.",
         },
         { regex: "^[\\s\\S]{1,199}$" },
       ),
@@ -283,7 +259,6 @@ export const docFactProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", false, {
         code: "invalid_field",
-        nextAction: "--task requires a task id.",
       }),
       cliInput(
         "--confidence",
@@ -291,7 +266,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Fact search confidence must be low, medium, or high.",
         },
         { enum: ["low", "medium", "high"] },
       ),
@@ -301,13 +275,11 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Fact search memory class must be semantic, episodic, or procedural.",
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
       cliInput("--type", "single", false, {
         code: "invalid_field",
-        nextAction: "Fact search type requires a non-empty value.",
       }),
       cliInput(
         "--observed-after",
@@ -315,7 +287,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --observed-after.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -327,7 +298,6 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an ISO-8601 UTC timestamp with --observed-before.",
         },
         {
           regex: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$",
@@ -339,13 +309,11 @@ export const docFactProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an integer from 1 to 500 with --limit.",
         },
         { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
       ),
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
-        nextAction: "Use the cursor returned by the previous page.",
       }),
     ],
   }),
@@ -362,7 +330,6 @@ export const docFactProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Use F- followed by eight Crockford characters.",
         },
         { regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),

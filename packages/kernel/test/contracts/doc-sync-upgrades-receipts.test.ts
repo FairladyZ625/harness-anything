@@ -127,7 +127,7 @@ test("receipt detail registry rejects unregistered or open-ended detail shapes",
     code: rejected.code,
     origin: "doc-sync-contract",
     evidence: `contract-rejection:${rejected.code}`,
-    nextAction: rejected.detail.nextAction,
+    diagnostic: { kind: "failure", code: rejected.code },
     detail: rejected.detail,
     authorizationDecision: authorizeDocWrite(),
   };

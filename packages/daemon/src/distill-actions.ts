@@ -73,7 +73,6 @@ export function prepareDistillCandidate(input: {
         canonicalVisible: false,
         worktreeVisible: true,
       },
-      nextAction: `Promote ${relative} with ha distill promote before treating its claim as canonical.`,
     },
   };
 }

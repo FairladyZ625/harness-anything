@@ -93,7 +93,6 @@ const input = (
         kind,
         error: Object.freeze({
           code: "missing_field",
-          nextAction: `Supply ${name} directly or use --from-file with a complete People Action packet.`,
         }),
       }),
     }),

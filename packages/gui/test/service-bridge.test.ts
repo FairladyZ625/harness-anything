@@ -692,8 +692,7 @@ test("local GUI bridge fails closed without explicit daemon registration and nev
       repoId: "missing-repo",
     })) as Failure;
     assert.equal(result.ok, false);
-    assert.equal(result.error?.code, "workspace_not_registered");
-    assert.match(result.error?.hint ?? "", /workspace is not registered/u);
+    assert.deepEqual(result.error, { code: "workspace_not_registered" });
     assert.equal(existsSync(path.join(userRoot, "registry.json")), false);
   } finally {
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);

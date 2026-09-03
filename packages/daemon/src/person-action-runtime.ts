@@ -83,7 +83,7 @@ function publishPersonDraft(
       visibility: "center",
       code: "no_changes",
       origin: "daemon",
-      nextAction: "No action is required.",
+
       proof: {
         committedRevision: revision,
         appliedCut: revision,
@@ -131,7 +131,6 @@ function publishPersonDraft(
     : ({
         outcome: "pending",
         ...receipt,
-        nextAction: `Run ha receipt show ${compiled.bundle.event.opId} before retrying.`,
       } as WriteReceipt);
 }
 

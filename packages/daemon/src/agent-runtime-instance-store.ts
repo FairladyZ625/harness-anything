@@ -336,7 +336,6 @@ export function openRuntimeInstanceStore(input: {
         command: kind,
         outcome: "applied",
         opId: `${kind}:${typeof action.instanceId === "string" ? action.instanceId : "all"}`,
-        nextAction: null,
       };
     if (kind === "runtime-instance-create") {
       if (

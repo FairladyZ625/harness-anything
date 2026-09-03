@@ -108,7 +108,6 @@ export function commitRuntimeSessionBundle(
     authorizationDecision,
     event: bundle.event,
     runtimeSessionId: bundle.event.payload.runtimeSessionId,
-    ...(!visible ? { nextAction: `Query receipt ${bundle.event.opId} after RuntimeSession projection catch-up.` } : {}),
   } as WriteReceipt;
 }
 

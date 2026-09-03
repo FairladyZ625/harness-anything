@@ -381,19 +381,28 @@ function validInputField(value: unknown): boolean {
     return false;
   if (value.cli === undefined) return true;
   if (!explanationRecord(value.cli)) return false;
-  const cliAllowed = ["name", "kind", "error", "jsonFields", "conflictsWith", "format", "projection"];
+  const cliAllowed = ["name", "kind", "error", "jsonFields", "jsonEnums", "conflictsWith", "format", "projection"];
   return (
     Object.keys(value.cli).every((field) => cliAllowed.includes(field)) &&
     explanationNonEmpty(value.cli.name) &&
     ["single", "repeated", "boolean"].includes(String(value.cli.kind)) &&
     explanationRecord(value.cli.error) &&
-    explanationExact(value.cli.error, ["code", "nextAction"]) &&
+    explanationExact(value.cli.error, ["code"]) &&
     explanationNonEmpty(value.cli.error.code) &&
-    explanationNonEmpty(value.cli.error.nextAction) &&
     (value.cli.jsonFields === undefined || explanationStringList(value.cli.jsonFields)) &&
+    (value.cli.jsonEnums === undefined || explanationStringListsByField(value.cli.jsonEnums)) &&
     (value.cli.conflictsWith === undefined || explanationStringList(value.cli.conflictsWith)) &&
     (value.cli.format === undefined || explanationNonEmpty(value.cli.format)) &&
     (value.cli.projection === undefined || ["number", "fact-hold-array"].includes(String(value.cli.projection)))
+  );
+}
+
+function explanationStringListsByField(value: unknown): boolean {
+  return (
+    explanationRecord(value) &&
+    Object.values(value).every(
+      (values) => Array.isArray(values) && values.length > 0 && values.every((entry) => explanationNonEmpty(entry)),
+    )
   );
 }
 

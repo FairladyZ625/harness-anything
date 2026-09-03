@@ -324,7 +324,6 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
               code: "probe_complete",
               retryable: false,
               resumeOffset: null,
-              nextAction: "split probe complete",
             }),
           );
         }
@@ -348,7 +347,10 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
       channel: "replica",
       changes: [{ path: fixture.path, body: "unicode" }],
     }),
-    /split probe complete/u,
+    (error: unknown) => {
+      assert.equal((error as { readonly code?: string }).code, "probe_complete");
+      return true;
+    },
   );
   assert.equal(sawUpload, true);
 });

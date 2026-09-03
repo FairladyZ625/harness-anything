@@ -18,17 +18,14 @@ export const decisionRelationProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Claim requires a C-prefixed --id.",
         },
         { regex: "^C[A-Za-z0-9_-]+$" },
       ),
       cliInput("--text", "single", true, {
         code: "invalid_field",
-        nextAction: "Claim requires --text.",
       }),
       cliInput("--non-load-bearing", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --non-load-bearing once.",
       }),
     ],
   }),
@@ -45,7 +42,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Claim requires a C-prefixed --id.",
         },
         { regex: "^C[A-Za-z0-9_-]+$" },
       ),
@@ -55,7 +51,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
         true,
         {
           code: "invalid_field",
-          nextAction: "Fulfillment requires evidenced, delivered, or standing_policy mode.",
         },
         { enum: ["evidenced", "delivered", "standing_policy"] },
       ),
@@ -70,7 +65,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
-        nextAction: "Reckon requires --task.",
       }),
     ],
   }),
@@ -83,22 +77,14 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--search", "single", false, {
         code: "invalid_field",
-        nextAction: "--search requires a non-empty value.",
       }),
-      cliInput(
-        "--legacy-id",
-        "single",
-        false,
-        { code: "invalid_field", nextAction: "Use an E-number such as E12." },
-        { regex: "^E[1-9][0-9]*$" },
-      ),
+      cliInput("--legacy-id", "single", false, { code: "invalid_field" }, { regex: "^E[1-9][0-9]*$" }),
       cliInput(
         "--legacy-range",
         "single",
         false,
         {
           code: "invalid_field",
-          nextAction: "Use an inclusive range such as E1-E12.",
         },
         { regex: "^E[1-9][0-9]*-E[1-9][0-9]*$" },
       ),
@@ -108,7 +94,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Decision state filter is invalid.",
         },
         {
           enum: ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
@@ -116,11 +101,9 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
       cliInput("--module", "single", false, {
         code: "invalid_field",
-        nextAction: "--module requires a non-empty value.",
       }),
       cliInput("--product-line", "single", false, {
         code: "invalid_field",
-        nextAction: "--product-line requires a non-empty value.",
       }),
     ],
   }),
@@ -133,7 +116,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--include-body", "boolean", false, {
         code: "invalid_field",
-        nextAction: "Use --include-body once.",
       }),
     ],
   }),
@@ -146,11 +128,9 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
-        nextAction: "Distill candidate requires --task and --input.",
       }),
       cliInput("--input", "single", true, {
         code: "invalid_field",
-        nextAction: "--input must be a readable workspace-relative file.",
       }),
     ],
   }),
@@ -163,15 +143,12 @@ export const decisionRelationProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
-        nextAction: "Distill promote requires --task, --candidate, and --claim.",
       }),
       cliInput("--candidate", "single", true, {
         code: "invalid_field",
-        nextAction: "--candidate must be a readable distill-candidate/v1 artifact.",
       }),
       cliInput("--claim", "single", true, {
         code: "invalid_field",
-        nextAction: "--claim requires explicit stable Fact text.",
       }),
       cliInput(
         "--id",
@@ -179,7 +156,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Use F- followed by eight Crockford characters.",
         },
         { regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),
@@ -189,7 +165,6 @@ export const decisionRelationProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Confidence must be low, medium, or high.",
         },
         { enum: ["low", "medium", "high"] },
       ),
@@ -199,17 +174,14 @@ export const decisionRelationProtocolCommands = Object.freeze([
         false,
         {
           code: "invalid_field",
-          nextAction: "Memory class must be semantic, episodic, or procedural.",
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
       cliInput("--memory-tag", "repeated", false, {
         code: "invalid_field",
-        nextAction: "--memory-tag requires a declared Fact memory tag.",
       }),
       cliInput("--observed-at", "single", false, {
         code: "invalid_field",
-        nextAction: "Use an ISO-8601 timestamp for --observed-at.",
       }),
     ],
   }),

@@ -230,7 +230,6 @@ const frames = [
     code: "invalid_ack",
     retryable: false,
     resumeOffset: null,
-    nextAction: "refresh",
   },
 ] as const;
 

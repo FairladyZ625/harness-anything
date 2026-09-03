@@ -3,6 +3,7 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
+import { REVIEW_V1_SCHEMA } from "./review.ts";
 
 const TASK_SUBMISSION_JSON_FIELDS = Object.freeze([
   "completionClaim",
@@ -36,7 +37,6 @@ const cliField = (
   required: boolean,
   name: string,
   kind: NonNullable<EntityActionInputField["cli"]>["kind"],
-  nextAction: string,
   extra: Omit<NonNullable<EntityActionInputField["cli"]>, "name" | "kind" | "error"> &
     Pick<EntityActionInputField, "enum" | "regex"> = {},
 ): EntityActionInputField => {
@@ -51,7 +51,7 @@ const cliField = (
       ...cli,
       name,
       kind,
-      error: Object.freeze({ code: required ? "missing_field" : "invalid_field", nextAction }),
+      error: Object.freeze({ code: required ? "missing_field" : "invalid_field" }),
     }),
   });
 };
@@ -128,19 +128,12 @@ const taskActionDeclarations = Object.freeze([
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
-      cliField(
-        "executionId",
-        "string",
-        false,
-        "--execution-id",
-        "single",
-        "Use one execution id, or omit it for deterministic allocation.",
-      ),
-      cliField("ttlMs", "number", false, "--ttl-ms", "single", "Use a positive lease duration in milliseconds.", {
+      cliField("executionId", "string", false, "--execution-id", "single"),
+      cliField("ttlMs", "number", false, "--ttl-ms", "single", {
         regex: "^[1-9][0-9]*$",
         projection: "number",
       }),
-      cliField("dryRun", "boolean", false, "--dry-run", "boolean", "Use --dry-run once to preview lease admission."),
+      cliField("dryRun", "boolean", false, "--dry-run", "boolean"),
     ]),
     policyAction: "task-start",
     criteria: Object.freeze([
@@ -174,21 +167,14 @@ const taskActionDeclarations = Object.freeze([
       [
         taskIdInput,
         expectedVersionInput,
-        cliField(
-          "executionId",
-          "string",
-          false,
-          "--execution-id",
-          "single",
-          "Use one execution id only to assert the authenticated active lease explicitly.",
-        ),
+        cliField("executionId", "string", false, "--execution-id", "single"),
         cliField(
           "fromFile",
           "string",
           false,
           "--from-file",
           "single",
-          "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
+
           { jsonFields: TASK_SUBMISSION_JSON_FIELDS, conflictsWith: ["--json-input"] },
         ),
         cliField(
@@ -197,8 +183,8 @@ const taskActionDeclarations = Object.freeze([
           false,
           "--json-input",
           "single",
-          "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
-          { jsonFields: TASK_SUBMISSION_JSON_FIELDS, conflictsWith: ["--from-file"] },
+
+          { jsonFields: TASK_SUBMISSION_JSON_FIELDS, format: "<json|@->", conflictsWith: ["--from-file"] },
         ),
       ],
       [["fromFile", "jsonInput"]],
@@ -234,17 +220,11 @@ const taskActionDeclarations = Object.freeze([
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
-      cliField(
-        "executionId",
-        "string",
-        false,
-        "--execution-id",
-        "single",
-        "Use one named current submitted execution only when the daemon reports ambiguity.",
-      ),
-      cliField("reviewId", "string", true, "--review-id", "single", "Review requires a review id."),
-      cliField("fromFile", "string", true, "--from-file", "single", "Review requires a complete review JSON packet.", {
+      cliField("executionId", "string", false, "--execution-id", "single"),
+      cliField("reviewId", "string", true, "--review-id", "single"),
+      cliField("fromFile", "string", true, "--from-file", "single", {
         jsonFields: TASK_REVIEW_JSON_FIELDS,
+        jsonEnums: { verdict: REVIEW_V1_SCHEMA.verdicts },
       }),
     ]),
     policyAction: "task-review-execution",
@@ -280,40 +260,26 @@ const taskActionDeclarations = Object.freeze([
     input: actionInput([
       taskIdInput,
       expectedVersionInput,
-      cliField(
-        "executionId",
-        "string",
-        false,
-        "--execution-id",
-        "single",
-        "Use one closeout execution id only when the daemon reports ambiguity.",
-      ),
+      cliField("executionId", "string", false, "--execution-id", "single"),
       cliField(
         "ci",
         "string",
         false,
         "--ci",
         "single",
-        "Use --ci passed only for a successful canonical checker result.",
+
         {
           enum: ["passed"],
         },
       ),
-      cliField(
-        "paths",
-        "string-array",
-        false,
-        "--path",
-        "repeated",
-        "Provide each canonical code path; the submitted commit and iteration are derived automatically.",
-      ),
+      cliField("paths", "string-array", false, "--path", "repeated"),
       cliField(
         "factHolds",
         "fact-hold-array",
         false,
         "--fact-holds",
         "repeated",
-        "Use --fact-holds F-XXXXXXXX:<non-empty-rationale> once per standing upstream Fact.",
+
         {
           format: "<fact-id>:<rationale>",
           regex: "^(?:fact/)?F-[0-9A-HJKMNP-TV-Z]{8}:.+$",
@@ -351,7 +317,7 @@ const taskActionDeclarations = Object.freeze([
     targetIdField: "taskId",
     input: actionInput([
       taskIdInput,
-      cliField("reason", "string", false, "--reason", "single", "Use one non-empty release reason."),
+      cliField("reason", "string", false, "--reason", "single"),
       { field: "terminalExecutionId", type: "string", required: false },
       { field: "terminalRuntimeSessionId", type: "string", required: false },
     ]),
@@ -375,7 +341,7 @@ const taskActionDeclarations = Object.freeze([
     targetIdField: "taskId",
     input: actionInput([
       taskIdInput,
-      cliField("patches", "json-object-array", true, "--set", "repeated", "Use --set <field>:<value> at least once.", {
+      cliField("patches", "json-object-array", true, "--set", "repeated", {
         format: "<field>:<value>",
       }),
     ]),
@@ -401,11 +367,11 @@ const taskActionDeclarations = Object.freeze([
       [
         { ...taskIdInput, required: false },
         { field: "taskIds", type: "string-array", required: false },
-        cliField("filter", "string", false, "--filter", "single", "Use --filter state:<status>."),
-        cliField("before", "string", false, "--before", "single", "Use an ISO-compatible date with --before."),
-        cliField("reason", "string", true, "--reason", "single", "Add an auditable archive reason."),
-        cliField("archivedBy", "string", false, "--archived-by", "single", "Use one non-empty actor id."),
-        cliField("archiveField", "string", false, "--archive-field", "single", "Use one declared archive field."),
+        cliField("filter", "string", false, "--filter", "single"),
+        cliField("before", "string", false, "--before", "single"),
+        cliField("reason", "string", true, "--reason", "single"),
+        cliField("archivedBy", "string", false, "--archived-by", "single"),
+        cliField("archiveField", "string", false, "--archive-field", "single"),
       ],
       [["taskId", "taskIds", "filter"]],
     ),
@@ -430,20 +396,13 @@ const taskActionDeclarations = Object.freeze([
     input: actionInput(
       [
         { field: "oldTaskId", type: "string", required: true },
-        cliField("title", "string", false, "--title", "single", "Choose --title or --by, not both."),
-        cliField("slug", "string", false, "--slug", "single", "Use lowercase kebab-case with --title."),
-        cliField("byTaskId", "string", false, "--by", "single", "Choose --title or --by, not both."),
-        cliField("confirm", "string", false, "--confirm", "single", "Confirm the old Task id when using --by."),
-        cliField("reason", "string", false, "--reason", "single", "Use one non-empty auditable reason."),
-        cliField("deletedBy", "string", false, "--deleted-by", "single", "Use one non-empty actor id."),
-        cliField(
-          "allowOpenFindings",
-          "boolean",
-          false,
-          "--allow-open-findings",
-          "boolean",
-          "Use --allow-open-findings once after reviewing unresolved findings.",
-        ),
+        cliField("title", "string", false, "--title", "single"),
+        cliField("slug", "string", false, "--slug", "single"),
+        cliField("byTaskId", "string", false, "--by", "single"),
+        cliField("confirm", "string", false, "--confirm", "single"),
+        cliField("reason", "string", false, "--reason", "single"),
+        cliField("deletedBy", "string", false, "--deleted-by", "single"),
+        cliField("allowOpenFindings", "boolean", false, "--allow-open-findings", "boolean"),
       ],
       [["title", "byTaskId"]],
     ),
@@ -468,9 +427,9 @@ const taskActionDeclarations = Object.freeze([
     input: actionInput([
       taskIdInput,
       { field: "mode", type: "string", required: true, enum: ["soft", "hard"] },
-      cliField("confirm", "string", false, "--confirm", "single", "Confirm the selected Task for hard delete."),
-      cliField("reason", "string", false, "--reason", "single", "Soft delete requires an auditable reason."),
-      cliField("deletedBy", "string", false, "--deleted-by", "single", "Use one non-empty actor id."),
+      cliField("confirm", "string", false, "--confirm", "single"),
+      cliField("reason", "string", false, "--reason", "single"),
+      cliField("deletedBy", "string", false, "--deleted-by", "single"),
     ]),
     policyAction: "task-delete",
     criteria: mutationCriterion(
@@ -490,10 +449,7 @@ const taskActionDeclarations = Object.freeze([
     topology: "ledger-write",
     coordination: null,
     targetIdField: "taskId",
-    input: actionInput([
-      taskIdInput,
-      cliField("reason", "string", true, "--reason", "single", "Add an auditable reopen reason."),
-    ]),
+    input: actionInput([taskIdInput, cliField("reason", "string", true, "--reason", "single")]),
     policyAction: "task-reopen",
     criteria: mutationCriterion(
       "reopen",

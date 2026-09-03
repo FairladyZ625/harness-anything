@@ -236,8 +236,9 @@ export interface EntityActionInputField {
   readonly cli?: {
     readonly name: string;
     readonly kind: "single" | "repeated" | "boolean";
-    readonly error: { readonly code: string; readonly nextAction: string };
+    readonly error: { readonly code: string };
     readonly jsonFields?: readonly string[];
+    readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
     readonly conflictsWith?: readonly string[];
     readonly format?: string;
     readonly projection?: "number" | "fact-hold-array";

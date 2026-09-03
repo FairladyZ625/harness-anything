@@ -53,7 +53,10 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     code: "daemon_response_timeout",
     hint: "Local daemon request failed. Cause: deadline",
   });
-  assert.deepEqual(humanError({ code: "top", nextAction: "repair" }), { code: "top", hint: "repair" });
+  assert.deepEqual(humanError({ code: "top", nextAction: "repair" }), {
+    code: "top",
+    hint: "Inspect error code top, correct the command input, and retry.",
+  });
   assert.deepEqual(
     humanError({
       code: "invalid_transition",
@@ -68,7 +71,9 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     }),
     {
       code: "invalid_transition",
-      hint: "refresh and retry Unmet criteria: task-lifecycle-contract-support/revisionIssues — Expected revision must match.",
+      hint:
+        "Inspect error code invalid_transition, correct the command input, and retry. " +
+        "Unmet criteria: task-lifecycle-contract-support/revisionIssues — Expected revision must match.",
     },
   );
   assert.deepEqual(
@@ -78,7 +83,9 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
     }),
     {
       code: "squad_leader_failed",
-      hint: "Leader dispatch rejected: code=lease_conflict hint=release the holder",
+      hint:
+        "Leader dispatch rejected: code=lease_conflict hint=Inspect error code lease_conflict, " +
+        "correct the command input, and retry.",
     },
   );
 });

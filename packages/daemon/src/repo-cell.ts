@@ -305,8 +305,12 @@ function isAuthoredCandidateInventory(value: unknown): value is AuthoredCandidat
 export function blockedAuthoredCandidateWarning(detail: DocSyncReceiptDetail | undefined): string | null {
   const unresolved = detail?.unresolvedTouches[0],
     deletion = detail?.deletions[0],
-    nextAction = unresolved ? blockedCandidateNextAction(unresolved) : deletion ? detail.nextAction : null;
-  return nextAction === null ? null : `[wal-materializer] authored doc candidate blocked; ${nextAction}`;
+    warning = unresolved
+      ? blockedCandidateNextAction(unresolved)
+      : deletion
+        ? `delete intent for ${deletion.path} is blocked`
+        : null;
+  return warning === null ? null : `[wal-materializer] authored doc candidate blocked; ${warning}`;
 }
 
 export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {

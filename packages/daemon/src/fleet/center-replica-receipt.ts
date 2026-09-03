@@ -11,23 +11,19 @@ export function deriveReplicaReceipt(
   opId: string,
 ): WriteReceipt {
   const basis = replica.receiptBasis(opId),
-    reject = (code: string, nextAction: string): WriteReceipt => ({
+    reject = (code: string): WriteReceipt => ({
       outcome: "op_rejected",
       opId,
       code,
       origin: "fleet-replica",
       evidence: `replica:${key.repoId}:${key.viewId}`,
-      nextAction,
+      diagnostic: { kind: "failure", code },
     });
-  if (!basis) return reject("operation_not_published", "Query the center receipt or retry after publication.");
+  if (!basis) return reject("operation_not_published");
   const revision = basis.event.workspaceRevision,
     canonicalVisible = basis.event.opId === opId && revision > 0,
     registration = ackStore.registrationRevision(key);
-  if (registration === null || revision <= registration)
-    return reject(
-      "replica_not_registered_at_revision",
-      "Use the center receipt; this view did not subscribe at that revision.",
-    );
+  if (registration === null || revision <= registration) return reject("replica_not_registered_at_revision");
   const cut = replica.cut(revision),
     proof = cut && ackStore.proof(key, revision),
     base = {
@@ -66,7 +62,6 @@ export function deriveReplicaReceipt(
       canonicalVisible,
       worktreeVisible: false,
     },
-    nextAction: "Pull and ACK the exact replica cut, then retry this opId query.",
   };
 }
 

@@ -91,7 +91,6 @@ test("review-consent derives the recorded Review digests without a packet and st
         binding,
       )) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: typo.outcome, code: typo.code }, { outcome: "op_rejected", code: "invalid_command" });
-    assert.match(String(typo.nextAction), /choose one of review-derived/u);
     assert.equal(store().readHead()?.revision, beforeTypo);
 
     const beforeOutsiderConsent = store().readHead()?.revision,
@@ -204,7 +203,6 @@ test("review-consent derives the recorded Review digests without a packet and st
       { outcome: mismatch.outcome, code: mismatch.code },
       { outcome: "op_rejected", code: "invalid_proof" },
     );
-    assert.match(String(mismatch.nextAction), /bind the Review and reviewed content digests/u);
     assert.equal(store().readHead()?.revision, beforeMismatch);
 
     const reviewlessTaskId = "task-reviewless",
@@ -236,8 +234,6 @@ test("review-consent derives the recorded Review digests without a packet and st
       { outcome: reviewless.outcome, code: reviewless.code },
       { outcome: "op_rejected", code: "invalid_command" },
     );
-    assert.match(String(reviewless.nextAction), /Approved Review candidates: none/u);
-    assert.match(String(reviewless.nextAction), new RegExp(`ha task review-execution ${reviewlessTaskId}`, "u"));
 
     const ambiguousTaskId = "task-ambiguous",
       ambiguousExecutionId = "execution-ambiguous";
@@ -278,12 +274,6 @@ test("review-consent derives the recorded Review digests without a packet and st
     assert.deepEqual(
       { outcome: ambiguous.outcome, code: ambiguous.code },
       { outcome: "op_rejected", code: "invalid_command" },
-    );
-    assert.match(String(ambiguous.nextAction), /execution-ambiguous\/review-a/u);
-    assert.match(String(ambiguous.nextAction), /execution-ambiguous\/review-b/u);
-    assert.match(
-      String(ambiguous.nextAction),
-      /ha task review-consent task-ambiguous --execution-id execution-ambiguous --review-id review-a --consent-id consent-ambiguous/u,
     );
   } finally {
     await cell?.close();

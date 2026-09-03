@@ -564,7 +564,6 @@ function previewAdrMigrationReceipt(
       worktreeVisible: false,
     },
     authorizationDecision,
-    nextAction: `Remove --dry-run to execute ADR migration ${report.migrationOpId}.`,
   };
 }
 

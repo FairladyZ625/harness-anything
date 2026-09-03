@@ -67,17 +67,12 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     const placeholder = await cell.run({ kind: "task-start", taskId, executionId }, holder);
     assert.equal(placeholder.outcome, "op_rejected", JSON.stringify(placeholder));
     assert.equal(placeholder.code, "plan_placeholder");
-    assert.match(
-      placeholder.nextAction ?? "",
-      /task\.plan readiness judged the canonical projection document at workspace revision \d+/u,
-    );
     assert.deepEqual(placeholder.diagnostic, {
       kind: "missing-sections",
       documentPath: planPath,
       diskDiffers: true,
       missingSections: [{ section: "CI/Gate Authority Stop Condition", reason: "empty" }],
     });
-    assert.doesNotMatch(placeholder.nextAction ?? "", /missing required sections are: Brief/u);
     const closeoutPath = `${packagePath}/closeout.md`;
     await realizeTaskPlanFixture(
       rootDir,
@@ -109,9 +104,6 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     const rejected = (await cell.run({ kind: "task-start", taskId }, foreign)) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "lease_conflict");
-    assert.match(String(rejected.nextAction), /personId=person-owner, executor=agent:worker-owner/u);
-    assert.match(String(rejected.nextAction), /ha task release task-hitrate-lifecycle/u);
-    assert.match(String(rejected.nextAction), /wait for release/u);
     assert.equal(events().length, startedEvents, "foreign retry must not append an event");
 
     const commitSha = git(rootDir, "rev-parse", "HEAD"),
@@ -149,7 +141,6 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     )) as Record<string, unknown>;
     assert.equal(obsolete.outcome, "op_rejected", JSON.stringify(obsolete));
     assert.equal(obsolete.code, "invalid_command");
-    assert.match(String(obsolete.nextAction), /ha task code-doc reconcile task-hitrate-lifecycle/u);
 
     const reconciled = (await cell.run(
       { kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] },
@@ -224,7 +215,6 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       );
     assert.equal(drifted.outcome, "op_rejected", JSON.stringify(drifted));
     assert.equal(drifted.code, "invalid_command");
-    assert.match(drifted.nextAction ?? "", /without commitSha; the submitted execution supplies the witness cut/u);
     assert.equal(events().length, beforeDrift, "retired caller cut must not append an event");
 
     const repointed = await cell.run(

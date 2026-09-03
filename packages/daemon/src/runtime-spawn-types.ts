@@ -200,7 +200,5 @@ export interface RemoteRuntimePersistence {
     readonly event: AgentRuntimeEventV1;
     readonly receipt: JsonObject;
   }>;
-  readonly archive: (
-    archive: RuntimeDispatchArchive,
-  ) => Promise<{ readonly outcome: string; readonly nextAction?: string }>;
+  readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string }>;
 }

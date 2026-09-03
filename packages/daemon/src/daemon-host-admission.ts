@@ -2,7 +2,7 @@
 import { readDaemonRegistry, type WriteSource } from "../../kernel/src/index.ts";
 import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import { admitRepoMode, type RepoModeAdmission } from "./repo-mode.ts";
+import { admitRepoMode, repoModeAdmission, type RepoModeAdmission } from "./repo-mode.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { DaemonHostAdmissionContext } from "./daemon-host-context.ts";
 
@@ -16,12 +16,7 @@ export function admitHostMode(
       userRoot: context.input.userRoot,
     }).repos.find((entry) => entry.repoId === repoId && entry.state === "enabled"),
     fallback = context.unavailable.get(repoId);
-  if (!persisted?.mode && !fallback?.mode)
-    return {
-      ok: false,
-      code: "repo_namespace_unknown",
-      nextAction: `Unknown repo namespace: ${repoId}.`,
-    };
+  if (!persisted?.mode && !fallback?.mode) return repoModeAdmission(false, "repo_namespace_unknown");
   const source: WriteSource = auth.assignmentBinding
     ? {
         kind: "assignment",
@@ -57,7 +52,6 @@ export function settleControl(
       completedAt,
       after: ok ? context.point() : null,
       error: ok ? null : { code: context.code(error), hint: context.daemonErrorMessage(error) },
-      nextAction: ok ? null : "Repair the reported registry or RepoCell error, then request a new refresh.",
     };
   context.controls.set(pending.operationId, settled);
   context.latestControl = settled;

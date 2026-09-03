@@ -83,11 +83,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     const fresh = await cell.run({ kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh" }, binding);
     assert.equal(fresh.outcome, "op_rejected");
     assert.equal(fresh.code, "task_wip_limit_reached");
-    assert.match(
-      String(fresh.nextAction),
-      /TASK_WIP_LIMIT_REACHED: Execution worktable is full \(2\/2; HARNESS_TASK_WIP_LIMIT=2\)/u,
-    );
-    assert.match(String(fresh.nextAction), /task_OCC_A "Occupant A" \(active\)/u);
+    assert.deepEqual(fresh.diagnostic, { kind: "failure", code: "task_wip_limit_reached" });
     const preview = await cell.run(
       { kind: "task-start", taskId: "task_FRESH", executionId: "exe_fresh", dryRun: true },
       binding,
@@ -183,7 +179,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     const project = await cell.run({ kind: "task-start", taskId: "task_TWO", executionId: "exe_two" }, binding);
     assert.equal(project.outcome, "op_rejected");
     assert.equal(project.code, "task_wip_limit_reached");
-    assert.match(String(project.nextAction), /1\/1; settings\.tasks\.wipLimit=1/u);
+    assert.deepEqual(project.diagnostic, { kind: "failure", code: "task_wip_limit_reached" });
     process.env[TASK_WIP_LIMIT_ENV] = "3";
     await cell.close();
     cell = await open();
@@ -198,7 +194,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     const invalid = await cell.run({ kind: "task-start", taskId: "task_THREE", executionId: "exe_three" }, binding);
     assert.equal(invalid.outcome, "op_rejected");
     assert.equal(invalid.code, "task_wip_limit_invalid");
-    assert.match(String(invalid.nextAction), /HARNESS_TASK_WIP_LIMIT must be a positive integer/u);
+    assert.deepEqual(invalid.diagnostic, { kind: "failure", code: "task_wip_limit_invalid" });
     writeFileSync(
       path.join(rootDir, "harness/harness.yaml"),
       "layout:\n  authoredRoot: harness\nsettings:\n  tasks:\n    wipLimit: 0\n",
@@ -212,7 +208,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     );
     assert.equal(invalidSetting.outcome, "op_rejected");
     assert.equal(invalidSetting.code, "task_wip_limit_invalid");
-    assert.match(String(invalidSetting.nextAction), /settings\.tasks\.wipLimit must be a positive integer/u);
+    assert.deepEqual(invalidSetting.diagnostic, { kind: "failure", code: "task_wip_limit_invalid" });
   } finally {
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
     else process.env[TASK_WIP_LIMIT_ENV] = previous;
@@ -280,10 +276,8 @@ test("a standard task becomes a visible structure-derived root without rewriting
     assert.deepEqual(resolveTaskRootThreshold(rootDir), { threshold: 5, label: TASK_ROOT_THRESHOLD_ENV });
     const four = await cell.run({ kind: "task-start", taskId: "task_ROOT_4", executionId: "exe_root_4" }, binding);
     assert.equal(four.outcome, "op_rejected", "4 children occupies again after threshold is raised to 5");
-    assert.match(
-      String(four.nextAction),
-      /Occupancy composition: 2 leaf tasks occupying; 0 declared roots and 0 derived roots excluded\./u,
-    );
+    assert.equal(four.code, "task_wip_limit_reached");
+    assert.deepEqual(four.diagnostic, { kind: "failure", code: "task_wip_limit_reached" });
     process.env[TASK_ROOT_THRESHOLD_ENV] = "invalid";
     await cell.close();
     cell = await open();
@@ -403,7 +397,7 @@ test("a released active task returns to planned while held leases and stale writ
     );
     assert.equal(held.outcome, "op_rejected");
     assert.equal(held.code, "invalid_transition");
-    assert.match(String(held.nextAction), /unleased active task/u);
+    assert.deepEqual(held.diagnostic, { kind: "failure", code: "invalid_transition" });
 
     const released = await cell.run(
       { kind: "task-release", taskId, reason: "No worker remains; return scope to planning" },
