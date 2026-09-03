@@ -4,12 +4,8 @@ import test from "node:test";
 import { materializePacketStdin } from "../src/index.ts";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import {
-  parseScheduleDuration,
-  renderScheduleList,
-  renderScheduleRuns,
-  renderScheduleShow,
-} from "../src/cli/thin-command-schedule.ts";
+import { parseScheduleDuration } from "../../daemon/src/protocol/schedule-duration-vocabulary.ts";
+import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "../src/cli/thin-command-schedule.ts";
 
 test("Schedule CLI exposes CRUD and run-control commands with closed inputs", () => {
   const created = parseThinCommand([
@@ -114,10 +110,13 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
   const listWithOption = parseThinCommand(["schedule", "list", "--unknown"]);
   assert.equal(listWithOption.ok, false);
   if (!listWithOption.ok) assert.match(listWithOption.nextAction, /takes no options/u);
+  // `--every` 与 daemon/GUI 共用 protocol 的唯一词表;这里断言的是 CLI 入口读的就是那一份。
   assert.equal(parseScheduleDuration("60s"), 60_000);
+  assert.equal(parseScheduleDuration("90s"), 90_000);
   assert.equal(parseScheduleDuration("1m"), 60_000);
   assert.equal(parseScheduleDuration("2h"), 7_200_000);
   assert.equal(parseScheduleDuration("1d"), 86_400_000);
+  assert.equal(parseScheduleDuration("30s"), null);
 });
 
 test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute intervals, and missions", () => {

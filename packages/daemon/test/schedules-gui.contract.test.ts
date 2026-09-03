@@ -17,6 +17,13 @@ import {
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
 } from "../src/protocol/daemon-protocol-schema-ids.ts";
 import { validateDaemonUseCaseProjection } from "../src/protocol/daemon-protocol-use-case-projection.ts";
+import {
+  SCHEDULE_MIN_EVERY_MS,
+  formatScheduleDuration,
+  parseScheduleDuration,
+  scheduleDurationUnitMs,
+  scheduleDurationUnits,
+} from "../src/protocol/schedule-duration-vocabulary.ts";
 import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
 import {
   deriveScheduleExecutionAvailability,
@@ -702,3 +709,40 @@ function schedulePlaneEnvelope(projection: unknown) {
     projection,
   };
 }
+
+test("the schedule duration vocabulary is one lossless bijection for every legal everyMs", () => {
+  // 词表决定 nextRunAt,所以"格式化后读不回同一个毫秒数"就是节点之间算出不同 due 的入口。
+  // 覆盖各单位、边界、以及非整分钟/非整秒的合法值。
+  const samples = [
+    SCHEDULE_MIN_EVERY_MS,
+    90_000,
+    300_000,
+    3_600_000,
+    3_660_000,
+    86_400_000,
+    172_800_000,
+    60_001,
+    Number.MAX_SAFE_INTEGER,
+  ];
+  for (const everyMs of samples)
+    assert.equal(
+      parseScheduleDuration(formatScheduleDuration(everyMs)),
+      everyMs,
+      `format→parse must be lossless for ${everyMs}`,
+    );
+  assert.deepEqual(
+    samples.map((everyMs) => formatScheduleDuration(everyMs)),
+    ["1m", "90s", "5m", "1h", "61m", "1d", "2d", "60001ms", "9007199254740991ms"],
+  );
+  // parse 与 format 认同一个单位集合:format 只会产出词表里的后缀,parse 认下每一个。
+  for (const unit of scheduleDurationUnits) {
+    const size = scheduleDurationUnitMs(unit),
+      amount = Math.max(1, Math.ceil(SCHEDULE_MIN_EVERY_MS / size));
+    assert.equal(parseScheduleDuration(`${amount}${unit}`), amount * size, unit);
+  }
+  assert.equal(parseScheduleDuration("1w"), null);
+  assert.equal(parseScheduleDuration("30s"), null, "the domain minimum is the vocabulary minimum");
+  assert.equal(parseScheduleDuration("59999ms"), null);
+  assert.equal(parseScheduleDuration("-1m"), null);
+  assert.equal(parseScheduleDuration("1.5m"), null);
+});

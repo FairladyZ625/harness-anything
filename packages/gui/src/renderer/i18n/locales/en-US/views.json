@@ -482,6 +482,8 @@
   "schedules.form.every": "Interval",
   "schedules.form.everyAmount": "Interval amount",
   "schedules.form.everyUnit": "Interval unit",
+  "schedules.form.milliseconds": "milliseconds",
+  "schedules.form.seconds": "seconds",
   "schedules.form.minutes": "minutes",
   "schedules.form.hours": "hours",
   "schedules.form.days": "days",
