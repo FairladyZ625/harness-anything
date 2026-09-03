@@ -316,6 +316,21 @@ describe("agent runtime renderer", () => {
     expect(markup).toContain("Snapshot artifact was not persisted");
     expect(markup).toContain("Session facts");
   });
+  it("marks a historical session whose installation witness is missing", () => {
+    const markup = detailView({
+      session: {
+        ...session,
+        installationState: "missing",
+        installationError: {
+          code: "runtime_installation_not_found",
+          hint: "Runtime installation installation-codex was not found.",
+        },
+      },
+    });
+    expect(markup).toContain("Installation missing");
+    expect(markup).toContain("Runtime installation installation-codex was not found.");
+    expect(markup).not.toContain("Agent Runtime read failed");
+  });
   it("states which terminal evidence is missing when an outcome is genuinely unknown", () => {
     const markup = detailView({
       session: {

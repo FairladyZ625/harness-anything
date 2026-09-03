@@ -200,6 +200,9 @@ export function SessionDetailView({
             )}
           </CardTitle>
           <Badge status={LIVENESS_BADGE[session.liveness] ?? "unknown"}>{session.liveness}</Badge>
+          {session.installationState === "missing" && (
+            <Badge tip={session.installationError?.hint}>{t("agentRuntime.installationMissing")}</Badge>
+          )}
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
               <Btn

@@ -42,6 +42,7 @@
   "agentRuntime.saveProvider": "Save provider",
   "agentRuntime.providerEditHint": "Credentials and call-path configuration stay unchanged.",
   "agentRuntime.installation": "Installation",
+  "agentRuntime.installationMissing": "Installation missing",
   "agentRuntime.defaultModel": "Default model",
   "agentRuntime.officialEndpoint": "official endpoint",
   "agentRuntime.authTitle": "Authentication",
