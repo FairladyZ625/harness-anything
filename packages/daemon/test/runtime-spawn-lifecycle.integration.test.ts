@@ -159,7 +159,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.code === "invalid_runtime_spawn" &&
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "runtimeInstanceId", ' +
-              '"dispatchId", "agentId", "targetAgentId", "squadId", "model", "effort", "fast", "permissionMode", "cwd", ' +
+              '"dispatchId", "agentId", "targetAgentId", "squadId", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
               '"prompt", "promptSource", "missionName", "waitProjectionMs", "onExitCommand", "taskId", "idempotencyKey", ' +
               '"providerSessionId".',
       );

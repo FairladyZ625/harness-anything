@@ -229,6 +229,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "agentId",
         "targetAgentId",
         "squadId",
+        "role",
         "model",
         "effort",
         "fast",
@@ -266,6 +267,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? undefined
           : requiredRuntimeSpawnText(payload.targetAgentId, "targetAgentId"),
       squadId = payload.squadId === undefined ? undefined : requiredRuntimeSpawnText(payload.squadId, "squadId"),
+      role = payload.role === undefined ? undefined : requiredRuntimeSpawnText(payload.role, "role"),
       // Delegation provenance: which already-running runtime session invoked this spawn.
       parentRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
       model = payload.model === undefined ? undefined : requiredRuntimeSpawnText(payload.model, "model"),
@@ -308,6 +310,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
+    const reviewerBinding = role === "reviewer";
     if (taskId && !input.remote)
       await waitForTaskProjection({
         budget: projectionWaitBudget(waitProjectionMs),
@@ -331,7 +334,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
-    if (taskId && !input.remote) {
+    if (taskId && !input.remote && !reviewerBinding) {
       const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
         runtimeBinding =
           callerRuntimeSessionId === null || leaseAtAdmission === null
@@ -366,8 +369,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    const daemonRoute = taskId || trustedSchedule ? input.runtimeDaemonRoute : undefined;
-    if ((taskId || trustedSchedule) && !daemonRoute)
+    const daemonRoute = taskId || trustedSchedule || reviewerBinding ? input.runtimeDaemonRoute : undefined;
+    if ((taskId || trustedSchedule || reviewerBinding) && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
         "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
@@ -538,7 +541,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
     // they select a squad member through --to.
     const taskLeaseHandoff =
-        taskId && !input.remote && reviewExecution === null && !retainCoordinatorTaskLease
+        taskId && !input.remote && !reviewerBinding && reviewExecution === null && !retainCoordinatorTaskLease
           ? input.handoffTaskLease
           : undefined,
       activeBinding = taskLeaseHandoff
@@ -559,7 +562,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     // Enforced runtimes replace HOME and TMPDIR, so a task worker needs the daemon's sealed callback
     // route as well as its own executor identity.
     const workerLaunch =
-      (taskId || trustedSchedule) && daemonRoute
+      (taskId || trustedSchedule || reviewerBinding) && daemonRoute
         ? {
             ...prepared,
             env: {

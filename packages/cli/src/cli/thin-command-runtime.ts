@@ -44,6 +44,7 @@ export function parseRuntime(
     agentId = f.one.get("--agent"),
     targetAgentId = f.one.get("--to"),
     squadId = f.one.get("--squad");
+  const role = f.one.get("--role");
   if (targetAgentId && !agentId)
     return rejected("invalid_field", "Use --to <worker-agent-id> only with --agent <leader-agent-id>.", json);
   if (squadId && !agentId)
@@ -58,6 +59,7 @@ export function parseRuntime(
       ...(agentId ? { agentId } : {}),
       ...(targetAgentId ? { targetAgentId } : {}),
       ...(squadId ? { squadId } : {}),
+      ...(role ? { role } : {}),
       ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),

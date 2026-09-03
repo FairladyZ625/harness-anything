@@ -24,6 +24,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--agent", "single", false, {
         code: "invalid_field",
       }),
+      cliInput("--role", "single", false, { code: "invalid_field" }, { enum: ["reviewer"] }),
       cliInput("--to", "single", false, {
         code: "invalid_field",
       }),
