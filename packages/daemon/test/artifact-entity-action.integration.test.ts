@@ -116,7 +116,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.deepEqual(firstStable.subject, {
       kind: "artifact-entity",
       ref: entityRef,
-      title: "adr-0001.md",
+      title: "Adopt the event ledger",
       locator: { kind: "repository-path", value: sourcePath },
       contentVersion: preview.candidateContentVersion,
       source: `repo:${repoId}:${sourcePath}`,
