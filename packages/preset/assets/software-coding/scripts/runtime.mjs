@@ -25,7 +25,6 @@ async function waitAtTestBlocker() {
 const handlers = {
   "vertical:software-coding:architecture-init": architectureInit,
   "vertical:software-coding:architecture-snapshot": architectureSnapshot,
-  "vertical:software-coding:architecture-check": architectureCheck,
   "vertical:software-coding:repository-audit": repositoryAudit,
   "vertical:software-coding:decision-conformance": decisionConformance,
 };
@@ -65,29 +64,6 @@ function architectureSnapshot(context) {
     "application/json",
     { fileCount: files.length },
   );
-}
-
-function architectureCheck(context) {
-  if (!context.taskId) return failed("task-required", { message: "architecture-check requires taskId" });
-  const manifest = path.join(context.paths.contextRoot, "architecture/architecture-manifest.json"),
-    snapshot = path.join(context.outputRoot, "artifacts/architecture/code-facts.json");
-  if (!existsSync(manifest)) return success("not-configured", { configured: false }, []);
-  if (!existsSync(snapshot)) return success("snapshot-missing", { configured: true, snapshot: false }, []);
-  try {
-    const parsed = JSON.parse(readFileSync(snapshot, "utf8"));
-    return success(
-      parsed.sourceCommitSha === context.repository.commitSha ? "fresh" : "stale",
-      {
-        configured: true,
-        snapshot: true,
-        sourceCommitSha: parsed.sourceCommitSha,
-        currentCommitSha: context.repository.commitSha,
-      },
-      [],
-    );
-  } catch {
-    return failed("snapshot-invalid", { configured: true, snapshot: true });
-  }
 }
 
 function repositoryAudit() {
