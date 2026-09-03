@@ -179,6 +179,12 @@ export function observeTailRequest(
         : cursor?.kind === "repo-log"
           ? { repoId, kind, direction: "history", cursor }
           : { repoId, kind, direction: "history" };
+    case "lifecycle":
+      return direction === "follow" && cursor?.kind === "lifecycle"
+        ? { repoId, kind, direction, cursor }
+        : cursor?.kind === "lifecycle"
+          ? { repoId, kind, direction: "history", cursor }
+          : { repoId, kind, direction: "history" };
     default:
       return direction === "follow" && cursor?.kind === "daemon-log"
         ? { repoId, kind, direction, cursor }

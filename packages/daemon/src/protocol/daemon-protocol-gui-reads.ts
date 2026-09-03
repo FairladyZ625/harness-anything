@@ -71,6 +71,7 @@ export const observeTailReadMethod = Object.freeze({
     events: "projection",
     "repo-log": "runtime-local",
     "daemon-log": "runtime-local",
+    lifecycle: "runtime-local",
     dispatch: "runtime-local",
   } satisfies EntityResidencyFacets),
 } as const);

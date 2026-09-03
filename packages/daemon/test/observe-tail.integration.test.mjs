@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonConnLog } from "../src/conn-log.ts";
+import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { createDaemonHostRepositoryApi } from "../src/daemon-host-repository-api.ts";
 import { validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
@@ -261,6 +262,64 @@ test("observe.tail opens a 5000-line JSONL source at the latest page and pages b
     assert.equal(seen[0].seq, 1);
     assert.equal(seen.at(-1).seq, 5_000);
     console.info(`observe.tail 5000-line first page: ${elapsedMs.toFixed(1)}ms`);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// The lifecycle sink is only tailable because it is a sink of its own. This test writes both
+// sinks the way the daemon does — structured records through the recorder, a bare child stdout
+// line straight to the stdio path — so it goes red with log_record_invalid the moment the two
+// paths collapse back into one file.
+test("observe.tail reads the lifecycle sink while the daemon's raw stdio stays out of it", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observe-lifecycle-"));
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-observe-lifecycle-user-"));
+  const repoId = workspaceId("observe-lifecycle");
+  const daemonId = "observe-lifecycle-daemon";
+  let cell;
+  try {
+    initRepo(rootDir);
+    const lifecycle = openDaemonLifecycleLog({
+      userRoot,
+      daemonId,
+      pid: 4242,
+      now: at("2026-09-04T05:00:00.000Z"),
+    });
+    lifecycle.record({ event: "process_start", endpoint: "/tmp/observe-lifecycle.sock" });
+    lifecycle.record({ event: "runtime_spawn", runtimeSessionId: "runtime_observe_lifecycle", pid: 4243 });
+    const stdioPath = daemonStdioLogPath(userRoot, daemonId);
+    mkdirSync(path.dirname(stdioPath), { recursive: true });
+    writeFileSync(stdioPath, "[wal-materializer] materialized revisions 1-2 (batch age, attempt 1)\n");
+
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-lifecycle" });
+    const page = await cell.observeTail({ kind: "lifecycle", direction: "history" }, { userRoot, daemonId });
+    assertAvailable(page, "local", "lifecycle");
+    assert.deepEqual(
+      page.items.map((item) => item.event),
+      ["process_start", "runtime_spawn"],
+    );
+    assert.equal(page.items[1].runtimeSessionId, "runtime_observe_lifecycle");
+    assert.equal(page.liveCursor.kind, "lifecycle");
+
+    const unchanged = await cell.observeTail(
+      { kind: "lifecycle", direction: "follow", cursor: page.liveCursor },
+      { userRoot, daemonId },
+    );
+    assertAvailable(unchanged, "local", "lifecycle");
+    assert.deepEqual(unchanged.items, []);
+
+    lifecycle.record({ event: "process_exit", exitCode: 0 });
+    const followed = await cell.observeTail(
+      { kind: "lifecycle", direction: "follow", cursor: page.liveCursor },
+      { userRoot, daemonId },
+    );
+    assertAvailable(followed, "local", "lifecycle");
+    assert.deepEqual(
+      followed.items.map((item) => item.event),
+      ["process_exit"],
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

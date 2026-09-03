@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { CanonicalEventV1, DaemonRepoMode, TaskProjection } from "../../kernel/src/index.ts";
 import { daemonConnLogFileStem } from "./conn-log.ts";
+import { daemonLifecycleLogPath } from "./lifecycle-log.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchStreamPath } from "./dispatch-stream.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
@@ -74,7 +75,9 @@ export async function readObserveTail(input: {
     payload.cursor,
     payload.kind === "repo-log"
       ? () => repoLogFiles(input.rootDir)
-      : () => daemonLogFiles(input.userRoot, input.daemonId),
+      : payload.kind === "lifecycle"
+        ? () => lifecycleLogFiles(input.userRoot, input.daemonId)
+        : () => daemonLogFiles(input.userRoot, input.daemonId),
   );
   return { ...base, ...page };
 }
@@ -197,6 +200,18 @@ function repoLogFiles(rootDir: string): readonly JsonlTailFile[] {
   return snapshotJsonlFiles(dir, (name) => {
     const match = pattern.exec(name);
     return match ? ["repo", Number(match[1] ?? 0)] : null;
+  });
+}
+
+/** Retained generations of the daemon's own lifecycle JSONL, newest generation last. */
+function lifecycleLogFiles(userRoot: string, daemonId: string): readonly JsonlTailFile[] {
+  const live = daemonLifecycleLogPath(userRoot, daemonId),
+    dir = path.dirname(live),
+    base = path.basename(live),
+    pattern = new RegExp(`^${escapeRegExp(base)}(?:\\.(\\d+))?$`, "u");
+  return snapshotJsonlFiles(dir, (name) => {
+    const match = pattern.exec(name);
+    return match ? ["lifecycle", Number(match[1] ?? 0)] : null;
   });
 }
 

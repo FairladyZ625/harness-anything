@@ -710,7 +710,7 @@ function readObserveTailResult(value: unknown): ObserveTailRead {
     result.ok !== true ||
     typeof result.repoId !== "string" ||
     !["local", "remote-center", "remote-edge"].includes(String(result.mode)) ||
-    !["events", "repo-log", "daemon-log", "dispatch"].includes(String(result.kind)) ||
+    !["events", "repo-log", "daemon-log", "lifecycle", "dispatch"].includes(String(result.kind)) ||
     !["history", "follow"].includes(String(result.direction)) ||
     !["ready", "pending", "unavailable", "gap"].includes(String(result.status)) ||
     !Array.isArray(result.items) ||
