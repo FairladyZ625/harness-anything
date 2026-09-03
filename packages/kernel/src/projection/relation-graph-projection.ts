@@ -64,6 +64,8 @@ export interface RelationFactRow {
   readonly memoryTags: readonly string[];
   readonly provenance: readonly { readonly runtime: string; readonly sessionId: string; readonly boundAt: string }[];
   readonly liveness: "standing" | "superseded_fact";
+  /** Derived from `liveness` by `factInvalidated`; consumers read this instead of comparing the word. */
+  readonly invalidated: boolean;
 }
 export interface DecisionAnchorTruth {
   readonly decisionRef: string;

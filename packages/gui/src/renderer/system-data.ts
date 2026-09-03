@@ -38,16 +38,7 @@ export async function settleDaemonControl(
   pause: () => Promise<void> = () => new Promise((resolve) => window.setTimeout(resolve, 250)),
 ): Promise<DaemonControlReceipt> {
   let receipt = initial;
-  for (
-    let attempt = 0;
-    attempt < 80 &&
-    receipt.ok &&
-    !(
-      /* @gate-identity check-gui-status-judgments/gui-status-042 */
-      ["settled", "failed"].includes(receipt.phase)
-    );
-    attempt += 1
-  ) {
+  for (let attempt = 0; attempt < 80 && receipt.ok && !["settled", "failed"].includes(receipt.phase); attempt += 1) {
     await pause();
     receipt = await read(receipt.operationId);
   }
@@ -66,11 +57,7 @@ export function useDaemonControl(authorityRepoId: string | null) {
         const initial = await harnessClient.requestDaemonControl({ kind, authorityRepoId });
         setReceipt(initial);
         const settled =
-          initial.ok &&
-          !(
-            /* @gate-identity check-gui-status-judgments/gui-status-043 */
-            ["settled", "failed"].includes(initial.phase)
-          )
+          initial.ok && !["settled", "failed"].includes(initial.phase)
             ? await settleDaemonControl(initial, async (operationId) => {
                 const next = await harnessClient.getDaemonControlReceipt({ operationId });
                 setReceipt(next);

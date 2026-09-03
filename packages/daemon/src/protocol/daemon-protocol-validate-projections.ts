@@ -324,9 +324,11 @@ function fullFactInvalid(row: unknown): boolean {
       "memoryTags",
       "provenance",
       "liveness",
+      "invalidated",
     ]) ||
     row.schema !== "task-fact-row/v1" ||
     !statusWord(factLivenessWords, row.liveness) ||
+    typeof row.invalidated !== "boolean" ||
     !["low", "medium", "high"].includes(String(row.confidence)) ||
     !["semantic", "episodic", "procedural"].includes(String(row.memoryClass)) ||
     !stringArray(row.memoryTags) ||

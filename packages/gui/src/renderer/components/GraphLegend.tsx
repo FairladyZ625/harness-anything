@@ -18,9 +18,7 @@ const ENTITY_CHIPS: ReadonlyArray<{ color: string; label: string }> = [
   { color: "var(--color-axis-evidence)", label: "fact" },
 ];
 
-const FULFILLMENT_ORDER =
-  /* @gate-identity check-gui-status-judgments/gui-status-006 */
-  ["evidenced", "delivered", "standing-policy", "unknown"] as const;
+const FULFILLMENT_ORDER = ["evidenced", "delivered", "standing-policy", "unknown"] as const;
 
 export function GraphLegend({ showFulfillment }: { showFulfillment: boolean }) {
   const [open, setOpen] = useState(false);

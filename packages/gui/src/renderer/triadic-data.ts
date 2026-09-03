@@ -296,9 +296,7 @@ export function buildTriadicRendererData(input: {
       confidence: row.confidence,
       source: row.source,
       provenance: row.provenance,
-      invalidated:
-        /* @gate-identity check-gui-status-judgments/gui-status-055 */
-        row.liveness === "superseded_fact",
+      invalidated: row.invalidated,
     })),
     relations,
     coverageRows: input.graph.coverageRows,

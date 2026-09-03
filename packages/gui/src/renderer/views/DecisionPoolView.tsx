@@ -351,20 +351,14 @@ export function DecisionPoolView({
           set={setRiskFilter as (value: string) => void}
           label={t("views.decisionPoolView.filterRisk")}
           allLabel={t("views.decisionPoolView.riskAll")}
-          values={
-            /* @gate-identity check-gui-status-judgments/gui-status-059 */
-            ["high", "medium", "low", "unknown"]
-          }
+          values={["high", "medium", "low", "unknown"]}
         />
         <Filter
           value={urgencyFilter}
           set={setUrgencyFilter as (value: string) => void}
           label={t("views.decisionPoolView.filterUrgency")}
           allLabel={t("views.decisionPoolView.urgencyAll")}
-          values={
-            /* @gate-identity check-gui-status-judgments/gui-status-060 */
-            ["high", "medium", "low", "unknown"]
-          }
+          values={["high", "medium", "low", "unknown"]}
         />
         <Filter
           value={verticalFilter}
@@ -385,10 +379,7 @@ export function DecisionPoolView({
           set={setProposedByFilter as (value: string) => void}
           label={t("views.decisionPoolView.filterProposedBy")}
           allLabel={t("views.decisionPoolView.filterProposedByAll")}
-          values={
-            /* @gate-identity check-gui-status-judgments/gui-status-061 */
-            ["human", "agent", "system", "unknown"]
-          }
+          values={["human", "agent", "system", "unknown"]}
         />
         <select className={selectClass} value={timeRange} onChange={(e) => setTimeRange(e.target.value as TimeRange)}>
           <option value="all">{t("views.decisionPoolView.timeAll")}</option>

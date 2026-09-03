@@ -1,4 +1,5 @@
 import { coverageIsCovered } from "../domain/decision-coverage.ts";
+import { factInvalidated } from "../domain/fact-liveness.ts";
 import type { RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import type { TaskProjectionRow } from "./types.ts";
 
@@ -157,6 +158,7 @@ function factRow(row: FactRecord): RelationFactRow {
     memoryTags: jsonStrings(row.memory_tags_json),
     provenance: jsonRecords(row.provenance_json),
     liveness: row.liveness,
+    invalidated: factInvalidated(row.liveness),
   };
 }
 function taskRow(row: TaskRecord): TaskProjectionRow {

@@ -120,6 +120,7 @@ function wireFact(ref = "fact/F-001") {
     memoryTags: [],
     provenance: [],
     liveness: "standing" as const,
+    invalidated: false,
   };
 }
 
@@ -401,6 +402,7 @@ describe("cross-entity navigation projection", () => {
             memoryTags: [],
             provenance: [],
             liveness: "standing",
+            invalidated: false,
           },
         ],
         warnings: [],
@@ -408,6 +410,37 @@ describe("cross-entity navigation projection", () => {
       decisions: { ok: true, decisions: [], warnings: [] },
     });
     expect(rendered.facts[0]?.invalidated).toBe(false);
+  });
+
+  it("passes the projected invalidated field through without any renderer liveness comparison", () => {
+    const rendered = buildTriadicRendererData({
+      graph: {
+        ok: true,
+        edges: [],
+        coverageRows: [],
+        factAnchors: [],
+        facts: [
+          {
+            schema: "task-fact-row/v1",
+            ref: "fact/F-old",
+            taskId: "task_a",
+            factId: "F-old",
+            statement: "retired row, no renderer-visible supersedes edge",
+            source: "fixture",
+            observedAt: "2026-08-18T00:00:00.000Z",
+            confidence: "high",
+            memoryClass: "semantic",
+            memoryTags: [],
+            provenance: [],
+            liveness: "superseded_fact",
+            invalidated: true,
+          },
+        ],
+        warnings: [],
+      },
+      decisions: { ok: true, decisions: [], warnings: [] },
+    });
+    expect(rendered.facts[0]?.invalidated).toBe(true);
   });
 
   it("maps the complete event-backed Decision row without legacy DTO placeholders", () => {

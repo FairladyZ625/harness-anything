@@ -35,6 +35,7 @@ test("GUI graph reads task and relation truth from one read-only L2 database", (
       ["task-positive"],
     );
     assert.equal(graph.facts[0]?.schema, "task-fact-row/v1");
+    assert.equal(graph.facts[0]?.invalidated, false, "invalidated is derived from the projected liveness verdict");
     assert.deepEqual(readFileSync(projectionPath), before, "read path must not rebuild or mutate canonical L2");
   });
 });
@@ -118,6 +119,15 @@ test("cold source derives Decision, relation, and Fact truth from authored L1", 
       [
         { ref: migratedRef, statement: "Event-backed evidence" },
         { ref: factRef, statement: "Event-backed evidence" },
+      ],
+    );
+    // dec_6B963E9B83AE4AC73FB0A61E81 CH1: `invalidated` is factLiveness's verdict as a boolean,
+    // so no read surface has to compare the liveness word itself.
+    assert.deepEqual(
+      source.facts.map(({ ref, liveness, invalidated }) => ({ ref, liveness, invalidated })),
+      [
+        { ref: migratedRef, liveness: "superseded_fact", invalidated: true },
+        { ref: factRef, liveness: "standing", invalidated: false },
       ],
     );
     assert.deepEqual(

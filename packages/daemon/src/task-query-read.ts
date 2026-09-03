@@ -87,6 +87,7 @@ export function makeTaskQueryReadModel(input: {
       memoryTags: row.memoryTags,
       provenance: relationProvenance(row.provenance),
       liveness: row.state,
+      invalidated: row.invalidated,
     }));
     return {
       ok: true,
@@ -446,6 +447,7 @@ export function makeTaskQueryReadModel(input: {
       memoryTags: row.memoryTags,
       provenance: relationProvenance(row.provenance),
       liveness: row.state,
+      invalidated: row.invalidated,
     }));
     return {
       ok: true,

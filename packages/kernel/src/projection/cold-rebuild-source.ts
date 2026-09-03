@@ -43,7 +43,7 @@ import {
 } from "./relation-migration-normalization.ts";
 import { sourcePath } from "./sqlite-task-source.ts";
 import { readDirIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
-import { factLiveness } from "../domain/fact-liveness.ts";
+import { factInvalidated, factLiveness } from "../domain/fact-liveness.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { readMigrationRelationEdges } from "./relation-migration-edges.ts";
@@ -311,7 +311,10 @@ function readColdRebuildSourceInternal(
   complete &&= relationRead.issues.length === 0;
   issues.push(...relationRead.issues);
   const facts = [...factRows.values()]
-    .map((row) => ({ ...row, liveness: factLiveness(row, relationRead.rows) }))
+    .map((row) => {
+      const liveness = factLiveness(row, relationRead.rows);
+      return { ...row, liveness, invalidated: factInvalidated(liveness) };
+    })
     .sort((a, b) => a.ref.localeCompare(b.ref));
   const tasks = taskDirs.map((taskDir) => {
     const body = readTextFileIfPresent(path.join(taskDir, "INDEX.md")),
@@ -608,6 +611,7 @@ function parseLegacyFacts(
           boundAt: canonicalTimestamp(entry.boundAt ?? ""),
         })),
         liveness: "standing",
+        invalidated: false,
       });
       anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath });
     }
@@ -673,6 +677,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           memoryTags: event.payload.memoryTags,
           provenance: relationProvenance(event.payload.provenance),
           liveness: "standing",
+          invalidated: false,
         };
       addEventFactSource(rows, issues, identityRef, row, `event:${event.opId}`);
       if (allowLegacyFactRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
@@ -718,6 +723,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           memoryTags: entity.fact.memoryTags,
           provenance: entity.fact.provenance,
           liveness: "standing",
+          invalidated: false,
         };
       addEventFactSource(rows, issues, ref, row, `event:${event.opId}`);
       if (entity.fact.taskId) {
