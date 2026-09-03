@@ -160,7 +160,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     board: { columnId: "open", rank: 3 },
-    visibility: { archived: false },
+    visibility: { archived: false, noise: false },
     capabilities: [{ id: "start", available: true, reason: null }],
     placement: {
       moduleKeys: ["gui"],

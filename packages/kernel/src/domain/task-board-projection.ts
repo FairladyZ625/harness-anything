@@ -37,6 +37,8 @@ export interface TaskBoardPlacement {
 
 export interface TaskVisibility {
   readonly archived: boolean;
+  /** Archived or cancelled rows are board noise: history, not work in flight. */
+  readonly noise: boolean;
 }
 
 export const taskPhaseSteps = ["planned", "active", "in_review", "done"] as const satisfies readonly DomainStatus[];
@@ -117,7 +119,11 @@ export function taskBoardPlacement(row: TaskBoardRowInput): TaskBoardPlacement {
 
 /** Archived and tombstoned packages are history, not work in flight. */
 export function taskVisibility(row: TaskBoardRowInput): TaskVisibility {
-  return Object.freeze({ archived: row.packageDisposition !== "active" });
+  const status = coordinationStatusOf(row);
+  return Object.freeze({
+    archived: row.packageDisposition !== "active",
+    noise: row.packageDisposition !== "active" || status === "cancelled",
+  });
 }
 
 /** The canonical lifecycle's main delivery path plus an explicit reason for statuses off that path. */

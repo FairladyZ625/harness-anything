@@ -63,12 +63,13 @@ test("a blocked relation moves an open task's column without changing its canoni
   });
 });
 
-test("visibility is the package disposition and nothing else", () => {
-  assert.deepEqual(taskVisibility(row({})), { archived: false });
-  assert.deepEqual(taskVisibility(row({ packageDisposition: "archived" })), { archived: true });
-  assert.deepEqual(taskVisibility(row({ packageDisposition: "tombstoned" })), { archived: true });
-  // A cancelled task whose package is still active is not archived: those are two questions.
-  assert.deepEqual(taskVisibility(row({ status: "cancelled" })), { archived: false });
+test("visibility is the package disposition and, for noise, cancellation too", () => {
+  assert.deepEqual(taskVisibility(row({})), { archived: false, noise: false });
+  assert.deepEqual(taskVisibility(row({ packageDisposition: "archived" })), { archived: true, noise: true });
+  assert.deepEqual(taskVisibility(row({ packageDisposition: "tombstoned" })), { archived: true, noise: true });
+  // A cancelled task whose package is still active is not archived: those are two
+  // questions. It is still board noise — the board default hides cancelled work.
+  assert.deepEqual(taskVisibility(row({ status: "cancelled" })), { archived: false, noise: true });
 });
 
 test("phase follows the lifecycle main path and codes every off-path reason", () => {

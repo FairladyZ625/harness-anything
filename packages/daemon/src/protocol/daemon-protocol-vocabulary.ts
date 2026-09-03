@@ -11,6 +11,7 @@ import type {
   TaskCapabilityReason,
   TaskPhaseReason,
   UseCaseProjectionName,
+  taskPhaseSteps,
 } from "../../../kernel/src/index.ts";
 
 // daemon-status-vocabulary:generated:start
@@ -129,6 +130,16 @@ export const taskPhaseReasonWords = Object.freeze([
 export const taskPhaseReasonWordsAreExact: [TaskPhaseReason] extends [(typeof taskPhaseReasonWords)[number]]
   ? true
   : never = true;
+
+export const taskPhaseStepWords = Object.freeze([
+  "planned",
+  "active",
+  "in_review",
+  "done",
+] as const satisfies typeof taskPhaseSteps);
+
+export const taskPhaseStepWordsAreExact: [typeof taskPhaseSteps] extends [typeof taskPhaseStepWords] ? true : never =
+  true;
 
 export const blockingLabelWords = Object.freeze([
   "relations",

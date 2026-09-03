@@ -56,7 +56,7 @@ export function taskProjectionFields(
   const can = new Set(options.can ?? []);
   return {
     board: { columnId: COLUMN_OF[status], rank: RANK_OF[status] },
-    visibility: { archived: options.archived === true },
+    visibility: { archived: options.archived === true, noise: options.archived === true || status === "cancelled" },
     capabilities: CAPABILITY_IDS.map((id) => ({
       id,
       available: can.has(id),

@@ -65,7 +65,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     },
     executionEvidence: [],
     board: { columnId: "open", rank: 3 },
-    visibility: { archived: false },
+    visibility: { archived: false, noise: false },
     capabilities: [{ id: "start", available: true, reason: null }],
     risk: { flagged: false },
     phase: { index: 0, reason: null, steps: ["planned", "active", "in_review", "done"] },
