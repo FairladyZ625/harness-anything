@@ -132,40 +132,6 @@ export function validateReviewConsentV1(
     validateWriteSource(value.source, allowUnknownFields).length === 0;
   return valid ? [] : [invalidReviewIssue("consent must bind review/content digests, execution, actor, and source")];
 }
-export function approvedReviewsForCut(
-  reviews: readonly ReviewV1[],
-  executionId: string,
-  commitSha: string,
-  iteration: number,
-): readonly ReviewV1[] {
-  return reviews.filter(
-    (review) =>
-      review.executionId === executionId &&
-      review.verdict === "approved" &&
-      review.commitSha === commitSha &&
-      review.iteration === iteration,
-  );
-}
-export function consentedApprovedReview(
-  reviews: readonly ReviewV1[],
-  consents: readonly ReviewConsentV1[],
-  executionId: string,
-  commitSha: string,
-  iteration: number,
-): ConsentedApprovedReview | undefined {
-  const approved = new Map(
-    approvedReviewsForCut(reviews, executionId, commitSha, iteration).map((review) => [review.reviewId, review]),
-  );
-  for (let index = consents.length - 1; index >= 0; index -= 1) {
-    const consent = consents[index]!;
-    if (consent.executionId !== executionId) continue;
-    const review = approved.get(consent.reviewId);
-    if (review && consent.reviewDigest === reviewDigest(review) && consent.contentDigest === review.contentDigest)
-      return { review, consent };
-  }
-  return undefined;
-}
-
 export function approvedReviewHistoryForExecution(
   reviews: readonly ReviewV1[],
   execution: ExecutionV1,

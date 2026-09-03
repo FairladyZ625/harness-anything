@@ -7,7 +7,6 @@ import {
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
   submissionDigest,
-  submissionId,
 } from "../../kernel/src/index.ts";
 import { lifecycleHarness } from "./task-lifecycle-test-harness.ts";
 
@@ -61,7 +60,7 @@ test("a submission amendment supersedes the bad packet and makes code-doc reconc
       throw new Error("initial submission event missing");
     assert.equal(
       submissions[1]?.payload.supersedesSubmissionId,
-      submissionId(submissions[0].payload.execution.submission),
+      `submission:${submissionDigest(submissions[0].payload.execution.submission)}`,
     );
 
     const reconciled = await harness.reconcile("execution-1", "a".repeat(40), "op-code-doc-after-amend");

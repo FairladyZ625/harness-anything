@@ -5,7 +5,7 @@ import { blockingLabels, blockingOf } from "../../src/domain/task-blocking.ts";
 import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
-import { consentedApprovedReview, reviewDigest } from "../../src/domain/review.ts";
+import { consentedApprovedReviewForExecution, reviewDigest } from "../../src/domain/review.ts";
 import { statusWordRegister } from "../../src/domain/status-word-register.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
@@ -171,7 +171,7 @@ test("closeout consumes the latest content-pinned consent selection and ignores 
   const history = { ...base, reviews: [dismissed, unselected, selected], consents: [earlierConsent, selectedConsent] };
 
   assert.equal(
-    consentedApprovedReview(history.reviews, history.consents, "exe-1", commitSha, 0)?.review.reviewId,
+    consentedApprovedReviewForExecution(history.reviews, history.consents, history.executions[0]!)?.review.reviewId,
     selected.reviewId,
   );
   assert.equal(closeoutReadiness(history).readiness, "ready");

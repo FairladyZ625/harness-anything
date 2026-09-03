@@ -48,9 +48,7 @@ export type { TaskLifecycleCommandType } from "./task-write-decision.ts";
 
 export {
   approvedReviewHistoryForExecution,
-  approvedReviewsForCut,
   approvedReviewsForExecution,
-  consentedApprovedReview,
   consentedApprovedReviewForExecution,
   reviewVerdicts,
 } from "./review.ts";

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, submissionDigest, submissionId } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, submissionDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -175,7 +175,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       throw new Error("initial submission event missing");
     assert.equal(
       submissionEvents[1]?.payload.supersedesSubmissionId,
-      submissionId(initialSubmission.payload.execution.submission),
+      `submission:${submissionDigest(initialSubmission.payload.execution.submission)}`,
     );
 
     const obsolete = (await cell.run(
