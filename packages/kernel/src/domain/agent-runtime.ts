@@ -137,6 +137,7 @@ export interface RuntimeSession {
   readonly reasonCode?: string;
   readonly lastObservedAt: string;
 }
+export type RuntimeInstallationState = "present" | "missing";
 export type RuntimeSessionSemanticState =
   | "running"
   | "succeeded"

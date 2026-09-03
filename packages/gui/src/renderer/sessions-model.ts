@@ -1,7 +1,9 @@
-import type {
-  AgentRuntimeSessionDto,
-  AgentRuntimeSessionGroupDto,
-  AgentRuntimeSessionGroupStatus,
+import {
+  agentRuntimeInstallationState,
+  type AgentRuntimeSessionDto,
+  type AgentRuntimeSessionGroupDto,
+  type AgentRuntimeSessionGroupStatus,
+  type RuntimeInstallationState,
 } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { RelationEdge } from "./model/types.ts";
@@ -47,6 +49,16 @@ export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };
+export const sessionInstallationBadgeKey: Readonly<
+  Record<RuntimeInstallationState, "agentRuntime.installationMissing" | null>
+> = {
+  present: null,
+  missing: "agentRuntime.installationMissing",
+};
+
+export function sessionInstallationBadge(session: Pick<AgentRuntimeSessionDto, "installationState">) {
+  return sessionInstallationBadgeKey[agentRuntimeInstallationState(session)];
+}
 
 /** 组展开行之一:一轮派工(一个 dispatchId 一轮),按 startedAt 倒序编号。 */
 export type SessionRound = {

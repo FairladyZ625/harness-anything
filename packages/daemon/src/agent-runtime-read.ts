@@ -55,23 +55,29 @@ export function makeAgentRuntimeReadModel(input: {
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
-    if (!installation) {
-      throw coded("runtime_installation_not_found", `Runtime installation ${session.installationId} was not found.`);
-    }
-    const attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined;
+    const attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
+      installationError = installation
+        ? null
+        : {
+            code: "runtime_installation_not_found" as const,
+            hint: `Runtime installation ${session.installationId} was not found.`,
+          };
     return {
       runtimeSessionId: session.runtimeSessionId,
       providerSessionId: session.providerSessionId,
       instanceId: session.instanceId,
       installationId: session.installationId,
-      kindId: runtimeKindForInstallation(installation).kindId,
+      kindId: installation
+        ? runtimeKindForInstallation(installation).kindId
+        : historicalRuntimeKindId(session, definition.snapshot),
+      ...(installationError ? { installationState: "missing" as const, installationError } : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,
       liveness: session.liveness,
       semanticState: runtimeSessionSemanticState(session),
       attachCapability:
-        session.attachable && installation.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
+        session.attachable && installation?.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
       streamCursor: input.stream.latestCursor(session.runtimeSessionId),
       associations: session.taskBindings.map((binding) => {
         const lease = input.projection.currentLease(binding.taskId),
@@ -283,6 +289,15 @@ export function makeAgentRuntimeReadModel(input: {
     }
     return { ref: session.resultRef, text };
   }
+}
+
+function historicalRuntimeKindId(
+  session: RuntimeSession,
+  definition: AgentDefinitionSnapshot | null,
+): AgentRuntimeSessionDto["kindId"] {
+  const kindId = definition?.kindId ?? session.kindId;
+  if (kindId === "claude" || kindId === "codex" || kindId === "agy") return kindId;
+  throw coded("invalid_result", `Runtime session ${session.runtimeSessionId} has an unsupported runtime kind.`);
 }
 
 function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[]): ReadonlyMap<string, string> {

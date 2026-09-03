@@ -1,8 +1,10 @@
 import type {
   AgentDefinitionSnapshot,
   AgentRuntimeEventV1,
+  RuntimeInstallationState,
   RuntimeSessionSemanticState,
 } from "../../kernel/src/index.ts";
+export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: "claude" | "codex" | "agy";
@@ -74,6 +76,10 @@ export interface AgentRuntimeAttemptChainDto {
     readonly nextDispatchId: string | null;
   }[];
 }
+export interface AgentRuntimeInstallationErrorDto {
+  readonly code: "runtime_installation_not_found";
+  readonly hint: string;
+}
 export const runtimeTypeMatchesKind = (runtimeType: string, kindId: AgentRuntimeInstanceDto["kindId"]): boolean =>
   runtimeType === "any" || runtimeType === kindId;
 export interface AgentRuntimeSessionDto {
@@ -82,6 +88,9 @@ export interface AgentRuntimeSessionDto {
   readonly instanceId: string;
   readonly installationId: string;
   readonly kindId: "claude" | "codex" | "agy";
+  /** Omitted while the referenced installation is still witnessed, preserving the established DTO bytes. */
+  readonly installationState?: Exclude<RuntimeInstallationState, "present">;
+  readonly installationError?: AgentRuntimeInstallationErrorDto;
   readonly definitionSnapshotRef: string;
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
   readonly definitionSnapshotPersisted: boolean;
@@ -99,6 +108,11 @@ export interface AgentRuntimeSessionDto {
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
     readonly reasonCode?: string;
   };
+}
+export function agentRuntimeInstallationState(
+  session: Pick<AgentRuntimeSessionDto, "installationState">,
+): RuntimeInstallationState {
+  return session.installationState ?? "present";
 }
 export interface AgentRuntimeLifecycleDto {
   readonly cursor: string;
@@ -416,7 +430,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "associations",
         "activity",
       ],
-      ["semanticState", "attemptChain"],
+      ["installationState", "installationError", "semanticState", "attemptChain"],
     ) &&
     typeof value.runtimeSessionId === "string" &&
     (value.providerSessionId === null || typeof value.providerSessionId === "string") &&
@@ -424,6 +438,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (item) => typeof item === "string" && item.length > 0,
     ) &&
     ["claude", "codex", "agy"].includes(String(value.kindId)) &&
+    validInstallationState(value.installationState, value.installationError) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
       (isAgentDefinitionSnapshot(value.definitionSnapshot) &&
@@ -453,6 +468,17 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       ["exit-code-and-result", "exit-code", "result"].includes(String(value.activity.missingEvidence))) &&
     (value.activity.reasonCode === undefined ||
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0))
+  );
+}
+function validInstallationState(state: unknown, error: unknown): boolean {
+  if (state === undefined && error === undefined) return true;
+  return (
+    state === "missing" &&
+    isAgentRuntimeContractRecord(error) &&
+    hasExactAgentRuntimeContractFields(error, ["code", "hint"]) &&
+    error.code === "runtime_installation_not_found" &&
+    typeof error.hint === "string" &&
+    error.hint.length > 0
   );
 }
 function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto {

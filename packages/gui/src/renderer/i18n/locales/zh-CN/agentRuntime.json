@@ -42,6 +42,7 @@
   "agentRuntime.saveProvider": "保存 Provider",
   "agentRuntime.providerEditHint": "凭证与调用方式配置保持不变。",
   "agentRuntime.installation": "安装",
+  "agentRuntime.installationMissing": "安装见证已缺失",
   "agentRuntime.defaultModel": "默认模型",
   "agentRuntime.officialEndpoint": "官方端点",
   "agentRuntime.authTitle": "认证",
