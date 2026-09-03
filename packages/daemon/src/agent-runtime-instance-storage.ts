@@ -297,11 +297,18 @@ export function writeCodexConfig(
       ...(bearerToken ? [`experimental_bearer_token = ${tomlString(bearerToken)}`] : []),
     );
   const temp = `${target}.${process.pid}.tmp`;
-  writeFileSync(temp, `${lines.join("\n")}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-  renameSync(temp, target);
+  // The leftover of a failed write here is a 0600 config carrying the broker bearer token,
+  // and its name binds it to a pid that nothing else will look up. Whoever throws owns it.
+  try {
+    writeFileSync(temp, `${lines.join("\n")}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    renameSync(temp, target);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
   chmodSync(target, 0o600);
 }
 
