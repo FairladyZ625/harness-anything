@@ -299,22 +299,11 @@ function validGovernedRelationApproval(value: unknown): boolean {
 }
 
 function governedRelationEndpointKind(ref: string, witness: GovernedRelationRegistryWitness): string | null {
-  const builtin = parseEntityRef(ref);
-  if (builtin && !builtin.externalHarness) return builtin.kind;
-  for (const endpoint of witness.artifactEndpoints) {
-    const [prefix, suffix] = endpoint.refTemplate.split("{id}"),
-      trailing = suffix ?? "";
-    if (
-      prefix === undefined ||
-      !ref.startsWith(prefix) ||
-      !ref.endsWith(trailing) ||
-      ref.length <= prefix.length + trailing.length
-    )
-      continue;
-    const id = ref.slice(prefix.length, trailing ? -trailing.length : undefined);
-    if (new RegExp(endpoint.idPattern, "u").test(id)) return endpoint.kind;
-  }
-  return null;
+  const parsed = parseEntityRef(ref);
+  if (!parsed || parsed.externalHarness) return null;
+  const endpoint = witness.artifactEndpoints.find(({ kind }) => kind === parsed.kind);
+  if (!endpoint) return parsed.kind;
+  return new RegExp(endpoint.idPattern, "u").test(parsed.id) ? parsed.kind : null;
 }
 
 function validGovernedArtifactEndpoint(

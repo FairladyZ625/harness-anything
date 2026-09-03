@@ -14,6 +14,7 @@ import {
 } from "./entity-relation.ts";
 import type { EntityVersion } from "./entity-freshness.ts";
 import { parseEntityRef } from "./entity-ref.ts";
+import { canonicalRelationDirections, type CanonicalRelationDirection } from "./relation-direction.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import { factRef, type FactEventV1 } from "./fact-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
@@ -286,8 +287,10 @@ export function compileRelationCreatedEvent(input: {
   readonly opId: string;
   readonly occurredAt: string;
   readonly workspaceRevision: number;
+  readonly directions?: readonly CanonicalRelationDirection[];
 }): RelationCreated {
   assertRelationEventRecord(input.record);
+  assertRelationAdmission(input.record, input.directions);
   return {
     schema: "relation-event/v1",
     eventId: `event-${input.opId}`,
@@ -476,13 +479,40 @@ function replayCreatedEvent(
   });
 }
 
-export function assertRelationRecord(record: EntityRelationRecord): void {
-  const source = parseEntityRef(record.source),
-    target = parseEntityRef(record.target);
+/**
+ * 铁律三 admission: a triple is writable exactly when the direction registry the caller compiled has
+ * a row for it. Callers that admit vertical Artifact endpoints pass the composed registry; stored
+ * history is deliberately not re-judged against it, because a later registry revision must not make
+ * an already written edge unreplayable (governed-entity-design §5).
+ */
+export function assertRelationAdmission(
+  record: Pick<EntityRelationRecord, "source" | "target" | "type">,
+  directions: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
+): void {
+  const kinds = relationEndpointKinds(record);
+  if (!isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions))
+    throw Object.assign(
+      new Error(
+        `Relation triple ${kinds.source} --${record.type}--> ${kinds.target} is not declared ` +
+          "in the canonical direction registry",
+      ),
+      { code: "relation_triple_undeclared" },
+    );
+}
+
+function relationEndpointKinds(record: Pick<EntityRelationRecord, "source" | "target">): {
+  readonly source: string;
+  readonly target: string;
+} {
+  const source = parseEntityRef(String(record.source)),
+    target = parseEntityRef(String(record.target));
   if (!source || source.externalHarness || !target || target.externalHarness)
     throw new Error("Relation endpoints must be canonical registered Entity refs");
-  if (!isAllowedRelationKindTriple(source.kind, record.type, target.kind))
-    throw new Error(`Relation type ${record.type} is not writable for ${source.kind}->${target.kind}`);
+  return { source: source.kind, target: target.kind };
+}
+
+export function assertRelationRecord(record: EntityRelationRecord): void {
+  assertRelationAdmission(record);
   if (
     record.relation_id !== deriveRelationId(record) ||
     !relationTypes.includes(record.type) ||
@@ -529,14 +559,9 @@ function assertRelationEventRecord(
       },
       registry,
     );
-  else {
-    const source = parseEntityRef(String(record.source)),
-      target = parseEntityRef(String(record.target));
-    if (!source || source.externalHarness || !target || target.externalHarness)
-      throw new Error("Relation endpoints must be canonical registered Entity refs");
-    if (!isAllowedRelationKindTriple(source.kind, record.type as EntityRelationRecord["type"], target.kind))
-      throw new Error(`Relation type ${String(record.type)} is not writable for ${source.kind}->${target.kind}`);
-  }
+  // Endpoint refs must resolve here; the triple itself is admitted at write time (assertRelationAdmission),
+  // so a later registry revision cannot make stored history unreplayable.
+  else relationEndpointKinds(record as unknown as EntityRelationRecord);
   if (
     record.relation_id !== deriveRelationId(record as unknown as EntityRelationRecord) ||
     !relationTypes.includes(record.type as EntityRelationRecord["type"]) ||

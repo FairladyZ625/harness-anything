@@ -8,13 +8,17 @@ import {
   type ArtifactSourceResolution,
 } from "../../application/src/index.ts";
 import {
+  compiledRelationDirections,
   compileVerticalContract,
+  composeCanonicalRelationDirections,
   isEntityDeclarationEvent,
   isEntityEvent,
   normalizeRelativeDocumentPath,
   type AuthorizationDecision,
   type CanonicalEventStore,
+  type CanonicalRelationDirection,
   type CompiledArtifactKindContract,
+  type CompiledVerticalContract,
   type EntityActionContract,
   type EntityEventV1,
   type TaskProjection,
@@ -24,13 +28,27 @@ import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { loadCanonicalAssets } from "../../preset/src/preset-assets.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-let cachedArtifactKinds: readonly CompiledArtifactKindContract[] | null = null;
+let cachedVertical: CompiledVerticalContract | null = null,
+  cachedRelationDirections: readonly CanonicalRelationDirection[] | null = null;
 type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string };
 
+function canonicalVertical(): CompiledVerticalContract {
+  if (cachedVertical === null) cachedVertical = loadCanonicalAssets(defaultAssets).compiledVertical;
+  return cachedVertical;
+}
+
 export function compiledArtifactKinds(): readonly CompiledArtifactKindContract[] {
-  if (cachedArtifactKinds === null)
-    cachedArtifactKinds = loadCanonicalAssets(defaultAssets).compiledVertical.artifactKinds;
-  return cachedArtifactKinds;
+  return canonicalVertical().artifactKinds;
+}
+
+/**
+ * The registry relation writes are admitted against: kernel rows plus the governed rows the canonical
+ * vertical compiled, so a kind-declared triple is writable through the same authority as a code row.
+ */
+export function relationDirectionRegistry(): readonly CanonicalRelationDirection[] {
+  if (cachedRelationDirections === null)
+    cachedRelationDirections = composeCanonicalRelationDirections(compiledRelationDirections(canonicalVertical()));
+  return cachedRelationDirections;
 }
 
 /** Test seam for custom verticals: callers compile the same source value and pass its artifactKinds. */

@@ -7,6 +7,8 @@ import {
   type GovernedRelationCompilationAuthority,
 } from "../../src/domain/governed-relation-direction.ts";
 import { isAllowedRelationKindTriple, isAllowedRelationRecord } from "../../src/domain/entity-relation.ts";
+import { parseEntityRef } from "../../src/domain/entity-ref.ts";
+import { assertRelationAdmission } from "../../src/domain/relation-event.ts";
 import {
   acceptVerticalRegistryCandidate,
   compiledRelationDirections,
@@ -68,6 +70,30 @@ test("governed triples compile into the one canonical runtime registry", () => {
     accepted.relationDirections.every((row) => Object.isFrozen(row)),
     true,
   );
+});
+
+test("an artifact entity is a relation endpoint for its declared triple only", () => {
+  const accepted = acceptVerticalRegistryCandidate({
+      current: emptyCompiledVerticalRegistry(),
+      expectedRevision: 0,
+      source: verticalWith(artifact({ relations: [relation()] })),
+    }),
+    artifactRef = `${artifactType}/ADR-0123456789abcdef`,
+    declared = { source: artifactRef, target: "decision/dec_29CCC98CD0241D0C9806AC1CF1", type: "relates" } as const;
+  assert.deepEqual(parseEntityRef(artifactRef), {
+    raw: artifactRef,
+    kind: artifactType,
+    id: "ADR-0123456789abcdef",
+    externalHarness: false,
+  });
+  assertRelationAdmission(declared, accepted.relationDirections);
+  assert.throws(
+    () => assertRelationAdmission({ ...declared, type: "derives" }, accepted.relationDirections),
+    (error: unknown) =>
+      (error as { readonly code?: string }).code === "relation_triple_undeclared" &&
+      /custom\/engineering\/architecture-decision-record@1 --derives--> decision/u.test(String(error)),
+  );
+  assert.throws(() => assertRelationAdmission(declared), /is not declared in the canonical direction registry/u);
 });
 
 for (const counterexample of [

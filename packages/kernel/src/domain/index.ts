@@ -185,8 +185,10 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
-export { compileVerticalContract } from "./vertical-contract.ts";
+export { compiledRelationDirections, compileVerticalContract } from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
+export { composeCanonicalRelationDirections } from "./relation-direction.ts";
+export type { CanonicalRelationDirection } from "./relation-direction.ts";
 export type {
   EntityActionCriterionFailure,
   EntityActionCompileInput,

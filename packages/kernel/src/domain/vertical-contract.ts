@@ -6,6 +6,7 @@ import {
   type VerticalDefinition,
 } from "../schemas/vertical-definition.ts";
 import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } from "./base-entity.ts";
+import { artifactEntityIdPattern } from "./entity-ref.ts";
 import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
 import {
   artifactEntityActionCatalog,
@@ -87,7 +88,7 @@ export function compileVerticalContract(
     const typeIdentity = `${definition.id}/${artifact.id}@${artifact.version}`,
       identity = Object.freeze({
         field: "entityId",
-        pattern: `^${artifact.idPrefix}-[a-f0-9]{16}$`,
+        pattern: artifactEntityIdPattern(artifact.idPrefix),
         refTemplate: `${typeIdentity}/{id}` as `${string}/{id}`,
       }),
       residency = Object.freeze({ authored: "ledger" as const }),

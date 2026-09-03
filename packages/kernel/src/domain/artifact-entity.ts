@@ -1,6 +1,7 @@
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import type { ArtifactEntityKindDefinition } from "../schemas/vertical-definition.ts";
+import { artifactEntityIdPattern } from "./entity-ref.ts";
 import {
   parseEntityJsonSchema,
   serializeEntityJsonSchema,
@@ -237,7 +238,7 @@ export function artifactEntityContractFromSnapshot(
   const decoded = decodeArtifactEntityContractSnapshot(snapshot, allowUnknownFields),
     identity = Object.freeze({
       field: "entityId",
-      pattern: `^${decoded.idPrefix}-[a-f0-9]{16}$`,
+      pattern: artifactEntityIdPattern(decoded.idPrefix),
       refTemplate: `${decoded.typeIdentity}/{id}` as `${string}/{id}`,
     });
   return deepFreeze({

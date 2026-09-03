@@ -4,7 +4,8 @@ export { ENTITY_ID_PATTERN };
 export type EntityKindRefAuthority<K extends EntityKind = EntityKind> = EntityIdentityContract<K> & {
   readonly kind: K;
 };
-export type EntityRefKind = EntityKind;
+/** A built-in kind, or the type identity of a vertical Artifact kind compiled at load time. */
+export type EntityRefKind = string;
 
 export interface ParsedEntityRef {
   readonly raw: string;
@@ -19,6 +20,29 @@ export type EntityRef = ParsedEntityRef["raw"];
 
 const entityRefPrefixPattern = /^(?:(?<alias>[A-Za-z][A-Za-z0-9_-]*):)?(?<body>.+)$/u;
 const templateTokenPattern = /^\{(?<kind>[a-z-]+)\}$/u;
+
+/** The identity prefix a vertical declares for its Artifact kind (`vertical-definition/v1`). */
+const artifactIdPrefixPattern = "[A-Z][A-Z0-9]{0,15}",
+  artifactIdSuffixPattern = "-[a-f0-9]{16}";
+
+/** The id pattern an Artifact kind contract carries, so kind compilation and ref parsing share one grammar. */
+export function artifactEntityIdPattern(idPrefix: string): string {
+  return `^${idPrefix}${artifactIdSuffixPattern}$`;
+}
+/**
+ * Vertical Artifact kinds are compiled from a vertical definition when the daemon loads it, so they
+ * cannot be static rows in `entityTypeContracts`. Their ref body is fixed by the compiler: the type
+ * identity `<verticalId>/<kindId>@<version>` names the kind, then the entity id. The `@<version>`
+ * segment is what separates it from every built-in kind, none of which carries one. Parsing stays
+ * syntactic: whether the kind is registered stays the direction registry's answer, and whether the
+ * entity exists stays the projection's.
+ */
+function artifactRefBodyPattern(capture: boolean): string {
+  const kind = String.raw`[A-Za-z0-9][A-Za-z0-9_.\-/]*@[1-9][0-9]*`,
+    id = `${artifactIdPrefixPattern}${artifactIdSuffixPattern}`;
+  return capture ? `(?<kind>${kind})/(?<id>${id})` : `(?:${kind})/(?:${id})`;
+}
+const artifactRefPattern = new RegExp(`^${artifactRefBodyPattern(true)}$`, "u");
 
 export function parseEntityRef(value: string): ParsedEntityRef | null {
   const prefix = value.match(entityRefPrefixPattern),
@@ -41,7 +65,15 @@ export function parseEntityRef(value: string): ParsedEntityRef | null {
       externalHarness: Boolean(harnessAlias),
     };
   }
-  return null;
+  const artifact = body.match(artifactRefPattern)?.groups;
+  if (!artifact?.kind || !artifact.id) return null;
+  return {
+    raw: value,
+    kind: artifact.kind,
+    id: artifact.id,
+    ...(harnessAlias ? { harnessAlias } : {}),
+    externalHarness: Boolean(harnessAlias),
+  };
 }
 
 export function findEntityRefs(body: string): ReadonlyArray<ParsedEntityRef> {
@@ -83,7 +115,10 @@ function refAuthorities(): readonly EntityKindRefAuthority[] {
 }
 
 function entityRefSearchPattern(): RegExp {
-  const bodies = refAuthorities().map((contract) => compileRefBodyPattern(contract, false));
+  const bodies = [
+    ...refAuthorities().map((contract) => compileRefBodyPattern(contract, false)),
+    artifactRefBodyPattern(false),
+  ];
   return new RegExp(String.raw`(?<![A-Za-z0-9_/-])(?:[A-Za-z][A-Za-z0-9_-]*:)?(?:${bodies.join("|")})\b(?!\/)`, "gu");
 }
 
