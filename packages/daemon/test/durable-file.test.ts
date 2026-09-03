@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,7 +26,27 @@ test("a durable write lands the whole body and leaves no temporary behind", () =
   assert.equal(readFileSync(target, "utf8"), '{"revision":2}\n');
   assert.deepEqual(readdirSync(path.dirname(target)), ["state.json"]);
   if (process.platform !== "win32") assert.equal(statSync(target).mode & 0o777, 0o600);
-  assert.equal(existsSync(`${target}.tmp`), false);
+});
+
+// The temporary is named after this process, so nothing else will ever reclaim it: a write
+// that throws between the open and the rename leaves an orphan that outlives its owner
+// (F-FAED015B: one such file survived 7h46m under a fleet edge .staging/, its pid long gone).
+// Occupying the destination with a non-empty directory makes renameSync fail after the
+// temporary is already on disk, which is the same shape as a failing write.
+test("a durable write that cannot rename takes its own temporary with it", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
+  const target = path.join(root, "state.json");
+  mkdirSync(target, { recursive: true });
+  writeFileSync(path.join(target, "occupant"), "x");
+  assert.throws(
+    () => writeFileDurably(target, "{}\n"),
+    (error: NodeJS.ErrnoException) => ["EISDIR", "ENOTEMPTY", "EPERM", "EACCES"].includes(error.code ?? ""),
+  );
+  assert.deepEqual(readdirSync(root), ["state.json"]);
+  assert.deepEqual(
+    readdirSync(root).filter((name) => name.includes(String(process.pid))),
+    [],
+  );
 });
 
 // #1586 was one defect repeated in six modules and fixed in three of them, because each module

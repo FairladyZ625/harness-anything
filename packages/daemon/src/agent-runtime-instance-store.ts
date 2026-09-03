@@ -629,8 +629,13 @@ export function openRuntimeInstanceStore(input: {
         null,
         2,
       );
-    writeFileSync(temp, ["", value, "\n"].join(""), { encoding: "utf8", mode: 0o600 });
-    renameSync(temp, target);
+    try {
+      writeFileSync(temp, ["", value, "\n"].join(""), { encoding: "utf8", mode: 0o600 });
+      renameSync(temp, target);
+    } catch (error) {
+      rmSync(temp, { force: true });
+      throw error;
+    }
     chmodSync(target, 0o600);
   }
   function ensureStateRoot(config: RuntimeInstanceConfig): void {

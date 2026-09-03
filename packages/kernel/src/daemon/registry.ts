@@ -575,8 +575,15 @@ function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOp
       connections: sorted.connections,
       repos: [...sorted.repos, ...sorted.invalidRepos.map(({ raw }) => raw)].sort(compareRegistryEntries),
     };
-  writeFileSync(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
-  renameSync(tempPath, registryPath);
+  // pid plus millisecond keeps two concurrent writers off each other's temp; it also means
+  // neither will ever reclaim the other's, so a failed write has to remove its own.
+  try {
+    writeFileSync(tempPath, `${JSON.stringify(persisted, null, 2)}\n`, "utf8");
+    renameSync(tempPath, registryPath);
+  } catch (error) {
+    rmSync(tempPath, { force: true });
+    throw error;
+  }
 }
 
 function canonicalHarnessRoot(rootDir: string): string {

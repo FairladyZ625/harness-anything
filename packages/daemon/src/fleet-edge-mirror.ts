@@ -14,7 +14,6 @@ import {
   openSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -29,6 +28,7 @@ import {
   resolveHarnessLayout,
   sha256Bytes,
 } from "../../kernel/src/index.ts";
+import { writeFileDurably } from "./durable-file.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;
@@ -372,7 +372,7 @@ export function applyFleetMirrorCut(
     }
     const centerBytes = fleetMirrorCutFile(view.viewDir, view.revision, logical);
     mkdirSync(path.dirname(path.join(materializedRoot, ...logical.split("/"))), { recursive: true });
-    if (centerBytes !== null) fleetMirrorWriteBytes(path.join(materializedRoot, ...logical.split("/")), centerBytes);
+    if (centerBytes !== null) writeFileDurably(path.join(materializedRoot, ...logical.split("/")), centerBytes);
     nextBlobs[logical] = blob.sha256;
   }
   // Center deletions: a locally untouched path follows the deletion; a locally
@@ -454,7 +454,7 @@ export function stageFleetConflict(
         fleetMirrorAssertLogical(file.path);
         const target = path.join(dir, side, ...file.path.split("/"));
         mkdirSync(path.dirname(target), { recursive: true });
-        fleetMirrorWriteBytes(target, bytes);
+        writeFileDurably(target, bytes);
       }
   const record: FleetConflictRecord = {
     ...input.record,
@@ -533,7 +533,7 @@ export function restoreFleetConflictCenterBytes(
   const target = path.join(fleetMirrorMaterializedRoot(workspaceRoot), ...row.path.split("/"));
   if (source !== null) {
     mkdirSync(path.dirname(target), { recursive: true });
-    fleetMirrorWriteBytes(target, readFileSync(source));
+    writeFileDurably(target, readFileSync(source));
   } else rmSync(target, { force: true });
 }
 
@@ -628,7 +628,7 @@ function fleetMirrorRefreshBaseCache(view: FleetMirrorView, dirtyPaths: readonly
     const target = path.join(cacheRoot, ...logical.split("/"));
     if (!existsSync(target) || !readFileSync(target).equals(bytes)) {
       mkdirSync(path.dirname(target), { recursive: true });
-      fleetMirrorWriteBytes(target, bytes);
+      writeFileDurably(target, bytes);
     }
   }
   if (existsSync(cacheRoot)) {
@@ -709,20 +709,8 @@ function fleetMirrorAssertLogical(value: string): void {
   if (value.startsWith("/") || value.split("/").some(unsafePart))
     throw new FleetMirrorError("unsafe_conflict_path", "A staged document path is not a safe relative path.");
 }
-function fleetMirrorWriteBytes(file: string, bytes: Uint8Array): void {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`,
-    fd = openSync(temp, "w");
-  try {
-    writeFileSync(fd, bytes);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  renameSync(temp, file);
-}
 function fleetMirrorWriteJson(file: string, value: unknown): void {
-  fleetMirrorWriteBytes(file, Buffer.from(`${JSON.stringify(value, null, 2)}\n`));
+  writeFileDurably(file, Buffer.from(`${JSON.stringify(value, null, 2)}\n`));
 }
 function fleetMirrorReadJson<T>(file: string): T | null {
   if (!existsSync(file) || !statSync(file).isFile()) return null;
