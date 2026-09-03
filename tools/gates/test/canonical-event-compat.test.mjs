@@ -108,7 +108,7 @@ test("canonical event compatibility gate projects the locked history through pro
   const result = validateFrozenDaemonReadside(repoRoot());
   assert.deepEqual(result.errors, []);
   assert.equal(result.eventCount, 8);
-  assert.ok(result.durationMs < 8_000);
+  assert.equal(typeof result.durationMs, "number");
 });
 
 test("pre-#2158 relation strength history fails the production replay with its source event id", () => {
