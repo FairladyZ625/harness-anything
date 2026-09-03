@@ -59,6 +59,32 @@
           "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
         }
       ]
+    },
+    {
+      "id": "external-issue",
+      "entityType": "artifact",
+      "version": 1,
+      "idPrefix": "ISSUE",
+      "display": {
+        "singular": "External Issue",
+        "plural": "External Issues"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/external-issues/{id}.json"
+      },
+      "locatorKinds": ["url", "external-key"],
+      "relations": [
+        {
+          "type": "relates",
+          "sourceKind": "external-issue",
+          "targetKind": "task",
+          "reads": "the external issue relates to the target task for traceability",
+          "strength": "weak",
+          "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+          "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+        }
+      ]
     }
   ],
   "contractEntityKinds": ["task", "decision", "fact"],
