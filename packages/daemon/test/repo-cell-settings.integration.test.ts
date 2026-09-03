@@ -47,7 +47,6 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
         defaultVertical: "software/coding",
         defaultPreset: "docs-task",
         defaultProfile: "baseline",
-        layoutUnset: "adrRoot",
         expectedVersion: initialRevision,
         idempotencyKey: "valid-settings-selection",
       } as const,
@@ -79,7 +78,6 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       },
     ]);
     assert.match(readFileSync(configPath, "utf8"), /defaultPreset: docs-task[\s\S]*defaultProfile: baseline/u);
-    assert.equal(readFileSync(configPath, "utf8").includes("adrRoot"), false);
     const eventStore = makeTaskEventStore({ repoId: "settings-catalog", rootDir: root }),
       audited = eventStore.readEvent(applied.opId);
     assert.equal(audited?.schema, "settings-event/v1");
@@ -154,7 +152,6 @@ function initRepo(root: string): void {
       "layout:",
       "  authoredRoot: harness",
       "  localRoot: .harness",
-      "  adrRoot: harness/adr",
       "settings:",
       "  defaultVertical: software/coding",
       "  defaultPreset: standard-task",

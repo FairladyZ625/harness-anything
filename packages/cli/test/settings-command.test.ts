@@ -22,8 +22,6 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "zh-CN",
     "--task-scaffold",
     "governance/task-scaffold.json",
-    "--layout-unset",
-    "adrRoot",
     "--expected-version",
     "42",
     "--idempotency-key",
@@ -36,7 +34,6 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       defaultPreset: "strict-task",
       locale: "zh-CN",
       taskScaffold: "governance/task-scaffold.json",
-      layoutUnset: "adrRoot",
       expectedVersion: 42,
       idempotencyKey: "settings-one",
     });
@@ -45,6 +42,5 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
 test("Settings CLI rejects unknown and unsupported locale fields", () => {
   assert.equal(parseThinCommand(["settings", "update", "--locale", "fr-FR"]).ok, false);
   assert.equal(parseThinCommand(["settings", "update", "--wip-limit", "1"]).ok, false);
-  assert.equal(parseThinCommand(["settings", "update", "--layout-unset", "unknownRoot"]).ok, false);
   assert.equal(parseThinCommand(["settings", "read", "--locale", "en-US"]).ok, false);
 });
