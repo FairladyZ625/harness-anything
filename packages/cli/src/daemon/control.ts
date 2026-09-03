@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   daemonIdFromEnv,
@@ -87,17 +86,13 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         return finish(forced, forced.ok === true ? 0 : 1);
       }
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid);
-      const stopped = await waitForDaemonStop(userRoot, daemonId, pid);
-      return stopped
-        ? finish({ ok: true, command: "daemon-stop", pid }, 0)
-        : finish(
-            daemonFailure(
-              "daemon-stop",
-              "daemon_stop_timeout",
-              await stopTimeoutHint(userRoot, daemonId, pid, exchange),
-            ),
-            1,
-          );
+      const outcome = await waitForDaemonStop(userRoot, daemonId, pid, exchange);
+      if (outcome === "stopped") return finish({ ok: true, command: "daemon-stop", pid }, 0);
+      if (outcome === "draining") return finish(drainingStopReceipt(pid), 0);
+      return finish(
+        daemonFailure("daemon-stop", "daemon_stop_timeout", await stopTimeoutHint(userRoot, daemonId, pid, exchange)),
+        1,
+      );
     }
     return finish(
       daemonFailure(
@@ -557,24 +552,49 @@ function signalStop(pid: number): void {
     consumeKnownError(error);
   }
 }
-// Stop is done when nothing is held any more, and there are two ways to get there. Shutdown
-// releases the pid file and the endpoint as its last acts, which is the fast path and the only
-// one the original predicate knew. But Windows has no signals: process.kill terminates
-// unconditionally, shutdown never runs, and those two never go -- so a stop that had already
-// succeeded reported daemon_stop_timeout for the full five seconds (#1565). A dead process holds
-// nothing, so its exit is the second way, and whoever killed it clears the bookkeeping it left.
-async function waitForDaemonStop(userRoot: string, daemonId: string, pid: number): Promise<boolean> {
-  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+// Stop is done when nothing is held any more, and there are two ways to get there. Shutdown releases
+// the pid file, the endpoint and the singleton lock in one step, so the pid file alone now witnesses
+// the whole release; the endpoint check it used to carry could only disagree with it while the daemon
+// was draining, which is the window this predicate kept misreading. But Windows has no signals:
+// process.kill terminates unconditionally, shutdown never runs, and the pid file never goes -- so a
+// stop that had already succeeded reported daemon_stop_timeout for the full five seconds (#1565). A
+// dead process holds nothing, so its exit is the second way, and whoever killed it clears the
+// bookkeeping it left. Anything else is judged on what the daemon said: one that acknowledged the
+// stop and still answers on its endpoint is draining, because a bound endpoint now outlives nothing.
+type DaemonStopOutcome = "stopped" | "draining" | "timeout";
+async function waitForDaemonStop(
+  userRoot: string,
+  daemonId: string,
+  pid: number,
+  exchange: DaemonShutdownExchange | null,
+): Promise<DaemonStopOutcome> {
   for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
-    if (readDaemonPid(userRoot, daemonId) === null && !existsSync(endpoint)) return true;
+    if (readDaemonPid(userRoot, daemonId) === null) return "stopped";
     if (!daemonProcessAlive(pid)) {
       releaseDaemonPidFile(userRoot, daemonId, pid);
       releaseDaemonSingletonLock(userRoot, daemonId, pid);
-      return true;
+      return "stopped";
     }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  return false;
+  return exchange?.stopReply?.ok === true && (await daemonSocketProbe(localUserDaemonEndpoint(userRoot, daemonId)))
+    ? "draining"
+    : "timeout";
+}
+// Draining is the daemon doing what it was asked, not a failure: it accepted the stop, it is emptying
+// its write queues, and it says so on an endpoint that disappears with its pid file and its lock.
+function drainingStopReceipt(pid: number): Record<string, unknown> {
+  return {
+    ok: true,
+    command: "daemon-stop",
+    pid,
+    draining: true,
+    summary:
+      `daemon-stop: pid ${pid} accepted the stop and is draining its write queues; its endpoint, ` +
+      "pid file and singleton lock are released together when the drain finishes.",
+    nextAction:
+      "Run `ha daemon status` to see what is still draining; `ha daemon stop --force` ends it without draining.",
+  };
 }
 function finishControlReceipt(
   renderReceipt: ReceiptEmitter,

@@ -53,7 +53,9 @@ export async function startDaemon(input: {
     stopPromise: Promise<void> | null = null,
     activeRequests = 0,
     drainCheckScheduled = false,
-    buildSupersessionObserved = false;
+    buildSupersessionObserved = false,
+    socketBound = false,
+    stopping = false;
   const liveRuntimeSessions = new Set<string>();
   const buildDrainStatus = (): DaemonBuildDrainStatus => {
     const repos = host?.status().repos ?? [];
@@ -63,14 +65,21 @@ export async function startDaemon(input: {
       attachingRepositories: repos.filter((repo) => repo.state === "warming").length,
     };
   };
+  // Shutdown used to close the socket first and release the pid file and the singleton lock after the
+  // WAL drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
+  // the lock said "here". Three observers each guessed differently in that gap. Admission is now this
+  // flag rather than a closed socket, so the endpoint stays bound and answers `daemon_stopping` until
+  // the drain finishes, and endpoint, pid file and lock are released together: an observer either
+  // finds a daemon that can speak for itself, or finds nothing at all.
   const stop = (outcome: "stop_requested" | "build_superseded" = "stop_requested"): Promise<void> => {
     if (stopPromise) return stopPromise;
+    stopping = true;
     stopPromise = (async () => {
+      // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
+      await host!.close();
+      lifecycle.record({ event: "process_exit", outcome });
       await transport!.stop();
       await connLog.settle();
-      await host!.close();
-      // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
-      lifecycle.record({ event: "process_exit", outcome });
       rmSync(pidPath, { force: true });
       singleton.release();
     })();
@@ -117,6 +126,7 @@ export async function startDaemon(input: {
           recordRequest: requestLog.record,
           recordTraffic: connLog.request,
           buildDrainStatus,
+          stopping: () => stopping,
           onRequestStarted: () => {
             activeRequests += 1;
           },
@@ -136,6 +146,7 @@ export async function startDaemon(input: {
       onConnectionClosed: (connection) => connLog.connectionClosed(connection.connectionId),
     });
     await transport.start();
+    socketBound = true;
     lifecycle.record({ event: "socket_bound", endpoint });
     host.startAttachments();
   } catch (error) {
@@ -144,6 +155,9 @@ export async function startDaemon(input: {
       outcome: "startup_failed",
       error: error instanceof Error ? (error.stack ?? error.message) : String(error),
     });
+    // A failed startup releases the same three keys in the same order a drained shutdown does, so a
+    // bound endpoint never outlives the pid file that names its owner.
+    if (socketBound) await transport!.stop();
     await connLog.settle();
     await host?.close();
     rmSync(pidPath, { force: true });

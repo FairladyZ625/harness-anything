@@ -1,4 +1,7 @@
+import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
+import { daemonProtocolError } from "./daemon-protocol-validate-results.ts";
+import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import {
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
@@ -98,4 +101,32 @@ export function protocolErrorMessage(error: unknown): string {
     case "UnknownThrownValue":
       return normalized.message;
   }
+}
+
+// A draining daemon keeps its endpoint bound so callers can hear why, but it admits no new work: this
+// refusal is what closing the socket first used to do silently, and silence is what every observer in
+// the shutdown window then had to guess at. Status stays served because it is the one answer that
+// reports what is still draining; stop stays served because it is idempotent.
+const methodsServedWhileDraining: ReadonlySet<DaemonRpcMethod> = new Set(["daemon.status", "daemon.stop"]);
+// `stopping` is the runtime's own shutdown flag, handed in by the composition that owns the drain;
+// the daemon has no second opinion about whether it is stopping.
+export function daemonStoppingRefusal(method: DaemonRpcMethod, stopping: boolean): DaemonProtocolErrorResult | null {
+  if (!stopping || methodsServedWhileDraining.has(method)) return null;
+  return daemonProtocolError(method, "daemon_stopping", "The daemon is draining before it exits.");
+}
+// Stop is the one command that ends the process, so it is reachable only from the local session and
+// only from a composition that owns a shutdown.
+export function daemonStopRefusal(
+  authContext: DaemonAuthenticationContext,
+  requestShutdown?: () => void,
+): DaemonProtocolErrorResult | null {
+  if (authContext.transportKind !== "unix-socket" || authContext.assignmentBinding)
+    return daemonProtocolError(
+      "daemon-stop",
+      "local_transport_required",
+      "Stop is available only through the local session token.",
+    );
+  if (!requestShutdown)
+    return daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner.");
+  return null;
 }

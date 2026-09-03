@@ -23,15 +23,23 @@ export function daemonBuildStaleNotice(
   };
 }
 
-export function withDaemonBuildDrainSummary(
+// One summary for both drains an operator can be waiting on: the build supersession that will end
+// this daemon, and the shutdown that already has. The counts are the same three in either case.
+export function withDaemonDrainSummary(
   status: ReturnType<DaemonHost["status"]>,
   warning: DaemonBuildStaleNotice | null,
+  shutdown?: { readonly stopping?: () => boolean; readonly buildDrainStatus?: () => DaemonBuildDrainStatus },
 ): ReturnType<DaemonHost["status"]> {
-  if (!warning) return status;
-  return {
-    ...status,
-    summary:
-      `${status.summary} Drain status: ${warning.liveRuntimeSessions} live runtime session(s), ` +
-      `${warning.pendingWrites} queued write(s), ${warning.attachingRepositories} attaching repository/repositories.`,
-  };
+  const drain = shutdown?.stopping?.() === true ? (shutdown.buildDrainStatus?.() ?? null) : null;
+  if (!warning && !drain) return status;
+  const stale = warning
+    ? ` Drain status: ${warning.liveRuntimeSessions} live runtime session(s), ` +
+      `${warning.pendingWrites} queued write(s), ${warning.attachingRepositories} attaching repository/repositories.`
+    : "";
+  const stopping = drain
+    ? ` Stopping: draining ${drain.liveRuntimeSessions} live runtime session(s), ` +
+      `${drain.pendingWrites} queued write(s), ${drain.attachingRepositories} attaching ` +
+      "repository/repositories before exit."
+    : "";
+  return { ...status, summary: `${status.summary}${stale}${stopping}` };
 }
