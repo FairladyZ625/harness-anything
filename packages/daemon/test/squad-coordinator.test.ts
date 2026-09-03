@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "../../kernel/src/index.ts";
 import { reacquireSquadTaskLease } from "../src/repo-cell-open.ts";
+import { initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
 
 const squadActor: ActorIdentity = {
     principal: { personId: "person-squad" },
@@ -77,4 +78,35 @@ test("squad lease reacquisition reports conflict when another actor takes the re
     (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
   );
   assert.equal(starts, 0, "a conflicting lease must not be reacquired or overwritten");
+});
+
+test("runtime-batch leaves worker instance selection to the harness", () => {
+  const prompt = initialLeaderPrompt({
+      taskId: "task-squad",
+      squadRunId: "squad_0123456789abcdef01234567",
+      roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
+      mission: "Review the runtime boundary.",
+      workerAttempts: [],
+    }),
+    decision = parseLeaderDecision(
+      JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "terra", prompt: "Review it." }] }),
+      ["terra"],
+    );
+
+  assert.doesNotMatch(prompt, /"instance"/u);
+  assert.deepEqual(decision, {
+    kind: "plan",
+    dispatches: [{ workerId: "terra", prompt: "Review it." }],
+  });
+  assert.throws(
+    () =>
+      parseLeaderDecision(
+        JSON.stringify({
+          schema: "runtime-batch/v1",
+          dispatches: [{ instance: "leader-instance", to: "terra", prompt: "Review it." }],
+        }),
+        ["terra"],
+      ),
+    /Leader dispatch contains harness-owned fields\./u,
+  );
 });

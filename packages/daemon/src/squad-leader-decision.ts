@@ -69,13 +69,11 @@ export type WorkerAttempt = {
 };
 
 export type WorkerPlan = {
-  readonly instance: string;
   readonly workerId: string;
   readonly prompt: string;
 };
 
 type LeaderPromptState = {
-  readonly runtimeInstanceId: string;
   readonly taskId: string;
   readonly squadRunId: string;
   readonly roster: string;
@@ -88,7 +86,6 @@ export function initialLeaderPrompt(state: LeaderPromptState): string {
     schema: "runtime-batch/v1",
     dispatches: [
       {
-        instance: state.runtimeInstanceId,
         to: "worker-id",
         prompt: "worker mission",
       },
@@ -153,11 +150,7 @@ function statusRowsForPrompt(state: LeaderPromptState, rows: readonly TaskDispat
   });
 }
 
-export function parseLeaderDecision(
-  text: string,
-  runtimeInstanceId: string,
-  workers: readonly string[],
-): LeaderDecision {
+export function parseLeaderDecision(text: string, workers: readonly string[]): LeaderDecision {
   let value: unknown;
   try {
     value = JSON.parse(text.trim());
@@ -175,18 +168,15 @@ export function parseLeaderDecision(
     dispatches = row.dispatches.map((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Leader dispatch is invalid.");
       const item = entry as Record<string, unknown>,
-        instance = requiredLeaderText(item.instance, "worker instance"),
         workerId = requiredLeaderText(item.to, "worker id"),
         prompt = requiredLeaderText(item.prompt, "worker prompt");
-      if (instance !== runtimeInstanceId)
-        throw new Error(`Leader dispatch must use runtime instance ${runtimeInstanceId}.`);
       if (!workers.includes(workerId) || seen.has(workerId))
         throw new Error(`Leader selected invalid or duplicate worker ${workerId}.`);
-      const allowed = new Set(["instance", "to", "prompt"]);
+      const allowed = new Set(["to", "prompt"]);
       if (Object.keys(item).some((key) => !allowed.has(key)))
         throw new Error("Leader dispatch contains harness-owned fields.");
       seen.add(workerId);
-      return { instance, workerId, prompt };
+      return { workerId, prompt };
     });
   return { kind: "plan", dispatches };
 }

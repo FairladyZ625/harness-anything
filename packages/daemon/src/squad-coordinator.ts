@@ -425,7 +425,7 @@ export function makeSquadCoordinator(input: {
     }
     let decision: LeaderDecision;
     try {
-      decision = parseLeaderDecision(resultText(row.resultRef), state.runtimeInstanceId, state.workers);
+      decision = parseLeaderDecision(resultText(row.resultRef), state.workers);
     } catch (error) {
       consumeKnownError(error);
       await retryLeader(state, turn, errorText(error), row);
@@ -501,13 +501,11 @@ export function makeSquadCoordinator(input: {
       await input.reacquireTaskLease(state.taskId, state.binding);
       const receipt = await input.runtimeSpawner().spawn(
           {
-            runtimeInstanceId: state.runtimeInstanceId,
             agentId: state.leaderAgentId,
             targetAgentId: plan.workerId,
             prompt: plan.prompt,
             cwd: cwdPayload(input.rootDir, state.cwd),
             taskId: state.taskId,
-            ...(state.model ? { model: state.model } : {}),
             ...(state.effort ? { effort: state.effort } : {}),
             ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
             idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
