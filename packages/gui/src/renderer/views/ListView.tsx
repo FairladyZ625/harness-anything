@@ -98,9 +98,6 @@ function AuditRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
           <span>{task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}</span>
-          {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-            <span>canonical={task.canonicalStatus}</span>
-          )}
           {task.blocking === "unknown" && <span className="text-stale">{t("views.listView.blockingUnknown")}</span>}
           {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
           {isExternal(task) && (
@@ -113,9 +110,9 @@ function AuditRow({
       </td>
       <td className="px-3 py-2 align-top" data-testid={`task-inline-state-${task.taskId}`}>
         <div className="flex flex-col items-start gap-1">
-          <StatusBadge status={task.coordinationStatus} />
+          <StatusBadge status={task.canonicalStatus ?? task.coordinationStatus} />
           {task.canonicalStatus && task.canonicalStatus !== task.coordinationStatus && (
-            <span className="font-mono ui-micro text-text-faint">canonical={task.canonicalStatus}</span>
+            <span className="font-mono ui-micro text-text-faint">coordination={task.coordinationStatus}</span>
           )}
           <span className="font-mono ui-micro text-text-faint">
             {t("views.listView.nodeLabel")}

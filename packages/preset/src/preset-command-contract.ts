@@ -1,14 +1,25 @@
-export interface CliInputError {
-  readonly code: string;
-}
-export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
-export type CommandAdmission = Readonly<
-  Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
->;
-export interface CommandTopology {
-  readonly commandClass: "admin" | "repo-write" | "repo-read" | "arbiter";
-  readonly admission: CommandAdmission;
-}
+import type {
+  CliInputError,
+  CliInputFacet,
+  CommandAdmission,
+  CommandAdmissionRoute,
+  CommandTopology,
+  GeneratedTaskActionProtocolProjection,
+  RpcShape,
+} from "./preset-command-contract-support.ts";
+import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
+
+export type {
+  CliInputError,
+  CliInputFacet,
+  CommandAdmission,
+  CommandAdmissionRoute,
+  CommandTopology,
+  GeneratedTaskActionInputField,
+  GeneratedTaskActionProtocolDeclaration,
+  RpcShape,
+} from "./preset-command-contract-support.ts";
+
 const commandTopology = (
   commandClass: CommandTopology["commandClass"],
   center: CommandAdmissionRoute,
@@ -31,37 +42,9 @@ export const repoReadCommandTopology = commandTopology("repo-read", "direct", "d
   centerRepairWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
   localArbiterCommandTopology = commandTopology("arbiter", "rejected", "rejected"),
   hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
-export interface CliInputFacet {
-  readonly name: string;
-  readonly kind: "single" | "repeated" | "boolean";
-  readonly required: boolean;
-  readonly enum?: readonly string[];
-  readonly regex?: string;
-  readonly error: CliInputError;
-  readonly jsonFields?: readonly string[];
-  readonly jsonAllowedFields?: readonly string[];
-  readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
-  readonly format?: string;
-  readonly minLength?: number;
-  readonly maxLength?: number;
-  readonly lengthUnit?: "characters" | "bytes";
-  readonly minItems?: number;
-  readonly maxItems?: number;
-  readonly unique?: boolean;
-  readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
-  readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
-  readonly requires?: readonly string[];
-  readonly requiresAny?: readonly string[];
-  readonly conflictsWith?: readonly string[];
-}
-export type RpcShape = {
-  readonly fields: Readonly<
-    Record<string, "string" | "number" | "boolean?" | "string?" | "json" | "json?" | "array" | "array?" | RpcShape>
-  >;
-  readonly open?: boolean;
-};
 const shape = (fields: RpcShape["fields"]): RpcShape => ({ fields }),
   repo = shape({ repoId: "string" });
+
 export function cliInput<const Extra extends Readonly<Record<string, unknown>> = Readonly<Record<string, never>>>(
   name: string,
   kind: CliInputFacet["kind"],
@@ -73,6 +56,7 @@ export function cliInput<const Extra extends Readonly<Record<string, unknown>> =
     CliInputFacet & Extra
   >;
 }
+
 export function regexLength(regex: string | undefined): readonly [number, number] | undefined {
   const match = regex?.match(
     /^\^(?:\[(?:\\.|[^\]\\\r\n])*\]|\\(?:[dDsSwW]|[pP]\{[^}\r\n]+\})|\.)(?:\{(\d+)(?:,(\d+))?\})\$$/u,
@@ -82,11 +66,13 @@ export function regexLength(regex: string | undefined): readonly [number, number
     max = Number(match[2] ?? match[1]);
   return Number.isSafeInteger(min) && Number.isSafeInteger(max) ? [min, max] : undefined;
 }
+
 export function parameterRelationHint(value: string): boolean {
   return /(?:\b(?:exactly one|one of|either|together|not both|only valid|requires|without|with)\b|,\s*or\b)/iu.test(
     value,
   );
 }
+
 export function cliInputHelp(input: CliInputFacet): string {
   const facts = [
     input.required ? "required" : input.requiredWhen ? "conditionally required" : "optional",
@@ -120,44 +106,11 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.conflictsWith?.length) facts.push(`mutually exclusive with: ${input.conflictsWith.join(", ")}`);
   return `${input.name} — ${facts.join("; ")}`;
 }
+
 export function cliCommandHelp(inputs: readonly CliInputFacet[]): string {
   return inputs.map((input) => `    ${cliInputHelp(input)}`).join("\n");
 }
-export const taskCreateJsonFields = Object.freeze([
-  "title",
-  "taskId",
-  "idempotencyKey",
-  "parentTaskId",
-  "workKind",
-  "riskTier",
-  "urgency",
-  "verticalId",
-  "presetId",
-  "profileId",
-  "moduleKey",
-  "registerModule",
-  "slug",
-  "surfaces",
-  "taskClass",
-  "locale",
-  "fromLegacyId",
-  "createMode",
-] as const);
-export const consentJsonFields = Object.freeze(["reviewDigest", "contentDigest"] as const);
-export const decisionProposalJsonFields = Object.freeze([
-  "title",
-  "question",
-  "riskTier",
-  "urgency",
-  "vertical",
-  "preset",
-  "decisionClass",
-  "appliesTo",
-  "chosen",
-  "rejected",
-  "claims",
-  "fulfillments",
-] as const);
+
 export function defineCliCommand<
   const Command extends {
     readonly path: readonly string[];
@@ -173,10 +126,9 @@ export function defineCliCommand<
     path = Object.freeze(syntaxPath.slice(0, firstPositional < 0 ? syntaxPath.length : firstPositional)),
     inputs = Object.freeze(declaration.inputs.map((input) => Object.freeze(input))) as Command["inputs"],
     usageInputs = inputs.map((input) => {
-      const value =
-          input.kind === "boolean"
-            ? input.name
-            : `${input.name} <${input.enum?.join("|") ?? input.name.slice(2)}>${input.kind === "repeated" && input.required ? "..." : ""}`,
+      const placeholder = input.enum?.join("|") ?? input.name.slice(2),
+        suffix = input.kind === "repeated" && input.required ? "..." : "",
+        value = input.kind === "boolean" ? input.name : `${input.name} <${placeholder}>${suffix}`,
         rendered = input.required ? value : `[${value}]`;
       return input.kind === "repeated" && !input.required ? `${rendered}...` : rendered;
     }),
@@ -187,6 +139,7 @@ export function defineCliCommand<
   // is the source of truth, so a positional like <task-id> survives every rebuild automatically.
   return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help });
 }
+
 type CliCommandDeclaration = {
   readonly path: readonly string[];
   readonly syntaxPath?: readonly string[];
@@ -204,6 +157,66 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineCenterRepairWriteCommand = defineTopologyCommand(centerRepairWriteCommandTopology),
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),
   defineHostAdminCommand = defineTopologyCommand(hostAdminCommandTopology);
+
+export const decisionProposalJsonFields = Object.freeze([
+  "title",
+  "question",
+  "riskTier",
+  "urgency",
+  "vertical",
+  "preset",
+  "decisionClass",
+  "appliesTo",
+  "chosen",
+  "rejected",
+  "claims",
+  "fulfillments",
+] as const);
+
+const taskActionProtocolProjection: GeneratedTaskActionProtocolProjection = taskActionDescriptorProjection,
+  allTaskActionProtocolDeclarations = taskActionProtocolProjection.actions,
+  taskCreateAction = allTaskActionProtocolDeclarations.find(({ id }) => id === "create");
+if (!taskCreateAction) throw new Error("task.create action projection is missing.");
+export function taskCreateEnum(field: string): readonly string[] {
+  const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
+  if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
+  return values;
+}
+const taskCreatePacketFieldNames = taskCreateAction.input.fields.find(({ field }) => field === "fromFile")?.cli
+  ?.jsonAllowedFields;
+if (!taskCreatePacketFieldNames) throw new Error("task.create packet projection is missing.");
+const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) =>
+  taskCreatePacketFieldNames.includes(field),
+);
+export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
+export const generatedTaskActionProtocolDeclarations = Object.freeze(
+  allTaskActionProtocolDeclarations.filter(({ id }) => id !== "create"),
+);
+export const generatedWriteReceiptFields = Object.freeze([...taskActionProtocolProjection.writeReceiptFields]);
+export const generatedTaskCreateResultFields = Object.freeze(
+  taskActionProtocolProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
+);
+
+const taskCreateCliInputs = Object.freeze(
+  taskCreateAction.input.fields.flatMap((field) => {
+    if (!field.cli) return [];
+    const cli = field.cli,
+      error = Object.freeze({ code: cli.error });
+    return [
+      cliInput(cli.name, cli.kind, field.required, error, {
+        field: field.field,
+        ...(field.enum ? { enum: field.enum } : {}),
+        ...(field.regex ? { regex: field.regex } : {}),
+        ...cli,
+      }),
+    ];
+  }),
+);
+const consentJsonFieldProjection = generatedTaskActionProtocolDeclarations
+  .find(({ id }) => id === "consent")
+  ?.input.fields.find(({ field }) => field === "fromFile")?.cli?.jsonAllowedFields;
+if (!consentJsonFieldProjection) throw new Error("task.consent packet projection is missing.");
+export const consentJsonFields = Object.freeze([...consentJsonFieldProjection]);
 export const presetCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-create",
@@ -211,135 +224,7 @@ export const presetCommands = Object.freeze([
     path: ["task", "create"],
     summary: "Create a task package with its complete metadata.",
     method: "repo.task.create",
-    inputs: [
-      cliInput(
-        "--title",
-        "single",
-        false,
-        {
-          code: "missing_field",
-        },
-        { field: "title" },
-      ),
-      cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" }),
-      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "idempotencyKey" }),
-      cliInput("--parent", "single", false, { code: "invalid_field" }, { field: "parentTaskId" }),
-      cliInput(
-        "--kind",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "workKind", enum: ["feat", "fix", "refactor", "docs", "test", "chore"] },
-      ),
-      cliInput(
-        "--risk-tier",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "riskTier", enum: ["low", "medium", "high"] },
-      ),
-      cliInput(
-        "--urgency",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "urgency", enum: ["low", "medium", "high"] },
-      ),
-      cliInput(
-        "--from-file",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "fromFile",
-          jsonFields: ["title"],
-          jsonAllowedFields: taskCreateJsonFields,
-          conflictsWith: ["--json-input"],
-        },
-      ),
-      cliInput(
-        "--json-input",
-        "single",
-        false,
-        { code: "invalid_field" },
-        {
-          field: "jsonInput",
-          jsonFields: ["title"],
-          jsonAllowedFields: taskCreateJsonFields,
-          format: "<json|@->",
-          conflictsWith: ["--from-file"],
-        },
-      ),
-      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
-      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
-      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
-      cliInput(
-        "--module",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleKey" },
-      ),
-      cliInput(
-        "--register-module",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "registerModuleKey" },
-      ),
-      cliInput(
-        "--module-title",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleTitle" },
-      ),
-      cliInput(
-        "--module-prefix",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "modulePrefix" },
-      ),
-      cliInput(
-        "--module-scope",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "moduleScope" },
-      ),
-      cliInput(
-        "--slug",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "slug", regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$" },
-      ),
-      cliInput("--surface", "repeated", false, { code: "invalid_field" }, { field: "surfaces" }),
-      cliInput(
-        "--task-class",
-        "single",
-        false,
-        { code: "invalid_field" },
-        { field: "taskClass", enum: ["standard", "milestone", "epic", "long_running"] },
-      ),
-      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
-      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
-      cliInput("--from-legacy", "single", false, { code: "invalid_field" }, { field: "fromLegacyId" }),
-      cliInput("--migration", "boolean", false, { code: "invalid_field" }, { field: "migration" }),
-      cliInput("--import", "boolean", false, { code: "invalid_field" }, { field: "import" }),
-      cliInput("--admin", "boolean", false, { code: "invalid_field" }, { field: "admin" }),
-    ],
+    inputs: taskCreateCliInputs,
   }),
   defineRepoReadCommand({
     id: "preset-list",
@@ -507,29 +392,21 @@ export const presetCommands = Object.freeze([
     ],
   }),
 ] as const);
-const taskCreateRpcFields: RpcShape["fields"] = {
-  title: "string?",
-  taskId: "string?",
-  idempotencyKey: "string?",
-  parentTaskId: "string?",
-  workKind: "string?",
-  riskTier: "string?",
-  urgency: "string?",
-  fromFile: "string?",
-  jsonInput: "string?",
-  verticalId: "string?",
-  presetId: "string?",
-  profileId: "string?",
-  moduleKey: "string?",
-  registerModule: "json?",
-  slug: "string?",
-  surfaces: "array?",
-  taskClass: "string?",
-  dryRun: "boolean?",
-  locale: "string?",
-  fromLegacyId: "string?",
-  createMode: "string?",
-};
+const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
+  ...taskCreatePacketFields.map((field) => [
+    field.field,
+    field.type === "json-object"
+      ? "json?"
+      : field.type?.endsWith("-array")
+        ? "array?"
+        : field.type === "boolean"
+          ? "boolean?"
+          : "string?",
+  ]),
+  ["fromFile", "string?"],
+  ["jsonInput", "string?"],
+  ["dryRun", "boolean?"],
+]);
 export const presetMethods = Object.freeze([
   ...presetCommands.map((command) => {
     const positional = "positional" in command ? command.positional : undefined,

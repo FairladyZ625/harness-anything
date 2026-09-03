@@ -127,6 +127,18 @@ describe("adaptProjectionRows", () => {
     });
   });
 
+  it("preserves done status independently from the review graph cursor", () => {
+    const complete = row({
+      coordinationStatus: "done",
+      snapshot: {
+        ...row().snapshot,
+        task: { ...row().snapshot.task!, status: "done", currentNode: "review" },
+      },
+    });
+    const [task] = adaptProjectionRows([complete], "repo-test");
+    expect(task).toMatchObject({ canonicalStatus: "done", currentNode: "review", rawStatus: "done/review" });
+  });
+
   it("surfaces the lease holder and the ledger pin on the row itself", () => {
     const leased = row({
       snapshot: {

@@ -14,11 +14,7 @@ import type {
 import { envelope, execution, lifecycleContractIssue, revisionIssues } from "./task-lifecycle-contract-support.ts";
 
 export const repoint: Transition = {
-  id: "repoint_code_doc",
-  commandType: "RepointCodeDoc",
-  from: "done",
-  proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
-  eventType: "code_doc_repointed",
+  actionId: "repoint",
   matches: (command) => command.type === "RepointCodeDoc",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as RepointCodeDocCommand,

@@ -1,34 +1,48 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
-test("guidance plane applies declarative conditions and owns task-create prose", () => {
-  const receipt = {
-    command: "task-create",
-    dryRun: true,
-    outputShape: "repository-diff",
-    proof: { canonicalVisible: false },
-    guidance: [
-      { kind: "repository-diff-contract", args: {}, when: { outputShape: "repository-diff" } },
-      { kind: "task-create-publish", args: {}, when: { dryRun: true } },
-      {
-        kind: "task-create-start",
-        args: { packagePath: "tasks/task-a", taskId: "task-a" },
-        when: { dryRun: false },
-      },
-      { kind: "edit-plan", args: { packagePath: "tasks/task-a" } },
-      { kind: "pin-agenda", args: { taskId: "task-a" } },
-      { kind: "ledger-managed", args: { fields: ["INDEX.md", "closeout.md"] } },
-    ],
-  };
-  assert.deepEqual(renderReceiptGuidance(receipt), [
-    "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
+  const values = {
+      taskId: "task-a",
+      packagePath: "tasks/task-a",
+      outputShape: "repository-diff",
+      dryRun: true,
+      opId: "op-a",
+      canonicalVisible: false,
+    },
+    guidance = taskCreateGuidance(values),
+    receipt = (dryRun: boolean, canonicalVisible: boolean) => ({
+      command: "task-create",
+      dryRun,
+      outputShape: "repository-diff",
+      proof: { canonicalVisible },
+      guidance,
+    }),
+    shared = [
+      "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+      "plan: write the concrete plan at harness/tasks/task-a/task_plan.md",
+      "agenda: use ha task pin task-a to pin it to the CEO agenda",
+      "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
+    ];
+  assert.equal(guidance.length, 7);
+  assert.deepEqual(renderReceiptGuidance(receipt(true, false)), [
+    shared[0],
     "next: remove --dry-run to publish this exact resolved scaffold",
-    "plan: write the concrete plan at harness/tasks/task-a/task_plan.md",
-    "agenda: use ha task pin task-a to pin it to the CEO agenda",
-    "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
+    ...shared.slice(1),
+  ]);
+  assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
+    shared[0],
+    "next: edit tasks/task-a/task_plan.md, then run ha task start task-a --execution-id <id>",
+    ...shared.slice(1),
+  ]);
+  assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
+    shared[0],
+    "next: ha receipt show op-a",
+    ...shared.slice(1),
   ]);
 });
 
@@ -133,4 +147,15 @@ test("receipt registry preserves migrated family goldens", () => {
     }),
     { stream: "stdout", text: "No schedules." },
   );
+});
+
+test("task show renders lifecycle status before the secondary graph cursor", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({ task: { status: "done", currentNode: "review" } }),
+    summary: "task: status=done currentNode=review",
+  });
+  assert.equal(rendered.stream, "stdout");
+  assert.deepEqual(rendered.text.split("\n").slice(0, 2), ["status: done", "graph cursor: review"]);
 });

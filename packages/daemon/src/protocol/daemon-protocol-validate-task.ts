@@ -108,18 +108,19 @@ function validateProjectedTaskActionInput(
         validationError(entityId, `action.${field}`, record[field], "is not declared by the Action input schema"),
       );
   for (const field of input.fields) {
-    const item = record[field.field];
+    const item = record[field.field],
+      type = field.type;
     if (field.required && (item === undefined || item === "")) {
       errors.push(validationError(entityId, `action.${field.field}`, item, "field is required"));
       continue;
     }
     if (item === undefined) continue;
     const valid =
-      (field.type === "string" && typeof item === "string" && item.length > 0) ||
-      (field.type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
-      (field.type === "boolean" && typeof item === "boolean") ||
-      (field.type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
-      (field.type === "fact-hold-array" &&
+      (type === "string" && typeof item === "string" && item.length > 0) ||
+      (type === "number" && Number.isSafeInteger(item) && Number(item) >= 0) ||
+      (type === "boolean" && typeof item === "boolean") ||
+      (type === "string-array" && Array.isArray(item) && item.every((entry) => typeof entry === "string")) ||
+      (type === "fact-hold-array" &&
         Array.isArray(item) &&
         item.every(
           (entry) =>
@@ -128,7 +129,7 @@ function validateProjectedTaskActionInput(
             typeof (entry as { readonly factRef?: unknown }).factRef === "string" &&
             typeof (entry as { readonly rationale?: unknown }).rationale === "string",
         ));
-    if (!valid) errors.push(validationError(entityId, `action.${field.field}`, item, `must be ${field.type}`));
+    if (!valid) errors.push(validationError(entityId, `action.${field.field}`, item, `must be ${type}`));
     if (field.enum && !field.enum.includes(String(item)))
       errors.push(validationError(entityId, `action.${field.field}`, item, `must be one of ${field.enum.join(", ")}`));
     if (field.regex && typeof item === "string" && !new RegExp(field.regex, "u").test(item))

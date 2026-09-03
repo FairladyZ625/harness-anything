@@ -43,7 +43,7 @@ export async function proofFor(
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
-    lifecycleAction = transition ? getTaskActionForTransition(transition.id) : undefined,
+    lifecycleAction = transition ? getTaskActionForTransition(transition.actionId) : undefined,
     lifecycleExecution = lifecycleAction?.execution?.lifecycle;
   if (lifecycleExecution?.coordination === "reserve") {
     const commandFields = command as unknown as Readonly<Record<string, unknown>>,

@@ -116,11 +116,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
   };
 }
 export const review: Transition = {
-  id: "record_execution_review",
-  commandType: "RecordReview",
-  from: "in_review/review",
-  proof: ["independentActor", "execution-review@v1", "contentCut"],
-  eventType: "review_recorded",
+  actionId: "review",
   matches: (command) => command.type === "RecordReview",
   validate: (snapshot, raw, proof) => reviewIssues(snapshot, raw as RecordReviewCommand, proof as Partial<ReviewProof>),
   reduce: (snapshot, raw, rawProof) => {
@@ -178,11 +174,7 @@ export const review: Transition = {
   },
 };
 export const consent: Transition = {
-  id: "record_review_consent",
-  commandType: "RecordReviewConsent",
-  from: "in_review/review/approved",
-  proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest"],
-  eventType: "review_consent_recorded",
+  actionId: "consent",
   matches: (command) => command.type === "RecordReviewConsent",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as RecordReviewConsentCommand,
@@ -262,11 +254,7 @@ export const consent: Transition = {
   },
 };
 export const reconcile: Transition = {
-  id: "reconcile_code_doc",
-  commandType: "ReconcileCodeDoc",
-  from: "in_review/review",
-  proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
-  eventType: "code_doc_reconciled",
+  actionId: "reconcile",
   matches: (command) => command.type === "ReconcileCodeDoc",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as ReconcileCodeDocCommand,
@@ -331,11 +319,7 @@ export function isReadyToComplete(snapshot: TaskLifecycleSnapshot): boolean {
   return closeoutReadiness(snapshot).readiness === "ready";
 }
 export const complete: Transition = {
-  id: "complete_task",
-  commandType: "CompleteTask",
-  from: "in_review/review/ready",
-  proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
-  eventType: "task_completed",
+  actionId: "complete",
   matches: (command) => command.type === "CompleteTask",
   validate: (snapshot, raw, rawProof) => {
     const command = raw as CompleteTaskCommand,

@@ -1,14 +1,16 @@
 import {
   isReceiptDiagnostic,
-  taskLifecycleReturnsForCommand,
+  deriveActionReturnsContract,
+  getExecutableEntityAction,
   type ReceiptGuidanceArgument,
   type ReceiptGuidanceContractEntry,
   type ReceiptDiagnostic,
 } from "../../kernel/src/index.ts";
 
 export function taskCreateGuidance(values: Readonly<Record<string, string | number | boolean>>) {
-  const returns = taskLifecycleReturnsForCommand("CreateReplayTask");
-  if (!returns) throw new Error("CreateReplayTask has no declared return contract.");
+  const action = getExecutableEntityAction("task-create");
+  if (!action) throw new Error("task.create has no declared return contract.");
+  const returns = deriveActionReturnsContract(action);
   return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, values)));
 }
 

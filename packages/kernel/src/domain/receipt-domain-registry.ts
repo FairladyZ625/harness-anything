@@ -2,7 +2,7 @@ import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
-import { RECEIPT_GUIDANCE_KINDS, type ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
+import { RECEIPT_GUIDANCE_KINDS, type ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export type { AuthorizationDecision, ReceiptJsonValue } from "./receipt-frame.ts";
 
 export interface EntityActionUnmetCriterionV1 {

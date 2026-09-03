@@ -13,12 +13,12 @@ import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("daemon lifecycle command inputs and thin CLI parameters are projections of Task Actions", () => {
   const actions = (getEntityKindContract("task")?.actionCatalog?.actions ?? []).filter(
-    (action) => action.execution?.lifecycle !== undefined,
+    (action) => action.execution?.lifecycle !== undefined && action.id !== "create",
   );
   assert.deepEqual(
-    generatedTaskActionProtocolDeclarations,
-    actions.map(({ id, input, explain, execution }) => ({ id, input, explain, execution })),
-    "run tools/generate-task-action-protocol.mjs after changing the Kernel Task Action contract",
+    generatedTaskActionProtocolDeclarations.map(({ id }) => id),
+    actions.map(({ id }) => id),
+    "daemon projection must cover every executable Kernel Task Action",
   );
   assert.deepEqual(
     derivedTaskActionProtocolCommands.map(({ id }) => id),
@@ -33,11 +33,32 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
         field.cli
           ? [
               {
-                ...field.cli,
+                ...Object.fromEntries(Object.entries(field.cli).filter(([key]) => key !== "jsonSchema")),
                 field: field.field,
                 required: field.required,
                 ...(field.enum ? { enum: field.enum } : {}),
                 ...(field.regex ? { regex: field.regex } : {}),
+                ...(field.cli.jsonSchema
+                  ? {
+                      jsonFields: field.cli.jsonSchema.fields
+                        .filter(({ required }) => required)
+                        .map(({ field }) => field),
+                      jsonAllowedFields: field.cli.jsonSchema.fields.map(({ field }) => field),
+                      ...(field.cli.jsonSchema.fields.some(
+                        (nested) => nested.value?.kind === "string" && nested.value.enumRef,
+                      )
+                        ? {
+                            jsonEnums: Object.fromEntries(
+                              field.cli.jsonSchema.fields.flatMap((nested) =>
+                                nested.value?.kind === "string" && nested.value.enumRef
+                                  ? [[nested.field, nested.value.enumRef]]
+                                  : [],
+                              ),
+                            ),
+                          }
+                        : {}),
+                    }
+                  : {}),
               },
             ]
           : [],

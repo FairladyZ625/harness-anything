@@ -49,6 +49,9 @@ const revisionCurrent: Evaluation = ({ snapshot }) =>
 
 const taskCapabilityEvaluators = Object.freeze(
   new Map<string, Evaluation>([
+    [key("create", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("create", "preset-bootstrap/compileTaskPackage"), mutationInvocation],
+    [key("create", "task-graph/validateTaskGraphV1"), mutationInvocation],
     [key("start", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("start", "task-lifecycle-command-transitions/canStartExecution"), startAvailability],
     [
@@ -60,6 +63,8 @@ const taskCapabilityEvaluators = Object.freeze(
           ? "met"
           : "unmet",
     ],
+    [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("submit", "task-lifecycle-command-transitions/submit.validate"), submitValidation],
     [
@@ -73,6 +78,12 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("review", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
     [key("review", "repo-cell-proof/proofFor.RecordReview"), reviewIndependence],
+    [key("consent", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("consent", "task-lifecycle-review-transitions/consent.validate"), mutationInvocation],
+    [key("reconcile", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("reconcile", "task-lifecycle-review-transitions/reconcile.validate"), mutationInvocation],
+    [key("repoint", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
+    [key("repoint", "task-lifecycle-review-transitions/repoint.validate"), mutationInvocation],
     [key("complete", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [
       key("complete", "closeout-readiness/closeoutReadiness"),
@@ -274,7 +285,15 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
     const value = field.cli.kind === "boolean" ? "" : ` ${field.cli.format ?? `<${field.cli.name.slice(2)}>`}`;
     return [field.required ? `${field.cli.name}${value}` : `[${field.cli.name}${value}]`];
   });
-  return ["ha", "task", ingress.slice("task-".length), taskId, ...flags].join(" ");
+  const path =
+    action.id === "create"
+      ? ["ha", "task", "create"]
+      : action.id === "transition"
+        ? ["ha", "task", "transition", taskId, "<planned|active|blocked|in_review|done|cancelled>"]
+        : action.id === "reconcile" || action.id === "repoint"
+          ? ["ha", "task", "code-doc", action.id, taskId]
+          : ["ha", "task", ingress.slice("task-".length), taskId];
+  return [...path, ...flags].join(" ");
 }
 
 function invocationNextActions(action: EntityActionContract): readonly string[] {

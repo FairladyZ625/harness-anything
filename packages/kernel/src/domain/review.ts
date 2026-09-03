@@ -61,6 +61,7 @@ export const REVIEW_V1_SCHEMA = Object.freeze({
     "reviewedAt",
   ]),
   verdicts: reviewVerdicts,
+  inputRequired: Object.freeze(["verdict", "reason", "evidenceChecked"] as const),
 });
 export const REVIEW_CONSENT_V1_SCHEMA = Object.freeze({
   id: "ReviewConsent/v1",

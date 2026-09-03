@@ -66,7 +66,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       new Set(fiveHundred.subjects.flatMap(({ actions }) => actions.map(({ evaluatedAtCut }) => evaluatedAtCut))).size,
       1,
     );
-    assert.equal(one.subjects[0]!.actions.length, 11);
+    assert.equal(one.subjects[0]!.actions.length, 16);
     assert.deepEqual(one.subjects[0]!.actions[0]!.authorizationDecision?.actor, actor);
     assert.doesNotThrow(() => parseDaemonGuiReadResult(method, fiveHundred));
 

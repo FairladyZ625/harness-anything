@@ -22,6 +22,18 @@ export interface SubmissionV1 {
   readonly residualRisks: readonly string[];
   readonly commitSha: string;
 }
+export const SUBMISSION_V1_SCHEMA = Object.freeze({
+  id: "Submission/v1",
+  required: Object.freeze([
+    "completionClaim",
+    "deliverables",
+    "outputs",
+    "verificationNotes",
+    "knownGaps",
+    "residualRisks",
+    "commitSha",
+  ] as const),
+});
 export type SubmissionDigest = `sha256:${string}`;
 export type SubmissionId = `submission:${SubmissionDigest}`;
 
@@ -134,18 +146,9 @@ function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  const fields = [
-    "completionClaim",
-    "deliverables",
-    "outputs",
-    "verificationNotes",
-    "knownGaps",
-    "residualRisks",
-    "commitSha",
-  ];
   if (
     !isRecord(value) ||
-    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, fields) ||
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, SUBMISSION_V1_SCHEMA.required) ||
     !isNonEmptyString(value.completionClaim) ||
     !stringArray(value.deliverables) ||
     !stringArray(value.outputs) ||

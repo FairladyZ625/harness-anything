@@ -314,7 +314,9 @@ function criterionEvaluation(
 
 function invocationCriterionRef(contract: EntityActionContract): string {
   const suffix = `/${contract.id}.validate`,
-    criterion = contract.criteria.find(({ ref }) => ref.endsWith(suffix));
+    exact = contract.criteria.find(({ ref }) => ref.endsWith(suffix)),
+    candidates = contract.criteria.filter(({ ref }) => ref !== REVISION_CRITERION),
+    criterion = exact ?? (candidates.length === 1 ? candidates[0] : undefined);
   if (!criterion) throw new Error(`Task Action ${contract.id} does not declare its invocation validator criterion.`);
   return criterion.ref;
 }

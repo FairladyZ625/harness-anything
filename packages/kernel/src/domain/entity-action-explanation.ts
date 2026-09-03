@@ -336,7 +336,7 @@ function validActionDescriptor(value: unknown): boolean {
     explanationExact(value.syntax, ["usage", "inputs"]) &&
     explanationNonEmpty(value.syntax.usage) &&
     Array.isArray(value.syntax.inputs) &&
-    value.syntax.inputs.every(validInputField) &&
+    value.syntax.inputs.every(explanationRecord) &&
     canonical !== null &&
     value.catalogRef === explanationCatalog(String(value.kind))?.ref &&
     value.contractVersion === `${canonical.version.major}.${canonical.version.minor}` &&
@@ -363,47 +363,6 @@ function explanationCatalog(kind: string) {
 
 function staticCriterion(value: unknown): unknown {
   return explanationRecord(value) ? { ref: value.ref, failureCode: value.failureCode, explain: value.explain } : value;
-}
-
-function validInputField(value: unknown): boolean {
-  if (!explanationRecord(value)) return false;
-  const allowed = ["field", "type", "required", "enum", "regex", "cli"];
-  if (!Object.keys(value).every((field) => allowed.includes(field))) return false;
-  if (
-    !explanationNonEmpty(value.field) ||
-    !["string", "number", "boolean", "string-array", "fact-hold-array", "json-object", "json-object-array"].includes(
-      String(value.type),
-    ) ||
-    typeof value.required !== "boolean" ||
-    (value.enum !== undefined && !explanationStringList(value.enum)) ||
-    (value.regex !== undefined && typeof value.regex !== "string")
-  )
-    return false;
-  if (value.cli === undefined) return true;
-  if (!explanationRecord(value.cli)) return false;
-  const cliAllowed = ["name", "kind", "error", "jsonFields", "jsonEnums", "conflictsWith", "format", "projection"];
-  return (
-    Object.keys(value.cli).every((field) => cliAllowed.includes(field)) &&
-    explanationNonEmpty(value.cli.name) &&
-    ["single", "repeated", "boolean"].includes(String(value.cli.kind)) &&
-    explanationRecord(value.cli.error) &&
-    explanationExact(value.cli.error, ["code"]) &&
-    explanationNonEmpty(value.cli.error.code) &&
-    (value.cli.jsonFields === undefined || explanationStringList(value.cli.jsonFields)) &&
-    (value.cli.jsonEnums === undefined || explanationStringListsByField(value.cli.jsonEnums)) &&
-    (value.cli.conflictsWith === undefined || explanationStringList(value.cli.conflictsWith)) &&
-    (value.cli.format === undefined || explanationNonEmpty(value.cli.format)) &&
-    (value.cli.projection === undefined || ["number", "fact-hold-array"].includes(String(value.cli.projection)))
-  );
-}
-
-function explanationStringListsByField(value: unknown): boolean {
-  return (
-    explanationRecord(value) &&
-    Object.values(value).every(
-      (values) => Array.isArray(values) && values.length > 0 && values.every((entry) => explanationNonEmpty(entry)),
-    )
-  );
 }
 
 function validateCriterion(value: unknown): readonly string[] {

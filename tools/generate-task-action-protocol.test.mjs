@@ -1,37 +1,48 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { checkTaskActionProtocolProjection, normalizeProjectionLineEndings } from "./generate-task-action-protocol.mjs";
+import { normalizeProjectionLineEndings } from "./generate-daemon-status-vocabulary.mjs";
+import {
+  generateTaskActionProtocolProjection,
+  projectTaskActions,
+  renderTaskActionProtocolProjection,
+} from "./generate-task-action-protocol.mjs";
 
-const root = path.resolve(import.meta.dirname, "..");
+const generatedSource = readFileSync(
+    new URL("../packages/preset/src/task-action-projection.generated.ts", import.meta.url),
+    "utf8",
+  ),
+  presetCommandContractSource = readFileSync(
+    new URL("../packages/preset/src/preset-command-contract.ts", import.meta.url),
+    "utf8",
+  );
 
 test("Task Action transport has one current build-time projection", async () => {
-  const sources = sourceFiles(path.join(root, "packages")).filter(
-    (file) => file.includes(`${path.sep}src${path.sep}`) && !file.endsWith(".d.ts"),
-  );
-  await assert.doesNotReject(() => checkTaskActionProtocolProjection());
+  await assert.doesNotReject(() => generateTaskActionProtocolProjection(true));
+  assert.equal(await renderTaskActionProtocolProjection(), normalizeProjectionLineEndings(generatedSource));
+  assert.match(presetCommandContractSource, /from "\.\/task-action-projection\.generated\.ts"/u);
+  assert.doesNotMatch(presetCommandContractSource, /task-action-projection:generated/u);
   assert.deepEqual(
-    sources.filter((file) => readFileSync(file, "utf8").includes("// task-action-projection:generated:start")),
-    [path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands-task.ts")],
-  );
-  assert.deepEqual(
-    sources.filter((file) => readFileSync(file, "utf8").includes("// task-action-json-fields:generated:start")),
-    [],
+    projectTaskActions().actions.map(({ id }) => id),
+    ["create", "start", "transition", "submit", "review", "consent", "reconcile", "repoint", "complete"],
   );
 });
 
-test("Task Action projection checks normalize checkout line endings", () => {
-  assert.equal(normalizeProjectionLineEndings("first\r\nsecond\r\n"), "first\nsecond\n");
+test("Task Action transport projection is readable source without compression or elision", async () => {
+  const rendered = await renderTaskActionProtocolProjection();
+  assert.match(rendered, /export const taskActionDescriptorProjection = \{\n/u);
+  assert.doesNotMatch(rendered, /zlib|brotli|base64/iu);
+  for (const field of projectTaskActions().actions.flatMap((action) => action.input.fields)) {
+    assert.ok(Object.hasOwn(field, "type"), `${field.field} must project type`);
+    assert.ok(Object.hasOwn(field, "required"), `${field.field} must project required`);
+    if (field.cli) assert.ok(Object.hasOwn(field.cli, "error"), `${field.field} must project cli.error`);
+  }
+  assert.equal(
+    rendered
+      .split("\n")
+      .filter((line) => line.length > 120)
+      .join("\n"),
+    "",
+  );
 });
-
-function sourceFiles(directory) {
-  return readdirSync(directory, { withFileTypes: true })
-    .flatMap((entry) => {
-      const target = path.join(directory, entry.name);
-      if (entry.isDirectory()) return sourceFiles(target);
-      return entry.isFile() && entry.name.endsWith(".ts") ? [target] : [];
-    })
-    .sort();
-}

@@ -27,6 +27,7 @@ import {
   validateDaemonWorkspaceSummary,
 } from "./daemon-protocol-validate-task.ts";
 import { receiptOutcomeWords } from "./daemon-protocol-vocabulary.ts";
+import { generatedTaskCreateResultFields, generatedWriteReceiptFields } from "./daemon-protocol-commands-task.ts";
 import { isJsonObject, type JsonObject } from "./json-rpc-types.ts";
 
 export type ValidScheduleListRow = {
@@ -354,38 +355,11 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
   return [];
 }
 
-export const writeReceiptFields = [
-    "outcome",
-    "opId",
-    "revision",
-    "code",
-    "origin",
-    "evidence",
-    "visibility",
-    "proof",
-    "detail",
-    "commitSha",
-    "authorizationDecision",
-    "unmetCriteria",
-    "effects",
-    "updatedProjection",
-    "rejectionExplanation",
-    "nextActions",
-    "guidance",
-    "diagnostic",
-    "cut",
-  ],
+export const writeReceiptFields = generatedWriteReceiptFields,
   guiReceiptExtensions = [
     "error",
     "summary",
-    "taskId",
-    "status",
-    "packagePath",
-    "generatedPaths",
-    "presetDigest",
-    "scaffoldDigest",
-    "completionGates",
-    "dryRun",
+    ...generatedTaskCreateResultFields,
     "executionId",
     "progressPath",
     "eventId",

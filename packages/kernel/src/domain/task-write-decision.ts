@@ -8,6 +8,7 @@ import {
   type TaskLifecycleCommand,
   type TaskLifecycleSnapshot,
 } from "./task-lifecycle.contract.ts";
+import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 import { taskLifecycleWritePlan } from "./task-lifecycle-publication.ts";
 import type { ContractValidationIssue } from "./task.ts";
 import {
@@ -25,7 +26,13 @@ import {
   type WriterGenerationToken,
 } from "./write-chain.contract.ts";
 export type TaskLifecycleCommandType = TaskLifecycleCommand["type"];
-const commandTypes = TASK_LIFECYCLE_TRANSITIONS.map((transition) => transition.commandType);
+const commandTypes = [
+  ...new Set(
+    TASK_LIFECYCLE_TRANSITIONS.map(
+      (transition) => getTaskActionForTransition(transition.actionId)?.execution?.lifecycle?.commandType,
+    ).filter((value): value is TaskLifecycleCommandType => value !== undefined),
+  ),
+];
 export function validateWritePlan(plan: WritePlan<TaskLifecycleCommandType>): readonly ContractValidationIssue[] {
   return validateDeclaredWritePlan(plan, commandTypes).map((message) => ({ code: "invalid_write_plan", message }));
 }

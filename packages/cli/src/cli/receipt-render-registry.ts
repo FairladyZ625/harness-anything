@@ -23,6 +23,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
+  ["task-show", renderTaskShow],
   ["preset-list", renderPresetListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
@@ -82,6 +83,12 @@ function renderTaskCreate(receipt: Record<string, unknown>): string {
   ].join("\n");
 }
 
+function renderTaskShow(receipt: Record<string, unknown>): string {
+  const payload = parseEvidence(receipt);
+  if (!payload || !isRecord(payload.task)) return renderSuccessfulReceipt(receipt);
+  return [`status: ${String(payload.task.status)}`, `graph cursor: ${String(payload.task.currentNode)}`].join("\n");
+}
+
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {
   const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
   return rows
@@ -117,16 +124,20 @@ function renderScheduleReceipt(receipt: Record<string, unknown>): string {
 }
 
 function renderSquadListReceipt(receipt: Record<string, unknown>): string {
-  if (typeof receipt.evidence !== "string") return renderSuccessfulReceipt(receipt);
+  const parsed = parseEvidence(receipt);
+  if (!parsed || parsed.schema !== "squad-list/v1" || !Array.isArray(parsed.squads))
+    return renderSuccessfulReceipt(receipt);
+  return parsed.squads.length === 0 ? "No squads." : parsed.squads.map(squadListColumns).join("\n");
+}
+
+function parseEvidence(receipt: Record<string, unknown>): Record<string, unknown> | null {
+  if (typeof receipt.evidence !== "string") return null;
   try {
     const parsed: unknown = JSON.parse(receipt.evidence);
-    if (!isRecord(parsed) || parsed.schema !== "squad-list/v1" || !Array.isArray(parsed.squads))
-      return renderSuccessfulReceipt(receipt);
-    if (parsed.squads.length === 0) return "No squads.";
-    return parsed.squads.map(squadListColumns).join("\n");
+    return isRecord(parsed) ? parsed : null;
   } catch (error) {
     consumeKnownError(error);
-    return renderSuccessfulReceipt(receipt);
+    return null;
   }
 }
 

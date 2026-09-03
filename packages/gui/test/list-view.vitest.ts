@@ -76,11 +76,37 @@ describe("list view", () => {
     expect(markup).toContain("task-pinned-marker-task-pinned");
     expect(markup).toContain("task-pin-toggle-task-pinned");
     // 行内直接给出 status / currentNode / lease 持有者,不必点进详情。
-    expect(markup).toContain("node:review");
+    expect(markup).toContain("graph cursor:review");
     expect(markup).toContain("execution-holder");
     expect(markup).toContain("person-zeyu · codex-sol");
     expect(markup).toContain("held");
     expect(markup).toContain("no lease");
+  });
+
+  it("renders canonical terminal status as primary and the graph cursor as secondary", () => {
+    const complete = makeTask({
+      taskId: "task-complete",
+      canonicalStatus: "done",
+      coordinationStatus: "in_review",
+      currentNode: "review",
+    });
+    const markup = renderToStaticMarkup(
+      createElement(ListView, {
+        tasks: [complete],
+        allTasks: [complete],
+        filters: DEFAULT_TASK_FILTERS,
+        onFiltersChange: () => undefined,
+        onSelect: () => undefined,
+        relations: [],
+        favorites: new Set(),
+        onToggleFavorite: () => undefined,
+        embedded: true,
+      }),
+    );
+    expect(markup).toContain("coordination=in_review");
+    expect(markup).toContain("graph cursor:review");
+    expect(markup.indexOf("--color-status-done")).toBeLessThan(markup.indexOf("coordination=in_review"));
+    expect(markup.indexOf("coordination=in_review")).toBeLessThan(markup.indexOf("graph cursor:review"));
   });
 
   it("keeps pinned state read-only when no pin write channel is wired", () => {

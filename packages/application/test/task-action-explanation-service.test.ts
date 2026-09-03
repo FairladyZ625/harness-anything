@@ -24,9 +24,14 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
     assert.deepEqual(
       plannedOwner.subjects[0]!.actions.map(({ action }) => action.id),
       [
+        "create",
         "start",
+        "transition",
         "submit",
         "review",
+        "consent",
+        "reconcile",
+        "repoint",
         "complete",
         "release",
         "amend",

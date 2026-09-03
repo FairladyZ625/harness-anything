@@ -1,72 +1,148 @@
 #!/usr/bin/env node
-
 import { readFileSync, writeFileSync } from "node:fs";
+import { normalizeProjectionLineEndings } from "./generate-daemon-status-vocabulary.mjs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { format } from "prettier";
+import prettierConfig from "../prettier.config.mjs";
 import { getEntityKindContract } from "../packages/kernel/src/index.ts";
 
-const root = path.resolve(import.meta.dirname, "..");
-const protocolTarget = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands-task.ts");
-const protocolMarkers = {
-  start: "// task-action-projection:generated:start",
-  end: "// task-action-projection:generated:end",
-};
+const target = path.resolve(import.meta.dirname, "../packages/preset/src/task-action-projection.generated.ts");
 
-export function projectTaskActionProtocolDeclarations() {
-  const actions = (getEntityKindContract("task")?.actionCatalog?.actions ?? []).filter(
-    (action) => action.execution?.lifecycle !== undefined,
-  );
-  if (actions.length !== 4 || actions.some((action) => action.execution?.topology === undefined)) {
-    throw new Error("Task start, submit, review, and complete must all have executable command topology.");
+function projectField(field) {
+  if (!field.type) throw new Error(`Task Action ${field.field} field type is missing.`);
+  const jsonSchema = field.cli?.jsonSchema,
+    jsonEnums =
+      jsonSchema &&
+      Object.fromEntries(
+        jsonSchema.fields.flatMap((nested) =>
+          nested.value?.kind === "string" && nested.value.enumRef ? [[nested.field, nested.value.enumRef]] : [],
+        ),
+      );
+  return {
+    field: field.field,
+    type: field.type,
+    required: field.required,
+    ...(field.enum ? { enum: field.enum } : {}),
+    ...(field.regex ? { regex: field.regex } : {}),
+    ...(field.cli
+      ? {
+          cli: {
+            ...Object.fromEntries(Object.entries(field.cli).filter(([key]) => key !== "jsonSchema" && key !== "error")),
+            error: field.cli.error.code,
+            ...(jsonSchema
+              ? {
+                  jsonFields: jsonSchema.fields.filter(({ required }) => required).map(({ field }) => field),
+                  jsonAllowedFields: jsonSchema.fields.map(({ field }) => field),
+                  ...(jsonEnums && Object.keys(jsonEnums).length ? { jsonEnums } : {}),
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+export function projectTaskActions() {
+  const descriptors = (getEntityKindContract("task")?.actionCatalog?.actions ?? []).filter(
+      ({ execution }) => execution?.lifecycle,
+    ),
+    actions = descriptors.map(({ id, input, explain, execution }) => ({
+      id,
+      input: {
+        schema: "entity-action-input/v1",
+        fields: input.fields.map(projectField),
+        exactlyOneOf: input.exactlyOneOf,
+      },
+      explain,
+      execution: {
+        ingress: execution.ingress,
+        topology: execution.topology,
+        lifecycle: {
+          transitionId: execution.lifecycle.transitionId,
+          commandType: execution.lifecycle.commandType,
+          targetIdField: execution.lifecycle.targetIdField,
+          coordination: execution.lifecycle.coordination,
+        },
+      },
+    }));
+  if (actions.length !== 9 || actions.some(({ execution }) => !execution.topology))
+    throw new Error("Task Action protocol projection requires create and eight lifecycle descriptors.");
+  const create = descriptors.find(({ id }) => id === "create"),
+    start = descriptors.find(({ id }) => id === "start");
+  if (!create || !start) throw new Error("Task create/start descriptors are missing.");
+  return {
+    writeReceiptFields: start.result.fields.map(({ field }) => field),
+    taskCreateResultFields: create.result.fields.map(({ field }) => field),
+    actions,
+  };
+}
+
+function inlineJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(inlineJson).join(", ")}]`;
+  return `{ ${Object.entries(value)
+    .map(([key, item]) => `${JSON.stringify(key)}: ${inlineJson(item)}`)
+    .join(", ")} }`;
+}
+
+function readableJson(value, depth = 0) {
+  const indentation = "  ".repeat(depth),
+    inline = inlineJson(value);
+  if (indentation.length + inline.length <= 120) return inline;
+  const childIndentation = "  ".repeat(depth + 1);
+  if (Array.isArray(value))
+    return `[\n${value
+      .map((item) => `${childIndentation}${readableJson(item, depth + 1)}`)
+      .join(",\n")}\n${indentation}]`;
+  const entries = Object.entries(value).map(([key, item]) => {
+      const prefix = `${JSON.stringify(key)}:`,
+        rendered = readableJson(item, depth + 1),
+        firstLine = `${childIndentation}${prefix} ${rendered.split("\n", 1)[0]}`;
+      if (firstLine.length <= 120) return `${prefix} ${rendered}`;
+      const nestedIndentation = "  ".repeat(depth + 2),
+        nested = readableJson(item, depth + 2);
+      return `${prefix}\n${nestedIndentation}${nested}`;
+    }),
+    groups = [];
+  let current = "";
+  for (const entry of entries) {
+    const candidate = current ? `${current}, ${entry}` : `${childIndentation}${entry}`;
+    if (!entry.includes("\n") && candidate.length <= 120) {
+      current = candidate;
+      continue;
+    }
+    if (current) groups.push(current);
+    current = "";
+    groups.push(`${childIndentation}${entry}`);
   }
-  return actions.map(({ id, input, explain, execution }) => ({ id, input, explain, execution }));
+  if (current) groups.push(current);
+  return `{\n${groups.join(",\n")}\n${indentation}}`;
 }
 
 export async function renderTaskActionProtocolProjection() {
-  const literal = JSON.stringify(projectTaskActionProtocolDeclarations(), null, 2),
-    source = [
-      protocolMarkers.start,
-      "export const generatedTaskActionProtocolDeclarations = Object.freeze(",
-      `  ${literal} as const satisfies readonly GeneratedTaskActionProtocolDeclaration[],`,
-      ");",
-      protocolMarkers.end,
-    ].join("\n");
-  return (await format(source, { parser: "typescript", printWidth: 120 })).trimEnd();
+  const projection = readableJson(projectTaskActions()),
+    rendered = await format(
+      [
+        "// Generated by tools/generate-task-action-protocol.mjs. Do not edit.",
+        'import type { GeneratedTaskActionProtocolProjection } from "./preset-command-contract-support.ts";',
+        `export const taskActionDescriptorProjection = ${projection} as const satisfies GeneratedTaskActionProtocolProjection;`,
+      ].join("\n"),
+      { ...prettierConfig, parser: "typescript" },
+    );
+  return rendered;
 }
 
-export function normalizeProjectionLineEndings(source) {
-  return source.replaceAll("\r\n", "\n");
-}
-
-function generatedRegion(source, target) {
-  const start = source.indexOf(protocolMarkers.start);
-  const end = source.indexOf(protocolMarkers.end, start);
-  if (start < 0 || end < 0) throw new Error(`Generated Task Action projection markers are missing in ${target}.`);
-  return source.slice(start, end + protocolMarkers.end.length);
-}
-
-function replaceGeneratedRegion(target, rendered) {
-  const source = readFileSync(target, "utf8");
-  const current = generatedRegion(source, target);
-  const start = source.indexOf(current);
-  writeFileSync(target, `${source.slice(0, start)}${rendered}${source.slice(start + current.length)}`);
-}
-
-export async function generateTaskActionProtocolProjection() {
-  replaceGeneratedRegion(protocolTarget, await renderTaskActionProtocolProjection());
-}
-
-export async function checkTaskActionProtocolProjection() {
-  const source = readFileSync(protocolTarget, "utf8"),
-    current = generatedRegion(source, protocolTarget),
-    expected = await renderTaskActionProtocolProjection();
-  if (normalizeProjectionLineEndings(current) !== normalizeProjectionLineEndings(expected)) {
-    throw new Error("Generated Task Action protocol projection is stale; run tools/generate-task-action-protocol.mjs.");
+export async function generateTaskActionProtocolProjection(check = false) {
+  const expected = await renderTaskActionProtocolProjection();
+  if (check) {
+    // A Windows-style checkout rewrites the committed file to CRLF; freshness is about content.
+    if (normalizeProjectionLineEndings(readFileSync(target, "utf8")) !== normalizeProjectionLineEndings(expected))
+      throw new Error("Task Action protocol projection is stale; run its generator.");
+    return;
   }
+  writeFileSync(target, expected);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  if (process.argv.includes("--check")) await checkTaskActionProtocolProjection();
-  else await generateTaskActionProtocolProjection();
-}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+  await generateTaskActionProtocolProjection(process.argv.includes("--check"));
