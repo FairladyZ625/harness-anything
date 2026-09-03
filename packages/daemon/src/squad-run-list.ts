@@ -1,3 +1,4 @@
+import { compareRuntimeActivity } from "../../kernel/src/index.ts";
 import {
   isAvailableSquadRunSummary,
   type SquadRunInvalidSummaryDto,
@@ -44,10 +45,10 @@ export function activePhase(phase: SquadRunPhase): boolean {
   return phase === "planning" || phase === "leader_running" || phase === "workers_running";
 }
 
-/** 小队 run 版的活动窗判定,语义对齐 kernel 的 runtimeSessionInActivityWindow:比时间
- * 瞬值而非字符串,不同毫秒精度/秒精度的 ISO 戳不会因字典序错判进出窗口。 */
+/** 小队 run 版的活动窗判定。为什么比瞬值而非字符串,写在 kernel 的 compareRuntimeActivity —— 那里
+ * 是这条语义的唯一实现,活动窗与排序都从它取。 */
 export function runInActivityWindow(run: SquadRunSummaryDto, since: string): boolean {
-  return Date.parse(run.latestActivityAt) >= Date.parse(since);
+  return compareRuntimeActivity(run.latestActivityAt, since) >= 0;
 }
 
 export function compareRunSummaries(left: SquadRunListRowDto, right: SquadRunListRowDto): number {
@@ -57,7 +58,7 @@ export function compareRunSummaries(left: SquadRunListRowDto, right: SquadRunLis
   const active = Number(activePhase(right.phase)) - Number(activePhase(left.phase));
   return (
     active ||
-    Date.parse(right.latestActivityAt) - Date.parse(left.latestActivityAt) ||
+    compareRuntimeActivity(right.latestActivityAt, left.latestActivityAt) ||
     left.squadRunId.localeCompare(right.squadRunId)
   );
 }

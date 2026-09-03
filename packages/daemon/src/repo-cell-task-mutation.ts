@@ -1,4 +1,5 @@
 import {
+  compareRuntimeActivity,
   isSameExecution,
   isSamePerson,
   isTerminalStatus,
@@ -334,7 +335,9 @@ function terminalExecutionRuntimeBinding(
         )
       : null;
   const taskSessions = cell.projection.readRuntimeSessionsForTask(lease.taskId) as readonly RuntimeSession[];
-  const sessions = [...taskSessions].sort((left, right) => right.lastObservedAt.localeCompare(left.lastObservedAt));
+  const sessions = [...taskSessions].sort((left, right) =>
+    compareRuntimeActivity(right.lastObservedAt, left.lastObservedAt),
+  );
   for (const session of sessions) {
     if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
     if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;

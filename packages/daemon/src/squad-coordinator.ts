@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   consumeKnownError,
   createEntityStore,
+  latestRuntimeActivityAt,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   runtimeSessionSemanticState,
@@ -962,14 +963,11 @@ export function makeSquadCoordinator(input: {
       workerAttemptCount: state.workerAttempts.length,
       runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
       // 活动时间只从已落盘事实按瞬值取 max:run 自有派工台账行(startedAt 恒有、归档另有 endedAt)∪ 成员会话最后观测时间;epoch 仅是空集的 max 恒等元,不是读取兜底。
-      latestActivityAt: [
+      latestActivityAt: latestRuntimeActivityAt([
         ...state.leaderTurns.flatMap((turn) => dispatchRowStamps(byDispatchId.get(turn.dispatchId))),
         ...state.workerAttempts.flatMap((attempt) => dispatchRowStamps(byDispatchId.get(attempt.dispatchId ?? ""))),
         ...sessions.map((session) => session.lastObservedAt),
-      ].reduce(
-        (latest, stamp) => (Date.parse(stamp) > Date.parse(latest) ? stamp : latest),
-        "1970-01-01T00:00:00.000Z",
-      ),
+      ]),
     };
   }
 
