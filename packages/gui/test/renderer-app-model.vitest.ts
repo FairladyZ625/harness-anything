@@ -2,12 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { TaskProjectionRow } from "../../kernel/src/index.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { taskCan } from "../src/renderer/model/types.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
+import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
 import { DecisionPoolView } from "../src/renderer/views/DecisionPoolView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskCloseoutTab } from "../src/renderer/components/taskDetail/TaskDetailSections.tsx";
@@ -16,13 +16,7 @@ import { DecisionProposalForm } from "../src/renderer/components/DecisionProposa
 import { taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { settleTaskReceipt } from "../src/renderer/task-actions.ts";
 import { decisionHasReachableEvidence, settleDecisionReceipt } from "../src/renderer/decision-actions.ts";
-import {
-  buildGuiViewModelFromTaskProjection,
-  readGuiTaskDetailResult,
-  readGuiTaskDocumentResult,
-  readGuiTaskListResult,
-  toGuiCommandFeedback,
-} from "../src/api/view-model.ts";
+import { buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 
 describe("renderer app model", () => {
   it("keeps the renderer capability model privilege-free", () => {
@@ -44,115 +38,6 @@ describe("renderer app model", () => {
       "execution-evidence",
       "graph",
     ]);
-  });
-
-  it("builds task shell views from sqlite-task-row/v1 fields only", () => {
-    const rows = [
-      taskRow({ taskId: "task-child", title: "Child", parentTaskId: "task-parent", coordinationStatus: "blocked" }),
-      taskRow({ taskId: "task-parent", title: "Parent", closeoutReadiness: "ready" }),
-      taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" }),
-    ];
-
-    const model = buildGuiViewModelFromTaskProjection(rows);
-
-    expect(model.list.map((row) => row.taskId)).toEqual(["task-child", "task-parent"]);
-    expect(model.board.find((column) => column.id === "blocked")?.taskIds).toEqual(["task-child"]);
-    expect(model.reviewQueue.map((row) => row.taskId)).toEqual(["task-parent"]);
-    expect(model.graph.nodes).toEqual([
-      { id: "task-child", title: "Child" },
-      { id: "task-parent", title: "Parent" },
-    ]);
-    expect(model.graph.edges).toEqual([{ from: "task-parent", to: "task-child", kind: "child" }]);
-  });
-
-  it("reads task route results defensively without depending on optional route fields", () => {
-    const list = readGuiTaskListResult({
-      ok: true,
-      tasks: [
-        taskRow({ taskId: "task-1", title: "One" }),
-        taskRow({ taskId: "task-archived", title: "Archived", packageDisposition: "archived" }),
-      ],
-    });
-    const detail = readGuiTaskDetailResult({
-      ok: true,
-      task: taskRow({ taskId: "task-1", title: "One" }),
-      documents: [{ path: "INDEX.md" }, { label: "ignored" }],
-    });
-    const document = readGuiTaskDocumentResult({ ok: true, taskId: "task-1", path: "INDEX.md" });
-    const invalid = readGuiTaskListResult({ ok: true, tasks: [{ taskId: "task-1", title: "One" }] });
-
-    expect(list).toMatchObject({ ok: true, warnings: [] });
-    expect(list.ok && list.rows[0]).toMatchObject({ taskId: "task-1", title: "One" });
-    expect(list.ok && list.rows.map((row) => row.taskId)).toEqual(["task-1"]);
-    expect(detail.ok && detail.documents).toEqual([{ path: "INDEX.md" }]);
-    expect(document).toEqual({ ok: true, taskId: "task-1", path: "INDEX.md", body: "" });
-    expect(invalid).toEqual({
-      ok: false,
-      error: {
-        code: "invalid_task_projection_row",
-        hint: "Expected sqlite-task-row/v1 task projection row.",
-      },
-    });
-  });
-
-  it("normalizes command feedback from lean local results and rich command receipts", () => {
-    expect(toGuiCommandFeedback({ ok: true })).toEqual({
-      ok: true,
-      summary: "Command completed.",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: false,
-        error: { code: "task_not_found", hint: "missing" },
-      }),
-    ).toEqual({
-      ok: false,
-      summary: "Command failed.",
-      errorCode: "task_not_found",
-      hint: "missing",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: true,
-        schema: "command-receipt/v2",
-        command: "ha task progress append",
-        action: "progress append",
-        summary: "appended progress",
-        paths: [{ role: "progress", path: "progress.md" }],
-        next: [{ command: "ha task show task-1" }],
-        meta: {
-          generatedAt: "2026-07-07T00:00:00.000Z",
-          compatibility: {},
-        },
-      }),
-    ).toEqual({
-      ok: true,
-      summary: "appended progress",
-      warnings: [],
-    });
-    expect(
-      toGuiCommandFeedback({
-        ok: false,
-        schema: "command-receipt/v2",
-        command: "ha task status set",
-        action: "status set",
-        summary: "failed",
-        error: { code: "invalid_status", hint: "bad status" },
-        warnings: ["ignored by default display"],
-        meta: {
-          generatedAt: "2026-07-07T00:00:00.000Z",
-          compatibility: {},
-        },
-      }),
-    ).toEqual({
-      ok: false,
-      summary: "failed",
-      errorCode: "invalid_status",
-      hint: "bad status",
-      warnings: ["ignored by default display"],
-    });
   });
 
   it("settles task writes only from durable canonical receipts and resolves pending by opId", async () => {
@@ -299,11 +184,65 @@ describe("renderer app model", () => {
     } as const;
 
     expect(decisionHasReachableEvidence(decision, [edge])).toBe(true);
-    expect(decisionHasReachableEvidence(decision, [{ ...edge, state: "retired" }])).toBe(false);
     expect(decisionHasReachableEvidence(decision, [{ ...edge, from: "decision/dec_test/C2" }])).toBe(false);
+    // 边的 currency 在管道收口处判定(adaptRelationRows 只留 current):retired 边
+    // 根本进不了这里的输入,这里不再复查状态词。
+    expect(
+      buildTriadicRendererData({
+        graph: {
+          ok: true,
+          edges: [
+            {
+              relationId: "rel_retired",
+              sourceRef: "decision/dec_test/C1",
+              targetRef: "fact/F-live",
+              relationType: "evidenced-by",
+              direction: "directed",
+              strength: "strong",
+              origin: "declared",
+              state: "retired",
+              targetObservedVersion: null,
+              currentTargetVersion: null,
+              freshness: "current",
+              rationale: "audit history",
+              ownerRef: "decision/dec_test",
+              sourcePath: "event:dec_test",
+              recordIndex: 0,
+              current: false,
+            },
+          ],
+          coverageRows: [],
+          factAnchors: [],
+          facts: [],
+          warnings: [],
+        },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      }).relations,
+    ).toEqual([]);
   });
 
   // 拖拽起跑的判据不再由 renderer 拼状态词,而是读 daemon 投影的 start 能力。
+  // 阶段位与「为何没有阶段位」都来自投影:renderer 只翻译 reason 码,不比较状态词。
+  it("paints the phase position from the projection and translates off-path reason codes", () => {
+    const steps = ["planned", "active", "in_review", "done"] as const;
+    const activeMarkup = renderToStaticMarkup(createElement(PhaseSteps, { phase: { index: 1, reason: null, steps } }));
+    expect(activeMarkup).toContain("active");
+    expect(activeMarkup).toContain("font-semibold");
+
+    const blocked = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "blocked_overlay", steps } }),
+    );
+    expect(blocked).toContain("relation overlay");
+    const cancelled = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "terminal_cancelled", steps } }),
+    );
+    expect(cancelled).toContain("cancelled：终态");
+    const unresolved = renderToStaticMarkup(
+      createElement(PhaseSteps, { phase: { index: null, reason: "phase_unresolved", steps } }),
+    );
+    expect(unresolved).toContain("快照展示值，无阶段位置");
+  });
+
   it("allows drag start exactly when the projected start capability is available", () => {
     const planned: TaskRow = {
       taskId: "task-1",
@@ -323,11 +262,11 @@ describe("renderer app model", () => {
       lastKnownAt: "2026-08-14T00:00:00.000Z",
       gates: [],
       docs: [],
-      ...taskProjectionFields("planned", { can: ["start"] }),
+      ...projectedTaskFields("planned", { can: ["start"] }),
     };
     expect(taskCan(planned, "start")).toBe(true);
-    expect(taskCan({ ...planned, ...taskProjectionFields("blocked") }, "start")).toBe(false);
-    expect(taskCan({ ...planned, ...taskProjectionFields("active") }, "start")).toBe(false);
+    expect(taskCan({ ...planned, ...projectedTaskFields("blocked") }, "start")).toBe(false);
+    expect(taskCan({ ...planned, ...projectedTaskFields("active") }, "start")).toBe(false);
   });
 
   it("renders an explicit empty state when the triadic ledger has no entities", () => {
@@ -372,6 +311,7 @@ describe("renderer app model", () => {
         lastKnownAt: "2026-08-13T00:00:00.000Z",
         gates: [],
         docs: [],
+        ...projectedTaskFields("active", { can: ["progress", "submit"] }),
       };
       const markup = renderToStaticMarkup(
         createElement(
@@ -396,7 +336,7 @@ describe("renderer app model", () => {
       coordinationStatus: "active",
       canonicalStatus: "active",
       blocking: "clear",
-      blockingLabel: "当前投影无 active blocking relation",
+      blockingLabel: "none",
       rawStatus: "active/implementation",
       freshness: "fresh",
       packageDisposition: "active",
@@ -409,7 +349,7 @@ describe("renderer app model", () => {
       activeExecutionId: "execution-gui-1",
       gates: [],
       docs: [],
-      ...taskProjectionFields("active", { can: ["progress", "submit"] }),
+      ...projectedTaskFields("active", { can: ["progress", "submit"] }),
     };
     const activeMarkup = renderToStaticMarkup(
       createElement(
@@ -432,7 +372,7 @@ describe("renderer app model", () => {
             canonicalStatus: "planned",
             coordinationStatus: "blocked",
             blocking: "blocked",
-            blockingLabel: "1 个 active blocking relation",
+            blockingLabel: "relations",
             activeExecutionId: undefined,
             capabilities: [
               { id: "start", available: false, reason: "blocked" },
@@ -459,6 +399,14 @@ describe("renderer app model", () => {
   it("keeps the selected decision card visible and focused under all filters", () => {
     const decision: DecisionRow = {
       decisionId: "dec_gui_smoke",
+      capabilities: [
+        { id: "accept", available: true, reason: null },
+        { id: "reject", available: true, reason: null },
+        { id: "defer", available: true, reason: null },
+        { id: "supersede", available: false, reason: "invalid_transition" },
+        { id: "retire", available: false, reason: "invalid_transition" },
+      ],
+      claimsOpen: true,
       title: "Ship the GUI read surface",
       state: "proposed",
       riskTier: "high",
@@ -625,22 +573,4 @@ function decisionReceipt(overrides: Record<string, unknown> = {}) {
     consentId: "djc_0123456789abcdef0123456789",
     ...overrides,
   });
-}
-function taskRow(overrides: Partial<TaskProjectionRow>): TaskProjectionRow {
-  return {
-    schema: "sqlite-task-row/v1",
-    taskId: "task-default",
-    title: "Default",
-    canonicalStatus: "planned",
-    coordinationStatus: "open",
-    rawStatus: "planned",
-    packageDisposition: "active",
-    closeoutReadiness: "not-ready",
-    lifecycleEngine: "local",
-    freshness: "fresh",
-    updatedAt: "2026-07-07T00:00:00.000Z",
-    source: "local-document",
-    sourcePath: "harness/tasks/task-default/INDEX.md",
-    ...overrides,
-  };
 }

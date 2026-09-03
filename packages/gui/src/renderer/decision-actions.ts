@@ -85,12 +85,14 @@ export async function settleDecisionReceipt(
   };
 }
 
+/**
+ * 决策的 claim 是否有可达的证据边。输入 relations 已过 current 收口
+ * (triadic-data adaptRelationRows),这里只查方向与端点,不再自查边的状态词。
+ */
 export function decisionHasReachableEvidence(decision: DecisionRow, relations: ReadonlyArray<RelationEdge>): boolean {
   const claimRefs = new Set(decision.claims.map((claim) => `decision/${decision.decisionId}/${claim.id}`));
   return relations.some(
     (relation) =>
-      /* @gate-identity check-gui-status-judgments/gui-status-019 */
-      relation.state === "active" &&
       relation.direction !== "undirected" &&
       claimRefs.has(relation.from) &&
       /^(?:fact|task|decision)\//u.test(relation.to),
@@ -215,11 +217,12 @@ export function useDecisionActions(repoId: string) {
             hint: "receipt 已 applied 但未返回 decisionId；用 opId 查询，勿重放 mutation。",
           });
         const reread = await refresh(),
+          // 可见 = 新提案出现在 canonical 投影且仍待裁:裁决能力的 lifecycle 前置
+          // (kernel decisionCapabilities)由投影逐行给出,renderer 不再比较状态词。
           visible = reread.decisions.decisions.some(
             (decision) =>
               decision.decisionId === decisionId &&
-              /* @gate-identity check-gui-status-judgments/gui-status-020 */
-              decision.state === "proposed",
+              decision.capabilities.some((capability) => capability.id === "accept" && capability.available),
           );
         if (visible) {
           pendingResolvers.current.delete(operationKey("proposal"));

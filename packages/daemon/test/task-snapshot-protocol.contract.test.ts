@@ -58,7 +58,7 @@ const row = {
   executionEvidence: [],
   // A row whose task the projection could not resolve sits in no board column and affords nothing.
   board: { columnId: null, rank: 5 },
-  visibility: { archived: false },
+  visibility: { archived: false, noise: false },
   capabilities: [
     { id: "start", available: false, reason: "unknown" },
     { id: "progress", available: false, reason: "unknown" },

@@ -89,19 +89,20 @@ test("board.columnId and board.rank equal the renderer's bucket and sort weight 
   );
 });
 
-test("visibility.archived equals the renderer's disposition filter on every row", () => {
+test("visibility equals the renderer's archive-noise judgments on every row", () => {
   const rows = boardRows();
   for (const row of rows) {
     assert.equal(row.visibility.archived, !guiKeepsRow(row), `${row.taskId} archived`);
-    // gui-status-034 is *not* covered: archive noise is disposition OR cancelled, and a cancelled
-    // task with an active package is not archived. The renderer keeps that half of the judgment.
-    if (row.coordinationStatus !== "cancelled")
-      assert.equal(row.visibility.archived, guiIsTaskArchiveNoise(row), `${row.taskId} noise`);
+    // noise (gui-status-034) covers the archived half and the cancelled half: a
+    // cancelled task with an active package is noise without being archived.
+    assert.equal(row.visibility.noise, guiIsTaskArchiveNoise(row), `${row.taskId} noise`);
   }
   const cancelled = rows.find((row) => row.coordinationStatus === "cancelled")!;
   assert.equal(guiIsTaskArchiveNoise(cancelled), true);
-  assert.equal(cancelled.visibility.archived, false, "negative control: the two judgments really differ");
-  process.stdout.write(`[VISIBILITY] ${rows.map((row) => `${row.taskId}=${row.visibility.archived}`).join(" ")}\n`);
+  assert.equal(cancelled.visibility.archived, false, "archived and noise stay two different answers");
+  process.stdout.write(
+    `[VISIBILITY] ${rows.map((row) => `${row.taskId}=${row.visibility.archived}/${row.visibility.noise}`).join(" ")}\n`,
+  );
 });
 
 test("capabilities.start.available equals isTaskStartable on every row", () => {

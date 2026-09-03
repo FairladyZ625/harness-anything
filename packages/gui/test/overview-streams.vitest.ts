@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream, tasksAheadOfStatus } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
@@ -17,7 +18,7 @@ import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFil
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 function task(patch: Partial<TaskRow>): TaskRow {
   return {
@@ -36,7 +37,7 @@ function task(patch: Partial<TaskRow>): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
-    ...taskProjectionFields(patch.coordinationStatus ?? "active", {
+    ...projectedTaskFields(patch.coordinationStatus ?? "active", {
       archived: (patch.packageDisposition ?? "active") !== "active",
     }),
     ...patch,
@@ -54,6 +55,7 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
     claims: [],
     judgmentConsents: [],
     body: null,
+    ...decisionProjectionFields(patch.state ?? "proposed"),
     ...patch,
   };
 }

@@ -6,8 +6,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 const mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
 const definition = {
@@ -103,7 +104,7 @@ const task: TaskRow = {
   lastKnownAt: "2026-08-23T10:31:00.000Z",
   closeoutBlocker: undefined,
   snapshotAvailability: { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" },
-  ...taskProjectionFields("in_review"),
+  ...projectedTaskFields("in_review"),
   // W5:执行证据页并入「收口」——execution 输出/回执经 task-adapter 原样透传。
   executions: [
     {
@@ -185,6 +186,7 @@ const task: TaskRow = {
 const parent = { ...task, taskId: "task-parent", title: "PLT GUI UX", parentTaskId: undefined };
 const child = { ...task, taskId: "task-child", title: "下游可用性验证", parentTaskId: "task-w3" };
 const decision: DecisionRow = {
+  ...decisionProjectionFields("proposed"),
   decisionId: "dec-gui",
   title: "GUI 只展示后端结构化结果",
   state: "in_effect",
@@ -486,6 +488,7 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
           strength: "strong",
           origin: "generated",
           state: "active",
+          current: true,
           rationale: "task evidence",
           ownerRef: "task/task-w3",
           sourcePath: "event:task/task-w3",
@@ -500,6 +503,7 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
           strength: "strong",
           origin: "generated",
           state: "active",
+          current: true,
           rationale: "task evidence",
           ownerRef: "task/task-w3",
           sourcePath: "event:task/task-w3",

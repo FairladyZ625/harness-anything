@@ -4,7 +4,7 @@ import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
 import { FactInspector } from "../components/FactInspector.tsx";
 import type { JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
-import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
+import { decisionCan, type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
 import { VerdictCard, sortKey } from "./decisions-verdict.tsx";
 import { t } from "../i18n/index.tsx";
 
@@ -96,13 +96,10 @@ export function DecisionsView({
     [help, setHelp] = useState(false);
   const [openRequest, setOpenRequest] = useState<(JudgmentOpenRequest & { readonly decisionId: string }) | undefined>();
   const queue = useMemo(() => {
-    const proposed = decisions.filter(
-      (decision) =>
-        /* @gate-identity check-gui-status-judgments/gui-status-063 */
-        decision.state === "proposed",
-    );
-    const active = proposed.filter((decision) => !skipped.has(decision.decisionId));
-    const skippedRows = proposed.filter((decision) => skipped.has(decision.decisionId));
+    // 裁决队列 = 仍可裁决的行(行级能力投影);跳过标记与排序不变。
+    const judgeable = decisions.filter((decision) => decisionCan(decision, "accept"));
+    const active = judgeable.filter((decision) => !skipped.has(decision.decisionId));
+    const skippedRows = judgeable.filter((decision) => skipped.has(decision.decisionId));
     const sorted = (rows: DecisionRow[]) =>
       [...rows].sort((a, b) => {
         const [ra, ua] = sortKey(a),

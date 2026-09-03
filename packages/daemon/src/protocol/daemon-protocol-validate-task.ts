@@ -37,6 +37,7 @@ import {
   taskCapabilityIdWords,
   taskCapabilityReasonWords,
   taskPhaseReasonWords,
+  taskPhaseStepWords,
   relationStrengthWords,
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
@@ -303,8 +304,8 @@ export function taskPhase(value: unknown): boolean {
   const steps = value.steps;
   if (
     !Array.isArray(steps) ||
-    steps.length !== 4 ||
-    !["planned", "active", "in_review", "done"].every((step, index) => steps[index] === step)
+    steps.length !== taskPhaseStepWords.length ||
+    !taskPhaseStepWords.every((step, index) => steps[index] === step)
   )
     return false;
   return value.index === null
@@ -423,7 +424,11 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (!blockingAssessment(value.blockingAssessment)) errors.push(error("blockingAssessment"));
   if (!placement(value.placement)) errors.push(error("placement"));
   if (!boardPlacement(value.board)) errors.push(error("board"));
-  if (!exactRecord(value.visibility, ["archived"]) || typeof value.visibility.archived !== "boolean")
+  if (
+    !exactRecord(value.visibility, ["archived", "noise"]) ||
+    typeof value.visibility.archived !== "boolean" ||
+    typeof value.visibility.noise !== "boolean"
+  )
     errors.push(error("visibility"));
   if (!capabilityList(value.capabilities)) errors.push(error("capabilities"));
   if (!taskPhase(value.phase)) errors.push(error("phase"));

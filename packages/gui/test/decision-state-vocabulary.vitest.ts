@@ -13,7 +13,7 @@ const emptyGraph = {
   coverageRows: [],
   factAnchors: [],
   facts: [],
-  warnings: []
+  warnings: [],
 };
 
 function decisionRow(state: string): DecisionProjectionRow {
@@ -39,12 +39,18 @@ function decisionRow(state: string): DecisionProjectionRow {
     rejected: [],
     claims: [],
     judgmentConsents: [],
-    body: null
+    body: null,
+    // 行级能力投影:unknown 状态的行没有任何可用裁决动作,债也不开口。
+    capabilities: [],
+    claimsOpen: false,
   } as DecisionProjectionRow;
 }
 
 function adaptedState(state: string): DecisionState {
-  return buildTriadicRendererData({ graph: emptyGraph, decisions: { ok: true, decisions: [decisionRow(state)], warnings: [] } }).decisions[0]!.state;
+  return buildTriadicRendererData({
+    graph: emptyGraph,
+    decisions: { ok: true, decisions: [decisionRow(state)], warnings: [] },
+  }).decisions[0]!.state;
 }
 
 describe("decision state vocabulary (ADR-0020 D1 · blueprint 铁律四)", () => {

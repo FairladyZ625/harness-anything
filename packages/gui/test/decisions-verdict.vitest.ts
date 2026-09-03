@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { RelationCoverageRow } from "../src/api/renderer-dto.ts";
 import type { DecisionRow, FactRef } from "../src/renderer/model/types.ts";
 import { computeReadinessSignals } from "../src/renderer/views/decisions-verdict.tsx";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 
 function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
   return {
@@ -17,6 +18,7 @@ function dec(overrides: Partial<DecisionRow> = {}): DecisionRow {
     claims: [{ id: "CH1", text: "c", loadBearing: true, fulfillment: "evidenced" }],
     proposedAt: "2026-08-01T00:00:00.000Z",
     judgmentConsents: [],
+    ...decisionProjectionFields("proposed"),
     ...overrides,
   };
 }
@@ -34,17 +36,19 @@ function fact(anchor: string, invalidated = false, taskId = "task_1"): FactRef {
 }
 
 function coverage(overrides: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
-  return {
+  const row = {
     decisionRef: "decision/dec_1",
     claimRef: "decision/dec_1/CH1",
     status: "covered",
     fulfillment: "evidenced",
     coveringFactRef: "fact/F-live",
-    refutingFactRefs: [],
-    relationPath: ["rel_evidence"],
+    refutingFactRefs: [] as readonly string[],
+    relationPath: ["rel_evidence"] as readonly string[],
     basisRevision: 12,
     ...overrides,
   };
+  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
+  return { ...row, covered: row.status === "covered" };
 }
 
 const signal = (

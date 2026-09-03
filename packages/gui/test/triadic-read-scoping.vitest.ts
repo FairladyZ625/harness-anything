@@ -10,6 +10,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "../src/renderer/App.tsx";
+import { adaptRuntimeRelationRows, buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 const REPO_ID = "canonical";
@@ -40,8 +41,10 @@ function taskRow(taskId: string) {
     },
     executionEvidence: [],
     board: { columnId: "open", rank: 3 },
-    visibility: { archived: false },
+    visibility: { archived: false, noise: false },
     capabilities: [{ id: "start", available: true, reason: null }],
+    risk: { flagged: false },
+    phase: { index: 0, reason: null, steps: ["planned", "active", "in_review", "done"] },
     snapshot: {
       revision: 1,
       task: {
@@ -375,5 +378,44 @@ describe("三元读取按挂载域分层", () => {
   it("⌘K 面板合着时不读事实切面", async () => {
     const { calls } = await mountApp({ view: "board" });
     expect(relationGraphCalls(calls()).some(({ payload }) => payload?.facet === "facts")).toBe(false);
+  });
+});
+
+describe("边的 current 收口与运行时平面分离", () => {
+  // daemon 合成的 runtime 派工边(agent→task,freshness 恒 suspect)在投影语义下
+  // current=false:它们是展示边不是领域关系。领域管道按 current 收口把它们出局,
+  // 运行时平面(Sessions/AgentSquad 的 agent→task 边与 task 计数)不过这道收口。
+  const dispatchEdge = {
+    relationId: "rel_dispatch_probe",
+    sourceRef: "agent/luna",
+    targetRef: "task/task_probe",
+    relationType: "dispatches",
+    direction: "directed",
+    strength: "strong",
+    origin: "generated",
+    state: "active",
+    targetObservedVersion: null,
+    currentTargetVersion: null,
+    freshness: "suspect",
+    rationale: "Agent dispatch record",
+    ownerRef: "agent/luna",
+    sourcePath: ".harness/runtime/dispatches/dispatch_probe.jsonl",
+    recordIndex: 0,
+    current: false,
+  } as const;
+
+  it("领域管道把 current=false 的派工边挡在三元模型外", () => {
+    expect(
+      buildTriadicRendererData({
+        graph: { ok: true, edges: [dispatchEdge], coverageRows: [], factAnchors: [], facts: [], warnings: [] },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      }).relations,
+    ).toEqual([]);
+  });
+
+  it("运行时平面不过 current 收口,派工边照常进模型", () => {
+    expect(adaptRuntimeRelationRows([dispatchEdge])).toEqual([
+      expect.objectContaining({ kind: "dispatches", from: "agent/luna", to: "task/task_probe" }),
+    ]);
   });
 });

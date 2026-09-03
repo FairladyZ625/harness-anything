@@ -39,15 +39,12 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.favoritesOnly;
 
 /**
- * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):
- * 投影的 `visibility.archived`(package disposition 非 active)或 status=cancelled 的 task
- * 默认算噪音。看板入口 = matchesTask 的 !includeArchived 分支;关系图领地入口 =
+ * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):投影的
+ * `visibility.noise`(kernel `taskVisibility`:package disposition 非 active,或
+ * 已取消)。看板入口 = matchesTask 的 !includeArchived 分支;关系图领地入口 =
  * GraphView territory 的「显示已归档」开关(默认关 = 隐藏,task_b92c5138)。
  */
-export const isTaskArchiveNoise = (task: Pick<TaskRow, "visibility" | "coordinationStatus">): boolean =>
-  task.visibility.archived ||
-  /* @gate-identity check-gui-status-judgments/gui-status-034 */
-  task.coordinationStatus === "cancelled";
+export const isTaskArchiveNoise = (task: Pick<TaskRow, "visibility">): boolean => task.visibility.noise;
 
 /**
  * 关系图「重点模式」的种子判定(task_5ba031c2):一个 task 是否默认要看。
@@ -63,7 +60,7 @@ export const isTaskArchiveNoise = (task: Pick<TaskRow, "visibility" | "coordinat
 export const GRAPH_FOCUS_RECENT_WINDOW_DAYS = 14;
 
 export function isTaskGraphFocusSeed(
-  task: Pick<TaskRow, "taskId" | "pinned" | "board" | "visibility" | "coordinationStatus" | "lastKnownAt">,
+  task: Pick<TaskRow, "taskId" | "pinned" | "board" | "visibility" | "lastKnownAt">,
   now: string,
 ): boolean {
   if (task.pinned === true) return true;
@@ -109,17 +106,13 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
   if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module))
     return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
+  // 状态筛选命中协调状态或阻塞评估任一(blocking 的 unknown 由此吸纳进 unknown 档,
+  // blocked 档同时给出「带着 active blocking relation」的行)。比较对象是用户筛选
+  // 数组与行字段,不是状态词字面量——判定语义由投影字段携带。
   if (
     filters.status.length > 0 &&
     !filters.status.includes(task.coordinationStatus) &&
-    !(
-      /* @gate-identity check-gui-status-judgments/gui-status-035 */
-      (
-        task.blocking === "unknown" &&
-        /* @gate-identity check-gui-status-judgments/gui-status-036 */
-        filters.status.includes("unknown")
-      )
-    )
+    !filters.status.some((status) => task.blocking !== undefined && status === task.blocking)
   )
     return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout) return false;

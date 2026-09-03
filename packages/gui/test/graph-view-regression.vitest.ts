@@ -5,11 +5,12 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
 } from "../src/renderer/graph-territory-preferences.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
  * 关系图页不因 ego 组件抽取而退化(W4 硬要求)。
@@ -35,7 +36,7 @@ function task(taskId: string, title: string): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
-    ...taskProjectionFields("active"),
+    ...projectedTaskFields("active"),
   };
 }
 
@@ -49,6 +50,7 @@ function decision(decisionId: string): DecisionRow {
     rejected: [],
     claims: [],
     proposedAt: "2026-08-01T00:00:00.000Z",
+    ...decisionProjectionFields("proposed"),
   } as DecisionRow;
 }
 
@@ -197,12 +199,12 @@ describe("territory archive-noise filter (board parity)", () => {
         ...task("t_cancelled", "已取消任务"),
         coordinationStatus: "cancelled" as const,
         rawStatus: "cancelled",
-        ...taskProjectionFields("cancelled"),
+        ...projectedTaskFields("cancelled"),
       },
       {
         ...task("t_archived", "已归档任务"),
         packageDisposition: "archived" as const,
-        ...taskProjectionFields("active", { archived: true }),
+        ...projectedTaskFields("active", { archived: true }),
       },
     ];
   }

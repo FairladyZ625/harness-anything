@@ -19,21 +19,11 @@ export function incomingRelations(
 }
 
 /**
- * Kernel parity filter for current incoming relation semantics
- * (packages/kernel/src/domain/decision-coverage.ts): only an incoming edge with
- * state "active" carries its relation semantics forward; retired/deleted edges
- * are audit history. Every renderer derivation that treats an incoming edge as
- * current (e.g. "this fact is superseded" or contradicted) must compose this
- * predicate instead of re-deriving the criterion, so the two layers cannot drift.
+ * Kernel parity query for incoming relations
+ * (packages/kernel/src/domain/relation-direction.ts#incomingRelations).
+ *
+ * Edge currency is settled once at the pipeline's collection point
+ * (triadic-data adaptRelationRows filters on the projected `current` flag), so
+ * callers here treat every incoming edge as a current relation; retired or
+ * consumability-refused edges never reach this query.
  */
-export function activeIncomingRelations(
-  targetRef: string,
-  kind: RelationKind,
-  relations: ReadonlyArray<RelationEdge>,
-): ReadonlyArray<RelationEdge> {
-  return incomingRelations(targetRef, kind, relations).filter(
-    (edge) =>
-      /* @gate-identity check-gui-status-judgments/gui-status-032 */
-      edge.state === "active",
-  );
-}

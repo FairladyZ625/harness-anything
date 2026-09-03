@@ -16,7 +16,7 @@ import { EGO_DEFAULT_HOPS } from "../src/renderer/graph/useEgoCanvas.ts";
 import { partitionAll, partitionAgents, partitionSchedules } from "../src/renderer/graph/territory.ts";
 import type { AgentEntityGuiRow } from "../../../../daemon/src/agent-entities.ts";
 import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
  * 多实体扩展(task_5ba031c2):EntityKind 扩到五种,agent/schedule 在领地各占一块,
@@ -39,7 +39,7 @@ function task(taskId: string): TaskRow {
     lastKnownAt: "2026-08-29T00:00:00.000Z",
     gates: [],
     docs: [],
-    ...taskProjectionFields("active"),
+    ...projectedTaskFields("active"),
   } as TaskRow;
 }
 

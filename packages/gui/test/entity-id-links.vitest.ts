@@ -14,6 +14,7 @@ import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
 import { freshnessCandidates, inDebtScopeCoverageRows } from "../src/renderer/model/freshness.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
 import { EntityWorkspace } from "../src/renderer/components/EntityWorkspace.tsx";
 import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
@@ -751,16 +752,18 @@ const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readon
  * `freshnessReasonOf` 判定)——本测试不重算成因,与 renderer 同为纯消费者。
  */
 function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
-  return {
+  const row = {
     decisionRef: `decision/${DECISION_ID}`,
     claimRef: `decision/${DECISION_ID}/CH1`,
     status: "covered",
     fulfillment: "standing-policy",
-    refutingFactRefs: [],
-    relationPath: [],
+    refutingFactRefs: [] as readonly string[],
+    relationPath: [] as readonly string[],
     basisRevision: 1,
     ...patch,
   };
+  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
+  return { ...row, covered: row.status === "covered" };
 }
 const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
   freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
@@ -999,6 +1002,7 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
       rejected: [{ id: "RJ1", text: "不采纳", evidence: [], whyNot: "已否决" }],
       claims: [{ id: "CH1", text: "终态决策的承重论点", loadBearing: true, fulfillment: null }],
       judgmentConsents: [],
+      ...decisionProjectionFields(state),
     });
     const terminalIds = ["dec_g10rejected", "dec_g10superseded", "dec_g10outcomeretired", "dec_g10deferred"] as const;
     const terminalStates: readonly DecisionRow["state"][] = ["rejected", "superseded", "outcome_retired", "deferred"];

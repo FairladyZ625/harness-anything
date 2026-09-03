@@ -394,11 +394,6 @@
         "value": "outputCreatesTaskState: false",
         "ref": "ADR-0022#D6",
         "reason": "Terminal output must not become implicit task state."
-      },
-      {
-        "value": "buildGuiViewModel",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI renderer must use a view model boundary."
       }
     ],
     "applicationServiceSnippets": [

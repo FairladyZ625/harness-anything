@@ -1,9 +1,21 @@
 import { useState } from "react";
 import type { GuiSubmissionV1 } from "../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import type { TaskCapability, TaskCapabilityReasonKey, TaskRow } from "../model/types.ts";
+import type { TaskCapability, TaskCapabilityReasonKey, TaskBlockingLabel, TaskRow } from "../model/types.ts";
 import { taskCapabilityOf } from "../model/types.ts";
 import { t } from "../i18n/index.tsx";
+
+/**
+ * 阻塞评估 label 码(kernel `blockingOf`)→ 本面板的文案键。判定(用哪句文案)来自
+ * daemon 的 `blockingAssessment.label`;renderer 只把码翻成措辞,blocker 数量另行
+ * 用 `blockerCount` 键拼接。
+ */
+const BLOCKING_LABEL_COPY = {
+  relations: "components.taskControlPanel.blockingRelations",
+  cycle: "components.taskControlPanel.blockingCycle",
+  unresolved: "components.taskControlPanel.blockingUnresolved",
+  none: "components.taskControlPanel.blockingNone",
+} as const satisfies Record<TaskBlockingLabel, string>;
 
 /**
  * 能力投影的 reason 码 → 本面板的文案键。判定(哪条 reason 成立)来自 daemon 的
@@ -83,7 +95,11 @@ export function TaskControlPanel({
         <p
           className={`mt-1 ui-micro ${task.blocking === "unknown" ? "text-stale" : task.blocking === "blocked" ? "text-status-blocked" : "text-text-faint"}`}
         >
-          {task.blockingLabel}
+          {task.blockingLabel === undefined
+            ? ""
+            : t(BLOCKING_LABEL_COPY[task.blockingLabel], {
+                count: task.blockers?.length ?? 0,
+              })}
           {task.blockers?.length
             ? ` · ${t("components.taskControlPanel.blockerCount", { count: task.blockers.length })}`
             : ""}

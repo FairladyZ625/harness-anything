@@ -65,7 +65,11 @@ interface TaskRowFields {
   /** Task/v2 真状态；relation overlay 永不覆写此字段。 */
   canonicalStatus?: CanonicalStatus;
   blocking?: BlockingState;
-  blockingLabel?: string;
+  /**
+   * 阻塞文案选择码(kernel `blockingOf` 的 label):relations / cycle / unresolved /
+   * none。它只答「该用哪句文案」,措辞由消费方按码查 i18n;blocker 数量另读 blockers。
+   */
+  blockingLabel?: TaskBlockingLabel;
   blockers?: readonly BlockingContributor[];
   blockingWarnings?: readonly string[];
   rawStatus: string;
@@ -126,6 +130,17 @@ interface TaskRowFields {
   board: TaskSnapshotProjectionRow["board"];
   visibility: TaskSnapshotProjectionRow["visibility"];
   capabilities: TaskSnapshotProjectionRow["capabilities"];
+  /**
+   * 收口风险旗标(kernel `taskRisk`):closeoutReadiness 为 missing/failed 即 true。
+   * 列表的风险计数读它,不再比较 readiness 词。
+   */
+  risk: TaskSnapshotProjectionRow["risk"];
+  /**
+   * 阶段投影(kernel `taskPhase`):主路径 steps 与行所在的 index,偏离主路径时
+   * 给 reason 码(词表以 kernel `taskPhaseReasons` 为准)。
+   * renderer 只把 reason 码翻成措辞,不再持有阶段流序。
+   */
+  phase: TaskSnapshotProjectionRow["phase"];
   docs: readonly DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
@@ -225,6 +240,22 @@ export interface DecisionLoadBearingClaim {
 }
 
 export type DecisionJudgmentConsent = DecisionProjectionRow["judgmentConsents"][number];
+
+/** 行级决策能力投影:某个裁决动作对这一行是否可做(判定来自 kernel,不是文案)。 */
+export type DecisionCapability = DecisionProjectionRow["capabilities"][number];
+export type DecisionCapabilityId = DecisionCapability["id"];
+
+const decisionCapabilityOf = (
+  row: Pick<DecisionRow, "capabilities">,
+  id: DecisionCapabilityId,
+): DecisionCapability | undefined => row.capabilities.find((capability) => capability.id === id);
+
+/**
+ * 行级裁决能力:accept/reject/defer 三项同一 lifecycle 前置(kernel
+ * `decisionCapabilities`),「这条决策是否待裁」读它,不再比较状态词。
+ */
+export const decisionCan = (row: Pick<DecisionRow, "capabilities">, id: DecisionCapabilityId): boolean =>
+  decisionCapabilityOf(row, id)?.available === true;
 export type DecisionBody = NonNullable<DecisionProjectionRow["body"]>;
 
 export interface ProvenanceEntry {
@@ -240,6 +271,14 @@ export interface DecisionRow {
   path?: string;
   title: string;
   state: DecisionState;
+  /**
+   * 行级能力投影(kernel `decisionCapabilities`):裁决动作对这一行的 lifecycle 前置。
+   * accept/reject/defer 三项同一前置(proposed),深层的 actor/关系准入仍在
+   * `entity.actions.explain` 与提交 admission,不在这里。
+   */
+  capabilities: DecisionProjectionRow["capabilities"];
+  /** 承重 claim 的覆盖债是否仍开口(kernel `decisionClaimsOpen`):proposed 或 in_effect。 */
+  claimsOpen: boolean;
   riskTier?: RiskTier; // 缺失即未知；不得以 UI 默认值合成风险等级
   urgency?: Urgency; // 缺失即未知；不得以 UI 默认值合成紧急等级
   vertical?: string;
@@ -326,6 +365,8 @@ export type TaskCapability = TaskSnapshotProjectionRow["capabilities"][number];
 export type TaskCapabilityId = TaskCapability["id"];
 /** 不可用时的原因码(可用时是 null),渲染侧据此选措辞。 */
 export type TaskCapabilityReasonKey = NonNullable<TaskCapability["reason"]>;
+/** 阻塞评估的文案选择码(kernel `blockingOf`),渲染侧据此选措辞。 */
+export type TaskBlockingLabel = TaskSnapshotProjectionRow["blockingAssessment"]["label"];
 
 /** 终态由投影的看板列回答(kernel `terminalDomainStatuses`),renderer 不再自己列终态词。 */
 export const isTerminal = (task: Pick<TaskRow, "board">) => task.board.columnId === "terminal";

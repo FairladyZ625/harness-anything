@@ -2,11 +2,20 @@
 import { describe, expect, it } from "vitest";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
 import { sortDecisionQueue } from "../src/renderer/model/triadic.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 
 function decision(patch: Partial<DecisionRow>): DecisionRow {
   return {
-    decisionId: "dec_x", title: "d", state: "proposed", question: "q",
-    chosen: [], rejected: [], claims: [], judgmentConsents: [], body: null,
+    decisionId: "dec_x",
+    title: "d",
+    state: "proposed",
+    question: "q",
+    chosen: [],
+    rejected: [],
+    claims: [],
+    judgmentConsents: [],
+    body: null,
+    ...decisionProjectionFields("proposed"),
     ...patch,
   };
 }

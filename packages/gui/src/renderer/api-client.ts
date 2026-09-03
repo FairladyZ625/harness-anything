@@ -12,7 +12,7 @@ import type {
   ObserveTailRead,
   ProjectionWarning,
   RelationCoverageRow,
-  RelationGraphEdgeRow,
+  ServedRelationEdgeRow,
   RelationDirection,
   RelationState,
   TaskDocumentListProjectionRead,
@@ -40,7 +40,7 @@ export interface TaskListSuccess {
 
 export interface RelationGraphSuccess {
   readonly ok: true;
-  readonly edges: ReadonlyArray<RelationGraphEdgeRow>;
+  readonly edges: ReadonlyArray<ServedRelationEdgeRow>;
   readonly coverageRows: ReadonlyArray<RelationCoverageRow>;
   readonly factAnchors: ReadonlyArray<FactAnchorRow>;
   readonly facts: ReadonlyArray<RelationFactRow>;
@@ -1053,12 +1053,13 @@ function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow
   );
 }
 
-function isRelationGraphEdgeRow(value: unknown): value is RelationGraphEdgeRow {
+function isRelationGraphEdgeRow(value: unknown): value is ServedRelationEdgeRow {
   return (
     isRendererRecord(value) &&
     typeof value.sourceRef === "string" &&
     typeof value.targetRef === "string" &&
-    typeof value.relationType === "string"
+    typeof value.relationType === "string" &&
+    typeof value.current === "boolean"
   );
 }
 

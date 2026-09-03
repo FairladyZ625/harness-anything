@@ -8,7 +8,7 @@ import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { DecisionProposalForm } from "../components/DecisionProposalForm.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { computeReadinessSignals, worstColor } from "../model/readiness-signals.ts";
-import type { DecisionRow, DecisionState, FactRef, RelationEdge } from "../model/types.ts";
+import { decisionCan, type DecisionRow, type DecisionState, type FactRef, type RelationEdge } from "../model/types.ts";
 import { sortDecisionQueue, supersedeChain } from "../model/triadic.ts";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/badges.tsx";
 import { triadicQueryKeys } from "../triadic-data.ts";
@@ -507,8 +507,8 @@ export function DecisionPoolView({
                     </details>
                   )}
                   {
-                    /* @gate-identity check-gui-status-judgments/gui-status-062 */
-                    decision.state === "proposed" && onJudge && (
+                    /* 裁决面板只挂在仍可裁决的行上(行级能力投影,不再比较状态词)。 */
+                    decisionCan(decision, "accept") && onJudge && (
                       <DecisionJudgmentPanel
                         decision={decision}
                         relations={relations}

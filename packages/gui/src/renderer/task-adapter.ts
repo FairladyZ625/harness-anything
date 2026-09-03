@@ -23,12 +23,8 @@ function adaptProjectionRow(
   const spawningDecisionIds = placement.spawningDecisionIds;
   const gates = row.closeoutAssessment.gates.map((gate) => ({
     name: gate.gateId,
-    ok:
-      /* @gate-identity check-gui-status-judgments/gui-status-050 */
-      gate.status === "unknown"
-        ? null
-        : /* @gate-identity check-gui-status-judgments/gui-status-051 */
-          gate.status === "passed",
+    // 三态 gate 结论(kernel `closeoutGateOk`):unknown 投影为 null,不是第三种通过。
+    ok: gate.ok,
     ...(gate.detail ? { detail: gate.detail } : {}),
   }));
   const blocking = row.blockingAssessment;
@@ -40,14 +36,7 @@ function adaptProjectionRow(
     coordinationStatus,
     canonicalStatus: task.status,
     blocking: blocking.state,
-    blockingLabel:
-      /* @gate-identity check-gui-status-judgments/gui-status-052 */
-      blocking.state === "blocked"
-        ? `${blocking.blockers.length || "cycle"} 个 active blocking relation`
-        : /* @gate-identity check-gui-status-judgments/gui-status-053 */
-          blocking.state === "unknown"
-          ? "阻塞关系未能确定"
-          : "当前投影无 active blocking relation",
+    blockingLabel: blocking.label,
     blockers: blocking.blockers,
     blockingWarnings: blocking.warnings,
     rawStatus: `${task.status}/${task.currentNode}`,
@@ -108,10 +97,13 @@ function adaptProjectionRow(
     // 这里按 reviews 等既有模式原样透传,renderer 不重解释 kernel 字段。
     executions: row.snapshot.executions,
     executionEvidence: row.executionEvidence,
-    // dec_5B135F46 CH4:看板列/排序、归档降噪、行级能力由 daemon 派生,这里原样透传。
+    // dec_5B135F46 CH4:看板列/排序、归档降噪、行级能力与收口风险旗标由 daemon
+    // 派生(kernel task-board-projection.ts),这里原样透传。
     board: row.board,
     visibility: row.visibility,
     capabilities: row.capabilities,
+    risk: row.risk,
+    phase: row.phase,
     ...(task.metadata?.riskTier ? { riskTier: task.metadata.riskTier } : {}),
     ...(task.metadata?.urgency ? { urgency: task.metadata.urgency } : {}),
     docs: [],

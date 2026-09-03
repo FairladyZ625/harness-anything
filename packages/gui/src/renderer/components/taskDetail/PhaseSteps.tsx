@@ -1,23 +1,27 @@
 import { Fragment } from "react";
-import type { CanonicalStatus, SnapshotStatus } from "../../model/types";
-import { STEP_FLOW } from "./constants";
+import { t } from "../../i18n/index.tsx";
+import type { TaskRow } from "../../model/types";
 
-export function PhaseSteps({ status }: { status: SnapshotStatus }) {
-  const idx = STEP_FLOW.indexOf(status as CanonicalStatus);
-  if (idx < 0) {
-    const note =
-      /* @gate-identity check-gui-status-judgments/gui-status-017 */
-      status === "blocked"
-        ? "blocked：relation overlay，不是 Task/v2 状态机节点"
-        : /* @gate-identity check-gui-status-judgments/gui-status-018 */
-          status === "cancelled"
-          ? "cancelled：终态，不参与阶段流"
-          : "unknown：快照展示值，无阶段位置";
-    return <p className="ui-micro leading-relaxed text-text-faint">{note}</p>;
+/**
+ * 阶段投影(kernel `taskPhase`)的 reason 码 → 注释文案键。判定(为何没有阶段位)
+ * 来自 daemon 的 `phase.reason`;renderer 只把码翻成措辞,不再比较状态词。
+ */
+const REASON_NOTE = {
+  blocked_overlay: "views.taskDetailView.phaseBlockedOverlay",
+  terminal_cancelled: "views.taskDetailView.phaseTerminalCancelled",
+  phase_unresolved: "views.taskDetailView.phaseUnresolved",
+} as const satisfies Record<NonNullable<TaskRow["phase"]["reason"]>, string>;
+
+/** 主路径步进条;偏离主路径的行只显示 reason 注释,不猜它的阶段位。 */
+export function PhaseSteps({ phase }: { phase: TaskRow["phase"] }) {
+  const idx = phase.index,
+    reason = phase.reason ?? "phase_unresolved";
+  if (idx === null) {
+    return <p className="ui-micro leading-relaxed text-text-faint">{t(REASON_NOTE[reason])}</p>;
   }
   return (
     <div className="flex w-full items-center">
-      {STEP_FLOW.map((s, i) => (
+      {phase.steps.map((s, i) => (
         <Fragment key={s}>
           {i > 0 && <span className={`h-px min-w-1 flex-1 ${i <= idx ? "bg-accent" : "bg-border"}`} />}
           <span

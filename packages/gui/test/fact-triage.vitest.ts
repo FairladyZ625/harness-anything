@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { FactAnchorRow, RelationCoverageRow } from "../src/api/renderer-dto.ts";
+import type { FactAnchorRow, RelationCoverageRow, ServedRelationEdgeRow } from "../src/api/renderer-dto.ts";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import {
   buildFactTriage,
@@ -81,6 +81,48 @@ function edge(from: string, to: string, kind: RelationEdge["kind"], extra: Parti
   };
 }
 
+/**
+ * 关系图读面送达的边行(kernel 行 + daemon 转发的 current 判定)。retired/deleted
+ * 边由 kernel `relationIsCurrent` 判 current=false,在管道收口处出局。
+ */
+function wireEdge(extra: Partial<ServedRelationEdgeRow> = {}): ServedRelationEdgeRow {
+  return {
+    relationId: "rel_wire",
+    sourceRef: "decision/dec_2",
+    targetRef: "fact/F-001",
+    relationType: "refuted-by",
+    direction: "directed",
+    strength: "strong",
+    origin: "declared",
+    state: "active",
+    targetObservedVersion: null,
+    currentTargetVersion: null,
+    freshness: "current",
+    rationale: "wire fixture",
+    ownerRef: "decision/dec_2",
+    sourcePath: "event:dec_2",
+    recordIndex: 0,
+    current: true,
+    ...extra,
+  };
+}
+
+function wireFact(ref = "fact/F-001") {
+  return {
+    schema: "task-fact-row/v1" as const,
+    ref,
+    factId: ref.split("/").at(-1)!,
+    statement: "wire fact",
+    source: "fixture",
+    observedAt: "2026-07-01T00:00:00.000Z",
+    confidence: "high" as const,
+    memoryClass: "semantic",
+    memoryTags: [],
+    provenance: [],
+    liveness: "standing" as const,
+  };
+}
+
 function anchor(fact = baseFact()): FactAnchorRow {
   return {
     factRef: fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`,
@@ -95,6 +137,7 @@ function coverage(fact = baseFact(), decisionId = "dec_1"): RelationCoverageRow 
     decisionRef: `decision/${decisionId}`,
     claimRef: `decision/${decisionId}/CH1`,
     status: "covered",
+    covered: true,
     fulfillment: "evidenced",
     coveringFactRef: fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`,
     refutingFactRefs: [],
@@ -140,15 +183,26 @@ describe("fact-triage signal computation", () => {
   });
 
   it("does not flag INVALIDATED from a retired or deleted refuted-by edge", () => {
-    const fact = baseFact();
+    // retired/deleted 边在管道收口(adaptRelationRows 只留 current)出局,到不了 triage。
     for (const state of ["retired", "deleted"] as const) {
+      const rendered = buildTriadicRendererData({
+        graph: {
+          ok: true,
+          edges: [wireEdge({ targetRef: "fact/F-001", state, current: false })],
+          coverageRows: [coverage()],
+          factAnchors: [anchor(baseFact())],
+          facts: [wireFact()],
+          warnings: [],
+        },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      });
+      expect(rendered.relations).toEqual([]);
       const item = computeFactTriageSignals(
-        fact,
-        [edge("decision/dec_2", fact.anchor, "refuted-by", { state })],
-        [coverage(fact)],
-        [anchor(fact)],
+        rendered.facts[0]!,
+        rendered.relations,
+        rendered.coverageRows,
+        rendered.factAnchors,
       );
-
       expect(item.signals.map((signal) => signal.kind)).not.toContain("INVALIDATED");
       expect(item.severity).toBe(0);
     }
@@ -214,13 +268,34 @@ describe("fact-triage signal computation", () => {
   it("does not flag SUPERSEDED from a retired or deleted supersedes-fact edge", () => {
     // Kernel criterion (packages/kernel/src/domain/fact-liveness.ts): only an
     // ACTIVE incoming supersedes-fact edge supersedes the target. Retired/deleted
-    // edges are audit history and must not surface the old fact in the triage queue.
-    const oldFact = baseFact({ anchor: "fact/F-old" });
+    // edges are audit history; the pipeline collection point keeps them out entirely.
     for (const state of ["retired", "deleted"] as const) {
-      const relations = [edge("fact/F-new", "fact/F-old", "supersedes-fact", { state })];
-
-      const item = computeFactTriageSignals(oldFact, relations, [coverage(oldFact)], [anchor(oldFact)]);
-
+      const rendered = buildTriadicRendererData({
+        graph: {
+          ok: true,
+          edges: [
+            wireEdge({
+              sourceRef: "fact/F-new",
+              targetRef: "fact/F-old",
+              relationType: "supersedes-fact",
+              state,
+              current: false,
+            }),
+          ],
+          coverageRows: [coverage(baseFact({ anchor: "fact/F-old" }))],
+          factAnchors: [anchor(baseFact({ anchor: "fact/F-old" }))],
+          facts: [wireFact("fact/F-old")],
+          warnings: [],
+        },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      });
+      expect(rendered.relations).toEqual([]);
+      const item = computeFactTriageSignals(
+        rendered.facts[0]!,
+        rendered.relations,
+        rendered.coverageRows,
+        rendered.factAnchors,
+      );
       expect(item.signals.map((signal) => signal.kind)).not.toContain("SUPERSEDED");
       expect(item.severity).toBe(0);
       expect(rankFactTriage([item])).toEqual([]);
@@ -349,6 +424,7 @@ describe("cross-entity navigation projection", () => {
             strength: "strong",
             origin: "declared",
             state: "active",
+            current: true,
             rationale: "live evidence",
             ownerRef: "decision/dec_missing",
             sourcePath: "event:decision/dec_missing",
@@ -363,6 +439,7 @@ describe("cross-entity navigation projection", () => {
             strength: "strong",
             origin: "declared",
             state: "retired",
+            current: false,
             rationale: "must not be consumed",
             ownerRef: "decision/dec_missing",
             sourcePath: "event:decision/dec_missing",
@@ -397,6 +474,14 @@ describe("cross-entity navigation projection", () => {
             decidedAt: null,
             workspaceRevision: 7,
             chosen: [{ id: "CH1", text: "Ship it", rationale: "best tradeoff" }],
+            capabilities: [
+              { id: "accept", available: true, reason: null },
+              { id: "reject", available: true, reason: null },
+              { id: "defer", available: true, reason: null },
+              { id: "supersede", available: false, reason: "invalid_transition" },
+              { id: "retire", available: false, reason: "invalid_transition" },
+            ],
+            claimsOpen: true,
             rejected: [],
             claims: [{ id: "CH1", text: "Claim", loadBearing: true, fulfillment: "evidenced" }],
             judgmentConsents: [
@@ -508,20 +593,37 @@ describe("cross-entity navigation projection", () => {
 
   it("does not show the replaced-by panel in FactInspector from a retired supersedes-fact edge", () => {
     // Same kernel criterion as the triage signal: a retired supersedes-fact edge is
-    // audit history and must not render the fact as replaced.
+    // audit history. The pipeline collection point drops it, so it cannot reach the
+    // inspector's danger panel nor its inbound-relation list.
     const fact = baseFact();
+    const rendered = buildTriadicRendererData({
+      graph: {
+        ok: true,
+        edges: [
+          wireEdge({
+            sourceRef: "fact/F-new",
+            targetRef: fact.anchor,
+            relationType: "supersedes-fact",
+            state: "retired",
+            current: false,
+          }),
+        ],
+        coverageRows: [coverage(fact)],
+        factAnchors: [anchor(fact)],
+        facts: [],
+        warnings: [],
+      },
+      decisions: { ok: true, decisions: [], warnings: [] },
+    });
+    expect(rendered.relations).toEqual([]);
     const markup = renderToStaticMarkup(
       createElement(FactInspector, {
         factRef: fact.anchor,
         facts: [fact],
         tasks: [baseTask()],
         decisions: [baseDecision()],
-        relations: [
-          edge("fact/F-new", fact.anchor, "supersedes-fact", {
-            state: "retired",
-          }),
-        ],
-        coverageRows: [coverage(fact)],
+        relations: rendered.relations,
+        coverageRows: rendered.coverageRows,
         onClose: () => undefined,
       }),
     );
@@ -530,22 +632,36 @@ describe("cross-entity navigation projection", () => {
     expect(markup).not.toContain("已被");
   });
 
-  it("keeps retired and deleted refuted-by edges in the audit list but out of the FactInspector danger panel", () => {
+  it("keeps retired and deleted refuted-by edges out of the FactInspector model entirely", () => {
+    // 边的 current 收口在管道里:retired/deleted 边既进不了危险面板,也不再出现在
+    // 入边清单——renderer 模型里的边全部是当前关系,审计史留在 canonical 图投影里。
     const fact = baseFact();
     for (const state of ["retired", "deleted"] as const) {
+      const rendered = buildTriadicRendererData({
+        graph: {
+          ok: true,
+          edges: [wireEdge({ targetRef: fact.anchor, state, current: false })],
+          coverageRows: [coverage(fact)],
+          factAnchors: [anchor(fact)],
+          facts: [],
+          warnings: [],
+        },
+        decisions: { ok: true, decisions: [], warnings: [] },
+      });
+      expect(rendered.relations).toEqual([]);
       const markup = renderToStaticMarkup(
         createElement(FactInspector, {
           factRef: fact.anchor,
           facts: [fact],
           tasks: [baseTask()],
           decisions: [baseDecision()],
-          relations: [edge("decision/dec_2", fact.anchor, "refuted-by", { state })],
-          coverageRows: [coverage(fact)],
+          relations: rendered.relations,
+          coverageRows: rendered.coverageRows,
           onClose: () => undefined,
         }),
       );
 
-      expect(markup).toContain("refuted-by");
+      expect(markup).not.toContain("refuted-by");
       expect(markup).not.toContain("危险关系");
       expect(markup).not.toContain("矛盾于");
     }

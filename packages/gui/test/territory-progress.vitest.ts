@@ -4,7 +4,7 @@ import type { TaskRow } from "../src/renderer/model/types.ts";
 import { clusterTasksByPrd, deriveZoneProgress, zoneRank } from "../src/renderer/graph/territoryProgress.ts";
 import { partitionTasks } from "../src/renderer/graph/territory.ts";
 import { UNPROJECTED_MODULE } from "../src/renderer/graph/moduleAssignment.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
  * 领地找回「每个 PRD 任务的进度」+ 未投影降权。
@@ -27,7 +27,7 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
-    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+    ...projectedTaskFields(overrides.coordinationStatus ?? "active", {
       archived: (overrides.packageDisposition ?? "active") !== "active",
     }),
     ...overrides,

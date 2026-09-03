@@ -11,19 +11,24 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 test("required positive controls are detected in the repository", () => {
   const sites = scanGuiStatusJudgments(repoRoot);
   const has = (file, fragment) => sites.some((site) => site.path === file && site.content.includes(fragment));
-  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", 'decision.state === "proposed"'), true);
+  // The one remaining frozen judgment (gui-status-055) is the fact-liveness consumption.
+  assert.equal(has("packages/gui/src/renderer/triadic-data.ts", 'row.liveness === "superseded_fact"'), true);
+  // Display-only branching stays observed but exempt-free.
+  assert.equal(has("packages/gui/src/renderer/components/TaskControlPanel.tsx", 'task.blocking === "unknown"'), true);
+  // The projection-cutover sites no longer carry status-word judgments at all.
+  assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", 'decision.state === "proposed"'), false);
   assert.equal(
     has("packages/gui/src/renderer/views/DecisionPoolView.tsx", '["high", "medium", "low", "unknown"]'),
     false,
   );
   assert.equal(
     has("packages/gui/src/renderer/components/taskDetail/constants.ts", '["planned", "active", "in_review", "done"]'),
-    true,
+    false,
   );
-  assert.equal(has("packages/gui/src/renderer/views/DecisionsView.tsx", 'decision.state === "proposed"'), true);
-  assert.equal(has("packages/gui/src/renderer/decision-actions.ts", 'decision.state === "proposed"'), true);
-  assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.blocking === "unknown"'), true);
-  assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.coordinationStatus === "cancelled"'), true);
+  assert.equal(has("packages/gui/src/renderer/views/DecisionsView.tsx", 'decision.state === "proposed"'), false);
+  assert.equal(has("packages/gui/src/renderer/decision-actions.ts", 'decision.state === "proposed"'), false);
+  assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.blocking === "unknown"'), false);
+  assert.equal(has("packages/gui/src/renderer/model/taskFilters.ts", 'task.coordinationStatus === "cancelled"'), false);
 });
 
 test("registry-derived detector needs no hand-written status words or file list", () => {

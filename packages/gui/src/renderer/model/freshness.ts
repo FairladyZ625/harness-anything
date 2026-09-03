@@ -12,11 +12,11 @@ import type { FreshnessReason, RelationCoverageRow } from "../../api/renderer-dt
  * `freshnessReason` 字段送达;无该字段的行(covered 行、旧 daemon)一律不进候选,
  * renderer 不沿 option evidence 自行猜覆盖(与 readiness-signals 同一纪律)。
  *
- * 生命周期终态过滤(泽宇 2026-08-29 亲裁):decision.state 为
- * rejected/superseded/outcome_retired/deferred 的决策已经离开了"等待补齐"的轨道——
- * 它们的承重 claim 覆盖与否不代表补齐债,排除出风化候选与总数分母,只统计
- * in_effect/proposed 这两个可行动状态。这不是覆盖判定(covered/uncovered/成因仍完全
- * 由 kernel 给出),只是"这条决策还算不算债"的生命周期范围过滤,单点定义在本模块;
+ * 生命周期终态过滤(泽宇 2026-08-29 亲裁):已离开"等待补齐"轨道的决策
+ * (rejected/superseded/outcome_retired/deferred)的承重 claim 覆盖与否不代表补齐债,
+ * 排除出风化候选与总数分母。"还算不算债"这一格由投影的行级 `claimsOpen`
+ * (kernel `decisionClaimsOpen`)给出。这不是覆盖判定(covered/uncovered/成因仍完全
+ * 由 kernel 给出),只是生命周期范围过滤,单点定义在本模块;
  * decision 在 join 时缺位(理论上不应发生)时保留该行,不猜它的状态。
  */
 
@@ -39,19 +39,15 @@ const REASON_RANK: Record<FreshnessReason, number> = {
   "fulfillment-undeclared": 2,
 };
 
-/** 仍在"未覆盖债"统计范围内的决策状态——生命周期终态不再等待补齐。 */
-const DEBT_SCOPE_DECISION_STATES: ReadonlySet<DecisionRow["state"]> = new Set(
-  /* @gate-identity check-gui-status-judgments/gui-status-069 */ ["in_effect", "proposed"],
-);
-
 function decisionOf(byId: ReadonlyMap<string, DecisionRow>, decisionRef: string): DecisionRow | null {
   return byId.get(decisionRef.replace(/^decision\//u, "")) ?? null;
 }
 
 /**
- * 承重覆盖行里,decision 仍处于可行动状态(in_effect/proposed)的子集——
- * {@link freshnessCandidates} 与风化面板的总数分母共用同一口径,避免分子排除了
- * 终态债、分母却仍把它们算进"总承重 claim 数"而让比例失真。
+ * 承重覆盖行里,claim 覆盖债仍开口的决策子集(kernel `decisionClaimsOpen`:
+ * proposed 或 in_effect)——{@link freshnessCandidates} 与风化面板的总数分母共用
+ * 同一口径,避免分子排除了终态债、分母却仍把它们算进"总承重 claim 数"而让比例失真。
+ * 生命周期范围这一格由投影逐行给出,本模块不再持有状态词表。
  */
 export function inDebtScopeCoverageRows(
   decisions: ReadonlyArray<DecisionRow>,
@@ -60,7 +56,7 @@ export function inDebtScopeCoverageRows(
   const byId = new Map(decisions.map((decision) => [decision.decisionId, decision]));
   return coverageRows.filter((row) => {
     const decision = decisionOf(byId, row.decisionRef);
-    return decision === null || DEBT_SCOPE_DECISION_STATES.has(decision.state);
+    return decision === null || decision.claimsOpen;
   });
 }
 

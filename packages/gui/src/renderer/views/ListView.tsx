@@ -202,14 +202,7 @@ export function ListView({
   const safePage = Math.min(page, pageCount - 1);
   const visible = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
   const externalCount = tasks.filter((task) => isExternal(task)).length;
-  const riskCount = tasks.filter(
-    (task) =>
-      task.freshness !== "fresh" ||
-      /* @gate-identity check-gui-status-judgments/gui-status-065 */
-      task.closeoutReadiness === "missing" ||
-      /* @gate-identity check-gui-status-judgments/gui-status-066 */
-      task.closeoutReadiness === "failed",
-  ).length;
+  const riskCount = tasks.filter((task) => task.freshness !== "fresh" || task.risk.flagged).length;
 
   return (
     <div className="flex h-full flex-col">
