@@ -17,6 +17,21 @@ export interface GuiWindowOptions {
   readonly webPreferences: GuiWebPreferences;
 }
 
+const defaultDevRendererOrigin = "http://127.0.0.1:5173";
+
+/** dev renderer 只接受 loopback 上的 http 源;端口跟随 dev 脚本经 ELECTRON_RENDERER_URL 传入的地址。 */
+export function devRendererOriginFrom(value: string | undefined): string {
+  if (!value) return defaultDevRendererOrigin;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" && parsed.hostname === "127.0.0.1" ? parsed.origin : defaultDevRendererOrigin;
+  } catch {
+    return defaultDevRendererOrigin;
+  }
+}
+
+export const devRendererOrigin = devRendererOriginFrom(process.env.ELECTRON_RENDERER_URL);
+
 export interface GuiContentSecurityPolicyOptions {
   readonly allowDevRenderer?: boolean;
 }
@@ -28,7 +43,7 @@ export interface TrustedRendererUrlOptions {
 
 export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicyOptions = {}): string {
   const connectSrc = options.allowDevRenderer
-    ? "connect-src 'self' http://127.0.0.1:5173 ws://127.0.0.1:5173"
+    ? `connect-src 'self' ${devRendererOrigin} ${devRendererOrigin.replace("http://", "ws://")}`
     : "connect-src 'self'";
   // Dev only: the Vite dev server injects the react-refresh preamble as an inline script.
   const scriptSrc = options.allowDevRenderer ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
@@ -49,7 +64,7 @@ export function createGuiContentSecurityPolicy(options: GuiContentSecurityPolicy
 
 export const guiContentSecurityPolicy = createGuiContentSecurityPolicy();
 
-export const allowedRendererOrigins = Object.freeze(["file://", "http://127.0.0.1:5173"] as const);
+export const allowedRendererOrigins = Object.freeze(["file://", devRendererOrigin] as const);
 
 export function createGuiWindowOptions(preloadPath: string): GuiWindowOptions {
   return {
@@ -72,7 +87,7 @@ export function createGuiWindowOptions(preloadPath: string): GuiWindowOptions {
 
 export function assertDevRendererUrl(url: string): true {
   const parsed = new URL(url);
-  if (parsed.origin !== "http://127.0.0.1:5173") {
+  if (parsed.origin !== devRendererOrigin) {
     throw new Error("GUI V1 may load only the local dev renderer server.");
   }
   return true;
@@ -85,7 +100,7 @@ export function createPackagedRendererUrl(): string {
 export function isTrustedRendererUrl(url: string, options: TrustedRendererUrlOptions = {}): boolean {
   try {
     const parsed = new URL(url);
-    if (parsed.origin === "http://127.0.0.1:5173") return options.allowDevRenderer === true;
+    if (parsed.origin === devRendererOrigin) return options.allowDevRenderer === true;
     if (parsed.protocol !== "file:") return false;
     const packagedRendererUrl = options.packagedRendererUrl ?? createPackagedRendererUrl();
     return parsed.href === new URL(packagedRendererUrl).href;
