@@ -14,6 +14,7 @@ import type {
   DocPolicyUpgrade,
   DocWriteDecision,
   DocWriteDecisionInput,
+  RuntimeArchiveWriteScope,
 } from "./doc-sync-types.ts";
 import { policyMatchesClaim, taskArtifactPath, taskFromPath, validDocEventChange } from "./doc-sync-validation.ts";
 import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
@@ -89,14 +90,24 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       input.intent.executionId !== null)
   )
     return reject("invalid_retirement");
-  const runtimeActor = runtimeSessionIdFromActor(input.actor) !== null;
+  const runtimeSessionId = runtimeSessionIdFromActor(input.actor),
+    runtimeActor = runtimeSessionId !== null,
+    runtimeArchive = input.runtimeArchive,
+    runtimeArchiveAccepted =
+      runtimeArchive !== undefined &&
+      runtimeSessionId === runtimeArchive.runtimeSessionId &&
+      validRuntimeArchiveChanges(input, runtimeArchive);
   if (
     input.intent.executionId === null
-      ? input.lease !== null || runtimeActor
+      ? input.lease !== null || (runtimeArchive !== undefined ? !runtimeArchiveAccepted : runtimeActor)
       : input.lease === null || input.lease.phase !== "held" || input.lease.executionId !== input.intent.executionId
   )
     return reject("lease_conflict");
-  if (requireAuthorization && input.intent.executionId !== null && authorizationDecision?.outcome !== "allowed")
+  if (
+    requireAuthorization &&
+    (input.intent.executionId !== null || runtimeArchiveAccepted) &&
+    authorizationDecision?.outcome !== "allowed"
+  )
     return reject("authorization_denied");
   const directHolder =
       input.lease !== null &&
@@ -248,6 +259,25 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
     plan: docSyncWritePlan(event),
     authorizationDecision,
   };
+}
+
+function validRuntimeArchiveChanges(input: DocWriteDecisionInput, scope: RuntimeArchiveWriteScope): boolean {
+  const artifactRoot = `${scope.packagePath}/artifacts`,
+    requiredPaths = new Set([
+      `${artifactRoot}/dispatches/${scope.dispatchId}.json`,
+      `${artifactRoot}/reports/${scope.dispatchId}.md`,
+    ]),
+    allowedMission = `${artifactRoot}/missions/${scope.dispatchId}.md`,
+    paths = input.intent.changes.map(({ path }) => String(path));
+  return (
+    input.intent.executionId === null &&
+    input.lease === null &&
+    paths.length === new Set(paths).size &&
+    [...requiredPaths].every((path) => paths.includes(path)) &&
+    paths.every((path) => requiredPaths.has(path) || path === allowedMission) &&
+    input.intent.changes.every((change) => change.baseBlobSha256 === null && change.candidate !== null) &&
+    input.resolvedTaskIds?.every((taskId) => taskId === scope.taskId) === true
+  );
 }
 
 export function docSyncWritePlan(event: DocEventV1): FrozenWritePlan<"DocSyncSubmit"> {

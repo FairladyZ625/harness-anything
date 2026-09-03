@@ -837,19 +837,29 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     );
   };
   const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding) => {
-    if (
-      action.kind === "event" &&
-      (action.type === "runtime_session_exited" || action.type === "runtime_session_outcome_observed") &&
-      typeof action.payload.runtimeSessionId === "string"
-    )
+    const settlementRuntimeSessionId =
+      action.kind === "archive"
+        ? action.archive.runtimeSessionId
+        : action.type === "runtime_session_exited" || action.type === "runtime_session_outcome_observed"
+          ? action.payload.runtimeSessionId
+          : null;
+    if (typeof settlementRuntimeSessionId === "string")
       binding = {
         ...binding,
         actor: {
           principal: binding.actor.principal,
-          executor: { kind: "agent", id: `runtime-session:${action.payload.runtimeSessionId}` },
+          executor: { kind: "agent", id: `runtime-session:${settlementRuntimeSessionId}` },
         },
       };
-    const policyAction = { ...action, kind: "runtime-run" };
+    const policyAction =
+      action.kind === "archive"
+        ? {
+            kind: "runtime-run",
+            taskId: action.archive.taskId,
+            executionId: action.archive.executionId,
+            runtimeSessionId: action.archive.runtimeSessionId,
+          }
+        : { ...action, kind: "runtime-run" };
     return enqueueRuntimePublication("runtime-run", policyAction, binding, async (authorizedBinding) => {
       if (action.kind === "event" && runtimeSessionActionIds.includes(action.type as never)) {
         const receipt = await commitRuntimeSessionAction(context.extracted, action, authorizedBinding);

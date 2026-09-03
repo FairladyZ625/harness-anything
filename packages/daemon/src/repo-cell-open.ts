@@ -523,6 +523,17 @@ export async function openRepoWriterCell(
         binding,
         `runtime-event:${opId}`,
       ),
+    authorizeRuntimeArchive: (archive, binding) =>
+      authorizeRuntimeAction(
+        {
+          kind: "runtime-run",
+          taskId: archive.taskId,
+          executionId: archive.executionId,
+          runtimeSessionId: archive.runtimeSessionId,
+        },
+        binding,
+        `runtime-archive:${archive.dispatchId}`,
+      ),
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });

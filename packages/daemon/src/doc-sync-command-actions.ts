@@ -16,6 +16,7 @@ import {
   type ActorIdentity,
   type AuthorizationDecision,
   type EventPublicationKillpoint,
+  type RuntimeArchiveWriteScope,
   type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
 } from "../../kernel/src/index.ts";
@@ -60,6 +61,7 @@ export type Input = {
   readonly now: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly authoredCandidateInventory?: AuthoredCandidateInventoryV1;
+  readonly runtimeArchive?: RuntimeArchiveWriteScope;
 };
 
 export type DocSettlementReceipt = WriteReceipt & {
@@ -254,7 +256,7 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
     },
     input.workspaceId,
   );
-  return publishDocIntent(input, intent, [null], null, reason);
+  return publishDocIntent(input, intent, [null], null, { retirementReason: reason });
 }
 
 export function runArtifactAdd(input: Input): ArtifactAddReceipt {

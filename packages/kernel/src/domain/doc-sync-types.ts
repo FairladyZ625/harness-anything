@@ -110,6 +110,14 @@ export interface DocWriteIntent {
   readonly changes: readonly DocWriteChange[];
 }
 
+export interface RuntimeArchiveWriteScope {
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly packagePath: string;
+}
+
 export interface RegionProof {
   readonly regionId: string;
   readonly policyId: string;
@@ -218,6 +226,8 @@ export interface DocWriteDecisionInput {
   readonly lease: LeaseV1 | null;
   /** Decision evaluated by the daemon AuthorizationPort for execution-bound writes. */
   readonly authorizationDecision: AuthorizationDecision | null;
+  /** Canonical dispatch occurrence validated by the daemon for lease-free terminal archival. */
+  readonly runtimeArchive?: RuntimeArchiveWriteScope;
   readonly runtimeBinding?: TaskBoundRuntimeBinding;
   /** Strict descendant package selected by a task-bound runtime acting through its own live lease. */
   readonly runtimeDelegatedTaskId?: string;
