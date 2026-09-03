@@ -526,6 +526,7 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
           memoryTags: ["gui"],
           provenance: [],
           liveness: "standing",
+          invalidated: false,
         },
         {
           schema: "task-fact-row/v1",
@@ -540,6 +541,7 @@ function installBridge({ uncommittedPlan = false }: { readonly uncommittedPlan?:
           memoryTags: ["gui"],
           provenance: [],
           liveness: "standing",
+          invalidated: false,
         },
       ],
       warnings: [],

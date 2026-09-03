@@ -46,6 +46,7 @@ export function makeBaselineReadModel({ rootDir, projection, kernel, relationGra
       memoryTags: row.memoryTags,
       provenance: row.provenance,
       liveness: row.state,
+      invalidated: row.invalidated,
     }));
     const taskEdges = tasks.rows.flatMap((row) =>
       (row.snapshot.task?.relations ?? []).map((relation, recordIndex) => ({

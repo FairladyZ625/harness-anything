@@ -17,3 +17,11 @@ export function factLiveness(fact: FactLivenessInput, relations: readonly FactLi
     ? "superseded_fact"
     : "standing";
 }
+
+/**
+ * The projected `invalidated` field: the one place the liveness verdict becomes the
+ * boolean read surfaces consume, so no projection or renderer compares the word itself.
+ */
+export function factInvalidated(liveness: FactLiveness): boolean {
+  return liveness === "superseded_fact";
+}

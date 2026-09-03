@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Cross-aggregate judgment single-definition ratchet (DDD slice 3).
- * Authority: dec_399F48E3547D831F1199F51E84 CH1 and the DDD blueprint.
+ * Authority: dec_399F48E3547D831F1199F51E84 CH1 and the DDD blueprint;
+ * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -104,6 +105,9 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     if (/function\s+(?:coveragePath|firstFact|standingPolicy)\s*\(/u.test(body))
       findings.push(`${file}: carries a second Decision coverage algorithm`);
   }
+  const guiBodies = files
+    .filter((file) => /^packages\/gui\//u.test(relative(root, file)))
+    .map((file) => [relative(root, file), readFileSync(file, "utf8")]);
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
     triadic = read(root, "packages/gui/src/renderer/triadic-data.ts"),
     guiTriadic = read(root, "packages/gui/src/renderer/model/triadic.ts");
@@ -111,12 +115,13 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     taskSurface = read(root, "packages/daemon/src/protocol/daemon-protocol-commands-task-surface.ts");
   if (/function\s+(?:deriveBlocking|closeoutReadiness|gateResults)\s*\(/u.test(taskAdapter))
     findings.push("packages/gui/src/renderer/task-adapter.ts: recomputes closeout or blocking judgment");
-  if (
-    !/invalidated:\s*(?:\/\*\s*@gate-identity\s+check-gui-status-judgments\/[a-z][a-z0-9-]*\s*\*\/\s*)?row\.liveness\s*===\s*"superseded_fact"/u.test(
-      triadic,
-    )
-  )
-    findings.push("packages/gui/src/renderer/triadic-data.ts: must consume projected fact liveness");
+  if (!/invalidated:\s*row\.invalidated\b/u.test(triadic))
+    findings.push(
+      "packages/gui/src/renderer/triadic-data.ts: must consume the projected fact `invalidated` field (row.invalidated)",
+    );
+  for (const [file, body] of guiBodies)
+    if (/===\s*"superseded_fact"|"superseded_fact"\s*===/u.test(body))
+      findings.push(`${file}: compares the fact liveness word instead of reading the projected invalidated field`);
   if (/function\s+coverageOf\s*\(/u.test(guiTriadic))
     findings.push("packages/gui/src/renderer/model/triadic.ts: carries a renderer coverage algorithm");
   if (

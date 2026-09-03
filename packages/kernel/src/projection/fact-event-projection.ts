@@ -9,7 +9,7 @@ import {
 } from "../domain/fact-event.ts";
 import type { ActorIdentity, WriteSource } from "../domain/write-chain.contract.ts";
 import type { FactAnchorRow } from "./relation-graph-projection.ts";
-import { factLiveness } from "../domain/fact-liveness.ts";
+import { factInvalidated, factLiveness } from "../domain/fact-liveness.ts";
 import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
@@ -32,6 +32,8 @@ export interface FactProjectionRow {
   readonly occurredAt: string;
   readonly workspaceRevision: number;
   readonly state: "standing" | "superseded_fact";
+  /** Derived from `state` by `factInvalidated`; consumers read this instead of comparing the word. */
+  readonly invalidated: boolean;
 }
 export interface FactRelationEdgeRow {
   readonly relationId: string;
@@ -177,7 +179,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     return;
   }
   const ref = factRef(event.factId);
-  const row: Omit<FactProjectionRow, "state"> = {
+  const row: Omit<FactProjectionRow, "state" | "invalidated"> = {
     schema: "fact-row/v1",
     ref,
     ...(event.taskId ? { taskId: event.taskId } : {}),
@@ -247,12 +249,15 @@ function livenessRelations(
   );
 }
 function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): readonly FactProjectionRow[] {
-  const raw = records.map((record) => JSON.parse(record.row_json) as Omit<FactProjectionRow, "state">),
+  const raw = records.map((record) => JSON.parse(record.row_json) as Omit<FactProjectionRow, "state" | "invalidated">),
     relations = livenessRelations(
       db,
       raw.map((row) => row.ref),
     );
-  return raw.map((row) => ({ ...row, state: factLiveness(row, relations) }));
+  return raw.map((row) => {
+    const state = factLiveness(row, relations);
+    return { ...row, state, invalidated: factInvalidated(state) };
+  });
 }
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] {
   return decodeFactRows(
