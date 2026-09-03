@@ -82,6 +82,13 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["*:remove-dry-run", (args) => `next: remove --dry-run and rerun ${textArg(args, "command")}`],
   ["*:no-action", () => "next: no action required"],
   [
+    "failure:daemon-stopping",
+    () =>
+      "The daemon is draining its write queues before it exits and admits no new work; it releases its " +
+      "endpoint, pid file and singleton lock together when the drain finishes. Run ha daemon status to see " +
+      "what is still draining, then retry — the next command starts the replacement daemon.",
+  ],
+  [
     "failure:squad-leader",
     (args) => `Leader dispatch rejected: code=${textArg(args, "code")} hint=${textArg(args, "hint")}`,
   ],
@@ -156,6 +163,7 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     leader = record(receipt.leader) ? humanError(receipt.leader) : null;
   if (code === "squad_leader_failed" && leader && leader.code !== "unknown")
     return { code, hint: renderTemplate("failure", "squad-leader", leader) };
+  if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
     declaredGuidance = renderReceiptGuidance(receipt),
