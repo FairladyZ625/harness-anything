@@ -156,16 +156,59 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     assert.equal(wrongExecutionAmend.outcome, "op_rejected", JSON.stringify(wrongExecutionAmend));
     assert.equal(wrongExecutionAmend.code, "invalid_transition");
 
-    const amended = (await cell.run(
+    const noOpAmend = (await cell.run(
       {
         kind: "task-submit",
         taskId,
         executionId,
         amend: true,
-        jsonInput: JSON.stringify({ ...submission, completionClaim: "Corrected lifecycle cut.", commitSha }),
+        jsonInput: JSON.stringify(submission),
       },
       holder,
     )) as Record<string, unknown>;
+    assert.equal(noOpAmend.outcome, "op_rejected", JSON.stringify(noOpAmend));
+    assert.equal(noOpAmend.code, "invalid_transition");
+
+    const crossActorAmend = (await cell.run(
+      {
+        kind: "task-submit",
+        taskId,
+        executionId,
+        amend: true,
+        jsonInput: JSON.stringify({ ...submission, completionClaim: "Foreign correction.", commitSha }),
+      },
+      foreign,
+    )) as Record<string, unknown>;
+    assert.equal(crossActorAmend.outcome, "op_rejected", JSON.stringify(crossActorAmend));
+    assert.equal(crossActorAmend.code, "lease_required");
+
+    const amendRevision = Number(submitted.revision),
+      amendmentPackets = [
+        { ...submission, completionClaim: "Corrected lifecycle cut A.", commitSha },
+        { ...submission, completionClaim: "Corrected lifecycle cut B.", commitSha },
+      ],
+      amendmentResults = (await Promise.all(
+        amendmentPackets.map((packet) =>
+          cell.run(
+            {
+              kind: "task-submit",
+              taskId,
+              executionId,
+              amend: true,
+              expectedVersion: amendRevision,
+              jsonInput: JSON.stringify(packet),
+            },
+            holder,
+          ),
+        ),
+      )) as readonly Record<string, unknown>[],
+      appliedAmendments = amendmentResults.filter(({ outcome }) => outcome === "applied"),
+      rejectedAmendments = amendmentResults.filter(({ outcome }) => outcome === "op_rejected"),
+      amended = appliedAmendments[0]!,
+      amendedPacket = amendmentPackets[amendmentResults.indexOf(amended)]!;
+    assert.equal(appliedAmendments.length, 1, JSON.stringify(amendmentResults));
+    assert.equal(rejectedAmendments.length, 1, JSON.stringify(amendmentResults));
+    assert.equal(rejectedAmendments[0]?.code, "invalid_transition", JSON.stringify(amendmentResults));
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
     assert.match(String(amended.summary), /prior Review and consent pins are stale/u);
     const submissionEvents = events().filter((candidate) => candidate.type === "execution_submitted");
@@ -251,7 +294,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     const consentEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(consented.opId));
     assert.equal(
       consentEvent?.type === "review_consent_recorded" ? consentEvent.payload.consent.submissionDigest : null,
-      submissionDigest({ ...submission, completionClaim: "Corrected lifecycle cut.", commitSha }),
+      submissionDigest(amendedPacket),
     );
     const completed = await cell.run({ kind: "task-complete", taskId, ci: "passed" }, holder);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));

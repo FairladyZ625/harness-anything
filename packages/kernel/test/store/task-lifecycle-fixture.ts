@@ -1,10 +1,10 @@
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
+import { submissionDigest } from "../../src/domain/execution.ts";
 import {
   applyTransition,
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
   reviewDigest,
-  submissionDigest,
   type CompleteTaskProof,
   type CreateReplayTaskProof,
   type RecordReviewCommand,

@@ -101,6 +101,32 @@ function submitted(): TaskLifecycleSnapshot {
   );
 }
 
+function amendment(
+  snapshot: TaskLifecycleSnapshot,
+  actor: ActorAxes = implementer,
+  completionClaim = "Corrected implementation",
+) {
+  return command(
+    snapshot.revision + 1,
+    {
+      type: "SubmitExecution",
+      taskId: "task-1",
+      executionId: "execution-1",
+      amend: true,
+      submission: {
+        completionClaim,
+        deliverables: ["repair"],
+        outputs: ["commit"],
+        verificationNotes: ["contract test"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha: "b".repeat(40),
+      },
+    },
+    actor,
+  ) as TaskLifecycleCommand;
+}
+
 /** A review-node task whose only execution relation was retired from the projection. */
 function strandedInReview(status: "planned" | "active" | "in_review" = "active"): TaskLifecycleSnapshot {
   const snapshot = planned();
@@ -230,6 +256,61 @@ test("two edge commands with the same expected version cannot both commit", () =
     JSON.stringify(loserIssues),
   );
   assert.equal(winner.revision, 2);
+});
+
+test("a submission amendment rejects a live lease with invalid_proof", () => {
+  const current = submitted(),
+    inconsistentLease = { ...current, lease: started().lease },
+    next = amendment(inconsistentLease);
+  assert.throws(
+    () =>
+      applyTransition(inconsistentLease, next, {
+        actorBinding: implementer,
+        leaseVersion: null,
+        sessionDisposition: "complete",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_proof",
+  );
+});
+
+test("a submission amendment rejects another execution actor with invalid_proof", () => {
+  const current = submitted(),
+    otherActor: ActorAxes = {
+      principal: implementer.principal,
+      executor: { kind: "agent", id: "other-worker" },
+    },
+    next = amendment(current, otherActor);
+  assert.throws(
+    () =>
+      applyTransition(current, next, {
+        actorBinding: otherActor,
+        leaseVersion: null,
+        sessionDisposition: "complete",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_proof",
+  );
+});
+
+test("a no-op submission amendment rejects with invalid_transition", () => {
+  const current = submitted(),
+    existing = current.executions[0];
+  if (!existing?.submission) throw new Error("submitted fixture has no packet");
+  const next = command(current.revision + 1, {
+    type: "SubmitExecution",
+    taskId: "task-1",
+    executionId: "execution-1",
+    amend: true,
+    submission: existing.submission,
+  }) as TaskLifecycleCommand;
+  assert.throws(
+    () =>
+      applyTransition(current, next, {
+        actorBinding: implementer,
+        leaseVersion: null,
+        sessionDisposition: "complete",
+      }),
+    (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_transition",
+  );
 });
 
 // The reported failure: the lease expires silently, `progress append` tells you to run `task start`,

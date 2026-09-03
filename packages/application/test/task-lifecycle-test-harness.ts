@@ -171,6 +171,7 @@ export function lifecycleHarness() {
       opId = `op-submit-${revision() + 1}`,
       claim = "implemented",
       submittedCommitSha = commitSha,
+      deliverables: readonly string[] = [],
     ) => {
       const next = revision() + 1;
       const leaseVersion = (await service.read("task-1")).snapshot.lease?.version;
@@ -185,7 +186,7 @@ export function lifecycleHarness() {
             executionId,
             submission: {
               completionClaim: claim,
-              deliverables: [],
+              deliverables,
               outputs: [],
               verificationNotes: ["tests"],
               knownGaps: [],

@@ -44,7 +44,9 @@ test("completion blocker matrix returns one canonical next for every substantive
   try {
     const created = await harness.create(),
       started = await harness.start("execution-1"),
-      submitted = await harness.submit("execution-1"),
+      submitted = await harness.submit("execution-1", "op-submit-report-only", "implemented", "a".repeat(40), [
+        "tasks/task-1-audit/artifacts/report.md",
+      ]),
       reviewed = await harness.review("execution-1", "acceptance", "approved"),
       consented = await harness.consent("execution-1");
     const ready = {
@@ -92,15 +94,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       lineage.next.command,
       "ha decision relate <decision-id> --anchor <claim-id> --type derives --target task/task-1 --rationale <why this decision authorises the task>",
     );
-    const reportOnly = {
-      ...withGates(["code-doc-reconciliation"]),
-      executions: consented.snapshot.executions.map((execution) => ({
-        ...execution,
-        submission: execution.submission
-          ? { ...execution.submission, deliverables: ["tasks/task-1-audit/artifacts/report.md"] }
-          : null,
-      })),
-    };
+    const reportOnly = withGates(["code-doc-reconciliation"]);
     assert.deepEqual(
       completionBlockers(reportOnly, "execution-1", ready).map((blocker) => blocker.code),
       ["code_doc_missing"],
