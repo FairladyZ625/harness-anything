@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  watch,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -253,9 +254,6 @@ test("bounded child protocol classifies every failure without a silent phase", a
 });
 
 test("timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt", async () => {
-  // Loaded measurements did not reproduce the CI failure, so these remain explicit wall-clock
-  // premises: the child must write its pid before 2s, then the timeout and SIGTERM handler must
-  // become observable within waitFor's 5s polling budget. Keep both margins coupled when changing them.
   const fixture = scriptedPackage(
       'const { writeFileSync } = await import("node:fs"); process.on("SIGTERM", () => writeFileSync("term.seen", "yes")); writeFileSync("child.pid", String(process.pid)); setInterval(() => {}, 1_000);',
     ),
@@ -281,19 +279,17 @@ test("timeout forcibly reaps a child that ignores SIGTERM before publishing term
         started.runId,
       ),
       pidPath = path.join(staging, "child.pid"),
-      termPath = path.join(staging, "term.seen");
+      termPath = path.join(staging, "term.seen"),
+      termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
     await waitFor(
       "child.pid file for timeout fixture",
       () => existsSync(pidPath),
       Boolean,
     );
     pid = Number(readFileSync(pidPath, "utf8"));
-    if (process.platform !== "win32")
-      await waitFor(
-        "term.seen file after timeout SIGTERM",
-        () => existsSync(termPath),
-        Boolean,
-      ); // On Windows kill(SIGTERM) terminates unconditionally, so the handler phase cannot be witnessed; the reaped end state is asserted instead.
+    if (termSeen) await termSeen;
+    // On Windows kill(SIGTERM) terminates unconditionally, so the handler phase cannot be witnessed;
+    // the reaped end state is asserted instead.
     assert.doesNotThrow(() => process.kill(pid!, 0));
     assert.equal(terminalOutcome(service.status(started.runId).outcome), false);
     const terminal = await waitFor(
@@ -341,7 +337,8 @@ test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", a
         started.runId,
       ),
       pidPath = path.join(staging, "child.pid"),
-      termPath = path.join(staging, "term.seen");
+      termPath = path.join(staging, "term.seen"),
+      termSeen = process.platform === "win32" ? null : observeFileAppearance(termPath);
     await waitFor(
       "child.pid file for close fixture",
       () => existsSync(pidPath),
@@ -356,11 +353,7 @@ test("close forcibly reaps a child that ignores SIGTERM within a fixed bound", a
         false,
       ); // Windows terminates unconditionally once close() runs, so only the pre-reap state is observable in flight.
     else {
-      await waitFor(
-        "term.seen file after close SIGTERM",
-        () => existsSync(termPath),
-        Boolean,
-      );
+      await termSeen;
       assert.doesNotThrow(() => process.kill(pid!, 0));
       assert.equal(
         terminalOutcome(service.status(started.runId).outcome),
@@ -652,6 +645,36 @@ function terminalOutcome(outcome: string): boolean {
   return ["applied", "op_rejected", "failed", "outcome_unknown"].includes(
     outcome,
   );
+}
+function observeFileAppearance(target: string): Promise<void> {
+  const root = path.dirname(path.dirname(target)),
+    relativeTarget = path.normalize(path.relative(root, target));
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const watcher = watch(root, { recursive: true }, (_event, filename) => {
+      if (
+        !settled &&
+        ((filename !== null &&
+          path.normalize(String(filename)) === relativeTarget) ||
+          existsSync(target))
+      ) {
+        settled = true;
+        watcher.close();
+        resolve();
+      }
+    });
+    watcher.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      watcher.close();
+      reject(error);
+    });
+    if (existsSync(target)) {
+      settled = true;
+      watcher.close();
+      resolve();
+    }
+  });
 }
 async function waitFor<T>(
   description: string,

@@ -299,18 +299,12 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       });
       assert.ok(firstExit, "runtime exit listener must be attached before the provider exits");
       firstExit(0);
-      await eventually(() =>
-        makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root })
-          .read()
-          .events.some(
-            (candidate) =>
-              candidate.type === "runtime_session_exited" &&
-              candidate.payload.runtimeSessionId === receipt.runtimeSessionId,
-          ),
-      );
-      const settled = (await cell.read("repo.agentRuntime.overview", {})).sessions.find(
-        (candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId,
-      );
+      const settled = await eventuallyValue(async () => {
+        const projected = (await cell.read("repo.agentRuntime.overview", {})).sessions.find(
+          (candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId,
+        );
+        return projected?.liveness === "exited" ? projected : null;
+      });
       assert.equal(settled?.liveness, "exited");
       assert.notEqual(settled?.semanticState, "running");
       const alternate = await cell.spawnRuntime(
