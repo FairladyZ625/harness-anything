@@ -444,6 +444,32 @@ export function artifactEntityActionCatalog(
           `${kind}.import resolves one artifact source and appends entity-event/v1 under the ` +
           "entity aggregate revision fence; dry-run performs no write.",
       }),
+      Object.freeze({
+        ...entityAction(kind, identity, "distill-candidate", noSdkExposure, {
+          ingress: "distill-candidate",
+          compile: null,
+          read: false,
+          implementation: "catalog-runtime",
+          topology: "center-forward-write",
+          targetIdField: "entityRef",
+        }),
+        criteria: Object.freeze([
+          Object.freeze({
+            ref: "artifact/distill-candidate.validate",
+            failureCode: "invalid_command",
+            explain: "The distill candidate input must identify a valid workspace file or governed artifact entity.",
+          }),
+        ]),
+        failureCodes: Object.freeze([
+          Object.freeze({
+            code: "invalid_command",
+            source: "criterion",
+            explain: "distill-candidate may reject with invalid_command.",
+            nextCapabilityRef: null,
+          }),
+        ]),
+        explain: `${kind}.distill-candidate creates a generated candidate artifact without canonical writes.`,
+      }),
     ]),
   });
 }
