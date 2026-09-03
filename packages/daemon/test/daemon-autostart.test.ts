@@ -15,7 +15,7 @@ import {
   type DaemonAutostartResult,
   type DaemonLaunchSpec,
 } from "../src/client/daemon-autostart.ts";
-import { daemonLifecycleLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
+import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../src/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 
@@ -329,7 +329,7 @@ test("DaemonAutostartError carries the classified code for CLI/GUI receipt rende
   assert.equal(error.message, result.hint);
 });
 
-test("daemon launch output path is derived from the explicit serve target", () => {
+test("daemon launch output path is the stdio sink, not the structured lifecycle JSONL", () => {
   const userRoot = path.join(tmpdir(), "ha-output-target");
   assert.equal(
     daemonLaunchOutputPath({
@@ -337,7 +337,7 @@ test("daemon launch output path is derived from the explicit serve target", () =
       args: ["index.js", "daemon", "serve", "--user-root", userRoot, "--daemon-id", "blue"],
       env: {},
     }),
-    daemonLifecycleLogPath(userRoot, "blue"),
+    daemonStdioLogPath(userRoot, "blue"),
   );
   assert.equal(daemonLaunchOutputPath({ command: "node", args: ["index.js", "task", "list"], env: {} }), undefined);
 });

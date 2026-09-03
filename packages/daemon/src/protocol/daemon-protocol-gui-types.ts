@@ -116,7 +116,7 @@ export function validateShape(value: unknown, expected: RpcShape, prefix: string
   return errors;
 }
 
-export const observeTailKinds = ["events", "repo-log", "daemon-log", "dispatch"] as const;
+export const observeTailKinds = ["events", "repo-log", "daemon-log", "lifecycle", "dispatch"] as const;
 export type ObserveTailKind = (typeof observeTailKinds)[number];
 export const observeTailDirections = ["history", "follow"] as const;
 export type ObserveTailDirection = (typeof observeTailDirections)[number];
@@ -125,6 +125,7 @@ export type ObserveTailCursor =
   | { readonly kind: "events"; readonly revision: number }
   | { readonly kind: "repo-log"; readonly fileId: string; readonly offset: number }
   | { readonly kind: "daemon-log"; readonly fileId: string; readonly offset: number }
+  | { readonly kind: "lifecycle"; readonly fileId: string; readonly offset: number }
   | { readonly kind: "dispatch"; readonly fileId: string; readonly offset: number };
 
 type ObserveTailRequestFor<K extends ObserveTailKind> =
@@ -143,6 +144,7 @@ export type ObserveTailPayload =
   | ObserveTailRequestFor<"events">
   | ObserveTailRequestFor<"repo-log">
   | ObserveTailRequestFor<"daemon-log">
+  | ObserveTailRequestFor<"lifecycle">
   | (ObserveTailRequestFor<"dispatch"> & { readonly dispatchId: string });
 
 type ObserveTailBase = {

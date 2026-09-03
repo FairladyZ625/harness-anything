@@ -57,6 +57,7 @@ test("observe.tail declares direct admission and named source residency for ever
     events: "projection",
     "repo-log": "runtime-local",
     "daemon-log": "runtime-local",
+    lifecycle: "runtime-local",
     dispatch: "runtime-local",
   });
   for (const mode of daemonRepoModeWords)
