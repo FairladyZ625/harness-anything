@@ -50,7 +50,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
       `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
       `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
-      "Repair the cause, then retry the write; the repository recovery path will re-probe and resume without a daemon restart.",
+      "Repair the cause, then retry the write; the repository recovery path will " +
+      "re-probe and resume without a daemon restart.",
   ],
   [
     "failure:materialization-retrying",
@@ -59,7 +60,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
       `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
       `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
-      "New writes are temporarily refused while the durable WAL retries; wait and retry the write without restarting the daemon.",
+      "New writes are temporarily refused while the durable WAL retries; wait and retry the write " +
+      "without restarting the daemon.",
   ],
   [
     "failure:invalid-enum",

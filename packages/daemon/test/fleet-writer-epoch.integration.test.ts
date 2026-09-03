@@ -217,6 +217,12 @@ test("RepoWriterCell verifies the writer epoch inside Git ref finalization", asy
 
     fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
     assert.notEqual(store.recover().status, "indeterminate");
+    assert.throws(
+      () => appendWorkerTask(store, 2),
+      (error: unknown) =>
+        (error as { readonly diagnostic?: { readonly kind?: string } }).diagnostic?.kind === "materialization-retrying",
+    );
+    await store.settleRecoveryMaterialization!();
     appendWorkerTask(store, 2);
     await store.settlePendingMaterialization!("writer epoch test");
     assert.equal(JSON.parse(probeGit(repo, "show", "refs/ha/canonical:harness/events/head.json")).revision, 2);

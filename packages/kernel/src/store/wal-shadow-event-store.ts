@@ -463,7 +463,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       ) {
         latchMaterializationFailure("deterministic_failure", error);
         console.error(
-          `[wal-materializer] deterministic failure (${context}); materializer stopped: ${walShadowErrorMessage(error)}`,
+          `[wal-materializer] deterministic failure (${context}); ` +
+            `materializer stopped: ${walShadowErrorMessage(error)}`,
         );
         consumeKnownError(error);
         return false;
@@ -747,6 +748,8 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
     const records = wal.records();
     const hadWalRecords = records.length > 0;
     const hadPendingPublication = (records.at(-1)?.revision ?? 0) > (gitHead?.revision ?? 0);
+    const recoveryFence = options.walMaterializationFence?.();
+    if (recoveryFence) pendingMaterializationFence = recoveryFence;
     failureLatch = null;
     consecutiveFailures = 0;
     retryStartedAt = recoveringRetry && hadWalRecords ? (retryStartedAt ?? performance.now()) : null;

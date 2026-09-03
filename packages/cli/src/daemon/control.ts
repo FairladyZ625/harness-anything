@@ -348,7 +348,9 @@ function assessDaemonStatus(result: Record<string, unknown>): {
         ? result
         : {
             ...result,
-            summary: `${String(result.summary ?? "daemon status")}\nWAL-to-Git materialization retrying: ${retryingRows.join("; ")}`,
+            summary:
+              `${String(result.summary ?? "daemon status")}\n` +
+              `WAL-to-Git materialization retrying: ${retryingRows.join("; ")}`,
           },
     failedRows = rows.filter(
       (value) => statusRecord(value) && statusRecord(value.materialization) && value.materialization.state === "failed",
