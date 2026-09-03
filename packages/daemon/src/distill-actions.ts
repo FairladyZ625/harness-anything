@@ -60,7 +60,7 @@ export function readDistillEntity(projection: any, entityRef: string): DistillEn
     kind = entityRef.slice(0, separator),
     entityId = entityRef.slice(separator + 1),
     entity = separator > 0 && entityId ? projection.getEntity(kind, entityId) : null;
-  if (entity === null) throw new Error(`Artifact entity ${entityRef} is not installed.`);
+  if (entity === null) throw distillActionError("invalid_command", `Artifact entity ${entityRef} is not installed.`);
   const relationRead = projection.readRelationQuery();
   return {
     descriptor: artifactDescriptorFromProjection(entity.value),

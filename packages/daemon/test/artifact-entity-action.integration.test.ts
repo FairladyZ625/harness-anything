@@ -58,7 +58,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.deepEqual(
       explained.subjects[0]?.actions.map(({ action }) => action.id),
-      ["import"],
+      ["import", "distill-candidate"],
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
