@@ -189,7 +189,8 @@ export function isRetryableWalMaterializationError(error: unknown): boolean {
   }
   return (
     error instanceof Error &&
-    new RegExp(`\\b(?:${[...transientSystemErrorCodes].join("|")})\\b`, "u").test(error.message)
+    (transientGitLock.test(error.message) ||
+      new RegExp(`\\b(?:${[...transientSystemErrorCodes].join("|")})\\b`, "u").test(error.message))
   );
 }
 

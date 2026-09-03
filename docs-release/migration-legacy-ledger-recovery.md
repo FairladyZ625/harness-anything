@@ -192,7 +192,7 @@ relation / execution — against a same-cut or disposable rebuilt oracle. Read
 | Report | What it means | Action |
 | --- | --- | --- |
 | `recovery_conflict` | Another recovery command already holds this repository's single-writer recovery ingress. | Wait for the command named in the hint to settle, then rerun. Do not open a second path in. |
-| `publication_indeterminate` with a `git … update-ref …` hint | A commit was made outside the daemon, so the ledger branch no longer points at the last published event commit. | Run the `git -C … update-ref …` command exactly as printed — it moves only the branch pointer and leaves every file in place — then `ha daemon stop`, then retry the recovery. |
+| `publication_indeterminate` with a `git … update-ref …` hint | A commit was made outside the daemon, so the ledger branch no longer points at the last published event commit. | Run the `git -C … update-ref …` command exactly as printed — it moves only the branch pointer and leaves every file in place — then retry the recovery. The repository re-probes the repaired refs without restarting the daemon; if the first retry still reports the old latch, wait for `ha daemon status` to return to `ok` and retry again. |
 | Source rejected as not completely committed | The ledger work tree has uncommitted changes. | Commit them (or park them), then rerun the dry-run. Do not migrate a dirty cut. |
 | `migration_projection_oracle_cut_mismatch` | A stale derived projection does not match the canonical event head. | The oracle falls back to a disposable rebuild on its own. If the error persists, stop the source's writers and read the nested cause. Do not delete or move `.harness/cache/task.sqlite` by hand — a stale cache is rebuilt in place, and moving it away returns the same verdict. |
 | A typed rejection other than the missing-provenance shape | The ledger contains an invalid event this recovery does not restate. | Keep the ledger, capture the named event and schema, and report it. Guessing a restatement for an undescribed shape is not a recovery. |
@@ -221,8 +221,8 @@ which events, how many, and nothing else — before any byte changes.
 
 **Do I need to stop the daemon?**
 No. The recovery command runs through the daemon's single-writer queue; that queue is what makes the
-rewrite safe. Stop the repository's *other* writers instead. The one place `ha daemon stop` appears
-is the `publication_indeterminate` recovery above, and there it follows the ref repair.
+rewrite safe. Stop the repository's *other* writers instead. A repaired `publication_indeterminate`
+latch is re-probed by the resident daemon when you retry the command.
 
 **My counts are not zero on the other surfaces. What do I do?**
 Stop and read the report before applying. This page describes a recovery whose only planned work is

@@ -43,6 +43,15 @@ export type ReceiptDiagnostic =
       readonly lastError: string;
     }
   | {
+      readonly kind: "materialization-retrying";
+      readonly state: "retrying";
+      readonly lastCheckpointRevision: number;
+      readonly lastCheckpointAt: string | null;
+      readonly pendingWalEvents: number;
+      readonly retryElapsedMs: number;
+      readonly lastError: string;
+    }
+  | {
       readonly kind: "invalid-enum";
       readonly field: string;
       readonly actual: string;
@@ -390,6 +399,24 @@ export function isReceiptDiagnostic(value: unknown): value is ReceiptDiagnostic 
       (value.reason === "git_diverged" ||
         value.reason === "deterministic_failure" ||
         value.reason === "retry_budget_exhausted") &&
+      isNonEmptyString(value.lastError)
+    );
+  if (value.kind === "materialization-retrying")
+    return (
+      exact(value, [
+        "kind",
+        "state",
+        "lastCheckpointRevision",
+        "lastCheckpointAt",
+        "pendingWalEvents",
+        "retryElapsedMs",
+        "lastError",
+      ]) &&
+      value.state === "retrying" &&
+      cut(value.lastCheckpointRevision) &&
+      (value.lastCheckpointAt === null || isNonEmptyString(value.lastCheckpointAt)) &&
+      cut(value.pendingWalEvents) &&
+      cut(value.retryElapsedMs) &&
       isNonEmptyString(value.lastError)
     );
   if (value.kind === "invalid-enum")

@@ -116,6 +116,7 @@ export interface MaterializationHealth {
   readonly lastCheckpointRevision: number;
   readonly lastCheckpointAt: string | null;
   readonly pendingWalEvents: number;
+  readonly retryElapsedMs?: number;
   readonly reason?: MaterializationFailureReason;
   readonly lastError?: string;
 }
