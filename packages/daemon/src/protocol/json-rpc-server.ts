@@ -23,6 +23,8 @@ import {
   isRuntimeInstanceAuthCall,
   isRuntimeInstanceCall,
   isTerminalActionCall,
+  daemonStopRefusal,
+  daemonStoppingRefusal,
   protocolErrorMessage,
   repoIdFromParams,
   resultErrorCode,
@@ -44,7 +46,7 @@ import type { CoreDomainError } from "../../../kernel/src/index.ts";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
-import { daemonBuildStaleNotice, withDaemonBuildDrainSummary } from "../daemon-build-drain.ts";
+import { daemonBuildStaleNotice, withDaemonDrainSummary } from "../daemon-build-drain.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
@@ -68,6 +70,7 @@ export function createJsonRpcProtocolServer(options: {
   readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void;
   readonly requestShutdown?: () => void;
   readonly buildDrainStatus?: () => DaemonBuildDrainStatus;
+  readonly stopping?: () => boolean;
   readonly onRequestStarted?: (method: string) => void;
   readonly onRequestSettled?: (method: string) => void;
   readonly onBuildDriftObserved?: () => void;
@@ -157,6 +160,8 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
+    if (stoppingRefusal) return reply(method, stoppingRefusal);
     const remoteProxy = options.host.remoteProxy;
     if (method === "daemon.repo.bootstrap" && remoteProxy?.route(params.repoId))
       return reply(
@@ -184,25 +189,13 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (request.method === "daemon.status") {
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
-      return reply("daemon.status", { ok: true, ...withDaemonBuildDrainSummary(options.host.status(), warning) });
+      return reply("daemon.status", { ok: true, ...withDaemonDrainSummary(options.host.status(), warning, options) });
     }
     if (request.method === "daemon.stop" && method === request.method) {
-      if (options.authContext.transportKind !== "unix-socket" || options.authContext.assignmentBinding)
-        return reply(
-          method,
-          daemonProtocolError(
-            "daemon-stop",
-            "local_transport_required",
-            "Stop is available only through the local session token.",
-          ),
-        );
-      if (!options.requestShutdown)
-        return reply(
-          method,
-          daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner."),
-        );
+      const refusal = daemonStopRefusal(options.authContext, options.requestShutdown);
+      if (refusal) return reply(method, refusal);
       const response = reply(method, { ok: true, command: "daemon-stop", pid: process.pid });
-      options.requestShutdown();
+      options.requestShutdown?.();
       return response;
     }
     if (request.method === "daemon.repo.bootstrap" && method === request.method) {

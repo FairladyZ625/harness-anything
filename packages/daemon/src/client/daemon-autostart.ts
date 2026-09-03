@@ -195,6 +195,11 @@ export function readDaemonStartProgress(launch: DaemonLaunchSpec, waitedMs: numb
   if (start < 0) return null;
   const generation = records.slice(start),
     processRecord = generation[0]!;
+  // A generation that has recorded its exit is terminal, whatever its pid still looks like: shutdown
+  // records process_exit once the drain is done and then releases the endpoint, the pid file and the
+  // singleton lock together, so reading those last milliseconds as "starting" would report the
+  // outgoing daemon's progress to a caller that is waiting for its replacement.
+  if (generation.some((record) => record.event === "process_exit")) return null;
   if (!daemonProcessAlive(processRecord.pid)) return null;
   for (let index = generation.length - 1; index >= 0; index -= 1) {
     const record = generation[index]!;
