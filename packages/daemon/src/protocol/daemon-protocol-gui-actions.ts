@@ -69,8 +69,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/submit",
     "repo-write",
   ),
-  // Pin/unpin is a named ingress onto task-amend, not a second path; the closed
-  // payload and actionDefaults keep WriteCoordinator/event/projection canonical.
+  // Pin/unpin is a named ingress onto task-amend, not a second path; its closed payload keeps the write canonical.
   guiAction(
     "task.pin",
     "repo.task.pin",
@@ -222,6 +221,7 @@ export const daemonGuiActionMethods = Object.freeze([
       agentId: "string?",
       targetAgentId: "string?",
       squadId: "string?",
+      role: "string?",
       model: "string?",
       effort: "string?",
       fast: "boolean?",
