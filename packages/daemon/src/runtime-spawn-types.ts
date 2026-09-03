@@ -140,6 +140,8 @@ export type ActiveRuntime = {
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;
+  descendantsAlive: boolean;
+  worktreeDirty: boolean;
   toolCallObserved: boolean;
   providerFault: RuntimeProviderFault | null;
 };

@@ -97,11 +97,14 @@ function runtimeExitOutcome(active: ActiveRuntime, exitCode: number | null): Run
   if (active.cancelRequested) return "cancelled";
   if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
-  return active.providerOutcome === "failed" ? "failed" : "succeeded";
+  if (active.providerOutcome === "failed") return "failed";
+  return active.descendantsAlive || active.worktreeDirty ? "unknown" : "succeeded";
 }
 
 function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): string {
   if (outcome === "succeeded") return "Worker completed the attempt successfully.";
+  if (active.descendantsAlive) return "Worker exited while descendant processes are still running.";
+  if (active.worktreeDirty) return "Worker exited with uncommitted changes in its worktree.";
   if (active.protocolError) return "Worker exited with incomplete provider protocol evidence; outcome is unknown.";
   return "Worker exited without a structured provider outcome; outcome is unknown.";
 }

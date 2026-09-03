@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { appendRuntimeWorkerRecord, scrubProviderValue } from "./dispatch-stream.ts";
+import { descendantProcessRows, readPosixProcessRows, runtimePidIsAlive } from "./runtime-spawn-process.ts";
 
 type RuntimeWorkerManifest = {
   readonly rootDir: string;
@@ -15,11 +16,11 @@ type RuntimeWorkerManifest = {
 
 async function runRuntimeWorkerHost(): Promise<void> {
   const manifest = parseManifest(await readStandardInput());
-  const append = (value: Readonly<Record<string, unknown>>): void => appendRuntimeWorkerRecord(
-    manifest.rootDir,
-    manifest.dispatchId,
-    { occurredAt: new Date().toISOString(), ...value },
-  );
+  const append = (value: Readonly<Record<string, unknown>>): void =>
+    appendRuntimeWorkerRecord(manifest.rootDir, manifest.dispatchId, {
+      occurredAt: new Date().toISOString(),
+      ...value,
+    });
   const child = spawn(manifest.executablePath, [...manifest.args], {
     cwd: manifest.cwd,
     env: manifest.env,
@@ -40,30 +41,37 @@ async function runRuntimeWorkerHost(): Promise<void> {
     if (flush && trailing.trim()) appendProviderLine(append, trailing);
   };
   child.stdout.on("data", (chunk: string) => consumeOutput(chunk));
-  child.stderr.on("data", (chunk: string) => append({
-    kind: "provider_stderr",
-    chunk: scrubProviderValue(chunk) as string,
-  }));
-  const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+  child.stderr.on("data", (chunk: string) =>
+    append({
+      kind: "provider_stderr",
+      chunk: scrubProviderValue(chunk) as string,
+    }),
+  );
+  const finish = async (exitCode: number | null, signal: NodeJS.Signals | null): Promise<void> => {
     if (settled) return;
     settled = true;
     consumeOutput("", true);
+    if (process.platform !== "win32") {
+      const rows = descendantProcessRows(await readPosixProcessRows(), process.pid).filter(({ pid }) =>
+        runtimePidIsAlive(pid),
+      );
+      append({ kind: "process_descendants", rootPid: process.pid, pids: rows.map(({ pid }) => pid) });
+    }
     append({ kind: "process_exit", exitCode, signal });
   };
   child.once("error", (error) => {
     append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
-    finish(null, null);
   });
-  child.once("close", finish);
-  process.once("SIGTERM", () => { if (!settled) child.kill("SIGTERM"); });
+  process.once("SIGTERM", () => {
+    if (!settled) child.kill("SIGTERM");
+  });
   child.stdin.end(manifest.prompt);
-  await new Promise<void>((resolve) => child.once("close", () => resolve()));
+  await new Promise<void>((resolve, reject) =>
+    child.once("close", (exitCode, signal) => void finish(exitCode, signal).then(resolve, reject)),
+  );
 }
 
-function appendProviderLine(
-  append: (value: Readonly<Record<string, unknown>>) => void,
-  line: string,
-): void {
+function appendProviderLine(append: (value: Readonly<Record<string, unknown>>) => void, line: string): void {
   try {
     append({ kind: "provider_event", event: scrubProviderValue(JSON.parse(line)) });
   } catch (error) {
@@ -80,17 +88,18 @@ async function readStandardInput(): Promise<string> {
 function parseManifest(value: string): RuntimeWorkerManifest {
   const parsed: unknown = JSON.parse(value);
   if (
-    !isRuntimeWorkerRecord(parsed)
-    || typeof parsed.rootDir !== "string"
-    || typeof parsed.dispatchId !== "string"
-    || typeof parsed.executablePath !== "string"
-    || !Array.isArray(parsed.args)
-    || !parsed.args.every((arg) => typeof arg === "string")
-    || typeof parsed.cwd !== "string"
-    || !isRuntimeWorkerRecord(parsed.env)
-    || typeof parsed.prompt !== "string"
-    || typeof parsed.windowsVerbatimArguments !== "boolean"
-  ) throw new Error("runtime worker manifest is invalid");
+    !isRuntimeWorkerRecord(parsed) ||
+    typeof parsed.rootDir !== "string" ||
+    typeof parsed.dispatchId !== "string" ||
+    typeof parsed.executablePath !== "string" ||
+    !Array.isArray(parsed.args) ||
+    !parsed.args.every((arg) => typeof arg === "string") ||
+    typeof parsed.cwd !== "string" ||
+    !isRuntimeWorkerRecord(parsed.env) ||
+    typeof parsed.prompt !== "string" ||
+    typeof parsed.windowsVerbatimArguments !== "boolean"
+  )
+    throw new Error("runtime worker manifest is invalid");
   return parsed as RuntimeWorkerManifest;
 }
 function isRuntimeWorkerRecord(value: unknown): value is Record<string, unknown> {

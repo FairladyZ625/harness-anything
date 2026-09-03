@@ -172,7 +172,7 @@ type PosixProcessRow = {
   readonly processGroupId: number;
 };
 
-async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
+export async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid="]);
   return output.split(/\r?\n/u).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
@@ -181,7 +181,7 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   });
 }
 
-function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
+export function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
   const selected = new Set([rootPid]);
   let changed = true;
   while (changed) {
@@ -192,7 +192,7 @@ function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number
         changed = true;
       }
   }
-  return rows.filter((row) => selected.has(row.pid));
+  return rows.filter((row) => selected.has(row.pid) || row.processGroupId === rootPid);
 }
 
 function signalRuntimeTargets(

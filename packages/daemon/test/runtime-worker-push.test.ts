@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
+import { pushWorkerBranch, workerWorktreeDirty } from "../src/runtime-worker-push.ts";
 
 test("worker push publishes only a codex branch with force-with-lease", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-")),
@@ -56,6 +56,24 @@ test("canonical roots never trigger worker push", async () => {
     attempted: false,
     reason: "not-a-worker-worktree",
   });
+});
+
+test("worker worktree status is read without changing the worktree", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-dirty-")),
+    canonical = path.join(root, "project"),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/dirty-test");
+
+  assert.equal(await workerWorktreeDirty({ cwd: worker, canonicalRoot: canonical }), false);
+  writeFileSync(path.join(worker, "uncommitted.txt"), "dirty\n");
+  assert.equal(await workerWorktreeDirty({ cwd: worker, canonicalRoot: canonical }), true);
+  assert.match(git(worker, "status", "--porcelain"), /uncommitted\.txt/u);
+  assert.equal(await workerWorktreeDirty({ cwd: canonical, canonicalRoot: canonical }), false);
 });
 
 function git(root, ...args) {

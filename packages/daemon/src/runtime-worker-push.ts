@@ -12,6 +12,19 @@ export type WorkerPushResult =
   | { readonly attempted: true; readonly ok: true; readonly branch: string }
   | { readonly attempted: true; readonly ok: false; readonly branch: string | null; readonly detail: string };
 
+export async function workerWorktreeDirty(input: {
+  readonly cwd: string;
+  readonly canonicalRoot: string;
+  readonly env?: NodeJS.ProcessEnv;
+}): Promise<boolean> {
+  if (samePath(input.cwd, input.canonicalRoot)) return false;
+  const result = await execFileAsync("git", ["-C", input.cwd, "status", "--porcelain"], {
+    env: { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
+    maxBuffer: detailLimit * 2,
+  });
+  return String(result.stdout).trim().length > 0;
+}
+
 export async function pushWorkerBranch(input: {
   readonly cwd: string;
   readonly canonicalRoot: string;
