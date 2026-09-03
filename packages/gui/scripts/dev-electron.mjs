@@ -10,7 +10,8 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const guiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(guiRoot, "../..");
-const rendererUrl = "http://127.0.0.1:5173";
+const rendererPort = process.env.HARNESS_GUI_DEV_PORT ?? "5173";
+const rendererUrl = `http://127.0.0.1:${rendererPort}`;
 
 const electronPath = require("electron");
 // Resolve vite's own bin script through Node's module resolution rather than shelling
@@ -35,7 +36,7 @@ if (preloadBuild.status !== 0) {
 }
 
 log(`starting renderer dev server at ${rendererUrl} ...`);
-const vite = spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", "5173", "--strictPort"], {
+const vite = spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", rendererPort, "--strictPort"], {
   cwd: guiRoot,
   env: { ...process.env, BROWSER: "none" },
   stdio: ["ignore", "pipe", "pipe"],
@@ -53,7 +54,7 @@ async function waitForRenderer() {
   let lastError;
   while (Date.now() < deadline) {
     if (vite.exitCode !== null) {
-      throw new Error(`renderer dev server exited early with code ${vite.exitCode} (is port 5173 busy?)`);
+      throw new Error(`renderer dev server exited early with code ${vite.exitCode} (is port ${rendererPort} busy?)`);
     }
     try {
       const response = await fetch(rendererUrl);
