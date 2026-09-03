@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { normalizeProjectionLineEndings } from "./generate-daemon-status-vocabulary.mjs";
 import {
   generateTaskActionProtocolProjection,
   projectTaskActions,
@@ -19,7 +20,7 @@ const generatedSource = readFileSync(
 
 test("Task Action transport has one current build-time projection", async () => {
   await assert.doesNotReject(() => generateTaskActionProtocolProjection(true));
-  assert.equal(await renderTaskActionProtocolProjection(), generatedSource);
+  assert.equal(await renderTaskActionProtocolProjection(), normalizeProjectionLineEndings(generatedSource));
   assert.match(presetCommandContractSource, /from "\.\/task-action-projection\.generated\.ts"/u);
   assert.doesNotMatch(presetCommandContractSource, /task-action-projection:generated/u);
   assert.deepEqual(

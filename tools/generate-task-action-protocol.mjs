@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
+import { normalizeProjectionLineEndings } from "./generate-daemon-status-vocabulary.mjs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { format } from "prettier";
@@ -135,7 +136,8 @@ export async function renderTaskActionProtocolProjection() {
 export async function generateTaskActionProtocolProjection(check = false) {
   const expected = await renderTaskActionProtocolProjection();
   if (check) {
-    if (readFileSync(target, "utf8") !== expected)
+    // A Windows-style checkout rewrites the committed file to CRLF; freshness is about content.
+    if (normalizeProjectionLineEndings(readFileSync(target, "utf8")) !== normalizeProjectionLineEndings(expected))
       throw new Error("Task Action protocol projection is stale; run its generator.");
     return;
   }
