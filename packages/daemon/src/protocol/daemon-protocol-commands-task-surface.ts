@@ -378,4 +378,12 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
+  defineRepoReadCommand({
+    id: "task-read-set",
+    phase: "Governed-Entity-W2-B",
+    path: ["task", "read-set", "<task-id>"],
+    summary: "Derive what a Task must read from its declared relations at one projection cut.",
+    method: "repo.task.read",
+    inputs: [],
+  }),
 ] as const);

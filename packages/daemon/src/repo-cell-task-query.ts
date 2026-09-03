@@ -13,6 +13,7 @@ import {
   type TaskWipSnapshotEntryV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { readTaskReadSet } from "../../application/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
 import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
@@ -257,6 +258,29 @@ export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, bindi
     read.sourceRevision,
     null,
     read,
+  );
+}
+
+/**
+ * The read-only read set for one Task: which entities its declared relations say to
+ * read, in what order, and whether the answer is blocked. Pure read — no lease, no
+ * write path, and nothing persisted back into the Task package.
+ */
+export function taskReadSet(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    current = cell.projection.read(taskId);
+  if (!cell.projectionReady(current) || !current.snapshot.task)
+    throw cell.cellCodedError(
+      "task_not_found",
+      `Run ha task list, choose an existing task id, then retry task read-set.`,
+    );
+  const derived = readTaskReadSet(cell.projection, taskId);
+  return cell.readResult(
+    cell.operationId(action, binding, cell.input.repoId, current.sourceRevision),
+    derived,
+    current.sourceRevision,
+    null,
+    derived.projectionCut,
   );
 }
 

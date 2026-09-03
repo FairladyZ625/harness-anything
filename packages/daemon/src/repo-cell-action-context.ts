@@ -82,6 +82,7 @@ import {
   listRelations as listRelationsImpl,
   listTasks as listTasksImpl,
   reviewTask as reviewTaskImpl,
+  taskReadSet as taskReadSetImpl,
   taskWipEnteringAction as taskWipEnteringActionImpl,
   wipSnapshotEntries as wipSnapshotEntriesImpl,
 } from "./repo-cell-task-query.ts";
@@ -132,6 +133,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly listTasks: Bound<typeof listTasksImpl>;
   readonly listRelations: Bound<typeof listRelationsImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
+  readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly entityActionRuntimes: EntityActionCatalogRuntimes;
@@ -269,6 +271,7 @@ export function createRepoCellActionContext(bindings: {
     listTasks: bind(listTasksImpl),
     listRelations: bind(listRelationsImpl),
     reviewTask: bind(reviewTaskImpl),
+    taskReadSet: bind(taskReadSetImpl),
     taskListQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     relationQueryFromAction: (_action: RepoTaskAction) => unavailableTaskQuery(),
     queryRead: (): TaskQueryReadModel => unavailableTaskQuery(),
