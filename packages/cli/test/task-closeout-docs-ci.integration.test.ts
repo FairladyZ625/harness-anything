@@ -165,7 +165,11 @@ test("a real docs task with no declared ci gate closes out on not_applicable and
     assert.notEqual(invented.status, 0, "a docs task with no ci gate must not accept an invented passed judgment");
     const rejection = JSON.parse(invented.stdout) as Record<string, unknown>;
     assert.equal(rejection.code, "invalid_judgment", invented.stdout);
-    assert.match(String(rejection.nextAction), /completion\.ci must be not_applicable/u);
+    const diagnostic = rejection.diagnostic as Record<string, unknown>;
+    assert.deepEqual(
+      [diagnostic.kind, diagnostic.entity, diagnostic.field, diagnostic.expectation],
+      ["validation", "task-closeout-packet", "completion.ci", "not_applicable"],
+    );
     assert.equal(
       (
         JSON.parse(
@@ -249,7 +253,7 @@ function startDaemon(root: string, userRoot: string): void {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
     if (runMaybe(root, userRoot, ["daemon", "status"]).status === 0) return;
   }
-  throw new Error(String(receipt.nextAction));
+  throw new Error(JSON.stringify(receipt));
 }
 function run(root: string, userRoot: string, args: readonly string[], actor?: string): Record<string, unknown> {
   const result = runMaybe(root, userRoot, args, actor);

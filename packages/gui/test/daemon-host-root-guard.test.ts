@@ -48,7 +48,6 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
       repoId: "gui-host-root",
     })) as Failure;
     assert.equal(refusal.error?.code, "daemon_unavailable", JSON.stringify(refusal));
-    assert.match(refusal.error?.hint ?? "", /GUI is attach-only/u);
     assert.equal(readDaemonPid(userRoot, daemonId), null, "the worktree must not claim the daemon slot");
     context.diagnostic(
       `operator-started canonical pid=${canonicalPid}; worktree reused it; post-stop refusal=${refusal.error?.code}`,
@@ -64,7 +63,7 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
 });
 
 interface Failure {
-  readonly error?: { readonly code: string; readonly hint: string };
+  readonly error?: { readonly code: string };
 }
 
 function resident(daemon: Awaited<ReturnType<typeof startDaemon>>): RunningDaemon {

@@ -183,6 +183,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
         outcome: "pending",
         ...common,
         ...identity,
+        guidance: [{ kind: "retry-receipt", args: { opId: event.opId } }],
       };
 }
 

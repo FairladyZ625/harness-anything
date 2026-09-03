@@ -1,3 +1,4 @@
+import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinCapabilities } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 import { existsSync, readFileSync } from "node:fs";
@@ -76,7 +77,7 @@ export async function taskCreateHelpCatalog(argv: readonly string[]): Promise<
   }
 }
 
-export function cliFailure(command: string, code: string, expectation: string): Record<string, unknown> {
+export function cliFailure(command: string, code: string, expectation: string): JsonObject {
   return {
     schema: "command-receipt/v2",
     ok: false,

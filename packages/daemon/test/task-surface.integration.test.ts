@@ -242,8 +242,6 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     );
     assert.equal(submittedProgress.outcome, "op_rejected");
     assert.equal(submittedProgress.code, "progress_lease_required");
-    assert.match(String(submittedProgress.nextAction), /progress append has no recovery in this state/u);
-    assert.doesNotMatch(String(submittedProgress.nextAction), /ha task start/u);
     const submittedRestart = await cell.run(
       {
         kind: "task-start",

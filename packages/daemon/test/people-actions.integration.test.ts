@@ -56,7 +56,6 @@ test("People Action commands are the canonical write surface for people.yaml", a
     );
     assert.equal(malformedBinding.outcome, "op_rejected");
     assert.equal(malformedBinding.code, "invalid_people_action");
-    assert.match(malformedBinding.nextAction ?? "", /RoleBinding target must be an EntityRef/u);
     const ownerPromotion = await cell.run(
       {
         kind: "people-set-role",
@@ -68,7 +67,6 @@ test("People Action commands are the canonical write surface for people.yaml", a
     );
     assert.equal(ownerPromotion.outcome, "op_rejected");
     assert.equal(ownerPromotion.code, "invalid_people_action");
-    assert.match(ownerPromotion.nextAction ?? "", /owner role is reserved for the bootstrap creator/u);
     const roleChanged = await cell.run(
       {
         kind: "people-set-role",
@@ -146,12 +144,10 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
     );
     assert.equal(ownerPolicyChanged.outcome, "op_rejected");
     assert.equal(ownerPolicyChanged.code, "invalid_people_action");
-    assert.match(ownerPolicyChanged.nextAction ?? "", /owner role must retain the admin command class/u);
 
     const ownerRemoval = await cell.run({ kind: "people-remove", personId: "person_zeyu" }, binding);
     assert.equal(ownerRemoval.outcome, "op_rejected");
     assert.equal(ownerRemoval.code, "invalid_people_action");
-    assert.match(ownerRemoval.nextAction ?? "", /bootstrap creator person_zeyu cannot be removed/u);
 
     const ownerDowngrade = await cell.run(
       {
@@ -164,7 +160,6 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
     );
     assert.equal(ownerDowngrade.outcome, "op_rejected");
     assert.equal(ownerDowngrade.code, "invalid_people_action");
-    assert.match(ownerDowngrade.nextAction ?? "", /must retain the owner role/u);
     assert.equal(
       makeTaskEventStore({ repoId: "people-invariants", rootDir: root })
         .read()
@@ -215,7 +210,6 @@ test("People Action commands cannot remove the last enabled admin", async () => 
     );
     assert.equal(removed.outcome, "op_rejected");
     assert.equal(removed.code, "invalid_people_action");
-    assert.match(removed.nextAction ?? "", /at least one enabled person with admin authority/u);
     assert.equal(
       makeTaskEventStore({ repoId: "people-last-admin", rootDir: root })
         .read()
@@ -317,7 +311,6 @@ test("People Action commands hydrate closed from-file packets inside the workspa
     const rejected = await cell.run({ kind: "people-remove", fromFile: "people-invalid.json" }, binding);
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "invalid_command");
-    assert.match(rejected.nextAction ?? "", /unsupported people input fields/u);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

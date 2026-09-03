@@ -107,10 +107,8 @@ test("registered checkout autostarts the daemon while its worktree only connects
       env: cliEnv(worktree, fixture.userRoot),
     });
     assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
-    const refusal = JSON.parse(refused.stdout) as { error?: { code?: string; hint?: string } };
+    const refusal = JSON.parse(refused.stdout) as { error?: { code?: string } };
     assert.equal(refusal.error?.code, "daemon_start_noncanonical_checkout");
-    assert.match(refusal.error?.hint ?? "", /A worktree may connect to an existing daemon but cannot host it/u);
-    assert.match(refusal.error?.hint ?? "", new RegExp(escapeRegExp(fixture.root), "u"));
     assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "the refused worktree must not claim the daemon");
 
     // The daemon is gone; a repository command from the registered checkout must bring it back and answer.
@@ -193,11 +191,8 @@ test("task-bound runtime identity cannot autostart the shared daemon", (context)
       env: workerEnv,
     });
     assert.notEqual(denied.status, 0, `${denied.stderr}\n${denied.stdout}`);
-    const refusal = JSON.parse(denied.stdout) as {
-      readonly error?: { readonly code?: string; readonly hint?: string };
-    };
+    const refusal = JSON.parse(denied.stdout) as { readonly error?: { readonly code?: string } };
     assert.equal(refusal.error?.code, "daemon_start_runtime_forbidden");
-    assert.match(String(refusal.error?.hint), /operator shell/u);
     assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "a runtime caller must not claim the daemon slot");
 
     const explicitStart = spawnSync(
@@ -922,11 +917,9 @@ test(
         env: cliEnv(fixture.root, fixture.userRoot),
       });
       assert.notEqual(result.status, 0);
-      const receipt = JSON.parse(result.stdout) as { ok: boolean; error: { code: string; hint: string } };
+      const receipt = JSON.parse(result.stdout) as { ok: boolean; error: { code: string } };
       assert.equal(receipt.ok, false);
       assert.equal(receipt.error.code, "daemon_spawn_permission");
-      assert.match(receipt.error.hint, /permission was denied/u);
-      assert.match(receipt.error.hint, /daemon serve/u);
       assert.equal(
         readDaemonPid(fixture.userRoot, "default"),
         null,

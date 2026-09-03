@@ -359,6 +359,10 @@ function runChild(fixture: Awaited<ReturnType<typeof scaleFixture>>, port: numbe
       path: client.path,
       bodyFile,
       retry: true,
+      // Keep the aggregate retry budget near four minutes while allowing one loaded-runner
+      // transport turn the same 30-second window used by the other Fleet integration fixtures.
+      timeoutMs: 30_000,
+      maxAttempts: 8,
       label: client.label,
       writeBarrier: true,
     }),

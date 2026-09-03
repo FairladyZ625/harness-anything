@@ -316,7 +316,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         });
       assert.equal(receipt.outcome, "op_rejected");
       assert.equal(receipt.code, "runtime_mission_invalid");
-      assert.match(String(receipt.nextAction), /tools\/test-tier-manifest\.\*\.mjs/u);
       assert.equal(launchCount, before);
     });
     await t.test("task mission rejects a missing Node entry before provider launch", async () => {
@@ -336,7 +335,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         });
       assert.equal(receipt.outcome, "op_rejected");
       assert.equal(receipt.code, "runtime_mission_invalid");
-      assert.match(String(receipt.nextAction), /tools\/missing-entry\.mjs/u);
       assert.equal(launchCount, before);
     });
     await t.test("payload-reported executor remains rejected", async () => {
@@ -358,7 +356,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       });
       assert.equal(receipt.outcome, "op_rejected");
       assert.equal(receipt.code, "executor_binding_invalid");
-      assert.match(String(receipt.nextAction), /runtime-session:<runtime-id>/u);
     });
     await t.test("task-bound runtime without a lease starts and dispatches in one command", async () => {
       const taskId = "task-runtime-no-lease";
@@ -746,10 +743,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         const crossTaskDoc = await host.run(repoId, { kind: "doc-submit", paths: [otherPath], executor: worker }, auth);
         assert.equal(crossTaskDoc.outcome, "op_rejected");
         assert.equal(crossTaskDoc.code, "lease_conflict");
-        assert.match(
-          crossTaskDoc.nextAction ?? "",
-          /no live execution lease covers tasks\/task-runtime-artifact-other-runtime-artifact-other\/artifacts\/reports\/cross-task-doc-sync\.md for this runtime session; submit through the lease-brokered task command for a bound execution, or have the dispatcher re-dispatch \(a non-runtime principal may rerun ha doc sync --submit through the repository prose channel\)/u,
-        );
         const closeoutPath = "tasks/task-runtime-artifact-runtime-artifact/closeout.md",
           closeoutTarget = path.join(root, "harness", closeoutPath),
           closeoutBody = readFileSync(closeoutTarget, "utf8");

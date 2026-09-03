@@ -365,12 +365,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     )) as Record<string, unknown>;
     assert.equal(bite.outcome, "op_rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
-    assert.match(String(bite.nextAction), /lapsed at 2026-08-15T02:01:00\.000Z/u, JSON.stringify(bite));
-    assert.match(
-      String(bite.nextAction),
-      /ha task release task_lease, then re-enter the round with ha task start task_lease --execution-id exe_lapse/u,
-      JSON.stringify(bite),
-    );
+    assert.deepEqual(bite.diagnostic, { kind: "failure", code: "progress_lease_required" });
     const outsider = {
       actor: {
         principal: { personId: "person-outsider" },

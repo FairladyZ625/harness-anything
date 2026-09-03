@@ -332,10 +332,6 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
     const dirty = await cell.run({ kind: "migrate-import", sourceRoots: [source] }, { actor, source: "local" });
     assert.equal(dirty.outcome, "op_rejected");
     assert.equal(dirty.code, "invalid_migration_source_git");
-    assert.match(
-      String(dirty.nextAction),
-      /not the committed authored Git snapshot.*Commit or discard every tracked and untracked authored change/u,
-    );
     assert.equal(
       makeTaskEventReader({
         repoId: "migration-git-validation",
@@ -348,13 +344,11 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
     const rejected = await cell.run({ kind: "migrate-import", sourceRoots: [shallow] }, { actor, source: "local" });
     assert.equal(rejected.outcome, "op_rejected");
     assert.equal(rejected.code, "invalid_migration_source_git");
-    assert.match(String(rejected.nextAction), /shallow authored Git repository.*Fetch complete history/u);
     const unrelatedRoot = git(source, "commit-tree", git(source, "rev-parse", "HEAD^{tree}"), "-m", "unrelated root");
     git(source, "merge", "-q", "--allow-unrelated-histories", unrelatedRoot, "-m", "merge unrelated root");
     const split = await cell.run({ kind: "migrate-import", sourceRoots: [source] }, { actor, source: "local" });
     assert.equal(split.outcome, "op_rejected");
     assert.equal(split.code, "invalid_migration_source_git");
-    assert.match(String(split.nextAction), /2 authored Git root commits.*split unrelated histories/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -387,10 +381,6 @@ test("multi-source dry-run fails closed instead of hiding later-source conflicts
     );
     assert.equal(result.outcome, "op_rejected");
     assert.equal(result.code, "multi_source_dry_run_requires_staging");
-    assert.match(
-      String(result.nextAction),
-      /cannot truthfully predict later-source document and id conflicts.*disposable initialized center/u,
-    );
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });

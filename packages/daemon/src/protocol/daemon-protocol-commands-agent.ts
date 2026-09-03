@@ -113,17 +113,10 @@ export const agentProtocolCommands = Object.freeze([
         true,
         {
           code: "missing_field",
-          nextAction: "Add each legacy Squad declaration with --source <repo-relative-json>.",
         },
         { field: "sourcePaths" },
       ),
-      cliInput(
-        "--dry-run",
-        "boolean",
-        false,
-        { code: "invalid_field", nextAction: "Use --dry-run once." },
-        { field: "dryRun" },
-      ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
   defineRuntimeLocalWriteCommand({

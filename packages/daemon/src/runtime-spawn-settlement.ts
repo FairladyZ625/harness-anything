@@ -309,6 +309,7 @@ export function applied(
     : {
         ...base,
         outcome: "pending" as const,
+        guidance: [{ kind: "retry-receipt", args: { opId: event.opId } }],
       };
 }
 
@@ -329,6 +330,7 @@ export function controlReceipt(
       evidence: `runtime-cancel:${detail}:${runtimeSessionId}`,
       visibility: "center" as const,
       detail,
+      ...(detail === "cancelled" ? {} : { guidance: [{ kind: "retry-receipt", args: { opId } }] }),
     };
   const store = context.requiredRuntimeStore(context.input),
     published = store.readEvent(opId),
@@ -358,5 +360,6 @@ export function controlReceipt(
     : {
         ...base,
         outcome: "pending" as const,
+        guidance: [{ kind: "retry-receipt", args: { opId } }],
       };
 }

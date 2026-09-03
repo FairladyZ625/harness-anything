@@ -149,7 +149,7 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
         binding,
       );
       assert.equal(trackedEdit.code, "artifact_tracked_edit");
-      assert.match(trackedEdit.nextAction ?? "", /ha doc sync --submit --path/u);
+      assert.deepEqual(trackedEdit.diagnostic, { kind: "failure", code: "artifact_tracked_edit" });
       const trackedSource = await artifactCell.run(
         {
           kind: "task-artifact-add",
@@ -233,7 +233,7 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
     assert.equal(unknown.outcome, "indeterminate");
     assert.equal(unknown.code, "publication_indeterminate");
     assert.match(unknown.opId, /^op_/u);
-    assert.match(unknown.nextAction ?? "", new RegExp(`receipt show ${unknown.opId}`, "u"));
+    assert.deepEqual(unknown.guidance, [{ kind: "retry-receipt", args: { opId: unknown.opId } }]);
     assert.equal(
       makeTaskEventReader({ repoId: "artifact-unknown", rootDir }).read().revision,
       revisionBeforeArtifact + 1,

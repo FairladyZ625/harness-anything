@@ -125,18 +125,24 @@ test("daemon-missing preset run rejects promptly without child or direct fallbac
   }
 });
 
-test("GUI launch reports a missing Electron binary with a next action", async () => {
+test("GUI launch reports a missing Electron binary with a structured diagnostic", async () => {
   const fixture = makeGuiFixture(false);
   try {
     const output = await captureGuiOutput(() =>
       runGuiLaunch(["gui", "--json"], { workspaceRoot: fixture.root, resolveElectronBinary: () => undefined }, emit),
     );
-    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
+    const receipt = JSON.parse(output.stdout) as {
+      ok: boolean;
+      code: string;
+      error: { code: string };
+      diagnostic: { kind: string; expectation: string };
+    };
     assert.equal(output.status, 1);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "electron_unavailable");
     assert.equal(receipt.error.code, "electron_unavailable");
-    assert.match(receipt.error.hint, /electron\/install\.js/u);
+    assert.equal(receipt.diagnostic.kind, "validation");
+    assert.match(receipt.diagnostic.expectation, /electron\/install\.js/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -161,12 +167,18 @@ test("GUI launch reports a renderer build failure before daemon acquisition", as
         emit,
       ),
     );
-    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
+    const receipt = JSON.parse(output.stdout) as {
+      ok: boolean;
+      code: string;
+      error: { code: string };
+      diagnostic: { kind: string; expectation: string };
+    };
     assert.equal(output.status, 1);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_build_failed");
     assert.equal(receipt.error.code, "gui_build_failed");
-    assert.match(receipt.error.hint, /fixture renderer build failed/u);
+    assert.equal(receipt.diagnostic.kind, "validation");
+    assert.match(receipt.diagnostic.expectation, /fixture renderer build failed/u);
     assert.equal(daemonAcquisitions, 0, "a broken GUI build must not start the daemon");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -225,11 +237,17 @@ test("GUI launch refuses prepared output whose preload bundle is missing", async
         emit,
       ),
     );
-    const receipt = JSON.parse(output.stdout) as { ok: boolean; code: string; error: { code: string; hint: string } };
+    const receipt = JSON.parse(output.stdout) as {
+      ok: boolean;
+      code: string;
+      error: { code: string };
+      diagnostic: { kind: string; expectation: string };
+    };
     assert.equal(output.status, 1);
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_build_failed");
-    assert.match(receipt.error.hint, /dist-electron\/electron-preload\.cjs/u);
+    assert.equal(receipt.diagnostic.kind, "validation");
+    assert.match(receipt.diagnostic.expectation, /dist-electron\/electron-preload\.cjs/u);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -363,10 +381,16 @@ test("GUI launch does not spawn Electron when CLI daemon acquisition is refused"
         emit,
       ),
     );
-    const receipt = JSON.parse(output.stdout) as { code: string; error: { hint: string } };
+    const receipt = JSON.parse(output.stdout) as {
+      code: string;
+      error: { code: string };
+      diagnostic: { kind: string; expectation: string };
+    };
     assert.equal(output.status, 1);
     assert.equal(receipt.code, "daemon_start_noncanonical_checkout");
-    assert.match(receipt.error.hint, /fixture canonical-only refusal/u);
+    assert.equal(receipt.error.code, "daemon_start_noncanonical_checkout");
+    assert.equal(receipt.diagnostic.kind, "validation");
+    assert.match(receipt.diagnostic.expectation, /fixture canonical-only refusal/u);
     assert.equal(electronSpawns, 0);
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });

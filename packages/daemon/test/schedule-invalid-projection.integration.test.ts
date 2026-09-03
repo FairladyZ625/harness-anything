@@ -85,7 +85,6 @@ test("a canonical Schedule row missing a newly required field stays readable and
     );
     assert.equal(stillInvalid.outcome, "op_rejected");
     assert.equal(stillInvalid.code, "invalid_store");
-    assert.match(String(stillInvalid.nextAction), /missing required field "mode"/u);
 
     const invalidMode = await cell.run(
       {

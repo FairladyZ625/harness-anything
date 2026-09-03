@@ -176,7 +176,7 @@ test("relation_created history in the pre-derived-strength shape cold-rebuilds o
 
     const repeat = (await cell.run({ kind: "relation-events-migrate" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "pending");
-    assert.match(String(repeat.nextAction), /Nothing to migrate/u);
+    assert.equal((JSON.parse(String(repeat.evidence)) as { rewrittenEvents: number }).rewrittenEvents, 0);
   } finally {
     await cell?.close?.();
     rmSync(scratch, { recursive: true, force: true });
@@ -408,7 +408,6 @@ test("dispatch records recover full sessions, settle tails, and release only the
     );
     assert.equal(noDispatchProof.outcome, "op_rejected", JSON.stringify(noDispatchProof));
     assert.equal(noDispatchProof.code, "invalid_proof");
-    assert.match(String(noDispatchProof.nextAction), /no recorded runtime dispatch/u);
 
     const preview = (await cell.run({ kind: "dispatch-records-migrate", dryRun: true }, binding)) as Record<
       string,
