@@ -66,7 +66,15 @@ export interface DaemonLifecycleLog {
 }
 export type DaemonLifecycleRecorder = DaemonLifecycleLog["record"];
 
+// Two sinks, two files, one record shape each. The structured lifecycle JSONL and the
+// daemon child's raw stdout/stderr used to interleave line by line into a single inode,
+// which left the JSONL unreadable by every JSONL reader in the system.
 export function daemonLifecycleLogPath(userRoot: string, daemonId: string): string {
+  return path.join(userRoot, "logs", `daemon-${safeLifecycleRuntimeId(daemonId)}-lifecycle.jsonl`);
+}
+
+/** Raw stdout/stderr of the spawned daemon process; free-form text, never parsed as JSONL. */
+export function daemonStdioLogPath(userRoot: string, daemonId: string): string {
   return path.join(userRoot, "logs", `daemon-${safeLifecycleRuntimeId(daemonId)}.log`);
 }
 
@@ -111,6 +119,9 @@ export function openDaemonLifecycleLog(input: {
 
 // The launcher rotates before opening the fd. The child then owns that inode for its
 // whole lifetime, so a mid-run rename can never strand fatal stderr in an old file.
+// Since the stdio file is no longer the lifecycle file, the recorder's own rotation can
+// no longer rename the inode out from under the child either: the two sinks rotate
+// independently, so the invariant now holds without depending on write ordering.
 export function openDaemonOutputFd(logPath: string, maxBytes = defaultMaxBytes, keptFiles = defaultKeptFiles): number {
   mkdirSync(path.dirname(logPath), { recursive: true });
   rotateLifecycleLog(logPath, maxBytes, keptFiles);

@@ -5,10 +5,20 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
-import { daemonLifecycleLogPath, openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
+import {
+  daemonLifecycleLogPath,
+  daemonStdioLogPath,
+  openDaemonLifecycleLog,
+  readDaemonLifecycleRecords,
+} from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { daemonRequestLogPath, openDaemonRequestLog, type DaemonRequestLogEntry, type DaemonRequestLogRecord } from "../src/request-log.ts";
+import {
+  daemonRequestLogPath,
+  openDaemonRequestLog,
+  type DaemonRequestLogEntry,
+  type DaemonRequestLogRecord,
+} from "../src/request-log.ts";
 
 function tempRoot(): string {
   return mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));
@@ -17,28 +27,69 @@ function tempRoot(): string {
 function stubHost(rootDir: string): DaemonHost {
   return {
     run: async () => ({ outcome: "applied" as const, opId: "op_test_0001", revision: 7 }),
-    status: () => ({ daemonId: "test-daemon", pid: 1, repos: [{ repoId: "logged", rootDir, state: "attached" as const, generation: 1, queueDepth: 0, lastError: null, recoveryMs: 0 }] })
+    status: () => ({
+      daemonId: "test-daemon",
+      pid: 1,
+      repos: [
+        {
+          repoId: "logged",
+          rootDir,
+          state: "attached" as const,
+          generation: 1,
+          queueDepth: 0,
+          lastError: null,
+          recoveryMs: 0,
+        },
+      ],
+    }),
   } as unknown as DaemonHost;
 }
 
 async function handshake(server: ReturnType<typeof createJsonRpcProtocolServer>): Promise<void> {
-  await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "protocol.hello",
+    params: { protocolVersion: currentDaemonProtocolVersion },
+  });
 }
 
 function readRecords(rootDir: string): readonly DaemonRequestLogRecord[] {
-  return readFileSync(daemonRequestLogPath(rootDir), "utf8").split("\n").filter((line) => line.length > 0)
+  return readFileSync(daemonRequestLogPath(rootDir), "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as DaemonRequestLogRecord);
 }
 
 function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)) {
-  const log = openDaemonRequestLog({ resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir });
-  return createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" } }, emit: async () => undefined, recordRequest: log.record });
+  const log = openDaemonRequestLog({
+    resolveRootDir: (repoId) => host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
+  });
+  return createJsonRpcProtocolServer({
+    host,
+    build: { commit: null },
+    authContext: {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
+    },
+    emit: async () => undefined,
+    recordRequest: log.record,
+  });
 }
 
 test("a repo-scoped read request is recorded in the repository local root", async () => {
-  const rootDir = tempRoot(), server = openServerWithLog(rootDir);
+  const rootDir = tempRoot(),
+    server = openServerWithLog(rootDir);
   await handshake(server);
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+    },
+  });
   server.close();
 
   const records = readRecords(rootDir);
@@ -63,20 +114,39 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async () => {
-  const rootDir = tempRoot(), server = openServerWithLog(rootDir);
+  const rootDir = tempRoot(),
+    server = openServerWithLog(rootDir);
   await handshake(server);
   // The CLI puts the declared executor inside payload.action for repo.task.read; that is the shape
   // the daemon attributes from, so it is the shape the log has to read.
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", executor: { kind: "agent", id: "codex-worker" } } } } });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: {
+        action: {
+          kind: "task-show",
+          taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          executor: { kind: "agent", id: "codex-worker" },
+        },
+      },
+    },
+  });
   server.close();
 
   assert.deepEqual(readRecords(rootDir)[0].executor, { kind: "agent", id: "codex-worker" });
 });
 
 test("requests from one connection share a connection id", async () => {
-  const rootDir = tempRoot(), server = openServerWithLog(rootDir);
+  const rootDir = tempRoot(),
+    server = openServerWithLog(rootDir);
   await handshake(server);
-  const payload = { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } };
+  const payload = {
+    repo: { repoId: "logged" },
+    payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+  };
   await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: payload });
   await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.task.read", params: payload });
   server.close();
@@ -88,11 +158,28 @@ test("requests from one connection share a connection id", async () => {
 });
 
 test("a rejected request is recorded with its error code", async () => {
-  const rootDir = tempRoot(), host = stubHost(rootDir);
-  const rejecting = { ...host, run: async () => ({ outcome: "op_rejected" as const, opId: "rejected:task-show", code: "repo_unavailable", nextAction: "Attach the repository." }) } as unknown as DaemonHost;
+  const rootDir = tempRoot(),
+    host = stubHost(rootDir);
+  const rejecting = {
+    ...host,
+    run: async () => ({
+      outcome: "op_rejected" as const,
+      opId: "rejected:task-show",
+      code: "repo_unavailable",
+      nextAction: "Attach the repository.",
+    }),
+  } as unknown as DaemonHost;
   const server = openServerWithLog(rootDir, rejecting);
   await handshake(server);
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.read", params: { repo: { repoId: "logged" }, payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } } } });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+    },
+  });
   server.close();
 
   const records = readRecords(rootDir);
@@ -103,7 +190,8 @@ test("a rejected request is recorded with its error code", async () => {
 });
 
 test("a request that binds no repository is not recorded", async () => {
-  const rootDir = tempRoot(), server = openServerWithLog(rootDir);
+  const rootDir = tempRoot(),
+    server = openServerWithLog(rootDir);
   await handshake(server);
   await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} });
   server.close();
@@ -117,7 +205,8 @@ test("rotation holds the log to a bounded number of files", () => {
   const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512, keptFiles: 2 });
   for (let index = 0; index < 400; index += 1) log.record(entry({ opId: `op_${index}` }));
 
-  const logDir = path.dirname(daemonRequestLogPath(rootDir)), files = readdirSync(logDir).sort();
+  const logDir = path.dirname(daemonRequestLogPath(rootDir)),
+    files = readdirSync(logDir).sort();
   assert.deepEqual(files, ["requests.jsonl", "requests.jsonl.1", "requests.jsonl.2"]);
   // The ceiling is the point: without it an always-on request log is an unbounded disk write.
   for (const file of files) assert.ok(readFileSync(path.join(logDir, file), "utf8").length < 512 + 1024);
@@ -134,25 +223,72 @@ test("a sink that cannot write neither throws nor keeps reporting", () => {
   const failures: unknown[] = [];
   const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, onFailure: (error) => failures.push(error) });
 
-  assert.doesNotThrow(() => { log.record(entry({})); log.record(entry({})); log.record(entry({})); });
+  assert.doesNotThrow(() => {
+    log.record(entry({}));
+    log.record(entry({}));
+    log.record(entry({}));
+  });
   // Reported once, then silent: an observability sink must not become a log spammer either.
   assert.equal(failures.length, 1);
 });
 
 test("daemon lifecycle records are structured and roll before an unbounded next generation", () => {
-  const userRoot = tempRoot(), logPath = daemonLifecycleLogPath(userRoot, "availability"); mkdirSync(path.dirname(logPath), { recursive: true });
-  for (let generation = 0; generation < 3; generation += 1) { writeFileSync(logPath, `${"x".repeat(600)}\n`, "utf8"); openDaemonLifecycleLog({ userRoot, daemonId: "availability", maxBytes: 512, keptFiles: 2,
-    now: () => new Date("2026-08-19T00:00:00.000Z") }).record({ event: "repo_attach_completed", repoId: `repo-${generation}`, durationMs: generation, attachIndex: generation + 1, attachTotal: 3 }); }
-  const records = readDaemonLifecycleRecords(userRoot, "availability"), latest = records.at(-1)!;
-  assert.equal(latest.schema, "daemon-lifecycle/v1"); assert.equal(latest.daemonId, "availability"); assert.equal(latest.event, "repo_attach_completed");
-  assert.equal(latest.repoId, "repo-2"); assert.equal(latest.durationMs, 2); assert.equal(latest.at, "2026-08-19T00:00:00.000Z");
-  assert.deepEqual(readdirSync(path.dirname(daemonLifecycleLogPath(userRoot, "availability"))).sort(), ["daemon-availability.log", "daemon-availability.log.1", "daemon-availability.log.2"]);
+  const userRoot = tempRoot(),
+    logPath = daemonLifecycleLogPath(userRoot, "availability");
+  mkdirSync(path.dirname(logPath), { recursive: true });
+  for (let generation = 0; generation < 3; generation += 1) {
+    writeFileSync(logPath, `${"x".repeat(600)}\n`, "utf8");
+    openDaemonLifecycleLog({
+      userRoot,
+      daemonId: "availability",
+      maxBytes: 512,
+      keptFiles: 2,
+      now: () => new Date("2026-08-19T00:00:00.000Z"),
+    }).record({
+      event: "repo_attach_completed",
+      repoId: `repo-${generation}`,
+      durationMs: generation,
+      attachIndex: generation + 1,
+      attachTotal: 3,
+    });
+  }
+  const records = readDaemonLifecycleRecords(userRoot, "availability"),
+    latest = records.at(-1)!;
+  assert.equal(latest.schema, "daemon-lifecycle/v1");
+  assert.equal(latest.daemonId, "availability");
+  assert.equal(latest.event, "repo_attach_completed");
+  assert.equal(latest.repoId, "repo-2");
+  assert.equal(latest.durationMs, 2);
+  assert.equal(latest.at, "2026-08-19T00:00:00.000Z");
+  assert.deepEqual(readdirSync(path.dirname(daemonLifecycleLogPath(userRoot, "availability"))).sort(), [
+    "daemon-availability-lifecycle.jsonl",
+    "daemon-availability-lifecycle.jsonl.1",
+    "daemon-availability-lifecycle.jsonl.2",
+  ]);
+});
+
+// The mixed-write defect: structured records and the child's raw stdio shared one inode, so the
+// JSONL sink held lines no JSONL reader can parse. The sinks must never resolve to one path.
+test("the structured lifecycle sink and the daemon stdio sink are separate files", () => {
+  const userRoot = tempRoot();
+  assert.notEqual(daemonLifecycleLogPath(userRoot, "split"), daemonStdioLogPath(userRoot, "split"));
+  assert.equal(path.basename(daemonLifecycleLogPath(userRoot, "split")), "daemon-split-lifecycle.jsonl");
+  assert.equal(path.basename(daemonStdioLogPath(userRoot, "split")), "daemon-split.log");
 });
 
 function entry(overrides: Partial<DaemonRequestLogEntry>): DaemonRequestLogEntry {
   return {
-    method: "repo.task.read", repoId: "logged", command: "task-show",
-    connectionId: "connection-1", auth: { transportKind: "unix-socket" }, executor: null,
-    ok: true, outcome: "applied", code: null, opId: "op_test", durationMs: 1, ...overrides
+    method: "repo.task.read",
+    repoId: "logged",
+    command: "task-show",
+    connectionId: "connection-1",
+    auth: { transportKind: "unix-socket" },
+    executor: null,
+    ok: true,
+    outcome: "applied",
+    code: null,
+    opId: "op_test",
+    durationMs: 1,
+    ...overrides,
   };
 }

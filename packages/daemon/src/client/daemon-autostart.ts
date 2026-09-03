@@ -6,7 +6,7 @@ import {
   daemonSocketProbe,
   readDaemonSingletonLockPid,
 } from "../daemon-singleton.ts";
-import { daemonLifecycleLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
+import { daemonStdioLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 import { canonicalPath } from "../runtime-worker-push.ts";
 import { readRegisteredRepos } from "./local-daemon-target.ts";
@@ -183,9 +183,10 @@ export async function ensureLocalDaemonRunning(input: {
     }.`,
   };
 }
+/** Where a launched daemon's fatal stdout/stderr lands; the hint the user is told to inspect. */
 export function daemonLaunchOutputPath(launch: DaemonLaunchSpec): string | undefined {
   const target = daemonLaunchTarget(launch);
-  return target ? daemonLifecycleLogPath(target.userRoot, target.daemonId) : undefined;
+  return target ? daemonStdioLogPath(target.userRoot, target.daemonId) : undefined;
 }
 export function readDaemonStartProgress(launch: DaemonLaunchSpec, waitedMs: number): DaemonStartProgress | null {
   const target = daemonLaunchTarget(launch);
