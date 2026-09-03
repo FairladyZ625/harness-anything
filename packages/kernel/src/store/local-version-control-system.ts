@@ -653,7 +653,10 @@ function sweepStaleSettlementMarkers(directory: string): void {
     removeNode(path.join(directory, name));
   }
 }
-/** Only ESRCH proves the owner is gone; EPERM or any other probe failure keeps the marker (fail-safe toward not deleting). */
+/**
+ * Only ESRCH proves the owner is gone; EPERM or any other probe failure keeps the
+ * marker (fail-safe toward not deleting).
+ */
 function processMayBeAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
