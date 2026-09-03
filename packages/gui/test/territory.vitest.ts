@@ -17,7 +17,7 @@ import {
   decisionPassesStateFilter,
 } from "../src/renderer/graph/entityStatusFilter.ts";
 import { isTaskArchiveNoise } from "../src/renderer/model/taskFilters.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
   return {
@@ -35,7 +35,7 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
-    ...taskProjectionFields(overrides.coordinationStatus ?? "active", {
+    ...projectedTaskFields(overrides.coordinationStatus ?? "active", {
       archived: (overrides.packageDisposition ?? "active") !== "active",
     }),
     ...overrides,

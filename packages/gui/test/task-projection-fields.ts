@@ -44,7 +44,7 @@ const PHASE_OF: Record<SnapshotStatus, { readonly index: number; readonly reason
   unknown: { index: null, reason: "phase_unresolved" },
 };
 
-export function taskProjectionFields(
+export function projectedTaskFields(
   status: SnapshotStatus,
   options: {
     readonly archived?: boolean;

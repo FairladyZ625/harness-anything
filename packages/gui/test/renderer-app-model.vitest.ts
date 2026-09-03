@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
 import { taskCan } from "../src/renderer/model/types.ts";
-import { taskProjectionFields } from "./task-projection-fields.ts";
+import { projectedTaskFields } from "./task-projection-fields.ts";
 import { rendererCapabilityModel, rendererNavigation } from "../src/renderer/app-model.ts";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import { PhaseSteps } from "../src/renderer/components/taskDetail/PhaseSteps.tsx";
@@ -262,11 +262,11 @@ describe("renderer app model", () => {
       lastKnownAt: "2026-08-14T00:00:00.000Z",
       gates: [],
       docs: [],
-      ...taskProjectionFields("planned", { can: ["start"] }),
+      ...projectedTaskFields("planned", { can: ["start"] }),
     };
     expect(taskCan(planned, "start")).toBe(true);
-    expect(taskCan({ ...planned, ...taskProjectionFields("blocked") }, "start")).toBe(false);
-    expect(taskCan({ ...planned, ...taskProjectionFields("active") }, "start")).toBe(false);
+    expect(taskCan({ ...planned, ...projectedTaskFields("blocked") }, "start")).toBe(false);
+    expect(taskCan({ ...planned, ...projectedTaskFields("active") }, "start")).toBe(false);
   });
 
   it("renders an explicit empty state when the triadic ledger has no entities", () => {
@@ -311,7 +311,7 @@ describe("renderer app model", () => {
         lastKnownAt: "2026-08-13T00:00:00.000Z",
         gates: [],
         docs: [],
-        ...taskProjectionFields("active", { can: ["progress", "submit"] }),
+        ...projectedTaskFields("active", { can: ["progress", "submit"] }),
       };
       const markup = renderToStaticMarkup(
         createElement(
@@ -349,7 +349,7 @@ describe("renderer app model", () => {
       activeExecutionId: "execution-gui-1",
       gates: [],
       docs: [],
-      ...taskProjectionFields("active", { can: ["progress", "submit"] }),
+      ...projectedTaskFields("active", { can: ["progress", "submit"] }),
     };
     const activeMarkup = renderToStaticMarkup(
       createElement(

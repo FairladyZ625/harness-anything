@@ -137,7 +137,7 @@ interface TaskRowFields {
   risk: TaskSnapshotProjectionRow["risk"];
   /**
    * 阶段投影(kernel `taskPhase`):主路径 steps 与行所在的 index,偏离主路径时
-   * 给 reason 码(blocked_overlay / terminal_cancelled / phase_unresolved)。
+   * 给 reason 码(词表以 kernel `taskPhaseReasons` 为准)。
    * renderer 只把 reason 码翻成措辞,不再持有阶段流序。
    */
   phase: TaskSnapshotProjectionRow["phase"];
