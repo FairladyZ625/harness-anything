@@ -14,6 +14,7 @@ import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-ru
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import type {
   ScheduleExecutionAvailability,
+  ScheduleGuiAgentOptionDto,
   ScheduleGuiActionFacet,
   ScheduleGuiInvalidRowDto,
   ScheduleGuiListRowDto,
@@ -22,6 +23,7 @@ import type {
   ScheduleGuiTriggerDto,
   SchedulesListResult,
 } from "./protocol/schedules-gui-contract.ts";
+import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 
@@ -42,6 +44,7 @@ export interface SchedulesGuiReadContext {
       readonly id?: string;
       readonly value: unknown;
       readonly workspaceRevision: number;
+      readonly freshness?: "current" | "orphaned" | "unknown";
     }[];
     readonly readTaskStatuses: () => {
       readonly status: "ready" | "pending";
@@ -275,7 +278,9 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     now = context.now(),
     viewerNodeId = viewerNodeIdOf(mode, context.rootDir),
     roster = rosterOf(mode, context.rootDir, context.fleetRoster),
-    cut = context.projection.readTaskStatuses();
+    cut = context.projection.readTaskStatuses(),
+    agentOptions = scheduleAgentOptions(context),
+    agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent]));
   const schedules = context.projection
     .listEntities("schedule")
     .map((row): ScheduleGuiListRowDto => {
@@ -292,7 +297,21 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
           activeNodeId: schedule.status.activeRun?.nodeId ?? null,
           now,
         }),
-        assignment = scheduleAssignmentOf(roster, context.input.repoId, schedule.scheduleId, now);
+        assignment = scheduleAssignmentOf(roster, context.input.repoId, schedule.scheduleId, now),
+        targetProjection =
+          schedule.spec.target.kind === "agent"
+            ? scheduleTargetProjection(schedule.spec.target.agentId, agentsById.get(schedule.spec.target.agentId))
+            : null,
+        runNow = runNowFacet({
+          mode,
+          state: schedule.state,
+          availability,
+          active: schedule.status.activeRun
+            ? { occurrenceId: schedule.status.activeRun.occurrenceId, nodeId: schedule.status.activeRun.nodeId }
+            : null,
+          claimNodeId: assignment?.nodeId ?? null,
+          targetKind: schedule.spec.target.kind,
+        });
       return {
         scheduleId: schedule.scheduleId,
         name: schedule.name,
@@ -313,6 +332,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
                 cwd: schedule.spec.target.cwd ?? null,
               }
             : { kind: "squad", squadId: schedule.spec.target.squadId },
+        ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
         mission: schedule.spec.mission,
         executionAvailability: availability,
         claim: active
@@ -326,16 +346,14 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
           delete: deleteFacet(mode, schedule.status.activeRun),
           enable: stateFacet("schedule-enable", mode, schedule.state),
           disable: stateFacet("schedule-disable", mode, schedule.state),
-          runNow: runNowFacet({
-            mode,
-            state: schedule.state,
-            availability,
-            active: schedule.status.activeRun
-              ? { occurrenceId: schedule.status.activeRun.occurrenceId, nodeId: schedule.status.activeRun.nodeId }
-              : null,
-            claimNodeId: assignment?.nodeId ?? null,
-            targetKind: schedule.spec.target.kind,
-          }),
+          runNow:
+            targetProjection && runNow.available
+              ? {
+                  available: false,
+                  code: "schedule_target_unavailable",
+                  nextAction: targetProjection.error.hint,
+                }
+              : runNow,
         },
         activeRun: active,
         lastRun: lastRunDtoOf(schedule),
@@ -356,7 +374,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     repoMode: mode,
     viewerNodeId,
     actions: { create: admissionFacet("schedule-create", mode) },
-    options: scheduleOptions(context, schedules),
+    options: scheduleOptions(context, schedules, agentOptions),
     schedules,
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
@@ -366,12 +384,9 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
 function scheduleOptions(
   context: SchedulesGuiReadContext,
   schedules: readonly ScheduleGuiListRowDto[],
+  agents: readonly ScheduleGuiAgentOptionDto[],
 ): ScheduleGuiOptionsDto {
-  const agents = context.projection.listEntities("agent").map(({ value }) => {
-      const agent = parseAgentDeclarationV1(value);
-      return { agentId: agent.id, name: agent.name, runtimeType: agent.runtime_type };
-    }),
-    instances = (context.input.runtimeInstances?.() ?? [])
+  const instances = (context.input.runtimeInstances?.() ?? [])
       .filter(({ enabled }) => enabled)
       .map((instance) => ({
         instanceId: instance.instanceId,
@@ -390,10 +405,58 @@ function scheduleOptions(
     if (schedule.state !== "invalid" && schedule.target.kind === "agent" && schedule.target.cwd)
       cwd.add(schedule.target.cwd);
   return {
-    agents: agents.sort((left, right) => left.agentId.localeCompare(right.agentId)),
+    agents: [...agents].sort((left, right) => left.agentId.localeCompare(right.agentId)),
     instances: instances.sort((left, right) => left.instanceId.localeCompare(right.instanceId)),
     cwd: [...cwd].sort((left, right) => (left === "." ? -1 : right === "." ? 1 : left.localeCompare(right))),
   };
+}
+
+function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly ScheduleGuiAgentOptionDto[] {
+  return context.projection.listEntities("agent").map((row) => {
+    const agentId = row.id ?? projectedAgentId(row.value);
+    if (row.freshness === "orphaned")
+      return {
+        agentId,
+        state: "missing",
+        error: { code: "agent_not_found", hint: `${agentId} is not an installed agent.` },
+      };
+    if (row.freshness === "unknown")
+      return {
+        agentId,
+        state: "invalid",
+        error: { code: "invalid_entity_projection", hint: `Agent projection ${agentId} is not current.` },
+      };
+    try {
+      const agent = parseAgentDeclarationV1(row.value);
+      return { agentId: agent.id, name: agent.name, runtimeType: agent.runtime_type };
+    } catch (error) {
+      if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+      return {
+        agentId,
+        state: "invalid",
+        error: { code: "invalid_entity_contract", hint: error instanceof Error ? error.message : String(error) },
+      };
+    }
+  });
+}
+
+function projectedAgentId(value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return "unknown";
+  const id = (value as Readonly<Record<string, unknown>>).id;
+  return typeof id === "string" && id ? id : "unknown";
+}
+
+function scheduleTargetProjection(
+  agentId: string,
+  option: ScheduleGuiAgentOptionDto | undefined,
+): Extract<ScheduleGuiAgentOptionDto, { readonly state: "invalid" | "missing" }> | null {
+  if (option === undefined)
+    return {
+      agentId,
+      state: "missing",
+      error: { code: "agent_not_found", hint: `${agentId} is not an installed agent.` },
+    };
+  return isAvailableScheduleGuiAgentOption(option) ? null : option;
 }
 
 function invalidScheduleGuiRow(

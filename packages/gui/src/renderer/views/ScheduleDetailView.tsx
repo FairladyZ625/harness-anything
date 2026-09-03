@@ -5,7 +5,7 @@ import type {
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import type { SquadRunReadResult } from "../../../../daemon/src/squad-run-contract.ts";
+import { isAvailableSquadRunDetail, type SquadRunReadResult } from "../../../../daemon/src/squad-run-contract.ts";
 import {
   Badge,
   Btn,
@@ -60,6 +60,10 @@ const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], Mess
   "claimed-elsewhere": "schedules.availability.claimedElsewhere",
   unassigned: "schedules.availability.unassigned",
   "not-on-this-node": "schedules.availability.notOnThisNode",
+};
+const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
+  invalid: "agentRuntime.catalogInvalid",
+  missing: "agentRuntime.catalogMissing",
 };
 const OUTCOME_META: Record<string, MessageKey> = {
   succeeded: "schedules.outcome.succeeded",
@@ -276,6 +280,9 @@ export function ScheduleDetailView({
             <Chip tone="mono">
               {targetKind === "squad" ? t("schedules.executor.squad") : t("schedules.executor.agent")}
             </Chip>
+            {row.targetState !== undefined && row.targetError !== undefined && (
+              <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>
+            )}
           </div>
           <p className="font-mono ui-micro text-text-faint">
             {`schedule/${row.scheduleId}`} · {t("schedules.detail.rev", { rev: String(row.definitionRevision) })} ·{" "}
@@ -942,6 +949,16 @@ function ArtifactRow({
  * on occurrence rows today, so this placeholder names the read it is waiting for.
  */
 export function ScheduleSquadLanes({ run }: { readonly run: SquadRunReadResult["run"] }) {
+  if (!isAvailableSquadRunDetail(run))
+    return (
+      <div
+        data-testid="schedule-run-squad-lanes"
+        className="mt-2 flex items-center gap-2 rounded border border-border px-2.5 py-2"
+      >
+        <span className="font-mono ui-micro text-text-faint">{run.squadRunId}</span>
+        <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
+      </div>
+    );
   return (
     <div data-testid="schedule-run-squad-lanes" className="mt-2 rounded border border-border px-2.5 py-2">
       <b className="ui-meta">{t("schedules.run.squad.leaderTurns", { count: String(run.leaderTurns.length) })}</b>

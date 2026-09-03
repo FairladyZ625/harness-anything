@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { agentEntityClient } from "../agent-entity-client.ts";
+import { agentEntityClient, isAvailableAgentEntityRow, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { DispatchRequest, DispatchSubject } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
@@ -66,8 +66,10 @@ export function AgentSquadView({
     });
   const [dialog, setDialog] = useState<Dialog | null>(null),
     [inspector, setInspector] = useState(true);
-  const agents = workspace.agents.data ?? [],
-    squads = workspace.squads.data ?? [];
+  const agentRows = workspace.agents.data ?? [],
+    squadRows = workspace.squads.data ?? [],
+    agents = agentRows.filter(isAvailableAgentEntityRow),
+    squads = squadRows.filter(isAvailableSquadEntityRow);
   // 深链指向的实体可能已被删除(或仍在读取):存在才采用,否则回落首项 Agent、再
   // 回落首项 Squad——派生选择,不写回导航栈。
   const current: RuntimeSelection | null =
@@ -174,8 +176,8 @@ export function AgentSquadView({
         <b className="ui-body tracking-[0.02em]">{t("agentRuntime.agentsTitle")}</b>
         <span className="truncate font-mono ui-micro text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
         <span className="flex-1" />
-        <Badge>{t("agentRuntime.agentCount", { count: agents.length })}</Badge>
-        <Badge>{t("agentRuntime.squadCount", { count: squads.length })}</Badge>
+        <Badge>{t("agentRuntime.agentCount", { count: agentRows.length })}</Badge>
+        <Badge>{t("agentRuntime.squadCount", { count: squadRows.length })}</Badge>
         <Btn size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>
           ▐
         </Btn>
@@ -203,8 +205,8 @@ export function AgentSquadView({
       )}
       <div className="flex min-h-0 flex-1">
         <IdentityRail
-          agents={agents}
-          squads={squads}
+          agents={agentRows}
+          squads={squadRows}
           selection={current}
           onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
           onNew={(segment) => setDialog({ kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })}

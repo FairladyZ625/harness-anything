@@ -7,7 +7,7 @@ import test from "node:test";
 import { type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
-import { validateSquadRunsList } from "../src/squad-run-contract.ts";
+import { validateSquadRunRead, validateSquadRunsList } from "../src/squad-run-contract.ts";
 
 // 固定「现在」:窗口断言只看相对时间,不依赖真实时钟。
 const NOW = "2026-08-27T12:00:00.000Z",
@@ -324,6 +324,48 @@ test("active runs always pass the window and a missing since lists every run", (
     const { coordinator: squad } = coordinator(rootDir, []);
     assert.deepEqual(squad.list({ since: sinceAgo(DAY) }).totals, { runs: 1 });
     assert.deepEqual(squad.list({}).totals, { runs: 2 });
+  });
+});
+
+test("one invalid Squad run projection degrades without hiding valid runs", () => {
+  withRootDir((rootDir) => {
+    seedSquadRun(rootDir, {
+      squadRunId: "squad_0123456789abcdef01234567",
+      phase: "converged",
+      leader: {
+        dispatchId: "dispatch_00000000000000000000a1b2",
+        runtimeSessionId: "runtime-leader",
+        startedAt: "2026-08-27T11:00:00.000Z",
+      },
+    });
+    const { coordinator: squad, projection } = coordinator(rootDir, []);
+    assert.equal(squad.list({}).runs.length, 1, "materialize the healthy run projection first");
+    projection.upsertSquadRun({
+      squadRunId: "squad_0123456789abcdef99887766",
+      revision: 4,
+      state: { schema: "squad-run/v1", squadRunId: "squad_0123456789abcdef99887766" },
+    });
+
+    const listed = squad.list({});
+    assert.equal(listed.runs.length, 2);
+    assert.deepEqual(
+      listed.runs.find((run) => run.squadRunId === "squad_0123456789abcdef99887766"),
+      {
+        squadRunId: "squad_0123456789abcdef99887766",
+        projectionState: "invalid",
+        projectionError: {
+          code: "squad_run_projection_invalid",
+          hint: "Squad run projection squad_0123456789abcdef99887766 is invalid.",
+        },
+      },
+    );
+    assert.deepEqual(validateSquadRunsList(listed), []);
+    const detail = squad.read("squad_0123456789abcdef99887766");
+    assert.deepEqual(detail.run, listed.runs[1]);
+    assert.deepEqual(validateSquadRunRead(detail), []);
+    const status = squad.status("squad_0123456789abcdef99887766");
+    assert.equal(status.projectionState, "invalid");
+    assert.equal((status.projectionError as { readonly code: string }).code, "squad_run_projection_invalid");
   });
 });
 

@@ -30,12 +30,24 @@ import {
   type WorkerPlan,
   type WorkerWaitTrigger,
 } from "./squad-leader-decision.ts";
+import {
+  activePhase,
+  compareRunSummaries,
+  invalidSquadRunProjection,
+  listQuery,
+  matchesRunQuery,
+  runInActivityWindow,
+  squadReadError,
+} from "./squad-run-list.ts";
 import type {
+  SquadRunInvalidSummaryDto,
+  SquadRunListRowDto,
   SquadRunPhase,
   SquadRunReadResult,
   SquadRunsListResult,
   SquadRunSummaryDto,
 } from "./squad-run-contract.ts";
+import { isAvailableSquadRunSummary } from "./squad-run-contract.ts";
 
 type SquadState = {
   readonly schema: "squad-run/v1";
@@ -172,6 +184,18 @@ export function makeSquadCoordinator(input: {
         "squad/run-present",
         ["Run ha squad run <squad-id> --instance <runtime-instance-id> --task <task-id> first."],
       );
+    if ("projectionState" in state)
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "squad-status",
+        outcome: "applied",
+        ...state,
+        status: "invalid",
+        summary: state.projectionError.hint,
+        nextAction: state.projectionError.hint,
+        exitCode: 0,
+      };
     const detail = statusDto(state);
     return {
       schema: "command-receipt/v2",
@@ -201,6 +225,14 @@ export function makeSquadCoordinator(input: {
         "cancel",
         "squad/run-present",
         ["Run ha squad status <squad-run-id> and choose an existing run."],
+      );
+    if ("projectionState" in state)
+      throw cellCriterionError(
+        state.projectionError.code,
+        state.projectionError.hint,
+        "cancel",
+        "squad/run-projection-valid",
+        ["Repair or rebuild the Squad run projection, then retry the cancellation."],
       );
     if (state.phase !== "cancelled")
       writeState(
@@ -277,9 +309,14 @@ export function makeSquadCoordinator(input: {
       cut = input.projection().readTaskStatuses([]),
       // 一次 list 内按 taskId memo 派工台账读:同 task 的多个 run 共享一次读,读放大按 task 数结算。
       dispatchesByTaskId = new Map<string, readonly TaskDispatchRow[]>(),
-      matching = readStates()
-        .map((state) => summaryDto(state, dispatchesByTaskId))
-        .filter((run) => activePhase(run.phase) || query.since === null || runInActivityWindow(run, query.since))
+      matching = readListRows(dispatchesByTaskId)
+        .filter(
+          (run) =>
+            !isAvailableSquadRunSummary(run) ||
+            activePhase(run.phase) ||
+            query.since === null ||
+            runInActivityWindow(run, query.since),
+        )
         .filter((run) => matchesRunQuery(run, query.tokens))
         .sort(compareRunSummaries),
       selected = matching.slice(0, query.limit);
@@ -306,6 +343,14 @@ export function makeSquadCoordinator(input: {
     const state = readSquadRunState(squadRunId);
     if (!state) throw squadReadError("squad_run_not_found", `Squad run ${squadRunId} does not exist.`);
     const cut = input.projection().readTaskStatuses([]);
+    if ("projectionState" in state)
+      return {
+        ok: true,
+        status: cut.status,
+        run: state,
+        watermark: cut.watermark,
+        sourceRevision: cut.sourceRevision,
+      };
     return detailDto(state, cut);
   };
 
@@ -317,12 +362,12 @@ export function makeSquadCoordinator(input: {
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
       let state = readSquadRunState(candidate.squadRunId);
-      if (!state || terminal(state)) continue;
+      if (!state || "projectionState" in state || terminal(state)) continue;
       const currentLeader = state.currentLeaderRuntimeSessionId;
       if (currentLeader && terminalRow(state, currentLeader)) {
         await observeRuntimeSession(currentLeader);
         state = readSquadRunState(candidate.squadRunId);
-        if (!state || terminal(state)) continue;
+        if (!state || "projectionState" in state || terminal(state)) continue;
       }
       const discovered = discoverWorkerCallbacks(state);
       if (discovered !== state) {
@@ -337,7 +382,7 @@ export function makeSquadCoordinator(input: {
     for (const candidate of readStates()) {
       if (terminal(candidate)) continue;
       const state = readSquadRunState(candidate.squadRunId);
-      if (!state || terminal(state)) continue;
+      if (!state || "projectionState" in state || terminal(state)) continue;
       if (state.currentLeaderRuntimeSessionId === runtimeSessionId) {
         await continueLeader(state, runtimeSessionId);
         return;
@@ -725,13 +770,12 @@ export function makeSquadCoordinator(input: {
     return blob ? new TextDecoder().decode(blob) || null : null;
   }
 
-  function readSquadRunState(squadRunId: string): SquadState | null {
+  function readSquadRunState(squadRunId: string): SquadState | SquadRunInvalidSummaryDto | null {
     if (!validSquadRunId(squadRunId)) return null;
     ensureSquadRunProjection();
     const row = input.projection().readSquadRun(squadRunId),
       state = squadState(row?.state);
-    if (row !== null && state === null) throw new Error(`Squad run projection ${squadRunId} is invalid.`);
-    return state;
+    return row !== null && state === null ? invalidSquadRunProjection(squadRunId) : state;
   }
 
   function readStates(): readonly SquadState[] {
@@ -739,10 +783,20 @@ export function makeSquadCoordinator(input: {
     return input
       .projection()
       .readSquadRuns()
+      .flatMap((row) => {
+        const state = squadState(row.state);
+        return state ? [state] : [];
+      });
+  }
+
+  function readListRows(dispatchesByTaskId: Map<string, readonly TaskDispatchRow[]>): readonly SquadRunListRowDto[] {
+    ensureSquadRunProjection();
+    return input
+      .projection()
+      .readSquadRuns()
       .map((row) => {
         const state = squadState(row.state);
-        if (!state) throw new Error(`Squad run projection ${row.squadRunId} is invalid.`);
-        return state;
+        return state ? summaryDto(state, dispatchesByTaskId) : invalidSquadRunProjection(row.squadRunId);
       });
   }
 
@@ -983,66 +1037,13 @@ function cwdPayload(rootDir: string, cwd: string): JsonObject {
   return relative ? { scope: "repo-relative", path: relative } : { scope: "repo-root" };
 }
 
-function listQuery(payload: Readonly<Record<string, unknown>>): {
-  readonly since: string | null;
-  readonly tokens: readonly string[];
-  readonly limit: number;
-} {
-  const fields = Object.keys(payload),
-    since = payload.since,
-    query = payload.query,
-    limit = payload.limit;
-  if (
-    fields.some((field) => !["since", "query", "limit"].includes(field)) ||
-    (since !== undefined && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) ||
-    (query !== undefined && typeof query !== "string") ||
-    (limit !== undefined && (!Number.isSafeInteger(limit) || Number(limit) < 1 || Number(limit) > 1_000))
-  )
-    throw squadReadError("invalid_request", "Squad run lists accept ISO since, text query, and limit 1..1000.");
-  return {
-    since: typeof since === "string" ? new Date(since).toISOString() : null,
-    tokens: typeof query === "string" ? query.toLocaleLowerCase().trim().split(/\s+/u).filter(Boolean) : [],
-    limit: typeof limit === "number" ? limit : 200,
-  };
-}
-
-function matchesRunQuery(run: SquadRunSummaryDto, tokens: readonly string[]): boolean {
-  const searchable = [run.squadRunId, run.squadId, run.taskId, run.mission, run.phase].join("\n").toLocaleLowerCase();
-  return tokens.every((token) => searchable.includes(token));
-}
-
-function activePhase(phase: SquadRunPhase): boolean {
-  return phase === "planning" || phase === "leader_running" || phase === "workers_running";
-}
-
-/** 小队 run 版的活动窗判定,语义对齐 kernel 的 runtimeSessionInActivityWindow:比时间
- * 瞬值而非字符串,不同毫秒精度/秒精度的 ISO 戳不会因字典序错判进出窗口。 */
-function runInActivityWindow(run: SquadRunSummaryDto, since: string): boolean {
-  return Date.parse(run.latestActivityAt) >= Date.parse(since);
-}
-
 /** 派工台账行的已落盘时间事实:startedAt 恒有,endedAt 仅归档结算行有;无台账行的派工不贡献时间。 */
 function dispatchRowStamps(row: TaskDispatchRow | undefined): readonly string[] {
   return row === undefined ? [] : [row.startedAt, ...(row.endedAt === null ? [] : [row.endedAt])];
 }
 
-function compareRunSummaries(left: SquadRunSummaryDto, right: SquadRunSummaryDto): number {
-  const active = Number(activePhase(right.phase)) - Number(activePhase(left.phase));
-  return (
-    active ||
-    Date.parse(right.latestActivityAt) - Date.parse(left.latestActivityAt) ||
-    left.squadRunId.localeCompare(right.squadRunId)
-  );
-}
-
 function validSquadRunId(value: unknown): value is string {
   return typeof value === "string" && /^squad_[a-f0-9]{24}$/u.test(value);
-}
-
-function squadReadError(code: string, message: string): Error {
-  const error = new Error(message) as Error & { code: string };
-  error.code = code;
-  return error;
 }
 
 function errorText(error: unknown): string {

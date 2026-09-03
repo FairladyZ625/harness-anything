@@ -381,5 +381,7 @@
   "agentRuntime.cockpitNoWorkers": "这次 Commander 运行还没有派出下级。",
   "agentRuntime.cockpitWorkersOf": "{name} 派出的下级",
   "agentRuntime.cockpitUnboundWorkers": "无父会话边的 worker 运行",
-  "agentRuntime.cockpitUnboundWorkersHint": "记于父会话边存在之前;按小队与委派关系归组。"
+  "agentRuntime.cockpitUnboundWorkersHint": "记于父会话边存在之前;按小队与委派关系归组。",
+  "agentRuntime.catalogInvalid": "无效",
+  "agentRuntime.catalogMissing": "缺失"
 }

@@ -1,7 +1,8 @@
-import type {
-  SquadRunReadResult,
-  SquadRunLeaderTurnDto,
-  SquadRunWorkerAttemptDto,
+import {
+  isAvailableSquadRunDetail,
+  type SquadRunLeaderTurnDto,
+  type SquadRunReadResult,
+  type SquadRunWorkerAttemptDto,
 } from "../../../../../daemon/src/squad-run-contract.ts";
 import {
   sessionStatusDot,
@@ -13,7 +14,7 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { LiveDot } from "../runtime/parts.tsx";
+import { Badge, LiveDot } from "../runtime/parts.tsx";
 
 /**
  * 小队编排详情(G12 §2b/§2c):`ha squad status` 的 statusDto 对 GUI 开放的读面
@@ -47,6 +48,13 @@ export function SquadRunDetail({
   if (pending || detail === null)
     return <p className="px-4 py-4 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>;
   const run = detail.run;
+  if (!isAvailableSquadRunDetail(run))
+    return (
+      <div data-testid="squad-run-detail" className="flex items-center gap-2 px-4 py-4 text-text-faint">
+        <span className="font-mono ui-micro">{run.squadRunId}</span>
+        <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
+      </div>
+    );
   return (
     <div data-testid="squad-run-detail" className="flex flex-col gap-4 px-4 pt-3.5 pb-6">
       <header className="flex flex-col gap-1">

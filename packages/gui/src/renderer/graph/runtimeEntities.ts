@@ -1,4 +1,4 @@
-import type { AgentEntityGuiRow } from "../../../../daemon/src/agent-entities.ts";
+import type { AgentEntityGuiAvailableRow } from "../../../../daemon/src/agent-entities.ts";
 import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { RelationEdge } from "../model/types";
 
@@ -38,7 +38,7 @@ export interface ScheduleNodeRow {
 }
 
 /** agent 目录行 → 图节点行。`taskCount` 由切面边数补齐(见 withAgentTaskCounts)。 */
-export function agentNodeRowOf(row: AgentEntityGuiRow): AgentNodeRow {
+export function agentNodeRowOf(row: AgentEntityGuiAvailableRow): AgentNodeRow {
   return { id: agentNodeId(row.id), name: row.name, sub: `${row.role} · ${row.runtimeType}`, taskCount: 0 };
 }
 

@@ -139,6 +139,56 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(container.querySelector('[data-testid="schedules-inspector"]')).toBeNull();
   });
 
+  it("renders unavailable Agent targets and options as row-level grey hints", async () => {
+    const hint = "Install agent/ghost-agent, then retry.",
+      data = dto(
+        {
+          target: {
+            kind: "agent",
+            agentId: "ghost-agent",
+            runtimeInstanceId: "codex-schedule",
+            model: "gpt-5.6",
+            reasoningEffort: "high",
+            fast: false,
+            cwd: null,
+          },
+          targetState: "missing",
+          targetError: { code: "agent_not_found", hint },
+          actions: {
+            ...(dto().schedules[0] as ScheduleGuiRowDto).actions,
+            runNow: { available: false, code: "schedule_target_unavailable", nextAction: hint },
+          },
+        },
+        {
+          options: {
+            ...dto().options,
+            agents: [
+              { agentId: "ghost-agent", state: "missing", error: { code: "agent_not_found", hint } },
+              { agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" },
+            ],
+          },
+        },
+      ),
+      container = await renderSurface(
+        createElement(ScheduleWorkspace, {
+          repoId: "repo-a",
+          data,
+          pending: false,
+          focusedEntityRef: null,
+          onSelectEntity: noop,
+          onFocusSchedule: noop,
+        }),
+      );
+    expect(container.textContent).toContain("Missing");
+    expect(container.querySelector(`[data-tip="${hint}"]`)).not.toBeNull();
+    expect(container.querySelector('[data-testid="schedules-read-error"]')).toBeNull();
+    await click(container, "schedule-action-create");
+    expect(container.querySelector('[data-testid="schedule-agent-option-ghost-agent"]')?.textContent).toContain(
+      "Missing",
+    );
+    expect(container.querySelectorAll('[data-testid="schedule-form-agent"] option')).toHaveLength(1);
+  });
+
   it("filters rows by state, and keeps mode/health facets off until the daemon projects them", async () => {
     const first = dto({
       missed: { count: 0, lastMissedAt: null, lastMissedReason: null },

@@ -29,12 +29,26 @@ export interface ScheduleGuiActionFacet {
   readonly nextAction: string | null;
 }
 
+export type ScheduleGuiAgentOptionDto =
+  | {
+      readonly agentId: string;
+      readonly name: string;
+      readonly runtimeType: string;
+    }
+  | {
+      readonly agentId: string;
+      readonly state: "invalid" | "missing";
+      readonly error: { readonly code: string; readonly hint: string };
+    };
+
+export function isAvailableScheduleGuiAgentOption(
+  option: ScheduleGuiAgentOptionDto,
+): option is Extract<ScheduleGuiAgentOptionDto, { readonly name: string }> {
+  return !("state" in option);
+}
+
 export interface ScheduleGuiOptionsDto {
-  readonly agents: readonly {
-    readonly agentId: string;
-    readonly name: string;
-    readonly runtimeType: string;
-  }[];
+  readonly agents: readonly ScheduleGuiAgentOptionDto[];
   readonly instances: readonly {
     readonly instanceId: string;
     readonly name: string;
@@ -65,6 +79,8 @@ export interface ScheduleGuiRowDto {
         readonly cwd: string | null;
       }
     | { readonly kind: "squad"; readonly squadId: string };
+  readonly targetState?: "invalid" | "missing";
+  readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
   readonly executionAvailability: ScheduleExecutionAvailability;
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
@@ -147,6 +163,8 @@ const scheduleGuiRowFields = [
   "definitionRevision",
   "trigger",
   "target",
+  "targetState",
+  "targetError",
   "mission",
   "executionAvailability",
   "claim",
@@ -319,6 +337,7 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       Number(row.definitionRevision) < 0 ||
       !validTriggerDto(row.trigger) ||
       !validTargetDto(row.target) ||
+      !validTargetProjection(row) ||
       typeof row.mission !== "string" ||
       !scheduleGuiAvailabilityWords.includes(String(row.executionAvailability)) ||
       !isJsonObject(row.claim) ||
@@ -366,14 +385,7 @@ function validOptions(value: unknown): boolean {
   )
     return false;
   return (
-    value.agents.every(
-      (agent) =>
-        isJsonObject(agent) &&
-        Object.keys(agent).length === 3 &&
-        scheduleNonEmptyText(agent.agentId) &&
-        scheduleNonEmptyText(agent.name) &&
-        scheduleNonEmptyText(agent.runtimeType),
-    ) &&
+    value.agents.every(validAgentOption) &&
     value.instances.every(
       (instance) =>
         isJsonObject(instance) &&
@@ -389,6 +401,38 @@ function validOptions(value: unknown): boolean {
     value.cwd.length > 0 &&
     value.cwd[0] === "." &&
     value.cwd.every(scheduleNonEmptyText)
+  );
+}
+
+function validAgentOption(agent: unknown): boolean {
+  if (!isJsonObject(agent) || !scheduleNonEmptyText(agent.agentId)) return false;
+  if (Object.hasOwn(agent, "state"))
+    return (
+      Object.keys(agent).length === 3 &&
+      ["invalid", "missing"].includes(String(agent.state)) &&
+      validProjectionError(agent.error)
+    );
+  return Object.keys(agent).length === 3 && scheduleNonEmptyText(agent.name) && scheduleNonEmptyText(agent.runtimeType);
+}
+
+function validProjectionError(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    Object.keys(value).length === 2 &&
+    scheduleNonEmptyText(value.code) &&
+    scheduleNonEmptyText(value.hint)
+  );
+}
+
+function validTargetProjection(row: Record<string, unknown>): boolean {
+  const hasState = Object.hasOwn(row, "targetState"),
+    hasError = Object.hasOwn(row, "targetError");
+  if (!hasState && !hasError) return true;
+  return (
+    hasState &&
+    hasError &&
+    ["invalid", "missing"].includes(String(row.targetState)) &&
+    validProjectionError(row.targetError)
   );
 }
 

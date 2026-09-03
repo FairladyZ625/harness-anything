@@ -1,13 +1,18 @@
 import { useState, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
-import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
+import {
+  isAvailableAgentEntityRow,
+  isAvailableSquadEntityRow,
+  type AgentEntityRow,
+  type SquadEntityRow,
+} from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import {
   runtimeAuthPresentation,
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
-import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { Avatar, Badge, CapDot, KindDot, LiveDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成页级 rail——
@@ -112,25 +117,45 @@ export function IdentityRail({
         onToggle={() => onToggle("agents")}
         onNew={() => onNew("agents")}
       >
-        {agents.map((agent) => (
-          <Row
-            key={agent.id}
-            tip={agent.id}
-            testId={`rail-agent-${agent.id}`}
-            selected={picked("agent", agent.id)}
-            onSelect={() => onSelect({ type: "agent", id: agent.id })}
-          >
-            <Avatar id={agent.id} />
-            <span className="min-w-0 flex-1 truncate ui-meta">{agent.name}</span>
-            <span
-              data-tip={t("agentRuntime.layerTip", { layer: agent.layer })}
-              className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono ui-micro tracking-[0.04em] text-text-faint"
+        {agents.map((agent) => {
+          if (!isAvailableAgentEntityRow(agent))
+            return (
+              <Row
+                key={agent.id}
+                tip={agent.error.hint}
+                testId={`rail-agent-${agent.id}`}
+                selected={false}
+                disabled
+                onSelect={() => undefined}
+              >
+                <Avatar id={agent.id} />
+                <span className="min-w-0 flex-1 truncate font-mono ui-meta text-text-faint">{agent.id}</span>
+                <Badge tip={agent.error.hint}>{degradedStateLabels()[agent.state]}</Badge>
+              </Row>
+            );
+          return (
+            <Row
+              key={agent.id}
+              tip={agent.id}
+              testId={`rail-agent-${agent.id}`}
+              selected={picked("agent", agent.id)}
+              onSelect={() => onSelect({ type: "agent", id: agent.id })}
             >
-              {agent.layer}
-            </span>
-            {agent.validity === "blocked" && <LiveDot state="failed" tip={t("agentRuntime.declarationBlocked")} />}
-          </Row>
-        ))}
+              <Avatar id={agent.id} />
+              <span className="min-w-0 flex-1 truncate ui-meta">{agent.name}</span>
+              <span
+                data-tip={t("agentRuntime.layerTip", { layer: agent.layer })}
+                className={[
+                  "shrink-0 rounded-[3px] border border-border-strong px-1 font-mono",
+                  "ui-micro tracking-[0.04em] text-text-faint",
+                ].join(" ")}
+              >
+                {agent.layer}
+              </span>
+              {agent.validity === "blocked" && <LiveDot state="failed" tip={t("agentRuntime.declarationBlocked")} />}
+            </Row>
+          );
+        })}
       </Segment>
       <Segment
         segment="squads"
@@ -141,21 +166,43 @@ export function IdentityRail({
         onToggle={() => onToggle("squads")}
         onNew={() => onNew("squads")}
       >
-        {squads.map((squad) => (
-          <Row
-            key={squad.id}
-            tip={squad.id}
-            testId={`rail-squad-${squad.id}`}
-            selected={picked("squad", squad.id)}
-            onSelect={() => onSelect({ type: "squad", id: squad.id })}
-          >
-            <KindDot kind="any" />
-            <span className="min-w-0 flex-1 truncate ui-meta">{squad.name}</span>
-            <span className="shrink-0 rounded-[3px] border border-border-strong px-1 font-mono ui-micro text-text-faint">
-              {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
-            </span>
-          </Row>
-        ))}
+        {squads.map((squad) => {
+          if (!isAvailableSquadEntityRow(squad))
+            return (
+              <Row
+                key={squad.id}
+                tip={squad.error.hint}
+                testId={`rail-squad-${squad.id}`}
+                selected={false}
+                disabled
+                onSelect={() => undefined}
+              >
+                <KindDot kind="any" />
+                <span className="min-w-0 flex-1 truncate font-mono ui-meta text-text-faint">{squad.id}</span>
+                <Badge tip={squad.error.hint}>{degradedStateLabels()[squad.state]}</Badge>
+              </Row>
+            );
+          return (
+            <Row
+              key={squad.id}
+              tip={squad.id}
+              testId={`rail-squad-${squad.id}`}
+              selected={picked("squad", squad.id)}
+              onSelect={() => onSelect({ type: "squad", id: squad.id })}
+            >
+              <KindDot kind="any" />
+              <span className="min-w-0 flex-1 truncate ui-meta">{squad.name}</span>
+              <span
+                className={[
+                  "shrink-0 rounded-[3px] border border-border-strong px-1 font-mono",
+                  "ui-micro text-text-faint",
+                ].join(" ")}
+              >
+                {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
+              </span>
+            </Row>
+          );
+        })}
       </Segment>
       <details className="px-2.5 py-2 ui-micro leading-[1.5] text-text-faint">
         <summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary>
@@ -223,12 +270,14 @@ function Row({
   testId,
   selected,
   onSelect,
+  disabled = false,
   children,
 }: {
   readonly tip: string;
   readonly testId?: string;
   readonly selected: boolean;
   readonly onSelect: () => void;
+  readonly disabled?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -237,10 +286,25 @@ function Row({
       data-tip={tip}
       data-testid={testId}
       aria-current={selected}
+      disabled={disabled}
       onClick={onSelect}
-      className={`flex w-full items-center gap-[7px] rounded border px-2 py-1 text-left ${selected ? "border-accent/40 bg-accent/[0.14]" : "border-transparent hover:bg-surface-raised"}`}
+      className={[
+        "flex w-full items-center gap-[7px] rounded border px-2 py-1 text-left",
+        disabled
+          ? "cursor-not-allowed border-transparent opacity-70"
+          : selected
+            ? "border-accent/40 bg-accent/[0.14]"
+            : "border-transparent hover:bg-surface-raised",
+      ].join(" ")}
     >
       {children}
     </button>
   );
+}
+
+function degradedStateLabels(): Readonly<Record<"invalid" | "missing", string>> {
+  return {
+    invalid: t("agentRuntime.catalogInvalid"),
+    missing: t("agentRuntime.catalogMissing"),
+  };
 }
