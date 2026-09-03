@@ -698,17 +698,25 @@ function durableWrite(target: string, body: Uint8Array): void {
   const descriptor =
     /* @gate-identity check-bypass-write-boundary/bypass-write-088 */
     openSync(temporary, "w", 0o600);
+  // `.tmp-<pid>` is the same shape as the settlement markers above and the sweep there does
+  // not match it, by design: this temporary lands inside the repository worktree, where a
+  // pid means nothing to whichever node the bytes reach next. The failing writer clears it.
   try {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-090 */
-    writeFileSync(descriptor, body);
-    /* @gate-identity check-bypass-write-boundary/bypass-write-091 */
-    fsyncSync(descriptor);
-  } finally {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-092 */
-    closeSync(descriptor);
+    try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-090 */
+      writeFileSync(descriptor, body);
+      /* @gate-identity check-bypass-write-boundary/bypass-write-091 */
+      fsyncSync(descriptor);
+    } finally {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-092 */
+      closeSync(descriptor);
+    }
+    /* @gate-identity check-bypass-write-boundary/bypass-write-094 */
+    renameSync(temporary, target);
+  } catch (error) {
+    removeNode(temporary);
+    throw error;
   }
-  /* @gate-identity check-bypass-write-boundary/bypass-write-094 */
-  renameSync(temporary, target);
   if (process.platform === "win32") return;
   const parent =
     /* @gate-identity check-bypass-write-boundary/bypass-write-095 */
