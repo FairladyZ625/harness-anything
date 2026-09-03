@@ -40,12 +40,11 @@ export type CloseoutStep =
   | "complete"
   | "task-show";
 export interface TaskCloseoutActionDependencies {
-  readonly rootDir: string;
   readonly action: Readonly<Record<string, unknown>>;
   readonly caller: ActorIdentity;
   readonly authorizationDecision: AuthorizationDecision;
   readonly opId: string;
-  readonly readWorkspaceText: (rootDir: string, requested: string, field: string) => string;
+  readonly readPacket: () => string;
   readonly read: () => Promise<Snapshot>;
   readonly presetSnapshotCurrent: () => boolean;
   readonly invoke: (
@@ -75,11 +74,14 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       });
     return discoveryReceipt(opId, snapshot, template);
   }
-  const fromFile = requiredText(action.fromFile, "fromFile"),
-    invocation = closeoutInvocation(taskId, fromFile, executionId);
+  const packetArgument =
+      typeof action.fromFile === "string"
+        ? `--from-file ${requiredText(action.fromFile, "fromFile")}`
+        : "--json-input '<json>'",
+    invocation = closeoutInvocation(taskId, packetArgument, executionId);
   let judgment: TaskCloseoutPacket;
   try {
-    judgment = readJudgment(() => dependencies.readWorkspaceText(dependencies.rootDir, fromFile, "fromFile"));
+    judgment = readJudgment(dependencies.readPacket);
   } catch (error) {
     return reject(opId, "invalid_judgment", {
       commands: [invocation],
@@ -152,7 +154,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
         commands: [`ha task start ${taskId} --execution-id <execution-id>`, invocation],
       });
     if (executionId && snapshot.lease.executionId !== executionId)
-      return candidateRejection(opId, taskId, fromFile, [snapshot.lease.executionId]);
+      return candidateRejection(opId, taskId, packetArgument, [snapshot.lease.executionId]);
     const active = snapshot.executions.find(
       (candidate) =>
         candidate.executionId === snapshot.lease?.executionId &&
@@ -169,7 +171,7 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
       return candidateRejection(
         opId,
         taskId,
-        fromFile,
+        packetArgument,
         cuts.map((candidate) => candidate.executionId),
       );
     const selected = candidates[0]!;
@@ -359,21 +361,21 @@ function deterministicReviewId(
 ): string {
   return deterministicId("review-closeout", taskId, String(iteration), commitSha, review);
 }
-function closeoutInvocation(taskId: string, fromFile: string, executionId?: string): string {
-  return `ha task closeout ${taskId} --from-file ${fromFile}${executionId ? ` --execution-id ${executionId}` : ""}`;
+function closeoutInvocation(taskId: string, packetArgument: string, executionId?: string): string {
+  return `ha task closeout ${taskId} ${packetArgument}${executionId ? ` --execution-id ${executionId}` : ""}`;
 }
 function candidateRejection(
   opId: string,
   taskId: string,
-  fromFile: string,
+  packetArgument: string,
   candidates: readonly string[],
 ): WriteReceipt {
-  const commands = candidates.map((candidate) => closeoutInvocation(taskId, fromFile, candidate));
+  const commands = candidates.map((candidate) => closeoutInvocation(taskId, packetArgument, candidate));
   return reject(opId, "ambiguous_execution", {
     commands:
       commands.length > 0
         ? commands
-        : [`ha task submit ${taskId} --json-input '<submission-json>'`, closeoutInvocation(taskId, fromFile)],
+        : [`ha task submit ${taskId} --json-input '<submission-json>'`, closeoutInvocation(taskId, packetArgument)],
   });
 }
 function reject(

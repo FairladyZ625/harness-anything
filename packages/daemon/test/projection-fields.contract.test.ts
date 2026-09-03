@@ -1,12 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  decisionCapabilities,
-  decisionClaimsOpen,
-  relationIsCurrent,
-  type DecisionState,
-} from "../../kernel/src/index.ts";
+import { relationIsCurrent, type DecisionState } from "../../kernel/src/index.ts";
 import { validateDaemonDecisionList, validateDaemonRelationGraph } from "../src/protocol/daemon-protocol.contract.ts";
 
 test("decision full rows carry kernel capabilities while summary rows stay narrow", () => {
@@ -34,8 +29,14 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
     claims: [],
     judgmentConsents: [],
     body: null,
-    capabilities: decisionCapabilities(state),
-    claimsOpen: decisionClaimsOpen(state),
+    capabilities: [
+      { id: "accept", available: true, reason: null },
+      { id: "reject", available: true, reason: null },
+      { id: "defer", available: true, reason: null },
+      { id: "supersede", available: false, reason: "invalid_transition" },
+      { id: "retire", available: false, reason: "invalid_transition" },
+    ],
+    claimsOpen: true,
   } as const;
   const full = { ok: true, projection: "full", decisions: [row], warnings: [] } as const;
   assert.deepEqual(validateDaemonDecisionList(full), []);

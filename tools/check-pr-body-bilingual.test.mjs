@@ -215,7 +215,6 @@ test("Event-Migration command names come from the ha migrate protocol catalog", 
   const commands = eventMigrationCommandNames();
   assert.ok(commands.includes("relation-events"));
   assert.ok(commands.includes("decision-digests"));
-  assert.ok(commands.includes("adrs"));
   assert.equal(commands.includes("invented-migration"), false);
 
   const result = checkEventMigrationDeclaration("Event-Migration: ha migrate invented-migration", {

@@ -361,8 +361,10 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       );
       const updated = await cell.run({ kind: "schedule-update", fromFile: "schedule-update.json" }, actor);
       assert.equal(updated.outcome, "applied", JSON.stringify(updated));
-      writeFileSync(path.join(root, "schedule-show.json"), JSON.stringify({ scheduleId: "e2e-probe" }));
-      const shown = (await cell.run({ kind: "schedule-show", fromFile: "schedule-show.json" }, actor)) as unknown as {
+      const shown = (await cell.run(
+        { kind: "schedule-show", jsonInput: JSON.stringify({ scheduleId: "e2e-probe" }) },
+        actor,
+      )) as unknown as {
         readonly schedule: {
           readonly name: string;
           readonly spec: { readonly trigger: { readonly everyMs: number }; readonly mission: string };

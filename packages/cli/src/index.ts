@@ -88,7 +88,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   }
   let typedCommand: ThinCommand;
   try {
-    typedCommand = materializeDecisionStdin(parsed.command);
+    typedCommand = materializePacketStdin(parsed.command);
   } catch (error) {
     emit(
       cliFailure(
@@ -148,11 +148,11 @@ function finishTimingWithoutChangingOutcome(argv: readonly string[], exitCode: n
   }
 }
 
-export function materializeDecisionStdin(
+export function materializePacketStdin(
   command: ThinCommand,
   readStdin: () => string = () => readFileSync(0, "utf8"),
 ): ThinCommand {
-  if (command.action.kind !== "decision-propose" || command.action.jsonInput !== "@-") return command;
+  if (command.action.jsonInput !== "@-") return command;
   return {
     ...command,
     action: { ...command.action, jsonInput: readStdin() },

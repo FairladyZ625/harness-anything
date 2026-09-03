@@ -183,10 +183,6 @@ test("review-consent derives the recorded Review digests without a packet and st
     )) as unknown as Record<string, unknown>;
     const real = String(mismatchReviewed.reviewDigest),
       flipped = `sha256:${real[7] === "0" ? "1" : "0"}${real.slice(8)}`;
-    writeFileSync(
-      path.join(rootDir, "consent.json"),
-      JSON.stringify({ reviewDigest: flipped, contentDigest: mismatchReviewed.contentDigest }),
-    );
     const beforeMismatch = store().readHead()?.revision,
       mismatch = (await cell.run(
         {
@@ -195,7 +191,7 @@ test("review-consent derives the recorded Review digests without a packet and st
           executionId: mismatchExecutionId,
           reviewId: "review-mismatch",
           consentId: "consent-mismatch",
-          fromFile: "consent.json",
+          jsonInput: JSON.stringify({ reviewDigest: flipped, contentDigest: mismatchReviewed.contentDigest }),
         },
         binding,
       )) as unknown as Record<string, unknown>;

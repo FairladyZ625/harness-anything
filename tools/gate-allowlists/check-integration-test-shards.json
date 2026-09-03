@@ -392,6 +392,11 @@
         "value": "packages/kernel/test/store/relation-cascade-direction.test.ts",
         "ref": "dec_99000027E6BCC263E341D38DC0",
         "reason": "B9 ruling deletes the legacy entity registry chain; the cascade-direction test covered only the deleted legacy surface."
+      },
+      {
+        "value": "packages/daemon/test/adr-entity-migration.integration.test.ts",
+        "ref": "task_39cc8158d2f76a930bf4dcd0de",
+        "reason": "The one-shot ADR migration is retired after canonical cutover completed (30 ADR entities, 38 relations); its runner and integration test are deleted together."
       }
     ]
   }

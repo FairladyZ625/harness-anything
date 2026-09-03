@@ -8,11 +8,10 @@ import {
   getExecutableEntityAction,
   relationEventWritePlan,
   validateMigrationImportEvent,
-  type GovernedRelationRegistryWitness,
   type MigrationImportEventV1,
 } from "../../src/index.ts";
 import { validateCurrentMigrationImportEvent } from "../../src/domain/migration-import-event.ts";
-import { type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
+import { type EntityRelationRecord, type GovernedRelationRegistryWitness } from "../../src/domain/entity-relation.ts";
 import {
   compileRelationCreatedEvent,
   compileRelationReconfirmedEvent,

@@ -682,9 +682,9 @@ export function makeSquadCoordinator(input: {
 
   function leaderAuthoredSynthesisReport(state: SquadState, reportPath: string): boolean {
     const packagePath = dispatchRows(state)
-      .map((row) => row.reportPath)
+      .map((row) => row.dispatchPath)
       .find((candidate): candidate is string => typeof candidate === "string")
-      ?.split("/artifacts/reports/", 1)[0];
+      ?.split("/artifacts/dispatches/", 1)[0];
     if (!packagePath) return false;
     const logicalPath = `${packagePath}/${reportPath}`,
       store = input.store(),

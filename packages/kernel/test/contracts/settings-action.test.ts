@@ -10,6 +10,7 @@ const documentBody = [
   "name: settings-action-test",
   "layout:",
   "  authoredRoot: harness",
+  "  adrRoot: harness/adr",
   "settings:",
   "  defaultVertical: software/coding",
   "  defaultPreset: standard-task",
@@ -47,6 +48,14 @@ test("Settings update compiles the existing audit event with actor and parent do
   assert.equal(draft.result.bundle.event.payload.settings.defaultPreset, "docs-task");
   assert.equal(Object.hasOwn(draft.result.bundle.event.payload.settings, "locale"), false);
   assert.match(draft.result.bundle.blobs[0].body, /defaultPreset: docs-task/u);
+});
+
+test("Settings update removes the retired layout key through the existing event path", () => {
+  const draft = compile({ layoutUnset: "adrRoot", expectedVersion: 7 });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") return;
+  assert.equal(draft.result.bundle.blobs[0].body.includes("adrRoot"), false);
+  assert.equal(draft.result.bundle.event.payload.settings.defaultPreset, "standard-task");
 });
 
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {

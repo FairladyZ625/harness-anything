@@ -65,19 +65,16 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       String(run(root, userRoot, ["task", "closeout", taskId, "--print-template"]).summary),
     ) as Record<string, unknown>;
     assert.equal(Object.hasOwn(resumeTemplate, "submission"), false);
-    writeFileSync(
-      path.join(root, "judgment.json"),
-      JSON.stringify({
-        review: {
-          verdict: "approved",
-          reason: "Independent fixture review passed.",
-          evidenceChecked: ["submitted execution"],
-        },
-        consent: { approved: true },
-        completion: { ci: "passed", codeDocPaths: ["README.md"] },
-      }),
-    );
-    const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--from-file", "judgment.json"]);
+    const judgment = JSON.stringify({
+      review: {
+        verdict: "approved",
+        reason: "Independent fixture review passed.",
+        evidenceChecked: ["submitted execution"],
+      },
+      consent: { approved: true },
+      completion: { ci: "passed", codeDocPaths: ["README.md"] },
+    });
+    const closeout = runMaybe(root, userRoot, ["task", "closeout", taskId, "--json-input", "@-"], undefined, judgment);
     context.diagnostic(`closeout-e2e-output=${closeout.stdout}`);
     assert.equal(closeout.status, 0, closeout.stderr);
     const receipt = JSON.parse(closeout.stdout) as Record<string, unknown>;
@@ -241,6 +238,7 @@ function runMaybe(
   userRoot: string,
   args: readonly string[],
   actor?: string,
+  input?: string,
 ): {
   readonly status: number | null;
   readonly stdout: string;
@@ -249,6 +247,7 @@ function runMaybe(
   const result = spawnSync(process.execPath, [cli, "--root", root, "--json", ...args], {
     encoding: "utf8",
     env: environment(root, userRoot, actor),
+    ...(input === undefined ? {} : { input }),
   });
   return {
     status: result.status,

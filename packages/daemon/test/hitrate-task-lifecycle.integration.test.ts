@@ -164,10 +164,6 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
       reconciledAt: event.occurredAt,
     });
 
-    writeFileSync(
-      path.join(rootDir, "review.json"),
-      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
-    );
     const reviewer = withRoleBinding(
         {
           actor: {
@@ -183,7 +179,11 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
           kind: "task-review-execution",
           taskId,
           reviewId: "review-hitrate-lifecycle",
-          fromFile: "review.json",
+          jsonInput: JSON.stringify({
+            verdict: "approved",
+            reason: "Independent review passed.",
+            evidenceChecked: ["tests"],
+          }),
         },
         reviewer,
       );

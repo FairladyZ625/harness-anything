@@ -38,19 +38,31 @@ export function workspaceText(rootDir: string, requestedValue: unknown, field: s
   return readWorkspaceText(rootDir, requiredCellText(requestedValue, field), field);
 }
 
-export function packetFile(
+export function readPacketSource(rootDir: string, action: Readonly<Record<string, unknown>>): string {
+  const fromFile = action.fromFile !== undefined,
+    jsonInput = action.jsonInput !== undefined;
+  if (fromFile === jsonInput)
+    throw cellCodedError(
+      "invalid_command",
+      "Use exactly one structured input source: --from-file <path> or --json-input <json>.",
+    );
+  return fromFile
+    ? workspaceText(rootDir, action.fromFile, "fromFile")
+    : requiredCellText(action.jsonInput, "jsonInput");
+}
+
+export function packetRecord(
   rootDir: string,
-  value: unknown,
+  action: Readonly<Record<string, unknown>>,
   fields: readonly string[],
 ): {
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
 } {
-  const body = workspaceText(rootDir, value, "fromFile"),
-    parsed = packetJson(body, fields);
+  const body = readPacketSource(rootDir, action);
   return {
-    value: parsed,
-    digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+    value: packetJson(body, fields),
+    digest: packetDigest(body),
   };
 }
 
@@ -61,15 +73,7 @@ export function reviewPacket(
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
 } {
-  if (action.jsonInput !== undefined && action.fromFile !== undefined)
-    throw cellCodedError(
-      "invalid_command",
-      "Review accepts either the public fromFile packet or one daemon-internal JSON packet, not both.",
-    );
-  const body =
-    action.jsonInput === undefined
-      ? workspaceText(rootDir, action.fromFile, "fromFile")
-      : requiredCellText(action.jsonInput, "jsonInput");
+  const body = readPacketSource(rootDir, action);
   let value: Record<string, unknown>;
   try {
     const parsed = JSON.parse(body) as unknown,
@@ -92,8 +96,12 @@ export function reviewPacket(
   }
   return {
     value,
-    digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+    digest: packetDigest(body),
   };
+}
+
+function packetDigest(body: string): `sha256:${string}` {
+  return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
 
 /**
@@ -125,23 +133,13 @@ export function reviewQualificationFields(value: Record<string, unknown>): {
 }
 
 export function submissionPacket(action: RepoTaskAction, rootDir: string): GuiSubmissionV1 {
-  const fromFile = action.fromFile !== undefined,
-    jsonInput = action.jsonInput !== undefined;
-  if (action.submission !== undefined && (fromFile || jsonInput))
+  const hasPacketSource = action.fromFile !== undefined || action.jsonInput !== undefined;
+  if (action.submission !== undefined && hasPacketSource)
     throw cellCodedError(
       "invalid_command",
       "Submit accepts either its RPC submission or one CLI JSON source, not both.",
     );
-  if (action.submission === undefined && fromFile === jsonInput)
-    throw cellCodedError(
-      "invalid_command",
-      "Use exactly one submission source: --json-input <json> or workspace-local --from-file <path>.",
-    );
-  const value =
-      action.submission ??
-      (jsonInput
-        ? packetJson(action.jsonInput, taskSubmissionJsonFields)
-        : packetFile(rootDir, action.fromFile, taskSubmissionJsonFields).value),
+  const value = action.submission ?? packetRecord(rootDir, action, taskSubmissionJsonFields).value,
     issues = validateGuiSubmission(value);
   if (issues.length) throw cellCodedError("invalid_submission", issues.join("; "));
   return value as unknown as GuiSubmissionV1;

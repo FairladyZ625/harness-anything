@@ -395,7 +395,6 @@ function packetContract(required: readonly string[], allowed: readonly string[])
   return {
     required,
     allowed,
-    source: "from-file",
     invalid: (message) => Object.assign(new Error(message), { code: "invalid_command" }),
     messages: {
       parse: "Schedule input must be one UTF-8 JSON object; repair the JSON and retry",

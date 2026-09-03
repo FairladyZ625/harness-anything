@@ -76,6 +76,7 @@ const settingsWriteTopology = {
         positiveSettingInput("--wal-flush-events"),
         positiveSettingInput("--wal-flush-bytes"),
         positiveSettingInput("--wal-flush-milliseconds"),
+        cliInput("--layout-unset", "single", false, { code: "invalid_field" }, { enum: ["adrRoot"] }),
         cliInput(
           "--expected-version",
           "single",

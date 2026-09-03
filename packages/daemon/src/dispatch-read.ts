@@ -1,5 +1,8 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   consumeKnownError,
+  resolveHarnessLayout,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type RuntimeSession,
@@ -83,7 +86,17 @@ export function readTaskDispatches(
       const read = input.projection.readDocument(documentPath);
       const archive = read.document ? parseArchive(read.document.body) : null;
       if (archive?.taskId !== target.taskId) continue;
-      rows.set(dispatchId, archiveRow(archive, stream, candidate.session, target.packagePath, lost));
+      rows.set(
+        dispatchId,
+        archiveRow(
+          archive,
+          stream,
+          candidate.session,
+          target.packagePath,
+          existingReportPath(input.rootDir, target.packagePath, dispatchId),
+          lost,
+        ),
+      );
       if (candidate.indexed) staleIndexEntries.set(dispatchId, indexedEntries.get(dispatchId)!);
       break;
     }
@@ -102,6 +115,7 @@ export function readTaskDispatches(
         candidate.session,
         live,
         candidate.taskPackages[0]?.packagePath ?? null,
+        existingReportPath(input.rootDir, candidate.taskPackages[0]?.packagePath ?? null, dispatchId),
         lost,
       ),
     );
@@ -179,7 +193,7 @@ export function readSessionGroupDispatches(input: {
         startedAt: event.occurredAt,
         eventStreamRef: `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
       };
-    return [liveRow(sourceHeader, null, session.providerSessionId, session, false, null, false)];
+    return [liveRow(sourceHeader, null, session.providerSessionId, session, false, null, null, false)];
   });
 }
 
@@ -251,6 +265,7 @@ function archiveRow(
   stream: ReturnType<typeof readDispatchStream>,
   session: RuntimeSession | undefined,
   packagePath: string,
+  reportPath: string | null,
   lost: boolean,
 ): TaskDispatchRow {
   const archivedProvider = isRecord(value.provider) ? value.provider : null,
@@ -325,7 +340,7 @@ function archiveRow(
     resultRef,
     exitCode,
     dispatchPath: `${packagePath}/artifacts/dispatches/${String(value.dispatchId)}.json`,
-    reportPath: `${packagePath}/artifacts/reports/${String(value.dispatchId)}.md`,
+    ...(reportPath ? { reportPath } : {}),
   };
 }
 function liveRow(
@@ -335,6 +350,7 @@ function liveRow(
   session: RuntimeSession | undefined,
   processRunning: boolean,
   packagePath: string | null,
+  reportPath: string | null,
   lost: boolean,
 ): TaskDispatchRow {
   const outcome = session ? runtimeSessionOutcomeFromEvidence(session) : null;
@@ -375,10 +391,17 @@ function liveRow(
     ...(packagePath
       ? {
           dispatchPath: `${packagePath}/artifacts/dispatches/${header.dispatchId}.json`,
-          reportPath: `${packagePath}/artifacts/reports/${header.dispatchId}.md`,
+          ...(reportPath ? { reportPath } : {}),
         }
       : {}),
   };
+}
+
+function existingReportPath(rootDir: string, packagePath: string | null, dispatchId: string): string | null {
+  if (packagePath === null) return null;
+  const reportPath = `${packagePath}/artifacts/reports/${dispatchId}.md`,
+    absolute = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...reportPath.split("/"));
+  return existsSync(absolute) ? reportPath : null;
 }
 function parseArchive(body: string): Record<string, unknown> | null {
   try {

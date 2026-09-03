@@ -22,17 +22,22 @@ export function parseSchedule(
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "schedule-list" })
       : rejected("unknown_field", "ha schedule list takes no options or positional arguments.", json);
-  const packetOnly = args[2] === "--from-file" || args[2]?.startsWith("--from-file=") === true,
+  const packetOnly = isPacketInputToken(args[2]),
     scheduleId = packetOnly ? undefined : args[2],
     flags = readFlags(route.id, args.slice(packetOnly ? 2 : 3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
-  const fromFile = flags.one.get("--from-file");
-  if (fromFile)
+  const fromFile = flags.one.get("--from-file"),
+    jsonInput = flags.one.get("--json-input");
+  if (fromFile || jsonInput)
     return scheduleId === undefined && flags.one.size === 1
-      ? accepted(rootDir, repoId, json, { kind: route.id, fromFile })
+      ? accepted(rootDir, repoId, json, {
+          kind: route.id,
+          ...(fromFile ? { fromFile } : { jsonInput }),
+        })
       : rejected(
           "invalid_field",
-          "Use --from-file <packet.json> by itself, or provide the direct Schedule arguments.",
+          "Use one of --from-file <path> or --json-input <json|@-> by itself, " +
+            "or provide the direct Schedule arguments.",
           json,
         );
   if (!nonEmpty(scheduleId))
@@ -144,6 +149,10 @@ export function parseSchedule(
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
     ...retry,
   });
+}
+
+function isPacketInputToken(value: string | undefined): boolean {
+  return ["--from-file", "--json-input"].some((name) => value === name || value?.startsWith(`${name}=`) === true);
 }
 
 export function parseScheduleDuration(value: string): number | null {

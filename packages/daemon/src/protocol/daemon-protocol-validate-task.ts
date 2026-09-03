@@ -70,18 +70,6 @@ const artifactEntityImportProtocolInput = Object.freeze({
   exactlyOneOf: Object.freeze([]),
 } as const satisfies typeof artifactEntityImportActionInput);
 
-const adrMigrationProtocolInput = Object.freeze({
-  schema: "entity-action-input/v1",
-  fields: Object.freeze([
-    { field: "registryRevision", type: "string" as const, required: true },
-    { field: "migrationOpId", type: "string" as const, required: true },
-    { field: "sourceRoot", type: "string" as const, required: true },
-    { field: "expectCount", type: "number" as const, required: false },
-    { field: "dryRun", type: "boolean" as const, required: false },
-  ]),
-  exactlyOneOf: Object.freeze([]),
-});
-
 const squadMigrationProtocolInput = Object.freeze({
   schema: "entity-action-input/v1",
   fields: Object.freeze([
@@ -102,10 +90,8 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
   if (action.kind === "entity-import")
     return validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action);
-  if (action.kind === "entity-migrate-squads")
-    return validateProjectedTaskActionInput(action.kind, squadMigrationProtocolInput, action);
-  return action.kind === "entity-migrate-adrs"
-    ? validateProjectedTaskActionInput(action.kind, adrMigrationProtocolInput, action)
+  return action.kind === "entity-migrate-squads"
+    ? validateProjectedTaskActionInput(action.kind, squadMigrationProtocolInput, action)
     : [];
 }
 

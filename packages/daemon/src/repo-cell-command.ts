@@ -19,7 +19,7 @@ import {
   reviewConsentSelection,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
-import { packetFile, reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
+import { packetRecord, reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { digest, reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
@@ -194,8 +194,8 @@ export function buildCommand(
       selected = reviewConsentSelection(action, snapshot, taskId, consentId),
       executionId = selected.executionId,
       reviewId = selected.reviewId;
-    if (action.fromFile !== undefined) {
-      const packet = packetFile(rootDir, action.fromFile, consentJsonFields);
+    if (action.fromFile !== undefined || action.jsonInput !== undefined) {
+      const packet = packetRecord(rootDir, action, consentJsonFields);
       return normalizeTaskLifecycleCommand(bound, {
         type: "RecordReviewConsent",
         taskId,

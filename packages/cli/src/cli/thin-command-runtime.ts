@@ -37,10 +37,6 @@ export function parseRuntime(
     detach = f.booleans.has("--detach"),
     onExitCommand = f.one.get("--on-exit");
   if (!prompt && (promptFlagPresent || !taskId)) return rejectInput(inputs, kind, "--prompt", json);
-  if (missionName && !taskId)
-    return rejected("invalid_field", "Use --mission <name> only with --task <task-id>.", json);
-  if (missionName && prompt)
-    return rejected("invalid_field", "Use --mission <name> or --prompt <text>, not both.", json);
   if (waitProjectionMs === null)
     return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
   if (onExitCommand && !detach) return rejectInput(inputs, kind, "--on-exit", json);
