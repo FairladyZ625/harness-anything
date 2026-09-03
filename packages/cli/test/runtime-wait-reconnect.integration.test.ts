@@ -73,7 +73,11 @@ test("runtime status --wait reads once after an attached stream reports exit", a
 test("runtime status --wait reads once when an attached stream requires a snapshot", async () => {
   const fixture = await openFixtureDaemon("stream-gap");
   let statusReads = 0,
-    terminal = false;
+    terminal = false,
+    terminalStatusServed!: () => void;
+  const terminalStatus = new Promise<void>((resolve) => {
+    terminalStatusServed = resolve;
+  });
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -102,9 +106,11 @@ test("runtime status --wait reads once when an attached stream requires a snapsh
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
     reply(socket, request.id, runtimeStatus(terminal));
+    if (terminal) terminalStatusServed();
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
+    await terminalStatus;
     const result = await invocation.result(2_000);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
@@ -300,17 +306,24 @@ test("runtime status --wait bounds an exited session whose outcome never becomes
 
 test("runtime status --wait surfaces a canonical settlement failure diagnostic", async () => {
   const fixture = await openFixtureDaemon("settlement-outcome");
-  let statusReads = 0;
+  let statusReads = 0,
+    terminalStatusServed!: () => void;
+  const terminalStatus = new Promise<void>((resolve) => {
+    terminalStatusServed = resolve;
+  });
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
     reply(socket, request.id, runtimeStatus(false, true, true));
+    terminalStatusServed();
   };
   const invocation = runWait(fixture);
   try {
+    await terminalStatus;
     const result = await invocation.result(2_000);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "runtime_settlement_failed");
@@ -325,15 +338,22 @@ test("runtime status --wait surfaces a canonical settlement failure diagnostic",
 
 test("runtime status --wait does not infer settlement failure from an unknown outcome's text", async () => {
   const fixture = await openFixtureDaemon("unknown-outcome");
+  let terminalStatusServed!: () => void;
+  const terminalStatus = new Promise<void>((resolve) => {
+    terminalStatusServed = resolve;
+  });
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
     reply(socket, request.id, runtimeStatus(false, true, false, true));
+    terminalStatusServed();
   };
   const invocation = runWait(fixture);
   try {
+    await terminalStatus;
     const result = await invocation.result(2_000);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "provider_exit");
