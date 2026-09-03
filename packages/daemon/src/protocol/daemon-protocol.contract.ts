@@ -714,7 +714,6 @@ export default Object.freeze({
     "Ontology-4.1b",
     "PLT-EdgeGUI-W2",
     "Governed-Entity-W1-D",
-    "Governed-Entity-W1-E",
     "Governed-Entity-W1-F",
   ]),
   commands: daemonOwnedProtocolCommands,

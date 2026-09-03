@@ -1,4 +1,4 @@
-import { setting, settingBlockValue } from "../layout/harness-settings.ts";
+import { removeLayoutKey, setting, settingBlockValue } from "../layout/harness-settings.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 
@@ -299,6 +299,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     INITIAL_SETTINGS_V1.scaffolds.repository,
   );
   next = removeLegacyLocale(next);
+  next = removeLayoutKey(next, "adrRoot");
   if (JSON.stringify(repositorySettings(readSettingsFacet(next))) !== JSON.stringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
   return next;
