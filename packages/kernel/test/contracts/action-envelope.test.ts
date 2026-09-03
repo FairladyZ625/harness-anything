@@ -25,7 +25,7 @@ test("Action envelope is one closed kernel contract with a stable replay identit
   assert.match(validateActionEnvelope({ ...action, idempotencyKey: "" }).join("\n"), /idempotencyKey is required/u);
 });
 
-test("promoted Entity catalogs distinguish executable Agent and RuntimeSession actions", () => {
+test("Entity catalogs omit actions that decisions assign to another owner or no write path", () => {
   const catalogs = Object.fromEntries(
     ["execution", "review", "agent", "runtime-session", "policy"].map((kind) => [kind, explainEntityKind(kind)]),
   );
@@ -34,19 +34,31 @@ test("promoted Entity catalogs distinguish executable Agent and RuntimeSession a
     { field: "state", words: ["active", "submitted", "accepted", "changes_requested", "abandoned"] },
   ]);
   assert.deepEqual(catalogs.execution?.transitions.available, []);
-  assert.deepEqual(declared("execution"), ["start", "renew", "submit", "complete", "release"]);
+  assert.deepEqual(declared("execution"), []);
+  assert.equal(
+    catalogs.execution?.transitions.reason,
+    "Task lifecycle projection; no independent actions (decision/dec_A6B0EF213AE9643FD84EC5F197/CH1).",
+  );
   assert.deepEqual(catalogs.review?.statusVocabulary, [
     { field: "verdict", words: ["approved", "changes_requested", "dismissed"] },
   ]);
   assert.deepEqual(catalogs.review?.transitions.available, []);
-  assert.deepEqual(declared("review"), ["record"]);
+  assert.deepEqual(declared("review"), []);
+  assert.equal(
+    catalogs.review?.transitions.reason,
+    "Task lifecycle projection; no independent actions (decision/dec_A6B0EF213AE9643FD84EC5F197/CH1).",
+  );
   assert.deepEqual(catalogs.agent?.statusVocabulary, []);
   assert.equal(catalogs.agent?.transitions.catalogRef, "kernel/agent-action/v1");
   assert.deepEqual(catalogs.agent?.transitions.available, ["install", "validate", "list", "inspect"]);
   assert.deepEqual(declared("agent"), ["install", "validate", "list", "inspect"]);
   assert.deepEqual(catalogs.policy?.statusVocabulary, []);
   assert.deepEqual(catalogs.policy?.transitions.available, []);
-  assert.deepEqual(declared("policy"), ["draft", "activate", "retire"]);
+  assert.deepEqual(declared("policy"), []);
+  assert.equal(
+    catalogs.policy?.transitions.reason,
+    "Declaration entity; no independent write path (decision/dec_6FCDFB67623333335987D2542E/CH1).",
+  );
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
     "runtime_session_started",
     "runtime_session_provider_bound",
