@@ -94,6 +94,8 @@ test("runtime-batch leaves worker instance selection to the harness", () => {
     );
 
   assert.doesNotMatch(prompt, /"instance"/u);
+  assert.match(prompt, /converged decision's report field/u);
+  assert.doesNotMatch(prompt, /task artifact add|untracked source/u);
   assert.deepEqual(decision, {
     kind: "plan",
     dispatches: [{ workerId: "terra", prompt: "Review it." }],
@@ -108,5 +110,19 @@ test("runtime-batch leaves worker instance selection to the harness", () => {
         ["terra"],
       ),
     /Leader dispatch contains harness-owned fields\./u,
+  );
+});
+
+test("converged decisions carry the synthesis report while missing content remains a convergence error", () => {
+  assert.deepEqual(
+    parseLeaderDecision(
+      JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Synthesis\n\nDone." }),
+      ["terra"],
+    ),
+    { kind: "converged", report: "# Synthesis\n\nDone." },
+  );
+  assert.deepEqual(
+    parseLeaderDecision(JSON.stringify({ schema: "squad-decision/v1", action: "converged" }), ["terra"]),
+    { kind: "converged", report: null },
   );
 });

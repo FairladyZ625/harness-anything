@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore } from "../../kernel/src/index.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -147,6 +148,17 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     assert.match(String(calls.find((call) => call.kind === "leader-initial")?.prompt), /Your task package is/u);
 
     run(root, env, ["daemon", "stop"]);
+    const synthesisBody = "# Squad synthesis\n\nWorker receipts verified.\n",
+      synthesisPath = `${residentPackage}/artifacts/reports/${String(started.squadRunId)}.md`,
+      synthesisEvent = makeTaskEventStore({ repoId: "squad-resident", rootDir: root })
+        .read()
+        .events.findLast(
+          (event) =>
+            event.schema === "doc-event/v1" && event.payload.changes.some((change) => change.path === synthesisPath),
+        );
+    assert.equal(readFileSync(path.join(root, "harness", synthesisPath), "utf8"), synthesisBody);
+    assert.equal(synthesisEvent?.schema, "doc-event/v1");
+    assert.equal(synthesisEvent?.actor.executor?.id, `runtime-session:${leaderRuntimeSessionIds.at(-1)}`);
     rmSync(path.join(root, ".harness", "cache", "task.sqlite"), { force: true });
     run(root, env, ["daemon", "start", "--service"]);
     const afterRestart = run(root, env, ["squad", "status", String(started.squadRunId)]);
@@ -658,9 +670,6 @@ function writeResidentProvider(target: string): void {
   writeProviderExecutable(
     target,
     `const fs = require("node:fs");
-const childProcess = require("node:child_process");
-const path = require("node:path");
-const cli = ${JSON.stringify(cli)};
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
   console.log("codex resident-test");
@@ -678,19 +687,6 @@ const luna = prompt.includes("# Agent Identity: Luna (luna)");
 const retry = terra && prompt.includes("Terra retry mission");
 const rows = prompt.match(/^worker /gmu) || [];
 const workerRunning = /^worker .*status=running/mu.test(prompt);
-const writeSynthesisReport = () => {
-  const taskPackage = /Your task package is ([^\\n]+)\\./u.exec(prompt)?.[1];
-  const reportPath = /Before declaring convergence, write and submit the synthesis report to ([A-Za-z0-9/_.-]+\\.md)\\./u.exec(prompt)?.[1];
-  const taskId = /ha task artifact add ([A-Za-z0-9._-]+) /u.exec(prompt)?.[1];
-  if (!taskPackage || !reportPath || !taskId) throw new Error("synthesis report contract missing from leader prompt");
-  const root = path.resolve(taskPackage, "../../..");
-  const source = path.join(root, ".harness", "squad-synthesis-" + process.pid + "-" + Date.now() + ".md");
-  fs.mkdirSync(path.dirname(source), { recursive: true });
-  fs.writeFileSync(source, "# Squad synthesis\\n\\nWorker receipts verified.\\n");
-  const synced = childProcess.spawnSync(process.execPath, [cli, "--root", root, "--json", "task", "artifact", "add", taskId, "--source", path.relative(root, source), "--destination", reportPath.replace(/^artifacts\\//u, "")], { encoding: "utf8", env: process.env });
-  const receipt = synced.stdout.trim() ? JSON.parse(synced.stdout) : null;
-  if (synced.status !== 0 || receipt?.outcome !== "applied") throw new Error("synthesis report sync failed: " + synced.stderr + synced.stdout);
-};
 fs.appendFileSync(
   process.env.CODEX_HOME + "/provider.jsonl",
   JSON.stringify({
@@ -751,7 +747,6 @@ if (initialLeader) {
     },
   });
 } else if (callbackLeader) {
-  writeSynthesisReport();
   frame({
     type: "item.completed",
     item: {
@@ -759,6 +754,7 @@ if (initialLeader) {
       text: JSON.stringify({
         schema: "squad-decision/v1",
         action: "converged",
+        report: "# Squad synthesis\\n\\nWorker receipts verified.\\n",
       }),
     },
   });
@@ -789,9 +785,6 @@ function writeApiKeyProvider(target: string): void {
   writeProviderExecutable(
     target,
     `const fs = require("node:fs");
-const childProcess = require("node:child_process");
-const path = require("node:path");
-const cli = ${JSON.stringify(cli)};
 const args = process.argv.slice(2);
 if (args[0] === "--version") { console.log("codex api-key-test"); process.exit(0); }
 const prompt = fs.readFileSync(0, "utf8");
@@ -805,19 +798,6 @@ const callback = prompt.includes("# Squad worker callback") || prompt.includes("
 const leader = prompt.includes("# Squad dispatch protocol") || callback;
 const terra = prompt.includes("# Agent Identity: Terra (terra)");
 const luna = prompt.includes("# Agent Identity: Luna (luna)");
-const writeSynthesisReport = () => {
-  const taskPackage = /Your task package is ([^\\n]+)\\./u.exec(prompt)?.[1];
-  const reportPath = /Before declaring convergence, write and submit the synthesis report to ([A-Za-z0-9/_.-]+\\.md)\\./u.exec(prompt)?.[1];
-  const taskId = /ha task artifact add ([A-Za-z0-9._-]+) /u.exec(prompt)?.[1];
-  if (!taskPackage || !reportPath || !taskId) throw new Error("synthesis report contract missing from leader prompt");
-  const root = path.resolve(taskPackage, "../../..");
-  const source = path.join(root, ".harness", "squad-synthesis-" + process.pid + "-" + Date.now() + ".md");
-  fs.mkdirSync(path.dirname(source), { recursive: true });
-  fs.writeFileSync(source, "# Squad synthesis\\n\\nWorker receipts verified.\\n");
-  const synced = childProcess.spawnSync(process.execPath, [cli, "--root", root, "--json", "task", "artifact", "add", taskId, "--source", path.relative(root, source), "--destination", reportPath.replace(/^artifacts\\//u, "")], { encoding: "utf8", env: process.env });
-  const receipt = synced.stdout.trim() ? JSON.parse(synced.stdout) : null;
-  if (synced.status !== 0 || receipt?.outcome !== "applied") throw new Error("synthesis report sync failed: " + synced.stderr + synced.stdout);
-};
 frame({ type: "thread.started", thread_id: leader ? "leader-api-session" : terra ? "terra-api-session" : "luna-api-session" });
 if (prompt.includes("# Squad dispatch protocol")) {
   frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "terra", prompt: "terra API mission" }, { to: "luna", prompt: "luna API mission" }] }) } });
@@ -826,8 +806,7 @@ if (prompt.includes("# Squad dispatch protocol")) {
   if (running) {
     frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "squad-decision/v1", action: "waiting" }) } });
   } else {
-    writeSynthesisReport();
-    frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }) } });
+    frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Squad synthesis\\n\\nWorker receipts verified.\\n" }) } });
   }
 } else {
   frame({ type: "item.completed", item: { type: "agent_message", text: "worker output" } });

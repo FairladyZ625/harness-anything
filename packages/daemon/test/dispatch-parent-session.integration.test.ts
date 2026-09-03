@@ -365,7 +365,11 @@ function fakeProcess(pid: number, behavior: "success" | "converged" | "failed-co
               id: "message",
               type: "agent_message",
               text: behavior.includes("converged")
-                ? JSON.stringify({ schema: "squad-decision/v1", action: "converged" })
+                ? JSON.stringify({
+                    schema: "squad-decision/v1",
+                    action: "converged",
+                    report: "# Parent session synthesis\n\nWorker result verified.\n",
+                  })
                 : "done",
             },
           },

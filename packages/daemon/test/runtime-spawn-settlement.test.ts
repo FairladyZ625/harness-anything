@@ -32,7 +32,7 @@ test("a write-capable squad leader converged decision settles as succeeded witho
     active({
       squadId: "core-squad",
       delegatedBy: null,
-      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Synthesis" }),
       writeItemObserved: false,
       planObserved: false,
     }),
@@ -46,7 +46,7 @@ test("a non-zero squad leader exit is failed even when its final text declares c
     active({
       squadId: "core-squad",
       delegatedBy: null,
-      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
+      finalText: JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "# Synthesis" }),
       writeItemObserved: false,
       planObserved: false,
     }),

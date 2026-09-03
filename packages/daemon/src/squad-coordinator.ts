@@ -85,6 +85,16 @@ export function makeSquadCoordinator(input: {
   readonly projection: () => TaskProjection;
   readonly store: () => CanonicalEventStore;
   readonly reacquireTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
+  readonly publishSynthesisReport: (
+    report: {
+      readonly taskId: string;
+      readonly squadRunId: string;
+      readonly reportPath: string;
+      readonly body: string;
+      readonly leaderRuntimeSessionId: string;
+    },
+    binding: RuntimeBinding,
+  ) => Promise<void>;
   readonly runtimeSpawner: () => {
     readonly spawn: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
     readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
@@ -461,9 +471,34 @@ export function makeSquadCoordinator(input: {
     }
     const running = hasRunningWorkers(updated);
     if (decision.kind === "converged") {
-      const error = running
+      let error = running
         ? "Leader declared convergence while worker dispatches were still running."
-        : convergenceError(updated);
+        : convergenceError(updated, decision);
+      if (error === null) {
+        try {
+          await input.reacquireTaskLease(updated.taskId, updated.binding);
+          const leaderBinding: RuntimeBinding = {
+            ...updated.binding,
+            actor: {
+              principal: updated.binding.actor.principal,
+              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+            },
+          };
+          await input.publishSynthesisReport(
+            {
+              taskId: updated.taskId,
+              squadRunId: updated.squadRunId,
+              reportPath: synthesisReportPath(updated)!,
+              body: decision.report!,
+              leaderRuntimeSessionId: runtimeSessionId,
+            },
+            leaderBinding,
+          );
+        } catch (cause) {
+          consumeKnownError(cause);
+          error = `Leader synthesis report publication failed: ${errorText(cause)}`;
+        }
+      }
       writeState(
         revise(updated, {
           phase: error ? "failed" : "converged",
@@ -669,51 +704,19 @@ export function makeSquadCoordinator(input: {
     return workerRows(state).some(({ attempt, row }) => attempt.rejection === null && (!row || row.outcome === null));
   }
 
-  function convergenceError(state: SquadState): string | null {
+  function convergenceError(
+    state: SquadState,
+    decision: Extract<LeaderDecision, { readonly kind: "converged" }>,
+  ): string | null {
     const missing: string[] = [];
     if (!workerRows(state).some(({ attempt, row }) => attempt.rejection === null && row?.outcome !== null))
       missing.push("a terminal worker dispatch");
     const reportPath = synthesisReportPath(state);
     if (reportPath === null) missing.push("a roster-declared synthesis report path");
-    else if (!leaderAuthoredSynthesisReport(state, reportPath))
-      missing.push(`leader-authored synthesis report ${reportPath}`);
+    if (decision.report !== null && decision.report.trim().length > 0)
+      return missing.length ? `Leader declared convergence without ${missing.join(" and ")}.` : null;
+    missing.push("a non-empty synthesis report");
     return missing.length ? `Leader declared convergence without ${missing.join(" and ")}.` : null;
-  }
-
-  function leaderAuthoredSynthesisReport(state: SquadState, reportPath: string): boolean {
-    const packagePath = dispatchRows(state)
-      .map((row) => row.dispatchPath)
-      .find((candidate): candidate is string => typeof candidate === "string")
-      ?.split("/artifacts/dispatches/", 1)[0];
-    if (!packagePath) return false;
-    const logicalPath = `${packagePath}/${reportPath}`,
-      store = input.store(),
-      events = store.read().events,
-      currentEvent = events.findLast(
-        (candidate) =>
-          candidate.schema === "doc-event/v1" &&
-          candidate.type === "documents_written" &&
-          candidate.payload.changes.some((change) => change.path === logicalPath),
-      );
-    if (!currentEvent || currentEvent.schema !== "doc-event/v1") return false;
-    const current = currentEvent.payload.changes.find((candidate) => candidate.path === logicalPath);
-    if (!current?.candidate) return false;
-    const bytes = store.readContentBlob(current.candidate.sha256),
-      leaderExecutors = new Set(state.leaderTurns.map((turn) => `runtime-session:${turn.runtimeSessionId}`));
-    return (
-      bytes !== null &&
-      new TextDecoder().decode(bytes).trim().length > 0 &&
-      events.some(
-        (event) =>
-          event.schema === "doc-event/v1" &&
-          event.type === "documents_written" &&
-          event.actor.executor?.kind === "agent" &&
-          leaderExecutors.has(event.actor.executor.id) &&
-          event.payload.changes.some(
-            (change) => change.path === logicalPath && change.candidate?.sha256 === current.candidate?.sha256,
-          ),
-      )
-    );
   }
 
   function workerRows(state: SquadState): readonly {
