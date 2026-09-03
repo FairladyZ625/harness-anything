@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { appendRuntimeWorkerRecord, scrubProviderValue } from "./dispatch-stream.ts";
-import { descendantProcessRows, readPosixProcessRows, runtimePidIsAlive } from "./runtime-spawn-process.ts";
 
 type RuntimeWorkerManifest = {
   readonly rootDir: string;
@@ -47,28 +46,22 @@ async function runRuntimeWorkerHost(): Promise<void> {
       chunk: scrubProviderValue(chunk) as string,
     }),
   );
-  const finish = async (exitCode: number | null, signal: NodeJS.Signals | null): Promise<void> => {
+  const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
     if (settled) return;
     settled = true;
     consumeOutput("", true);
-    if (process.platform !== "win32") {
-      const rows = descendantProcessRows(await readPosixProcessRows(), process.pid).filter(({ pid }) =>
-        runtimePidIsAlive(pid),
-      );
-      append({ kind: "process_descendants", rootPid: process.pid, pids: rows.map(({ pid }) => pid) });
-    }
     append({ kind: "process_exit", exitCode, signal });
   };
   child.once("error", (error) => {
     append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
+    finish(null, null);
   });
+  child.once("close", finish);
   process.once("SIGTERM", () => {
     if (!settled) child.kill("SIGTERM");
   });
   child.stdin.end(manifest.prompt);
-  await new Promise<void>((resolve, reject) =>
-    child.once("close", (exitCode, signal) => void finish(exitCode, signal).then(resolve, reject)),
-  );
+  await new Promise<void>((resolve) => child.once("close", () => resolve()));
 }
 
 function appendProviderLine(append: (value: Readonly<Record<string, unknown>>) => void, line: string): void {

@@ -74,6 +74,13 @@ test("worker worktree status is read without changing the worktree", async (cont
   assert.equal(await workerWorktreeDirty({ cwd: worker, canonicalRoot: canonical }), true);
   assert.match(git(worker, "status", "--porcelain"), /uncommitted\.txt/u);
   assert.equal(await workerWorktreeDirty({ cwd: canonical, canonicalRoot: canonical }), false);
+
+  // The worktrees this question exists for are the abandoned ones, and those carry far more than a
+  // single path: a bound that a real turn's leftovers overrun answers with a thrown error instead.
+  for (let index = 0; index < 64; index += 1)
+    writeFileSync(path.join(worker, `left-behind-${String(index)}-with-a-realistic-name.txt`), "dirty\n");
+  assert.equal(git(worker, "status", "--porcelain").length > 1024, true);
+  assert.equal(await workerWorktreeDirty({ cwd: worker, canonicalRoot: canonical }), true);
 });
 
 function git(root, ...args) {

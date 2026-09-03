@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "../../kernel/src/index.ts";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import { readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
+import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+import { runtimeDescendantsAlive } from "./runtime-spawn-process.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, workerWorktreeDirty } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
@@ -38,8 +39,10 @@ export async function publishExit(
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    if (!cancelled) {
-      active.descendantsAlive = recordedDescendantsAlive(context.input.rootDir, active.dispatchId, active.process.pid);
+    // Only a clean provider exit can still be claimed as success, so only that exit is worth the
+    // two observations that can take the claim away (`runtimeExitOutcome` reads them nowhere else).
+    if (!cancelled && code === 0) {
+      active.descendantsAlive = await runtimeDescendantsAlive(active.process.pid);
       if (active.task)
         active.worktreeDirty = await workerWorktreeDirty({
           cwd: active.cwd,
@@ -245,13 +248,6 @@ export async function publishExit(
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
-}
-
-function recordedDescendantsAlive(rootDir: string, dispatchId: string, rootPid: number): boolean {
-  const record = readDispatchStream(rootDir, dispatchId)?.records.findLast(
-    (value) => value.kind === "process_descendants" && Number(value.rootPid) === rootPid,
-  );
-  return Array.isArray(record?.pids) && record.pids.some((value) => Number(value) !== rootPid);
 }
 
 function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {

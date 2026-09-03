@@ -172,7 +172,7 @@ type PosixProcessRow = {
   readonly processGroupId: number;
 };
 
-export async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
+async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   const output = await runProcessTextAsync("ps", ["-axo", "pid=,ppid=,pgid="]);
   return output.split(/\r?\n/u).flatMap((line) => {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)/u.exec(line);
@@ -181,7 +181,7 @@ export async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]
   });
 }
 
-export function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
+function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
   const selected = new Set([rootPid]);
   let changed = true;
   while (changed) {
@@ -193,6 +193,22 @@ export function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid:
       }
   }
   return rows.filter((row) => selected.has(row.pid) || row.processGroupId === rootPid);
+}
+
+// A worker that backgrounds work and then ends its turn leaves that work behind: the provider's
+// children are reparented away from it, so only the process group the detached host leads still
+// names them. Settlement asks this on the machine that launched the host — the only machine whose
+// process table means anything for this dispatch — and answers "still running" whenever the table
+// cannot be read, because an unreadable table is not evidence that the tree is empty.
+export async function runtimeDescendantsAlive(rootPid: number): Promise<boolean> {
+  if (process.platform === "win32" || !Number.isInteger(rootPid) || rootPid < 1) return false;
+  try {
+    const rows = descendantProcessRows(await readPosixProcessRows(), rootPid);
+    return rows.some(({ pid }) => pid !== rootPid && runtimePidIsAlive(pid));
+  } catch (error) {
+    consumeKnownError(error);
+    return true;
+  }
 }
 
 function signalRuntimeTargets(
