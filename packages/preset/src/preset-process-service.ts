@@ -221,8 +221,12 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     witnesses.set(witness.runId, witness);
     const target = path.join(witnessRoot, `${witness.runId}.json`),
       temporary = path.join(witnessRoot, `.${witness.runId}-${randomUUID()}.tmp`);
-    writeFileSync(temporary, `${canonicalPresetBytes(witness)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporary, target);
+    try {
+      writeFileSync(temporary, `${canonicalPresetBytes(witness)}\n`, { encoding: "utf8", mode: 0o600 });
+      renameSync(temporary, target);
+    } finally {
+      if (existsSync(temporary)) rmSync(temporary, { force: true });
+    }
     return witness;
   }
   function change(
