@@ -29,6 +29,7 @@ import {
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { loadCanonicalAssets } from "../../preset/src/preset-assets.ts";
 import { runArtifactEntityImport } from "./artifact-entity-action.ts";
+import { migrationError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const ADR_KIND = "software/coding/architecture-decision-record@1";
@@ -682,8 +683,4 @@ function isDirectory(target: string): boolean {
 
 function isRegularFile(target: string): boolean {
   return existsSync(target) && lstatSync(target).isFile() && !lstatSync(target).isSymbolicLink();
-}
-
-function migrationError(code: string, message: string): never {
-  throw Object.assign(new Error(message), { code });
 }

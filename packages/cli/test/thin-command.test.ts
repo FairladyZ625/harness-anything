@@ -154,6 +154,27 @@ test("ADR migration projects its registry and occurrence fences into one center 
   if (!missingSourceRoot.ok) assert.equal(missingSourceRoot.code, "missing_field");
 });
 
+test("Squad migration projects legacy sources and dry-run into one center Action", () => {
+  const parsed = parseThinCommand([
+    "migrate",
+    "squads",
+    "--source",
+    "harness/squads/ledger-squad.json",
+    "--source",
+    "harness/squads/debug-squad.json",
+    "--dry-run",
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, {
+    kind: "entity-migrate-squads",
+    sourcePaths: ["harness/squads/ledger-squad.json", "harness/squads/debug-squad.json"],
+    dryRun: true,
+  });
+  assert.equal(parseThinCommand(["migrate", "squads", "--dry-run"]).ok, false);
+});
+
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(deriveCliCapabilities(), {
     agenda: ["agenda"],
@@ -213,6 +234,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "decision-digests-migrate",
       "dispatch-records-migrate",
       "entity-migrate-adrs",
+      "entity-migrate-squads",
       "fact-rekey",
       "ledger-migrate",
       "migrate-import",
