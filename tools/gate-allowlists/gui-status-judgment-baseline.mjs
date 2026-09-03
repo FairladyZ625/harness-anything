@@ -6,10 +6,7 @@
 // and stale identities.
 // prettier-ignore
 export const guiStatusJudgmentBaseline = Object.freeze([
-  { key: "gui-status-005", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["covered"] }, // point-comparison: covered @ FactInspector.coveredDecisionIds
   { key: "gui-status-019", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ decisionHasReachableEvidence
-  { key: "gui-status-030", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["covered"] }, // point-comparison: covered @ computeFactTriageSignals.citingDecisionIdSet
-  { key: "gui-status-031", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["uncovered"] }, // point-comparison: uncovered @ coverageSignal.uncovered
   { key: "gui-status-032", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["active"] }, // point-comparison: active @ activeIncomingRelations
   { key: "gui-status-034", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["cancelled"] }, // point-comparison: cancelled @ matchesTask
   { key: "gui-status-035", classification: "domain-judgment", kind: "comparison", shape: "point-comparison", words: ["unknown"] }, // point-comparison: unknown @ matchesTask

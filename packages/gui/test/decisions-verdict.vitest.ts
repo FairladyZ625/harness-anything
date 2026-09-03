@@ -36,17 +36,19 @@ function fact(anchor: string, invalidated = false, taskId = "task_1"): FactRef {
 }
 
 function coverage(overrides: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
-  return {
+  const row = {
     decisionRef: "decision/dec_1",
     claimRef: "decision/dec_1/CH1",
     status: "covered",
     fulfillment: "evidenced",
     coveringFactRef: "fact/F-live",
-    refutingFactRefs: [],
-    relationPath: ["rel_evidence"],
+    refutingFactRefs: [] as readonly string[],
+    relationPath: ["rel_evidence"] as readonly string[],
     basisRevision: 12,
     ...overrides,
   };
+  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
+  return { ...row, covered: row.status === "covered" };
 }
 
 const signal = (

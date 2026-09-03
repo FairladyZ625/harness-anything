@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EgoNeighborhood } from "../src/renderer/graph/EgoNeighborhood.tsx";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 
 /**
  * 可复用邻域画布(W4 抽取)的行为契约:脱离 GraphView/页面状态独立可用。
@@ -41,6 +42,7 @@ function decision(decisionId: string): DecisionRow {
     rejected: [],
     claims: [],
     proposedAt: "2026-08-01T00:00:00.000Z",
+    ...decisionProjectionFields("proposed"),
   } as DecisionRow;
 }
 

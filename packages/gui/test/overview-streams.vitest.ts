@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { DecisionStream } from "../src/renderer/components/overview/DecisionStream.tsx";
 import { TaskStream, tasksAheadOfStatus } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
@@ -54,6 +55,7 @@ function decision(patch: Partial<DecisionRow>): DecisionRow {
     claims: [],
     judgmentConsents: [],
     body: null,
+    ...decisionProjectionFields(patch.state ?? "proposed"),
     ...patch,
   };
 }

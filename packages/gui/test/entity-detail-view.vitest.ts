@@ -8,6 +8,7 @@ import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { splitMarkdownBlocks } from "../src/renderer/components/decisionDetail/DecisionBodyPanel.tsx";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
@@ -47,6 +48,7 @@ function decision(): DecisionRow {
     rejected: [{ id: "RJ1", text: "直读 Markdown", evidence: [], whyNot: "绕开 canonical 投影" }],
     claims: [],
     proposedAt: "2026-08-01T00:00:00.000Z",
+    ...decisionProjectionFields("proposed"),
   } as DecisionRow;
 }
 

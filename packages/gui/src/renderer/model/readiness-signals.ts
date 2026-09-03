@@ -160,11 +160,7 @@ function coverageSignal(
       color: "unknown",
       summary: `coverageRows 缺 claim:${missingRows.map((claim) => claim.id).join(", ")};不从 option evidence 猜。`,
     };
-  const uncovered = rows.filter(
-    (row) =>
-      /* @gate-identity check-gui-status-judgments/gui-status-031 */
-      row.status === "uncovered",
-  );
+  const uncovered = rows.filter((row) => !row.covered);
   const revisions = basisSummary(rows);
   return uncovered.length
     ? {

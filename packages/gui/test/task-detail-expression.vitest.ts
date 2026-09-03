@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import type { DecisionRow, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { taskProjectionFields } from "./task-projection-fields.ts";
 
@@ -185,6 +186,7 @@ const task: TaskRow = {
 const parent = { ...task, taskId: "task-parent", title: "PLT GUI UX", parentTaskId: undefined };
 const child = { ...task, taskId: "task-child", title: "下游可用性验证", parentTaskId: "task-w3" };
 const decision: DecisionRow = {
+  ...decisionProjectionFields("proposed"),
   decisionId: "dec-gui",
   title: "GUI 只展示后端结构化结果",
   state: "in_effect",

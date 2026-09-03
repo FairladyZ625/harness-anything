@@ -95,6 +95,7 @@ function coverage(fact = baseFact(), decisionId = "dec_1"): RelationCoverageRow 
     decisionRef: `decision/${decisionId}`,
     claimRef: `decision/${decisionId}/CH1`,
     status: "covered",
+    covered: true,
     fulfillment: "evidenced",
     coveringFactRef: fact.anchor.startsWith("fact/") ? fact.anchor : `fact/${fact.anchor}`,
     refutingFactRefs: [],
@@ -397,6 +398,14 @@ describe("cross-entity navigation projection", () => {
             decidedAt: null,
             workspaceRevision: 7,
             chosen: [{ id: "CH1", text: "Ship it", rationale: "best tradeoff" }],
+            capabilities: [
+              { id: "accept", available: true, reason: null },
+              { id: "reject", available: true, reason: null },
+              { id: "defer", available: true, reason: null },
+              { id: "supersede", available: false, reason: "invalid_transition" },
+              { id: "retire", available: false, reason: "invalid_transition" },
+            ],
+            claimsOpen: true,
             rejected: [],
             claims: [{ id: "CH1", text: "Claim", loadBearing: true, fulfillment: "evidenced" }],
             judgmentConsents: [

@@ -752,16 +752,18 @@ const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readon
  * `freshnessReasonOf` 判定)——本测试不重算成因,与 renderer 同为纯消费者。
  */
 function freshnessCoverage(patch: Partial<RelationCoverageRow> = {}): RelationCoverageRow {
-  return {
+  const row = {
     decisionRef: `decision/${DECISION_ID}`,
     claimRef: `decision/${DECISION_ID}/CH1`,
     status: "covered",
     fulfillment: "standing-policy",
-    refutingFactRefs: [],
-    relationPath: [],
+    refutingFactRefs: [] as readonly string[],
+    relationPath: [] as readonly string[],
     basisRevision: 1,
     ...patch,
   };
+  // covered 布尔与 status 同一判定(kernel coverageIsCovered),fixture 按终值补齐。
+  return { ...row, covered: row.status === "covered" };
 }
 const FRESHNESS_COVERAGE_ROWS: readonly RelationCoverageRow[] = [
   freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),

@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { GraphView } from "../src/renderer/views/GraphView.tsx";
 import type { TaskRow, DecisionRow, RelationEdge } from "../src/renderer/model/types.ts";
+import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import {
   readGraphTerritoryShowArchived,
   writeGraphTerritoryShowArchived,
@@ -49,6 +50,7 @@ function decision(decisionId: string): DecisionRow {
     rejected: [],
     claims: [],
     proposedAt: "2026-08-01T00:00:00.000Z",
+    ...decisionProjectionFields("proposed"),
   } as DecisionRow;
 }
 
