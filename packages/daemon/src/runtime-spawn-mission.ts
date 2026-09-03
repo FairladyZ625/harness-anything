@@ -74,6 +74,11 @@ export async function resolveRuntimeInstanceId(input: {
   const declared = declaredModel ? typed.filter((instance) => instance.models.includes(declaredModel)) : typed;
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
+    if (input.agent && declaredType !== "any" && !typeCandidates)
+      throw runtimeSpawnError(
+        "agent_runtime_unavailable",
+        `Agent ${input.agent.id} requires ${declaredType}, but no enabled ${declaredType} instance is available on this node.`,
+      );
     throw runtimeSpawnError(
       declaredModel && typeCandidates ? "agent_model_unavailable" : "agent_runtime_unavailable",
       declaredModel && typeCandidates

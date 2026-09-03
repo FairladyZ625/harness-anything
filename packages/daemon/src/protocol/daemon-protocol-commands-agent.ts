@@ -476,13 +476,13 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],
-    summary: "Start a durable task-derived Squad run supervised by callback-driven leader turns.",
+    summary: "Start a durable task-derived Squad run; the selected instance and model apply only to its leader.",
     method: "repo.task.run",
     positional: "squadId",
     inputs: [
       cliInput("--instance", "single", true, {
         code: "missing_field",
-        nextAction: "Add --instance <runtime-instance-id>.",
+        nextAction: "Add --instance <leader-runtime-instance-id>.",
       }),
       cliInput(
         "--effort",
@@ -497,7 +497,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
       cliInput("--model", "single", false, {
         code: "invalid_field",
-        nextAction: "Use one model supported by the runtime instance.",
+        nextAction: "Use one model supported by the leader runtime instance.",
       }),
       cliInput(
         "--permission-mode",

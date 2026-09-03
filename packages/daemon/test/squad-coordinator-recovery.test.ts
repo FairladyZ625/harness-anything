@@ -502,8 +502,8 @@ test("redispatch of an active worker waits while non-overlapping work still star
         leaderResult: JSON.stringify({
           schema: "runtime-batch/v1",
           dispatches: [
-            { instance: INSTANCE_ID, to: "sol", prompt: "duplicate work" },
-            { instance: INSTANCE_ID, to: "terra", prompt: "new work" },
+            { to: "sol", prompt: "duplicate work" },
+            { to: "terra", prompt: "new work" },
           ],
         }),
         leaderTurnBudget: 3,
@@ -513,6 +513,8 @@ test("redispatch of an active worker waits while non-overlapping work still star
 
     assert.equal(fixture.spawns.length, 1);
     assert.equal(fixture.spawns[0]?.targetAgentId, "terra");
+    assert.equal(Object.hasOwn(fixture.spawns[0]!, "runtimeInstanceId"), false);
+    assert.equal(Object.hasOwn(fixture.spawns[0]!, "model"), false);
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
     assert.equal(status.status, "workers_running");
     assert.equal(status.error, null);
@@ -728,7 +730,7 @@ test("a rejected worker attempt does not block a later dispatch to the same work
   await withRootDir(async (rootDir) => {
     const plan = JSON.stringify({
         schema: "runtime-batch/v1",
-        dispatches: [{ instance: INSTANCE_ID, to: "sol", prompt: "try the worker" }],
+        dispatches: [{ to: "sol", prompt: "try the worker" }],
       }),
       fixture = makeRecoveryFixture(rootDir, {
         leaderOutcome: "succeeded",
