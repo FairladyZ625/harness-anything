@@ -21,7 +21,7 @@ const EQUALITY_OPERATORS = new Set([
   ts.SyntaxKind.EqualsEqualsEqualsToken,
   ts.SyntaxKind.ExclamationEqualsEqualsToken,
   ts.SyntaxKind.EqualsEqualsToken,
-  ts.SyntaxKind.ExclamationEqualsToken
+  ts.SyntaxKind.ExclamationEqualsToken,
 ]);
 const BASELINE_CLASSIFICATIONS = new Set(["domain-judgment"]);
 const BASELINE_KINDS = new Set(["comparison", "group", "membership", "switch"]);
@@ -32,13 +32,17 @@ const VALIDATION_FIELD = /(?:availability|targetState|sessionBinding|witness res
 export function scanGuiStatusJudgments(
   root = process.cwd(),
   vocabularies = statusVocabularies,
-  registrations = vocabularies === statusVocabularies ? statusWordRegister : registrationsFromVocabularies(vocabularies)
+  registrations = vocabularies === statusVocabularies
+    ? statusWordRegister
+    : registrationsFromVocabularies(vocabularies),
 ) {
   const files = walk(path.join(root, GUI_SOURCE));
   if (files.length === 0) return [];
   const program = createGuiProgram(root, files);
   const checker = program.getTypeChecker();
   const vocabulary = vocabularyIndex(vocabularies, registrations);
+  const sourceFiles = files.map((file) => program.getSourceFile(file)).filter(Boolean);
+  const arrayJudgmentMatches = findArrayJudgmentMatches(checker, sourceFiles, vocabulary);
   const sites = [];
 
   for (const file of files) {
@@ -60,14 +64,15 @@ export function scanGuiStatusJudgments(
         shape,
         scope: semanticScope(node, source),
         identity,
-        classification: shape === "complete-mirror"
-          ? "registry-mirror"
-          : shape === "proper-subset" || !isPureDisplayUsage(node, checker)
-            ? "domain-judgment"
-            : "display-only",
+        classification:
+          shape === "complete-mirror"
+            ? "registry-mirror"
+            : shape === "proper-subset" || !isPureDisplayUsage(node, checker)
+              ? "domain-judgment"
+              : "display-only",
         words: [...new Set(words)].sort(),
         vocabularyIds: [...new Set(vocabularyIds)].sort(),
-        content
+        content,
       });
     };
 
@@ -90,21 +95,28 @@ export function scanGuiStatusJudgments(
       } else if (ts.isArrayLiteralExpression(node)) {
         const stringLiterals = node.elements.filter(ts.isStringLiteralLike);
         const literals = stringLiterals.filter((element) => vocabulary.words.has(element.text));
-        if (literals.length > 0) {
-          const contextualIds = literals.flatMap((literal) => vocabularyIdsForType(checker, checker.getContextualType(literal), vocabulary.sets));
-          const groupedIds = vocabularyIdsCoveringWords(literals.map((literal) => literal.text), vocabulary.sets);
-          const allWordsAreEntityJudgments = literals.every((literal) => vocabulary.registrations.some((entry) => entry.word === literal.text && entry.inScope));
-          if (contextualIds.length > 0 || groupedIds.length > 0 || (literals.length > 1 && allWordsAreEntityJudgments)) {
-            const words = literals.map((literal) => literal.text);
-            add(node, "group", words, [...contextualIds, ...groupedIds], vocabulary.completeKeys.has(wordKey(words)) ? "complete-mirror" : "proper-subset");
-          }
+        const match = arrayJudgmentMatches.get(node);
+        if (literals.length > 0 && match) {
+          const words = literals.map((literal) => literal.text);
+          add(
+            node,
+            "group",
+            words,
+            match.vocabularyIds,
+            vocabulary.completeKeys.has(wordKey(words)) ? "complete-mirror" : "proper-subset",
+          );
         }
-      } else if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
-        && ["has", "includes"].includes(node.expression.name.text)) {
-        const literal = node.arguments.find((argument) => ts.isStringLiteralLike(argument) && vocabulary.words.has(argument.text));
+      } else if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ["has", "includes"].includes(node.expression.name.text)
+      ) {
+        const literal = node.arguments.find(
+          (argument) => ts.isStringLiteralLike(argument) && vocabulary.words.has(argument.text),
+        );
         if (literal) {
-          const ids = vocabularyIdsForType(checker, checker.getContextualType(literal), vocabulary.sets);
-          if (ids.length > 0) add(node, "membership", [literal.text], ids);
+          const match = carrierMatch(checker, node.expression.expression, [literal.text], vocabulary);
+          if (match.inScope) add(node, "membership", [literal.text], match.vocabularyIds);
         }
       }
       ts.forEachChild(node, visit);
@@ -114,16 +126,24 @@ export function scanGuiStatusJudgments(
       sites.push({ ...site, key: site.identity ?? `${site.path}:${site.line}:${site.column}` });
     }
   }
-  return sites.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column);
+  return sites.sort(
+    (left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column,
+  );
 }
 
 export function checkGuiStatusJudgments(sites, baseline = guiStatusJudgmentBaseline) {
   const findings = [];
   const baselineByKey = new Map();
   for (const entry of baseline) {
-    if (!entry || typeof entry.key !== "string" || !BASELINE_CLASSIFICATIONS.has(entry.classification)
-      || !BASELINE_KINDS.has(entry.kind) || !BASELINE_SHAPES.has(entry.shape)
-      || !Array.isArray(entry.words) || !entry.words.every((word) => typeof word === "string")) {
+    if (
+      !entry ||
+      typeof entry.key !== "string" ||
+      !BASELINE_CLASSIFICATIONS.has(entry.classification) ||
+      !BASELINE_KINDS.has(entry.kind) ||
+      !BASELINE_SHAPES.has(entry.shape) ||
+      !Array.isArray(entry.words) ||
+      !entry.words.every((word) => typeof word === "string")
+    ) {
       findings.push(`invalid baseline entry ${JSON.stringify(entry)}`);
       continue;
     }
@@ -137,9 +157,16 @@ export function checkGuiStatusJudgments(sites, baseline = guiStatusJudgmentBasel
   }
   for (const site of sites) {
     const entry = baselineByKey.get(site.key);
-    if (entry && (entry.classification !== site.classification || entry.kind !== site.kind
-      || entry.shape !== site.shape || wordKey(entry.words) !== wordKey(site.words))) {
-      findings.push(`${site.key}: baseline freezes ${entry.classification}/${entry.shape}/${entry.kind}/${entry.words.join(",")}; site is ${site.classification}/${site.shape}/${site.kind}/${site.words.join(",")}`);
+    if (
+      entry &&
+      (entry.classification !== site.classification ||
+        entry.kind !== site.kind ||
+        entry.shape !== site.shape ||
+        wordKey(entry.words) !== wordKey(site.words))
+    ) {
+      findings.push(
+        `${site.key}: baseline freezes ${entry.classification}/${entry.shape}/${entry.kind}/${entry.words.join(",")}; site is ${site.classification}/${site.shape}/${site.kind}/${site.words.join(",")}`,
+      );
     }
     if (!entry && site.classification === "domain-judgment") {
       findings.push(`${site.key}: new GUI status judgment (${site.shape}; ${site.words.join(", ") || "typed status"})`);
@@ -155,7 +182,8 @@ export function checkGuiStatusJudgments(sites, baseline = guiStatusJudgmentBasel
 
 export function baselineCounts(baseline = guiStatusJudgmentBaseline) {
   const counts = { total: baseline.length, "domain-judgment": 0 };
-  for (const entry of baseline) if (BASELINE_CLASSIFICATIONS.has(entry.classification)) counts[entry.classification] += 1;
+  for (const entry of baseline)
+    if (BASELINE_CLASSIFICATIONS.has(entry.classification)) counts[entry.classification] += 1;
   return counts;
 }
 
@@ -163,7 +191,7 @@ export function inventoryCounts(sites) {
   const counts = {
     total: sites.length,
     shapes: { "proper-subset": 0, "point-comparison": 0, "complete-mirror": 0 },
-    classifications: { "display-only": 0, "domain-judgment": 0, "registry-mirror": 0 }
+    classifications: { "display-only": 0, "domain-judgment": 0, "registry-mirror": 0 },
   };
   for (const site of sites) {
     counts.shapes[site.shape] += 1;
@@ -174,7 +202,14 @@ export function inventoryCounts(sites) {
 
 function createGuiProgram(root, files) {
   const configPath = path.join(root, "packages/gui/tsconfig.renderer.json");
-  let options = { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, jsx: ts.JsxEmit.Preserve, allowJs: true, skipLibCheck: true };
+  let options = {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    jsx: ts.JsxEmit.Preserve,
+    allowJs: true,
+    skipLibCheck: true,
+  };
   if (existsSync(configPath)) {
     const loaded = ts.readConfigFile(configPath, ts.sys.readFile);
     if (!loaded.error) {
@@ -192,7 +227,7 @@ function vocabularyIndex(vocabularies, registrations = statusWordRegister) {
   const words = new Set(registrations.map((entry) => entry.word));
   const scopedRegistrations = registrations.map((entry) => ({
     ...entry,
-    inScope: isEntityJudgmentRegistration(entry)
+    inScope: isEntityJudgmentRegistration(entry),
   }));
   const mirrorAnchors = new Map();
   for (const entry of vocabularies) {
@@ -209,7 +244,7 @@ function vocabularyIndex(vocabularies, registrations = statusWordRegister) {
       words: new Set(normalized),
       key: wordKey(normalized),
       complete: entry.subsetOf === undefined,
-      inScope: isEntityJudgmentRegistration(authority)
+      inScope: isEntityJudgmentRegistration(authority),
     };
     allSets.push(indexed);
     if (indexed.inScope) sets.push(indexed);
@@ -220,16 +255,18 @@ function vocabularyIndex(vocabularies, registrations = statusWordRegister) {
     words,
     registrations: scopedRegistrations,
     mirrorAnchors,
-    completeKeys: new Set(sets.filter((entry) => entry.complete).map((entry) => entry.key))
+    completeKeys: new Set(sets.filter((entry) => entry.complete).map((entry) => entry.key)),
   };
 }
 
 function registrationsFromVocabularies(vocabularies) {
-  return vocabularies.flatMap((entry) => entry.words.map((word) => ({
-    word,
-    entity: entry.entity,
-    field: entry.field
-  })));
+  return vocabularies.flatMap((entry) =>
+    entry.words.map((word) => ({
+      word,
+      entity: entry.entity,
+      field: entry.field,
+    })),
+  );
 }
 
 function isEntityJudgmentRegistration(entry) {
@@ -239,10 +276,137 @@ function isEntityJudgmentRegistration(entry) {
   return !TRANSIENT_OPERATION_ENTITY.test(entry.entity) && !VALIDATION_FIELD.test(entry.field);
 }
 
+function findArrayJudgmentMatches(checker, sourceFiles, vocabulary) {
+  const candidates = new Map();
+  const byExpression = new Map();
+  const bySymbol = new Map();
+  const collect = (node) => {
+    if (ts.isArrayLiteralExpression(node)) {
+      const words = node.elements
+        .filter(ts.isStringLiteralLike)
+        .filter((element) => vocabulary.words.has(element.text))
+        .map((element) => element.text);
+      if (words.length > 0) {
+        const candidate = { words, matched: false, vocabularyIds: new Set() };
+        candidates.set(node, candidate);
+        const root = collectionRoot(node, byExpression, candidate);
+        if (
+          ts.isVariableDeclaration(root.parent) &&
+          root.parent.initializer === root &&
+          ts.isIdentifier(root.parent.name)
+        ) {
+          const symbol = canonicalSymbol(checker, root.parent.name);
+          if (symbol) bySymbol.set(symbol, candidate);
+        }
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  for (const source of sourceFiles) collect(source);
+
+  const matchCarrier = (candidate, expression) => {
+    if (ts.isStringLiteralLike(unwrapExpression(expression))) return;
+    const match = carrierMatch(checker, expression, candidate.words, vocabulary);
+    if (match.inScope) {
+      candidate.matched = true;
+      for (const id of match.vocabularyIds) candidate.vocabularyIds.add(id);
+    }
+  };
+  const inspect = (node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const method = node.expression.name.text;
+      const candidate = collectionCandidate(checker, node.expression.expression, byExpression, bySymbol);
+      if (candidate && ["has", "includes", "indexOf"].includes(method)) {
+        for (const argument of node.arguments) matchCarrier(candidate, argument);
+      } else if (candidate && method === "map") {
+        const callback = node.arguments[0];
+        if (
+          callback &&
+          ts.isFunctionLike(callback) &&
+          callback.parameters.length > 0 &&
+          ts.isIdentifier(callback.parameters[0].name)
+        ) {
+          const parameter = canonicalSymbol(checker, callback.parameters[0].name);
+          const inspectCallback = (current) => {
+            if (parameter && ts.isBinaryExpression(current) && EQUALITY_OPERATORS.has(current.operatorToken.kind)) {
+              if (expressionUsesSymbol(checker, current.left, parameter)) {
+                candidate.matched = true;
+                matchCarrier(candidate, current.right);
+              }
+              if (expressionUsesSymbol(checker, current.right, parameter)) {
+                candidate.matched = true;
+                matchCarrier(candidate, current.left);
+              }
+            }
+            ts.forEachChild(current, inspectCallback);
+          };
+          inspectCallback(callback.body);
+        }
+      }
+    }
+    ts.forEachChild(node, inspect);
+  };
+  for (const source of sourceFiles) inspect(source);
+  return new Map(
+    [...candidates]
+      .filter(([, candidate]) => candidate.matched)
+      .map(([node, candidate]) => [node, { vocabularyIds: [...candidate.vocabularyIds] }]),
+  );
+}
+
+function collectionRoot(node, byExpression, candidate) {
+  let current = node;
+  byExpression.set(current, candidate);
+  while (
+    current.parent &&
+    ((isTransparentExpression(current.parent) && current.parent.expression === current) ||
+      (ts.isNewExpression(current.parent) &&
+        current.parent.arguments?.includes(current) &&
+        /^(?:Readonly)?Set$/u.test(current.parent.expression.getText())))
+  ) {
+    current = current.parent;
+    byExpression.set(current, candidate);
+  }
+  return current;
+}
+
+function collectionCandidate(checker, expression, byExpression, bySymbol) {
+  const unwrapped = unwrapExpression(expression);
+  return byExpression.get(unwrapped) ?? bySymbol.get(canonicalSymbol(checker, unwrapped));
+}
+
+function canonicalSymbol(checker, node) {
+  let symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(node) ? node.name : node);
+  while (symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0) symbol = checker.getAliasedSymbol(symbol);
+  return symbol;
+}
+
+function expressionUsesSymbol(checker, expression, symbol) {
+  return canonicalSymbol(checker, unwrapExpression(expression)) === symbol;
+}
+
+function unwrapExpression(expression) {
+  let current = expression;
+  while (isTransparentExpression(current)) current = current.expression;
+  return current;
+}
+
+function isTransparentExpression(node) {
+  return (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  );
+}
+
 function carrierMatch(checker, expression, literalWords, vocabulary) {
   const symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expression) ? expression.name : expression);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
-  const type = declaration ? checker.getTypeOfSymbolAtLocation(symbol, declaration) : checker.getTypeAtLocation(expression);
+  const type = declaration
+    ? checker.getTypeOfSymbolAtLocation(symbol, declaration)
+    : checker.getTypeAtLocation(expression);
   const words = literalTypeWords(checker, type);
   if (words) {
     const allExactIds = vocabularyIdsForWords(words, vocabulary.allSets);
@@ -257,13 +421,15 @@ function carrierMatch(checker, expression, literalWords, vocabulary) {
     return { inScope: false, vocabularyIds: [] };
   }
   if (!containsBroadString(type)) return { inScope: false, vocabularyIds: [] };
-  const fieldTerms = new Set(vocabulary.registrations
-    .filter((entry) => entry.inScope && literalWords.includes(entry.word))
-    .map((entry) => fieldTerm(entry.field))
-    .filter(Boolean));
+  const fieldTerms = new Set(
+    vocabulary.registrations
+      .filter((entry) => entry.inScope && literalWords.includes(entry.word))
+      .map((entry) => fieldTerm(entry.field))
+      .filter(Boolean),
+  );
   return {
     inScope: statusLikeCarrierName(expression, fieldTerms),
-    vocabularyIds: vocabularyIdsCoveringWords(literalWords, vocabulary.sets)
+    vocabularyIds: vocabularyIdsCoveringWords(literalWords, vocabulary.sets),
   };
 }
 
@@ -272,11 +438,6 @@ function containsBroadString(type) {
   if ((type.flags & ts.TypeFlags.String) !== 0) return true;
   if (type.isUnion()) return type.types.some(containsBroadString);
   return false;
-}
-
-function vocabularyIdsForType(checker, type, sets) {
-  const words = literalTypeWords(checker, type);
-  return words ? vocabularyIdsForWords(words, sets) : [];
 }
 
 function vocabularyIdsForWords(words, sets) {
@@ -307,13 +468,24 @@ function vocabularyIdsCoveringWords(words, sets) {
 }
 
 function statusLikeCarrierName(expression, fieldTerms) {
-  const raw = ts.isPropertyAccessExpression(expression) ? expression.name.text : ts.isIdentifier(expression) ? expression.text : "";
+  const raw = ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : ts.isIdentifier(expression)
+      ? expression.text
+      : "";
   const name = raw.toLowerCase();
-  return [...fieldTerms].some((term) => name.endsWith(term) || name.endsWith(`${term}s`) || (term === "status" && name.endsWith("statuses")));
+  return [...fieldTerms].some(
+    (term) => name.endsWith(term) || name.endsWith(`${term}s`) || (term === "status" && name.endsWith("statuses")),
+  );
 }
 
 function fieldTerm(field) {
-  return field.match(/[A-Za-z]+/gu)?.at(-1)?.toLowerCase() ?? "";
+  return (
+    field
+      .match(/[A-Za-z]+/gu)
+      ?.at(-1)
+      ?.toLowerCase() ?? ""
+  );
 }
 
 function registeredLiteralOperand(node, words) {
@@ -325,7 +497,11 @@ function registeredLiteralOperand(node, words) {
 function isPureDisplayUsage(node, checker) {
   for (let current = node; current; current = current.parent) {
     if (ts.isJsxExpression(current)) {
-      if (ts.isJsxAttribute(current.parent) && /^(?:aria-|className$|style$|title$)/u.test(current.parent.name.getText())) return true;
+      if (
+        ts.isJsxAttribute(current.parent) &&
+        /^(?:aria-|className$|style$|title$)/u.test(current.parent.name.getText())
+      )
+        return true;
       if (current.expression && containsOnlyNonInteractiveIntrinsicJsx(current.expression)) return true;
       break;
     }
@@ -344,7 +520,13 @@ function containsOnlyNonInteractiveIntrinsicJsx(node) {
   const visit = (current) => {
     if (ts.isJsxOpeningElement(current) || ts.isJsxSelfClosingElement(current)) {
       const tag = current.tagName.getText();
-      if (!/^[a-z]/u.test(tag) || current.attributes.properties.some((attribute) => ts.isJsxAttribute(attribute) && /^on[A-Z]/u.test(attribute.name.getText()))) disallowed = true;
+      if (
+        !/^[a-z]/u.test(tag) ||
+        current.attributes.properties.some(
+          (attribute) => ts.isJsxAttribute(attribute) && /^on[A-Z]/u.test(attribute.name.getText()),
+        )
+      )
+        disallowed = true;
       else sawIntrinsic = true;
     }
     ts.forEachChild(current, visit);
@@ -357,7 +539,11 @@ function mirrorDeclarationSpans(source, anchors) {
   const wanted = new Set(anchors);
   const spans = [];
   const visit = (node) => {
-    if ((ts.isTypeAliasDeclaration(node) || ts.isVariableDeclaration(node)) && ts.isIdentifier(node.name) && wanted.has(node.name.text)) {
+    if (
+      (ts.isTypeAliasDeclaration(node) || ts.isVariableDeclaration(node)) &&
+      ts.isIdentifier(node.name) &&
+      wanted.has(node.name.text)
+    ) {
       spans.push([node.getStart(source), node.getEnd()]);
     }
     ts.forEachChild(node, visit);
@@ -369,8 +555,14 @@ function mirrorDeclarationSpans(source, anchors) {
 function semanticScope(node, source) {
   const segments = [];
   for (let current = node.parent; current && !ts.isSourceFile(current); current = current.parent) {
-    if (ts.isVariableDeclaration(current) || ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)
-      || ts.isClassDeclaration(current) || ts.isPropertyAssignment(current) || ts.isPropertyDeclaration(current)) {
+    if (
+      ts.isVariableDeclaration(current) ||
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isClassDeclaration(current) ||
+      ts.isPropertyAssignment(current) ||
+      ts.isPropertyDeclaration(current)
+    ) {
       const name = stableName(current.name, source);
       if (name) segments.unshift(name);
     }
@@ -384,28 +576,61 @@ function stableName(name, source) {
   return name.getText(source).replace(/[^A-Za-z0-9_.-]+/gu, "-");
 }
 
-function wordKey(words) { return [...new Set(words)].sort().join("\0"); }
+function wordKey(words) {
+  return [...new Set(words)].sort().join("\0");
+}
 
-function insideAnySpan(node, spans) { return spans.some(([start, end]) => node.getStart() >= start && node.getEnd() <= end); }
-function relative(root, file) { return path.relative(root, file).split(path.sep).join("/"); }
-function walk(directory) { const files = []; let entries; try { entries = readdirSync(directory, { withFileTypes: true }); } catch (error) { if (error?.code === "ENOENT") return files; throw error; } for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) { const full = path.join(directory, entry.name); if (entry.isDirectory()) { if (!["dist", "node_modules", "out"].includes(entry.name)) files.push(...walk(full)); } else if (SOURCE_FILE.test(entry.name)) files.push(full); } return files; }
+function insideAnySpan(node, spans) {
+  return spans.some(([start, end]) => node.getStart() >= start && node.getEnd() <= end);
+}
+function relative(root, file) {
+  return path.relative(root, file).split(path.sep).join("/");
+}
+function walk(directory) {
+  const files = [];
+  let entries;
+  try {
+    entries = readdirSync(directory, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return files;
+    throw error;
+  }
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!["dist", "node_modules", "out"].includes(entry.name)) files.push(...walk(full));
+    } else if (SOURCE_FILE.test(entry.name)) files.push(full);
+  }
+  return files;
+}
 
 function printBaseline(sites) {
   console.log("export const guiStatusJudgmentBaseline = Object.freeze([");
   for (const site of sites.filter((entry) => entry.classification === "domain-judgment")) {
-    console.log(`  { key: ${JSON.stringify(site.key)}, classification: "domain-judgment", kind: ${JSON.stringify(site.kind)}, shape: ${JSON.stringify(site.shape)}, words: ${JSON.stringify(site.words)} }, // @ ${site.scope}`);
+    console.log(
+      `  { key: ${JSON.stringify(site.key)}, classification: "domain-judgment", kind: ${JSON.stringify(site.kind)}, shape: ${JSON.stringify(site.shape)}, words: ${JSON.stringify(site.words)} }, // @ ${site.scope}`,
+    );
   }
   console.log("]);");
 }
 
 function printInventory(sites) {
-  for (const site of sites) console.log(`${site.path}:${site.line}:${site.column} [${site.shape}/${site.classification}] ${site.words.join(", ")} @ ${site.scope}`);
+  for (const site of sites)
+    console.log(
+      `${site.path}:${site.line}:${site.column} [${site.shape}/${site.classification}] ${site.words.join(", ")} @ ${site.scope}`,
+    );
 }
 
 async function main() {
   const sites = scanGuiStatusJudgments();
-  if (process.argv.includes("--print-baseline")) { printBaseline(sites); return; }
-  if (process.argv.includes("--print-inventory")) { printInventory(sites); return; }
+  if (process.argv.includes("--print-baseline")) {
+    printBaseline(sites);
+    return;
+  }
+  if (process.argv.includes("--print-inventory")) {
+    printInventory(sites);
+    return;
+  }
   if (process.argv.includes("--report")) {
     console.log(JSON.stringify({ inventory: inventoryCounts(sites), baseline: baselineCounts() }, null, 2));
     return;
@@ -419,7 +644,10 @@ async function main() {
   }
   const baseline = baselineCounts();
   const inventory = inventoryCounts(sites);
-  console.log(`GUI status judgment check passed (${baseline.total} frozen domain judgments; ${inventory.shapes["proper-subset"]} proper subsets, ${inventory.shapes["point-comparison"]} point comparisons, ${inventory.shapes["complete-mirror"]} complete mirrors).`);
+  console.log(
+    `GUI status judgment check passed (${baseline.total} frozen domain judgments; ${inventory.shapes["proper-subset"]} proper subsets, ${inventory.shapes["point-comparison"]} point comparisons, ${inventory.shapes["complete-mirror"]} complete mirrors).`,
+  );
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
+  await main();

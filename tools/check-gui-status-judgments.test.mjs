@@ -14,6 +14,10 @@ test("required positive controls are detected in the repository", () => {
   assert.equal(has("packages/gui/src/renderer/views/DecisionPoolView.tsx", 'decision.state === "proposed"'), true);
   assert.equal(
     has("packages/gui/src/renderer/views/DecisionPoolView.tsx", '["high", "medium", "low", "unknown"]'),
+    false,
+  );
+  assert.equal(
+    has("packages/gui/src/renderer/components/taskDetail/constants.ts", '["planned", "active", "in_review", "done"]'),
     true,
   );
   assert.equal(has("packages/gui/src/renderer/views/DecisionsView.tsx", 'decision.state === "proposed"'), true);
@@ -26,7 +30,7 @@ test("registry-derived detector needs no hand-written status words or file list"
   withFixture(
     {
       "packages/gui/src/new-panel.ts":
-        'type TimewarpState = "before" | "after";\nexport const order: TimewarpState[] = ["before", "after"];\n',
+        'type TimewarpState = "before" | "after" | "lost";\nexport const visible = (row: { state: TimewarpState }) => ["before", "after"].includes(row.state);\n',
     },
     (root) => {
       const register = [
@@ -36,7 +40,7 @@ test("registry-derived detector needs no hand-written status words or file list"
           field: "state",
           module: "packages/kernel/src/domain/timewarp.ts",
           anchor: "timewarpStates",
-          words: ["before", "after"],
+          words: ["before", "after", "lost"],
         },
       ];
       const sites = scanGuiStatusJudgments(root, register);
@@ -142,7 +146,7 @@ test("complete vocabulary mirrors are observed but do not need a baseline exempt
   withFixture(
     {
       "packages/gui/src/panel.ts":
-        'type TaskStatus = "active" | "blocked";\nexport const all: TaskStatus[] = ["active", "blocked"];\n',
+        'type TaskStatus = "active" | "blocked";\nconst all: TaskStatus[] = ["active", "blocked"];\nexport const visible = (task: { status: TaskStatus }) => all.includes(task.status);\n',
     },
     (root) => {
       const register = [
@@ -160,6 +164,37 @@ test("complete vocabulary mirrors are observed but do not need a baseline exempt
       assert.equal(sites[0].shape, "complete-mirror");
       assert.equal(sites[0].classification, "registry-mirror");
       assert.deepEqual(checkGuiStatusJudgments(sites, []), []);
+    },
+  );
+});
+
+test("array groups require consumption by a kernel status carrier", () => {
+  withFixture(
+    {
+      "packages/gui/src/panel.ts": [
+        'type TaskState = "active" | "blocked" | "done" | "unknown";',
+        "type Filters = { status: TaskState[] };",
+        'export const displayOrder = ["active", "blocked"];',
+        'export const visible = (row: { state: TaskState }) => ["active", "blocked"].includes(row.state);',
+        'export const selected = (filters: Filters) => filters.status.includes("unknown");',
+        "",
+      ].join("\n"),
+    },
+    (root) => {
+      const register = [
+        {
+          id: "task.state",
+          entity: "Task",
+          field: "state",
+          module: "packages/kernel/src/domain/task.ts",
+          anchor: "taskStates",
+          words: ["active", "blocked", "done", "unknown"],
+        },
+      ];
+      const sites = scanGuiStatusJudgments(root, register);
+      assert.equal(sites.length, 1);
+      assert.equal(sites[0].kind, "group");
+      assert.equal(sites[0].scope, "visible");
     },
   );
 });
