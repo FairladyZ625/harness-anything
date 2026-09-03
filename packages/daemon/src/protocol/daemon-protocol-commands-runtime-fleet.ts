@@ -54,12 +54,14 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         },
         { enum: ["bypass", "workspace-write", "read-only"] },
       ),
-      cliInput("--prompt", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--mission", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--prompt", "single", false, { code: "invalid_field" }, { conflictsWith: ["--mission"] }),
+      cliInput(
+        "--mission",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { requires: ["--task"], conflictsWith: ["--prompt"] },
+      ),
       cliInput(
         "--wait-projection",
         "single",

@@ -104,6 +104,8 @@ export function readFlags(
             : [];
     if (input.required && values.length === 0)
       return { ok: false, code: input.error.code, nextAction: inputGuidance(input, descriptor.helpCommand, true) };
+    const relation = values.length > 0 ? inputRelationFailure(input, one, many, flags) : null;
+    if (relation) return relation;
     const invalidValue = values.find(
       (value) =>
         (input.enum !== undefined && !input.enum.includes(value)) ||
@@ -118,6 +120,34 @@ export function readFlags(
       };
   }
   return { ok: true, one, many, booleans: flags };
+}
+
+function inputRelationFailure(
+  input: ThinCliInput,
+  one: ReadonlyMap<string, string>,
+  many: ReadonlyMap<string, readonly string[]>,
+  booleans: ReadonlySet<string>,
+): { readonly ok: false; readonly code: "invalid_field"; readonly nextAction: string } | null {
+  const missing = input.requires?.filter((name) => !inputPresent(name, one, many, booleans)) ?? [];
+  if (missing.length > 0)
+    return { ok: false, code: "invalid_field", nextAction: `${input.name} requires ${missing.join(", ")}.` };
+  const conflicts = input.conflictsWith?.filter((name) => inputPresent(name, one, many, booleans)) ?? [];
+  if (conflicts.length > 0)
+    return {
+      ok: false,
+      code: "invalid_field",
+      nextAction: `${input.name} is mutually exclusive with ${conflicts.join(", ")}.`,
+    };
+  return null;
+}
+
+function inputPresent(
+  name: string,
+  one: ReadonlyMap<string, string>,
+  many: ReadonlyMap<string, readonly string[]>,
+  booleans: ReadonlySet<string>,
+): boolean {
+  return one.has(name) || (many.get(name)?.length ?? 0) > 0 || booleans.has(name);
 }
 
 export function rejectInput(
