@@ -143,21 +143,32 @@ const createPacketFields = Object.freeze([
   field("createMode", "string", false, ["migration", "import", "admin"]),
 ]);
 const packet = (schemaRef: string, fields: readonly EntityActionInputField[]) => Object.freeze({ schemaRef, fields });
-// prettier-ignore
-const packetSources = (
-  schemaRef: string,
-  fields: readonly EntityActionInputField[],
-  errorCode = "invalid_field",
-) => [
-  cli("fromFile", "string", false, "--from-file", "single", {
-    jsonSchema: packet(schemaRef, fields),
-    conflictsWith: ["--json-input"],
-  }, errorCode),
-  cli("jsonInput", "string", false, "--json-input", "single", {
-    jsonSchema: packet(schemaRef, fields),
-    format: "<json|@->",
-    conflictsWith: ["--from-file"],
-  }, errorCode),
+const packetSources = (schemaRef: string, fields: readonly EntityActionInputField[], errorCode = "invalid_field") => [
+  cli(
+    "fromFile",
+    "string",
+    false,
+    "--from-file",
+    "single",
+    {
+      jsonSchema: packet(schemaRef, fields),
+      conflictsWith: ["--json-input"],
+    },
+    errorCode,
+  ),
+  cli(
+    "jsonInput",
+    "string",
+    false,
+    "--json-input",
+    "single",
+    {
+      jsonSchema: packet(schemaRef, fields),
+      format: "<json|@->",
+      conflictsWith: ["--from-file"],
+    },
+    errorCode,
+  ),
 ];
 const taskId = field("taskId", "string", true);
 const expectedVersion = field("expectedVersion", "number");
@@ -243,43 +254,96 @@ interface Declaration {
   readonly explain: string;
 }
 
-// prettier-ignore
 const lifecycleSpecs = Object.freeze({
   create: [
-    "task-create", "CreateReplayTask", "create_replay_task", "task-lifecycle", "center-forward-write", "execute",
-    "task_created", ["taskIdUnique", "actorBinding", "validGraph"],
+    "task-create",
+    "CreateReplayTask",
+    "create_replay_task",
+    "task-lifecycle",
+    "center-forward-write",
+    "execute",
+    "task_created",
+    ["taskIdUnique", "actorBinding", "validGraph"],
   ],
   start: [
-    "task-start", "StartExecution", "start_execution", "task-lifecycle", "center-forward-write", "reserve",
-    "execution_started", ["actorBinding", "reservation"],
+    "task-start",
+    "StartExecution",
+    "start_execution",
+    "task-lifecycle",
+    "center-forward-write",
+    "reserve",
+    "execution_started",
+    ["actorBinding", "reservation"],
   ],
   transition: [
-    "task-transition", "TransitionTask", "transition_task", "task-lifecycle", "ledger-write", "execute",
-    "task_transitioned", ["auditedReasonWhenRequired"],
+    "task-transition",
+    "TransitionTask",
+    "transition_task",
+    "task-lifecycle",
+    "ledger-write",
+    "execute",
+    "task_transitioned",
+    ["auditedReasonWhenRequired"],
   ],
   submit: [
-    "task-submit", "SubmitExecution", "submit_execution", "task-lifecycle", "ledger-write", "execute",
-    "execution_submitted", ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
+    "task-submit",
+    "SubmitExecution",
+    "submit_execution",
+    "task-lifecycle",
+    "ledger-write",
+    "execute",
+    "execution_submitted",
+    ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
   ],
   review: [
-    "task-review-execution", "RecordReview", "record_execution_review", "task-lifecycle", "local-arbiter", "execute",
-    "review_recorded", ["independentActor", "execution-review@v1", "contentCut"],
+    "task-review-execution",
+    "RecordReview",
+    "record_execution_review",
+    "task-lifecycle",
+    "local-arbiter",
+    "execute",
+    "review_recorded",
+    ["independentActor", "execution-review@v1", "contentCut"],
   ],
   consent: [
-    "task-review-consent", "RecordReviewConsent", "record_review_consent", "task-lifecycle", "ledger-write", "execute",
-    "review_consent_recorded", ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
+    "task-review-consent",
+    "RecordReviewConsent",
+    "record_review_consent",
+    "task-lifecycle",
+    "ledger-write",
+    "execute",
+    "review_consent_recorded",
+    ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
   ],
   reconcile: [
-    "task-code-doc-reconcile", "ReconcileCodeDoc", "reconcile_code_doc", "task-lifecycle", "ledger-write", "execute",
-    "code_doc_reconciled", ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
+    "task-code-doc-reconcile",
+    "ReconcileCodeDoc",
+    "reconcile_code_doc",
+    "task-lifecycle",
+    "ledger-write",
+    "execute",
+    "code_doc_reconciled",
+    ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
   ],
   repoint: [
-    "task-code-doc-repoint", "RepointCodeDoc", "repoint_code_doc", "task-lifecycle", "ledger-write", "execute",
-    "code_doc_repointed", ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
+    "task-code-doc-repoint",
+    "RepointCodeDoc",
+    "repoint_code_doc",
+    "task-lifecycle",
+    "ledger-write",
+    "execute",
+    "code_doc_repointed",
+    ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
   ],
   complete: [
-    "task-complete", "CompleteTask", "complete_task", "task-completion", "ledger-write", "execute",
-    "task_completed", ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
+    "task-complete",
+    "CompleteTask",
+    "complete_task",
+    "task-completion",
+    "ledger-write",
+    "execute",
+    "task_completed",
+    ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
   ],
 } as const);
 type LifecycleId = keyof typeof lifecycleSpecs;
@@ -330,7 +394,6 @@ const mutation = (
     explain,
   });
 
-// prettier-ignore
 const declarations: readonly Declaration[] = Object.freeze([
   lifecycle("create", {
     input: createInput,
@@ -447,7 +510,8 @@ const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/review.validate",
         "invalid_transition",
-        "The review targets the current submitted execution and its pinned content cut; append-only Review history requires a new review id.",
+        "The review targets the current submitted execution and its pinned content cut; " +
+          "append-only Review history requires a new review id.",
       ),
       criterion(
         "repo-cell-proof/proofFor.RecordReview",
@@ -566,7 +630,12 @@ const declarations: readonly Declaration[] = Object.freeze([
   }),
   mutation(
     "release",
-    input([taskId, cli("reason", "string", false, "--reason"), field("terminalExecutionId"), field("terminalRuntimeSessionId")]),
+    input([
+      taskId,
+      cli("reason", "string", false, "--reason"),
+      field("terminalExecutionId"),
+      field("terminalRuntimeSessionId"),
+    ]),
     "lease_conflict",
     "The Task has a releasable lease owned by the authenticated holder or an authorized recovery actor.",
     "Release the current Task execution lease while preserving its audit history.",
@@ -718,16 +787,17 @@ const transition = (
 ): NonNullable<EntityActionContract["stateTransition"]> =>
   Object.freeze({ from: Object.freeze(from), to: Object.freeze(to) });
 
-// prettier-ignore
 function stateTransition(id: string): EntityActionContract["stateTransition"] {
-  if (id === "create") return transition(
-    [Object.freeze({ existence: "missing" as const, status: null, currentNode: null })],
-    [branch(Object.freeze({ existence: "present" as const, status: "planned", currentNode: "implementation" }))],
-  );
-  if (id === "start") return transition(
-    [coordinate("planned", "implementation")],
-    [branch(coordinate("active", "implementation", { executionState: "active" }))],
-  );
+  if (id === "create")
+    return transition(
+      [Object.freeze({ existence: "missing" as const, status: null, currentNode: null })],
+      [branch(Object.freeze({ existence: "present" as const, status: "planned", currentNode: "implementation" }))],
+    );
+  if (id === "start")
+    return transition(
+      [coordinate("planned", "implementation")],
+      [branch(coordinate("active", "implementation", { executionState: "active" }))],
+    );
   if (id === "transition") {
     const statuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"];
     return transition(
@@ -735,34 +805,45 @@ function stateTransition(id: string): EntityActionContract["stateTransition"] {
       statuses.map((status) => branch(coordinate(status, null), equals("input.status", status))),
     );
   }
-  if (id === "submit") return transition(
-    [
+  if (id === "submit")
+    return transition(
+      [
         coordinate("active", "implementation", { executionState: "active" }),
         coordinate("in_review", "review", { executionState: "submitted" }),
-    ],
-    [
-      branch(coordinate("in_review", "review", { executionState: "submitted" }), equals("input.amend", true)),
-      branch(coordinate("in_review", "review", { executionState: "submitted" }), not(equals("input.amend", true))),
-    ],
-  );
-  if (id === "review") return transition(
-    [coordinate("in_review", "review", { executionState: "submitted" })],
-    [
-      branch(coordinate("active", "implementation", { executionState: "changes_requested" }),
-        equals("input.verdict", "changes_requested")),
-      branch(coordinate("in_review", "review", { executionState: "submitted" }),
-        not(equals("input.verdict", "changes_requested"))),
-    ],
-  );
-  if (id === "consent" || id === "reconcile")
-    return unchanged("in_review", "review", "submitted");
+      ],
+      [
+        branch(coordinate("in_review", "review", { executionState: "submitted" }), equals("input.amend", true)),
+        branch(coordinate("in_review", "review", { executionState: "submitted" }), not(equals("input.amend", true))),
+      ],
+    );
+  if (id === "review")
+    return transition(
+      [coordinate("in_review", "review", { executionState: "submitted" })],
+      [
+        branch(
+          coordinate("active", "implementation", { executionState: "changes_requested" }),
+          equals("input.verdict", "changes_requested"),
+        ),
+        branch(
+          coordinate("in_review", "review", { executionState: "submitted" }),
+          not(equals("input.verdict", "changes_requested")),
+        ),
+      ],
+    );
+  if (id === "consent" || id === "reconcile") return unchanged("in_review", "review", "submitted");
   if (id === "repoint") return unchanged("done", "review", "accepted");
-  if (id === "complete") return transition(
-    [Object.freeze({
-      status: "in_review", currentNode: "review", executionState: "submitted", readiness: "ready" as const,
-    })],
-    [branch(coordinate("done", "review", { executionState: "accepted" }))],
-  );
+  if (id === "complete")
+    return transition(
+      [
+        Object.freeze({
+          status: "in_review",
+          currentNode: "review",
+          executionState: "submitted",
+          readiness: "ready" as const,
+        }),
+      ],
+      [branch(coordinate("done", "review", { executionState: "accepted" }))],
+    );
   return null;
 }
 
@@ -842,7 +923,6 @@ const document = (
   scaffoldRequired: boolean,
 ) => Object.freeze({ slot, pathTemplate, authority, directEdit, readinessRequired, scaffoldRequired });
 
-// prettier-ignore
 function descriptorFacets(id: string) {
   const create = id === "create";
   return {
@@ -858,12 +938,33 @@ function descriptorFacets(id: string) {
       : null,
     ownedArtifacts: create
       ? Object.freeze([
-          artifact("task.plan", "plan", "{packagePath}/task_plan.md", "doc-sync",
-            "markdown-body-replaceable/v1", "doc.edit", true),
-          artifact("task.contract", "contract", "{packagePath}/task-contract.json", "machine",
-            "typed-machine-writer/v1", null, false),
-          artifact("task.artifacts.keep", "artifacts.keep", "{packagePath}/artifacts/.gitkeep", "machine",
-            "typed-machine-writer/v1", null, true),
+          artifact(
+            "task.plan",
+            "plan",
+            "{packagePath}/task_plan.md",
+            "doc-sync",
+            "markdown-body-replaceable/v1",
+            "doc.edit",
+            true,
+          ),
+          artifact(
+            "task.contract",
+            "contract",
+            "{packagePath}/task-contract.json",
+            "machine",
+            "typed-machine-writer/v1",
+            null,
+            false,
+          ),
+          artifact(
+            "task.artifacts.keep",
+            "artifacts.keep",
+            "{packagePath}/artifacts/.gitkeep",
+            "machine",
+            "typed-machine-writer/v1",
+            null,
+            true,
+          ),
         ])
       : Object.freeze([]),
     managedDocuments: create
@@ -898,7 +999,6 @@ function descriptorFacets(id: string) {
   };
 }
 
-// prettier-ignore
 export function createTaskActionCatalog(baseAction: (id: string) => EntityActionContract) {
   return Object.freeze({
     ref: "kernel/task-action/v1",
@@ -914,9 +1014,7 @@ export function createTaskActionCatalog(baseAction: (id: string) => EntityAction
                 ...(["submit", "complete"].includes(declaration.id)
                   ? [field("verb", "string", false, [declaration.ingress.slice("task-".length)])]
                   : []),
-                ...(declaration.commandType
-                  ? [field("commandType", "string", false, [declaration.commandType])]
-                  : []),
+                ...(declaration.commandType ? [field("commandType", "string", false, [declaration.commandType])] : []),
               ],
               declaration.input.exactlyOneOf,
             ),

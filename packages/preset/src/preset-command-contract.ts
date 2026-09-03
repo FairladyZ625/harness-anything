@@ -130,15 +130,20 @@ export type GeneratedTaskActionInputField = Pick<
   EntityActionInputField,
   "field" | "type" | "required" | "enum" | "regex"
 > & { readonly cli?: Omit<NonNullable<EntityActionInputField["cli"]>, "jsonSchema"> };
-// prettier-ignore
 export interface GeneratedTaskActionProtocolDeclaration {
   readonly id: string;
-  readonly input: { readonly schema: "entity-action-input/v1"; readonly fields: readonly GeneratedTaskActionInputField[];
-    readonly exactlyOneOf: readonly (readonly string[])[] };
+  readonly input: {
+    readonly schema: "entity-action-input/v1";
+    readonly fields: readonly GeneratedTaskActionInputField[];
+    readonly exactlyOneOf: readonly (readonly string[])[];
+  };
   readonly explain: string;
   readonly execution: Pick<NonNullable<EntityActionContract["execution"]>, "ingress" | "topology"> & {
-    readonly lifecycle: Pick<NonNullable<NonNullable<EntityActionContract["execution"]>["lifecycle"]>,
-      "transitionId" | "commandType" | "targetIdField" | "coordination"> };
+    readonly lifecycle: Pick<
+      NonNullable<NonNullable<EntityActionContract["execution"]>["lifecycle"]>,
+      "transitionId" | "commandType" | "targetIdField" | "coordination"
+    >;
+  };
 }
 interface GeneratedTaskActionProtocolProjection {
   readonly writeReceiptFields: readonly string[];
@@ -250,10 +255,9 @@ export function defineCliCommand<
     path = Object.freeze(syntaxPath.slice(0, firstPositional < 0 ? syntaxPath.length : firstPositional)),
     inputs = Object.freeze(declaration.inputs.map((input) => Object.freeze(input))) as Command["inputs"],
     usageInputs = inputs.map((input) => {
-      const value =
-          input.kind === "boolean"
-            ? input.name
-            : `${input.name} <${input.enum?.join("|") ?? input.name.slice(2)}>${input.kind === "repeated" && input.required ? "..." : ""}`,
+      const placeholder = input.enum?.join("|") ?? input.name.slice(2),
+        suffix = input.kind === "repeated" && input.required ? "..." : "",
+        value = input.kind === "boolean" ? input.name : `${input.name} <${placeholder}>${suffix}`,
         rendered = input.required ? value : `[${value}]`;
       return input.kind === "repeated" && !input.required ? `${rendered}...` : rendered;
     }),

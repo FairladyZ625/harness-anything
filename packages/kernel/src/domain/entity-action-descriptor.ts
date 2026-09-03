@@ -1,27 +1,34 @@
 import type { EntityActionContract, EntityActionInputField } from "./entity-kind-registry.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
-// prettier-ignore
 export const RECEIPT_GUIDANCE_KINDS = [
-  "repository-diff-contract", "task-create-publish", "task-create-start", "receipt-query",
-  "edit-plan", "pin-agenda", "ledger-managed", "retry-receipt", "run-command",
-  "remove-dry-run", "no-action",
+  "repository-diff-contract",
+  "task-create-publish",
+  "task-create-start",
+  "receipt-query",
+  "edit-plan",
+  "pin-agenda",
+  "ledger-managed",
+  "retry-receipt",
+  "run-command",
+  "remove-dry-run",
+  "no-action",
 ] as const;
 
 export type ReceiptGuidanceKind = (typeof RECEIPT_GUIDANCE_KINDS)[number];
 export type ReceiptGuidanceArgument = string | number | boolean | readonly string[];
 export type ReceiptGuidanceWhen = Readonly<Record<string, ReceiptGuidanceArgument>>;
 
-// prettier-ignore
 export interface ReceiptGuidanceContractEntry {
-  readonly kind: ReceiptGuidanceKind; readonly args: Readonly<Record<string, ReceiptGuidanceArgument>>;
+  readonly kind: ReceiptGuidanceKind;
+  readonly args: Readonly<Record<string, ReceiptGuidanceArgument>>;
   readonly when?: ReceiptGuidanceWhen;
 }
 
-// prettier-ignore
 export interface ActionReturnsContract {
   readonly schema: "action-result/v1";
-  readonly fields: readonly string[]; readonly guidance: readonly ReceiptGuidanceContractEntry[];
+  readonly fields: readonly string[];
+  readonly guidance: readonly ReceiptGuidanceContractEntry[];
 }
 
 export type ActionPredicate =
@@ -30,10 +37,13 @@ export type ActionPredicate =
   | { readonly any: readonly ActionPredicate[] }
   | { readonly not: ActionPredicate };
 
-// prettier-ignore
 export interface EntityActionStateCoordinate {
-  readonly existence?: "missing" | "present"; readonly status: string | null; readonly currentNode: string | null;
-  readonly executionState?: string | null; readonly reviewVerdict?: string | null; readonly readiness?: "ready";
+  readonly existence?: "missing" | "present";
+  readonly status: string | null;
+  readonly currentNode: string | null;
+  readonly executionState?: string | null;
+  readonly reviewVerdict?: string | null;
+  readonly readiness?: "ready";
 }
 
 export interface EntityActionStateTransition {
@@ -41,57 +51,75 @@ export interface EntityActionStateTransition {
   readonly to: readonly { readonly when: ActionPredicate | null; readonly coordinate: EntityActionStateCoordinate }[];
 }
 
-// prettier-ignore
 export interface EntityActionResultContract {
-  readonly schema: "entity-action-result/v1" | "entity-action-result/v2"; readonly baseSchemaRef?: string;
-  readonly fields: readonly EntityActionInputField[]; readonly obligations?: readonly { readonly kind:
-    "repository-diff" | "task-package-artifact"; readonly when: ActionPredicate }[];
+  readonly schema: "entity-action-result/v1" | "entity-action-result/v2";
+  readonly baseSchemaRef?: string;
+  readonly fields: readonly EntityActionInputField[];
+  readonly obligations?: readonly {
+    readonly kind: "repository-diff" | "task-package-artifact";
+    readonly when: ActionPredicate;
+  }[];
 }
 
-// prettier-ignore
 export interface EntityActionPublicationContract {
-  readonly preview: ActionPredicate | null; readonly canonicalVisible: ActionPredicate; readonly pendingCanonical: ActionPredicate;
+  readonly preview: ActionPredicate | null;
+  readonly canonicalVisible: ActionPredicate;
+  readonly pendingCanonical: ActionPredicate;
   readonly receiptLookupCapabilityRef: "receipt.show";
 }
 
-// prettier-ignore
 export interface EntityActionOwnedArtifact {
-  readonly slot: string; readonly role: string; readonly pathTemplate: string; readonly owner: "machine" | "doc-sync";
-  readonly policyId: string; readonly editCapabilityRef: string | null; readonly scaffoldRequired: boolean;
+  readonly slot: string;
+  readonly role: string;
+  readonly pathTemplate: string;
+  readonly owner: "machine" | "doc-sync";
+  readonly policyId: string;
+  readonly editCapabilityRef: string | null;
+  readonly scaffoldRequired: boolean;
 }
 
-// prettier-ignore
 export interface EntityActionManagedDocument {
-  readonly slot: string; readonly pathTemplate: string; readonly authority: "typed-machine-writer" | "doc-sync";
-  readonly directEdit: boolean; readonly readinessRequired: boolean; readonly scaffoldRequired: boolean;
+  readonly slot: string;
+  readonly pathTemplate: string;
+  readonly authority: "typed-machine-writer" | "doc-sync";
+  readonly directEdit: boolean;
+  readonly readinessRequired: boolean;
+  readonly scaffoldRequired: boolean;
 }
 
-// prettier-ignore
 export interface EntityActionFollowUp {
-  readonly capabilityRef: string; readonly role: "primary" | "recovery" | "agenda" | "artifact";
+  readonly capabilityRef: string;
+  readonly role: "primary" | "recovery" | "agenda" | "artifact";
   readonly when: ActionPredicate | null;
   readonly args: Readonly<Record<string, { readonly resultPath: string } | ReceiptGuidanceArgument>>;
 }
 
-// prettier-ignore
 export interface EntityActionDescriptorFacets {
-  readonly stateTransition: EntityActionStateTransition | null; readonly result: EntityActionResultContract;
+  readonly stateTransition: EntityActionStateTransition | null;
+  readonly result: EntityActionResultContract;
   readonly failureCodes: readonly {
-    readonly code: string; readonly source: "input" | "criterion" | "transition" | "publication";
-    readonly explain: string; readonly nextCapabilityRef: string | null;
+    readonly code: string;
+    readonly source: "input" | "criterion" | "transition" | "publication";
+    readonly explain: string;
+    readonly nextCapabilityRef: string | null;
   }[];
-  readonly publication: EntityActionPublicationContract | null; readonly ownedArtifacts: readonly EntityActionOwnedArtifact[];
-  readonly managedDocuments: readonly EntityActionManagedDocument[]; readonly followUps: readonly EntityActionFollowUp[];
+  readonly publication: EntityActionPublicationContract | null;
+  readonly ownedArtifacts: readonly EntityActionOwnedArtifact[];
+  readonly managedDocuments: readonly EntityActionManagedDocument[];
+  readonly followUps: readonly EntityActionFollowUp[];
 }
 
-// prettier-ignore
 export const DEFAULT_ENTITY_ACTION_RESULT_CONTRACT: EntityActionResultContract = Object.freeze({
   schema: "entity-action-result/v1",
   fields: Object.freeze([
-    { field: "outcome", type: "string" as const, required: true }, { field: "opId", type: "string" as const, required: true },
-    { field: "unmetCriteria", type: "json-object-array" as const, required: false }, { field: "effects", type: "json-object-array" as const, required: false },
-    { field: "updatedProjection", type: "json-object" as const, required: false }, { field: "rejectionExplanation", type: "json-object" as const, required: false },
-    { field: "nextAction", type: "json-object" as const, required: false }, { field: "nextActions", type: "json-object-array" as const, required: false },
+    { field: "outcome", type: "string" as const, required: true },
+    { field: "opId", type: "string" as const, required: true },
+    { field: "unmetCriteria", type: "json-object-array" as const, required: false },
+    { field: "effects", type: "json-object-array" as const, required: false },
+    { field: "updatedProjection", type: "json-object" as const, required: false },
+    { field: "rejectionExplanation", type: "json-object" as const, required: false },
+    { field: "nextAction", type: "json-object" as const, required: false },
+    { field: "nextActions", type: "json-object-array" as const, required: false },
     { field: "guidance", type: "json-object-array" as const, required: false },
   ]),
 });
@@ -137,14 +165,19 @@ function resolveFollowUpArgs(args: EntityActionFollowUp["args"]): Readonly<Recor
   );
 }
 
-// prettier-ignore
 const followUpKinds: Readonly<Record<string, ReceiptGuidanceKind>> = Object.freeze({
-  "task.start": "task-create-start", "receipt.query": "receipt-query",
-  "task.plan.edit": "edit-plan", "task.pin": "pin-agenda",
+  "task.start": "task-create-start",
+  "receipt.query": "receipt-query",
+  "task.plan.edit": "edit-plan",
+  "task.pin": "pin-agenda",
 });
 
-// prettier-ignore
-export function deriveActionReturnsContract(descriptor: Pick<EntityActionContract, "id" | "result" | "publication" | "ownedArtifacts" | "managedDocuments" | "followUps">): ActionReturnsContract {
+export function deriveActionReturnsContract(
+  descriptor: Pick<
+    EntityActionContract,
+    "id" | "result" | "publication" | "ownedArtifacts" | "managedDocuments" | "followUps"
+  >,
+): ActionReturnsContract {
   const guidance: ReceiptGuidanceContractEntry[] = [];
   for (const obligation of descriptor.result.obligations ?? []) {
     const when = predicateToWhen(obligation.when);
@@ -176,8 +209,10 @@ export function deriveActionReturnsContract(descriptor: Pick<EntityActionContrac
   for (const artifact of descriptor.ownedArtifacts) {
     if (artifact.editCapabilityRef === null) continue;
     const pathRoots = [...artifact.pathTemplate.matchAll(/\{([^}]+)\}/gu)].map((match) => match[1]!);
-    guidance.push({ kind: `edit-${artifact.role}` as ReceiptGuidanceKind,
-      args: Object.fromEntries(pathRoots.map((root) => [root, `{${root}}`])) });
+    guidance.push({
+      kind: `edit-${artifact.role}` as ReceiptGuidanceKind,
+      args: Object.fromEntries(pathRoots.map((root) => [root, `{${root}}`])),
+    });
   }
   appendFollowUps(["agenda", "artifact"]);
   const managedFields = descriptor.managedDocuments
@@ -186,13 +221,17 @@ export function deriveActionReturnsContract(descriptor: Pick<EntityActionContrac
   if (managedFields.length > 0) guidance.push({ kind: "ledger-managed", args: { fields: managedFields } });
   const kinds = guidance.map((entry) => entry.kind);
   if (new Set(kinds).size !== kinds.length) throw new Error(`${descriptor.id}: duplicate guidance kind`);
-  return { schema: "action-result/v1", guidance,
-    fields: fieldPaths(descriptor.result.fields, "result").map((path) => path.replace(/^result\./u, "")) };
+  return {
+    schema: "action-result/v1",
+    guidance,
+    fields: fieldPaths(descriptor.result.fields, "result").map((path) => path.replace(/^result\./u, "")),
+  };
 }
 
-// prettier-ignore
-function predicateMatches(predicate: ActionPredicate | null, context: Readonly<{ input: Readonly<Record<string, unknown>>;
-  result: Readonly<Record<string, unknown>> }>): boolean {
+function predicateMatches(
+  predicate: ActionPredicate | null,
+  context: Readonly<{ input: Readonly<Record<string, unknown>>; result: Readonly<Record<string, unknown>> }>,
+): boolean {
   if (predicate === null) return true;
   if ("fieldEquals" in predicate) {
     const [root, ...segments] = predicate.fieldEquals.path.split(".");
@@ -208,8 +247,11 @@ function predicateMatches(predicate: ActionPredicate | null, context: Readonly<{
   return !predicateMatches(predicate.not, context);
 }
 
-// prettier-ignore
-export function projectActionState(descriptor: Pick<EntityActionContract, "id" | "stateTransition">, input: Readonly<Record<string, unknown>>, result: Readonly<Record<string, unknown>>): EntityActionStateCoordinate | null {
+export function projectActionState(
+  descriptor: Pick<EntityActionContract, "id" | "stateTransition">,
+  input: Readonly<Record<string, unknown>>,
+  result: Readonly<Record<string, unknown>>,
+): EntityActionStateCoordinate | null {
   if (descriptor.stateTransition === null) return null;
   const matches = descriptor.stateTransition.to.filter((branch) => predicateMatches(branch.when, { input, result }));
   if (matches.length !== 1)
@@ -217,8 +259,10 @@ export function projectActionState(descriptor: Pick<EntityActionContract, "id" |
   return matches[0]!.coordinate;
 }
 
-// prettier-ignore
-function projectFields(fields: readonly EntityActionInputField[], value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function projectFields(
+  fields: readonly EntityActionInputField[],
+  value: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
   return Object.fromEntries(
     fields.flatMap((field) => {
       if (!(field.field in value)) return [];
@@ -231,8 +275,10 @@ function projectFields(fields: readonly EntityActionInputField[], value: Readonl
   );
 }
 
-// prettier-ignore
-export function projectActionResult(descriptor: Pick<EntityActionContract, "result">, value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+export function projectActionResult(
+  descriptor: Pick<EntityActionContract, "result">,
+  value: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
   return projectFields(descriptor.result.fields, value);
 }
 
