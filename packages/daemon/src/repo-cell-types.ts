@@ -18,6 +18,7 @@ import type { FleetAssignmentScope } from "./fleet/contract.ts";
 import { type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import {
+  type DaemonRepoAttachProgress,
   type DaemonGuiReadMethod,
   type DaemonGuiReadResultMap,
   type ObserveTailResult,
@@ -84,12 +85,7 @@ export type TaskProgressReceipt = WriteReceiptDraft & {
   readonly worktreeVisible: true;
 };
 
-export interface RepoCellAttachProgress {
-  readonly phase: "opening" | "recovering" | "catching-up";
-  readonly applied: number | null;
-  readonly total: number | null;
-  readonly watermark: number | null;
-}
+export type RepoCellAttachProgress = DaemonRepoAttachProgress;
 
 export interface RepoCellStatus {
   readonly repoId: string;

@@ -75,7 +75,7 @@ export interface RepoWriterCancelV1 {
 export interface RepoWriterStatusV1 {
   readonly schema: "harness-repo-writer-status/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
-  readonly kind: "ready" | "cut" | "status" | "closed";
+  readonly kind: "ready" | "cut" | "status" | "attach-progress" | "closed";
   readonly status?: RepoCellStatus;
   readonly bootstrapReceipt?: unknown;
   readonly error?: SerializedWriterErrorV1;

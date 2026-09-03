@@ -5,11 +5,13 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
+import { DEFAULT_WAL_FLUSH_SETTINGS } from "../domain/settings.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { localWalFileSystem as fileSystem } from "../local/local-layout-file-system.ts";
 
 const WAL_SCHEMA = "harness-wal/v1" as const;
 const WAL_SEGMENT = "seg-000000.log";
+const WAL_READ_PROGRESS_BATCH_SIZE = DEFAULT_WAL_FLUSH_SETTINGS.events;
 
 export interface WalContentObject {
   readonly sha256: string;
@@ -25,6 +27,12 @@ export interface WalEventRecord {
   readonly blobs: readonly WalContentObject[];
   readonly eventDigest: `sha256:${string}`;
   readonly previousDigest: `sha256:${string}` | null;
+}
+
+export interface WalEventLogProgress {
+  readonly applied: number;
+  readonly total?: number;
+  readonly watermark: number;
 }
 
 export interface WalHead {
@@ -81,7 +89,13 @@ export interface WalAuditReceipt {
 
 const mutableWalOwners = new Set<string>();
 
-export function openWalEventLog(rootDir: string, options: { readonly mutable?: boolean } = {}): WalEventLog {
+export function openWalEventLog(
+  rootDir: string,
+  options: {
+    readonly mutable?: boolean;
+    readonly onInitialReadProgress?: (progress: WalEventLogProgress) => void;
+  } = {},
+): WalEventLog {
   const normalizedRoot = fileSystem.realpath(path.resolve(rootDir));
   const walRoot = path.join(normalizedRoot, ".harness", "wal");
   const segmentPath = path.join(walRoot, WAL_SEGMENT);
@@ -100,28 +114,35 @@ export function openWalEventLog(rootDir: string, options: { readonly mutable?: b
     fileSystem.mkdirp(walRoot);
     fileSystem.mkdirp(objectsRoot);
   };
-  const readDiskRecords = (): WalEventRecord[] => {
+  const readDiskRecords = (onProgress?: (progress: WalEventLogProgress) => void): WalEventRecord[] => {
     if (!fileSystem.exists(segmentPath)) {
       return [];
     }
     const raw = fileSystem.readText(segmentPath);
     const complete = raw.endsWith("\n") ? raw : raw.slice(0, raw.lastIndexOf("\n") + 1);
     if (complete !== raw && mutable) fileSystem.replace(segmentPath, complete);
-    const rows = complete
-      .split("\n")
-      .filter(Boolean)
-      .map((line, index) => parseRecord(line, index));
+    const lines = complete.split("\n").filter(Boolean);
+    const rows: WalEventRecord[] = [];
+    for (const [index, line] of lines.entries()) {
+      const record = parseRecord(line, index);
+      rows.push(record);
+      const applied = index + 1;
+      if (applied % WAL_READ_PROGRESS_BATCH_SIZE === 0 || applied === lines.length)
+        onProgress?.({ applied, watermark: record.revision });
+    }
     for (let index = 1; index < rows.length; index += 1) {
       const previous = rows[index - 1]!;
       const current = rows[index]!;
       if (current.revision !== previous.revision + 1 || current.previousDigest !== previous.eventDigest)
         throw new Error(`WAL revision or digest chain is not contiguous at revision ${current.revision}`);
+      if (index % WAL_READ_PROGRESS_BATCH_SIZE === 0 || index === rows.length - 1)
+        onProgress?.({ applied: rows.length + index, watermark: current.revision });
     }
     return rows;
   };
   const readRecords = (): readonly WalEventRecord[] => {
     if (cached !== null) return cached;
-    cached = readDiskRecords();
+    cached = readDiskRecords(options.onInitialReadProgress);
     cachedByOpId = new Map(cached.map((record) => [record.opId, record] as const));
     return cached;
   };

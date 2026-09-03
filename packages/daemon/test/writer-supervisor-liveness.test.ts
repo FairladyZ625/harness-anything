@@ -18,7 +18,7 @@ const supervisorInput = {
   ownerId: "writer-liveness-test",
 } as RepoCellOpenInput;
 
-test("a writer may open beyond 30 seconds when messages keep the ready watchdog active", async (context) => {
+test("a writer may open beyond 30 seconds when attach progress advances the ready watchdog", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const writer = new FakeWriter(),
     published: RepoCellStatus[] = [],
@@ -29,13 +29,19 @@ test("a writer may open beyond 30 seconds when messages keep the ready watchdog 
 
   context.mock.timers.tick(29_999);
   writer.publish(
-    writerStatus("status", warmingStatus({ phase: "catching-up", applied: 4_096, total: 8_192, watermark: 4_096 })),
+    writerStatus(
+      "attach-progress",
+      warmingStatus({ phase: "catching-up", applied: 4_096, total: 8_192, watermark: 4_096 }),
+    ),
   );
   context.mock.timers.tick(29_999);
   assert.equal(writer.terminateCalls, 0);
   writer.publish(writerStatus("ready", attachedStatus()));
   writer.publish(
-    writerStatus("status", warmingStatus({ phase: "catching-up", applied: 8_192, total: 8_192, watermark: 8_192 })),
+    writerStatus(
+      "attach-progress",
+      warmingStatus({ phase: "catching-up", applied: 8_192, total: 8_192, watermark: 8_192 }),
+    ),
   );
 
   const supervisor = await opening;
