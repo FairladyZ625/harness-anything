@@ -36,37 +36,6 @@ export const localEventFileSystem = {
   remove: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-043 */
     rmSync(inputPath, { force: true }),
-  writeDurably: (inputPath: string, body: string): number => {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-044 */
-    mkdirSync(path.dirname(inputPath), { recursive: true });
-    const tempPath = `${inputPath}.${process.pid}.tmp`;
-    const fd =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-045 */
-      openSync(tempPath, "w");
-    try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-046 */
-      writeSync(fd, body, null, "utf8");
-      /* @gate-identity check-bypass-write-boundary/bypass-write-047 */
-      fsyncSync(fd);
-    } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-048 */
-      closeSync(fd);
-    }
-    /* @gate-identity check-bypass-write-boundary/bypass-write-049 */
-    renameSync(tempPath, inputPath);
-    if (process.platform === "win32") return 1;
-    const dir =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-050 */
-      openSync(path.dirname(inputPath), "r");
-    try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-051 */
-      fsyncSync(dir);
-    } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-052 */
-      closeSync(dir);
-    }
-    return 2;
-  },
 };
 
 export const localRuntimeStateFileSystem = {
@@ -146,17 +115,26 @@ export const localWalFileSystem = {
     const descriptor =
       /* @gate-identity check-bypass-write-boundary/bypass-write-068 */
       openSync(temporary, "w", 0o600);
+    // The temp is named after this process. The objects/ sweep in wal-event-log reclaims
+    // whatever it finds unreferenced, but head.json and the segment sit one level above it
+    // and no reader ever enumerates that directory, so a failed write must clear its own.
     try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
-      writeSync(descriptor, body, null, "utf8");
-      /* @gate-identity check-bypass-write-boundary/bypass-write-070 */
-      fsyncSync(descriptor);
-    } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
-      closeSync(descriptor);
+      try {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
+        writeSync(descriptor, body, null, "utf8");
+        /* @gate-identity check-bypass-write-boundary/bypass-write-070 */
+        fsyncSync(descriptor);
+      } finally {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
+        closeSync(descriptor);
+      }
+      /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
+      renameSync(temporary, inputPath);
+    } catch (error) {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-110 */
+      rmSync(temporary, { force: true });
+      throw error;
     }
-    /* @gate-identity check-bypass-write-boundary/bypass-write-072 */
-    renameSync(temporary, inputPath);
     if (process.platform !== "win32") {
       const directory =
         /* @gate-identity check-bypass-write-boundary/bypass-write-073 */
