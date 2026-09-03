@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -285,6 +285,12 @@ test("archived dispatch rows expose terminal result and task artifact references
         throw new Error("dispatch reads must not enumerate the replica document basis");
       },
     } as unknown as TaskProjection;
+    const withoutReport = readTaskDispatches({ rootDir, projection, taskId });
+    assert.equal(Object.hasOwn(withoutReport.dispatches[0] ?? {}, "reportPath"), false);
+    const reportPath = "tasks/task-1/artifacts/reports/dispatch_a1b2c3d4e5f60718293a4b5c.md",
+      absoluteReportPath = path.join(rootDir, "harness", ...reportPath.split("/"));
+    mkdirSync(path.dirname(absoluteReportPath), { recursive: true });
+    writeFileSync(absoluteReportPath, "# Runtime result\n");
     const result = readTaskDispatches({ rootDir, projection, taskId });
     assert.deepEqual(result.dispatches[0], {
       dispatchId,
@@ -308,7 +314,7 @@ test("archived dispatch rows expose terminal result and task artifact references
       resultRef: archived.resultRef,
       exitCode: 0,
       dispatchPath: "tasks/task-1/artifacts/dispatches/dispatch_a1b2c3d4e5f60718293a4b5c.json",
-      reportPath: "tasks/task-1/artifacts/reports/dispatch_a1b2c3d4e5f60718293a4b5c.md",
+      reportPath,
     });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

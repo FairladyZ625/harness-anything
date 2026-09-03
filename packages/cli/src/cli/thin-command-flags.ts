@@ -104,6 +104,22 @@ export function readFlags(
             : [];
     if (input.required && values.length === 0)
       return { ok: false, code: input.error.code, nextAction: inputGuidance(input, descriptor.helpCommand, true) };
+    if (values.length > 0) {
+      const missing = input.requires?.filter((name) => !inputPresent(name, one, many, flags)) ?? [];
+      if (missing.length > 0)
+        return {
+          ok: false,
+          code: "invalid_field",
+          nextAction: `${input.name} requires ${missing.join(", ")}.`,
+        };
+      const conflicts = input.conflictsWith?.filter((name) => inputPresent(name, one, many, flags)) ?? [];
+      if (conflicts.length > 0)
+        return {
+          ok: false,
+          code: "invalid_field",
+          nextAction: `${input.name} is mutually exclusive with ${conflicts.join(", ")}.`,
+        };
+    }
     const invalidValue = values.find(
       (value) =>
         (input.enum !== undefined && !input.enum.includes(value)) ||
@@ -118,6 +134,15 @@ export function readFlags(
       };
   }
   return { ok: true, one, many, booleans: flags };
+}
+
+function inputPresent(
+  name: string,
+  one: ReadonlyMap<string, string>,
+  many: ReadonlyMap<string, readonly string[]>,
+  booleans: ReadonlySet<string>,
+): boolean {
+  return one.has(name) || (many.get(name)?.length ?? 0) > 0 || booleans.has(name);
 }
 
 export function rejectInput(

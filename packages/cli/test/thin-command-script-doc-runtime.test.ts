@@ -195,6 +195,16 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     taskOnly = parseThinCommand(["runtime", "run", "worker", "--agent", "terra", "--task", "task-1", "--cwd", "."]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
     mission = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--mission", "api-review"]),
+    missionJson = parseThinCommand([
+      "runtime",
+      "run",
+      "worker",
+      "--task",
+      "task-1",
+      "--mission",
+      "api-review",
+      "--json",
+    ]),
     batch = parseThinCommand(["runtime", "batch", "dispatches.json"]),
     detached = parseThinCommand([
       "runtime",
@@ -219,7 +229,20 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     show = parseThinCommand(["runtime", "status", "runtime-1"]),
     wait = parseThinCommand(["runtime", "status", "runtime-1", "--wait", "--no-stream"]),
     cancel = parseThinCommand(["runtime", "cancel", "runtime-1"]);
-  for (const parsed of [run, taskOnly, mission, batch, detached, resumed, dispatches, list, show, wait, cancel])
+  for (const parsed of [
+    run,
+    taskOnly,
+    mission,
+    missionJson,
+    batch,
+    detached,
+    resumed,
+    dispatches,
+    list,
+    show,
+    wait,
+    cancel,
+  ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   assert.equal(file.ok, false);
   if (run.ok)
@@ -253,6 +276,10 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       cwd: { scope: "repo-root" },
       taskId: "task-1",
     });
+  if (mission.ok && missionJson.ok) {
+    assert.equal(missionJson.command.json, true);
+    assert.deepEqual(missionJson.command.action, mission.command.action);
+  }
   if (batch.ok)
     assert.deepEqual(batch.command.action, {
       kind: "runtime-batch",
@@ -333,6 +360,31 @@ test("runtime work commands parse into closed daemon facade actions", () => {
     false,
   );
   assert.equal(parseThinCommand(["runtime", "run", "worker", "--to", "terra", "--prompt", "Inspect"]).ok, false);
+  assert.deepEqual(
+    parseThinCommand([
+      "runtime",
+      "run",
+      "worker",
+      "--task",
+      "task-1",
+      "--mission",
+      "api-review",
+      "--prompt",
+      "Inspect",
+    ]),
+    {
+      ok: false,
+      code: "invalid_field",
+      nextAction: "--prompt is mutually exclusive with --mission.",
+      json: false,
+    },
+  );
+  assert.deepEqual(parseThinCommand(["runtime", "run", "worker", "--mission", "api-review"]), {
+    ok: false,
+    code: "invalid_field",
+    nextAction: "--mission requires --task.",
+    json: false,
+  });
   assert.equal(parseThinCommand(["runtime", "status", "runtime-1", "--task", "task-1"]).ok, false);
   const taskWait = parseThinCommand(["runtime", "status", "--task", "task-1", "--wait", "--no-stream"]);
   assert.equal(taskWait.ok, true);
