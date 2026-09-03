@@ -90,7 +90,14 @@ export type { FactRetirementAssessment, FactStillHoldsAttestation } from "./fact
 
 export { summarizeWorkspace, workspaceTaskStatus } from "./workspace-summary.ts";
 
-export { taskBoardPlacement, taskCapabilities, taskPhase, taskRisk, taskVisibility } from "./task-board-projection.ts";
+export {
+  taskBoardPlacement,
+  taskCapabilities,
+  taskPhase,
+  taskPhaseSteps,
+  taskRisk,
+  taskVisibility,
+} from "./task-board-projection.ts";
 export type {
   TaskBoardColumnId,
   TaskCapabilityId,
