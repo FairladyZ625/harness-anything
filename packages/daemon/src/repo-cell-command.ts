@@ -116,28 +116,19 @@ export function buildCommand(
   if (lifecycleAction?.commandType === "SubmitExecution") {
     const amendment = action.amend === true,
       held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
-      candidates = amendment ? currentSubmittedExecutions(snapshot) : held ? [held] : [],
+      flags = `${amendment ? " --amend" : ""} --json-input '<submission-json>'`,
       executionId =
         explicitExecutionId(action) ??
         uniqueDerivedExecutionId(
-          candidates,
+          amendment ? currentSubmittedExecutions(snapshot) : held ? [held] : [],
           amendment ? "Current submitted execution" : "Authenticated active-lease execution",
           amendment
             ? `Run ha task show ${taskId}; only a current submitted execution can be amended.`
             : snapshot.lease
-              ? [
-                  "The authenticated holder (",
-                  `${actorHint(snapshot.lease.actor)}`,
-                  ") must run ha task submit ",
-                  `${taskId}`,
-                  " --json-input '<submission-json>', or ha task release ",
-                  `${taskId}`,
-                  ".",
-                ].join("")
+              ? `The authenticated holder (${actorHint(snapshot.lease.actor)}) must run ` +
+                `ha task submit ${taskId} --json-input '<submission-json>', or ha task release ${taskId}.`
               : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
-          (candidate) =>
-            `ha task submit ${taskId} --execution-id ${candidate}${amendment ? " --amend" : ""} ` +
-            "--json-input '<submission-json>'",
+          (candidate) => `ha task submit ${taskId} --execution-id ${candidate}${flags}`,
         );
     return normalizeTaskLifecycleCommand(bound, {
       type: "SubmitExecution",
