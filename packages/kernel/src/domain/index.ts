@@ -164,7 +164,7 @@ export type { UseCaseProjectionName } from "./use-case-projection-catalog.ts";
 
 export { projectBaseEntityAtCut, requireEntityTypeContract } from "./base-entity.ts";
 export type { BaseEntity } from "./base-entity.ts";
-export { compileVerticalContract, compiledRelationDirections } from "./vertical-contract.ts";
+export { compileVerticalContract } from "./vertical-contract.ts";
 export type { CompiledArtifactKindContract, CompiledVerticalContract } from "./vertical-contract.ts";
 export type {
   EntityActionCriterionFailure,
@@ -194,7 +194,6 @@ export type {
   EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
-  GovernedRelationRegistryWitness,
   RelationDirection,
   RelationOrigin,
   RelationState,
