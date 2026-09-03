@@ -105,10 +105,13 @@ export function protocolErrorMessage(error: unknown): string {
 
 // A draining daemon keeps its endpoint bound so callers can hear why, but it admits no new work: this
 // refusal is what closing the socket first used to do silently, and silence is what every observer in
-// the shutdown window then had to guess at. Status stays open because it is the one answer that
-// reports what is still draining; stop stays open because it is idempotent.
+// the shutdown window then had to guess at. Status stays served because it is the one answer that
+// reports what is still draining; stop stays served because it is idempotent.
+const methodsServedWhileDraining: ReadonlySet<DaemonRpcMethod> = new Set(["daemon.status", "daemon.stop"]);
+// `stopping` is the runtime's own shutdown flag, handed in by the composition that owns the drain;
+// the daemon has no second opinion about whether it is stopping.
 export function daemonStoppingRefusal(method: DaemonRpcMethod, stopping: boolean): DaemonProtocolErrorResult | null {
-  if (!stopping || method === "daemon.status" || method === "daemon.stop") return null;
+  if (!stopping || methodsServedWhileDraining.has(method)) return null;
   return daemonProtocolError(method, "daemon_stopping", "The daemon is draining before it exits.");
 }
 // Stop is the one command that ends the process, so it is reachable only from the local session and
