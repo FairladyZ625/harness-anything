@@ -858,6 +858,39 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     context.diagnostic(
       `notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, writeLatencyMs: Number(writeLatencyMs.toFixed(3)), notifierStillRunningAtCommit: true })}`,
     );
+    const submittedTaskId = `${taskId}-submitted`,
+      submittedExecutionId = `${executionId}-submitted`,
+      submittedTask = run(root, env, [
+        "task",
+        "create",
+        "--id",
+        submittedTaskId,
+        "--admin",
+        "--title",
+        "Submitted runtime archive",
+      ]),
+      submittedPackagePath = String(submittedTask.packagePath),
+      submittedPlanPath = `${submittedPackagePath}/task_plan.md`;
+    writeFileSync(path.join(root, "harness", submittedPlanPath), realizedPlan("Submitted runtime archive"));
+    run(root, env, ["doc", "sync", "--submit", "--path", submittedPlanPath]);
+    run(root, env, ["task", "start", submittedTaskId, "--execution-id", submittedExecutionId]);
+    const submittedRuntime = run(root, env, [
+        "runtime",
+        "run",
+        "cli-worker",
+        "--prompt",
+        `submit-before-exit:${submittedTaskId}`,
+        "--task",
+        submittedTaskId,
+        "--no-stream",
+      ]),
+      submittedDispatchId = String((submittedRuntime.spawn as Record<string, unknown>).dispatchId),
+      submittedReportPath = `${submittedPackagePath}/artifacts/reports/${submittedDispatchId}.md`,
+      submittedDispatch = (
+        run(root, env, ["task", "dispatches", submittedTaskId]).dispatches as Array<Record<string, unknown>>
+      ).find((row) => row.dispatchId === submittedDispatchId);
+    assert.equal(existsSync(path.join(root, "harness", submittedReportPath)), true);
+    assert.equal(submittedDispatch?.reportPath, submittedReportPath);
     const readOnly = runMaybe(root, env, [
       "runtime",
       "run",
@@ -1533,8 +1566,12 @@ function writeProgressProvider(target: string, version: string): void {
     batchMarker =
       'const batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\n',
     threadMarker = 'console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly)',
-    progressSetup = `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n`,
-    progressWrite = `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } if (readOnly)`,
+    progressSetup =
+      `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n` +
+      'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length) : null;\n',
+    progressWrite =
+      `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } ` +
+      `if (submitTask) { const submission = JSON.stringify({ completionClaim: "Runtime worker submitted before exit.", deliverables: ["runtime archive"], outputs: ["runtime archive"], verificationNotes: ["integration"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask, "--json-input", submission], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
     next = source.replace(batchMarker, progressSetup).replace(threadMarker, progressWrite);
   if (next === source) throw new Error("runtime progress provider marker changed");
   writeFileSync(target, next);

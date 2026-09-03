@@ -181,11 +181,12 @@ export function matches(
   actor: ActorIdentity,
   source: WriteSource,
   retirementReason?: string,
+  ignoreBaseLedgerSha = false,
 ): boolean {
   return (
     event.payload.executionId === intent.executionId &&
     event.payload.retirementReason === retirementReason &&
-    stableStringify(event.payload.baseLedgerSha) === stableStringify(intent.baseLedgerSha) &&
+    (ignoreBaseLedgerSha || stableStringify(event.payload.baseLedgerSha) === stableStringify(intent.baseLedgerSha)) &&
     stableStringify(event.actor) === stableStringify(actor) &&
     stableStringify(event.source) === stableStringify(source) &&
     stableStringify(

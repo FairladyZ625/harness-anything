@@ -137,6 +137,77 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
   );
 });
 
+test("a canonical runtime occurrence archives only its dispatch artifacts without an execution lease", () => {
+  const runtimeActor = {
+      principal: actor.principal,
+      executor: { kind: "agent", id: "runtime-session:runtime-archive" },
+    } as const,
+    scope = {
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      runtimeSessionId: "runtime-archive",
+      taskId: "task-owner",
+      executionId: "execution-1",
+      packagePath: "tasks/task-owner-docs",
+    },
+    bodies = ["{}\n", "Runtime result\n"],
+    paths = [
+      `tasks/task-owner-docs/artifacts/dispatches/${scope.dispatchId}.json`,
+      `tasks/task-owner-docs/artifacts/reports/${scope.dispatchId}.md`,
+    ],
+    run = (overrides: Record<string, unknown> = {}) =>
+      decideDocWrite({
+        intent: {
+          schema: "doc-write-intent/v1",
+          executionId: null,
+          baseLedgerSha,
+          changes: [
+            {
+              path: documentPath(paths[0]!),
+              baseBlobSha256: null,
+              policyId: OPAQUE_TEXTUAL_POLICY_ID,
+              candidate: opaqueClaim(bodies[0]!, "application/json"),
+            },
+            {
+              path: documentPath(paths[1]!),
+              baseBlobSha256: null,
+              policyId: DOC_POLICY_ID,
+              candidate: claim(bodies[1]!),
+            },
+          ],
+        },
+        opId: "runtime-archive-op",
+        eventId: "runtime-archive-event",
+        workspaceRevision: 3,
+        actor: runtimeActor,
+        source: "local",
+        occurredAt: "2026-08-12T11:00:00.000Z",
+        currentLedgerSha,
+        lease: null,
+        authorizationDecision: authorizeDocWrite(runtimeActor),
+        runtimeArchive: scope,
+        documents: [null, null],
+        claims: bodies.map((body) => Buffer.from(body)),
+        resolvedTaskIds: [scope.taskId, scope.taskId],
+        ...overrides,
+      });
+  const accepted = run();
+  assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+  if (accepted.accepted) assert.equal(accepted.event.payload.executionId, null);
+  for (const [name, result, code] of [
+    ["occurrence proof required", run({ runtimeArchive: undefined }), "lease_conflict"],
+    ["settlement authorization required", run({ authorizationDecision: null }), "authorization_denied"],
+    [
+      "matching runtime actor required",
+      run({ actor: { ...runtimeActor, executor: { kind: "agent", id: "runtime-session:other" } } }),
+      "lease_conflict",
+    ],
+    ["matching task paths required", run({ resolvedTaskIds: [scope.taskId, "task-other"] }), "lease_conflict"],
+  ] as const) {
+    assert.equal(result.accepted, false, name);
+    if (!result.accepted) assert.equal(result.code, code, name);
+  }
+});
+
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {
   const base = "---\ntitle: Legacy report\n---\n\n# Same\n\n# Same\n",
     candidate = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nAll bytes are opaque.\n",

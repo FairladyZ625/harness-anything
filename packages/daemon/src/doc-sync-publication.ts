@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { TaskProjection } from "../../kernel/src/index.ts";
@@ -70,6 +71,24 @@ export function archiveRuntimeDispatch(
     task = input.projection.read(value.taskId);
   if (task.watermark !== task.sourceRevision || !task.packagePath || !task.snapshot.task)
     throw docSyncError("content_not_ready", `Task ${value.taskId} is not ready for runtime archive`);
+  const occurrence = input.projection
+      .readRuntimeDispatches()
+      .find((event) => event.payload.dispatchId === value.dispatchId),
+    session = input.projection.readRuntimeSession(value.runtimeSessionId),
+    runtimeActor = input.binding.actor.executor?.id === `runtime-session:${value.runtimeSessionId}`,
+    matchingTask = session?.taskBindings.some(
+      (binding) => binding.taskId === value.taskId && binding.executionId === value.executionId,
+    );
+  if (
+    occurrence?.payload.runtimeSessionId !== value.runtimeSessionId ||
+    occurrence.payload.instanceId !== value.instanceId ||
+    !matchingTask ||
+    !runtimeActor
+  )
+    throw docSyncError(
+      "runtime_archive_occurrence_mismatch",
+      `Runtime archive ${value.dispatchId} does not match its canonical dispatch occurrence`,
+    );
   const existingMissionRef = runtimeArchiveMissionRef(input, task.packagePath, value),
     missionRef = existingMissionRef ?? `${task.packagePath}/artifacts/missions/${value.dispatchId}.md`,
     dispatch = {
@@ -133,52 +152,67 @@ export function archiveRuntimeDispatch(
       bytes: Buffer.from(document.body),
     })),
     layout = resolveHarnessLayout(input.rootDir),
-    reads = documents.map((document) => input.projection.readDocument(document.path));
+    reads = documents.map((document) => input.projection.readDocument(document.path)),
+    opId = `runtime-archive-${createHash("sha256")
+      .update(`${input.workspaceId}\0${value.dispatchId}\0${value.runtimeSessionId}`)
+      .digest("hex")}`,
+    existing = input.store.readEvent(opId);
   if (
-    !directPaths(
+    existing === null &&
+    (!directPaths(
       input.rootDir,
       documents.map(({ path: target }) => target),
     ) ||
-    documents.some(({ path: target }) => !resolveDocRoute(target).allowed) ||
-    documents.some(
-      ({ path: target }, index) =>
-        reads[index]!.status !== "ready" ||
-        reads[index]!.document !== null ||
-        existsSync(path.join(layout.authoredRoot, ...target.split("/"))),
-    )
+      documents.some(({ path: target }) => !resolveDocRoute(target).allowed) ||
+      documents.some(
+        ({ path: target }, index) =>
+          reads[index]!.status !== "ready" ||
+          reads[index]!.document !== null ||
+          existsSync(path.join(layout.authoredRoot, ...target.split("/"))),
+      ))
   )
     throw docSyncError(
       "runtime_archive_collision",
       `Runtime archive ${value.dispatchId} is not a fresh task artifact set`,
     );
-  const lease = input.projection.currentLease(value.taskId, input.now()),
-    intent = parseDocWriteIntent(
-      {
-        schema: "doc-write-intent/v1",
-        executionId: lease?.executionId ?? null,
-        baseLedgerSha: input.store.currentCut(),
-        changes: documents.map(({ path: target, bytes, mediaType }) => {
-          const sha = sha256Bytes(bytes);
-          return {
-            path: target,
-            baseBlobSha256: null,
-            policyId: classifyTextualArtifactPath(target)?.policyId ?? DOC_POLICY_ID,
-            candidate: {
-              ref: `doc-sync-claims/${sha}`,
-              sha256: sha,
-              size: bytes.byteLength,
-              mediaType,
-            },
-          };
-        }),
-      },
-      input.workspaceId,
-    );
+  const intent = parseDocWriteIntent(
+    {
+      schema: "doc-write-intent/v1",
+      executionId: null,
+      baseLedgerSha: input.store.currentCut(),
+      changes: documents.map(({ path: target, bytes, mediaType }) => {
+        const sha = sha256Bytes(bytes);
+        return {
+          path: target,
+          baseBlobSha256: null,
+          policyId: classifyTextualArtifactPath(target)?.policyId ?? DOC_POLICY_ID,
+          candidate: {
+            ref: `doc-sync-claims/${sha}`,
+            sha256: sha,
+            size: bytes.byteLength,
+            mediaType,
+          },
+        };
+      }),
+    },
+    input.workspaceId,
+  );
   return publishDocIntent(
-    { ...input, action: { kind: "runtime-archive" } },
+    {
+      ...input,
+      action: { kind: "runtime-archive" },
+      runtimeArchive: {
+        dispatchId: value.dispatchId,
+        runtimeSessionId: value.runtimeSessionId,
+        taskId: value.taskId,
+        executionId: value.executionId,
+        packagePath: task.packagePath,
+      },
+    },
     intent,
     documents.map(({ bytes }) => bytes),
-    lease,
+    null,
+    { opId, ignoreBaseLedgerShaOnReplay: true },
   );
 }
 
@@ -227,8 +261,13 @@ export function publishDocIntent(
   intent: DocWriteIntent,
   claims: readonly (Uint8Array | null)[],
   lease: ReturnType<TaskProjection["currentLeaseForExecution"]>,
-  retirementReason?: string,
+  options: {
+    readonly retirementReason?: string;
+    readonly opId?: string;
+    readonly ignoreBaseLedgerShaOnReplay?: boolean;
+  } = {},
 ): DocSettlementReceipt {
+  const retirementReason = options.retirementReason;
   const baseRevision = intent.baseLedgerSha.revision,
     command = retirementReason === undefined ? intent : { ...intent, retirementReason },
     envelope = normalizeCommandEnvelope({
@@ -238,18 +277,22 @@ export function publishDocIntent(
       expectedRevision: baseRevision ?? 0,
       command: command as unknown as Readonly<Record<string, unknown>>,
     }),
-    existing = input.store.readEvent(envelope.opId);
+    opId = options.opId ?? envelope.opId,
+    existing = input.store.readEvent(opId);
   if (existing !== null) {
     if (
       !isDocEvent(existing) ||
-      !matches(existing, intent, input.binding.actor, input.binding.source, retirementReason)
+      !matches(
+        existing,
+        intent,
+        input.binding.actor,
+        input.binding.source,
+        retirementReason,
+        options.ignoreBaseLedgerShaOnReplay,
+      )
     ) {
       recycleClaims(input.rootDir, intent);
-      return rejectDocSyncAction(
-        envelope.opId,
-        "op_conflict",
-        detail(intent, input.store.currentCut(), "op_conflict", null),
-      );
+      return rejectDocSyncAction(opId, "op_conflict", detail(intent, input.store.currentCut(), "op_conflict", null));
     }
     if (input.projection.readOperation(existing.opId) === null)
       input.projection.apply(existing, docSyncWritePlan(existing));
@@ -265,21 +308,21 @@ export function publishDocIntent(
     intent,
     claims,
     lease,
-    envelope.opId,
+    opId,
     retirementReason,
   );
   if (!adjudication.accepted) {
     if (adjudication.code === "projection_pending")
       return {
         outcome: "indeterminate",
-        opId: envelope.opId,
-        receiptId: envelope.opId,
+        opId,
+        receiptId: opId,
         code: "projection_pending",
         origin: "N/A",
       };
     recycleClaims(input.rootDir, intent);
     return {
-      ...rejectDocSyncAction(envelope.opId, adjudication.code, adjudication.detail),
+      ...rejectDocSyncAction(opId, adjudication.code, adjudication.detail),
       authorizationDecision: adjudication.authorizationDecision,
     };
   }
@@ -289,10 +332,10 @@ export function publishDocIntent(
     blobs: adjudication.decision.blobs,
   });
   input.projection.apply(adjudication.decision.event, adjudication.decision.plan);
-  postCommit(input, "after_sqlite_commit", envelope.opId);
-  postCommit(input, "before_response_write", envelope.opId);
+  postCommit(input, "after_sqlite_commit", opId);
+  postCommit(input, "before_response_write", opId);
   const applied = readDocReceipt(input, adjudication.decision.event);
-  postCommit(input, "after_response_write", envelope.opId);
+  postCommit(input, "after_response_write", opId);
   recycleClaims(input.rootDir, intent);
   return { ...applied, authorizationDecision: adjudication.decision.authorizationDecision };
 }

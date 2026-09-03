@@ -32,6 +32,7 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
+import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
@@ -168,6 +169,8 @@ export interface RuntimeSpawnerInput {
     readonly opId: string;
     readonly binding: RuntimeBinding;
   }) => RuntimeBinding;
+  /** Re-authorizes a local terminal archive at the settlement cut. */
+  readonly authorizeRuntimeArchive?: (archive: RuntimeDispatchArchive, binding: RuntimeBinding) => RuntimeBinding;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }
 

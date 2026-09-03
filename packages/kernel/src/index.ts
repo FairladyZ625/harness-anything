@@ -165,6 +165,7 @@ export type {
   DocumentState,
   DocWriteIntent,
   PersistedCanonicalEventV1,
+  RuntimeArchiveWriteScope,
 } from "./domain/doc-sync.contract.ts";
 export {
   MIGRATION_DOCUMENT_POLICY_ID,

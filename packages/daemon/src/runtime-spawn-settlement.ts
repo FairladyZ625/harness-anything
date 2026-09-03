@@ -104,7 +104,7 @@ export async function publishExit(
             reason: attemptOutcome.reason,
           }
         : null;
-    if (archive)
+    if (archive) {
       try {
         const archived = context.input.remote
           ? await context.input.remote.archive(archive)
@@ -113,7 +113,7 @@ export async function publishExit(
               rootDir: context.input.rootDir,
               store: context.requiredRuntimeStore(context.input),
               projection: context.requiredRuntimeProjection(context.input),
-              binding: active.binding,
+              binding: context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding,
               now: context.input.now,
               archive,
             });
@@ -125,8 +125,10 @@ export async function publishExit(
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
-        console.warn(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
+        console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
+        throw error;
       }
+    }
     if (cancelled) {
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",

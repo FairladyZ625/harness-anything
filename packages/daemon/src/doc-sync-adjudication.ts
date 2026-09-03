@@ -12,6 +12,7 @@ import {
   type DocSyncReceiptDetail,
   type DocWriteIntent,
   type AuthorizationDecision,
+  type RuntimeArchiveWriteScope,
 } from "../../kernel/src/index.ts";
 import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } from "./doc-sync-candidate-scanner.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
@@ -58,6 +59,7 @@ export function adjudicateDocIntent(
   input: Omit<Input, "action"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
     readonly taskId?: string;
+    readonly runtimeArchive?: RuntimeArchiveWriteScope;
   },
   intent: DocWriteIntent,
   claims: readonly (Uint8Array | null)[],
@@ -120,6 +122,7 @@ export function adjudicateDocIntent(
     resolvedTaskIds,
     ...(runtimeBinding ? { runtimeBinding } : {}),
     ...(runtimeDelegatedTaskId ? { runtimeDelegatedTaskId } : {}),
+    ...(input.runtimeArchive ? { runtimeArchive: input.runtimeArchive } : {}),
   });
   return decision.accepted
     ? { accepted: true, decision: { ...decision, authorizationDecision } }
