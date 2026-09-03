@@ -36,7 +36,8 @@ export function parseSchedule(
         })
       : rejected(
           "invalid_field",
-          "Use one of --from-file <path> or --json-input <json|@-> by itself, or provide the direct Schedule arguments.",
+          "Use one of --from-file <path> or --json-input <json|@-> by itself, " +
+            "or provide the direct Schedule arguments.",
           json,
         );
   if (!nonEmpty(scheduleId))
