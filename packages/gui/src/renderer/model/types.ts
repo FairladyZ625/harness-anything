@@ -65,7 +65,11 @@ interface TaskRowFields {
   /** Task/v2 真状态；relation overlay 永不覆写此字段。 */
   canonicalStatus?: CanonicalStatus;
   blocking?: BlockingState;
-  blockingLabel?: string;
+  /**
+   * 阻塞文案选择码(kernel `blockingOf` 的 label):relations / cycle / unresolved /
+   * none。它只答「该用哪句文案」,措辞由消费方按码查 i18n;blocker 数量另读 blockers。
+   */
+  blockingLabel?: TaskBlockingLabel;
   blockers?: readonly BlockingContributor[];
   blockingWarnings?: readonly string[];
   rawStatus: string;
@@ -126,6 +130,11 @@ interface TaskRowFields {
   board: TaskSnapshotProjectionRow["board"];
   visibility: TaskSnapshotProjectionRow["visibility"];
   capabilities: TaskSnapshotProjectionRow["capabilities"];
+  /**
+   * 收口风险旗标(kernel `taskRisk`):closeoutReadiness 为 missing/failed 即 true。
+   * 列表的风险计数读它,不再比较 readiness 词。
+   */
+  risk: TaskSnapshotProjectionRow["risk"];
   docs: readonly DocEntry[];
   // 三元语继承字段（E47/E49）：默认从 spawningDecision 继承，可覆盖
   riskTier?: RiskTier;
@@ -326,6 +335,8 @@ export type TaskCapability = TaskSnapshotProjectionRow["capabilities"][number];
 export type TaskCapabilityId = TaskCapability["id"];
 /** 不可用时的原因码(可用时是 null),渲染侧据此选措辞。 */
 export type TaskCapabilityReasonKey = NonNullable<TaskCapability["reason"]>;
+/** 阻塞评估的文案选择码(kernel `blockingOf`),渲染侧据此选措辞。 */
+export type TaskBlockingLabel = TaskSnapshotProjectionRow["blockingAssessment"]["label"];
 
 /** 终态由投影的看板列回答(kernel `terminalDomainStatuses`),renderer 不再自己列终态词。 */
 export const isTerminal = (task: Pick<TaskRow, "board">) => task.board.columnId === "terminal";

@@ -279,7 +279,7 @@ describe("renderer app model", () => {
       coordinationStatus: "active",
       canonicalStatus: "active",
       blocking: "clear",
-      blockingLabel: "当前投影无 active blocking relation",
+      blockingLabel: "none",
       rawStatus: "active/implementation",
       freshness: "fresh",
       packageDisposition: "active",
@@ -315,7 +315,7 @@ describe("renderer app model", () => {
             canonicalStatus: "planned",
             coordinationStatus: "blocked",
             blocking: "blocked",
-            blockingLabel: "1 个 active blocking relation",
+            blockingLabel: "relations",
             activeExecutionId: undefined,
             capabilities: [
               { id: "start", available: false, reason: "blocked" },

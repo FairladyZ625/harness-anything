@@ -31,8 +31,12 @@ const CAPABILITY_IDS: readonly TaskCapabilityId[] = ["start", "progress", "submi
 
 export function taskProjectionFields(
   status: SnapshotStatus,
-  options: { readonly archived?: boolean; readonly can?: readonly TaskCapabilityId[] } = {},
-): Pick<TaskRow, "board" | "visibility" | "capabilities"> {
+  options: {
+    readonly archived?: boolean;
+    readonly can?: readonly TaskCapabilityId[];
+    readonly risk?: boolean;
+  } = {},
+): Pick<TaskRow, "board" | "visibility" | "capabilities" | "risk"> {
   const can = new Set(options.can ?? []);
   return {
     board: { columnId: COLUMN_OF[status], rank: RANK_OF[status] },
@@ -42,5 +46,6 @@ export function taskProjectionFields(
       available: can.has(id),
       reason: can.has(id) ? null : ("invalid_transition" as const),
     })),
+    risk: { flagged: options.risk === true },
   };
 }
