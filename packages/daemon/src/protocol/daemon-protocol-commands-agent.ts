@@ -142,6 +142,32 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "entity-migrate-squads",
+    phase: "Governed-Entity-W1-F",
+    path: ["migrate", "squads"],
+    summary: "Install legacy Squad JSON declarations through the canonical Squad entity action.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--source",
+        "repeated",
+        true,
+        {
+          code: "missing_field",
+          nextAction: "Add each legacy Squad declaration with --source <repo-relative-json>.",
+        },
+        { field: "sourcePaths" },
+      ),
+      cliInput(
+        "--dry-run",
+        "boolean",
+        false,
+        { code: "invalid_field", nextAction: "Use --dry-run once." },
+        { field: "dryRun" },
+      ),
+    ],
+  }),
   defineRuntimeLocalWriteCommand({
     id: "agent-create",
     phase: "Runtime-B",

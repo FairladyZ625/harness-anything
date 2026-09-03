@@ -17,6 +17,7 @@ import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
 import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
+import { runSquadEntityMigration } from "./squad-entity-migration.ts";
 import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
@@ -54,6 +55,7 @@ export async function executeAction(
   if (action.kind === "relation-events-migrate" || action.kind === "decision-digests-migrate")
     return runEventShapeMigrationAction(cell, eventShapeMigrations[action.kind], action, binding);
   if (action.kind === "dispatch-records-migrate") return runDispatchRecordMigrationAction(cell, action, binding);
+  if (action.kind === "entity-migrate-squads") return runSquadEntityMigration(cell, action, binding);
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),

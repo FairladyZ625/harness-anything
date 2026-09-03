@@ -52,7 +52,7 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (route.id === "entity-migrate-adrs")
+  if (route.id === "entity-migrate-adrs" || route.id === "entity-migrate-squads")
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (
     route.id === "fact-rekey" ||

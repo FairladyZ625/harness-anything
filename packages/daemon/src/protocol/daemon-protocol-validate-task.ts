@@ -79,6 +79,15 @@ const adrMigrationProtocolInput = Object.freeze({
   exactlyOneOf: Object.freeze([]),
 });
 
+const squadMigrationProtocolInput = Object.freeze({
+  schema: "entity-action-input/v1",
+  fields: Object.freeze([
+    { field: "sourcePaths", type: "string-array" as const, required: true },
+    { field: "dryRun", type: "boolean" as const, required: false },
+  ]),
+  exactlyOneOf: Object.freeze([]),
+});
+
 const taskActionProtocolByIngress: ReadonlyMap<string, GeneratedTaskActionProtocolDeclaration> = new Map(
   generatedTaskActionProtocolDeclarations.map((action) => [action.execution.ingress, action] as const),
 );
@@ -90,6 +99,8 @@ export function validateCatalogActionPayload(value: JsonObject): readonly string
   if (declaration) return validateProjectedTaskActionInput(action.kind, declaration.input, action);
   if (action.kind === "entity-import")
     return validateProjectedTaskActionInput(action.kind, artifactEntityImportProtocolInput, action);
+  if (action.kind === "entity-migrate-squads")
+    return validateProjectedTaskActionInput(action.kind, squadMigrationProtocolInput, action);
   return action.kind === "entity-migrate-adrs"
     ? validateProjectedTaskActionInput(action.kind, adrMigrationProtocolInput, action)
     : [];
