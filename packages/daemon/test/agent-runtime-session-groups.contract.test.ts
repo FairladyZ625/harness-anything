@@ -93,7 +93,7 @@ test("session groups default to active plus 24h and group/filter/limit before re
     defaultResult = parseSessionGroupsProjection(reads.sessionGroups({}));
   assert.deepEqual(
     defaultResult.groups.map(({ key }) => key),
-    ["task-c", "task-a", "unattributed"],
+    ["task-c", "task-a", "unattributed:no-dispatch"],
   );
   assert.deepEqual(defaultResult.totals, { groups: 3, sessions: 3 });
   assert.equal(
@@ -465,4 +465,46 @@ test("status narrowing selects members, not the group's latestStatus", () => {
     [{ key: "task-m", sessionCount: 1, latestStatus: "failed" }],
   );
   assert.deepEqual(failedMembers.totals, { groups: 1, sessions: 1 });
+});
+
+test("each unattributed bucket names the thing that is actually missing", () => {
+  const reads = statusReads();
+  // 阴性对照:重命名不得改变会话数,只改变桶的身份。
+  const byTask = reads.sessionGroups({ groupBy: "task", since: SINCE_ALL }),
+    bySquad = reads.sessionGroups({ groupBy: "squad", since: SINCE_ALL });
+  assert.equal(byTask.totals.sessions, 4);
+  assert.equal(bySquad.totals.sessions, 4);
+  // 无 task 绑定且无派工行 → 缺的是派工记录(跨节点派工在本节点也是这个形状)。
+  assert.deepEqual(
+    byTask.groups.filter(({ kind }) => kind === "unattributed").map(({ key, label }) => ({ key, label })),
+    [{ key: "unattributed:no-dispatch", label: "No dispatch record" }],
+  );
+  // squad 维度:有派工行但无 squadId 与完全无派工行,是两个桶而不是一个「未归属」。
+  assert.deepEqual(
+    bySquad.groups.map(({ key, kind, sessionCount }) => ({ key, kind, sessionCount })),
+    [
+      { key: "core-squad", kind: "squad", sessionCount: 1 },
+      { key: "unattributed:no-squad", kind: "unattributed", sessionCount: 2 },
+      { key: "unattributed:no-dispatch", kind: "unattributed", sessionCount: 1 },
+    ],
+  );
+  assert.deepEqual(
+    bySquad.groups.filter(({ kind }) => kind === "unattributed").map(({ label }) => label),
+    ["No squad", "No dispatch record"],
+  );
+  // 未归属沉底仍然生效:命名的组在前,两个未归属桶在后。
+  assert.deepEqual(
+    bySquad.groups.map(({ kind }) => kind),
+    ["squad", "unattributed", "unattributed"],
+  );
+  // agent 维度实测不产桶:无 agentId 的会话落进 instance:<id> 组。
+  const byAgent = reads.sessionGroups({ groupBy: "agent", since: SINCE_ALL });
+  assert.deepEqual(
+    byAgent.groups.filter(({ kind }) => kind === "unattributed"),
+    [],
+  );
+  assert.deepEqual(
+    byAgent.groups.map(({ key }) => key).filter((key) => key.startsWith("instance:")),
+    ["instance:instance-direct"],
+  );
 });

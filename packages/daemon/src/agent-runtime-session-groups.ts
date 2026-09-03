@@ -5,11 +5,12 @@ import {
   runtimeSessionSemanticState,
   type RuntimeSession,
 } from "../../kernel/src/index.ts";
-import type {
-  AgentRuntimeSessionGroupBy,
-  AgentRuntimeSessionGroupDto,
-  AgentRuntimeSessionGroupsResult,
-  AgentRuntimeSessionGroupStatus,
+import {
+  agentRuntimeUnattributedGroupKeys,
+  type AgentRuntimeSessionGroupBy,
+  type AgentRuntimeSessionGroupDto,
+  type AgentRuntimeSessionGroupsResult,
+  type AgentRuntimeSessionGroupStatus,
 } from "./agent-runtime-contract.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
@@ -131,8 +132,10 @@ function membersForSession(
         : dispatch?.taskId && dispatch.taskId !== "unattributed"
           ? [dispatch.taskId]
           : [];
-    if (taskIds.length === 0)
-      return [member(unattributed(), session, null, status, startedAt, agentName, commonSearch)];
+    if (taskIds.length === 0) {
+      const identity = unattributed("task", dispatch !== null);
+      return [member(identity, session, null, status, startedAt, agentName, commonSearch)];
+    }
     return taskIds.map((taskId) => {
       const taskDispatch = dispatch?.taskId === taskId ? dispatch : null;
       return member(
@@ -157,7 +160,7 @@ function membersForSession(
               label: input.entityLabel("squad", squadId) ?? squadId,
               squadId,
             }
-          : unattributed(),
+          : unattributed("squad", dispatch !== null),
         session,
         dispatch,
         status,
@@ -217,8 +220,18 @@ function member(
   };
 }
 
-function unattributed(): GroupIdentity {
-  return { key: "unattributed", kind: "unattributed", label: "Unattributed" };
+/**
+ * Name the bucket after the thing that is actually missing. A missing dispatch row outranks the
+ * dimension: it is why the squad (and often the task) is unknown, and it is the shape a session
+ * dispatched on another node takes here, because dispatch rows are read from node-local files
+ * while the sessions themselves come from the replicated projection.
+ */
+function unattributed(groupBy: "task" | "squad", hasDispatch: boolean): GroupIdentity {
+  if (!hasDispatch)
+    return { key: agentRuntimeUnattributedGroupKeys.noDispatch, kind: "unattributed", label: "No dispatch record" };
+  return groupBy === "task"
+    ? { key: agentRuntimeUnattributedGroupKeys.noTask, kind: "unattributed", label: "No task binding" }
+    : { key: agentRuntimeUnattributedGroupKeys.noSquad, kind: "unattributed", label: "No squad" };
 }
 
 function addMember(groups: Map<string, GroupAccumulator>, member: GroupMember): void {

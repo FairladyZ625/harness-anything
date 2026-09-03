@@ -3,6 +3,7 @@ import {
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupDto,
   type AgentRuntimeSessionGroupStatus,
+  type AgentRuntimeUnattributedGroupKey,
   type RuntimeInstallationState,
 } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
@@ -49,6 +50,16 @@ export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };
+/**
+ * 未归属桶按缺失原因分名:daemon 侧一个桶三种成因(无任务绑定 / 无小队 / 无派工记录),
+ * 前端此前把三者一律显示成「未归属」。key 是 daemon 给的稳定判别式,label 走 i18n。
+ */
+export const sessionUnattributedKey: Readonly<Record<AgentRuntimeUnattributedGroupKey, string>> = {
+  "unattributed:no-task": "agentRuntime.unattributedNoTask",
+  "unattributed:no-squad": "agentRuntime.unattributedNoSquad",
+  "unattributed:no-dispatch": "agentRuntime.unattributedNoDispatch",
+};
+
 export const sessionInstallationBadgeKey: Readonly<
   Record<RuntimeInstallationState, "agentRuntime.installationMissing" | null>
 > = {

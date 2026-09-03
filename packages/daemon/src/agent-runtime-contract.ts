@@ -176,6 +176,19 @@ export const agentRuntimeSessionGroupStatusWordsAreExact: [AgentRuntimeSessionGr
 ]
   ? true
   : never = true;
+/**
+ * A session lands outside every named group for one of three reasons, and they are not the same
+ * question for the operator: no task binding, a dispatch row that names no squad, or no dispatch
+ * row at all (a direct session, or one dispatched on another node — dispatch rows are node-local
+ * while sessions replicate). One bucket labelled "Unattributed" said all three at once.
+ */
+export const agentRuntimeUnattributedGroupKeys = Object.freeze({
+  noTask: "unattributed:no-task",
+  noSquad: "unattributed:no-squad",
+  noDispatch: "unattributed:no-dispatch",
+} as const);
+export type AgentRuntimeUnattributedGroupKey =
+  (typeof agentRuntimeUnattributedGroupKeys)[keyof typeof agentRuntimeUnattributedGroupKeys];
 export interface AgentRuntimeSessionGroupRoundDto {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;
