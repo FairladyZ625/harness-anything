@@ -18,7 +18,7 @@ import { runtimeInstanceCatalogQuery, runtimeInstanceCatalogQueryKey } from "../
 import type { RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { createGuiExecutionId } from "../../task-actions.ts";
 import { squadRunsClient } from "../../squad-run-client.ts";
-import { sessionDelegation, type SessionGroupBy } from "../../sessions-model.ts";
+import { sessionDelegation, type SessionGroupBy, type SessionStatus } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
@@ -188,17 +188,21 @@ export function useSessionsWorkspace(
     readonly since: string;
     readonly squadSince: string;
     readonly query: string;
+    readonly status: readonly SessionStatus[];
     readonly taskId?: string;
   },
 ) {
   const client = useQueryClient();
+  // 状态筛选进 query key:漏了它切筛选会命中旧结果的缓存,页面看起来没反应。
+  const statusKey = [...list.status].sort().join(",");
   const groups = useQuery({
-    queryKey: ["session-groups", repoId, list.groupBy, list.range, list.query, list.taskId ?? ""],
+    queryKey: ["session-groups", repoId, list.groupBy, list.range, list.query, statusKey, list.taskId ?? ""],
     queryFn: () =>
       agentRuntimeClient.sessionGroups(repoId, {
         groupBy: list.groupBy,
         since: list.taskId === undefined ? list.since : "1970-01-01T00:00:00.000Z",
         ...(list.taskId === undefined ? (list.query === "" ? {} : { query: list.query }) : { query: list.taskId }),
+        ...(list.status.length === 0 ? {} : { status: list.status }),
         limit: SESSION_GROUPS_PAGE_LIMIT,
       }),
     staleTime: 4_000,

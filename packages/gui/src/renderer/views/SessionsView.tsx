@@ -21,10 +21,13 @@ import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
+  sessionStatusFilterWords,
+  sessionStatusKey,
   type SessionGroup,
   type SessionGroupBy,
   type SessionOrphan,
   type SessionRound,
+  type SessionStatus,
 } from "../sessions-model.ts";
 
 /**
@@ -66,6 +69,8 @@ export function SessionsView({
   const range = rangeBySegment[segment],
     setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
   const [search, setSearch] = useState("");
+  // 状态筛选是集合:排障常要「失败或丢失」,而检索框的 token 是 AND,写不出这个。
+  const [statusFilter, setStatusFilter] = useState<ReadonlySet<SessionStatus>>(new Set());
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
@@ -113,12 +118,15 @@ export function SessionsView({
 
   const scopedTaskId =
     taskRouteId ?? (sessionTaskScope?.runtimeSessionId === focusedSessionId ? sessionTaskScope.taskId : undefined);
+  // 词表顺序取自 daemon,选择集只做筛选不做排序;空集合 = 不筛。
+  const status = useMemo(() => sessionStatusFilterWords.filter((word) => statusFilter.has(word)), [statusFilter]);
   const workspace = useSessionsWorkspace(repoId, {
     groupBy,
     range,
     since,
     squadSince,
     query: debouncedSearch,
+    status,
     ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
   });
   const groups = workspace.groups.data?.groups ?? [],
@@ -337,6 +345,36 @@ export function SessionsView({
           onChange={(value) => setRange(value)}
           options={(Object.keys(RANGE_SPAN) as Range[]).map((value) => ({ value, label: rangeLabel[value] }))}
         />
+        {segment === "sessions" && (
+          <span
+            role="group"
+            aria-label={t("agentRuntime.sessionsStatusLabel")}
+            data-testid="sessions-status-filter"
+            className="inline-flex min-w-0 shrink overflow-x-auto rounded border border-border-strong"
+          >
+            {sessionStatusFilterWords.map((word) => (
+              <button
+                key={word}
+                type="button"
+                data-testid={`sessions-status-${word}`}
+                aria-pressed={statusFilter.has(word)}
+                onClick={() =>
+                  setStatusFilter((current) => {
+                    const next = new Set(current);
+                    if (next.has(word)) next.delete(word);
+                    else next.add(word);
+                    return next;
+                  })
+                }
+                className={`whitespace-nowrap px-2.5 py-0.5 ui-micro ${
+                  statusFilter.has(word) ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
+                }`}
+              >
+                {t(sessionStatusKey[word] as never)}
+              </button>
+            ))}
+          </span>
+        )}
         <input
           type="search"
           data-testid="sessions-search"
@@ -355,7 +393,14 @@ export function SessionsView({
                 range: rangeLabel[range],
                 groups: totals.groups,
                 sessions: totals.sessions,
-              })
+              }) +
+              // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
+              // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
+              (status.length === 0
+                ? ""
+                : t("agentRuntime.sessionsStatusFilterNote", {
+                    statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+                  }))
             : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs })}
         </span>
       </div>

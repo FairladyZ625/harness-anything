@@ -1,5 +1,6 @@
 import {
   agentRuntimeInstallationState,
+  agentRuntimeSessionGroupStatusWords,
   type AgentRuntimeSessionDto,
   type AgentRuntimeSessionGroupDto,
   type AgentRuntimeSessionGroupStatus,
@@ -50,6 +51,8 @@ export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
   "ended-indeterminate": "agentRuntime.sessionStatusEndedIndeterminate",
   unavailable: "agentRuntime.sessionStatusUnavailable",
 };
+/** 状态筛选控件的词序:与 daemon 的状态词表同一份,前端不另立顺序或分类。 */
+export const sessionStatusFilterWords = agentRuntimeSessionGroupStatusWords;
 /**
  * 未归属桶按缺失原因分名:daemon 侧一个桶三种成因(无任务绑定 / 无小队 / 无派工记录),
  * 前端此前把三者一律显示成「未归属」。key 是 daemon 给的稳定判别式,label 走 i18n。
