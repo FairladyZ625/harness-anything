@@ -20,6 +20,7 @@ import {
   entityDocKinds,
 } from "../src/renderer/entity-docs.ts";
 import type { EntityFieldDoc } from "../src/renderer/entity-docs.ts";
+import { RELATION_KIND_ORDER } from "../src/renderer/graph/relationVisual.ts";
 
 const decisionPackageSchema = JSON.parse(
   readFileSync(new URL("../../kernel/schemas/json/decision-package.schema.json", import.meta.url), "utf8"),
@@ -198,6 +199,15 @@ describe("relation plane vocabulary", () => {
     const words = (field: string) => [...(doc.statuses.find((status) => status.field === field)?.words ?? [])].sort();
     expect(words("type")).toEqual([...relationTypes].sort());
     expect(words("state")).toEqual([...relationStates].sort());
+  });
+
+  /**
+   * 同一个机制的另一处:图筛选/图例的关系类型顺序表是一份本地数组。`KIND_AXIS` 是
+   * `Record<RelationKind, …>`,少一个键编译就红;`RELATION_KIND_ORDER` 是数组,**漏一个
+   * 静默过**——kernel 新增一个关系动词,筛选面板会少一个 chip 而没人知道。这里把它钉住。
+   */
+  it("the relation kind order table covers the kernel vocabulary with no extras", () => {
+    expect([...RELATION_KIND_ORDER].sort()).toEqual([...relationTypes].sort());
   });
 });
 
