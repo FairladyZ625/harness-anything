@@ -210,6 +210,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "Relation-projection availability feeding blockingOf; degraded states make every task's blocking unknown.",
   },
   {
+    id: "task-read-set.projection-cut",
+    entity: "Task",
+    field: "read set projection cut",
+    module: "packages/kernel/src/domain/task-read-set.ts",
+    anchor: "#status",
+    words: ["ready", "pending"],
+    note: "Readiness of the single projection cut a task read set is derived at.",
+  },
+  {
     id: "package.disposition",
     entity: "Package",
     field: "disposition",

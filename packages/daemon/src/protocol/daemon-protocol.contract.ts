@@ -718,6 +718,7 @@ export default Object.freeze({
     "Governed-Entity-W1-D",
     "Governed-Entity-W1-F",
     "Governed-Entity-W2-0",
+    "Governed-Entity-W2-B",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

@@ -226,6 +226,8 @@ export type {
 } from "./entity-relation.ts";
 export {} from "./entity-freshness.ts";
 export type {} from "./entity-freshness.ts";
+export { deriveTaskReadSet } from "./task-read-set.ts";
+export type { TaskReadSet, TaskReadSetCounterpart } from "./task-read-set.ts";
 
 export { normalizeDomainError } from "./errors.ts";
 export type {

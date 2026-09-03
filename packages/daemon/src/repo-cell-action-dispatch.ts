@@ -151,6 +151,7 @@ export async function executeAction(
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
+  if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
