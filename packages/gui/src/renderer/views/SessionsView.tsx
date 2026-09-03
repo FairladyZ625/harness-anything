@@ -69,7 +69,7 @@ export function SessionsView({
   const range = rangeBySegment[segment],
     setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
   const [search, setSearch] = useState("");
-  // 状态筛选是集合:排障常要「失败或丢失」,而检索框的 token 是 AND,写不出这个。
+  // 状态筛选是集合:排障常要「失败或丢失」,而检索框的词之间是 AND,写不出这个。
   const [statusFilter, setStatusFilter] = useState<ReadonlySet<SessionStatus>>(new Set());
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
