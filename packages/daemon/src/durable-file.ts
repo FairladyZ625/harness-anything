@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 // Windows refuses fsync on a handle that was not opened for writing: FlushFileBuffers needs
@@ -16,18 +16,42 @@ import path from "node:path";
 export function syncDirectory(directory: string): void {
   if (process.platform === "win32") return;
   const descriptor = openSync(directory, "r");
-  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 export function syncFile(file: string): void {
   const descriptor = openSync(file, "r+");
-  try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
+  try {
+    fsyncSync(descriptor);
+  } finally {
+    closeSync(descriptor);
+  }
 }
 
 export function writeFileDurably(file: string, body: string | Uint8Array, mode?: number): void {
-  const directory = path.dirname(file); mkdirSync(directory, { recursive: true });
+  const directory = path.dirname(file);
+  mkdirSync(directory, { recursive: true });
   const temp = `${file}.${process.pid}.${randomUUID()}.tmp`;
   const descriptor = mode === undefined ? openSync(temp, "wx") : openSync(temp, "wx", mode);
-  try { writeFileSync(descriptor, body); fsyncSync(descriptor); } finally { closeSync(descriptor); }
-  renameSync(temp, file); syncDirectory(directory);
+  // The temp name carries this process's pid, so no second party will ever reclaim it.
+  // A throw between the open and the rename therefore has to take its own leftover with it,
+  // or the file outlives the process that owned it (F-FAED015B measured one such orphan
+  // surviving 7h46m under a fleet edge .staging/ after its writer was killed).
+  try {
+    try {
+      writeFileSync(descriptor, body);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    renameSync(temp, file);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+  syncDirectory(directory);
 }
