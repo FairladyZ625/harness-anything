@@ -262,6 +262,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: ["succeeded", "failed", "unknown", "cancelled"],
   },
   {
+    id: "runtime.installation-state",
+    entity: "RuntimeSession",
+    field: "installation state",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "RuntimeInstallationState",
+    words: ["present", "missing"],
+    note: "Read-time judgment of the session's referenced installation against the local witness set; not stored.",
+  },
+  {
     id: "runtime.semantic-state",
     entity: "RuntimeSession",
     field: "semantic state",

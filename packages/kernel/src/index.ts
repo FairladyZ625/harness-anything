@@ -18,6 +18,7 @@ export type {
   AgentDefinitionSnapshot,
   AgentRuntimeEventV1,
   RuntimeInstallation,
+  RuntimeInstallationState,
   RuntimeKind,
   RuntimeProtocolFamily,
   RuntimeResultClaim,

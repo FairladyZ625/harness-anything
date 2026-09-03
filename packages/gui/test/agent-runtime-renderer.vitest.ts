@@ -317,6 +317,7 @@ describe("agent runtime renderer", () => {
     expect(markup).toContain("Session facts");
   });
   it("marks a historical session whose installation witness is missing", () => {
+    expect(detailView()).not.toContain("Installation missing");
     const markup = detailView({
       session: {
         ...session,

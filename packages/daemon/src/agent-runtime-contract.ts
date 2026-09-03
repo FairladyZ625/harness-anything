@@ -1,8 +1,10 @@
 import type {
   AgentDefinitionSnapshot,
   AgentRuntimeEventV1,
+  RuntimeInstallationState,
   RuntimeSessionSemanticState,
 } from "../../kernel/src/index.ts";
+export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: "claude" | "codex" | "agy";
@@ -87,7 +89,7 @@ export interface AgentRuntimeSessionDto {
   readonly installationId: string;
   readonly kindId: "claude" | "codex" | "agy";
   /** Omitted while the referenced installation is still witnessed, preserving the established DTO bytes. */
-  readonly installationState?: "missing";
+  readonly installationState?: Exclude<RuntimeInstallationState, "present">;
   readonly installationError?: AgentRuntimeInstallationErrorDto;
   readonly definitionSnapshotRef: string;
   readonly definitionSnapshot: AgentDefinitionSnapshot | null;
@@ -106,6 +108,11 @@ export interface AgentRuntimeSessionDto {
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
     readonly reasonCode?: string;
   };
+}
+export function agentRuntimeInstallationState(
+  session: Pick<AgentRuntimeSessionDto, "installationState">,
+): RuntimeInstallationState {
+  return session.installationState ?? "present";
 }
 export interface AgentRuntimeLifecycleDto {
   readonly cursor: string;

@@ -5,7 +5,7 @@ import type {
 } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
-import { type SessionRow, shortRef } from "../../sessions-model.ts";
+import { sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
@@ -182,7 +182,8 @@ export function SessionDetailView({
           : null,
     agentName = row?.kind === "round" ? row.agentName : null,
     squadId = row?.kind === "round" ? row.squadId : null,
-    squadName = squadId === null ? null : (squadNames.get(squadId) ?? squadId);
+    squadName = squadId === null ? null : (squadNames.get(squadId) ?? squadId),
+    installationBadge = sessionInstallationBadge(session);
   return (
     <div data-testid="session-detail">
       <Card>
@@ -200,9 +201,7 @@ export function SessionDetailView({
             )}
           </CardTitle>
           <Badge status={LIVENESS_BADGE[session.liveness] ?? "unknown"}>{session.liveness}</Badge>
-          {session.installationState === "missing" && (
-            <Badge tip={session.installationError?.hint}>{t("agentRuntime.installationMissing")}</Badge>
-          )}
+          {installationBadge && <Badge tip={session.installationError?.hint}>{t(installationBadge)}</Badge>}
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
               <Btn

@@ -59,6 +59,21 @@ export const runtimeAndRecoveryStatusWords: readonly StatusWordRegistration[] = 
     meaning: "Session was actively terminated by a cancel request.",
     divergence: "entity-scoped",
   },
+  // ---- RuntimeSession installation state (derived against local witnesses) ----
+  {
+    word: "present",
+    entity: "RuntimeSession",
+    field: "installation state",
+    meaning: "The session's referenced installation is witnessed on the reading node.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "missing",
+    entity: "RuntimeSession",
+    field: "installation state",
+    meaning: "The session remains readable but its referenced installation is not witnessed on the reading node.",
+    divergence: "entity-scoped",
+  },
   {
     word: "by_session_id",
     entity: "RuntimeSession",
