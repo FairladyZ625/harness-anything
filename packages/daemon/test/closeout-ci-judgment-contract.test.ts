@@ -102,11 +102,10 @@ async function closeout(completionGateIds: readonly string[], ci: string, status
   writeFileSync(path.join(rootDir, fromFile), JSON.stringify(packet(ci)));
   try {
     const receipt = await runTaskCloseoutAction({
-      rootDir,
       action: { kind: "task-closeout", taskId, fromFile },
       caller: person,
       opId: "op-ci-judgment",
-      readWorkspaceText,
+      readPacket: () => readWorkspaceText(rootDir, fromFile, "fromFile"),
       read: async () => fixture(completionGateIds, status) as never,
       presetSnapshotCurrent: () => true,
       invoke: async (stage, action) => {
