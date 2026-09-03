@@ -68,7 +68,12 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
     );
     const unresolved = "context/unresolved.md";
     write(rootDir, unresolved, "---\nowner: canonical\n---\n# Unresolved\n\nbase\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: [unresolved] }, binding)).outcome, "applied");
+    // The idle authored-candidate settler may publish these bytes before the explicit
+    // submit reaches the cell; both writers are by design and publish the same content,
+    // so the receipt is either applied or a truthful no_changes. The canonical head is
+    // the assertion, not which writer won the race.
+    const seeded = (await cell.run({ kind: "doc-submit", paths: [unresolved] }, binding)).outcome;
+    assert.ok(seeded === "applied" || seeded === "no_changes", JSON.stringify(seeded));
     await waitForHeadBody(rootDir, unresolved, "---\nowner: canonical\n---\n# Unresolved\n\nbase\n");
 
     write(rootDir, unresolved, "---\nowner: hand-edit\n---\n# Unresolved\n\nbase\n");
