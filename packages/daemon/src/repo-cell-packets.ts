@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import {
-  approvedReviewsForCut,
-  consentedApprovedReview,
+  approvedReviewHistoryForExecution,
+  approvedReviewsForExecution,
+  consentedApprovedReviewForExecution,
   makeTaskEventStore,
   reviewDigest,
   type WriteReceiptDraft as WriteReceipt,
@@ -155,36 +156,23 @@ export function lifecycleReceipt(
   const executionId = "execution" in event.payload ? event.payload.execution.executionId : null,
     execution = snapshot.executions.find((value) => value.executionId === executionId),
     undeclared = execution?.actor.executor === null,
-    reviews = execution?.submission
-      ? snapshot.reviews.filter(
-          (value) =>
-            value.executionId === executionId &&
-            value.commitSha === execution.submission?.commitSha &&
-            value.iteration === execution.iteration,
-        )
-      : [],
-    approved = execution?.submission
-      ? approvedReviewsForCut(snapshot.reviews, executionId ?? "", execution.submission.commitSha, execution.iteration)
-      : [],
+    reviews = execution?.submission ? approvedReviewsForExecution(snapshot.reviews, execution) : [],
+    approved = reviews,
+    approvedHistory = execution?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, execution) : [],
     selected = execution?.submission
-      ? consentedApprovedReview(
-          snapshot.reviews,
-          snapshot.consents,
-          executionId ?? "",
-          execution.submission.commitSha,
-          execution.iteration,
-        )
+      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution)
       : undefined,
     eventReview =
       event.type === "review_recorded" || event.type === "review_consent_recorded" ? event.payload.review : undefined,
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
     declarationNeeded = undeclared && reviews.length === 0,
-    consentReviewId = approved.length === 1 ? approved[0]!.reviewId : "<review-id>",
+    consentCandidates = approved.length ? approved : approvedHistory,
+    consentReviewId = consentCandidates.length === 1 ? consentCandidates[0]!.reviewId : "<review-id>",
     from =
       event.type === "execution_started"
         ? "planned/implementation"
-        : event.type === "execution_submitted"
+        : event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined
           ? "active/implementation"
           : "in_review/review",
     to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
@@ -199,7 +187,7 @@ export function lifecycleReceipt(
             ? `ha task start ${event.taskId} --execution-id <id>`
             : snapshot.task?.status !== "in_review"
               ? null
-              : !approved.length
+              : !approved.length && !approvedHistory.length
                 ? declarationNeeded
                   ? [
                       "ha task declare-executor ",
@@ -245,12 +233,14 @@ export function lifecycleReceipt(
       : [],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
     summary =
-      event.type === "execution_started" && undeclared
-        ? [
-            "Execution declared no executor; a same-person review will require an ",
-            "audited agent executor declaration before review.",
-          ].join("")
-        : undefined;
+      event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
+        ? "Submission amended; prior Review and consent pins are stale until reviewed or explicitly consented again."
+        : event.type === "execution_started" && undeclared
+          ? [
+              "Execution declared no executor; a same-person review will require an ",
+              "audited agent executor declaration before review.",
+            ].join("")
+          : undefined;
   return {
     outcome: "applied",
     opId: event.opId,

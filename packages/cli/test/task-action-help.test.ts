@@ -20,6 +20,7 @@ test("Task lifecycle help is projected from the generated Action declarations", 
     ),
   );
   const submit = rows.find(({ usage }) => usage.startsWith("ha task submit "));
+  assert.match(submit?.usage ?? "", /--amend/u);
   assert.match(submit?.usage ?? "", /--from-file.*--json-input/u);
   assert.match(submit?.help ?? "", /mutually exclusive with: --json-input/u);
   assert.equal(

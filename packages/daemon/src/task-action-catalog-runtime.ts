@@ -16,7 +16,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
 const START_CRITERION = "task-lifecycle-command-transitions/canStartExecution";
 const SUBMIT_VALIDATION_CRITERION = "task-lifecycle-command-transitions/submit.validate";
-const SUBMIT_LEASE_CRITERION = "actor-domain-services/heldLeaseForExecutionActor";
+const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
 
 export async function runTaskActionCatalogRuntime(
   cell: RepoCellOperationalContext,
@@ -41,6 +41,7 @@ export async function runTaskActionCatalogRuntime(
               taskId,
               ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
               ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+              ...(action.kind === "task-submit" ? { amend: action.amend === true } : {}),
             },
           })
         : [],
@@ -89,7 +90,7 @@ export async function runTaskActionCatalogRuntime(
   const submitValidationEvaluation = evaluations.find(
       ({ criterionRef }) => criterionRef === SUBMIT_VALIDATION_CRITERION,
     ),
-    submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_LEASE_CRITERION),
+    submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_PROOF_CRITERION),
     submitValidationUnmet = submitValidationEvaluation?.status === "unmet",
     submitLeaseUnmet = submitLeaseEvaluation?.status === "unmet";
   if (action.kind === "task-submit" && submitValidationUnmet && contract)

@@ -1,3 +1,4 @@
+import { submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
@@ -7,7 +8,7 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
-import { isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord } from "./code-doc-witness.ts";
 import type {
   ProofFor,
@@ -81,6 +82,7 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
     ]);
   if (
     command.type === "SubmitExecution" &&
+    command.amend !== true &&
     (result.snapshot.task?.status !== "in_review" ||
       result.snapshot.task.currentNode !== "review" ||
       result.snapshot.lease !== null ||
@@ -93,6 +95,26 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
         "submit must finalize Execution, release lease, and enter in_review atomically",
       ),
     ]);
+  if (command.type === "SubmitExecution" && command.amend === true) {
+    const previous = execution(snapshot, command.executionId);
+    if (
+      !previous?.submission ||
+      result.snapshot.task !== snapshot.task ||
+      result.snapshot.lease !== null ||
+      changed?.state !== "submitted" ||
+      changed.submittedAt !== command.occurredAt ||
+      stableStringify(changed.submission) !== stableStringify(command.submission) ||
+      result.event.type !== "execution_submitted" ||
+      result.event.payload.edge !== undefined ||
+      result.event.payload.supersedesSubmissionId !== submissionId(previous.submission)
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue(
+          "invalid_submit_amendment_atomicity",
+          "amend must replace only the current submission and preserve the unleased review state",
+        ),
+      ]);
+  }
   if (
     command.type === "RecordReview" &&
     command.verdict === "changes_requested" &&
@@ -214,7 +236,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       revision: event.workspaceRevision,
       task: event.payload.task,
       executions: replaceExecution(snapshot.executions, event.payload.execution),
-      edgesTaken: [...snapshot.edgesTaken, event.payload.edge],
+      edgesTaken: event.payload.edge ? [...snapshot.edgesTaken, event.payload.edge] : snapshot.edgesTaken,
       lease: null,
     };
   else if (event.type === "execution_executor_declared")
@@ -328,17 +350,49 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
         ),
       ]);
   }
-  if (
-    event.type === "execution_submitted" &&
-    (event.payload.task.status !== "in_review" ||
-      event.payload.task.currentNode !== "review" ||
-      event.payload.execution.state !== "submitted" ||
-      event.payload.edge.on !== "submitted" ||
-      next.lease !== null)
-  )
-    throw new TaskLifecycleContractError("invalid_transition", [
-      lifecycleContractIssue("invalid_submit_atomicity", "replayed submit is incomplete"),
-    ]);
+  if (event.type === "execution_submitted") {
+    const supersedes = event.payload.supersedesSubmissionId;
+    if (supersedes === undefined) {
+      if (
+        event.payload.task.status !== "in_review" ||
+        event.payload.task.currentNode !== "review" ||
+        event.payload.execution.state !== "submitted" ||
+        event.payload.edge?.on !== "submitted" ||
+        next.lease !== null
+      )
+        throw new TaskLifecycleContractError("invalid_transition", [
+          lifecycleContractIssue("invalid_submit_atomicity", "replayed submit is incomplete"),
+        ]);
+    } else {
+      const current = execution(snapshot, event.payload.execution.executionId),
+        expected = current
+          ? {
+              ...current,
+              state: "submitted" as const,
+              submittedAt: event.occurredAt,
+              submission: event.payload.execution.submission,
+            }
+          : null;
+      if (
+        !current?.submission ||
+        current.state !== "submitted" ||
+        snapshot.task?.status !== "in_review" ||
+        snapshot.task.currentNode !== "review" ||
+        snapshot.lease !== null ||
+        !event.payload.execution.submission ||
+        supersedes !== submissionId(current.submission) ||
+        submissionId(current.submission) === submissionId(event.payload.execution.submission) ||
+        !sameReplayTask(event.payload.task, snapshot.task) ||
+        stableStringify(event.payload.execution) !== stableStringify(expected) ||
+        !isSameExecution(current.actor, event.actor) ||
+        event.payload.edge !== undefined ||
+        next.lease !== null
+      )
+        throw new TaskLifecycleContractError("invalid_transition", [
+          lifecycleContractIssue("invalid_submit_amendment_atomicity", "replayed submission amendment is incomplete"),
+        ]);
+    }
+  }
   if (event.type === "lease_released") {
     const changesStatus = event.payload.mutation.fields.includes("status"),
       expectedTask = changesStatus && snapshot.task ? { ...snapshot.task, status: "blocked" as const } : snapshot.task;
@@ -402,7 +456,10 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (
     event.type === "review_consent_recorded" &&
     (event.payload.consent.reviewDigest !== reviewDigest(event.payload.review) ||
-      event.payload.consent.contentDigest !== event.payload.review.contentDigest)
+      event.payload.consent.contentDigest !== event.payload.review.contentDigest ||
+      !event.payload.execution.submission ||
+      (event.payload.consent.submissionDigest !== undefined &&
+        event.payload.consent.submissionDigest !== submissionDigest(event.payload.execution.submission)))
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue("invalid_proof", "replayed consent is not content pinned"),

@@ -538,7 +538,12 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       ...(command.status === "cancelled" ? { force: command.force } : {}),
     };
   if (command.type === "SubmitExecution")
-    return { ...common, executionId: command.executionId, submission: command.submission };
+    return {
+      ...common,
+      executionId: command.executionId,
+      submission: command.submission,
+      ...(command.amend === true ? { amend: true } : {}),
+    };
   if (command.type === "RecordReview")
     return {
       ...common,
@@ -556,6 +561,7 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       commitSha: command.commitSha,
       iteration: command.iteration,
       contentDigest: command.contentDigest,
+      submissionDigest: command.submissionDigest,
       capabilityRef: (proof as { readonly capabilityRef: string }).capabilityRef,
     };
   if (command.type === "RecordReviewConsent")
@@ -645,6 +651,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       ...common,
       executionId: event.payload.execution.executionId,
       submission: event.payload.execution.submission,
+      ...(event.payload.supersedesSubmissionId === undefined ? {} : { amend: true }),
     };
   if (event.type === "review_recorded") {
     const review = event.payload.review;
@@ -658,6 +665,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       commitSha: review.commitSha,
       iteration: review.iteration,
       contentDigest: review.contentDigest,
+      submissionDigest: review.submissionDigest,
       capabilityRef: review.capabilityRef,
     };
   }

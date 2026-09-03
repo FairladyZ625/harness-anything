@@ -168,6 +168,7 @@ const taskActionDeclarations = Object.freeze([
         taskIdInput,
         expectedVersionInput,
         cliField("executionId", "string", false, "--execution-id", "single"),
+        cliField("amend", "boolean", false, "--amend", "boolean"),
         cliField(
           "fromFile",
           "string",
@@ -197,16 +198,21 @@ const taskActionDeclarations = Object.freeze([
         explain: "The active current execution is submitted with a valid submission packet.",
       },
       {
-        ref: "actor-domain-services/heldLeaseForExecutionActor",
+        ref: "repo-cell-proof/proofFor.SubmitExecution",
         failureCode: "lease_required",
-        explain: "The authenticated actor owns the active execution lease at its current version.",
+        explain: "The authenticated actor owns the active lease or the submitted execution being amended.",
       },
     ]),
     concurrency: taskConcurrency(
-      { authority: "task-lease/v1", mode: "fence-and-release", versionProof: "leaseVersion" },
+      {
+        authority: "task-lease/v1",
+        mode: "fence-and-release-on-initial-submit",
+        amendment: "unleased-current-execution",
+        versionProof: "leaseVersion",
+      },
       { authority: "operation-id", retry: "canonical-event-replay" },
     ),
-    explain: "Atomically fence and release the execution lease while publishing its submission.",
+    explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
   },
   {
     id: "review",

@@ -26,6 +26,7 @@ export interface TaskActionCapabilityInvocation {
   readonly taskId: string;
   readonly executionId?: string;
   readonly reviewId?: string;
+  readonly amend?: boolean;
   readonly runtimeTaskBound?: boolean;
 }
 
@@ -62,8 +63,12 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("submit", "task-lifecycle-command-transitions/submit.validate"), submitValidation],
     [
-      key("submit", "actor-domain-services/heldLeaseForExecutionActor"),
-      ({ snapshot, actor }) => (heldLeaseForExecutionActor(snapshot, undefined, actor) ? "met" : "unmet"),
+      key("submit", "repo-cell-proof/proofFor.SubmitExecution"),
+      ({ snapshot, actor }) =>
+        heldLeaseForExecutionActor(snapshot, undefined, actor) ||
+        currentSubmittedExecutions(snapshot).some((execution) => isSameExecution(execution.actor, actor))
+          ? "met"
+          : "unmet",
     ],
     [key("review", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
@@ -139,14 +144,17 @@ function reopenInvocation({ snapshot }: TaskActionCapabilityInput): "invocation-
 }
 
 function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {
+  if (["done", "cancelled"].includes(input.snapshot.task?.status ?? "")) return { status: "unmet" };
   const submitted = submittedExecution(input);
   if (!submitted) return "invocation-required";
   const taskId = invocationTaskId(input),
-    executionId = submitted.executionId;
+    executionId = submitted.executionId,
+    amend = `ha task submit ${taskId} --execution-id ${executionId} ` + "--amend --json-input '<submission-json>'";
   return {
-    status: "unmet",
+    status: input.invocation?.amend === false ? "unmet" : "invocation-required",
     nextActions: [
-      `Execution ${executionId} is already submitted; run ${reviewCommand(taskId, executionId, "<review-id>")}.`,
+      `Execution ${executionId} is already submitted; use ${amend} to correct it, or run ` +
+        `${reviewCommand(taskId, executionId, "<review-id>")}.`,
     ],
   };
 }

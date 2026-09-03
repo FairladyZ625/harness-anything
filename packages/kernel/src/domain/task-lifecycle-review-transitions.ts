@@ -1,4 +1,4 @@
-import { isNativeCommitSha } from "./execution.ts";
+import { isNativeCommitSha, submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
@@ -57,7 +57,11 @@ function reviewIssues(
     issues.push(lifecycleContractIssue("invalid_transition", "Review requires the current submitted execution"));
   else if (snapshot.reviews.some((value) => value.reviewId === command.reviewId))
     issues.push(lifecycleContractIssue("invalid_transition", "append-only Review history requires a new review id"));
-  else if (command.commitSha !== current.submission.commitSha || command.iteration !== current.iteration)
+  else if (
+    command.commitSha !== current.submission.commitSha ||
+    command.iteration !== current.iteration ||
+    command.submissionDigest !== submissionDigest(current.submission)
+  )
     issues.push(lifecycleContractIssue("invalid_proof", "Review must bind the current content cut"));
   if (
     !proof.actorBinding ||
@@ -107,6 +111,7 @@ function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 
     commitSha: command.commitSha,
     iteration: command.iteration as 0 | 1,
     contentDigest: command.contentDigest,
+    submissionDigest: command.submissionDigest,
     reviewedAt: command.occurredAt,
   };
 }
@@ -186,12 +191,24 @@ export const consent: Transition = {
       current = execution(snapshot, command.executionId),
       recorded = snapshot.reviews.find(
         (value) => value.reviewId === command.reviewId && value.executionId === command.executionId,
-      );
+      ),
+      currentSubmissionDigest = current?.submission ? submissionDigest(current.submission) : undefined,
+      consentAlreadyCurrent =
+        currentSubmissionDigest !== undefined &&
+        snapshot.consents.some(
+          (value) =>
+            value.reviewId === command.reviewId &&
+            value.executionId === command.executionId &&
+            (value.submissionDigest === currentSubmissionDigest ||
+              (value.submissionDigest === undefined &&
+                Date.parse(value.consentedAt) >= Date.parse(current?.submittedAt ?? ""))),
+        );
     if (
       snapshot.task?.status !== "in_review" ||
       current?.state !== "submitted" ||
       recorded?.verdict !== "approved" ||
-      snapshot.consents.some((value) => value.reviewId === command.reviewId)
+      recorded?.iteration !== current?.iteration ||
+      consentAlreadyCurrent
     )
       issues.push(
         lifecycleContractIssue("invalid_transition", "consent must select an unconsented approved current Review"),
@@ -224,6 +241,7 @@ export const consent: Transition = {
         reviewId: command.reviewId,
         reviewDigest: command.reviewDigest,
         contentDigest: command.contentDigest,
+        submissionDigest: submissionDigest(current.submission as NonNullable<ExecutionV1["submission"]>),
         actor: command.actor,
         source: command.source,
         consentedAt: command.occurredAt,

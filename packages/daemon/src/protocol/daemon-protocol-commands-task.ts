@@ -158,6 +158,18 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
           },
         },
         {
+          field: "amend",
+          type: "boolean",
+          required: false,
+          cli: {
+            name: "--amend",
+            kind: "boolean",
+            error: {
+              code: "invalid_field",
+            },
+          },
+        },
+        {
           field: "fromFile",
           type: "string",
           required: false,
@@ -217,7 +229,7 @@ export const generatedTaskActionProtocolDeclarations = Object.freeze([
       ],
       exactlyOneOf: [["fromFile", "jsonInput"]],
     },
-    explain: "Atomically fence and release the execution lease while publishing its submission.",
+    explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
     execution: {
       ingress: "task-submit",
       compile: null,

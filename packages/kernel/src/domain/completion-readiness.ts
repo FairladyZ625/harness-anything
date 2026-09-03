@@ -1,6 +1,6 @@
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import { closeoutReadiness } from "./closeout-readiness.ts";
-import { approvedReviewsForCut } from "./review.ts";
+import { approvedReviewHistoryForExecution } from "./review.ts";
 
 export type CompletionBlockerCode =
   | "not_in_review"
@@ -78,7 +78,6 @@ export function completionBlockers(
       `ha task show ${task.taskId}`,
       "The Task status does not match its review node; inspect the lifecycle record before completion.",
     );
-  const submission = execution.submission;
   if (snapshot.lease !== null)
     return one(
       "lease_held",
@@ -87,8 +86,8 @@ export function completionBlockers(
       "Release the held execution lease through canonical submit.",
     );
   const assessment = closeoutReadiness(snapshot);
-  const approved = approvedReviewsForCut(snapshot.reviews, executionId, submission.commitSha, execution.iteration);
-  if (assessment.blocker === "review" || !approved.length)
+  const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
+  if (assessment.blocker === "review")
     return one(
       "review_missing",
       "review",

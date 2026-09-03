@@ -1,4 +1,10 @@
-import { isNativeCommitSha, validateExecutionV1, validateLeaseHolder, validateLeaseV1 } from "./execution.ts";
+import {
+  isNativeCommitSha,
+  isSubmissionId,
+  validateExecutionV1,
+  validateLeaseHolder,
+  validateLeaseV1,
+} from "./execution.ts";
 import type { ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
 import { validateReviewConsentV1, validateReviewV1 } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
@@ -111,7 +117,8 @@ export type ExecutionSubmittedEvent = TaskEventEnvelope<
   {
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
-    readonly edge: TaskEdgeTaken;
+    readonly edge?: TaskEdgeTaken;
+    readonly supersedesSubmissionId?: string;
   }
 >;
 export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
@@ -307,6 +314,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "edge"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "factRetirementAttestations"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
     ),
     claims = payload.documentClaims;
   const claimlessFields =
@@ -317,6 +325,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
           Object.hasOwn(payload, "edge"),
           Object.hasOwn(payload, "factRetirementAttestations"),
           Object.hasOwn(payload, "dispatchTaskId"),
+          Object.hasOwn(payload, "supersedesSubmissionId"),
         ).filter((field) => field !== "documentClaims");
   const payloadFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   const validPayloadFields =
@@ -430,6 +439,16 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       issues.push(invalidEventPayloadIssue("completion gate witness must be pinned to its canonical event receipt"));
   }
   if ("edge" in payload) issues.push(...validateEdge(payload.edge, allowUnknownFields));
+  if (
+    value.type === "execution_submitted" &&
+    ((payload.supersedesSubmissionId === undefined) === (payload.edge === undefined) ||
+      (payload.supersedesSubmissionId !== undefined && !isSubmissionId(payload.supersedesSubmissionId)))
+  )
+    issues.push(
+      invalidEventPayloadIssue(
+        "initial submission requires its graph edge; amended submission requires one superseded submission id",
+      ),
+    );
   if (value.type === "lease_released") {
     issues.push(...validateLeaseV1(payload.releasedLease, allowUnknownFields));
     if (
@@ -455,12 +474,14 @@ function lifecyclePayloadFields(
   edge: boolean,
   factRetirementAttestations = false,
   dispatchTaskId = false,
+  supersedesSubmissionId = false,
 ): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
-  if (type === "execution_submitted") return [...common, "edge"];
+  if (type === "execution_submitted")
+    return [...common, ...(edge ? ["edge"] : []), ...(supersedesSubmissionId ? ["supersedesSubmissionId"] : [])];
   if (type === "execution_executor_declared")
     return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];

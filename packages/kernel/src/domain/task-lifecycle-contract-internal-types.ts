@@ -61,6 +61,7 @@ export interface TransitionTaskIntent extends Intent<"TransitionTask"> {
 export interface SubmitExecutionIntent extends Intent<"SubmitExecution"> {
   readonly executionId: string;
   readonly submission: SubmissionV1;
+  readonly amend?: true;
 }
 export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly executionId: string;
@@ -75,6 +76,7 @@ export interface RecordReviewIntent extends Intent<"RecordReview"> {
   readonly commitSha: string;
   readonly iteration: number;
   readonly contentDigest: `sha256:${string}`;
+  readonly submissionDigest: `sha256:${string}`;
 }
 export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent"> {
   readonly executionId: string;
@@ -156,7 +158,7 @@ export interface StartExecutionProof {
 export type TransitionTaskProof = Readonly<Record<never, never>>;
 export interface SubmitExecutionProof {
   readonly actorBinding: ActorAxes;
-  readonly leaseVersion: number;
+  readonly leaseVersion: number | null;
   readonly sessionDisposition: "complete" | "partial" | "unavailable";
 }
 export interface ReviewProof {

@@ -9,6 +9,7 @@ import {
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  submissionDigest,
   type TaskLifecycleCommand,
 } from "../../kernel/src/index.ts";
 import { consentJsonFields } from "../../preset/src/index.ts";
@@ -113,30 +114,28 @@ export function buildCommand(
     });
   }
   if (lifecycleAction?.commandType === "SubmitExecution") {
-    const held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
+    const amendment = action.amend === true,
+      held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
+      flags = `${amendment ? " --amend" : ""} --json-input '<submission-json>'`,
       executionId =
         explicitExecutionId(action) ??
         uniqueDerivedExecutionId(
-          held ? [held] : [],
-          "Authenticated active-lease execution",
-          snapshot.lease
-            ? [
-                "The authenticated holder (",
-                `${actorHint(snapshot.lease.actor)}`,
-                ") must run ha task submit ",
-                `${taskId}`,
-                " --json-input '<submission-json>', or ha task release ",
-                `${taskId}`,
-                ".",
-              ].join("")
-            : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
-          () => `ha task submit ${taskId} --json-input '<submission-json>'`,
+          amendment ? currentSubmittedExecutions(snapshot) : held ? [held] : [],
+          amendment ? "Current submitted execution" : "Authenticated active-lease execution",
+          amendment
+            ? `Run ha task show ${taskId}; only a current submitted execution can be amended.`
+            : snapshot.lease
+              ? `The authenticated holder (${actorHint(snapshot.lease.actor)}) must run ` +
+                `ha task submit ${taskId} --json-input '<submission-json>', or ha task release ${taskId}.`
+              : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
+          (candidate) => `ha task submit ${taskId} --execution-id ${candidate}${flags}`,
         );
     return normalizeTaskLifecycleCommand(bound, {
       type: "SubmitExecution",
       taskId,
       executionId,
       submission: submissionPacket(action, rootDir),
+      ...(amendment ? { amend: true as const } : {}),
     });
   }
   if (lifecycleAction?.commandType === "RecordReview") {
@@ -187,6 +186,7 @@ export function buildCommand(
       commitSha: submitted.submission.commitSha,
       iteration: submitted.iteration,
       contentDigest: packet.digest,
+      submissionDigest: submissionDigest(submitted.submission),
     });
   }
   if (action.kind === "task-review-consent") {

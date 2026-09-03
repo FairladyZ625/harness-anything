@@ -47,7 +47,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(withoutLease.code, "lease_required", JSON.stringify(withoutLease));
     assert.deepEqual(
       withoutLease.unmetCriteria?.map(({ ref }) => ref),
-      ["actor-domain-services/heldLeaseForExecutionActor"],
+      ["repo-cell-proof/proofFor.SubmitExecution"],
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, holder)).outcome, "applied");
     assert.equal(
@@ -64,6 +64,7 @@ test("submit lease refusals name the state-specific command that advances the ex
       alreadySubmitted.unmetCriteria?.map(({ ref }) => ref),
       ["task-lifecycle-command-transitions/submit.validate"],
     );
+    assert.match(alreadySubmitted.nextActions?.join("\n") ?? "", /--amend --json-input/u);
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),

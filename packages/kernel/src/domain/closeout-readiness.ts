@@ -2,7 +2,7 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
-import { approvedReviewsForCut, consentedApprovedReview } from "./review.ts";
+import { approvedReviewHistoryForExecution, consentedApprovedReviewForExecution } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
@@ -77,23 +77,10 @@ export function closeoutReadiness(
     gates.some(({ status }) => status === "unknown")
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const approved = approvedReviewsForCut(
-    snapshot.reviews,
-    execution.executionId,
-    execution.submission.commitSha,
-    execution.iteration,
-  );
+  const approved = approvedReviewHistoryForExecution(snapshot.reviews, execution);
   if (!approved.length)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
-  if (
-    !consentedApprovedReview(
-      snapshot.reviews,
-      snapshot.consents,
-      execution.executionId,
-      execution.submission.commitSha,
-      execution.iteration,
-    )
-  )
+  if (!consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution))
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "consent", gates };
   const failed = gates.some(({ status }) => status === "failed"),
     missing = gates.some(({ status }) => status !== "passed");
@@ -146,7 +133,11 @@ export function gateResults(
     if (codeDoc) {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
       // A valid repoint may bind an archival commit rather than the submitted cut.
-      if (witness?.iteration === iteration) return gateResult(gateId, "passed");
+      if (
+        witness?.iteration === iteration &&
+        (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === commitSha)
+      )
+        return gateResult(gateId, "passed");
       return gateResult(gateId, "missing", "current execution cut has no code/doc witness");
     }
     const exact = snapshot.gateWitnesses.filter(

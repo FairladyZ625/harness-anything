@@ -6,6 +6,7 @@ import {
   isSamePerson,
   isSameExecution,
   stableStringify,
+  submissionDigest,
   taskCloseoutPacketSchema,
   validateTaskCloseoutPacket,
   type ActorIdentity,
@@ -179,7 +180,10 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
     submission = selected.submission;
     if (judgment.submission && !sameSubmission(selected.submission, judgment.submission))
       return reject(opId, "submission_mismatch", {
-        commands: [invocation],
+        commands: [
+          `ha task submit ${taskId} --execution-id ${selected.executionId} --amend --json-input '<submission-json>'`,
+          invocation,
+        ],
         diagnostic: {
           kind: "validation",
           entity: `execution/${selected.executionId}`,
@@ -217,7 +221,13 @@ export async function runTaskCloseoutAction(dependencies: TaskCloseoutActionDepe
   }
 
   const reviewId = deterministicReviewId(taskId, task.iteration, submission.commitSha, judgment.review),
-    consentId = deterministicId("consent-closeout", taskId, String(task.iteration), submission.commitSha, reviewId);
+    consentId = deterministicId(
+      "consent-closeout",
+      taskId,
+      String(task.iteration),
+      submissionDigest(submission),
+      reviewId,
+    );
 
   const selector = executionId ? { executionId } : {},
     humanReviewer: ActorIdentity = { principal: caller.principal, executor: null },

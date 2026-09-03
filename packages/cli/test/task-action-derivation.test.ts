@@ -67,6 +67,26 @@ test("daemon lifecycle command inputs and thin CLI parameters are projections of
     assert.deepEqual(complete.command.action.factHolds, [{ factRef: "fact/F-ABCDEFGH", rationale: "Still holds" }]);
   }
   assert.equal(parseThinCommand(["task", "submit", "task_contract"]).ok, false);
+  const amended = parseThinCommand([
+    "task",
+    "submit",
+    "task_contract",
+    "--execution-id",
+    "execution-1",
+    "--amend",
+    "--json-input",
+    JSON.stringify({
+      completionClaim: "corrected",
+      deliverables: [],
+      outputs: [],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha: "a".repeat(40),
+    }),
+  ]);
+  assert.equal(amended.ok, true, JSON.stringify(amended));
+  if (amended.ok) assert.equal(amended.command.action.amend, true);
 });
 
 test("repo.task.run validator consumes the same closed Task Action input", () => {
@@ -76,6 +96,16 @@ test("repo.task.run validator consumes the same closed Task Action input", () =>
       params: { repo: { repoId: "canonical" }, payload: { action } },
     });
   assert.deepEqual(call({ kind: "task-submit", taskId: "task_contract", fromFile: "submission.json" }), []);
+  assert.deepEqual(
+    call({
+      kind: "task-submit",
+      taskId: "task_contract",
+      executionId: "execution-1",
+      amend: true,
+      fromFile: "submission.json",
+    }),
+    [],
+  );
   assert.match(call({ kind: "task-submit", taskId: "task_contract" }).join("\n"), /exactly one/u);
   assert.match(
     call({ kind: "task-start", taskId: "task_contract", expectedVersion: "4" }).join("\n"),

@@ -1,4 +1,4 @@
-import { isNativeExecution, validateSubmissionV1 } from "./execution.ts";
+import { isNativeExecution, submissionId, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
 import type { TaskV2 } from "./task.ts";
@@ -352,7 +352,7 @@ export const submit: Transition = {
   id: "submit_execution",
   commandType: "SubmitExecution",
   from: "active/implementation",
-  proof: ["actorBinding", "leaseVersion", "submission"],
+  proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
   eventType: "execution_submitted",
   matches: (command) => command.type === "SubmitExecution",
   validate: (snapshot, raw, rawProof) => {
@@ -361,60 +361,84 @@ export const submit: Transition = {
       issues = revisionIssues(snapshot, command),
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
-      lease = snapshot.lease;
-    if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active")
-      issues.push(
-        lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution"),
-      );
-    if (
-      !lease ||
-      lease.phase !== "held" ||
-      lease.executionId !== command.executionId ||
-      !isSameExecution(lease.actor, command.actor) ||
-      stableStringify(lease.source) !== stableStringify(command.source) ||
-      !proof.actorBinding ||
-      !isSameExecution(proof.actorBinding, command.actor) ||
-      proof.leaseVersion !== lease.version ||
-      !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
-    )
-      issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
+      lease = snapshot.lease,
+      amendment = command.amend === true;
+    if (amendment) {
+      if (
+        !task ||
+        task.status !== "in_review" ||
+        task.currentNode !== "review" ||
+        current?.state !== "submitted" ||
+        !current.submission
+      )
+        issues.push(
+          lifecycleContractIssue("invalid_transition", "submission amendment requires the current submitted execution"),
+        );
+      else if (submissionId(current.submission) === submissionId(command.submission))
+        issues.push(lifecycleContractIssue("invalid_transition", "submission amendment must change the packet"));
+      if (
+        lease !== null ||
+        !proof.actorBinding ||
+        !isSameExecution(proof.actorBinding, command.actor) ||
+        (current !== undefined && !isSameExecution(current.actor, command.actor)) ||
+        proof.leaseVersion !== null ||
+        !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
+      )
+        issues.push(
+          lifecycleContractIssue("invalid_proof", "submission amendment must bind the unleased submitted execution"),
+        );
+    } else {
+      if (!task || task.status !== "active" || task.currentNode !== "implementation" || current?.state !== "active")
+        issues.push(
+          lifecycleContractIssue("invalid_transition", "SubmitExecution requires the active current execution"),
+        );
+      if (
+        !lease ||
+        lease.phase !== "held" ||
+        lease.executionId !== command.executionId ||
+        !isSameExecution(lease.actor, command.actor) ||
+        stableStringify(lease.source) !== stableStringify(command.source) ||
+        !proof.actorBinding ||
+        !isSameExecution(proof.actorBinding, command.actor) ||
+        proof.leaseVersion !== lease.version ||
+        !["complete", "partial", "unavailable"].includes(String(proof.sessionDisposition))
+      )
+        issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
+    }
     issues.push(...validateSubmissionV1(command.submission));
     return issues;
   },
   reduce: (snapshot, raw) => {
     const command = raw as SubmitExecutionCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
+      amendment = command.amend === true,
       nextExecution: ExecutionV1 = {
         ...current,
         state: "submitted",
         submittedAt: command.occurredAt,
         submission: command.submission,
       },
-      task: TaskV2 = {
-        ...(snapshot.task as TaskV2),
-        status: "in_review",
-        currentNode: "review",
-      },
-      edge = takeEdge(
-        task,
-        "submitted",
-        command.submission.completionClaim,
-        command.submission.commitSha,
-        task.iteration,
-      );
+      task: TaskV2 = amendment
+        ? (snapshot.task as TaskV2)
+        : { ...(snapshot.task as TaskV2), status: "in_review", currentNode: "review" },
+      edge = amendment
+        ? undefined
+        : takeEdge(task, "submitted", command.submission.completionClaim, command.submission.commitSha, task.iteration);
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
         task,
         executions: replaceExecution(snapshot.executions, nextExecution),
-        edgesTaken: [...snapshot.edgesTaken, edge],
+        edgesTaken: edge ? [...snapshot.edgesTaken, edge] : snapshot.edgesTaken,
         lease: null,
       },
       event: envelope<ExecutionSubmittedEvent>(command, "execution_submitted", {
         task,
         execution: nextExecution,
-        edge,
+        ...(edge
+          ? { edge }
+          : { supersedesSubmissionId: submissionId(current.submission as NonNullable<ExecutionV1["submission"]>) }),
       }),
     };
   },
