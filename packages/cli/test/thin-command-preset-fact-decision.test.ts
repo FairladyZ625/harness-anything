@@ -487,6 +487,14 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "body.md",
     ]),
     candidate = parseThinCommand(["distill", "candidate", "--task", "task-1", "--input", "notes.md"]),
+    entityCandidate = parseThinCommand([
+      "distill",
+      "candidate",
+      "--task",
+      "task-1",
+      "--entity",
+      "software/coding/architecture-decision-record@1/ADR-f425d2bc85636f41",
+    ]),
     promote = parseThinCommand([
       "distill",
       "promote",
@@ -502,7 +510,9 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "pattern",
     ]);
   assert.equal(
-    [validate, verifyAll, repin, active, superseded, alias, amend, candidate, promote].every((result) => result.ok),
+    [validate, verifyAll, repin, active, superseded, alias, amend, candidate, entityCandidate, promote].every(
+      (result) => result.ok,
+    ),
     true,
   );
   if (validate.ok)
@@ -554,6 +564,26 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       taskId: "task-1",
       inputPath: "notes.md",
     });
+  if (entityCandidate.ok)
+    assert.deepEqual(entityCandidate.command.action, {
+      kind: "distill-candidate",
+      taskId: "task-1",
+      entityRef: "software/coding/architecture-decision-record@1/ADR-f425d2bc85636f41",
+    });
+  assert.equal(
+    parseThinCommand([
+      "distill",
+      "candidate",
+      "--task",
+      "task-1",
+      "--input",
+      "notes.md",
+      "--entity",
+      "software/coding/architecture-decision-record@1/ADR-f425d2bc85636f41",
+    ]).ok,
+    false,
+  );
+  assert.equal(parseThinCommand(["distill", "candidate", "--task", "task-1"]).ok, false);
   if (promote.ok)
     assert.deepEqual(promote.command.action, {
       kind: "distill-promote",

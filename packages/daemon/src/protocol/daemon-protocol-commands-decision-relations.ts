@@ -123,16 +123,20 @@ export const decisionRelationProtocolCommands = Object.freeze([
     id: "distill-candidate",
     phase: "DecisionFact-B",
     path: ["distill", "candidate"],
-    summary: "Create a generated, non-canonical candidate artifact from a task evidence file; no Fact is written.",
+    summary: "Create a generated, non-canonical candidate artifact from a file or governed artifact entity.",
     method: "repo.task.run",
     inputs: [
       cliInput("--task", "single", true, {
         code: "missing_field",
       }),
-      cliInput("--input", "single", true, {
+      cliInput("--input", "single", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--entity", "single", false, {
         code: "invalid_field",
       }),
     ],
+    actionConstraints: [["inputPath", "entityRef"]],
   }),
   defineLedgerWriteCommand({
     id: "distill-promote",

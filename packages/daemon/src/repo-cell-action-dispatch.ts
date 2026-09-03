@@ -12,7 +12,11 @@ import {
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
-import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
+import {
+  artifactDescriptorFromProjection,
+  distillPromotionAction,
+  prepareDistillCandidate,
+} from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
@@ -163,6 +167,32 @@ export async function executeAction(
         opId: cell.operationId(action, binding, cell.input.repoId, revision),
         revision,
         now: cell.now,
+        readEntity: (entityRef) => {
+          const separator = entityRef.lastIndexOf("/"),
+            kind = entityRef.slice(0, separator),
+            entityId = entityRef.slice(separator + 1),
+            entity = separator > 0 && entityId ? cell.projection.getEntity(kind, entityId) : null;
+          if (entity === null)
+            throw cell.cellCodedError("invalid_command", `Artifact entity ${entityRef} is not installed.`);
+          const relationRead = cell.projection.readRelationQuery();
+          return {
+            descriptor: artifactDescriptorFromProjection(entity.value),
+            edges: relationRead.rows
+              .filter(
+                (edge) => edge.state === "active" && (edge.sourceRef === entityRef || edge.targetRef === entityRef),
+              )
+              .map((edge) => ({
+                relationId: edge.relationId,
+                type: edge.relationType,
+                peerRef: edge.sourceRef === entityRef ? edge.targetRef : edge.sourceRef,
+                revision: Number(
+                  (edge as typeof edge & { readonly workspaceRevision?: number }).workspaceRevision ?? 0,
+                ),
+                freshness: edge.freshness,
+              })),
+            projectionCut: { watermark: relationRead.watermark, sourceRevision: relationRead.sourceRevision },
+          };
+        },
       });
     cell.publishGeneratedArtifact(candidate);
     return candidate.receipt;

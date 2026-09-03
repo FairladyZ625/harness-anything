@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -93,6 +93,46 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       true,
       "the second edge must receive the original same-result operation",
     );
+
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task-distill", title: "Distill artifact" }, binding)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task-distill-secondary", title: "Distill artifact" }, binding))
+        .outcome,
+      "applied",
+    );
+    const entityRef = `${kind}/${preview.entityId}`,
+      firstCandidateReceipt = await cell.run({ kind: "distill-candidate", taskId: "task-distill", entityRef }, binding),
+      firstCandidateReport = JSON.parse(String(firstCandidateReceipt.evidence)) as { candidatePath: string },
+      firstCandidate = JSON.parse(
+        readFileSync(path.join(rootDir, firstCandidateReport.candidatePath), "utf8"),
+      ) as Record<string, unknown>,
+      secondCandidate = firstCandidate;
+    const { candidateId: _firstId, createdAt: _firstCreated, taskId: _firstTask, ...firstStable } = firstCandidate,
+      { candidateId: _secondId, createdAt: _secondCreated, taskId: _secondTask, ...secondStable } = secondCandidate;
+    assert.deepEqual(firstStable, secondStable);
+    assert.deepEqual(firstStable.subject, {
+      kind: "artifact-entity",
+      ref: entityRef,
+      title: "adr-0001.md",
+      locator: { kind: "repository-path", value: sourcePath },
+      contentVersion: preview.candidateContentVersion,
+      source: `repo:${repoId}:${sourcePath}`,
+      edges: [],
+      projectionCut: {
+        watermark: firstCandidateReceipt.revision,
+        sourceRevision: firstCandidateReceipt.revision,
+      },
+    });
+
+    const absent = await cell.run(
+      { kind: "distill-candidate", taskId: "task-distill", entityRef: `${kind}/ADR-0000000000000000` },
+      binding,
+    );
+    assert.equal(absent.outcome, "op_rejected", JSON.stringify(absent));
+    assert.equal(absent.code, "invalid_command");
 
     writeFileSync(absoluteSource, "# Adopt the event ledger\n\nSecond observation.\n");
     const stale = await cell.run(request, binding);
