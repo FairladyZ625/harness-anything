@@ -2,7 +2,11 @@ import { sha256Text } from "../integrity/stable-hash.ts";
 import type { SessionIdentity } from "./agent-runtime.ts";
 import { sessionProvenance } from "./agent-runtime.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
-import type { DecisionAmendableSnapshot, DecisionEventDraftV1 } from "./decision-event.ts";
+import {
+  decisionTransitionDefinitions,
+  type DecisionAmendableSnapshot,
+  type DecisionEventDraftV1,
+} from "./decision-event.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import {
@@ -434,7 +438,7 @@ function transitionEvent(
     state = choice(
       input,
       action.targetState,
-      ["in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+      decisionTransitionDefinitions.map(({ targetState }) => targetState),
       "targetState",
     ),
     reason = `Transitioned to ${state} via the canonical Decision lifecycle command.`;

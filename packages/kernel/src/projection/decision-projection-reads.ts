@@ -8,6 +8,7 @@ import type {
   DecisionState,
 } from "../domain/decision-event.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
+import { decisionCapabilities, decisionClaimsOpen } from "../domain/decision-board-projection.ts";
 import { decisionCoverage } from "./decision-projection-coverage.ts";
 import { decisionBodyFromDocument } from "./decision-projection-documents.ts";
 import type {
@@ -138,6 +139,7 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
 
 function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectionRow {
   const decisionId = row.decision_id,
+    state = row.state as DecisionState,
     legacyId = decisionLegacyId(decisionId),
     options = JSON.parse(row.options_json) as {
       readonly kind: string;
@@ -162,7 +164,7 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     decisionId,
     ...(legacyId ? { legacyId } : {}),
     path: `decisions/decision-${decisionId}/decision.md`,
-    state: row.state as DecisionState,
+    state,
     title: row.title,
     question: row.question,
     riskTier: row.risk_tier as DecisionProjectionRow["riskTier"],
@@ -201,6 +203,8 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,
+    capabilities: decisionCapabilities(state),
+    claimsOpen: decisionClaimsOpen(state),
   };
 }
 

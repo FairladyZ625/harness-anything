@@ -489,11 +489,13 @@ type EventProjectionCut = Pick<
   "status" | "watermark" | "sourceRevision"
 >;
 type DaemonRelationGraphProjection = {
-  readonly edges: ReturnType<TaskProjection["readRelationQuery"]>["rows"];
+  readonly edges: readonly DaemonRelationGraphEdgeRow[];
   readonly factAnchors: ReturnType<TaskProjection["readFactAnchors"]>["rows"];
   readonly facts: readonly RelationFactRow[];
   readonly warnings: readonly ProjectionWarning[];
 };
+
+export type DaemonRelationGraphEdgeRow = RelationGraphEdgeRow & { readonly current: boolean };
 
 type ServedCoverageRow = RelationCoverageRow & { readonly freshnessReason?: FreshnessReason };
 
@@ -534,7 +536,7 @@ export type DaemonRelationGraphFacetResult =
         readonly domainTypes: ReturnType<TaskProjection["listFactDomainTypes"]>["domainTypes"];
       })
   | ({ readonly ok: true; readonly facet: "runtimeEdges" } & Omit<EmptyRelationFacetRows, "edges"> & {
-        readonly edges: readonly RelationGraphEdgeRow[];
+        readonly edges: readonly DaemonRelationGraphEdgeRow[];
       });
 
 export type DaemonRelationGraphResult = DaemonRelationGraphFullResult | DaemonRelationGraphFacetResult;

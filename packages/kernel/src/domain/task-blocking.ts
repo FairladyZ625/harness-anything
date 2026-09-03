@@ -1,4 +1,4 @@
-import { relationConsumability, type RelationStrength } from "./entity-relation.ts";
+import { relationConsumability, relationIsCurrent, type RelationStrength } from "./entity-relation.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
 
 export interface BlockingTask {
@@ -77,7 +77,7 @@ export function blockingOf(
       for (const id of known.length ? known : tasks.map(({ taskId: candidate }) => candidate))
         add(warnings, id, `weak blocking relation ${edge.relationId} is ${edge.freshness}`);
     if (
-      edge.state !== "active" ||
+      !relationIsCurrent(edge) ||
       edge.direction !== "directed" ||
       !sourceId ||
       !targetId ||

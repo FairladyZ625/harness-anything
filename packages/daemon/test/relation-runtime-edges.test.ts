@@ -46,6 +46,7 @@ test("runtimeDispatchEdges:同一 (agent, task) 只出一条边,agent/task 缺�
     assert.equal(edge.direction, "directed");
     assert.equal(edge.state, "active");
     assert.equal(edge.origin, "generated");
+    assert.equal(edge.current, false, "an unversioned strong generated edge is not consumable at a canonical cut");
     assert.match(edge.sourcePath, /^\.harness\/runtime\/dispatches\/dispatch_[a-f0-9]{24}\.jsonl$/u);
   }
   // relationId 由端点派生:同一对端点稳定同一 id(幂等,不随 dispatch 条数膨胀)。

@@ -1,7 +1,7 @@
 import { AGENT_DECLARATION_V1_SCHEMA, SQUAD_DECLARATION_V1_SCHEMA } from "./agent-squad-schema.ts";
 import { createAgentActionCatalog } from "./agent-action-contract.ts";
 import { runtimeSessionEntityV1Schema } from "./agent-runtime.ts";
-import { decisionEventTypes, decisionStates } from "./decision-event-types.ts";
+import { decisionEventTypes, decisionStates, decisionTransitionDefinitions } from "./decision-event-types.ts";
 import {
   requireEntityTypeContract,
   type BaseEntity,
@@ -584,13 +584,7 @@ const factActionCatalog = Object.freeze({
 const decisionWriteAction = (id: Parameters<typeof decisionActionCompiler>[0], ingress: string) =>
   executableAction("decision", decisionIdentity, id, ingress, decisionActionCompiler(id), decisionExposure);
 
-const decisionActionByEvent = {
-  decision_proposed: ["propose", "decision-propose"],
-  decision_accepted: ["accept", "decision-accept"],
-  decision_rejected: ["reject", "decision-reject"],
-  decision_deferred: ["defer", "decision-defer"],
-  decision_superseded: ["supersede", "decision-supersede"],
-  decision_retired: ["retire", "decision-retire"],
+const decisionAuxiliaryActions = {
   decision_amended: ["amend", "decision-amend"],
   decision_repinned: ["repin", "decision-repin"],
   decision_claim_declared: ["declare-claim", "decision-claim-add"],
@@ -602,9 +596,9 @@ const decisionActionByEvent = {
 const decisionActionCatalog = Object.freeze({
   ref: "kernel/decision-event/v1",
   actions: Object.freeze([
-    ...Object.values(decisionActionByEvent).map(([id, ingress]) => {
-      return decisionWriteAction(id, ingress);
-    }),
+    decisionWriteAction("propose", "decision-propose"),
+    ...decisionTransitionDefinitions.map(({ action }) => decisionWriteAction(action, `decision-${action}`)),
+    ...Object.values(decisionAuxiliaryActions).map(([id, ingress]) => decisionWriteAction(id, ingress)),
     decisionWriteAction("transition", "decision-transition"),
     executableAction(
       "decision",

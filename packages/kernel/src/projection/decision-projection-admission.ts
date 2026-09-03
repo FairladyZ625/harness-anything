@@ -3,8 +3,10 @@ import type { DecisionState } from "../domain/decision-event.ts";
 import {
   assertDecisionContentPin,
   assertDecisionJudgmentConsent,
+  decisionTransitionDefinitions,
   type DecisionEventV1,
 } from "../domain/decision-event.ts";
+import { decisionClaimsOpen } from "../domain/decision-board-projection.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
@@ -17,8 +19,10 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (!row) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
+  const transition = decisionTransitionDefinitions.find(({ eventType }) => eventType === event.type);
+  if (transition && row.state !== transition.sourceState)
+    fail("invalid_transition", `${event.type} requires ${transition.sourceState} state.`);
   if (["decision_accepted", "decision_rejected", "decision_deferred"].includes(event.type)) {
-    if (row.state !== "proposed") fail("invalid_transition", `${event.type} requires proposed state.`);
     const current = readDecisionDocumentState(db, event.decisionId);
     if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
     try {
@@ -51,7 +55,6 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (event.type === "decision_superseded" || event.type === "decision_retired") {
-    if (row.state !== "in_effect") fail("invalid_transition", `${event.type} requires in_effect state.`);
     const current = readDecisionDocumentState(db, event.decisionId)!;
     try {
       assertDecisionContentPin(current, event);
@@ -83,8 +86,7 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (event.type === "decision_claim_declared") {
-    if (!(["proposed", "in_effect"] as const).includes(row.state as never))
-      fail("invalid_transition", "Claims require proposed or in_effect state.");
+    if (!decisionClaimsOpen(row.state)) fail("invalid_transition", "Claims require proposed or in_effect state.");
     if (
       db
         .prepare("SELECT 1 FROM decision_claim WHERE decision_id=? AND claim_id=?")

@@ -38,6 +38,7 @@ export interface RelationCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
+  readonly covered: boolean;
   readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;
   readonly coveringFactRef?: string;
   readonly refutingFactRefs?: readonly string[];

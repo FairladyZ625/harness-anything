@@ -1,7 +1,9 @@
 import type {
-  CredentialKind,
   BlockingLabel,
+  CredentialKind,
   DaemonRepoMode,
+  DecisionCapabilityId,
+  DecisionCapabilityReason,
   MaterializationState,
   PeopleCommandClass,
   TaskBoardColumnId,
@@ -138,6 +140,30 @@ export const blockingLabelWords = Object.freeze([
 export const blockingLabelWordsAreExact: [BlockingLabel] extends [(typeof blockingLabelWords)[number]] ? true : never =
   true;
 
+export const decisionCapabilityIdWords = Object.freeze([
+  "accept",
+  "reject",
+  "defer",
+  "supersede",
+  "retire",
+] as const satisfies readonly DecisionCapabilityId[]);
+
+export const decisionCapabilityIdWordsAreExact: [DecisionCapabilityId] extends [
+  (typeof decisionCapabilityIdWords)[number],
+]
+  ? true
+  : never = true;
+
+export const decisionCapabilityReasonWords = Object.freeze([
+  "invalid_transition",
+] as const satisfies readonly DecisionCapabilityReason[]);
+
+export const decisionCapabilityReasonWordsAreExact: [DecisionCapabilityReason] extends [
+  (typeof decisionCapabilityReasonWords)[number],
+]
+  ? true
+  : never = true;
+
 export const reviewVerdictWords = ["approved", "changes_requested", "dismissed"] as const;
 
 export const receiptOutcomeWords = ["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const;
@@ -200,6 +226,7 @@ export const useCaseProjectionNameWords = Object.freeze([
  */
 export const rowDeliveredUseCaseProjections = Object.freeze({
   "task-board-rows": "repo.tasks.list",
+  "decision-pool-rows": "repo.decisions.list:full",
 } as const satisfies Readonly<Record<string, string>>);
 
 /**

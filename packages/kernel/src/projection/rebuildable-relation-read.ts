@@ -1,3 +1,4 @@
+import { coverageIsCovered } from "../domain/decision-coverage.ts";
 import type { RelationCoverageRow, RelationFactRow, RelationGraphEdgeRow } from "./relation-graph-projection.ts";
 import type { TaskProjectionRow } from "./types.ts";
 
@@ -132,6 +133,7 @@ function coverageRow(row: CoverageRecord): RelationCoverageRow {
     decisionRef: row.decision_ref,
     claimRef: row.claim_ref,
     status: row.status as RelationCoverageRow["status"],
+    covered: coverageIsCovered(row.status as RelationCoverageRow["status"]),
     fulfillment: row.fulfillment as RelationCoverageRow["fulfillment"],
     ...(row.covering_fact_ref ? { coveringFactRef: row.covering_fact_ref } : {}),
     refutingFactRefs: jsonStrings(row.refuting_fact_refs_json),

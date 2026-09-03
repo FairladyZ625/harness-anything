@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blockingOf } from "../../src/domain/task-blocking.ts";
+import { blockingLabels, blockingOf } from "../../src/domain/task-blocking.ts";
 import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../src/domain/closeout-readiness.ts";
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReview, reviewDigest } from "../../src/domain/review.ts";
+import { statusWordRegister } from "../../src/domain/status-word-register.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
@@ -340,11 +341,11 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     relations,
   );
   assert.deepEqual(
-    rows.map(({ claimRef, status, relationPath }) => ({ claimRef, status, relationPath })),
+    rows.map(({ claimRef, status, covered, relationPath }) => ({ claimRef, status, covered, relationPath })),
     [
-      { claimRef: "decision/d1/C1", status: "covered", relationPath: ["via", "evidence"] },
-      { claimRef: "decision/d1/C2", status: "covered", relationPath: ["delivery"] },
-      { claimRef: "decision/policy/C1", status: "covered", relationPath: ["decision/policy"] },
+      { claimRef: "decision/d1/C1", status: "covered", covered: true, relationPath: ["via", "evidence"] },
+      { claimRef: "decision/d1/C2", status: "covered", covered: true, relationPath: ["delivery"] },
+      { claimRef: "decision/policy/C1", status: "covered", covered: true, relationPath: ["decision/policy"] },
     ],
   );
   const staleStrong = coverageOf(
@@ -356,6 +357,7 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     ),
   );
   assert.equal(staleStrong[0]?.status, "uncovered", "suspect strong evidence is refused");
+  assert.equal(staleStrong[0]?.covered, false);
   const staleWeak = coverageOf(
     decisions,
     [{ ref: "fact/task/F-live" }],
@@ -365,6 +367,7 @@ test("coverage handles transitive evidence, delivered tasks, standing policy, an
     ),
   );
   assert.equal(staleWeak[0]?.status, "covered", "suspect weak context remains warn-only");
+  assert.equal(staleWeak[0]?.covered, true);
 });
 
 test("freshness reason classifies uncovered causes once, in the domain", () => {
@@ -462,5 +465,10 @@ test("blocking applies depends-on to the source and releases it only when the ta
   assert.deepEqual(
     refused.map(({ label }) => label),
     ["unresolved", "unresolved"],
+  );
+  const registered = new Set(statusWordRegister.map(({ word }) => word));
+  assert.deepEqual(
+    blockingLabels.filter((label) => registered.has(label)),
+    [],
   );
 });

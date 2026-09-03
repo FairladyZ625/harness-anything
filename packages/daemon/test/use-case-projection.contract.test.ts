@@ -24,7 +24,10 @@ test("the transport name mirror equals the kernel catalog", () => {
     assert.ok(deriveUseCaseProjectionInputs(name).entityKinds.length > 0);
   // A row-delivered projection is deliberately not selectable on repo.projection.read: its fields
   // ride on the read named here, and offering a second way to ask for them is CH2's second table.
-  assert.deepEqual(rowDeliveredUseCaseProjections, { "task-board-rows": "repo.tasks.list" });
+  assert.deepEqual(rowDeliveredUseCaseProjections, {
+    "task-board-rows": "repo.tasks.list",
+    "decision-pool-rows": "repo.decisions.list:full",
+  });
   for (const name of Object.keys(rowDeliveredUseCaseProjections))
     assert.equal((useCaseProjectionNameWords as readonly string[]).includes(name), false);
   assert.deepEqual(Object.keys(useCaseProjectionFacets), [...useCaseProjectionNameWords]);

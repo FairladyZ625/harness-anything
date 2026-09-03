@@ -10,6 +10,7 @@ import type { EntityRelationRecord } from "../domain/entity-relation.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { DecisionReadinessProjection } from "./decision-readiness-projection.ts";
+import type { DecisionCapability } from "../domain/decision-board-projection.ts";
 
 export interface DecisionBodyRow {
   readonly path: string;
@@ -64,6 +65,8 @@ export interface DecisionProjectionRow {
   readonly contentPins?: readonly DecisionContentPinV1[];
   readonly body: DecisionBodyRow | null;
   readonly readiness?: DecisionReadinessProjection;
+  readonly capabilities: readonly DecisionCapability[];
+  readonly claimsOpen: boolean;
 }
 
 export type DecisionAgendaProjectionRow = Pick<
@@ -118,6 +121,7 @@ export interface DecisionCoverageRow {
   readonly decisionRef: string;
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
+  readonly covered: boolean;
   readonly fulfillment: DecisionFulfillmentMode | null;
   readonly coveringFactRef?: string;
   readonly refutingFactRefs: readonly string[];

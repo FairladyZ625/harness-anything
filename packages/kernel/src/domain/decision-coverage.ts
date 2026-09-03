@@ -1,4 +1,4 @@
-import { relationConsumability, type RelationStrength } from "./entity-relation.ts";
+import { relationIsCurrent, type RelationStrength } from "./entity-relation.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
 
 export interface CoverageDecision {
@@ -29,10 +29,15 @@ export interface CoverageResult {
   readonly decisionRef: string;
   readonly claimRef: string;
   readonly status: "covered" | "uncovered";
+  readonly covered: boolean;
   readonly fulfillment: "evidenced" | "delivered" | "standing-policy" | null;
   readonly coveringFactRef?: string;
   readonly refutingFactRefs: readonly string[];
   readonly relationPath: readonly string[];
+}
+
+export function coverageIsCovered(status: CoverageResult["status"]): boolean {
+  return status === "covered";
 }
 
 /** Input shape of {@link freshnessReasonOf}: an arbitrary coverage row carrying the verdict fields. */
@@ -65,7 +70,7 @@ export function coverageOf(
   tasks: readonly CoverageTask[],
   relations: readonly CoverageRelation[],
 ): readonly CoverageResult[] {
-  const active = relations.filter((edge) => edge.state === "active" && relationConsumability(edge) !== "refuse"),
+  const active = relations.filter(relationIsCurrent),
     superseded = new Set(
       active.filter(({ relationType }) => relationType === "supersedes-fact").map(({ targetRef }) => targetRef),
     ),
@@ -89,10 +94,12 @@ export function coverageOf(
           .filter(({ edge }) => live.has(edge.targetRef))
           .map(({ edge }) => edge.targetRef),
         result = coveragePath(decision, claim.ref, fulfillment, bySource, live, done);
+      const status = refutingFactRefs.length === 0 && result.covered ? "covered" : "uncovered";
       rows.push({
         decisionRef: decision.ref,
         claimRef: claim.ref,
-        status: refutingFactRefs.length === 0 && result.covered ? "covered" : "uncovered",
+        status,
+        covered: coverageIsCovered(status),
         fulfillment,
         ...(result.coveringFactRef ? { coveringFactRef: result.coveringFactRef } : {}),
         refutingFactRefs,

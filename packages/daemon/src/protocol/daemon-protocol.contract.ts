@@ -778,6 +778,7 @@ export type {
   DaemonRelationGraphFacet,
   DaemonRelationGraphFacetPayload,
   DaemonRelationGraphFacetResult,
+  DaemonRelationGraphEdgeRow,
   DaemonRelationGraphFullResult,
   DaemonRelationGraphResult,
   DaemonRelationQueryPayload,

@@ -6,6 +6,7 @@ import {
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
+  relationIsCurrent,
   taskBoardPlacement,
   taskCapabilities,
   taskPhase,
@@ -30,6 +31,7 @@ import {
   type DaemonAgendaResult,
   type DaemonRelationGraphFacetPayload,
   type DaemonRelationGraphFacetResult,
+  type DaemonRelationGraphEdgeRow,
   type DaemonRelationGraphFullResult,
   type DaemonTaskSnapshotListResult,
   type ExecutionEvidenceProjection,
@@ -88,7 +90,7 @@ export function makeTaskQueryReadModel(input: {
     }));
     return {
       ok: true,
-      edges: relations.rows,
+      edges: relations.rows.map(withRelationCurrent),
       coverageRows: eventCoverage,
       factAnchors: facts.factAnchors,
       facts: eventFacts,
@@ -114,8 +116,8 @@ export function makeTaskQueryReadModel(input: {
         }),
         edges =
           query.direction === undefined
-            ? read.rows
-            : read.rows.filter(({ direction }) => direction === query.direction);
+            ? read.rows.map(withRelationCurrent)
+            : read.rows.filter(({ direction }) => direction === query.direction).map(withRelationCurrent);
       return {
         ok: true,
         facet: "edges",
@@ -447,7 +449,7 @@ export function makeTaskQueryReadModel(input: {
     }));
     return {
       ok: true,
-      edges: page.rows,
+      edges: page.rows.map(withRelationCurrent),
       coverageRows: servedCoverage,
       factAnchors: factAnchors.rows,
       facts: servedFacts,
@@ -468,7 +470,9 @@ export function makeTaskQueryReadModel(input: {
  * Schedule→agent is *not* derived here — the Schedule definition already states its
  * target, and the renderer reads it with the Schedule rows it already has.
  */
-export function runtimeDispatchEdges(headers: ReadonlyArray<DispatchStreamHeader>): readonly RelationGraphEdgeRow[] {
+export function runtimeDispatchEdges(
+  headers: ReadonlyArray<DispatchStreamHeader>,
+): readonly DaemonRelationGraphEdgeRow[] {
   const rows = new Map<string, RelationGraphEdgeRow>();
   for (const header of headers) {
     if (!header.agentId || !header.taskId) continue;
@@ -499,7 +503,13 @@ export function runtimeDispatchEdges(headers: ReadonlyArray<DispatchStreamHeader
       recordIndex: 0,
     });
   }
-  return [...rows.values()].sort((left, right) => left.relationId.localeCompare(right.relationId));
+  return [...rows.values()]
+    .map(withRelationCurrent)
+    .sort((left, right) => left.relationId.localeCompare(right.relationId));
+}
+
+function withRelationCurrent<T extends RelationGraphEdgeRow>(row: T): T & { readonly current: boolean } {
+  return { ...row, current: relationIsCurrent(row) };
 }
 
 function relationFacetWarnings(status: "ready" | "pending") {

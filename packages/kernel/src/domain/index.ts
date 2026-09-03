@@ -17,6 +17,13 @@ export type {
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
 export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
+export {
+  decisionCapabilities,
+  decisionCapabilityIds,
+  decisionCapabilityReasons,
+  decisionClaimsOpen,
+} from "./decision-board-projection.ts";
+export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./receipt-guidance.ts";
 export { evaluateTaskActionCapability, taskActionUsage } from "./task-action-capability.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
@@ -82,7 +89,7 @@ export {
 } from "./transition-document-readiness.ts";
 export type { TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 
-export { freshnessReasonOf } from "./decision-coverage.ts";
+export { coverageIsCovered, freshnessReasonOf } from "./decision-coverage.ts";
 export type { FreshnessReason, FreshnessReasonInput } from "./decision-coverage.ts";
 
 export { assessFactRetirement, validFactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
@@ -199,6 +206,7 @@ export {
   normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,
+  relationIsCurrent,
   relationStates,
   relationStrengths,
   relationStrengthForType,
