@@ -14,7 +14,7 @@ export const projectedAliases: Readonly<Record<string, Readonly<Record<string, s
   },
   "decision-reject": { "--rationale": "reason" },
   "decision-defer": { "--rationale": "reason" },
-  "distill-candidate": { "--task": "taskId", "--input": "inputPath" },
+  "distill-candidate": { "--task": "taskId", "--input": "inputPath", "--entity": "entityRef" },
   "distill-promote": {
     "--task": "taskId",
     "--candidate": "candidatePath",

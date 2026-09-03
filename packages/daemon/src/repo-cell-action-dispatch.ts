@@ -12,7 +12,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
-import { distillPromotionAction, prepareDistillCandidate } from "./distill-actions.ts";
+import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
@@ -163,6 +163,7 @@ export async function executeAction(
         opId: cell.operationId(action, binding, cell.input.repoId, revision),
         revision,
         now: cell.now,
+        readEntity: (entityRef) => readDistillEntity(cell.projection, entityRef),
       });
     cell.publishGeneratedArtifact(candidate);
     return candidate.receipt;

@@ -231,7 +231,12 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         { kind: "distill-candidate", taskId: "task-evidence", inputPath: "evidence.md" },
         proposer,
       ),
-      candidateReport = receiptJson(candidate) as { candidatePath: string; factState: string; factWrite: boolean };
+      candidateReport = receiptJson(candidate) as {
+        candidatePath: string;
+        factState: string;
+        factWrite: boolean;
+        subject: { kind: string; ref: string; contentSha256: string };
+      };
     assert.deepEqual(
       {
         outcome: candidate.outcome,
@@ -241,6 +246,9 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       },
       { outcome: "pending", canonicalVisible: false, factState: "candidate", factWrite: false },
     );
+    assert.equal(candidateReport.subject.kind, "workspace-file");
+    assert.equal(candidateReport.subject.ref, "evidence.md");
+    assert.match(candidateReport.subject.contentSha256, /^[0-9a-f]{64}$/u);
     const promoted = await cell.run(
       {
         kind: "distill-promote",
@@ -256,7 +264,9 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(promoted.outcome, "applied", JSON.stringify(promoted));
     assert.equal((promoted as Record<string, unknown>).factId, "F-DEADBEEF");
-    assert.match(readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8"), /### F-DEADBEEF/u);
+    const factBody = readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8");
+    assert.match(factBody, /### F-DEADBEEF/u);
+    assert.match(factBody, /provenance=.*workspace-file/u);
     const events = makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().events,
       decisionEvents = events.filter((event) => event.schema === "decision-event/v1"),
       relationEvents = events.filter((event) => event.schema === "relation-event/v1");
