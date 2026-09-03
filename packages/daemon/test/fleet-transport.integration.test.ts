@@ -21,6 +21,7 @@ import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {
+  readFleetAssignmentClient,
   runFleetReplicaPullClient,
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
@@ -78,6 +79,10 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
   };
   await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
+  // The applied receipt can precede host-side ledger visibility. Anchor the pull to the
+  // same assignment read that the edge can observe, or it may legally return the prior current cut.
+  if (write.center.outcome === "applied" && write.center.revision !== null)
+    await waitForCenterLedgerRevision(peer, write.center.revision, options.timeoutMs ?? 5_000);
   const pulled = await runFleetReplicaPullClient({
     ...peer,
     viewRoot: options.viewRoot,
@@ -1603,6 +1608,23 @@ async function waitForReceiptCommit(
     await new Promise((resolve) => setTimeout(resolve, 25));
   } while (performance.now() < deadline);
   throw new Error(`Git materialization did not publish ${opId} within the bounded wait`);
+}
+async function waitForCenterLedgerRevision(
+  peer: Parameters<typeof readFleetAssignmentClient>[0],
+  expected: number,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = performance.now() + timeoutMs;
+  let observed: number;
+  do {
+    observed = (await readFleetAssignmentClient(peer)).baseLedgerSha.revision;
+    if (observed >= expected) return;
+    await delay(10);
+  } while (performance.now() < deadline);
+  assert.ok(
+    observed >= expected,
+    `center assignment read did not expose ledger revision ${expected} within the bounded wait`,
+  );
 }
 async function waitForCommitCount(fixture: Awaited<ReturnType<typeof fleetFixture>>, expected: number): Promise<void> {
   const deadline = performance.now() + 15_000;
