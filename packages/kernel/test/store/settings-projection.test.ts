@@ -85,6 +85,25 @@ test("Settings publication rejects a candidate that also mutates layout, WIP, or
   });
 });
 
+test("layout reading rejects an unknown key with structured context", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const original = initRepo(rootDir),
+      configPath = path.join(rootDir, "harness/harness.yaml");
+    writeFileSync(configPath, original.replace("  milestonesRoot: harness/milestones", "  surpriseRoot: elsewhere"));
+    assert.throws(
+      () => makeTaskEventStore({ repoId: "unknown-layout", rootDir }),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_layout_key" &&
+        "key" in error &&
+        error.key === "surpriseRoot" &&
+        "configPath" in error &&
+        error.configPath === configPath,
+    );
+  });
+});
+
 function initRepo(rootDir: string): string {
   const body = [
     "schema: harness-anything/v1",

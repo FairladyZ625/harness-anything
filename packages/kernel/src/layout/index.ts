@@ -48,6 +48,11 @@ const taskIdPattern = /^task_[0123456789ABCDEFGHJKMNPQRSTVWXYZ]{26}$/u;
 const defaultAuthoredRoot = "harness";
 const defaultLocalRoot = ".harness";
 const layoutFileSystem = localLayoutFileSystem;
+const layoutKeys = new Set<string>(["authoredRoot", "localRoot", "contextRoot", "governanceRoot", "milestonesRoot"]);
+// The cutover command must be able to open a repository that still carries the
+// retired key it removes. It is recognized only as removable input and never
+// contributes a path to HarnessLayout.
+const cutoverReadableLayoutKeys = new Set<string>(["adrRoot"]);
 
 export interface HarnessLayoutOverrides {
   readonly authoredRoot?: string;
@@ -74,6 +79,19 @@ interface HarnessLayoutConfig {
   readonly milestonesRoot?: string;
   readonly tasksRoot?: string;
   readonly generatedRoot?: string;
+}
+
+class HarnessLayoutConfigError extends Error {
+  readonly code = "invalid_layout_key";
+  readonly configPath: string;
+  readonly key: string;
+
+  constructor(configPath: string, key: string) {
+    super(`Unknown layout key ${key} in ${configPath}.`);
+    this.name = "HarnessLayoutConfigError";
+    this.configPath = configPath;
+    this.key = key;
+  }
 }
 
 interface HarnessLayoutSettings {
@@ -284,6 +302,8 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
     const nested = /^  ([A-Za-z][A-Za-z0-9]*):(?:\s*(.*))?$/u.exec(withoutComment);
     if (!nested || !section) continue;
     const [, key, rawValue = ""] = nested;
+    if (section === "layout" && !layoutKeys.has(key) && !cutoverReadableLayoutKeys.has(key))
+      throw new HarnessLayoutConfigError(location.path, key);
     const value = unquoteScalar(rawValue.trim());
     if (!value) continue;
     if (section === "layout" && key === "authoredRoot") authoredRoot = value;

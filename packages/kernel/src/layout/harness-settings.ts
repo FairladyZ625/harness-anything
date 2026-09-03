@@ -18,6 +18,9 @@ const horizontal = "[^\\S\\r\\n]*";
 const scalar = (indent: string, key: string) =>
   new RegExp(`^${indent}${key}:${horizontal}([^#\\s][^#\\r\\n]*?)${horizontal}(?:#[^\\r\\n]*)?$`, "mu");
 
+export const removableLayoutKeys = ["adrRoot"] as const;
+export type RemovableLayoutKey = (typeof removableLayoutKeys)[number];
+
 /** Reads a scalar directly under `settings:`, for example `defaultVertical`. */
 export function setting(body: string, key: string): string | undefined {
   return scalar("  ", key).exec(body)?.[1];
@@ -28,4 +31,14 @@ export function settingBlockValue(body: string, block: string, key: string): str
   const section =
     new RegExp(`^  ${block}:[^\\S\\r\\n]*(?:\\r?\\n)((?:    [^\\r\\n]*(?:\\r?\\n|$))*)`, "mu").exec(body)?.[1] ?? "";
   return scalar("    ", key).exec(section)?.[1];
+}
+
+export function removeLayoutKey(body: string, key: RemovableLayoutKey): string {
+  const section = /(^layout:[^\S\r\n]*(?:\r?\n))((?:  [^\r\n]*(?:\r?\n|$))*)/mu,
+    match = section.exec(body);
+  if (!match) return body;
+  const line = new RegExp(`^  ${key}:[^\\r\\n]*(?:\\r?\\n|$)`, "mu");
+  if (!line.test(match[2]!)) return body;
+  const replacement = `${match[1]}${match[2]!.replace(line, "")}`;
+  return `${body.slice(0, match.index)}${replacement}${body.slice(match.index + match[0].length)}`;
 }
