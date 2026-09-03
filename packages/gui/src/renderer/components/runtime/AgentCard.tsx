@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import type { AgentDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import type { AgentEntityDetail, AgentEntityRow, AgentSkillRow, SquadEntityRow } from "../../agent-entity-client.ts";
+import type {
+  AgentEntityAvailableRow,
+  AgentEntityDetail,
+  AgentSkillRow,
+  SquadEntityAvailableRow,
+} from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
@@ -67,8 +72,8 @@ export const agentDraftDirty = (detail: AgentEntityDetail, draft: AgentDraft): b
 
 type Props = {
   readonly detail: AgentEntityDetail;
-  readonly row: AgentEntityRow | null;
-  readonly squads: readonly SquadEntityRow[];
+  readonly row: AgentEntityAvailableRow | null;
+  readonly squads: readonly SquadEntityAvailableRow[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly availableSkills?: readonly AgentSkillRow[];
   readonly presets?: readonly { readonly id: string; readonly title: string; readonly description: string }[];

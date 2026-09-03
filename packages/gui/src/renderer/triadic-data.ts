@@ -7,6 +7,7 @@ import { agentEntityClient } from "./agent-entity-client.ts";
 import { schedulesClient } from "./schedules-client.ts";
 import { KIND_LABEL } from "./graph/constants.ts";
 import { agentNodeRowOf, scheduleNodeRowOf, withAgentTaskCounts } from "./graph/runtimeEntities.ts";
+import { isAvailableAgentEntityRow } from "./agent-entity-client.ts";
 import type { ScheduleGuiRowDto } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 import { activeProducesFactRefs } from "./model/triadic.ts";
@@ -166,7 +167,10 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
     [schedules.data],
   );
   return useMemo(() => {
-    const agentRows = withAgentTaskCounts((agents.data ?? []).map(agentNodeRowOf), relations);
+    const agentRows = withAgentTaskCounts(
+      (agents.data ?? []).filter(isAvailableAgentEntityRow).map(agentNodeRowOf),
+      relations,
+    );
     return {
       agents: agentRows,
       schedules: scheduleRows,

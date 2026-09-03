@@ -471,6 +471,23 @@ describe("sessions page: squad orchestration", () => {
     expect(markup).toMatch(/squad-run-toggle-squad_a{18}"[^>]*class="[^"]*bg-accent/u);
   });
 
+  it("keeps a corrupt run projection as a disabled grey row without hiding healthy runs", () => {
+    const invalid = {
+        squadRunId: "squad_" + "c".repeat(18),
+        projectionState: "invalid" as const,
+        projectionError: {
+          code: "squad_run_projection_invalid" as const,
+          hint: "Squad run projection is invalid.",
+        },
+      },
+      markup = squadRunView({ runs: [squadRunSummary, invalid] });
+    expect(markup).toContain("ontology-squad");
+    expect(markup).toMatch(/disabled=""[^>]*squad-run-toggle-squad_c{18}/u);
+    expect(markup).toContain("Squad run projection is invalid.");
+    expect(markup).toContain("Invalid");
+    expect(markup).not.toContain("runtime-read-error");
+  });
+
   it("keeps the empty state honest when no squad run matches the range (G12 §2a)", () => {
     const inWindow = squadRunView({ runs: [], totalRuns: 0, squadNames: new Map(), range: "30d" });
     expect(inWindow).toContain("No squad runs in this range (30d)");
@@ -673,5 +690,27 @@ describe("sessions page: squad run detail", () => {
     const error = detailView({ detail: null, pending: false, error: "squad read failed" });
     expect(error).toContain("squad read failed");
     expect(error).toMatch(/data-testid="squad-run-detail-error"/u);
+  });
+
+  it("renders an invalid detail projection as a grey hint instead of a read error", () => {
+    const invalid = detailView({
+      detail: {
+        ok: true,
+        status: "ready",
+        run: {
+          squadRunId: "squad_" + "d".repeat(24),
+          projectionState: "invalid",
+          projectionError: {
+            code: "squad_run_projection_invalid",
+            hint: "Repair the invalid Squad run projection.",
+          },
+        },
+        watermark: 9,
+        sourceRevision: 9,
+      },
+    });
+    expect(invalid).toContain("Invalid");
+    expect(invalid).toContain("Repair the invalid Squad run projection.");
+    expect(invalid).not.toContain("squad-run-detail-error");
   });
 });

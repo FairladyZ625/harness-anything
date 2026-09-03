@@ -1,14 +1,26 @@
 import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../daemon/src/agent-entities.contract.ts";
 import type {
   AgentEntityGuiDetail as AgentEntityDetail,
+  AgentEntityGuiAvailableRow as AgentEntityAvailableRow,
   AgentEntityGuiRead as AgentEntityRead,
   AgentEntityGuiRow as AgentEntityRow,
   AgentSkillGuiRead,
   SquadEntityGuiDetail as SquadEntityDetail,
+  SquadEntityGuiAvailableRow as SquadEntityAvailableRow,
   SquadEntityGuiRow as SquadEntityRow,
 } from "../../../daemon/src/agent-entities.ts";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
-export type { AgentEntityDetail, AgentEntityRead, AgentEntityRow, SquadEntityDetail, SquadEntityRow };
+export type {
+  AgentEntityAvailableRow,
+  AgentEntityDetail,
+  AgentEntityRead,
+  AgentEntityRow,
+  SquadEntityAvailableRow,
+  SquadEntityDetail,
+  SquadEntityRow,
+};
+export const isAvailableAgentEntityRow = (row: AgentEntityRow): row is AgentEntityAvailableRow => !("state" in row);
+export const isAvailableSquadEntityRow = (row: SquadEntityRow): row is SquadEntityAvailableRow => !("state" in row);
 export type AgentSkillRow = AgentSkillGuiRead["skills"][number];
 export type EntitySaveResult = {
   readonly outcome: "applied" | "pending" | "op_rejected";

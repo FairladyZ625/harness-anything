@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentEntityRow, SquadEntityRow } from "../../agent-entity-client.ts";
+import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 
@@ -27,8 +27,8 @@ export function NewEntityDialog({
   onCreate,
 }: {
   readonly kind: "agent" | "squad";
-  readonly agents: readonly AgentEntityRow[];
-  readonly squads: readonly SquadEntityRow[];
+  readonly agents: readonly AgentEntityAvailableRow[];
+  readonly squads: readonly SquadEntityAvailableRow[];
   readonly busy: boolean;
   readonly taken: readonly string[];
   readonly onCancel: () => void;

@@ -1,6 +1,7 @@
 import {
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
+  type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
@@ -51,17 +52,47 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
   };
 }
 
-function listSquads(cell: RepoCellRuntimeContext): object {
-  const squads = cell.projection.listEntities("squad").map(({ value, id }) => {
-    const declaration = parseSquadDeclarationV1(value),
-      { roster: _roster, ...row } = declaration;
-    return {
-      ...row,
-      layer: "user",
-      source: `squads/${id}.json`,
-      validity: "valid",
-      issues: [],
+type SquadListRow =
+  | (Omit<SquadDeclarationV1, "roster"> & {
+      readonly layer: "user";
+      readonly source: string;
+      readonly validity: "valid";
+      readonly issues: readonly [];
+    })
+  | {
+      readonly id: string;
+      readonly layer: "user";
+      readonly state: "invalid";
+      readonly error: { readonly code: "invalid_entity_contract"; readonly hint: string };
     };
+
+function listSquads(cell: RepoCellRuntimeContext): {
+  readonly schema: "squad-list/v1";
+  readonly squads: SquadListRow[];
+} {
+  const squads = cell.projection.listEntities("squad").map(({ value, id }) => {
+    try {
+      const declaration = parseSquadDeclarationV1(value),
+        { roster: _roster, ...row } = declaration;
+      return {
+        ...row,
+        layer: "user" as const,
+        source: `squads/${id}.json`,
+        validity: "valid" as const,
+        issues: [] as const,
+      };
+    } catch (error) {
+      if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+      return {
+        id,
+        layer: "user" as const,
+        state: "invalid" as const,
+        error: {
+          code: "invalid_entity_contract" as const,
+          hint: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
   });
   return { schema: "squad-list/v1", squads };
 }

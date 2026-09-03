@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SquadDeclarationV1 } from "../../../../../daemon/src/agent-entities.contract.ts";
-import type { AgentEntityRow, SquadEntityDetail, SquadEntityRow } from "../../agent-entity-client.ts";
+import type { AgentEntityAvailableRow, SquadEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
@@ -63,8 +63,8 @@ export function squadChartLayout(workers: number): {
 
 type Props = {
   readonly detail: SquadEntityDetail;
-  readonly row: SquadEntityRow | null;
-  readonly agents: readonly AgentEntityRow[];
+  readonly row: SquadEntityAvailableRow | null;
+  readonly agents: readonly AgentEntityAvailableRow[];
   readonly busy: boolean;
   readonly onSave: (declaration: SquadDeclarationV1) => void;
   readonly onSelectAgent: (agentId: string) => void;
@@ -304,7 +304,7 @@ function SlotConfig({
   onClear,
   onSelectAgent,
 }: {
-  readonly agents: readonly AgentEntityRow[];
+  readonly agents: readonly AgentEntityAvailableRow[];
   readonly slot: SquadSlot;
   readonly draft: SquadDraft;
   readonly onPatch: (value: Partial<SquadDraft>) => void;
