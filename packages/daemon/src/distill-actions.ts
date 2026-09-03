@@ -3,10 +3,12 @@ import { readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   resolveHarnessLayout,
+  isRecord,
   type ArtifactDescriptor,
   type RelationType,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { exactFields } from "./protocol/schedule-runs-contract.ts";
 
 interface ProjectionCut {
   readonly watermark: number;
@@ -51,6 +53,28 @@ export interface DistillEntityRead {
   readonly descriptor: ArtifactDescriptor;
   readonly edges: readonly DistillSourceEdge[];
   readonly projectionCut: ProjectionCut;
+}
+
+export function readDistillEntity(projection: any, entityRef: string): DistillEntityRead {
+  const separator = entityRef.lastIndexOf("/"),
+    kind = entityRef.slice(0, separator),
+    entityId = entityRef.slice(separator + 1),
+    entity = separator > 0 && entityId ? projection.getEntity(kind, entityId) : null;
+  if (entity === null) throw new Error(`Artifact entity ${entityRef} is not installed.`);
+  const relationRead = projection.readRelationQuery();
+  return {
+    descriptor: artifactDescriptorFromProjection(entity.value),
+    edges: relationRead.rows
+      .filter((edge: any) => edge.state === "active" && (edge.sourceRef === entityRef || edge.targetRef === entityRef))
+      .map((edge: any) => ({
+        relationId: edge.relationId,
+        type: edge.relationType,
+        peerRef: edge.sourceRef === entityRef ? edge.targetRef : edge.sourceRef,
+        revision: Number(edge.workspaceRevision ?? 0),
+        freshness: edge.freshness,
+      })),
+    projectionCut: { watermark: relationRead.watermark, sourceRevision: relationRead.sourceRevision },
+  };
 }
 
 export function artifactDescriptorFromProjection(value: Readonly<Record<string, unknown>>): ArtifactDescriptor {
@@ -276,12 +300,6 @@ function isProjectionCut(value: unknown): value is ProjectionCut {
     Number.isSafeInteger(value.sourceRevision) &&
     Number(value.sourceRevision) >= 0
   );
-}
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function exactFields(row: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
-  return Object.keys(row).sort().join("\0") === [...fields].sort().join("\0");
 }
 function suggestedClaimFromWorkspaceFile(rootDir: string, relativePath: string): string {
   return truncateClaim(readFileSync(path.join(rootDir, relativePath), "utf8"));

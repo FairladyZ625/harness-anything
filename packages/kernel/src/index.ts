@@ -107,6 +107,7 @@ export {
   serializeEventHead,
   WRITE_RECEIPT_SCHEMA,
   sameWriteSource,
+  isRecord,
 } from "./domain/write-chain.contract.ts";
 export type {
   ActorIdentity,

@@ -88,7 +88,7 @@ function validRunRow(value: unknown): boolean {
   );
 }
 
-function exactFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
+export function exactFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return Object.keys(value).length === fields.length && fields.every((field) => Object.hasOwn(value, field));
 }
 
