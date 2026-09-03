@@ -289,6 +289,14 @@ test("observe.tail reads the lifecycle sink while the daemon's raw stdio stays o
     });
     lifecycle.record({ event: "process_start", endpoint: "/tmp/observe-lifecycle.sock" });
     lifecycle.record({ event: "runtime_spawn", runtimeSessionId: "runtime_observe_lifecycle", pid: 4243 });
+    // The materializer diagnostics moved off bare stderr into this sink; they must read back
+    // through the same tail, with their reason carried as a field rather than a text prefix.
+    lifecycle.record({
+      event: "materializer_candidate_blocked",
+      repoId: "observe-lifecycle",
+      revision: 12,
+      reason: "resolve context/first.md through refresh-region-policy",
+    });
     const stdioPath = daemonStdioLogPath(userRoot, daemonId);
     mkdirSync(path.dirname(stdioPath), { recursive: true });
     writeFileSync(stdioPath, "[wal-materializer] materialized revisions 1-2 (batch age, attempt 1)\n");
@@ -298,9 +306,11 @@ test("observe.tail reads the lifecycle sink while the daemon's raw stdio stays o
     assertAvailable(page, "local", "lifecycle");
     assert.deepEqual(
       page.items.map((item) => item.event),
-      ["process_start", "runtime_spawn"],
+      ["process_start", "runtime_spawn", "materializer_candidate_blocked"],
     );
     assert.equal(page.items[1].runtimeSessionId, "runtime_observe_lifecycle");
+    assert.equal(page.items[2].revision, 12);
+    assert.equal(page.items[2].reason, "resolve context/first.md through refresh-region-policy");
     assert.equal(page.liveCursor.kind, "lifecycle");
 
     const unchanged = await cell.observeTail(

@@ -27,6 +27,7 @@ import { scanAuthoredCandidateInventory, type AuthoredCandidateInventoryV1 } fro
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
+import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
@@ -61,6 +62,7 @@ export interface RepoCellCoreInput {
     readonly onStoreOpened?: (store: ReturnType<typeof makeTaskEventStore>) => void;
     readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
     readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
+    readonly recordLifecycle?: DaemonLifecycleRecorder;
   };
   readonly rootDir: string;
   readonly authoredBranch?: string;
@@ -111,7 +113,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
           now: context.now(),
         });
       if (authorizationDecision.outcome === "denied") {
-        console.warn(`[wal-materializer] document effect denied: ${authorizationDecision.reasonCodes.join(", ")}`);
+        context.input.recordLifecycle?.({
+          event: "materializer_effect_denied",
+          repoId: context.input.repoId,
+          revision,
+          reason: authorizationDecision.reasonCodes.join(", "),
+        });
         return;
       }
       const receipt = await runDocAction({
@@ -126,8 +133,14 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         ...(isAuthoredCandidateInventory(inventory) ? { authoredCandidateInventory: inventory } : {}),
       });
       const detail = receipt.detail?.kind === "doc_sync" ? receipt.detail : undefined,
-        warning = blockedAuthoredCandidateWarning(detail);
-      if (warning) console.warn(warning);
+        blocked = blockedAuthoredCandidateReason(detail);
+      if (blocked)
+        context.input.recordLifecycle?.({
+          event: "materializer_candidate_blocked",
+          repoId: context.input.repoId,
+          revision,
+          reason: blocked,
+        });
     });
   };
   const configPath = path.join(resolveHarnessLayout(context.rootDir).authoredRoot, "harness.yaml");
@@ -170,10 +183,11 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
             fingerprint === response.settlementFingerprint ? { ...response.settlementIntent, inventory } : null,
         };
       } catch (error) {
-        console.warn(
-          "[wal-materializer] authored candidate inventory failed: " +
-            (error instanceof Error ? error.message : String(error)),
-        );
+        context.input.recordLifecycle?.({
+          event: "materializer_inventory_failed",
+          repoId: config.repoId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         consumeKnownError(error);
         return { ...response, settlementIntent: null };
       }
@@ -302,15 +316,15 @@ function isAuthoredCandidateInventory(value: unknown): value is AuthoredCandidat
   );
 }
 
-export function blockedAuthoredCandidateWarning(detail: DocSyncReceiptDetail | undefined): string | null {
+/** Next action for the first blocked authored candidate; null when the receipt blocked none. */
+export function blockedAuthoredCandidateReason(detail: DocSyncReceiptDetail | undefined): string | null {
   const unresolved = detail?.unresolvedTouches[0],
-    deletion = detail?.deletions[0],
-    warning = unresolved
-      ? blockedCandidateNextAction(unresolved)
-      : deletion
-        ? `delete intent for ${deletion.path} is blocked`
-        : null;
-  return warning === null ? null : `[wal-materializer] authored doc candidate blocked; ${warning}`;
+    deletion = detail?.deletions[0];
+  return unresolved
+    ? blockedCandidateNextAction(unresolved)
+    : deletion
+      ? `delete intent for ${deletion.path} is blocked`
+      : null;
 }
 
 export function chainRepoCellWrite<T>(tail: Promise<void>, work: () => T | PromiseLike<T>): Promise<T> {

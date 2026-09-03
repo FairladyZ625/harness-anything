@@ -28,12 +28,16 @@ export type DaemonLifecycleEvent =
   | "repo_registry_pruned"
   | "attachments_settled"
   | "runtime_spawn"
-  | "runtime_exit";
+  | "runtime_exit"
+  | "materializer_effect_denied"
+  | "materializer_candidate_blocked"
+  | "materializer_inventory_failed";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
   readonly repoId?: string;
   readonly rootDir?: string;
   readonly durationMs?: number;
+  readonly revision?: number;
   readonly attachIndex?: number;
   readonly attachTotal?: number;
   readonly endpoint?: string;

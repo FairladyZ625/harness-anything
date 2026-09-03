@@ -7,7 +7,7 @@ import test from "node:test";
 import { DOC_POLICY_ID, makeTaskEventStore, parseDocWriteIntent, sha256Text } from "../../kernel/src/index.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { blockedAuthoredCandidateWarning } from "../src/repo-cell.ts";
+import { blockedAuthoredCandidateReason } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -159,19 +159,19 @@ test("doc-sync details retain ordered unresolved touches", () => {
   assert.deepEqual(withoutRows.unresolvedTouches, []);
 });
 
-test("repo-cell warning names only the first blocked receipt row", () => {
+test("repo-cell blocked-candidate reason names only the first blocked receipt row", () => {
   const first = touch("context/first.md", "refresh-region-policy", 'base region is missing: "# First"'),
     second = touch("context/second.md", "workspace-config", "path is owned by workspace-config"),
-    warning = blockedAuthoredCandidateWarning(unresolvedDetail(first, second));
+    reason = blockedAuthoredCandidateReason(unresolvedDetail(first, second));
   assert.equal(
-    warning,
+    reason,
     [
-      "[wal-materializer] authored doc candidate blocked; resolve context/first.md through ",
+      "resolve context/first.md through ",
       'refresh-region-policy: base region is missing: "# First"; then rerun ha doc sync --submit',
     ].join(""),
   );
-  assert.equal(warning?.includes(second.path), false);
-  assert.doesNotMatch(warning ?? "", /ha doc status/u);
+  assert.equal(reason?.includes(second.path), false);
+  assert.doesNotMatch(reason ?? "", /ha doc status/u);
 });
 
 test("task-scoped doc sync derives every dirty candidate from the task id", async () => {
