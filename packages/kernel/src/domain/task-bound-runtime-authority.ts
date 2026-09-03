@@ -38,6 +38,22 @@ export function resolveTaskBoundRuntimeBinding(
   return { runtimeSessionId: session.runtimeSessionId, taskId, executionId };
 }
 
+/** A strict task descendant is reached only by following canonical parent bindings upward. */
+export function taskIsDescendantOf(
+  taskId: string,
+  ancestorTaskId: string,
+  parentTaskId: (candidateTaskId: string) => string | null,
+): boolean {
+  const visited = new Set([taskId]);
+  let candidate = parentTaskId(taskId);
+  while (candidate !== null && !visited.has(candidate)) {
+    if (candidate === ancestorTaskId) return true;
+    visited.add(candidate);
+    candidate = parentTaskId(candidate);
+  }
+  return false;
+}
+
 export function isTaskBoundRuntimeWriter(
   lease: LeaseV1,
   actor: ActorIdentity,

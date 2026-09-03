@@ -7,6 +7,7 @@ import {
   resolveRetirableDocument,
   runtimeSessionIdFromActor,
   sha256Bytes,
+  taskIsDescendantOf,
   type DocEventV1,
   type DocSyncReceiptDetail,
   type DocWriteIntent,
@@ -56,6 +57,7 @@ export type DocIntentAdjudication =
 export function adjudicateDocIntent(
   input: Omit<Input, "action"> & {
     readonly taskDocumentChannel?: DocIntentChannel;
+    readonly taskId?: string;
   },
   intent: DocWriteIntent,
   claims: readonly (Uint8Array | null)[],
@@ -91,6 +93,16 @@ export function adjudicateDocIntent(
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
       lease === null ? null : resolveTaskBoundRuntimeBinding(runtimeSession, lease.taskId, lease.executionId),
+    runtimeDelegatedTaskId =
+      runtimeBinding !== null &&
+      input.taskId !== undefined &&
+      taskIsDescendantOf(
+        input.taskId,
+        runtimeBinding.taskId,
+        (current) => input.projection.read(current).snapshot.task?.metadata?.parentTaskId ?? null,
+      )
+        ? input.taskId
+        : null,
     authorization = authorizationDecision;
   const decision = decideDocWrite({
     intent,
@@ -108,6 +120,7 @@ export function adjudicateDocIntent(
     retirementReason,
     resolvedTaskIds,
     ...(runtimeBinding ? { runtimeBinding } : {}),
+    ...(runtimeDelegatedTaskId ? { runtimeDelegatedTaskId } : {}),
   });
   return decision.accepted
     ? { accepted: true, decision: { ...decision, authorizationDecision } }

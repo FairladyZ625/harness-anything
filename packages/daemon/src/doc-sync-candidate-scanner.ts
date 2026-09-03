@@ -21,6 +21,7 @@ import {
   isTaskBoundRuntimeWriter,
   sameWriteSource,
   sha256Bytes,
+  taskIsDescendantOf,
   type ActorIdentity,
   type CanonicalEventStore,
   type DocWriteIntent,
@@ -119,7 +120,15 @@ export function scanDocCandidates(input: {
       )
       .sort(),
     baseLedgerSha = input.inventory?.baseLedgerSha ?? input.store.currentCut(),
-    execution = executionBinding(paths, input.executionId, input.projection, input.actor, input.source, input.now),
+    execution = executionBinding(
+      paths,
+      input.executionId,
+      input.projection,
+      input.actor,
+      input.source,
+      input.now,
+      input.taskId,
+    ),
     runtimeSessionId = runtimeSessionIdFromActor(input.actor),
     runtimeSession = runtimeSessionId === null ? null : input.projection.readRuntimeSession(runtimeSessionId),
     runtimeBinding =
@@ -254,6 +263,7 @@ export function scanDocCandidates(input: {
         claims: [bytes],
         resolvedTaskIds: [input.projection.taskIdForDocumentPath(logical)],
         ...(runtimeBinding ? { runtimeBinding } : {}),
+        ...(execution.runtimeDelegatedTaskId ? { runtimeDelegatedTaskId: execution.runtimeDelegatedTaskId } : {}),
       });
     if (decision.accepted) return scannedCandidateRow("eligible", null, bytes, base, candidate, mediaType);
     const unresolved = decision.detail.unresolvedTouches,
@@ -409,13 +419,20 @@ function executionBinding(
   actor: ActorIdentity,
   source: WriteSource,
   now: string,
+  taskId: string | undefined,
 ) {
-  if (explicit) return { id: explicit, candidates: [], lease: projection.currentLeaseForExecution(explicit, now) };
+  if (explicit)
+    return {
+      id: explicit,
+      candidates: [],
+      lease: projection.currentLeaseForExecution(explicit, now),
+      runtimeDelegatedTaskId: null,
+    };
   const tasks = new Set(paths.flatMap((value) => projection.taskIdForDocumentPath(value) ?? [])),
     runtimeSessionId = runtimeSessionIdFromActor(actor);
   if (runtimeSessionId !== null) {
     const session = projection.readRuntimeSession(runtimeSessionId),
-      matches =
+      exactMatches =
         session?.taskBindings.flatMap((binding) => {
           if (!tasks.has(binding.taskId)) return [];
           const lease = projection.currentLeaseForExecution(binding.executionId, now),
@@ -425,10 +442,40 @@ function executionBinding(
             ? [{ id: binding.executionId, lease }]
             : [];
         }) ?? [],
+      descendantMatches =
+        exactMatches.length > 0 || taskId === undefined || !tasks.has(taskId)
+          ? []
+          : (session?.taskBindings.flatMap((binding) => {
+              if (
+                !taskIsDescendantOf(
+                  taskId,
+                  binding.taskId,
+                  (current) => projection.read(current).snapshot.task?.metadata?.parentTaskId ?? null,
+                )
+              )
+                return [];
+              const lease = projection.currentLeaseForExecution(binding.executionId, now),
+                runtimeBinding = resolveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
+              if (lease === null || runtimeBinding === null) return [];
+              return isTaskBoundRuntimeWriter(lease, actor, source, runtimeBinding)
+                ? [{ id: binding.executionId, lease }]
+                : [];
+            }) ?? []),
+      matches = exactMatches.length > 0 ? exactMatches : descendantMatches,
       unique = [...new Map(matches.map((match) => [match.id, match])).values()];
     return unique.length === 1
-      ? { id: unique[0]!.id, candidates: [], lease: unique[0]!.lease }
-      : { id: null, candidates: unique.map((match) => match.id).sort(), lease: null };
+      ? {
+          id: unique[0]!.id,
+          candidates: [],
+          lease: unique[0]!.lease,
+          runtimeDelegatedTaskId: exactMatches.length === 0 ? (taskId ?? null) : null,
+        }
+      : {
+          id: null,
+          candidates: unique.map((match) => match.id).sort(),
+          lease: null,
+          runtimeDelegatedTaskId: null,
+        };
   }
   // Channel selection must authorize the caller, not just observe the scanned
   // path set: pinning a non-holder to a task lease they cannot hold turns a
@@ -444,8 +491,9 @@ function executionBinding(
       current?.phase === "held" && isSameExecution(current.actor, actor) && sameWriteSource(current.source, source)
         ? current
         : null;
-  return { id: lease?.executionId ?? null, candidates: [], lease };
+  return { id: lease?.executionId ?? null, candidates: [], lease, runtimeDelegatedTaskId: null };
 }
+
 function dirtyPaths(repoRoot: string, authoredPrefix: string): string[] {
   const scope = authoredPrefix || ".",
     changed = gitNames(repoRoot, ["diff", "--name-only", "-z", "HEAD", "--", scope]),

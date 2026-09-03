@@ -123,8 +123,14 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
   for (const [index, change] of input.intent.changes.entries()) {
     const current = input.documents[index] ?? null,
       route = resolveDocRoute(change.path),
-      task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : (input.resolvedTaskIds[index] ?? null);
-    if (runtimeWorker && !directHolder && (task !== input.runtimeBinding!.taskId || !taskArtifactPath(change.path)))
+      task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : (input.resolvedTaskIds[index] ?? null),
+      delegatedRuntimeTask = runtimeWorker && task === input.runtimeDelegatedTaskId;
+    if (
+      runtimeWorker &&
+      !directHolder &&
+      !delegatedRuntimeTask &&
+      (task !== input.runtimeBinding!.taskId || !taskArtifactPath(change.path))
+    )
       unresolvedTouches.push(
         touch(
           change.path,
@@ -135,7 +141,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
           "task-bound-runtime-artifacts",
         ),
       );
-    if (task !== null && input.lease !== null && task !== input.lease.taskId)
+    if (task !== null && input.lease !== null && task !== input.lease.taskId && !delegatedRuntimeTask)
       unresolvedTouches.push(
         touch(change.path, null, "target task does not match the execution lease", "matching-task-lease"),
       );

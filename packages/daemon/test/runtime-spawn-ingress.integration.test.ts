@@ -11,7 +11,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   definition,
   installation,
@@ -634,6 +634,118 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         } finally {
           replay.close();
         }
+      },
+    );
+    await t.test(
+      "a task-bound runtime syncs and dispatches its descendant task but not an unrelated task",
+      async () => {
+        const parentTaskId = "task-runtime-commander-parent",
+          parentExecutionId = "exec-runtime-commander-parent",
+          unrelatedTaskId = "task-runtime-commander-unrelated";
+        await createReadyTask(parentTaskId, "Runtime commander parent");
+        assert.equal(
+          (await host.run(repoId, { kind: "task-start", taskId: parentTaskId, executionId: parentExecutionId }, auth))
+            .outcome,
+          "applied",
+        );
+        const commander = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Plan and dispatch the child task.",
+            taskId: parentTaskId,
+            idempotencyKey: "runtime-commander-parent",
+          },
+        });
+        assert.equal(commander.outcome, "applied", JSON.stringify(commander));
+        await eventuallyValue(
+          async () =>
+            makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.find(
+                (event) =>
+                  event.type === "runtime_session_task_bound" &&
+                  event.payload.runtimeSessionId === commander.runtimeSessionId,
+              ) ?? null,
+        );
+        const commanderExecutor = {
+            kind: "agent",
+            id: `runtime-session:${commander.runtimeSessionId}`,
+          } as const,
+          child = await host.run(
+            repoId,
+            {
+              kind: "task-create",
+              title: "Runtime commander child",
+              parentTaskId,
+              executor: commanderExecutor,
+            },
+            auth,
+          );
+        assert.equal(child.outcome, "applied", JSON.stringify(child));
+        assert.equal(typeof child.taskId, "string", JSON.stringify(child));
+        assert.equal(typeof child.packagePath, "string", JSON.stringify(child));
+        const childTaskId = String(child.taskId);
+        await realizeTaskPlanFixture(
+          root,
+          String(child.packagePath),
+          (_planPath) =>
+            host.run(repoId, { kind: "doc-submit", taskId: childTaskId, executor: commanderExecutor }, auth),
+          "Runtime commander child",
+        );
+
+        const childDispatch = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            taskId: childTaskId,
+            idempotencyKey: "runtime-commander-child",
+            executor: commanderExecutor,
+          },
+        });
+        assert.equal(childDispatch.outcome, "applied", JSON.stringify(childDispatch));
+        await eventuallyValue(
+          async () =>
+            makeTaskEventReader({ repoId, rootDir: root })
+              .read()
+              .events.find(
+                (event) =>
+                  event.type === "runtime_session_task_bound" &&
+                  event.payload.runtimeSessionId === childDispatch.runtimeSessionId &&
+                  event.payload.taskId === childTaskId,
+              ) ?? null,
+        );
+
+        await createReadyTask(unrelatedTaskId, "Runtime commander unrelated");
+        const unrelatedDoc = await host.run(
+          repoId,
+          { kind: "doc-submit", taskId: unrelatedTaskId, executor: commanderExecutor },
+          auth,
+        );
+        assert.deepEqual(
+          { outcome: unrelatedDoc.outcome, code: unrelatedDoc.code },
+          { outcome: "op_rejected", code: "executor_binding_invalid" },
+          JSON.stringify(unrelatedDoc),
+        );
+        const launchesBeforeUnrelated = launchCount,
+          unrelatedDispatch = await rpc(host, auth, "repo.agentRuntime.spawn", {
+            repo: { repoId },
+            payload: {
+              runtimeInstanceId: ingressDefinition.instanceId,
+              cwd: { scope: "repo-root" },
+              taskId: unrelatedTaskId,
+              idempotencyKey: "runtime-commander-unrelated",
+              executor: commanderExecutor,
+            },
+          });
+        assert.deepEqual(
+          { outcome: unrelatedDispatch.outcome, code: unrelatedDispatch.code },
+          { outcome: "op_rejected", code: "executor_binding_invalid" },
+          JSON.stringify(unrelatedDispatch),
+        );
+        assert.equal(launchCount, launchesBeforeUnrelated);
       },
     );
     await t.test(

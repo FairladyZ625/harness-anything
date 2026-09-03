@@ -51,6 +51,7 @@ export {
   isTaskBoundRuntimeWriter,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
+  taskIsDescendantOf,
 } from "./domain/task-bound-runtime-authority.ts";
 export type { TaskBoundRuntimeBinding } from "./domain/task-bound-runtime-authority.ts";
 export {

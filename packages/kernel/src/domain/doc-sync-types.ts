@@ -219,6 +219,8 @@ export interface DocWriteDecisionInput {
   /** Decision evaluated by the daemon AuthorizationPort for execution-bound writes. */
   readonly authorizationDecision: AuthorizationDecision | null;
   readonly runtimeBinding?: TaskBoundRuntimeBinding;
+  /** Strict descendant package selected by a task-bound runtime acting through its own live lease. */
+  readonly runtimeDelegatedTaskId?: string;
   readonly documents: readonly (DocumentState | null)[];
   readonly claims: readonly (Uint8Array | null)[];
   readonly resolvedTaskIds?: readonly (string | null)[];

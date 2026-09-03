@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
 import { DOC_POLICY_ID, decideDocWrite, documentPath, type DocumentState } from "../../src/domain/doc-sync.contract.ts";
-import { resolveTaskBoundRuntimeBinding } from "../../src/domain/task-bound-runtime-authority.ts";
+import { resolveTaskBoundRuntimeBinding, taskIsDescendantOf } from "../../src/domain/task-bound-runtime-authority.ts";
 import { validateWriteReceipt } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -61,6 +61,10 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
     });
   const accepted = run("tasks/task-owner-docs/artifacts/report.md", lease.taskId);
   assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+  const delegated = run("tasks/task-child-docs/task_plan.md", "task-child", {
+    runtimeDelegatedTaskId: "task-child",
+  });
+  assert.equal(delegated.accepted, true, JSON.stringify(delegated));
   for (const [name, result, code] of [
     [
       "canonical binding required",
@@ -72,6 +76,11 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
     ],
     ["assigned task required", run("tasks/task-other-docs/artifacts/report.md", "task-other"), "unresolved_touch"],
     ["artifacts subtree required", run("tasks/task-owner-docs/task_plan.md", lease.taskId), "unresolved_touch"],
+    [
+      "delegation remains task specific",
+      run("tasks/task-other-docs/task_plan.md", "task-other", { runtimeDelegatedTaskId: "task-child" }),
+      "unresolved_touch",
+    ],
   ] as const) {
     assert.equal(result.accepted, false, name);
     if (!result.accepted) assert.equal(result.code, code, name);
@@ -108,6 +117,24 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
     runtimeBinding,
   );
   assert.equal(resolveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), null);
+  const parents = new Map([
+    ["task-child", lease.taskId],
+    ["task-grandchild", "task-child"],
+    ["task-cycle-a", "task-cycle-b"],
+    ["task-cycle-b", "task-cycle-a"],
+  ]);
+  assert.equal(
+    taskIsDescendantOf("task-grandchild", lease.taskId, (taskId) => parents.get(taskId) ?? null),
+    true,
+  );
+  assert.equal(
+    taskIsDescendantOf("task-other", lease.taskId, (taskId) => parents.get(taskId) ?? null),
+    false,
+  );
+  assert.equal(
+    taskIsDescendantOf("task-cycle-a", lease.taskId, (taskId) => parents.get(taskId) ?? null),
+    false,
+  );
 });
 
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {
