@@ -15,6 +15,7 @@ import { consentJsonFields } from "../../preset/src/index.ts";
 import { type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import {
+  assertCurrentSubmittedExecution,
   explicitExecutionId,
   reviewExecutionSelection,
   reviewConsentSelection,
@@ -117,8 +118,9 @@ export function buildCommand(
     const amendment = action.amend === true,
       held = heldLeaseForExecutionActor(snapshot, undefined, binding.actor),
       flags = `${amendment ? " --amend" : ""} --json-input '<submission-json>'`,
+      requestedExecutionId = explicitExecutionId(action),
       executionId =
-        explicitExecutionId(action) ??
+        requestedExecutionId ??
         uniqueDerivedExecutionId(
           amendment ? currentSubmittedExecutions(snapshot) : held ? [held] : [],
           amendment ? "Current submitted execution" : "Authenticated active-lease execution",
@@ -130,6 +132,7 @@ export function buildCommand(
               : `Run ha task start ${taskId}, then retry ha task submit ${taskId} --json-input '<submission-json>'.`,
           (candidate) => `ha task submit ${taskId} --execution-id ${candidate}${flags}`,
         );
+    if (amendment && requestedExecutionId) assertCurrentSubmittedExecution(snapshot, taskId, requestedExecutionId);
     return normalizeTaskLifecycleCommand(bound, {
       type: "SubmitExecution",
       taskId,

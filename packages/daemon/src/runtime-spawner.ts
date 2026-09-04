@@ -52,6 +52,7 @@ import {
   assembleScheduledMission,
   assembleTaskMission,
   deriveTaskMission,
+  dispatchMissionForPermission,
   resolveRuntimeCwd,
   resolveRuntimeInstanceId,
   runtimeMissionName,
@@ -487,9 +488,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
       effectivePermissionMode = permissionMode ?? configuredPermissionMode,
       readOnlyDispatch = effectivePermissionMode === "read-only",
-      dispatchMission = readOnlyDispatch
-        ? `${selfContainedMission ?? mission}\n\n${readOnlyDispatchNotice}`
-        : (selfContainedMission ?? mission),
+      dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
       prompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
@@ -1044,14 +1043,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     timer.unref();
   }
 }
-
-const readOnlyDispatchNotice = [
-  "# Read-only Dispatch Contract",
-  "",
-  "Repository writes and daemon-ledger commands are unavailable in this runtime.",
-  "Do not call `ha task progress append`, `ha fact record`, or `ha doc sync --submit`;",
-  "return the complete report in final stdout for the dispatcher to persist.",
-].join("\n");
 
 function requiredRuntimeFast(value: unknown): boolean {
   if (typeof value !== "boolean") throw runtimeSpawnError("invalid_runtime_fast", "Runtime fast must be a boolean.");

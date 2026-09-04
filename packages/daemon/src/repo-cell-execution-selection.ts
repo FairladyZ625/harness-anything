@@ -14,6 +14,33 @@ export function explicitExecutionId(action: RepoTaskAction): string | undefined 
   return action.executionId === undefined ? undefined : requiredCellText(action.executionId, "executionId");
 }
 
+export function assertCurrentSubmittedExecution(
+  snapshot: Snapshot,
+  taskId: string,
+  requestedExecutionId: string,
+): void {
+  const currentIds = currentSubmittedExecutions(snapshot).map(({ executionId }) => executionId);
+  if (currentIds.includes(requestedExecutionId)) return;
+  const current = currentIds.length ? currentIds.join(", ") : "none",
+    expectation =
+      currentIds.length === 1
+        ? `Current submitted execution is ${current}; retry ha task submit ${taskId} --execution-id ${current} ` +
+          "--amend --json-input '<submission-json>'"
+        : `Choose a current submitted execution (${current}) after running ha task show ${taskId}`;
+  throw cellCodedError(
+    "invalid_transition",
+    `Execution ${requestedExecutionId} is not the current submitted execution for task ${taskId}; ` +
+      `current submitted execution: ${current}.`,
+    {
+      kind: "validation",
+      entity: `task ${taskId}`,
+      field: "executionId",
+      actual: requestedExecutionId,
+      expectation,
+    },
+  );
+}
+
 export function uniqueDerivedExecutionId(
   candidates: readonly { readonly executionId: string }[],
   label: string,

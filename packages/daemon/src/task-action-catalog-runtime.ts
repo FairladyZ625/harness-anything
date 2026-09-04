@@ -101,8 +101,6 @@ export async function runTaskActionCatalogRuntime(
       slot: "task.plan",
       transition: "task.start",
     });
-  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
   try {
     normalized = cell.buildCommand(
@@ -131,6 +129,8 @@ export async function runTaskActionCatalogRuntime(
     return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
       submitValidationEvaluation,
     ]);
+  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (
     contract?.target.kind === "task" &&
     revisionIssues(current.snapshot, {

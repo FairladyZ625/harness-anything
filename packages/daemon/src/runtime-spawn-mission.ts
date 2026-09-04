@@ -51,6 +51,19 @@ export function assembleAgentPrompt(
   ].join("\n\n");
 }
 
+export function dispatchMissionForPermission(mission: string, permissionMode: string | undefined): string {
+  if (permissionMode !== "read-only") return mission;
+  return [
+    mission,
+    "",
+    "# Read-only Dispatch Contract",
+    "",
+    "Repository writes and daemon-ledger commands are unavailable in this runtime.",
+    "Do not call `ha task progress append`, `ha fact record`, or `ha doc sync --submit`;",
+    "return the complete report in final stdout for the dispatcher to persist.",
+  ].join("\n");
+}
+
 export async function resolveRuntimeInstanceId(input: {
   readonly requested?: string;
   readonly providerSessionId?: string;
