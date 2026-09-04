@@ -36,6 +36,21 @@ type LocatorBridge = {
 
 const bridge = (): Partial<LocatorBridge> => (window.harness as unknown as Partial<LocatorBridge> | undefined) ?? {};
 
+/**
+ * locator 正文读的 query 声明。渲染面与深链接预取共用同一份 key / 读函数 / 新鲜度 /
+ * 适用判定,不在两处各拼一份——两处拼出不同的 key 就会各读一次,拼出不同的适用
+ * 判定就会给渲染不了的指针白发一次 IPC。
+ */
+export function entityLocatorContentQuery(repoId: string, locator: EntityLocator) {
+  return {
+    queryKey: ["entity-locator", repoId, locator.kind, locator.value] as const,
+    queryFn: () => readEntityLocatorContent(repoId, locator),
+    // 只有仓内路径指针能读出正文;别的指针走元数据卡,没有可读的内容。
+    enabled: locator.kind === "repository-path",
+    staleTime: 4_000,
+  };
+}
+
 export async function readEntityLocatorContent(repoId: string, locator: EntityLocator): Promise<EntityLocatorContent> {
   const channel = bridge().readEntityLocator;
   if (!channel) throw new Error("Entity locator bridge is unavailable.");

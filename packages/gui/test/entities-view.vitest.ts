@@ -222,9 +222,14 @@ async function renderSurface(element: ReturnType<typeof createElement>): Promise
   return container;
 }
 
+/**
+ * 一拍宏任务 = react-query 通知订阅者的一轮。判据是「一轮通知内内容就位」,不是
+ * 「若干毫秒内碰运气」:读链每多一段渲染门控的串行读,就要多一拍,这里必然红。
+ * 原来的 20ms 预算在快机器上能盖住多余的轮次,只在 CI 上间歇性地暴露出来。
+ */
 async function settle(): Promise<void> {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
 

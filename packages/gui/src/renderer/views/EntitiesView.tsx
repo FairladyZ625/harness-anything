@@ -1,10 +1,14 @@
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { BookOpen } from "@phosphor-icons/react";
 import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
 import { EntityDocDetailView } from "./EntityDocDetailView.tsx";
-import { useEntityKindCatalog } from "../entity-kind-data.ts";
+import { entityKindQueryKeys, governedEntityRowsQuery, useEntityKindCatalog } from "../entity-kind-data.ts";
+import { entityLocatorContentQuery } from "../entity-locator-client.ts";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
+import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 
 /**
  * 实体说明面(dec_2935057783CD5D56E9F287AE4D CH4):三元语与扩展实体集中在一
@@ -35,6 +39,7 @@ export function EntitiesView({
   const liveCounts = useEntityLiveCounts(repoId);
   // 分组来自已注册 kind 读面:声明一个新 kind,这一页不改代码就多一条目录项。
   const { catalog } = useEntityKindCatalog(repoId);
+  useDeepLinkedEntityContent(repoId, focusedRef);
   const groups = entityDocGroups(catalog);
   const focus = resolveEntityDocFocus(focusedRef, catalog);
   if (focus)
@@ -156,6 +161,34 @@ function liveLabel(live: EntityLiveCount): string {
   if (live.state === "ready") return `${live.count}`;
   if (live.state === "error") return "读取失败";
   return "…";
+}
+
+/**
+ * 落点数据的预取:让深链接的正文不被渲染门控。
+ *
+ * 不预取时这条读链是三段串行,而且每段都要等上一段**渲染完**才开始:kind 目录回
+ * 来详情才挂载,详情挂载了行读才发出,行读回来才知道选中谁、才挂渲染面,渲染面
+ * 挂上了 locator 正文读才发出。query 通知订阅者走宏任务,于是深链接的正文比别的
+ * 落点整整多等两轮——本地看不出来,CI 上就是间歇性的空白右栏。
+ *
+ * 依赖是数据依赖,不是渲染依赖:行读不依赖 kind 目录,locator 只依赖行读。所以在
+ * 挂载当拍直接按数据依赖把两段拉进 query 缓存,渲染面照常消费同一份声明(命中缓
+ * 存,不重复读)。落点不是声明实体时没有行能匹配上 ref,链在第一段自然停住。
+ */
+function useDeepLinkedEntityContent(repoId: string, focusedRef: string | null) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (focusedRef === null) return;
+    void (async () => {
+      await queryClient.prefetchQuery(governedEntityRowsQuery(repoId));
+      const rows = queryClient.getQueryData<readonly GovernedEntityRow[]>(entityKindQueryKeys.rows(repoId));
+      const locator = rows?.find((entity) => entity.ref === focusedRef)?.locator ?? null;
+      if (locator === null) return;
+      const content = entityLocatorContentQuery(repoId, locator);
+      if (!content.enabled) return;
+      await queryClient.prefetchQuery(content);
+    })();
+  }, [focusedRef, queryClient, repoId]);
 }
 
 /**

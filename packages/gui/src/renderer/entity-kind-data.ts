@@ -55,14 +55,19 @@ export function useEntityKindOptions(repoId: string): readonly EntityTypeOption[
   );
 }
 
+/** 声明实体行读的 query 选项:面板消费与深链接预取共用同一份 key 与新鲜度。 */
+export function governedEntityRowsQuery(repoId: string) {
+  return {
+    queryKey: entityKindQueryKeys.rows(repoId),
+    queryFn: () => readGovernedEntityRows(repoId),
+    staleTime: 4_000,
+  };
+}
+
 const NO_GOVERNED_ROWS: readonly GovernedEntityRow[] = [];
 
 /** 声明实体的行:领地分块与聚光灯节点的数据源。读失败/未就绪时是空,不冒充有数据。 */
 export function useGovernedEntityRows(repoId: string): readonly GovernedEntityRow[] {
-  const query = useQuery({
-    queryKey: entityKindQueryKeys.rows(repoId),
-    queryFn: () => readGovernedEntityRows(repoId),
-    staleTime: 4_000,
-  });
+  const query = useQuery(governedEntityRowsQuery(repoId));
   return query.data ?? NO_GOVERNED_ROWS;
 }

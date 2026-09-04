@@ -6,7 +6,7 @@ import { HtmlArtifactPreview } from "../HtmlArtifactPreview.tsx";
 import { DocTree } from "../taskDetail/DocTree.tsx";
 import { buildDocTree } from "../../model/docTree.ts";
 import type { DocEntry } from "../../model/types.ts";
-import { readEntityLocatorContent } from "../../entity-locator-client.ts";
+import { entityLocatorContentQuery } from "../../entity-locator-client.ts";
 import { selectEntityLocatorRenderer, type EntityLocator } from "../../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../../artifact-open-client.ts";
 
@@ -24,12 +24,7 @@ export function EntityLocatorPreview({
   readonly locator: EntityLocator;
 }) {
   const renderer = selectEntityLocatorRenderer(locator);
-  const read = useQuery({
-    queryKey: ["entity-locator", repoId, locator.kind, locator.value],
-    queryFn: () => readEntityLocatorContent(repoId, locator),
-    enabled: locator.kind === "repository-path",
-    staleTime: 4_000,
-  });
+  const read = useQuery(entityLocatorContentQuery(repoId, locator));
 
   if (renderer === "opaque")
     return <OpaqueLocator repoId={repoId} locator={locator} note="这个指针没有对应的 GUI 渲染器。" />;
