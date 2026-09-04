@@ -25,6 +25,7 @@ export default Object.freeze({
     {
       id: "G17",
       phase: "P2",
+      workflow: ".github/workflows/pr-body.yml",
       job: "evidence-contract",
       command: 'node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"',
     },
@@ -48,6 +49,7 @@ export default Object.freeze({
     {
       id: "G33",
       phase: "P2",
+      workflow: ".github/workflows/pr-body.yml",
       job: "production-delta",
       command: 'node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"',
     },

@@ -2,7 +2,7 @@ name: rewrite-ci
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize]
   push:
     branches:
       - main
@@ -25,32 +25,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  pr-body-lint:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Run PR body manifest gates
-        env:
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || '' }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
-        run: node tools/run-manifest-gates.mjs --workflow-job pr-body-lint
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-pr-body-lint
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
-
   full-check:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest

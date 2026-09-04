@@ -4,11 +4,7 @@ on:
   pull_request:
     branches:
       - "main"
-    types: [opened, reopened, synchronize, edited]
-  pull_request_target:
-    branches:
-      - "main"
-    types: [opened, reopened, synchronize, edited]
+    types: [opened, reopened, synchronize]
   push:
     branches:
       - "main"
@@ -23,7 +19,6 @@ env:
 
 jobs:
   gate-contract-tests:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +30,6 @@ jobs:
       - run: node --test tools/gates/test/*.test.mjs
 
   derived-contracts:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,18 +41,7 @@ jobs:
       - run: npm ci
       - run: node tools/gates/derived-contracts.mjs --check
 
-  evidence-contract:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - run: node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"
-
   platform-smoke:
-    if: github.event_name != 'pull_request_target'
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +58,6 @@ jobs:
       - run: node tools/gates/platform-smoke.mjs
 
   schema-closure:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +70,6 @@ jobs:
       - run: node tools/gates/schema-closure.mjs --check
 
   canonical-event-compat:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +81,6 @@ jobs:
       - run: node tools/gates/canonical-event-compat.mjs --check
 
   test-selection:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +95,6 @@ jobs:
           node tools/gates/test-selection.mjs --base origin/main
 
   clean-build:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +108,6 @@ jobs:
       - run: node tools/gates/clean-build.mjs --temp
 
   dependency-policy:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -141,7 +119,6 @@ jobs:
       - run: node tools/gates/dependency-policy.mjs
 
   line-budget:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -169,7 +146,6 @@ jobs:
           retention-days: 14
 
   line-density:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -184,7 +160,6 @@ jobs:
           node tools/gates/line-density.mjs --base origin/main
 
   cost-budget:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -196,45 +171,7 @@ jobs:
       - name: Reject deterministic cost regressions (G37)
         run: node tools/gates/cost-budget.mjs
 
-  production-delta:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Start structured CI observation timer
-        run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
-      - name: Verify declared production delta
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
-          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
-        run: |
-          git fetch --no-tags origin main
-          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
-          node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
-      - name: Finalize structured CI observation artifact
-        if: always()
-        run: node tools/write-ci-observation.mjs
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-G33
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: error
-          retention-days: 14
-
   lint:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,7 +183,6 @@ jobs:
       - run: npm run lint
 
   entity-id-links:
-    if: github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

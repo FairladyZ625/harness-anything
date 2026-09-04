@@ -267,6 +267,7 @@ function writeFixture(
 
   writeFileSync(path.join(root, "tools/gate-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), workflow, "utf8");
+  writeFileSync(path.join(root, ".github/workflows/pr-body.yml"), "name: pr-body\non: pull_request\njobs:\n", "utf8");
   if (protectedSurfaces.length > 0) {
     for (const file of trackedFiles) {
       const absolute = path.join(root, file);

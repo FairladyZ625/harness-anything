@@ -95,6 +95,8 @@ export function selectManifestGateIds(manifest, options) {
         [
           ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
           ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []),
+          ...(gate.executionSurfaces?.prBody?.pullRequestJobs ?? []),
+          ...(gate.executionSurfaces?.prBody?.nonPullRequestJobs ?? []),
         ].includes(options.workflowJob),
       );
   }

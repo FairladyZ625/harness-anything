@@ -57,7 +57,7 @@ Each gate entry must declare:
 - `bypassFixtureRequired`: `true` for boundary gates that require documented
   bypass fixture coverage under ADR-0022 D7.
 - `executionSurfaces`: machine-readable reconciliation with `package.json`,
-  `rewrite-ci.yml`, and branch protection. Its `classes` array uses `local`,
+  `rewrite-ci.yml`, `pr-body.yml`, and branch protection. Its `classes` array uses `local`,
   `pr`, `main-full`, `nightly`, and `manual`. `rewriteCi.scheduleOnly: true`
   distinguishes a step inside the `full-check` job that runs only on schedule.
 
@@ -70,7 +70,7 @@ Each gate entry must declare:
 2. a governance-required protected surface derives no rule that matches a
    tracked repository file; or
 3. canonical surface labels, declared workflow jobs, and the actual
-   `.github/workflows/rewrite-ci.yml` job/step graph disagree.
+   `.github/workflows/rewrite-ci.yml` or `.github/workflows/pr-body.yml` job/step graph disagree.
 
 The checker also requires the v2 classification and positive-control fields on
 every gate. Its positive-control test deliberately declares a deterministic gate
@@ -191,8 +191,10 @@ The registry records:
   `gui-build`, `node26-compatibility`, and `pr-body-lint`.
 - 2 PR-body meta-governance commands under the `pr-body-lint` required
   context: bilingual body structure and protected-surface governance
-  declaration shape.
+  declaration shape. That job and the manifest-registered `production-delta`
+  and `evidence-contract` jobs run from `.github/workflows/pr-body.yml`.
 
 Workflow helper jobs listed under
-`surfaces.rewriteCi.helperJobsNotRegisteredAsGates` are intentionally not
+Workflow helper jobs listed under a workflow surface's
+`helperJobsNotRegisteredAsGates` are intentionally not
 registered as gates.

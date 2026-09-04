@@ -28,7 +28,6 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   assert.equal(boundaryCommands[0][1], undefined);
 
   for (const job of [
-    "pr-body-lint",
     "typecheck",
     "fast-contract",
     "integration-shard",
@@ -39,6 +38,10 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
     "node26-compatibility",
   ]) {
     assert.match(workflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain a general PR lane`);
+  }
+  const prBodyWorkflow = readFileSync(path.join(repoRoot, ".github/workflows/pr-body.yml"), "utf8");
+  for (const job of ["pr-body-lint", "production-delta", "evidence-contract"]) {
+    assert.match(prBodyWorkflow, new RegExp(`^  ${job}:`, "mu"), `${job} must remain in the PR-body workflow`);
   }
 });
 
@@ -267,6 +270,7 @@ function writeFixture(root, overrides = {}) {
   writeFileSync(path.join(root, "tools/gate-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   writeFileSync(path.join(root, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
   writeFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), workflow, "utf8");
+  writeFileSync(path.join(root, ".github/workflows/pr-body.yml"), "name: pr-body\non: pull_request\njobs:\n", "utf8");
   writeFileSync(path.join(root, ".github/branch-protection.md"), branchProtection, "utf8");
 }
 
