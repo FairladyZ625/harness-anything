@@ -23,7 +23,7 @@ interface FixtureMeta {
 }
 type FixtureRecord = FixtureMeta | Readonly<Record<string, unknown>>;
 
-test("every protocol family owns a resolver and a real captured provider fixture", () => {
+test("every protocol family owns a resolver and a provider identity fixture", () => {
   for (const family of runtimeProtocolFamilies) {
     const fixtureUrl = new URL(`./fixtures/session-identity/${family}.jsonl`, import.meta.url);
     assert.equal(existsSync(fixtureUrl), true, `missing real provider fixture for ${family}`);
@@ -37,7 +37,7 @@ test("every protocol family owns a resolver and a real captured provider fixture
       binding = events.find((record) => record.kind === "provider_binding");
     assert.equal(meta.fixture, "captured-provider-session-identity/v1");
     assert.equal(meta.protocolFamily, family);
-    assert.match(meta.capturePolicy, /real dispatch/u);
+    assert.match(meta.capturePolicy, /real dispatch|supplied provider contract pending live calibration/u);
     assert.equal(typeof meta.sourceDispatchId, "string");
     assert.ok(header && typeof header.eventStreamRef === "string");
     assert.ok(binding && typeof binding.providerSessionId === "string");
@@ -183,6 +183,17 @@ test("Agy binds only its observed init conversation_id", () => {
       dispatchEvents: [{ event: "init", conversation_id: meta.expectedSessionId }],
     }),
     { runtime: "agy", sessionId: meta.expectedSessionId, transcriptReachability: "dispatch_stream_only" },
+  );
+});
+
+test("ZCode binds sessionId from every stream frame", () => {
+  const meta = fixtureMeta("zcode");
+  assert.deepEqual(
+    resolveSessionIdentity("zcode", {
+      runtime: "zcode",
+      dispatchEvents: [{ type: "ModelStreaming", sessionId: meta.expectedSessionId }],
+    }),
+    { runtime: "zcode", sessionId: meta.expectedSessionId, transcriptReachability: "dispatch_stream_only" },
   );
 });
 

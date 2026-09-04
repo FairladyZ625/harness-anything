@@ -28,6 +28,7 @@ export const providerFrameParsers: Record<
   claude: parseClaudeFrame,
   codex: parseCodexFrame,
   agy: parseAgyFrame,
+  zcode: parseZcodeFrame,
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");
@@ -194,6 +195,37 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
   }
   throw new Error(`agy event ${String(value.event)} is unsupported`);
 }
+
+export function parseZcodeFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (!providerSessionId) throw new Error("ZCode frame is incomplete");
+  const payload = isPlainRecord(value.payload) ? value.payload : null;
+  if (value.type === "model.streaming" && payload) {
+    if (payload.kind === "text_delta" && typeof payload.delta === "string" && payload.delta)
+      return { signals: [{ type: "activity", activity: "message", content: payload.delta }] };
+    if (payload.kind === "reasoning_delta" && typeof payload.delta === "string" && payload.delta)
+      return { signals: [{ type: "activity", activity: "thinking", content: payload.delta }] };
+    if (payload.kind === "tool_call")
+      return {
+        signals: [{ type: "activity", activity: "tool", content: JSON.stringify(payload) }],
+        toolCallObserved: true,
+        writeItemObserved: zcodeWriteTools.has(String(payload.toolName)),
+      };
+    return {};
+  }
+  if (value.type === "turn.failed") {
+    const error = payload && isPlainRecord(payload.error) ? payload.error : null,
+      message = error && typeof error.message === "string" ? error.message : null;
+    return { outcome: "failed", failureText: message ?? "ZCode turn failed" };
+  }
+  if (value.type !== "result") return {};
+  // Live sample (zcode 0.16.5): a successful run ends with {type:"result", response, usage, eventCount};
+  // a failed run ends with turn.failed and never emits a result frame.
+  if (typeof value.response !== "string" || !isPlainRecord(value.usage))
+    throw new Error("ZCode result frame is incomplete");
+  return { finalText: value.response, outcome: "succeeded" };
+}
+
+const zcodeWriteTools: ReadonlySet<string> = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit"]);
 
 export function planHasIncompleteItems(item: Record<string, unknown>): boolean {
   const value = isPlainRecord(item.input) ? item.input : item,

@@ -90,8 +90,10 @@ export function discoverRuntimeModelCatalog(input: {
   const discovered = (async () => {
     let models: string[] = [];
     try {
-      const declaration = runtimeKindForId(input.kindId),
-        args = declaration.executable.modelProbe,
+      const declaration = runtimeKindForId(input.kindId);
+      // A null probe is an explicit unavailable catalog, never an empty successful probe.
+      if (declaration.executable.modelProbe === null) return null;
+      const args = declaration.executable.modelProbe,
         output = await runExecutable(input.platform, input.executablePath, args, {
           env: input.env,
           timeoutMs: 8_000,

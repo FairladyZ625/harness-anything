@@ -290,6 +290,10 @@ test("runtime installation discovery projects each provider's detected model cat
       path.join(bin, "claude"),
       `const args = process.argv.slice(2); if (args[0] === "--version") console.log("claude-test"); else if (args[0] === "--help") console.log("aliases 'fable', 'sonnet', and 'opus'");\n`,
     );
+    writeProviderExecutable(
+      path.join(bin, "zcode"),
+      `const args = process.argv.slice(2); if (args[0] === "--version") console.log("zcode-test"); else process.exitCode = 1;\n`,
+    );
     const rows = await discoverRuntimeInstallations({ env: { PATH: bin }, now: () => "2026-08-22T00:00:00.000Z" });
     assert.deepEqual(
       rows.map(({ kindId, models, defaultModel }) => ({ kindId, models, defaultModel })),
@@ -297,6 +301,8 @@ test("runtime installation discovery projects each provider's detected model cat
         { kindId: "agy", models: ["gemini-high", "gemini-low"], defaultModel: "gemini-high" },
         { kindId: "claude", models: ["fable", "sonnet", "opus"], defaultModel: "fable" },
         { kindId: "codex", models: ["gpt-sol", "gpt-terra"], defaultModel: "gpt-sol" },
+        // modelProbe: null means catalog unavailable, not a successfully probed empty catalog.
+        { kindId: "zcode", models: undefined, defaultModel: undefined },
       ],
     );
   } finally {
