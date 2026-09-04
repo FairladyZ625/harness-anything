@@ -204,6 +204,31 @@ test("supply-chain check rejects Dependabot directory under wrong ecosystem", as
   });
 });
 
+test("supply-chain check passes and annotates when the advisory endpoint is unreachable", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { auditBehavior: "unavailable" });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /::warning title=Supply chain audit did not run::/u);
+    assert.match(result.stdout, /could not reach the advisory endpoint and did not run/u);
+    assert.doesNotMatch(result.stderr, /Supply chain check failed/u);
+  });
+});
+
+test("supply-chain check still fails when the audit runs and finds a vulnerability", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { auditBehavior: "vulnerable" });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /npm audit --audit-level=high failed/u);
+    assert.doesNotMatch(result.stdout, /::warning title=Supply chain audit did not run::/u);
+  });
+});
+
 function runCheck(root) {
   return spawnSync(process.execPath, [scriptPath], {
     cwd: root,
@@ -310,7 +335,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator);
+  writeMockNpm(root, options.sbomMutator, options.auditBehavior);
 }
 
 function validReadme() {
@@ -357,7 +382,18 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root, sbomMutator) {
+const auditBehaviors = {
+  clean: ["  console.log('found 0 vulnerabilities');", "  process.exit(0);"],
+  // Shaped after npm's real output when the advisory endpoint is down.
+  unavailable: [
+    "  console.error('npm warn audit 503 Service Unavailable - POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk');",
+    "  console.error('npm error audit endpoint returned an error');",
+    "  process.exit(1);",
+  ],
+  vulnerable: ["  console.log('1 high severity vulnerability');", "  process.exit(1);"],
+};
+
+function writeMockNpm(root, sbomMutator, auditBehavior = "clean") {
   const mockPath = path.join(root, ".mock-bin/npm");
   const sbomValue = validSbom();
   sbomMutator?.(sbomValue);
@@ -369,8 +405,7 @@ function writeMockNpm(root, sbomMutator) {
       "#!/usr/bin/env node",
       "const args = process.argv.slice(2).join(' ');",
       "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-      "  console.log('found 0 vulnerabilities');",
-      "  process.exit(0);",
+      ...auditBehaviors[auditBehavior],
       "}",
       "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
       `  console.log(${JSON.stringify(sbom)});`,
