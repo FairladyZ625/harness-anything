@@ -17,6 +17,7 @@ export const guiVitestManifest = [
   "packages/gui/test/local-main-controls.vitest.ts",
   "packages/gui/test/secure-runtime-instance-broker.vitest.ts",
   "packages/gui/test/daemon-supervisor.vitest.ts",
+  "packages/gui/test/daemon-startup.vitest.ts",
   "packages/gui/test/renderer-app-model.vitest.ts",
   "packages/gui/test/fact-triage.vitest.ts",
   "packages/gui/test/taskFilters.vitest.ts",
