@@ -1,10 +1,6 @@
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
-import {
-  permissionLaunchArgs,
-  type RuntimeIsolationState,
-  type RuntimePermissionMode,
-} from "./runtime-permissions.ts";
+import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type {
   RuntimeInstanceKind,
   RuntimeInstanceConfig,
@@ -19,6 +15,7 @@ import {
   available,
   unavailable,
 } from "./agent-runtime-instance-config.ts";
+import { runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 
 // Platform-derived isolation environment. POSIX keeps HOME/TMPDIR/XDG_RUNTIME_DIR
 // semantics; Windows derives the same guarantees from USERPROFILE/TEMP/APPDATA and
@@ -32,10 +29,8 @@ export function isolatedEnvironment(
 ): NodeJS.ProcessEnv {
   const home = path.join(stateRoot, "home"),
     tmp = path.join(stateRoot, "tmp"),
-    kind =
-      kindId === "codex"
-        ? { CODEX_HOME: providerConfigDirectory(home, kindId) }
-        : { CLAUDE_CONFIG_DIR: providerConfigDirectory(home, kindId) };
+    environment = runtimeKindForId(kindId).executable.configHomeEnvironment,
+    kind = environment ? { [environment]: providerConfigDirectory(home, kindId) } : {};
   if (platform === "win32") {
     const result: NodeJS.ProcessEnv = {
       USERPROFILE: home,
@@ -68,44 +63,25 @@ export function launchArgs(
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
 ): string[] {
-  if (config.kindId === "claude")
-    return [
-      "-p",
-      "--verbose",
-      "--output-format",
-      "stream-json",
-      ...(permissionMode ? permissionLaunchArgs("claude", permissionMode) : []),
-      "--model",
-      model,
-      // Claude Code's lowest accepted value is `low`; it silently ignores `minimal`.
-      ...(effort ? ["--effort", effort === "minimal" ? "low" : effort] : []),
-      ...(config.auth.mode === "api-key" ? ["--bare"] : []),
-      ...(providerSessionId ? ["--resume", providerSessionId] : []),
-    ];
-  if (config.kindId === "agy")
-    return [
-      "-p",
-      prompt,
-      "--output-format",
-      "stream-json",
-      "--model",
-      model,
-      ...(permissionMode === "bypass" ? ["--dangerously-skip-permissions"] : []),
-      ...(effort ? ["--effort", effort] : []),
-      ...(providerSessionId ? ["--conversation", providerSessionId] : []),
-    ];
-  return [
-    "exec",
-    ...(providerSessionId ? ["resume"] : []),
-    "--json",
-    ...(permissionMode ? permissionLaunchArgs("codex", permissionMode, providerSessionId ? "resume" : "start") : []),
-    "--model",
-    model,
-    ...(effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : []),
-    ...(fast ? ["--config", `service_tier=${tomlString("fast")}`] : []),
-    ...(providerSessionId ? [providerSessionId] : []),
-    "-",
-  ];
+  const declaration = runtimeKindForId(config.kindId),
+    launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
+    permission = permissionMode
+      ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
+        launch.permissionArgs[permissionMode])
+      : [];
+  return launch.argumentTemplate.flatMap((token) => {
+    if (token === "$model") return [model];
+    if (token === "$prompt") return [prompt];
+    if (token === "$permission") return permission;
+    if (token === "$resume-command") return providerSessionId ? [launch.resumeFlag] : [];
+    if (token === "$session") return providerSessionId ? [providerSessionId] : [];
+    if (token === "$resume") return providerSessionId ? [launch.resumeFlag, providerSessionId] : [];
+    if (token === "$effort-flag") return effort ? ["--effort", effort === "minimal" ? "low" : effort] : [];
+    if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
+    if (token === "$api-auth") return config.auth.mode === "api-key" ? (launch.apiKeyArgs ?? []) : [];
+    if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
+    return [token];
+  });
 }
 
 export async function providerSubscriptionReadiness(
@@ -117,20 +93,12 @@ export async function providerSubscriptionReadiness(
   platform: NodeJS.Platform,
 ): Promise<RuntimeAuthReadiness> {
   try {
-    await runExecutable(
-      platform,
-      input.installation.executablePath,
-      input.installation.kindId === "codex"
-        ? ["login", "status"]
-        : input.installation.kindId === "agy"
-          ? ["models"]
-          : ["auth", "status", "--json"],
-      {
-        env: input.env,
-        timeoutMs: input.installation.kindId === "agy" ? 15_000 : 5_000,
-        captureOutput: false,
-      },
-    );
+    const declaration = runtimeKindForId(input.installation.kindId);
+    await runExecutable(platform, input.installation.executablePath, declaration.auth.subscriptionProbe, {
+      env: input.env,
+      timeoutMs: declaration.auth.subscriptionProbeTimeoutMs,
+      captureOutput: false,
+    });
     return available();
   } catch (error) {
     consumeKnownError(error);

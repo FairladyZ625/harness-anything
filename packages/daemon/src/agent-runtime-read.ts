@@ -27,6 +27,7 @@ import {
 import { buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { runtimeKindForInstallation } from "./runtime-inventory.ts";
+import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
@@ -298,7 +299,7 @@ function historicalRuntimeKindId(
   definition: AgentDefinitionSnapshot | null,
 ): AgentRuntimeSessionDto["kindId"] {
   const kindId = definition?.kindId ?? session.kindId;
-  if (kindId === "claude" || kindId === "codex" || kindId === "agy") return kindId;
+  if (isRuntimeKindId(kindId)) return kindId;
   throw coded("invalid_result", `Runtime session ${session.runtimeSessionId} has an unsupported runtime kind.`);
 }
 

@@ -680,7 +680,7 @@ const instanceSummary = {
   defaultModel: definition.model,
   enabled: true,
   permissionMode: "bypass",
-  codex: {
+  configuration: {
     reasoningEffort: definition.reasoningEffort,
     fast: false,
     baseUrl: definition.baseUrl,

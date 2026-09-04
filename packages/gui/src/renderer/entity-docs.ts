@@ -710,7 +710,7 @@ const adapterDoc: EntityKindDoc = {
   refTemplate: null,
   storage: "adapter 注册表(引擎接入面)",
   definition:
-    "外部引擎适配器:claude / codex / opencode 等引擎的接入与可写性。外部引擎管理的任务 GUI 只读,状态去对应系统改。",
+    "外部 issue tracker 适配器:local / multica 的接入与可写性。它不代表 agent runtime provider；外部系统管理的任务 GUI 只读。",
   fields: [
     field("adapterId", true, "string", "引擎 ID。"),
     field("capabilities", true, "array", "能力清单。"),

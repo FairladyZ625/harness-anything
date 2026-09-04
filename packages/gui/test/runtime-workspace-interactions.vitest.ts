@@ -243,7 +243,7 @@ const providerInstance = {
   enabled: true,
   permissionMode: "bypass",
   isolationState: "enforced",
-  codex: {
+  configuration: {
     reasoningEffort: null,
     baseUrl: null,
     baseUrlConfigured: false,
@@ -708,8 +708,8 @@ describe("runtime entry split (W6 IA)", () => {
       instanceId: "codex-api-edit",
       name: "Codex API Edit",
       authMode: "api-key" as const,
-      codex: {
-        ...(providerInstance as { readonly codex: object }).codex,
+      configuration: {
+        ...(providerInstance as { readonly configuration: object }).configuration,
         baseUrl: "https://old-gateway.example/v1",
         baseUrlConfigured: true,
       },

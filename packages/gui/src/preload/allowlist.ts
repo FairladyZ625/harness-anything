@@ -3,6 +3,7 @@ import { admitUseCaseProjectionSelector } from "../../../daemon/src/protocol/dae
 import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
 import { relationDirections, relationStates } from "../../../kernel/src/index.ts";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
+import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "../../../daemon/src/runtime-inventory.ts";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
   | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
@@ -30,9 +31,7 @@ const runtimeInstanceCreateFields = [
   "defaultModel",
   "permissionMode",
   "isolationState",
-  "claude",
-  "codex",
-  "agy",
+  ...runtimeKindIds,
   "authMode",
   "apiKey",
 ] as const;
@@ -198,8 +197,8 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
   for (const field of ["instanceId", "name", "installationId", "providerId"])
     if (typeof value[field] !== "string" || value[field].trim().length === 0)
       return `field "${field}" must be a non-blank string.`;
-  if (!["claude", "codex", "agy"].includes(String(value.kindId)))
-    return 'field "kindId" must be claude, codex, or agy.';
+  if (!isRuntimeKindId(value.kindId)) return `field "kindId" is unknown: ${String(value.kindId)}.`;
+  const declaration = runtimeKindForId(value.kindId);
   if (
     !Array.isArray(value.models) ||
     value.models.length === 0 ||
@@ -214,22 +213,25 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
     return 'field "defaultModel" must be one of the listed models.';
   if (!["subscription", "api-key"].includes(String(value.authMode)))
     return 'field "authMode" must be subscription or api-key.';
-  if (value.kindId === "agy" && value.authMode !== "subscription")
-    return 'field "authMode" must be subscription for agy.';
+  if (!declaration.auth.modes.some((mode) => mode === value.authMode))
+    return `field "authMode" is not supported for ${value.kindId}.`;
   if (
     value.permissionMode !== undefined &&
     !["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))
   )
     return 'field "permissionMode" must be bypass, workspace-write, or read-only.';
-  if (value.kindId === "agy" && value.permissionMode !== undefined)
-    return 'field "permissionMode" must be omitted for agy.';
+  if (!declaration.permissions.available && value.permissionMode !== undefined)
+    return `field "permissionMode" must be omitted for ${value.kindId}.`;
   if (
     value.isolationState !== undefined &&
     !["enforced", "operator-environment"].includes(String(value.isolationState))
   )
     return 'field "isolationState" must be enforced or operator-environment.';
-  if (value.kindId === "agy" && value.isolationState !== undefined && value.isolationState !== "operator-environment")
-    return 'field "isolationState" must be operator-environment for agy.';
+  if (
+    value.isolationState !== undefined &&
+    !declaration.isolation.states.some((state) => state === value.isolationState)
+  )
+    return `field "isolationState" is not supported for ${value.kindId}.`;
   if (value.kindId === "codex" && value.authMode === "api-key" && value.isolationState === "operator-environment")
     return 'field "isolationState" must be enforced for codex API-key auth.';
   if (value.authMode === "api-key" && (typeof value.apiKey !== "string" || value.apiKey.trim().length === 0))
@@ -239,45 +241,33 @@ function runtimeInstanceCreateProblem(value: unknown): string | undefined {
   return runtimeKindConfigProblem(value);
 }
 function runtimeKindConfigProblem(value: Record<string, unknown>): string | undefined {
-  const field = value.kindId === "codex" ? "codex" : value.kindId === "agy" ? "agy" : "claude",
-    other = ["claude", "codex", "agy"].filter((item) => item !== field),
+  if (!isRuntimeKindId(value.kindId)) return 'field "kindId" is unknown.';
+  const field = value.kindId,
+    declaration = runtimeKindForId(field),
+    other = runtimeKindIds.filter((item) => item !== field),
     config = value[field];
   const wrongKind = other.find((key) => value[key] !== undefined);
   if (wrongKind !== undefined) return `field "${wrongKind}" must be omitted when kindId is ${field}.`;
   if (!isPreloadPayloadRecord(config)) return `field "${field}" must be an object.`;
-  const fields =
-    field === "claude"
-      ? ["baseUrl"]
-      : field === "agy"
-        ? ["effort"]
-        : ["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"];
+  const fields = Object.keys(declaration.configuration.fields);
   if (!closed(config, fields)) {
     const nested = Object.keys(config).find((key) => !fields.includes(key));
     return `unexpected field "${field}.${nested}"; expected only ${fields.join(", ")}.`;
   }
-  if (field === "claude")
-    return config.baseUrl === undefined || typeof config.baseUrl === "string"
-      ? undefined
-      : 'field "claude.baseUrl" must be a string.';
-  if (field === "agy")
-    return config.effort === undefined || ["low", "medium", "high"].includes(String(config.effort))
-      ? undefined
-      : 'field "agy.effort" must be low, medium, or high.';
-  if (config.reasoningEffort !== undefined && typeof config.reasoningEffort !== "string")
-    return 'field "codex.reasoningEffort" must be a string.';
-  if (config.fast !== undefined && typeof config.fast !== "boolean") return 'field "codex.fast" must be a boolean.';
-  if (config.baseUrl !== undefined && typeof config.baseUrl !== "string")
-    return 'field "codex.baseUrl" must be a string.';
-  if (config.wireApi !== undefined && typeof config.wireApi !== "string")
-    return 'field "codex.wireApi" must be a string.';
-  if (config.requiresOpenAiAuth !== undefined && typeof config.requiresOpenAiAuth !== "boolean")
-    return 'field "codex.requiresOpenAiAuth" must be a boolean.';
-  if (
-    config.httpHeaders !== undefined &&
-    (!isPreloadPayloadRecord(config.httpHeaders) ||
-      Object.values(config.httpHeaders).some((item) => typeof item !== "string"))
-  )
-    return 'field "codex.httpHeaders" must be an object with string values.';
+  for (const [name, shape] of Object.entries(declaration.configuration.fields)) {
+    const item = config[name];
+    if (item === undefined) continue;
+    if (
+      (shape === "boolean" && typeof item !== "boolean") ||
+      (shape !== "boolean" && shape !== "headers" && typeof item !== "string")
+    )
+      return `field "${field}.${name}" has the wrong value type.`;
+    if (
+      shape === "headers" &&
+      (!isPreloadPayloadRecord(item) || Object.values(item).some((entry) => typeof entry !== "string"))
+    )
+      return `field "${field}.${name}" must be an object with string values.`;
+  }
   return undefined;
 }
 function validRuntimeInstanceUpdate(value: unknown): boolean {

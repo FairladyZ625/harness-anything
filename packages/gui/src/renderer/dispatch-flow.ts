@@ -9,7 +9,7 @@ import type { RuntimeSpawnInput } from "./runtime-control.ts";
 // 随「编排」入口撤销,task 派工链改由 Task 详情「派工」页签读结构化读面呈现。
 // dec_AB0672F220EE630C0A06C575B8:一个小队只派 Commander 一个会话(带 squadId 归属),
 // 下级由 Commander 在自己的会话里自主派出;界面不再构造 worker 清单或 worker 路由。
-export type RuntimeKindWord = "claude" | "codex" | "agy";
+export type RuntimeKindWord = string;
 export interface DispatchAgentRef {
   readonly agentId: string;
   readonly agentName: string;

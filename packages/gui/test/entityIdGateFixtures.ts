@@ -223,7 +223,7 @@ export const FIXTURE_INSTANCE: AgentRuntimeInstanceDto = {
   enabled: true,
   permissionMode: "workspace-write",
   kindId: "codex",
-  codex: {
+  configuration: {
     reasoningEffort: null,
     baseUrl: null,
     baseUrlConfigured: false,

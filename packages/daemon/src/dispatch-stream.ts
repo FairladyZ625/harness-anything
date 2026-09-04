@@ -62,7 +62,7 @@ export interface DispatchStreamHeader {
   readonly parentRuntimeSessionId?: string;
   readonly onExitCommand?: string;
   readonly dispatchOpId?: string;
-  readonly kindId?: "claude" | "codex" | "agy";
+  readonly kindId?: string;
   readonly permissionMode?: RuntimePermissionMode | null;
   readonly binding?: { readonly actor: ActorIdentity; readonly source: WriteSource };
   readonly cwd?: string;
@@ -662,7 +662,7 @@ function isRuntimeAttemptOutcome(
     !Array.isArray(provider) &&
     typeof (provider as Record<string, unknown>).instance === "string" &&
     typeof (provider as Record<string, unknown>).model === "string" &&
-    ["claude", "codex", "agy"].includes(String((provider as Record<string, unknown>).kind))
+    typeof (provider as Record<string, unknown>).kind === "string"
   );
 }
 function isHeader(value: Record<string, unknown> | null): value is Record<string, unknown> & DispatchStreamHeader {

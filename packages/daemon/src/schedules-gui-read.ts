@@ -29,6 +29,7 @@ import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-cont
 import { emptyScheduleHealthRollup, scheduleHealthRollupsFromEvents } from "./schedule-projection.ts";
 import { pageAllCanonicalEvents } from "./schedule-runs-read.ts";
 import { admitRepoMode } from "./repo-mode.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 
 /** Schedule GUI 读侧 join(S4)。上游事实全部来自已合入面:S1 的 ScheduleV1 领域形状与
  * nextScheduleOccurrence、S3 的投影/action 语义、dec_9C393CDA 的 residency 拆分。
@@ -376,11 +377,9 @@ function scheduleOptions(
       kindId: instance.kindId,
       models: instance.models,
       efforts:
-        instance.kindId === "codex"
+        runtimeKindForId(instance.kindId).gui.effort === "free"
           ? scheduleReasoningEfforts
-          : instance.kindId === "agy"
-            ? scheduleReasoningEfforts.filter((effort) => ["low", "medium", "high"].includes(effort))
-            : [],
+          : runtimeKindForId(instance.kindId).gui.effortValues,
     }));
   return {
     agents: [...agents].sort((left, right) => left.agentId.localeCompare(right.agentId)),

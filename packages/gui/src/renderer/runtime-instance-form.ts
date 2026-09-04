@@ -8,6 +8,7 @@ import {
   type RuntimeAuthMode,
   type RuntimeKindId,
 } from "./runtime-provider-planes.ts";
+import { runtimeKindForId } from "../../../daemon/src/runtime-inventory.ts";
 
 export type CreateInstanceFormState = {
   readonly instanceId: string;
@@ -39,6 +40,7 @@ export type RuntimeInstanceEditFormState = {
   readonly baseUrlEditable: boolean;
   /** Codex-only default used when an individual launch does not override it. */
   readonly fast: boolean;
+  readonly initialFast: boolean;
   readonly fastEditable: boolean;
 };
 
@@ -66,49 +68,35 @@ export function buildRuntimeInstanceCreatePayload(
       ...(defaultModel ? { defaultModel } : {}),
     },
     baseUrl = form.baseUrl.trim();
-  if (form.kindId === "agy") {
-    if (form.authMode !== "subscription") throw new Error("agy runtime instances support subscription OAuth only.");
-    return {
-      ...common,
-      kindId: "agy",
-      authMode: "subscription",
-      agy: {
-        ...(form.reasoningEffort.trim() ? { effort: form.reasoningEffort.trim() as "low" | "medium" | "high" } : {}),
-      },
-    };
-  }
+  const declaration = runtimeKindForId(form.kindId);
+  if (!declaration.auth.modes.some((mode) => mode === form.authMode))
+    throw new Error(`${form.kindId} runtime instances do not support ${form.authMode} authentication.`);
   const auth =
     form.authMode === "api-key"
       ? { authMode: "api-key" as const, apiKey: form.apiKey.trim() }
       : { authMode: "subscription" as const };
-  const isolation = { isolationState: form.isolation };
-  return form.kindId === "codex"
-    ? {
-        ...common,
-        ...auth,
-        kindId: "codex",
-        ...isolation,
-        permissionMode: form.permissionMode,
-        codex: {
-          ...(form.reasoningEffort.trim() ? { reasoningEffort: form.reasoningEffort.trim() } : {}),
-          ...(form.fast ? { fast: true } : {}),
-          ...(baseUrl ? { baseUrl } : {}),
-          ...(form.wireApi ? { wireApi: form.wireApi } : {}),
-          ...(form.requiresOpenAiAuth ? { requiresOpenAiAuth: true } : {}),
-        },
-      }
-    : {
-        ...common,
-        ...auth,
-        kindId: "claude",
-        ...isolation,
-        permissionMode: form.permissionMode,
-        claude: { ...(baseUrl ? { baseUrl } : {}) },
-      };
+  const fields = declaration.configuration.fields,
+    effortField = "reasoningEffort" in fields ? "reasoningEffort" : "effort",
+    configuration = {
+      ...(form.reasoningEffort.trim() && effortField in fields ? { [effortField]: form.reasoningEffort.trim() } : {}),
+      ...(form.fast && "fast" in fields ? { fast: true } : {}),
+      ...(baseUrl && "baseUrl" in fields ? { baseUrl } : {}),
+      ...(form.wireApi && "wireApi" in fields ? { wireApi: form.wireApi } : {}),
+      ...(form.requiresOpenAiAuth && "requiresOpenAiAuth" in fields ? { requiresOpenAiAuth: true } : {}),
+    };
+  return {
+    ...common,
+    ...auth,
+    kindId: form.kindId,
+    ...(declaration.permissions.available ? { permissionMode: form.permissionMode } : {}),
+    ...(declaration.isolation.states.length === 1 ? {} : { isolationState: form.isolation }),
+    [form.kindId]: configuration,
+  };
 }
 
 export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): RuntimeInstanceEditFormState {
-  const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode);
+  const editable = planeAllowsBaseUrl(instance.kindId, instance.authMode),
+    fastEditable = "fast" in runtimeKindForId(instance.kindId).configuration.fields;
   return {
     name: instance.name,
     installationId: instance.installationId,
@@ -117,15 +105,14 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     customModel: "",
     baseUrlEditable: editable,
     baseUrl: editable ? runtimeInstanceBaseUrl(instance) : "",
-    fast: instance.kindId === "codex" ? instance.codex.fast : false,
-    fastEditable: instance.kindId === "codex",
+    fast: fastEditable && instance.configuration.fast === true,
+    initialFast: fastEditable && instance.configuration.fast === true,
+    fastEditable,
   };
 }
 
 function runtimeInstanceBaseUrl(instance: RuntimeInstanceSummary): string {
-  if (instance.kindId === "claude") return instance.claude.baseUrl ?? "";
-  if (instance.kindId === "codex") return instance.codex.baseUrl ?? "";
-  return "";
+  return typeof instance.configuration.baseUrl === "string" ? instance.configuration.baseUrl : "";
 }
 
 export function runtimeCustomModels(value: string | undefined): readonly string[] {
@@ -178,7 +165,7 @@ export function buildRuntimeInstanceUpdatePayload(
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
     ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
-    ...(form.fastEditable ? { fast: form.fast } : {}),
+    ...(form.fastEditable && form.fast !== form.initialFast ? { fast: form.fast } : {}),
   };
 }
 
@@ -208,7 +195,7 @@ export function applyRuntimeKind(
     requiresOpenAiAuth: false,
     baseUrl: planeAllowsBaseUrl(kindId, authMode) ? form.baseUrl : "",
     reasoningEffort: planeAllowsEffort(kindId) ? form.reasoningEffort : "",
-    fast: kindId === "codex" ? form.fast : false,
+    fast: "fast" in runtimeKindForId(kindId).configuration.fields ? form.fast : false,
     permissionMode: defaults.permissionMode,
     isolation: defaults.isolation,
   };

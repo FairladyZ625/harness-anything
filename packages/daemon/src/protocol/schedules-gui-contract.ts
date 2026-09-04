@@ -53,7 +53,7 @@ export interface ScheduleGuiOptionsDto {
   readonly instances: readonly {
     readonly instanceId: string;
     readonly name: string;
-    readonly kindId: "claude" | "codex" | "agy";
+    readonly kindId: string;
     readonly models: readonly string[];
     readonly efforts: readonly string[];
   }[];
@@ -404,7 +404,8 @@ function validOptions(value: unknown): boolean {
         Object.keys(instance).length === 5 &&
         scheduleNonEmptyText(instance.instanceId) &&
         scheduleNonEmptyText(instance.name) &&
-        ["claude", "codex", "agy"].includes(String(instance.kindId)) &&
+        typeof instance.kindId === "string" &&
+        instance.kindId.length > 0 &&
         Array.isArray(instance.models) &&
         instance.models.every(scheduleNonEmptyText) &&
         Array.isArray(instance.efforts) &&

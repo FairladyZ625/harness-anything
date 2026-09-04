@@ -14,7 +14,6 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
 export class RuntimeSessionAdoptionStaleError extends Error {}
 
-export const runtimeProtocolFamilies = ["claude-compatible", "codex", "agy"] as const;
 export const runtimeCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
 export const runtimeLivenessStates = ["live", "stale", "unknown", "exited"] as const;
 export const transcriptReachabilityStates = ["by_session_id", "dispatch_stream_only", "unavailable"] as const;
@@ -47,7 +46,7 @@ export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: s
     rationale: "Runtime session is bound to the task execution.",
   };
 }
-export type RuntimeProtocolFamily = (typeof runtimeProtocolFamilies)[number];
+export type RuntimeProtocolFamily = string;
 export type RuntimeCapability = (typeof runtimeCapabilities)[number];
 export type RuntimeLiveness = (typeof runtimeLivenessStates)[number];
 export type AgentRuntimeEventType = (typeof agentRuntimeEventTypes)[number];
@@ -74,7 +73,7 @@ export interface AgentDefinitionSnapshot {
   readonly configVersion: 1;
   readonly instanceId: string;
   readonly installationId: string;
-  readonly kindId: "claude" | "codex" | "agy";
+  readonly kindId: string;
   readonly providerId: string;
   readonly model: string;
   readonly reasoningEffort: string | null;
@@ -420,7 +419,7 @@ function validateAgentRuntimePayloadFields(
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
     type === "runtime_installation_observed" &&
-    (!runtimeProtocolFamilies.includes(value.protocolFamily as RuntimeProtocolFamily) ||
+    (!isNonEmptyString(value.protocolFamily) ||
       !["wrapper", "hook"].includes(String(value.discoverySource)) ||
       !validCapabilities(value.capabilities) ||
       !isNonEmptyString(value.hostRef) ||
@@ -703,7 +702,7 @@ function validDefinitionSnapshot(value: unknown, allowUnknownFields: boolean): v
     value.schema === "agent-definition-snapshot/v1" &&
     value.configVersion === 1 &&
     [value.instanceId, value.installationId, value.providerId, value.model].every(isNonEmptyString) &&
-    ["claude", "codex", "agy"].includes(String(value.kindId)) &&
+    isNonEmptyString(value.kindId) &&
     (value.reasoningEffort === null || isNonEmptyString(value.reasoningEffort)) &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.baseUrl === null || isNonEmptyString(value.baseUrl)) &&

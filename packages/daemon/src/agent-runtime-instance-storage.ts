@@ -20,6 +20,8 @@ import type {
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
+import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
@@ -143,35 +145,14 @@ export function publicConfig(
     ...(config.githubCredentialRef === undefined ? {} : { githubCredentialState: "configured" as const }),
     isolationState: config.isolationState,
   };
-  if (config.kindId === "claude")
-    return {
-      ...common,
-      kindId: "claude",
-      claude: {
-        effort: config.claude.effort ?? null,
-        baseUrl: config.claude.baseUrl ?? null,
-        baseUrlConfigured: config.claude.baseUrl !== undefined,
-      },
-    };
-  if (config.kindId === "codex")
-    return {
-      ...common,
-      kindId: "codex",
-      codex: {
-        reasoningEffort: config.codex.reasoningEffort ?? null,
-        fast: config.codex.fast ?? false,
-        baseUrl: config.codex.baseUrl ?? null,
-        baseUrlConfigured: config.codex.baseUrl !== undefined,
-        wire_api: config.codex.wireApi ?? null,
-        requires_openai_auth: config.codex.requiresOpenAiAuth ?? null,
-        http_headers: config.codex.httpHeaders ?? null,
-      },
-    };
-  return {
-    ...common,
-    kindId: "agy",
-    agy: { effort: config.agy.effort ?? null },
-  };
+  const provider = runtimeProviderConfig(config),
+    declaration = runtimeKindForId(config.kindId),
+    configuration: Record<string, unknown> = { ...declaration.configuration.publicDefaults };
+  for (const [source, target] of Object.entries(declaration.configuration.publicFields)) {
+    const value = source === "baseUrlConfigured" ? provider.baseUrl !== undefined : provider[source];
+    if (value !== undefined) configuration[target] = value;
+  }
+  return { ...common, kindId: config.kindId, configuration };
 }
 
 export function definitionSnapshot(
@@ -196,7 +177,7 @@ export function definitionSnapshot(
 }
 
 export function providerConfigDirectory(home: string, kindId: RuntimeInstanceKind): string {
-  return path.join(home, kindId === "codex" ? ".codex" : kindId === "agy" ? ".agy" : ".claude");
+  return path.join(home, runtimeKindForId(kindId).executable.configDirectory);
 }
 
 // Operator-login reuse under enforced isolation, after Multica's per-task CODEX_HOME
@@ -212,7 +193,7 @@ export function providerConfigDirectory(home: string, kindId: RuntimeInstanceKin
 // <id>/home/<kind>/<authFile> says symlink (with target) or copy; contents are never
 // read into memory or logged, and the copy fallback streams file-to-file.
 export function providerAuthFile(kindId: RuntimeInstanceKind): string | null {
-  return kindId === "codex" ? "auth.json" : kindId === "claude" ? ".credentials.json" : null;
+  return runtimeKindForId(kindId).executable.authFile;
 }
 
 export function sharedProviderDirectory(
@@ -220,7 +201,8 @@ export function sharedProviderDirectory(
   kindId: RuntimeInstanceKind,
   platform: NodeJS.Platform,
 ): string | null {
-  const explicit = kindId === "codex" ? env.CODEX_HOME : kindId === "claude" ? env.CLAUDE_CONFIG_DIR : undefined;
+  const environment = runtimeKindForId(kindId).executable.configHomeEnvironment,
+    explicit = environment ? env[environment] : undefined;
   if (explicit) return path.resolve(explicit);
   const home = platform === "win32" ? env.USERPROFILE : env.HOME;
   return home ? providerConfigDirectory(path.resolve(home), kindId) : null;
@@ -257,19 +239,11 @@ export function ensureSharedAuthFile(src: string, dst: string): void {
 }
 
 export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefined {
-  return config.kindId === "codex"
-    ? config.codex.baseUrl
-    : config.kindId === "claude"
-      ? config.claude.baseUrl
-      : undefined;
+  return runtimeProviderConfig(config).baseUrl;
 }
 
-export function writeCodexConfig(
-  target: string,
-  config: RuntimeInstanceConfig & { readonly kindId: "codex" },
-  bearerToken?: string,
-): void {
-  const provider = config.codex,
+export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, bearerToken?: string): void {
+  const provider = runtimeProviderConfig(config),
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
       ...(provider.reasoningEffort ? [`model_reasoning_effort = ${tomlString(provider.reasoningEffort)}`] : []),

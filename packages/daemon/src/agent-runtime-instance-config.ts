@@ -9,8 +9,15 @@ import type {
   RuntimeInstanceConfig,
   RuntimeInstanceKind,
 } from "./agent-runtime-instance-types.ts";
+import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
+import {
+  isRuntimeKindId,
+  runtimeKindForId,
+  runtimeKindIds,
+  type RuntimeProviderDeclaration,
+} from "./runtime-inventory.ts";
 
 export type LegacyRuntimeInstanceConfig = {
   readonly schemaVersion: 1;
@@ -36,7 +43,8 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
   if (!isRuntimeInstanceRecord(value))
     throw runtimeInstanceError("invalid_runtime_instance", "Runtime instance must be an object.");
   const legacy = value.schemaVersion === 1,
-    flat = value.claude === undefined && value.codex === undefined && value.agy === undefined,
+    kindIdValue = value.kindId,
+    flat = typeof kindIdValue !== "string" || value[kindIdValue] === undefined,
     allowed = legacy
       ? [
           "schemaVersion",
@@ -66,9 +74,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "isolationState",
           "reasoningEffort",
           "baseUrl",
-          "claude",
-          "codex",
-          "agy",
+          ...runtimeKindIds,
           "auth",
           "githubCredentialRef",
         ];
@@ -76,29 +82,12 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     Object.keys(value).some((key) => !allowed.includes(key)) ||
     (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
     (value.installationIdentity !== undefined && value.installationIdentity !== "path-entry/v1") ||
-    !["claude", "codex", "agy"].includes(String(value.kindId)) ||
+    !isRuntimeKindId(value.kindId) ||
     !isRuntimeInstanceRecord(value.auth)
   )
     throw runtimeInstanceError("invalid_runtime_instance", "Runtime instance metadata is invalid.");
-  const invalidOther =
-    value.kindId === "claude"
-      ? value.codex !== undefined || value.agy !== undefined
-      : value.kindId === "codex"
-        ? value.claude !== undefined || value.agy !== undefined
-        : value.claude !== undefined || value.codex !== undefined;
-  if (invalidOther) {
-    const other =
-      value.kindId === "claude"
-        ? value.codex !== undefined
-          ? "codex"
-          : "agy"
-        : value.kindId === "codex"
-          ? value.claude !== undefined
-            ? "claude"
-            : "agy"
-          : value.claude !== undefined
-            ? "claude"
-            : "codex";
+  const other = runtimeKindIds.find((candidate) => candidate !== value.kindId && value[candidate] !== undefined);
+  if (other) {
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
       `${value.kindId} runtime instance cannot include ${other} configuration.`,
@@ -114,10 +103,11 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           }
         : null
   ) as RuntimeInstanceAuth | null;
-  if (!auth || (value.kindId === "agy" && auth.mode !== "subscription"))
+  const declaration = runtimeKindForId(value.kindId);
+  if (!auth || !declaration.auth.modes.some((mode) => mode === auth.mode))
     throw runtimeInstanceError(
       "invalid_runtime_auth",
-      "agy runtime instances support subscription OAuth only; no API-key mode exists.",
+      `${value.kindId} runtime instances do not support ${String(value.auth.mode)} authentication.`,
     );
   const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models),
     defaultModel = legacy ? models[0]! : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
@@ -156,26 +146,20 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       ? {}
       : { githubCredentialRef: credentialReference(value.githubCredentialRef, "githubCredentialRef") }),
   };
-  if (value.kindId === "claude")
-    return {
-      ...common,
-      kindId: "claude",
-      claude: claudeRuntimeConfig(
-        flat ? { effort: value.reasoningEffort, baseUrl: value.baseUrl } : value.claude,
-      ),
-    };
-  if (value.kindId === "agy")
-    return {
-      ...common,
-      kindId: "agy",
-      agy: agyRuntimeConfig(flat ? {} : value.agy),
-    };
-  const codex = codexRuntimeConfig(
-    flat ? { reasoningEffort: value.reasoningEffort, baseUrl: value.baseUrl } : value.codex,
-  );
+  const effortField = "reasoningEffort" in declaration.configuration.fields ? "reasoningEffort" : "effort",
+    flatConfiguration = {
+      ...(value.reasoningEffort === undefined ? {} : { [effortField]: value.reasoningEffort }),
+      ...(value.baseUrl === undefined ? {} : { baseUrl: value.baseUrl }),
+    },
+    configuration = runtimeKindConfig(
+      flat ? flatConfiguration : normalizeRuntimeInputAliases(value[value.kindId], declaration.configuration.fields),
+      declaration.configuration.fields,
+    );
   if (
     common.providerId === "openai" &&
-    (codex.wireApi !== undefined || codex.requiresOpenAiAuth !== undefined || codex.httpHeaders !== undefined)
+    (configuration.wireApi !== undefined ||
+      configuration.requiresOpenAiAuth !== undefined ||
+      configuration.httpHeaders !== undefined)
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
@@ -184,7 +168,41 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
         "requiresOpenAiAuth, or httpHeaders; use a distinct providerId.",
       ].join(""),
     );
-  return { ...common, kindId: "codex", codex };
+  return { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+}
+
+function normalizeRuntimeInputAliases(
+  value: unknown,
+  fields: RuntimeProviderDeclaration["configuration"]["fields"],
+): unknown {
+  if (!isRuntimeInstanceRecord(value) || !("reasoningEffort" in fields) || value.effort === undefined) return value;
+  const { effort, ...rest } = value;
+  return { ...rest, reasoningEffort: effort };
+}
+
+function runtimeKindConfig(
+  value: unknown,
+  fields: Readonly<Record<string, "identifier" | "url" | "effort" | "boolean" | "headers" | "agy-effort">>,
+): Readonly<Record<string, unknown>> {
+  if (value === undefined) return {};
+  if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !Object.hasOwn(fields, key)))
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      `Runtime configuration accepts only ${Object.keys(fields).join(", ") || "no fields"}.`,
+    );
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, item]) => item !== undefined)
+      .map(([key, item]) => {
+        const shape = fields[key]!;
+        if (shape === "boolean") return [key, requireBoolean(item, key)];
+        if (shape === "headers") return [key, runtimeHttpHeaders(item)];
+        if (shape === "agy-effort") return [key, agyEffort(item)];
+        if (shape === "url") return [key, secureRuntimeBaseUrl(item)];
+        if (shape === "identifier") return [key, identifier(item, key)];
+        return [key, runtimeEffort(item)];
+      }),
+  );
 }
 
 export function claudeRuntimeConfig(value: unknown): ClaudeRuntimeInstanceConfig {
@@ -265,9 +283,7 @@ export function needsRuntimeInstanceNormalization(value: unknown): boolean {
   return (
     isRuntimeInstanceRecord(value) &&
     (value.schemaVersion === 1 ||
-      (value.kindId === "claude" && value.claude === undefined) ||
-      (value.kindId === "codex" && value.codex === undefined) ||
-      (value.kindId === "agy" && value.agy === undefined) ||
+      (typeof value.kindId === "string" && value[value.kindId] === undefined) ||
       value.reasoningEffort !== undefined ||
       value.baseUrl !== undefined ||
       value.permissionMode === undefined ||
@@ -309,23 +325,23 @@ export function selectRuntimeModel(config: RuntimeInstanceConfig, requested?: st
 }
 
 export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: string): string | null {
-  const effort =
-    requested ??
-    (config.kindId === "codex"
-      ? config.codex.reasoningEffort
-      : config.kindId === "agy"
-        ? config.agy.effort
-        : config.claude.effort);
+  const provider = runtimeProviderConfig(config),
+    effort = requested ?? provider.reasoningEffort ?? provider.effort;
   if (effort === undefined) return null;
-  if (config.kindId === "agy") return agyEffort(effort);
+  const fields = runtimeKindForId(config.kindId).configuration.fields;
+  if ("effort" in fields && fields.effort === "agy-effort") return agyEffort(effort);
   return runtimeEffort(effort);
 }
 
 export function selectRuntimeFast(config: RuntimeInstanceConfig, requested?: boolean): boolean {
-  const fast = requested ?? (config.kindId === "codex" ? config.codex.fast : false) ?? false;
+  const fast = requested ?? runtimeProviderConfig(config).fast ?? false;
   if (!fast) return false;
-  if (config.kindId !== "codex")
-    throw runtimeInstanceError("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.");
+  const fields = runtimeKindForId(config.kindId).configuration.fields;
+  if (!("fast" in fields) || fields.fast !== "boolean")
+    throw runtimeInstanceError(
+      "invalid_runtime_fast",
+      `Fast mode is not supported by ${config.kindId} runtime instances.`,
+    );
   return true;
 }
 

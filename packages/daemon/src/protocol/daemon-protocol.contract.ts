@@ -39,6 +39,27 @@ export {
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
+export const builtInRuntimeProviderInputDeclaration = Object.freeze({
+  claude: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["effort", "baseUrl"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+  codex: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"] as const,
+    effortField: "reasoningEffort",
+    fast: true,
+  }),
+  agy: Object.freeze({
+    authModes: ["subscription"] as const,
+    fields: ["effort"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+});
+
 // Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
 // on the CLI's eager startup path, so it must not import the kernel barrel — the p50
@@ -182,22 +203,22 @@ export const runtimeInstanceMethods = Object.freeze([
     method: "daemon.runtimeInstance.create",
     requiresRepo: false,
     params: shape({
-      payload: shape({
-        instanceId: "string",
-        name: "string",
-        kindId: "string",
-        installationId: "string?",
-        providerId: "string",
-        models: "array",
-        defaultModel: "string?",
-        permissionMode: "string?",
-        isolationState: "string?",
-        claude: "json?",
-        codex: "json?",
-        agy: "json?",
-        authMode: "string",
-        credentialRef: "string?",
-      }),
+      payload: shape(
+        {
+          instanceId: "string",
+          name: "string",
+          kindId: "string",
+          installationId: "string?",
+          providerId: "string",
+          models: "array",
+          defaultModel: "string?",
+          permissionMode: "string?",
+          isolationState: "string?",
+          authMode: "string",
+          credentialRef: "string?",
+        },
+        true,
+      ),
     }),
     guiBridgeMethod: "createRuntimeInstance",
   },
@@ -206,7 +227,7 @@ export const runtimeInstanceMethods = Object.freeze([
     phase: "Runtime-Instances-S1",
     method: "daemon.runtimeInstance.list",
     requiresRepo: false,
-    params: shape({ payload: shape({ all: "boolean?" }) }),
+    params: shape({ payload: shape({ all: "boolean?", probe: "boolean?" }) }),
     guiBridgeMethod: "listRuntimeInstances",
   },
   {

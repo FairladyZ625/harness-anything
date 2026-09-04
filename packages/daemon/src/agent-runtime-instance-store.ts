@@ -41,6 +41,7 @@ import type {
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
+import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import {
   credentialHint,
   credentialUnavailableHint,
@@ -49,6 +50,7 @@ import {
   providerSubscriptionReadiness,
 } from "./agent-runtime-launch-config.ts";
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
+import { runtimeKindIds } from "./runtime-inventory.ts";
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -339,18 +341,6 @@ export function openRuntimeInstanceStore(input: {
       };
     if (kind === "runtime-instance-create") {
       if (
-        (action.kindId === "claude" && action.codex !== undefined) ||
-        (action.kindId === "claude" && action.agy !== undefined) ||
-        (action.kindId === "codex" && action.claude !== undefined) ||
-        (action.kindId === "codex" && action.agy !== undefined) ||
-        (action.kindId === "agy" && action.claude !== undefined) ||
-        (action.kindId === "agy" && action.codex !== undefined)
-      )
-        throw runtimeInstanceError(
-          "invalid_runtime_kind_config",
-          `${String(action.kindId)} runtime instance cannot include another kind configuration.`,
-        );
-      if (
         !["subscription", "api-key"].includes(String(action.authMode)) ||
         (action.authMode === "subscription" && action.credentialRef !== undefined)
       )
@@ -367,12 +357,11 @@ export function openRuntimeInstanceStore(input: {
           action.defaultModel === undefined
             ? models[0]!
             : requiredRuntimeInstanceText(action.defaultModel, "defaultModel"),
-        kindConfig =
-          action.kindId === "codex"
-            ? { codex: action.codex ?? {} }
-            : action.kindId === "agy"
-              ? { agy: action.agy ?? {} }
-              : { claude: action.claude ?? {} },
+        kindConfig = Object.fromEntries(
+          runtimeKindIds
+            .filter((candidate) => action[candidate] !== undefined || candidate === action.kindId)
+            .map((candidate) => [candidate, action[candidate] ?? {}]),
+        ),
         config = create({
           schemaVersion: 2,
           instanceId: action.instanceId,
@@ -400,13 +389,12 @@ export function openRuntimeInstanceStore(input: {
     if (kind === "runtime-instance-list") {
       const all = action.all === true,
         witnessed = input.discover(),
-        instances = read(witnessed)
-          .filter((config) => all || config.enabled)
-          .map((config) => publicConfig(config, readiness.get(config.instanceId))),
+        configs = read(witnessed).filter((config) => all || config.enabled),
         installations = witnessed.map(
           ({ executableEntryPath: _entry, executablePath: _path, ...installation }) => installation,
-        ),
-        summary = [
+        );
+      const listed = (instances: readonly RuntimeInstanceSummary[]) => {
+        const summary = [
           "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS",
           ...instances.map((instance) =>
             [
@@ -434,13 +422,22 @@ export function openRuntimeInstanceStore(input: {
               `${installationId}\t${kindId}\t${version}\t${observedAt}`,
           ),
         ].join("\n");
-      return {
-        ...base,
-        instances,
-        installations,
-        evidence: JSON.stringify({ instances, installations }),
-        summary,
+        return {
+          ...base,
+          instances,
+          installations,
+          evidence: JSON.stringify({ instances, installations }),
+          summary,
+        };
       };
+      if (action.probe === true)
+        return Promise.all(
+          configs.map(async (config) =>
+            publicConfig(config, await authStatus(config.instanceId, { witnessed, config })),
+          ),
+        ).then(listed);
+      const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
+      return listed(instances);
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");
     if (kind === "runtime-instance-github-credential-set" || kind === "runtime-instance-github-credential-unset") {
@@ -708,10 +705,11 @@ function runtimeInstanceKindConfig(
   baseUrl: string | undefined,
   fast: boolean | undefined,
 ): { readonly claude?: unknown } | { readonly codex?: unknown } {
+  const provider = runtimeProviderConfig(current);
   if (current.kindId === "codex") {
-    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = current.codex,
-      nextBaseUrl = baseUrl === undefined ? current.codex.baseUrl : baseUrl || undefined,
-      nextFast = fast === undefined ? current.codex.fast : fast;
+    const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = provider,
+      nextBaseUrl = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined,
+      nextFast = fast === undefined ? provider.fast : fast;
     return {
       codex: {
         ...rest,
@@ -721,8 +719,8 @@ function runtimeInstanceKindConfig(
     };
   }
   if (current.kindId === "claude") {
-    const { baseUrl: _dropped, ...rest } = current.claude,
-      next = baseUrl === undefined ? current.claude.baseUrl : baseUrl || undefined;
+    const { baseUrl: _dropped, ...rest } = provider,
+      next = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined;
     return { claude: { ...rest, ...(next ? { baseUrl: next } : {}) } };
   }
   return {};

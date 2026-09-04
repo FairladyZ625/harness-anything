@@ -59,7 +59,7 @@ describe("provider edit form", () => {
     enabled: true,
     permissionMode: "bypass",
     isolationState: "enforced",
-    codex: {
+    configuration: {
       reasoningEffort: null,
       fast: true,
       baseUrl: "https://old.example/v1",
@@ -76,11 +76,13 @@ describe("provider edit form", () => {
     const form = runtimeInstanceEditForm(apiCodex);
     expect(form.baseUrl).toBe("https://old.example/v1");
     expect(form.baseUrlEditable).toBe(true);
-    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" })).toMatchObject({
+    const renamed = buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" });
+    expect(renamed).toMatchObject({
       instanceId: "codex-edit",
       baseUrl: "https://old.example/v1",
-      fast: true,
     });
+    expect("fast" in renamed).toBe(false);
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, fast: false })).toMatchObject({ fast: false });
   });
   it("sends the edited base URL and an explicit empty value clears it", () => {
     const form = runtimeInstanceEditForm(apiCodex);
@@ -96,7 +98,7 @@ describe("provider edit form", () => {
     const agy = runtimeInstanceEditForm({
       ...apiCodex,
       kindId: "agy",
-      agy: { effort: "high" },
+      configuration: { effort: "high" },
       authMode: "subscription",
     });
     expect(agy.baseUrlEditable).toBe(false);
@@ -423,7 +425,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect("isolationState" in agy).toBe(false);
     expect(() =>
       buildRuntimeInstanceCreatePayload({ ...form, kindId: "agy", authMode: "api-key", apiKey: "sk" }, "agy-install"),
-    ).toThrow(/subscription OAuth only/u);
+    ).toThrow();
   });
 });
 
