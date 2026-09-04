@@ -1,4 +1,4 @@
-import type { AgentRuntimeEventV1, TaskProjection } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, ReceiptDiagnostic, TaskProjection } from "../../kernel/src/index.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 
 export function requiredRuntimeSpawnText(value: unknown, field: string): string {
@@ -64,8 +64,8 @@ export function runtimeTaskLeaseRequiredMessage(
   ].join("");
 }
 
-export function runtimeSpawnError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
+export function runtimeSpawnError(code: string, message: string, diagnostic?: ReceiptDiagnostic): Error {
+  return Object.assign(new Error(message), { code, ...(diagnostic ? { diagnostic } : {}) });
 }
 
 export function runtimeErrorCode(error: unknown): string | null {

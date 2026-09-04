@@ -738,7 +738,21 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
 test("Decision proposal packet is closed, UTF-8, atomic, and leaves the Task INDEX untouched", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-packet-")), outside = `${rootDir}-outside.json`; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-packet"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical")), binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-related", title: "Related Task" }, binding) as Record<string, unknown>, index = path.join(rootDir, "harness", String(created.packagePath), "INDEX.md"), indexBefore = readFileSync(index); const packet = { title: "Atomic proposal", question: "Can one event publish the whole proposal?", riskTier: "medium", urgency: "high", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Publish once" }], rejected: [{ id: "RJ1", text: "Patch later", whyNot: "It exposes partial state" }], claims: [{ id: "C1", text: "The packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "delivered" }] }, missingPacket = (({ fulfillments: _fulfillments, ...missing }) => missing)(packet), legacyPacket = { ...packet, relations: [{ anchor: "C1", type: "derives", target: "task/task-related", rationale: "The Decision creates this delivery." }] }, before = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()!.revision;
-    for (const [action, code] of [[{ kind: "decision-propose", jsonInput: JSON.stringify({ ...packet, unknown: true }) }, "invalid_command"], [{ kind: "decision-propose", jsonInput: JSON.stringify(missingPacket) }, "missing_field"], [{ kind: "decision-propose", jsonInput: JSON.stringify(legacyPacket) }, "invalid_command"], [{ kind: "decision-propose", jsonInput: JSON.stringify(packet), body: "inline", bodyFile: "body.md" }, "invalid_command"]] as const) { const rejected = await cell.run(action, binding); assert.equal(rejected.outcome, "op_rejected"); assert.equal(rejected.code, code); assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, before); }
+    // Missing packet fields retain their structured diagnostic without changing the closed-packet rejection codes.
+    for (const { action, code, field } of [
+      { action: { kind: "decision-propose", jsonInput: JSON.stringify({ ...packet, unknown: true }) }, code: "invalid_command", field: undefined },
+      { action: { kind: "decision-propose", jsonInput: JSON.stringify(missingPacket) }, code: "missing_field", field: "fulfillments" },
+      { action: { kind: "decision-propose", jsonInput: JSON.stringify(legacyPacket) }, code: "invalid_command", field: undefined },
+      { action: { kind: "decision-propose", jsonInput: JSON.stringify(packet), body: "inline", bodyFile: "body.md" }, code: "invalid_command", field: undefined },
+    ] as const) {
+      const rejected = await cell.run(action, binding);
+      assert.equal(rejected.outcome, "op_rejected");
+      assert.equal(rejected.code, code);
+      if (field !== undefined) {
+        assert.equal((rejected.diagnostic as { readonly field?: string } | undefined)?.field, field);
+      }
+      assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, before);
+    }
     const badJson = await cell.run({ kind: "decision-propose", jsonInput: "{" }, binding); assert.equal(badJson.code, "invalid_command"); assert.deepEqual(badJson.diagnostic, { kind: "failure", code: "invalid_command" });
     writeFileSync(path.join(rootDir, "proposal.json"), JSON.stringify(packet)); writeFileSync(outside, JSON.stringify(packet)); const outsidePacket = await cell.run({ kind: "decision-propose", fromFile: outside }, binding); assert.equal(outsidePacket.code, "invalid_command"); assert.deepEqual(outsidePacket.diagnostic, { kind: "workspace-boundary", field: "fromFile", workspaceRoot: realpathSync(rootDir) });
     writeFileSync(path.join(rootDir, "bad.md"), Buffer.from([0xff])); const invalidUtf8 = await cell.run({ kind: "decision-propose", fromFile: "proposal.json", bodyFile: "bad.md" }, binding); assert.equal(invalidUtf8.code, "invalid_command"); assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, before);
@@ -959,7 +973,9 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) {
     const receipt = response.result as Record<string, unknown>; assert.deepEqual(receipt, { schema: "command-receipt/v2", ok: false, command: "protocol.hello", outcome: "op_rejected", opId: "N/A", origin: "daemon", code: "incompatible_protocol_version", evidence: "rejection:incompatible_protocol_version", error: { code: "incompatible_protocol_version" } }); }
   await server.handle({ jsonrpc: "2.0", id: 2, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
-  const malformed = await server.handle({ jsonrpc: "2.0", id: 3, method: "daemon.status", params: "not-an-object" });
+  const unknown = await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.agentRuntime.spawn", params: { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "unknown", permission_mode: "read-only" } } });
+  assert.ok(unknown && !Array.isArray(unknown) && "result" in unknown); if (unknown && !Array.isArray(unknown) && "result" in unknown) { const receipt = unknown.result as Record<string, unknown>, diagnostic = receipt.diagnostic as Record<string, unknown>; assert.equal(receipt.code, "unknown_field"); assert.deepEqual({ kind: diagnostic.kind, entity: diagnostic.entity, field: diagnostic.field, actual: diagnostic.actual }, { kind: "validation", entity: "repo.agentRuntime.spawn", field: "permission_mode", actual: "unknown" }); assert.match(String(diagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u); }
+  const malformed = await server.handle({ jsonrpc: "2.0", id: 4, method: "daemon.status", params: "not-an-object" });
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");
 });
 
@@ -1016,6 +1032,155 @@ test("runtime witness issuance binds the server principal without transport role
   const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.throws(() => host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never), hasCode("invalid_provider_frame")); const assignment = { transportKind: "unix-socket", assignmentBinding: { nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [], actor: { principal: { personId: "worker" }, executor: null } } } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const [personId, ownerUid] of [["dualAdmin", ids.dualAdmin], ["dualArbiter", ids.dualArbiter]] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ownerUid)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
+test("task mutation rejections name the missing field and current execution status", async (context) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-diagnostics-")),
+    taskId = "task-rejection-diagnostics",
+    executionId = "execution-rejection-diagnostics";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("task-rejection-diagnostics"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-rejection-diagnostics",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Rejection diagnostics" }, repoWriteBinding);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding),
+    );
+    await cell.run({ kind: "task-start", taskId, executionId }, repoWriteBinding);
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["README.md"],
+        outputs: ["README.md"],
+        verificationNotes: "fixture",
+        knownGaps: [],
+        residualRisks: [],
+        commitSha: "a".repeat(40),
+      }),
+    );
+    const invalidSubmission = await cell.run(
+      { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
+      repoWriteBinding,
+    );
+    assert.equal(invalidSubmission.code, "invalid_submission", JSON.stringify(invalidSubmission));
+    assert.deepEqual(invalidSubmission.diagnostic, {
+      kind: "validation",
+      entity: "task submission",
+      field: "verificationNotes",
+      actual: "'fixture'",
+      expectation:
+        `must be an array of non-empty strings; fix the packet, then retry ha task submit ${taskId} ` +
+        `--execution-id ${executionId} --from-file <submission.json>`,
+    });
+    context.diagnostic(`invalid_submission receipt=${JSON.stringify(invalidSubmission)}`);
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready except for the omitted commit.",
+        deliverables: ["README.md"],
+        outputs: ["README.md"],
+        verificationNotes: ["fixture"],
+        knownGaps: [],
+        residualRisks: [],
+      }),
+    );
+    const missingCommit = await cell.run(
+      { kind: "task-submit", taskId, executionId, fromFile: "submission.json" },
+      repoWriteBinding,
+    );
+    assert.equal(missingCommit.code, "missing_field", JSON.stringify(missingCommit));
+    assert.deepEqual(missingCommit.diagnostic, {
+      kind: "validation",
+      entity: "task submission",
+      field: "commitSha",
+      actual: "missing",
+      expectation:
+        "Required fields: completionClaim, deliverables, outputs, verificationNotes, knownGaps, residualRisks, commitSha",
+    });
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Premature review.", evidenceChecked: ["fixture"] }),
+    );
+    const prematureReview = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: "review-premature",
+        fromFile: "review.json",
+      },
+      withRoleBinding(
+        {
+          actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
+          source: "local",
+        },
+        "arbiter",
+      ),
+    );
+    assert.equal(prematureReview.code, "invalid_transition", JSON.stringify(prematureReview));
+    assert.deepEqual(prematureReview.diagnostic, {
+      kind: "validation",
+      entity: `execution ${executionId}`,
+      field: "status",
+      actual: "active",
+      expectation: "Execution status must be submitted on the current task iteration before review",
+    });
+    const derivedPrematureReview = await cell.run(
+      { kind: "task-review-execution", taskId, reviewId: "review-derived-premature", fromFile: "review.json" },
+      withRoleBinding(
+        {
+          actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent", id: "arbiter" } },
+          source: "local",
+        },
+        "arbiter",
+      ),
+    );
+    assert.equal(derivedPrematureReview.code, "invalid_command", JSON.stringify(derivedPrematureReview));
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("task complete identifies a code-doc path outside the submitted commit root", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-path-diagnostic-")),
+    taskId = "task-complete-path-diagnostic",
+    executionId = "execution-complete-path-diagnostic";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("complete-path-diagnostic"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "complete-path-diagnostic",
+    });
+    await prepareReadyCompletion(cell, rootDir, taskId, executionId, "Complete Path Diagnostic", false);
+    const rejected = await cell.run(
+      {
+        kind: "task-complete",
+        taskId,
+        executionId,
+        paths: ["harness/agents/sol-implementer.json"],
+      },
+      repoWriteBinding,
+    );
+    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: "code-doc reconciliation",
+      field: "paths[0]",
+      actual: "harness/agents/sol-implementer.json",
+      expectation: "Path must be relative to the Git repository that owns the submitted commit",
+    });
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "RepoCell Test");
@@ -1070,6 +1235,7 @@ async function prepareReadyCompletion(
   taskId: string,
   executionId: string,
   title: string,
+  reconcileCodeDoc = true,
 ): Promise<void> {
   const binding = repoWriteBinding;
   const created = await cell.run({ kind: "task-create", taskId, title }, binding);
@@ -1132,7 +1298,7 @@ async function prepareReadyCompletion(
     binding,
   );
   await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
-  await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding);
+  if (reconcileCodeDoc) await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding);
 }
 function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
   mkdirSync(rootDir, { recursive: true });

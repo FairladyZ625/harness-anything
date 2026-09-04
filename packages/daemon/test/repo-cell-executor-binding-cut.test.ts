@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { bindWriterGenerationToken, type LeaseV1, type RuntimeSession } from "../../kernel/src/index.ts";
 import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
+import { failed } from "../src/repo-cell-settlement.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
 const now = "2026-09-03T12:00:00.000Z";
@@ -80,16 +81,29 @@ test("executor binding waits for the preceding writer cut that binds the runtime
   assert.deepEqual(context.observedActor, runtimeActor);
 });
 
-test("executor binding still rejects a runtime session absent from the preceding writer cut", async () => {
+test("executor binding rejection names the claimed and held executors", async (testContext) => {
   const context = contextFor(
       Promise.resolve(),
       () => null,
-      () => null,
+      () => lease,
     ),
-    receipt = await createRepoCellApi(context).run(action, binding);
+    receipt = await createRepoCellApi(context).run(
+      { ...action, executor: { kind: "agent", id: "runtime-session:unrelated-runtime" } },
+      binding,
+    );
 
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "executor_binding_invalid");
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: `task ${taskId} execution ${executionId}`,
+    field: "executor",
+    actual: "agent:runtime-session:unrelated-runtime",
+    expectation:
+      `Expected agent:${runtimeActor.executor.id} from the held execution lease; run from that executor, then retry ` +
+      `ha task artifact add ${taskId} --source <path> --destination <artifact-path>`,
+  });
+  testContext.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(receipt)}`);
   assert.equal(context.observedActor, null);
 });
 
@@ -144,12 +158,7 @@ function contextFor(
         nextAction,
       }),
       operationId: () => "op-runtime-first-write",
-      failed: (opId: string, error: unknown) => ({
-        outcome: "op_rejected",
-        opId,
-        code: (error as { readonly code?: string }).code ?? "invalid_command",
-        nextAction: error instanceof Error ? error.message : String(error),
-      }),
+      failed,
       fatalCellError: () => false,
       errorOperationId: () => null,
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),

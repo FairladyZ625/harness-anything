@@ -7,6 +7,7 @@ import {
   actionForDaemonMethod,
   daemonStreamFacets,
   daemonProtocolError,
+  invalidParamsReceipt,
   isDaemonGuiActionMethod,
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
@@ -129,8 +130,7 @@ export function createJsonRpcProtocolServer(options: {
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
     const parsed = parseDaemonRpcParams(request.method, request.params);
-    if (!parsed.ok)
-      return reply(request.method, daemonProtocolError(request.method, "invalid_request", parsed.errors.join("; ")));
+    if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
       { method, params } = call;
     observed = { ...observed, repoId: repoIdFromParams(params) };

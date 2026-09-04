@@ -7,6 +7,7 @@ import {
   isDomainStatus,
   taskWipOccupyingStatuses,
   type DomainStatus,
+  type ReceiptDiagnostic,
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskRelationQuery,
@@ -40,7 +41,7 @@ export interface TaskQueryCell {
     worktreeVisible: boolean | null,
     cut?: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
   ) => WriteReceipt;
-  readonly cellCodedError: (code: string, message: string) => Error;
+  readonly cellCodedError: (code: string, message: string, diagnostic?: ReceiptDiagnostic) => Error;
   readonly requiredCellText: (value: unknown, name: string) => string;
   readonly wipSnapshotEntries: () => readonly TaskWipSnapshotEntryV1[];
   readonly legacyReviewLint: typeof import("./repo-cell-review-lint.ts").legacyReviewLint;

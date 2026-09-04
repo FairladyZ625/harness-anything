@@ -870,6 +870,7 @@ export {
 export {
   daemonCommandReceiptRejectionCode,
   daemonProtocolError,
+  invalidParamsReceipt,
   makeDaemonCommandReceipt,
   serializeDaemonAgenda,
   serializeDaemonDecisionList,

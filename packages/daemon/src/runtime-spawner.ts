@@ -52,6 +52,7 @@ import {
   assembleScheduledMission,
   assembleTaskMission,
   deriveTaskMission,
+  dispatchMissionForPermission,
   resolveRuntimeCwd,
   resolveRuntimeInstanceId,
   runtimeMissionName,
@@ -472,9 +473,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         inheritedFallback ??
         initialFallbackAttempt(agent, explicitRuntimeInstanceId, model, providerSessionId, idempotencyKey, mission),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
-      prompt = agent
-        ? assembleAgentPrompt(agent, selfContainedMission ?? mission, preset, resolvedSkills)
-        : (selfContainedMission ?? mission),
       selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       runtimeInstanceId = await resolveRuntimeInstanceId({
@@ -489,6 +487,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId)?.permissionMode ??
         undefined,
       effectivePermissionMode = permissionMode ?? configuredPermissionMode,
+      readOnlyDispatch = effectivePermissionMode === "read-only",
+      dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+      prompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
       prepared = await input.prepareLaunch(runtimeInstanceId, {
         cwd,
         prompt,
@@ -799,10 +800,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...requested.receipt,
           runtimeSessionId,
           dispatchId: newDispatchId,
+          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         }
       : {
           ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };
   };

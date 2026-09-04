@@ -8,7 +8,13 @@ import test from "node:test";
 import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
+import {
+  canonicalRoot,
+  makeDaemonCommandReceipt,
+  validateDaemonGuiCommandReceipt,
+  workspaceId,
+} from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -434,6 +440,28 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         (launched?.prompt ?? "").indexOf("PROMPT_FRAGMENT_SECOND") <
           (launched?.prompt ?? "").indexOf("# Standard Task") &&
         (launched?.prompt ?? "").indexOf("# Standard Task") < (launched?.prompt ?? "").indexOf("# Mission"),
+    );
+    const readOnly = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: "codex-agent-model",
+        agentId: "declared-model",
+        cwd: { scope: "repo-root" },
+        prompt: "Review without writes.",
+        permissionMode: "read-only",
+        taskId: null,
+        idempotencyKey: "agent-model-read-only",
+      },
+      binding,
+    );
+    assert.deepEqual(
+      { ledgerAccess: readOnly.ledgerAccess, reportDelivery: readOnly.reportDelivery },
+      { ledgerAccess: "unavailable", reportDelivery: "stdout" },
+    );
+    assert.deepEqual(validateDaemonGuiCommandReceipt(makeDaemonCommandReceipt("runtime-spawn", readOnly)), []);
+    assert.deepEqual(validateRuntimeSpawnReceipt(makeDaemonCommandReceipt("runtime-spawn", readOnly)), []);
+    assert.match(
+      launched?.prompt ?? "",
+      /# Read-only Dispatch Contract[\s\S]*daemon-ledger commands are unavailable[\s\S]*final stdout/u,
     );
     await cell.spawnRuntime(
       {

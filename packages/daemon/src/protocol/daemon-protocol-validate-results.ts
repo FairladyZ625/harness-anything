@@ -12,6 +12,7 @@ import {
   nonEmpty,
   statusWord,
   stringArray,
+  validationDiagnostic,
   validationEntityId,
   validationError,
   recordShapeError,
@@ -381,6 +382,8 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     "receiptId",
     "runtimeSessionId",
     "dispatchId",
+    "ledgerAccess",
+    "reportDelivery",
     "scheduleId",
     "schedule",
     "claimFence",
@@ -428,6 +431,10 @@ export function writeReceipt(value: JsonObject): string[] {
     return [validationError(entityId, "guidance", value.guidance, "must include structured guidance")];
   if (value.guidance !== undefined && (!Array.isArray(value.guidance) || !value.guidance.every(isStructuredGuidance)))
     return [validationError(entityId, "guidance", value.guidance, "must be structured receipt guidance")];
+  if (value.ledgerAccess !== undefined && value.ledgerAccess !== "unavailable")
+    return [validationError(entityId, "ledgerAccess", value.ledgerAccess, "must be unavailable")];
+  if (value.reportDelivery !== undefined && value.reportDelivery !== "stdout")
+    return [validationError(entityId, "reportDelivery", value.reportDelivery, "must be stdout")];
   if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   if (noChanges) {
@@ -538,17 +545,19 @@ export function daemonProtocolError(
   };
 }
 
-function validationDiagnostic(hint: string) {
-  const match = hint.match(/^entity=(.+?) field=(\S+) (.+); actual=(.*)$/u);
-  return match
-    ? {
-        kind: "validation" as const,
-        entity: match[1]!,
-        field: match[2]!,
-        expectation: match[3]!,
-        actual: match[4]!,
-      }
-    : null;
+export function invalidParamsReceipt(method: string, errors: readonly string[]) {
+  const detail = errors.join("; "),
+    unknown = /unknown field ("(?:[^"\\]|\\.)*"); allowed fields: ((?:"(?:[^"\\]|\\.)*"(?:, )?)+)\./u.exec(detail);
+  if (!unknown) return daemonProtocolError(method, "invalid_request", detail);
+  const field = JSON.parse(unknown[1]!) as string,
+    allowed = [...unknown[2]!.matchAll(/"(?:[^"\\]|\\.)*"/gu)].map((match) => JSON.parse(match[0]!) as string);
+  return daemonProtocolError(method, "unknown_field", detail, {
+    kind: "validation",
+    entity: method,
+    field,
+    actual: "unknown",
+    expectation: `Allowed fields: ${allowed.join(", ")}`,
+  });
 }
 
 // Transport validates shape only; the kernel receipt registry owns the guidance kind vocabulary.

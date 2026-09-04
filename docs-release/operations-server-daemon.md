@@ -6,11 +6,11 @@ one mode.
 
 ## Connection modes
 
-| Registry mode | Use it for | Local machine | Data and write authority |
-| --- | --- | --- | --- |
-| `local` | Normal local development | daemon, runtime, GUI, and a workspace | local ledger and its single-writer queue |
-| `remote-proxy` | View-only display of a server repository | GUI and a forwarding daemon; no workspace | the remote daemon and its single-writer queue |
-| `remote-center` / `remote-edge` | Existing Fleet center and edge deployment | center or edge components and a mirror as applicable | the Fleet center lease queue |
+| Registry mode                   | Use it for                                | Local machine                                        | Data and write authority                      |
+| ------------------------------- | ----------------------------------------- | ---------------------------------------------------- | --------------------------------------------- |
+| `local`                         | Normal local development                  | daemon, runtime, GUI, and a workspace                | local ledger and its single-writer queue      |
+| `remote-proxy`                  | View-only display of a server repository  | GUI and a forwarding daemon; no workspace            | the remote daemon and its single-writer queue |
+| `remote-center` / `remote-edge` | Existing Fleet center and edge deployment | center or edge components and a mirror as applicable | the Fleet center lease queue                  |
 
 For development on a server repository, SSH to the server. A `remote-proxy`
 machine has no local workspace and is not a remote CLI development environment.
@@ -70,6 +70,21 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 ha daemon start --service
 ha gui
 ```
+
+## Recovering from task and runtime rejections
+
+Receipts include a validation diagnostic with the rejected field, its current
+value, and a retry command. Use these state rules when recovering:
+
+| Code                                    | Condition                                                        | Recovery                                                                                                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_submission`                    | A submission field has the wrong type or value                   | Fix the named JSON field, then retry `ha task submit <task-id> --execution-id <execution-id> --from-file <submission.json>`.                                         |
+| `invalid_runtime_mission`               | `--mission` was given a path or invalid id                       | Use a bare lowercase id. The daemon reads `harness/<task-package>/artifacts/missions/<name>.md`; retry `ha runtime run <runtime> --task <task-id> --mission <name>`. |
+| `invalid_proof` from `declare-executor` | The execution is not `submitted/review` with `executor=none`     | An assigned submitted execution proceeds with `ha task review-execution`; only an unassigned one uses `ha task declare-executor`.                                    |
+| `executor_binding_invalid`              | The claimed executor differs from the task binding or held lease | Run the receipt's retry command from the expected executor named in its diagnostic.                                                                                  |
+| `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                                  |
+| `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                      |
+| `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                         |
 
 ## Registry v2 hard cut
 

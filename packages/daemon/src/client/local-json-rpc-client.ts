@@ -52,6 +52,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
     readonly socketPath: string;
     readonly repoId?: string;
     readonly reportStaleBuild?: boolean;
+    readonly rejectStaleBuildField?: string;
     readonly canonicalRoot?: string;
     readonly userRoot?: string;
     readonly daemonId?: string;
@@ -70,6 +71,7 @@ export async function requestLocalDaemonJsonRpcForTarget(
     responseTimeoutMs,
     target.sessionEnvironment,
     target.reportStaleBuild === true,
+    target.rejectStaleBuildField,
   );
 }
 
@@ -81,6 +83,7 @@ export async function requestDaemonJsonRpcAt(
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
   reportStaleBuild = false,
+  rejectStaleBuildField?: string,
 ): Promise<JsonObject> {
   return requestWithSocket(
     await connectSocket(socketPath, timeoutMs),
@@ -89,6 +92,7 @@ export async function requestDaemonJsonRpcAt(
     responseTimeoutMs,
     sessionEnvironment,
     reportStaleBuild,
+    rejectStaleBuildField,
   );
 }
 
@@ -184,6 +188,7 @@ async function requestWithSocket(
   responseTimeoutMs?: number,
   sessionEnvironment?: DaemonSessionEnvironment,
   reportStaleBuild = false,
+  rejectStaleBuildField?: string,
 ): Promise<JsonObject> {
   const client = new JsonRpcLineClient(socket, socket);
   try {
@@ -207,7 +212,10 @@ async function requestWithSocket(
         (hello.warning as JsonObject).code === "daemon_build_stale"
           ? (hello.warning as JsonObject)
           : null,
-      result = await client.request(method, params, responseTimeoutMs);
+      result =
+        warning && rejectStaleBuildField
+          ? staleBuildRejection(method, rejectStaleBuildField, warning)
+          : await client.request(method, params, responseTimeoutMs);
     return warning ? { ...result, daemonBuild: warning } : result;
   } catch (error) {
     if (
@@ -240,6 +248,31 @@ function assertDaemonAdvertisesMethod(hello: JsonObject, method: string): void {
     ),
     { code: "daemon_method_unavailable" },
   );
+}
+
+function staleBuildRejection(method: string, field: string, warning: JsonObject): JsonObject {
+  const loaded = String(warning.loadedBuildId ?? "missing"),
+    disk = String(warning.diskBuildId ?? "missing");
+  return {
+    schema: "command-receipt/v2",
+    ok: false,
+    command: method,
+    outcome: "op_rejected",
+    opId: "N/A",
+    origin: "daemon",
+    code: "daemon_build_stale",
+    evidence: "rejection:daemon_build_stale",
+    error: { code: "daemon_build_stale" },
+    diagnostic: {
+      kind: "validation",
+      entity: method,
+      field,
+      actual: `loaded build ${loaded}`,
+      expectation:
+        `Daemon build must match disk build ${disk} before sending this field; ` +
+        "wait for the stale daemon to drain, then retry",
+    },
+  };
 }
 // A daemon that never answers leaves the caller with no output and no error, so a caller that knows its request is
 // cheap can name a deadline and get a classified failure instead of an open-ended wait. The hint is forked by what

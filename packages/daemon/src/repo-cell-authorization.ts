@@ -9,6 +9,7 @@ import {
   type AuthorizationDecision,
   type EntityRef,
   type ReceiptJsonValue,
+  type ReceiptDiagnostic,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
@@ -315,18 +316,18 @@ export function bindVerifiedExecutorClaim(input: {
   const { executor: raw, ...action } = input.action;
   if (typeof input.binding.source === "object" && input.binding.source.kind === "assignment") {
     if (raw !== undefined && raw !== null)
-      throw invalidExecutorBinding("Assignment ingress already carries its verified executor binding.");
+      throw invalidExecutorBindingFor(input, raw, "Assignment ingress already carries its verified executor binding.");
     return { action, binding: input.binding };
   }
   if (raw === undefined || raw === null) return { action, binding: input.binding };
   if (!isExecutorDescriptorRecord(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
-    throw invalidExecutorBinding("Executor claims must identify one agent actor.");
+    throw invalidExecutorBindingFor(input, raw, "Executor claims must identify one agent actor.");
   if (!raw.id.startsWith("runtime-session:")) {
     if (
       !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(raw.id) ||
       Object.keys(raw).some((field) => field !== "kind" && field !== "id")
     )
-      throw invalidExecutorBinding("Executor claims must use a valid agent id.");
+      throw invalidExecutorBindingFor(input, raw, "Executor claims must use a valid agent id.");
     // Host-derived bindings always declare how authorization was projected. A binding without
     // that marker is the legacy direct RepoCell API, where action.executor was never authoritative.
     if (input.binding.authorizationBindingMode === undefined) return { action, binding: input.binding };
@@ -338,7 +339,9 @@ export function bindVerifiedExecutorClaim(input: {
       lease = taskId === null ? null : input.projection.currentLease(taskId, input.now),
       attributedByCliSession = input.binding.sessionEnvironment?.HARNESS_ACTOR?.trim() === `agent:${raw.id}`;
     if (!attributedByCliSession && (lease === null || !isSameExecution(lease.actor, claimedActor)))
-      throw invalidExecutorBinding(
+      throw invalidExecutorBindingFor(
+        input,
+        raw,
         "Executor claims must use runtime-session:<runtime-id> or match the held execution.",
       );
     return {
@@ -355,13 +358,17 @@ export function bindVerifiedExecutorClaim(input: {
     return { action, binding: input.binding };
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
-    throw invalidExecutorBinding("Executor claims must use runtime-session:<runtime-id>.");
+    throw invalidExecutorBindingFor(input, raw, "Executor claims must use runtime-session:<runtime-id>.");
   const runtimeSessionId = match[1]!,
     session = input.projection.readRuntimeSession(runtimeSessionId),
     taskId = typeof action.taskId === "string" ? action.taskId : null,
     executionId = typeof action.executionId === "string" ? action.executionId : null;
   if (session === null)
-    throw invalidExecutorBinding("The claimed RuntimeSession is not canonically bound to this Task action.");
+    throw invalidExecutorBindingFor(
+      input,
+      raw,
+      "The claimed RuntimeSession is not canonically bound to this Task action.",
+    );
   const exactBinding =
       taskId === null
         ? session.taskBindings.length === 1
@@ -396,14 +403,22 @@ export function bindVerifiedExecutorClaim(input: {
         : undefined,
     taskBinding = exactBinding ?? descendantBinding;
   if (!taskBinding)
-    throw invalidExecutorBinding("The claimed RuntimeSession does not execute the target Task/Execution.");
+    throw invalidExecutorBindingFor(
+      input,
+      raw,
+      "The claimed RuntimeSession does not execute the target Task/Execution.",
+    );
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),
     runtimeActor = {
       principal: input.binding.actor.principal,
       executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
     };
   if (lease === null || lease.executionId !== taskBinding.executionId || !isSamePerson(lease.actor, runtimeActor))
-    throw invalidExecutorBinding("The claimed RuntimeSession has no matching canonical execution lease.");
+    throw invalidExecutorBindingFor(
+      input,
+      raw,
+      "The claimed RuntimeSession has no matching canonical execution lease.",
+    );
   return { action, binding: { ...input.binding, actor: runtimeActor } };
 }
 
@@ -425,8 +440,54 @@ function actionTarget(action: RepoTaskAction): EntityRef {
   return repositoryTarget;
 }
 
-function invalidExecutorBinding(message: string): Error & { readonly code: "executor_binding_invalid" } {
-  return Object.assign(new Error(message), { code: "executor_binding_invalid" as const });
+function invalidExecutorBindingFor(
+  input: Parameters<typeof bindVerifiedExecutorClaim>[0],
+  raw: unknown,
+  message: string,
+): Error & { readonly code: "executor_binding_invalid" } {
+  const taskId = typeof input.action.taskId === "string" ? input.action.taskId : null,
+    requestedExecutionId = typeof input.action.executionId === "string" ? input.action.executionId : null,
+    lease = taskId === null ? null : input.projection.currentLease(taskId, input.now),
+    executionId = requestedExecutionId ?? lease?.executionId ?? null,
+    actual =
+      isExecutorDescriptorRecord(raw) && raw.kind === "agent" && typeof raw.id === "string"
+        ? `agent:${raw.id}`
+        : "malformed executor descriptor",
+    expected = lease?.actor.executor ? `agent:${lease.actor.executor.id}` : null,
+    retry = executorRetryCommand(input.action, taskId, executionId),
+    expectation = expected
+      ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+      : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+        `${taskId ?? "<task-id>"}, then retry ${retry}`,
+    diagnostic: ReceiptDiagnostic = {
+      kind: "validation",
+      entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]
+        .filter(Boolean)
+        .join(" "),
+      field: "executor",
+      actual,
+      expectation,
+    };
+  return Object.assign(new Error(message), { code: "executor_binding_invalid" as const, diagnostic });
+}
+
+function executorRetryCommand(action: RepoTaskAction, taskId: string | null, executionId: string | null): string {
+  const task = taskId ?? "<task-id>",
+    execution = executionId ?? "<execution-id>";
+  switch (action.kind) {
+    case "task-submit":
+      return `ha task submit ${task} --execution-id ${execution} --from-file <submission.json>`;
+    case "task-progress-append":
+      return `ha task progress append ${task} --text <progress-text>`;
+    case "fact-record":
+      return `ha fact record ${task} --statement <observation> --source <source>`;
+    case "task-artifact-add":
+      return `ha task artifact add ${task} --source <path> --destination <artifact-path>`;
+    case "doc-submit":
+      return `ha doc sync --submit --task ${task}`;
+    default:
+      return `the ha ${action.kind.replaceAll("-", " ")} command`;
+  }
 }
 
 function isExecutorDescriptorRecord(value: unknown): value is Readonly<Record<string, unknown>> {

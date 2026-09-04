@@ -204,6 +204,56 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         true,
       );
     });
+    await t.test("the real CLI carries --agent identity through the daemon into the provider mission", async () => {
+      const installed = await host.run(
+        repoId,
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "sol-reviewer",
+            name: "Sol Reviewer",
+            instructions: "Include AGENT_CLI_INGRESS_WITNESS in the review.",
+            runtime_type: "codex",
+            role: "worker",
+          },
+        },
+        auth,
+      );
+      assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+      const result = await spawnCli(
+        [
+          "--root",
+          workerRoot,
+          "--json",
+          "runtime",
+          "run",
+          ingressDefinition.instanceId,
+          "--agent",
+          "sol-reviewer",
+          "--role",
+          "reviewer",
+          "--prompt",
+          "Review through the declared identity.",
+          "--permission-mode",
+          "read-only",
+          "--detach",
+        ],
+        launchedEnv!,
+      );
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.equal(receipt.outcome, "running", JSON.stringify(receipt));
+      assert.equal(receipt.code, undefined, JSON.stringify(receipt));
+      assert.deepEqual(
+        { ledgerAccess: receipt.ledgerAccess, reportDelivery: receipt.reportDelivery },
+        { ledgerAccess: "unavailable", reportDelivery: "stdout" },
+      );
+      assert.match(
+        launchedPrompt,
+        /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Mission\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
+      );
+    });
     await t.test("the first dispatch holds the task lease and a concurrent second dispatch is rejected", async () => {
       const taskId = "task-runtime-dispatcher-handoff",
         executionId = "exec-runtime-dispatcher-handoff";
@@ -886,6 +936,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           { outcome: "op_rejected", code: "executor_binding_invalid" },
           JSON.stringify(nonHolder),
         );
+        assert.deepEqual(nonHolder.diagnostic, {
+          kind: "validation",
+          entity: `task ${taskId} execution ${executionId}`,
+          field: "executor",
+          actual: "agent:runtime-session:unrelated-runtime",
+          expectation:
+            `Expected agent:${worker.id} from the held execution lease; run from that executor, then retry ` +
+            `ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>`,
+        });
+        t.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(nonHolder)}`);
         assert.equal(
           (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: worker }, auth)).outcome,
           "applied",
@@ -919,6 +979,17 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         );
         assert.equal(declaration.outcome, "op_rejected", JSON.stringify(declaration));
         assert.equal(declaration.code, "invalid_proof", JSON.stringify(declaration));
+        assert.deepEqual(declaration.diagnostic, {
+          kind: "validation",
+          entity: `execution ${executionId}`,
+          field: "declareExecutor",
+          actual: `status=submitted node=review executor=agent:${worker.id}`,
+          expectation:
+            "Use declare-executor only when status=submitted node=review executor=none; this assigned execution " +
+            `must continue with ha task review-execution ${taskId} --execution-id ${executionId} ` +
+            "--review-id <review-id> --from-file <review.json>",
+        });
+        t.diagnostic(`invalid_proof receipt=${JSON.stringify(declaration)}`);
       },
     );
   } finally {

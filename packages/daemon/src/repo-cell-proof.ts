@@ -201,6 +201,7 @@ export async function proofFor(
               verified.missingPaths.join(", "),
               ".",
             ].join(""),
+        codeDocVerificationDiagnostic("code-doc reconciliation", command.commitSha, command.paths, verified),
       );
     return {
       actorBinding: command.actor,
@@ -230,6 +231,7 @@ export async function proofFor(
               verified.missingPaths.join(", "),
               ".",
             ].join(""),
+        codeDocVerificationDiagnostic("code-doc repoint", command.commitSha, command.paths, verified),
       );
     return {
       actorBinding: command.actor,
@@ -241,6 +243,33 @@ export async function proofFor(
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
   return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
+}
+
+function codeDocVerificationDiagnostic(
+  entity: string,
+  commitSha: string,
+  paths: readonly string[],
+  verified: ReturnType<typeof verifyCodeDocCommitPaths>,
+) {
+  if (verified.ok)
+    throw cellCodedError("invalid_store", "Code-doc verification produced a rejection diagnostic for a valid cut.");
+  if (verified.code === "commit_not_found")
+    return {
+      kind: "validation" as const,
+      entity,
+      field: "commitSha",
+      actual: commitSha,
+      expectation: "Commit must exist in the public or authored Git repository",
+    };
+  const missing = verified.missingPaths[0]!,
+    index = Math.max(0, paths.indexOf(missing));
+  return {
+    kind: "validation" as const,
+    entity,
+    field: `paths[${String(index)}]`,
+    actual: missing,
+    expectation: "Path must be relative to the Git repository that owns the submitted commit",
+  };
 }
 
 function validNoIndependentReview(

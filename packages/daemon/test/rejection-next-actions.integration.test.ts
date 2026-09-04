@@ -123,6 +123,83 @@ test("progress lease mismatch names the holder and a release plus re-entry route
   }
 });
 
+test("start rejection identifies the active execution and its reuse command", async (context) => {
+  const rootDir = workspace("start-reuse"),
+    taskId = "task-start-reuse",
+    executionId = "exec-start-reuse",
+    owner = binding("owner");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("start-reuse"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "start-reuse",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Start reuse" }, owner);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-release", taskId }, owner)).outcome, "applied");
+    const rejected = await cell.run({ kind: "task-start", taskId, executionId: "exec-replacement" }, owner);
+    assert.equal(rejected.code, "invalid_transition", JSON.stringify(rejected));
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: `task ${taskId}`,
+      field: "executionId",
+      actual: `active execution=${executionId} status=active node=implementation`,
+      expectation: `Current round already has an active execution; run ha task start ${taskId} without --execution-id to reuse it`,
+    });
+    context.diagnostic(`invalid_transition receipt=${JSON.stringify(rejected)}`);
+    assert.equal((await cell.run({ kind: "task-start", taskId }, owner)).outcome, "applied");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("executor declaration rejection names its eligibility rule and review command", async (context) => {
+  const rootDir = workspace("declare-assigned"),
+    taskId = "task-declare-assigned",
+    executionId = "exec-declare-assigned",
+    worker = binding("assigned-worker");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("declare-assigned"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "declare-assigned",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Declare assigned" }, worker);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, worker),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, worker)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId, submission }, worker)).outcome, "applied");
+    const rejected = await cell.run(
+      { kind: "task-declare-executor", taskId, executionId, agent: "assigned-worker", reason: "Already assigned" },
+      worker,
+    );
+    assert.equal(rejected.code, "invalid_proof", JSON.stringify(rejected));
+    assert.deepEqual(rejected.diagnostic, {
+      kind: "validation",
+      entity: `execution ${executionId}`,
+      field: "declareExecutor",
+      actual: "status=submitted node=review executor=agent:assigned-worker",
+      expectation:
+        "Use declare-executor only when status=submitted node=review executor=none; this assigned execution " +
+        `must continue with ha task review-execution ${taskId} --execution-id ${executionId} ` +
+        "--review-id <review-id> --from-file <review.json>",
+    });
+    context.diagnostic(`invalid_proof receipt=${JSON.stringify(rejected)}`);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("executor declaration and completion context refusals name projection rebuild and the exact retry", async () => {
   const rootDir = workspace("projection-exits"),
     repoId = workspaceId("projection-exits"),

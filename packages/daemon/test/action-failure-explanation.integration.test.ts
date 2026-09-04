@@ -34,7 +34,7 @@ const owner = {
   ),
   selfReviewer = withRoleBinding(owner, "arbiter");
 
-test("Task execution rejects with the exact Action criterion and performs no rejected mutation", async () => {
+test("Task execution rejects with the exact Action criterion and performs no rejected mutation", async (context) => {
   const rootDir = workspace("criteria"),
     repoId = workspaceId("action-failure-criteria"),
     taskId = "task-action-failure",
@@ -49,12 +49,23 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
 
-    await assertRejectedWithoutMutation(
+    const leaseRejected = await assertRejectedWithoutMutation(
       rootDir,
       repoId,
       () => cell!.run({ kind: "task-submit", taskId, executionId }, otherWriter),
       ["repo-cell-proof/proofFor.SubmitExecution"],
     );
+    assert.deepEqual(leaseRejected.diagnostic, {
+      kind: "validation",
+      entity: `task ${taskId} execution ${executionId}`,
+      field: "lease",
+      actual: "held by personId=person-failure-owner, executor=agent:failure-owner",
+      expectation:
+        "The authenticated actor owns the active lease or the submitted execution being amended. Then retry " +
+        `ha task submit ${taskId} [--execution-id <execution-id>] [--amend] ` +
+        "[--from-file <from-file>] [--json-input <json|@->].",
+    });
+    context.diagnostic(`submit proof rejection=${JSON.stringify(leaseRejected)}`);
     await assertRejectedWithoutMutation(
       rootDir,
       repoId,

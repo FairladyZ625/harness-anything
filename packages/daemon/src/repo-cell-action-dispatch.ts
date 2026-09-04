@@ -16,9 +16,10 @@ import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } fr
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
+import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
 import { runSquadEntityMigration } from "./squad-entity-migration.ts";
-import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
+import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -419,10 +420,11 @@ export function declareExecutionExecutor(
         " --reason <reason>.",
       ].join(""),
     );
-  const executionId =
+  const candidates = executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
+    executionId =
       requestedExecutionId ??
       cell.uniqueDerivedExecutionId(
-        executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
+        candidates,
         "Eligible executor-declaration execution",
         [
           `Run ha task show ${taskId}; unblock the Task if needed, then retry when`,
@@ -430,9 +432,10 @@ export function declareExecutionExecutor(
         ].join(" "),
         (candidate: string) =>
           `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
-      ),
-    dispatchProof = dispatchedExecutor(cell, action, taskId, executionId),
-    canonicalAction = { ...action, agent: dispatchProof.executor.id },
+      );
+  const dispatchProof = dispatchedExecutor(cell, action, taskId, executionId, snapshot, candidates);
+  assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, candidates);
+  const canonicalAction = { ...action, agent: dispatchProof.executor.id },
     opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
@@ -476,6 +479,8 @@ function dispatchedExecutor(
   action: RepoTaskAction,
   taskId: string,
   executionId: string,
+  snapshot: Snapshot,
+  declarationCandidates: readonly { readonly executionId: string }[],
 ): {
   readonly executor: { readonly kind: "agent"; readonly id: string };
   readonly dispatchTaskId: string;
@@ -511,13 +516,15 @@ function dispatchedExecutor(
       dispatchTaskId: matches[0]!.dispatchTaskId,
     };
   const choices = candidates.map((candidate) => candidate.executorId);
-  if (candidates.length === 0)
+  if (candidates.length === 0) {
+    assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
     throw cell.cellCodedError(
       "invalid_proof",
       `Task ${taskId} has no recorded runtime dispatch on itself or its parent chain. ` +
         `Run ha task dispatches ${taskId}; ` +
         "executor declaration remains unavailable until a real dispatch record exists.",
     );
+  }
   if (requested)
     throw cell.cellCodedError(
       "invalid_proof",

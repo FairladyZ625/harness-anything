@@ -60,6 +60,19 @@ export function validationError(entityId: string, field: string, actual: unknown
   );
 }
 
+export function validationDiagnostic(hint: string) {
+  const match = hint.match(/^entity=(.+?) field=(\S+) (.+); actual=(.*)$/u);
+  return match
+    ? {
+        kind: "validation" as const,
+        entity: match[1]!,
+        field: match[2]!,
+        expectation: match[3]!,
+        actual: match[4]!,
+      }
+    : null;
+}
+
 export function validationEntityId(value: unknown, fields: readonly string[], fallback: string): string {
   if (isJsonObject(value)) {
     for (const field of fields) if (nonEmpty(value[field])) return value[field];

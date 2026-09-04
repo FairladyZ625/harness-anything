@@ -69,6 +69,7 @@ export class GuiS3ContractError extends Error {
 
 type Rule =
   | "string"
+  | "optional-string"
   | "any-string"
   | "number"
   | "boolean"
@@ -87,6 +88,7 @@ function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: s
   for (const [key, rule] of Object.entries(fields)) {
     const item = value[key];
     if (
+      (rule === "optional-string" && (item === undefined || typeof item === "string")) ||
       (rule === "optional-object" && (item === undefined || record(item))) ||
       (rule === "null-string" && (item === null || typeof item === "string")) ||
       (rule === "null-number" && (item === null || typeof item === "number")) ||
@@ -465,6 +467,8 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       evidence: "string",
       visibility: "string",
       proof: "object",
+      ledgerAccess: "optional-string",
+      reportDelivery: "optional-string",
 
       authorizationDecision: "nullable-object",
     },
@@ -472,6 +476,10 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
   );
   if (!record(value)) return errors;
   if (value.schema !== "command-receipt/v2") errors.push("runtime spawn receipt schema is invalid");
+  if (value.ledgerAccess !== undefined && value.ledgerAccess !== "unavailable")
+    errors.push("runtime spawn receipt ledgerAccess is invalid");
+  if (value.reportDelivery !== undefined && value.reportDelivery !== "stdout")
+    errors.push("runtime spawn receipt reportDelivery is invalid");
   return errors;
 }
 

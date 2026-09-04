@@ -155,6 +155,15 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
     )) as Record<string, unknown>;
     assert.equal(wrongExecutionAmend.outcome, "op_rejected", JSON.stringify(wrongExecutionAmend));
     assert.equal(wrongExecutionAmend.code, "invalid_transition");
+    assert.deepEqual(wrongExecutionAmend.diagnostic, {
+      kind: "validation",
+      entity: `task ${taskId}`,
+      field: "executionId",
+      actual: "execution-not-current",
+      expectation:
+        `Current submitted execution is ${executionId}; retry ha task submit ${taskId} ` +
+        `--execution-id ${executionId} --amend --json-input '<submission-json>'`,
+    });
 
     const noOpAmend = (await cell.run(
       {
