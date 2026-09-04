@@ -6,11 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
 test("CLI merges two independently initialized Git Harness repositories into a third center", (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-multi-source-")),
+  const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-cli-multi-source-")),
     first = path.join(parent, "first"),
     second = path.join(parent, "second"),
     center = path.join(parent, "center"),
@@ -177,12 +178,17 @@ function run(root: string, userRoot: string, args: readonly string[]): Record<st
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
-  const { HARNESS_ACTOR: _actor, ...base } = process.env;
+  const { HARNESS_ACTOR: _actor, HARNESS_DAEMON_ENDPOINT: _endpoint, ...base } = process.env;
   return {
     ...base,
     HOME: path.join(root, ".home"),
+    TMPDIR: process.platform === "win32" ? base.TMPDIR : "/tmp",
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ENDPOINT:
+      process.platform === "win32"
+        ? localUserDaemonEndpoint(userRoot)
+        : path.join("/tmp/harness-anything", path.basename(localUserDaemonEndpoint(userRoot))),
   };
 }
 function stop(userRoot: string, root: string): void {

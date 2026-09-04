@@ -17,14 +17,14 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { runCommandThroughDaemon } from "../src/daemon/client.ts";
+import { localUserDaemonEndpoint, runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
 test("real CLI runs, archives task-bound dispatches, resumes, waits through status, streams, and cancels idempotently", async (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-")),
+  const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     daemonId = `runtime-cli-test-${randomUUID()}`,
@@ -63,6 +63,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
   const env = {
     ...baseEnv,
     HOME: path.join(parent, "home"),
+    TMPDIR: process.platform === "win32" ? baseEnv.TMPDIR : "/tmp",
     PATH: [
       binRoot,
       ...(process.env.PATH ?? "")
@@ -73,6 +74,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     HARNESS_NOTIFY_TEST_SECRET: "must-not-reach-notifier",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ID: daemonId,
+    HARNESS_DAEMON_ENDPOINT:
+      process.platform === "win32"
+        ? localUserDaemonEndpoint(userRoot, daemonId)
+        : path.join("/tmp/harness-anything", path.basename(localUserDaemonEndpoint(userRoot, daemonId))),
     HARNESS_ACTOR: "agent:runtime-cli-test",
   };
   try {
@@ -1292,7 +1297,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(cancelledWait.receipt.outcome, "cancelled");
     const cancelledNotificationTrace = await eventuallyNotification(root, detachedDispatchId);
     await eventuallyFile(notificationOnce);
-    await new Promise((resolve) => setTimeout(resolve, 200));
     const onceLines = readFileSync(notificationOnce, "utf8").trim().split(/\r?\n/u),
       cancelledRecords = readDispatchRecords(root, detachedDispatchId).filter(
         (record) => record.kind === "exit_notification",

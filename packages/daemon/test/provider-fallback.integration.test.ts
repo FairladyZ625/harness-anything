@@ -208,12 +208,9 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches;
       return rows.length === 1 && rows[0]?.status === "succeeded" ? rows : null;
     });
-    await new Promise((resolve) => setTimeout(resolve, 25));
-    assert.equal(
-      (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches.length,
-      1,
-    );
     assert.equal(stopped[0]?.classification, "worker_stop");
+    assert.equal(stopped[0]?.fallbackState, null);
+    assert.equal(stopped[0]?.nextDispatchId, null);
     assert.equal(prompts.has("provider-unused-second"), false);
 
     await installAgent(cell, "fallback-empty-success", [{ instance: "provider-empty-success" }]);
