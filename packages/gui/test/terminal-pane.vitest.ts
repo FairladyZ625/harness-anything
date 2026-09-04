@@ -172,6 +172,19 @@ describe("TerminalPane addon lifecycle (W4a)", () => {
     expect(writeText).toHaveBeenCalledWith("selected output");
   });
 
+  it("still interrupts on Ctrl+C while text is selected", () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    mount();
+    xterm.selection = "a long-running command's output";
+    const event = new KeyboardEvent("keydown", { key: "c", ctrlKey: true, cancelable: true });
+    // Selecting output must not disarm SIGINT. Copying is bound to the meta key alone, so this
+    // event has to reach the PTY unchanged even though a selection exists.
+    expect(xterm.keyHandler?.(event)).toBe(true);
+    expect(event.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("forwards Ctrl+C and Cmd+C without a selection to the PTY path", () => {
     const writeText = vi.fn(async () => undefined);
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
