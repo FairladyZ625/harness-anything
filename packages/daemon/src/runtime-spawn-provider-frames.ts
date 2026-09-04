@@ -28,6 +28,7 @@ export const providerFrameParsers: Record<
   claude: parseClaudeFrame,
   codex: parseCodexFrame,
   agy: parseAgyFrame,
+  zcode: parseZcodeFrame,
 };
 if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
   throw new Error("provider frame parser registry is incomplete");
@@ -193,6 +194,21 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
     };
   }
   throw new Error(`agy event ${String(value.event)} is unsupported`);
+}
+
+export function parseZcodeFrame(value: Record<string, unknown>, providerSessionId: string | null): ProviderFrame {
+  if (!providerSessionId) throw new Error("ZCode frame is incomplete");
+  if (value.type !== "result") return {};
+  if (typeof value.response !== "string") throw new Error("ZCode result frame is incomplete");
+  // Pending calibration against an authorized live stream sample: current provider contract
+  // candidates are usage without error/is_error for success, and either error field for failure.
+  const failed = Object.hasOwn(value, "error") || value.is_error === true;
+  if (!failed && !isPlainRecord(value.usage)) throw new Error("ZCode result frame is incomplete");
+  return {
+    finalText: value.response,
+    outcome: failed ? "failed" : "succeeded",
+    ...(failed ? { failureText: typeof value.error === "string" ? value.error : "ZCode reported an error" } : {}),
+  };
 }
 
 export function planHasIncompleteItems(item: Record<string, unknown>): boolean {

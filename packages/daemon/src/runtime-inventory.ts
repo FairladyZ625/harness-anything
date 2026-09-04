@@ -12,7 +12,8 @@ export interface RuntimeProviderDeclaration {
     readonly configDirectory: string;
     readonly configHomeEnvironment: string | null;
     readonly authFile: string | null;
-    readonly modelProbe: readonly string[];
+    /** null means the provider exposes no model catalog; discovery leaves catalog fields unavailable. */
+    readonly modelProbe: readonly string[] | null;
     readonly modelProbeFormat: "aliases-from-help" | "json-models" | "tabular-models";
   };
   readonly declaredCapabilities: RuntimeInstallation["effectiveCapabilities"];
@@ -315,6 +316,70 @@ export const runtimeKinds = [
       permissionVocabulary: "unverified",
       independentSandbox: "unverified",
       approvalEvent: "unsupported",
+      effort: "unverified",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "zcode",
+    protocolFamily: "zcode",
+    displayName: "ZCode",
+    defaultProviderId: "zai",
+    executable: {
+      command: "zcode",
+      configDirectory: ".zcode",
+      configHomeEnvironment: null,
+      authFile: "v2/credentials.json",
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    declaredCapabilities: ["structured_witness", "resume", "attach", "session_identity"] as const,
+    configuration: {
+      fields: {},
+      publicFields: {},
+      publicDefaults: {},
+    },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: ["doctor"],
+      subscriptionProbeTimeoutMs: 5_000,
+    },
+    isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "argument",
+      streamFormat: "stream-json",
+      resumeFlag: "--resume",
+      // The launcher already executes in the requested cwd; its generic template has no $cwd token.
+      argumentTemplate: ["--output-format", "stream-json", "$permission", "--prompt", "$prompt", "$resume"],
+      permissionArgs: {
+        bypass: ["--mode", "yolo"],
+        "workspace-write": ["--mode", "edit"],
+        "read-only": ["--mode", "plan"],
+      },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    // ZCode has no catalog probe, so models remain explicit free-form instance configuration.
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "supported",
+      turnLimit: "unsupported",
+      configurationIsolation: "unsupported",
+      permissionVocabulary: "supported",
+      independentSandbox: "unverified",
+      approvalEvent: "supported",
       effort: "unverified",
       mcp: "unverified",
       cwdRestriction: "unverified",
