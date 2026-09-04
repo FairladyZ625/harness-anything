@@ -95,6 +95,11 @@ export function scanDocCandidates(input: {
           : (() => {
               throw docSyncError("task_not_found", `Task ${input.taskId} has no projected package path.`);
             })(),
+    // `--task` scopes enumeration to that one package. Without it the scope is
+    // the whole authored tree (empty prefix) — stray `tasks/<seg>/` paths stay
+    // enumerated on purpose so scanOne blocks them with an actionable reason
+    // instead of the submit silently dropping them.
+    enumerationScope = taskPrefix ?? "",
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
     events = input.inventory ? [] : input.store.read().events,
@@ -110,7 +115,7 @@ export function scanDocCandidates(input: {
             ...(input.inventory?.rows.map((row) => row.path) ?? dirtyPaths(ledger.rootDir, ledger.authoredPrefix)),
             ...pendingPaths,
           ]),
-        ].filter((value) => taskPrefix === null || value.startsWith(taskPrefix)),
+        ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates
       .filter(
         (value) =>
@@ -146,6 +151,15 @@ export function scanDocCandidates(input: {
   function scanOne(logical: string): ScannedDocCandidate {
     const inventoried = inventoryByPath.get(logical),
       document = documentPath(logical),
+      // The `tasks/<package>/` namespace is admitted by projection, not by path
+      // shape: this is the one layer of the scanner that holds the projection,
+      // so an unregistered package directory must be refused here. Scoped to
+      // the repo-prose channel (no `--task`) — the task-scoped channel keeps
+      // its own prefix filter and lease adjudication verbatim. The kernel path
+      // functions stay shape-based on purpose — `ha doc retire` relies on them
+      // to reach already-committed ghost documents for retirement.
+      taskDirectory = /^tasks\/([^/]+)\//u.exec(document)?.[1] ?? null,
+      claimingTaskId = taskDirectory === null ? null : input.projection.taskIdForDocumentPath(document),
       route = resolveDocRoute(document),
       target = path.join(layout.authoredRoot, ...logical.split("/")),
       projected = input.projection.readDocument(document),
@@ -187,6 +201,18 @@ export function scanDocCandidates(input: {
             route.requiredRoute,
           );
     }
+    if (input.taskId === undefined && taskDirectory !== null && claimingTaskId === null)
+      return scannedCandidateRow(
+        "blocked",
+        `tasks/${taskDirectory} is not the package path of any projected task; publish task artifacts with ` +
+          "ha task artifact add <task-id> --source <file> --destination artifacts/<name> and remove the stray copy",
+        bytes,
+        base,
+        candidate,
+        classification?.mediaType ?? null,
+        "task_package_unregistered",
+        "ha task artifact add",
+      );
     if (classification === null)
       return scannedCandidateRow(
         "blocked",

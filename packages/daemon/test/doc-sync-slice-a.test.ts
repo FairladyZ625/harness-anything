@@ -34,9 +34,15 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
-        ["tasks/task-one/artifacts/data.json", "eligible"],
+        ["tasks/task-one/artifacts/data.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
+    );
+    // tasks/task-one is not a projected package path: the repo prose channel
+    // must refuse its artifacts directory instead of admitting the ghost.
+    assert.match(
+      statusRows.find((row) => row.path === "tasks/task-one/artifacts/data.json")?.reason ?? "",
+      /tasks\/task-one is not the package path of any projected task/u,
     );
     assert.equal(statusRows.find((row) => row.path.endsWith("artifacts/data.json"))?.mediaType, opaqueTextualMediaType);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
@@ -365,9 +371,14 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
       rootDir: canonicalRoot(rootDir),
       ownerId: "non-textual-daemon",
     }),
-    binding = { actor, source: "local" as const },
-    fresh = "tasks/task-proof/artifacts/screenshots/evidence.png",
-    tracked = "tasks/task-proof/artifacts/report.bin";
+    binding = { actor, source: "local" as const };
+  const proofTask = (await cell.run({ kind: "task-create", taskId: "task-proof", title: "Proof" }, binding)) as {
+    readonly outcome: string;
+    readonly packagePath: string;
+  };
+  assert.equal(proofTask.outcome, "applied", JSON.stringify(proofTask));
+  const fresh = `${proofTask.packagePath}/artifacts/screenshots/evidence.png`,
+    tracked = `${proofTask.packagePath}/artifacts/report.bin`;
   try {
     const freshTarget = path.join(rootDir, "harness", fresh);
     mkdirSync(path.dirname(freshTarget), { recursive: true });
