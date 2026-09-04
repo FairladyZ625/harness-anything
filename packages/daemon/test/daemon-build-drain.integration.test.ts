@@ -8,6 +8,7 @@ import test from "node:test";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { readDaemonLifecycleRecords, type DaemonLifecycleRecorder } from "../src/lifecycle-log.ts";
+import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -251,6 +252,61 @@ test("autostart readiness is independent of a simulated 32 second canonical repo
     attachmentGate.resolve();
     if (!daemon && daemonStart) daemon = await daemonStart;
     await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a drain that rejects still releases the pid file and the singleton lock", async () => {
+  // The stop sequence used to release the pid file and the lock after the awaits, so any rejection on
+  // the way down left both behind and the next daemon could never claim the singleton. A long
+  // migration replay failing inside RepoCell.close is the path that surfaced this on main.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-stop-drain-reject-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "stop-drain-reject",
+    lockPath = daemonSingletonLockPath(userRoot, repoId);
+  let daemon: RunningDaemon | undefined,
+    // The injected close never reaches the real cell, so the test owns closing it: otherwise its
+    // worker thread keeps the test process alive after every assertion has passed.
+    realCell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
+  rosterRepo(rootDir, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId: repoId,
+        userRoot,
+        endpoint: testEndpoint(repoId),
+        openCell: async (input) => {
+          const cell = await openBootstrappedRepoCell(input);
+          realCell = cell;
+          return {
+            ...cell,
+            close: async () => {
+              throw new Error("simulated migration replay failure during close");
+            },
+          };
+        },
+      }),
+    );
+    assert.equal(existsSync(lockPath), true, "the running daemon holds the singleton lock");
+    // Attachment is async: stopping before the cell lands would close an empty registry and never
+    // reach the injected failure, which is the same trap that makes this bug hard to see.
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const status = await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000);
+      if ((status.repos as { readonly state: string }[])[0]?.state === "attached") break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    await assert.rejects(daemon.stop(), /simulated migration replay failure during close/u);
+
+    assert.equal(existsSync(lockPath), false, "stop exit must release the singleton lock");
+    assert.equal(readDaemonPid(userRoot, repoId), null, "stop exit must remove the pid file");
+    assert.equal(existsSync(testEndpoint(repoId)), false, "stop exit must remove the socket");
+    daemon = undefined;
+  } finally {
+    await daemon?.stop().catch(() => undefined);
+    await realCell?.close().catch(() => undefined);
     rmSync(parent, { recursive: true, force: true });
   }
 });

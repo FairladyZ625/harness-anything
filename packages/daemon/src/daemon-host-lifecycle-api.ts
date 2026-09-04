@@ -83,7 +83,13 @@ export function createDaemonHostLifecycleApi(
       for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
       context.fleetEdgeRuntimes.clear();
       context.remoteProxy.close();
-      await Promise.all([...context.cells.values()].map((cell) => cell.close()));
+      // Every cell gets its close awaited even when one of them rejects: Promise.all would return
+      // on the first rejection while the other cells were still tearing down, and the stop sequence
+      // above this would release the pid file and lock under threads that are still alive. The
+      // first rejection still propagates so the drain failure is not swallowed.
+      const settled = await Promise.allSettled([...context.cells.values()].map((cell) => cell.close())),
+        rejected = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+      if (rejected) throw rejected.reason;
     },
   };
 }
