@@ -343,6 +343,7 @@ export const presetCommands = Object.freeze([
     positional: "templateRef",
     inputs: [
       cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
+      cliInput("--raw", "boolean", false, { code: "invalid_field" }, { field: "raw" }),
     ],
   }),
   defineRepoReadCommand({

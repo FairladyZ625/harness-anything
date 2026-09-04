@@ -25,12 +25,13 @@ export function packetJson(value: unknown, fields: readonly string[]): Record<st
       `Structured input must be one UTF-8 JSON object with exactly these required fields: ${fields.join(", ")}.`,
     );
   }
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed) ||
-    Object.keys(parsed).sort().join("\0") !== [...fields].sort().join("\0")
-  )
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
+  const present = Object.keys(parsed),
+    missing = fields.filter((field) => !present.includes(field));
+  if (missing.length)
+    throw cellCodedError("missing_field", `JSON packet is missing required fields: ${missing.join(", ")}.`);
+  if (present.sort().join("\0") !== [...fields].sort().join("\0"))
     throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
   return parsed as Record<string, unknown>;
 }

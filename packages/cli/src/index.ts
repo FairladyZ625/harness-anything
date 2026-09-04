@@ -117,7 +117,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
-    emit(receipt, typedCommand.json);
+    if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
+      process.stdout.write(rawTemplateBody(receipt));
+    else emit(receipt, typedCommand.json);
     cliPhaseEnd("render", renderStartedAt);
     return Number.isInteger(receipt.exitCode)
       ? Number(receipt.exitCode)
@@ -165,6 +167,15 @@ export function emit(receipt: Record<string, unknown>, json: boolean): void {
     const rendered = renderCliReceipt(receipt);
     console[rendered.stream === "stderr" ? "error" : "log"](rendered.text);
   }
+}
+
+export function rawTemplateBody(receipt: Record<string, unknown>): string {
+  if (receipt.ok !== true || typeof receipt.evidence !== "string")
+    throw new TypeError("Raw template rendering requires a successful template receipt.");
+  const rendered: unknown = JSON.parse(receipt.evidence);
+  if (typeof rendered !== "object" || rendered === null || !("body" in rendered) || typeof rendered.body !== "string")
+    throw new TypeError("Template receipt is missing its rendered body.");
+  return rendered.body;
 }
 
 function isCliEntrypoint(): boolean {

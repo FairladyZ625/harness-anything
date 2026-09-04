@@ -169,7 +169,11 @@ export function buildCommand(
         "invalid_transition",
         [
           "Execution Review requires a submitted execution on the current ",
-          "iteration; submit ",
+          "iteration; current task status is ",
+          `${snapshot.task?.status ?? "missing"}`,
+          " and execution status is ",
+          `${submitted?.state ?? "missing"}`,
+          ". Submit ",
           `${executionId}`,
           " before review.",
         ].join(""),
