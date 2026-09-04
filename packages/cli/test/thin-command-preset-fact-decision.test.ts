@@ -177,6 +177,33 @@ test("Relation commands replace hosted Task and Decision relation ingress", () =
   assert.equal(parseThinCommand(["decision", "relate", "dec_a"]).ok, false);
 });
 
+test("Relation relate names missing concurrency and rationale fields with executable hints", () => {
+  const base = [
+      "relation",
+      "relate",
+      "--source-ref",
+      "decision/dec_a",
+      "--target-ref",
+      "task/task_a",
+      "--type",
+      "derives",
+    ],
+    missingVersion = parseThinCommand([...base, "--rationale", "Decision derives task."]),
+    missingRationale = parseThinCommand([...base, "--expected-version", "0"]);
+  assert.deepEqual(missingVersion, {
+    ok: false,
+    code: "missing_field",
+    nextAction: "Add --expected-version 0 when creating a new Relation, then rerun the command.",
+    json: false,
+  });
+  assert.deepEqual(missingRationale, {
+    ok: false,
+    code: "missing_field",
+    nextAction: "Add --rationale <why>, then rerun the command.",
+    json: false,
+  });
+});
+
 test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
     "fact",

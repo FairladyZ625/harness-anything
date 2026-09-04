@@ -200,16 +200,19 @@ function parseRelationRouted(
 ): ThinParseResult | undefined {
   if (route.id === "relation-list") return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs);
   if (route.id === "relation-relate")
-    return parseProjected(
-      route.id,
-      args.slice(2),
-      rootDir,
-      repoId,
+    return normalizeRelationRelateFailure(
+      parseProjected(
+        route.id,
+        args.slice(2),
+        rootDir,
+        repoId,
+        json,
+        inputs,
+        {},
+        { direction: "directed", origin: "declared" },
+        route.method,
+      ),
       json,
-      inputs,
-      {},
-      { direction: "directed", origin: "declared" },
-      route.method,
     );
   if (route.id === "relation-unrelate") {
     const relationId = args[2];
@@ -232,4 +235,17 @@ function parseRelationRouted(
         );
   }
   return undefined;
+}
+
+function normalizeRelationRelateFailure(result: ThinParseResult, json: boolean): ThinParseResult {
+  if (result.ok || result.code !== "invalid_field") return result;
+  if (result.nextAction.startsWith("--expected-version is required."))
+    return rejected(
+      "missing_field",
+      "Add --expected-version 0 when creating a new Relation, then rerun the command.",
+      json,
+    );
+  return result.nextAction.startsWith("--rationale is required.")
+    ? rejected("missing_field", "Add --rationale <why>, then rerun the command.", json)
+    : result;
 }

@@ -62,6 +62,34 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
     );
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
 
+    const reversed = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}`,
+        targetRef: entityRef,
+        relationType: "relates",
+        rationale: "The declared artifact direction must be discoverable.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(reversed.code, "relation_direction_invalid", JSON.stringify(reversed));
+    assert.match(JSON.stringify(reversed.diagnostic), /next: ha relation relate --source-ref/u);
+
+    const invalidTarget = await cell.run(
+      {
+        kind: "relation-relate",
+        sourceRef: `decision/${decisionId}`,
+        targetRef: entityRef,
+        relationType: "refines",
+        rationale: "Decision refines accepts a Decision target only.",
+        expectedVersion: 0,
+      },
+      binding,
+    );
+    assert.equal(invalidTarget.code, "relation_target_kind_invalid", JSON.stringify(invalidTarget));
+    assert.match(JSON.stringify(invalidTarget.diagnostic), /decision --refines-->.*decision/u);
+
     const undeclared = await cell.run(
       {
         kind: "relation-relate",
