@@ -170,7 +170,7 @@ describe("数据面:契约页宽连续翻页装万行,history 方向不裁剪", 
     );
     expect(applied).toBe(157);
     expect(state.rows).toHaveLength(TOTAL_ROWS);
-    expect(state.rows[0]!.revision).toBe(1);
+    expect(state.rows.at(0)!.revision).toBe(1);
     expect(state.rows.at(-1)!.revision).toBe(TOTAL_ROWS);
     expect(elapsed).toBeLessThan(2_000);
     // 超过内存上限的 follow 增长仍受 OBSERVE_FOLLOW_ROW_LIMIT 约束(只丢最旧端)。

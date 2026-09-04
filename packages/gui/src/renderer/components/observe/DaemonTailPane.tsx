@@ -11,9 +11,11 @@ import {
   applyObserveTailPage,
   applyObserveViewing,
   filterObserveRows,
+  filterObserveRowsLog,
   initialObserveTail,
   observePaneCursor,
   observeTailRequest,
+  type ObserveFilterCache,
   type ObserveRow,
   type ObserveTailCursor,
   type ObserveTailKind,
@@ -133,13 +135,19 @@ export function DaemonTailPane({
     [scroll, setScroll] = useState({ top: 0, height: 0 }),
     bodyRef = useRef<HTMLDivElement>(null),
     selfScroll = useRef(false),
+    // 增量过滤缓存:同一 query 只扫新增行(见 filterObserveRowsLog),follow 轮询不重扫全量。
+    filterRef = useRef<ObserveFilterCache | null>(null),
     tail = useObserveTail(repoId, kind, paused),
     snapshot = tail.snapshot,
-    rows = useMemo(() => filterObserveRows(snapshot.rows, query), [snapshot.rows, query]),
+    rows = useMemo(() => {
+      const next = filterObserveRowsLog(snapshot.rows, query, filterRef.current);
+      filterRef.current = next;
+      return next.result;
+    }, [snapshot.rows, snapshot.rows.version, query]),
     isLogPane = kind !== "events",
     // 尾随的触发键是「最后一行」而不是行数:加载历史只改第一行,不应把视口拉到底;
     // 只有 live follow 改变最后一行时才触发贴底。
-    lastKey = rows.length > 0 ? rows[rows.length - 1]!.key : null,
+    lastKey = rows.length > 0 ? rows.at(-1)!.key : null,
     // 只渲染视口附近的行;DOM 行数上界与累计加载行数无关(见 observeWindowRange)。
     rowWindow = observeWindowRange({ total: rows.length, scrollTop: scroll.top, viewportHeight: scroll.height }),
     visible = rows.slice(rowWindow.start, rowWindow.end);

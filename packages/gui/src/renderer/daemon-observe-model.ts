@@ -39,7 +39,7 @@ export interface ObserveRow {
 }
 
 export interface ObserveTailSnapshot {
-  readonly rows: readonly ObserveRow[];
+  readonly rows: ObserveRowLog;
   readonly historyCursor: ObserveTailCursor;
   readonly liveCursor: ObserveTailCursor;
   readonly status: "idle" | "live" | "unavailable" | "gap" | "error";
@@ -72,7 +72,7 @@ export const OBSERVE_FOLLOW_ROW_LIMIT = 5_000;
 
 export function initialObserveTail(): ObserveTailSnapshot {
   return {
-    rows: [],
+    rows: new ObserveRowLog(),
     historyCursor: null,
     liveCursor: null,
     status: "idle",
@@ -108,10 +108,11 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
   if (page.status === "gap") {
     const marker = gapMarkerRow(page.gap, state.rows.length),
       historyGap = page.direction === "history";
+    // history 方向的缺口标记只插入行头,不裁剪已加载行(回看历史期间任何一端都不丢)。
+    if (historyGap) state.rows.prepend([marker], false);
+    else state.rows.replace([marker]);
     return {
       ...state,
-      // history 方向的缺口标记只插入行头,不裁剪已加载行(回看历史期间任何一端都不丢)。
-      rows: historyGap ? [marker, ...state.rows] : [marker],
       status: "gap",
       gap: page.gap,
       unavailable: null,
@@ -136,20 +137,17 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
     prepend = page.direction === "history",
     initializing = prepend && state.liveCursor === null,
     appendAfterGap = initializing && state.status === "gap",
-    headGrowth = prepend && !appendAfterGap,
-    rows = headGrowth
-      ? // history 翻页:只往前拼接,永不裁剪(渲染代价由视图窗口化保证)。
-        page.kind === "events"
-        ? mergeEventRows(state.rows, fresh, true)
-        : [...fresh, ...state.rows]
-      : // follow 增长:只有贴底追尾时才对 live 累积封顶(丢最旧端);回看历史期间不裁剪。
-        capFollowRows(
-          page.kind === "events" ? mergeEventRows(state.rows, fresh, false) : [...state.rows, ...fresh],
-          state.viewing,
-        );
-  return {
+    headGrowth = prepend && !appendAfterGap;
+  if (headGrowth)
+    // history 翻页:只往前拼接,永不裁剪(渲染代价由视图窗口化保证);事件按 key 索引挡重放。
+    state.rows.prepend(fresh, page.kind === "events");
+  else {
+    // follow 增长:只有贴底追尾时才对 live 累积封顶(丢最旧端);回看历史期间不裁剪。
+    state.rows.append(fresh, page.kind === "events");
+    capFollowRows(state.rows, state.viewing);
+  }
+  const next: ObserveTailSnapshot = {
     ...state,
-    rows,
     historyCursor: prepend ? pageHistoryCursor : state.historyCursor,
     liveCursor: prepend ? (initializing ? pageLiveCursor : state.liveCursor) : pageLiveCursor,
     status: "live",
@@ -164,6 +162,9 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
     mode: page.mode,
     received: state.received + fresh.length,
   };
+  // 空页 fast path:无新行、游标与追平位都没动的 follow 页原样返回同一引用,
+  // 视图 setSnapshot 拿到同引用不重渲染。行容器本身从不重建(见 ObserveRowLog)。
+  return sameObserveTail(state, next) ? state : next;
 }
 
 export function observePaneCursor(value: ObserveTailRead["historyCursor"]): ObserveTailCursor {
@@ -220,15 +221,190 @@ export function filterObserveRows(rows: readonly ObserveRow[], query: string): r
   return rows.filter((row) => row.searchText.includes(needle));
 }
 
-function mergeEventRows(
-  existing: readonly ObserveRow[],
-  fresh: readonly ObserveRow[],
-  prepend: boolean,
-): readonly ObserveRow[] {
-  // 事件行以 eventId 为键:ledger 重建后同一 revision 段重放时不重复入列。
-  const seen = new Set(existing.map((row) => row.key));
-  const unique = fresh.filter((row) => !seen.has(row.key));
-  return prepend ? [...unique, ...existing] : [...existing, ...unique];
+/** 增量查询过滤的续用缓存:视图存进 ref,连同 rows.version 一起作 useMemo 依赖。 */
+export interface ObserveFilterCache {
+  readonly query: string;
+  readonly source: ObserveRowLog;
+  readonly version: number;
+  readonly mark: ObserveRowMark;
+  readonly result: ObserveRowLog;
+}
+
+/**
+ * 行存储上的关键字过滤,语义同 filterObserveRows,但同一 query 下只对两端新增行做
+ * 匹配、结果容器跨快照复用(引用不变):follow 轮询不再每秒全量重扫已加载行。
+ * query 变化或行集被裁剪/替换(growth 为 null)时全量重建;空查询直接复用源容器。
+ */
+export function filterObserveRowsLog(
+  source: ObserveRowLog,
+  query: string,
+  cache: ObserveFilterCache | null,
+): ObserveFilterCache {
+  const needle = query.trim().toLowerCase();
+  if (cache !== null && cache.source === source && cache.query === needle && cache.version === source.version)
+    return cache;
+  if (needle === "") return { query: needle, source, version: source.version, mark: source.mark(), result: source };
+  const prior = cache !== null && cache.source === source && cache.query === needle ? cache : null;
+  const growth = prior === null ? null : source.growth(prior.mark);
+  if (prior === null || growth === null) {
+    const result = new ObserveRowLog(false),
+      hits: ObserveRow[] = [];
+    for (const row of source) if (row.searchText.includes(needle)) hits.push(row);
+    result.append(hits, false);
+    return { query: needle, source, version: source.version, mark: source.mark(), result };
+  }
+  const matched = (rows: readonly ObserveRow[]) => rows.filter((row) => row.searchText.includes(needle));
+  if (growth.prepended.length > 0) prior.result.prepend(matched(growth.prepended), false);
+  if (growth.appended.length > 0) prior.result.append(matched(growth.appended), false);
+  return { query: needle, source, version: source.version, mark: growth.mark, result: prior.result };
+}
+
+/** 行存储的两端水位 + 丢行计数,是增量查询过滤判断缓存可否续用的标记。 */
+export interface ObserveRowMark {
+  readonly head: number;
+  readonly tail: number;
+  readonly shrinks: number;
+}
+
+/**
+ * 行存储:head(倒序,承接前插)/ tail(正序,承接追加)两段,前插与追加常数摊还,
+ * 按索引读取 O(1)、窗口切片 O(window),不再随累计行数整数组复制。事件去重靠随行
+ * 维护的 key 索引(seen),不每页整表重建 Set;贴底封顶丢最旧端时先弹 head、再前移
+ * tail 读偏移(摊还清除)。version 随每次行集变更自增、shrinks 只在丢行/整表替换时
+ * 自增,供 filterObserveRowsLog 判断「增量续用 / 全量重建」。
+ */
+export class ObserveRowLog {
+  private readonly head: ObserveRow[] = [];
+  private tail: ObserveRow[] = [];
+  private readonly seen: Set<string> | null;
+  private tailStart = 0;
+  private shrinkCount = 0;
+  private mutationCount = 0;
+
+  /** dedup=false 的实例不做 key 去重(查询过滤的结果容器:key 天然唯一,省一份索引)。 */
+  constructor(dedup = true) {
+    this.seen = dedup ? new Set<string>() : null;
+  }
+
+  get length(): number {
+    return this.head.length + this.tail.length - this.tailStart;
+  }
+
+  /** 行集变更计数:视图层增量过滤的缓存键之一。 */
+  get version(): number {
+    return this.mutationCount;
+  }
+
+  /**
+   * 前插一批行到行头(history 翻页、gap 标记)。dedup 时按 key 挡掉已入列的重放事件,
+   * 未见过行保持原有顺序(与旧 mergeEventRows 的 filter 语义一致)。
+   */
+  prepend(rows: readonly ObserveRow[], dedup: boolean): void {
+    if (rows.length === 0) return;
+    let grown = false;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index]!;
+      if (!this.admit(row, dedup)) continue;
+      this.head.push(row);
+      grown = true;
+    }
+    if (grown) this.mutationCount += 1;
+  }
+
+  /** 追加一批行到行尾(follow 增长);dedup 时按 key 挡掉已入列的重放事件。 */
+  append(rows: readonly ObserveRow[], dedup: boolean): void {
+    if (rows.length === 0) return;
+    let grown = false;
+    for (const row of rows) {
+      if (!this.admit(row, dedup)) continue;
+      this.tail.push(row);
+      grown = true;
+    }
+    if (grown) this.mutationCount += 1;
+  }
+
+  /** 贴底封顶丢最旧端:先弹 head(倒序段的末尾就是最旧行),耗尽后前移 tail 读偏移。 */
+  dropOldest(count: number): void {
+    let remaining = Math.min(count, this.length);
+    if (remaining <= 0) return;
+    while (remaining > 0 && this.head.length > 0) {
+      this.seen?.delete(this.head.pop()!.key);
+      remaining -= 1;
+    }
+    for (let index = 0; index < remaining; index += 1) this.seen?.delete(this.tail[this.tailStart + index]!.key);
+    this.tailStart += remaining;
+    if (this.tailStart > 0 && this.tailStart * 2 >= this.tail.length) {
+      this.tail = this.tail.slice(this.tailStart);
+      this.tailStart = 0;
+    }
+    this.shrinkCount += 1;
+    this.mutationCount += 1;
+  }
+
+  /** 整表替换(follow 方向 gap 重置):只留给定行,key 索引随之重建。 */
+  replace(rows: readonly ObserveRow[]): void {
+    this.head.length = 0;
+    this.tail = [...rows];
+    this.tailStart = 0;
+    this.seen?.clear();
+    for (const row of rows) this.seen?.add(row.key);
+    this.shrinkCount += 1;
+    this.mutationCount += 1;
+  }
+
+  /** 按索引读取(支持负索引,语义同 Array.prototype.at),O(1)。 */
+  at(index: number): ObserveRow | undefined {
+    const total = this.length,
+      slot = index < 0 ? total + index : index;
+    if (slot < 0 || slot >= total) return undefined;
+    return slot < this.head.length
+      ? this.head[this.head.length - 1 - slot]
+      : this.tail[this.tailStart + slot - this.head.length];
+  }
+
+  /** 窗口切片 [start, end)(支持负索引);代价 O(end - start),与累计行数无关。 */
+  slice(start = 0, end = this.length): readonly ObserveRow[] {
+    const total = this.length,
+      from = Math.max(0, start < 0 ? total + start : start),
+      to = Math.min(total, end < 0 ? total + end : end),
+      window: ObserveRow[] = [];
+    for (let index = from; index < to; index += 1) window.push(this.at(index)!);
+    return window;
+  }
+
+  /** 逻辑正序迭代,只供全量重建路径(查询词变化/行集收缩)使用。 */
+  *[Symbol.iterator](): Iterator<ObserveRow> {
+    for (let index = this.head.length - 1; index >= 0; index -= 1) yield this.head[index]!;
+    for (let index = this.tailStart; index < this.tail.length; index += 1) yield this.tail[index]!;
+  }
+
+  /** 当前两端水位与丢行计数。 */
+  mark(): ObserveRowMark {
+    return { head: this.head.length, tail: this.tail.length - this.tailStart, shrinks: this.shrinkCount };
+  }
+
+  /**
+   * 自 mark 以来的两端新增行(各自按逻辑正序)与新 mark。期间丢过行或整表替换过
+   * (shrinks 变化)、或水位回落时返回 null:缓存里的行集不再可靠,调用方需全量重建。
+   */
+  growth(
+    mark: ObserveRowMark,
+  ): { prepended: readonly ObserveRow[]; appended: readonly ObserveRow[]; mark: ObserveRowMark } | null {
+    const current = this.mark();
+    if (mark.shrinks !== current.shrinks || mark.head > current.head || mark.tail > current.tail) return null;
+    return {
+      prepended: this.head.slice(mark.head).reverse(),
+      appended: this.tail.slice(this.tailStart + mark.tail),
+      mark: current,
+    };
+  }
+
+  private admit(row: ObserveRow, dedup: boolean): boolean {
+    if (this.seen === null) return true;
+    if (dedup && this.seen.has(row.key)) return false;
+    this.seen.add(row.key);
+    return true;
+  }
 }
 
 /**
@@ -242,13 +418,40 @@ function sameCursor(left: ObserveTailCursor, right: ObserveTailCursor): boolean 
   return right.kind !== "events" && left.fileId === right.fileId && left.offset === right.offset;
 }
 
+/** 空页 fast path:逐字段比较两次快照是否可观察地相同(行容器同引用即行集未变)。 */
+function sameObserveTail(a: ObserveTailSnapshot, b: ObserveTailSnapshot): boolean {
+  return (
+    a.rows === b.rows &&
+    a.status === b.status &&
+    a.error === b.error &&
+    a.caughtUp === b.caughtUp &&
+    a.historyDone === b.historyDone &&
+    a.mode === b.mode &&
+    a.viewing === b.viewing &&
+    a.received === b.received &&
+    sameCursor(a.historyCursor, b.historyCursor) &&
+    sameCursor(a.liveCursor, b.liveCursor) &&
+    sameDetail(a.unavailable, b.unavailable) &&
+    sameDetail(a.gap, b.gap)
+  );
+}
+
+function sameDetail<T extends object>(a: T | null, b: T | null): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  const left = a as Readonly<Record<string, unknown>>,
+    right = b as Readonly<Record<string, unknown>>;
+  return Object.keys(left).every((key) => left[key] === right[key]);
+}
+
 /**
- * follow 增长的内存上限:贴底追尾时丢最旧端;回看历史期间不裁剪(不足上限原样返回,
+ * follow 增长的内存上限:贴底追尾时丢最旧端;回看历史期间不裁剪(不足上限不动行集,
  * 见 OBSERVE_FOLLOW_ROW_LIMIT)。回到贴底后的下一次 follow 增长重新把行数拉回界内。
  */
-function capFollowRows(rows: readonly ObserveRow[], viewing: "follow" | "history"): readonly ObserveRow[] {
-  if (viewing !== "follow" || rows.length <= OBSERVE_FOLLOW_ROW_LIMIT) return rows;
-  return rows.slice(rows.length - OBSERVE_FOLLOW_ROW_LIMIT);
+function capFollowRows(rows: ObserveRowLog, viewing: "follow" | "history"): void {
+  if (viewing !== "follow") return;
+  const excess = rows.length - OBSERVE_FOLLOW_ROW_LIMIT;
+  if (excess > 0) rows.dropOldest(excess);
 }
 
 function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: string }, seq: number): ObserveRow {
