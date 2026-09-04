@@ -11,6 +11,9 @@ on:
     - cron: "17 19 * * *"
 
 env:
+  # Quarantined tests (tools/test-quarantine.json) run only on the nightly schedule; PR and main-push
+  # lanes skip them so a load-sensitive test cannot block merges. Every entry names its owner task.
+  HARNESS_TEST_QUARANTINE: ${{ github.event_name == 'schedule' && 'run' || 'skip' }}
   HARNESS_CI_NODE_TEST_RESULTS: tmp/ci-observation/node-tests.json
   HARNESS_CI_VITEST_RESULTS: tmp/ci-observation/vitest.json
   HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json

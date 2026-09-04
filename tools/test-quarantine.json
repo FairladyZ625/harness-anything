@@ -1,4 +1,30 @@
 {
   "schema": "harness-test-quarantine/v1",
-  "tests": []
+  "tests": [
+    {
+      "test": "more than 64 completed uploads remain bounded across center restart",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
+    },
+    {
+      "test": "provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
+    },
+    {
+      "test": "real CLI runs, archives task-bound dispatches, resumes, waits through status, streams, and cancels idempotently",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
+    },
+    {
+      "test": "CLI merges two independently initialized Git Harness repositories into a third center",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
+    },
+    {
+      "test": "timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
+    }
+  ]
 }
