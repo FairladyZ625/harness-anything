@@ -173,24 +173,26 @@ export function NewRuntimeDialog({
           <Hint>{t("agentRuntime.callPathCodex")}</Hint>
         </div>
       )}
-      {planeUsesApiOverride(form.kindId) && (
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Toggle
-              checked={apiOn}
-              label={t("agentRuntime.apiOverride")}
-              onChange={(next) =>
-                setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))
-              }
-            />
-            <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
-            <Badge status={apiOn ? "active" : "planned"}>
-              {t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
-            </Badge>
-          </div>
-          <p className="mt-1 ui-micro text-text-faint">{t("agentRuntime.callPathClaude")}</p>
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Toggle
+            checked={apiOn}
+            label={t("agentRuntime.apiOverride")}
+            disabled={!planeUsesApiOverride(form.kindId)}
+            onChange={(next) => setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))}
+          />
+          <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
+          <Badge status={apiOn ? "active" : "planned"}>
+            {t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
+          </Badge>
         </div>
-      )}
+        <p className="mt-1 ui-micro text-text-faint">
+          {t(planeUsesApiOverride(form.kindId) ? "agentRuntime.callPathClaude" : "agentRuntime.capabilityUnsupported", {
+            provider: form.kindId,
+            capability: t("agentRuntime.apiOverride"),
+          })}
+        </p>
+      </div>
 
       <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
         <Labelled label={t("agentRuntime.instanceId")}>
@@ -230,56 +232,86 @@ export function NewRuntimeDialog({
             testIdPrefix="new-runtime"
           />
         </Labelled>
-        {planeAllowsBaseUrl(form.kindId, form.authMode) && (
-          <Labelled label={t("agentRuntime.baseUrl")} hint={t("agentRuntime.baseUrlHint")}>
+        <Labelled
+          label={t("agentRuntime.baseUrl")}
+          hint={
+            planeAllowsBaseUrl(form.kindId, form.authMode)
+              ? t("agentRuntime.baseUrlHint")
+              : t("agentRuntime.capabilityUnsupported", {
+                  provider: form.kindId,
+                  capability: t("agentRuntime.baseUrl"),
+                })
+          }
+        >
+          <TextInput
+            label={t("agentRuntime.baseUrl")}
+            testId="new-runtime-base-url"
+            mono
+            value={form.baseUrl}
+            disabled={!planeAllowsBaseUrl(form.kindId, form.authMode)}
+            onChange={(baseUrl) => patch({ baseUrl })}
+            placeholder="https://open.bigmodel.cn/api/anthropic"
+          />
+        </Labelled>
+        <Labelled
+          label={t("agentRuntime.apiKey")}
+          hint={
+            planeAllowsApiKey(form.kindId, form.authMode)
+              ? t("agentRuntime.apiKeyHint")
+              : t("agentRuntime.capabilityUnsupported", {
+                  provider: form.kindId,
+                  capability: t("agentRuntime.apiKey"),
+                })
+          }
+        >
+          <TextInput
+            label={t("agentRuntime.apiKey")}
+            testId="new-runtime-api-key"
+            type="password"
+            value={form.apiKey}
+            disabled={!planeAllowsApiKey(form.kindId, form.authMode)}
+            onChange={(apiKey) => patch({ apiKey })}
+            placeholder={t("agentRuntime.apiKeyPlaceholder")}
+          />
+        </Labelled>
+        {plane.effort === "enum" ? (
+          <Labelled label={t("agentRuntime.effort")}>
+            <select
+              aria-label={t("agentRuntime.effort")}
+              value={form.reasoningEffort}
+              onChange={(event) => patch({ reasoningEffort: event.target.value })}
+              className="control"
+            >
+              <option value="">{t("agentRuntime.providerDefault")}</option>
+              {plane.effortValues.map((effort) => (
+                <option key={effort} value={effort}>
+                  {effort}
+                </option>
+              ))}
+            </select>
+          </Labelled>
+        ) : (
+          <Labelled
+            label={t("agentRuntime.effort")}
+            hint={
+              planeAllowsEffort(form.kindId)
+                ? undefined
+                : t("agentRuntime.capabilityUnsupported", {
+                    provider: form.kindId,
+                    capability: t("agentRuntime.effort"),
+                  })
+            }
+          >
             <TextInput
-              label={t("agentRuntime.baseUrl")}
-              testId="new-runtime-base-url"
+              label={t("agentRuntime.effort")}
               mono
-              value={form.baseUrl}
-              onChange={(baseUrl) => patch({ baseUrl })}
-              placeholder="https://open.bigmodel.cn/api/anthropic"
+              value={form.reasoningEffort}
+              disabled={!planeAllowsEffort(form.kindId)}
+              onChange={(reasoningEffort) => patch({ reasoningEffort })}
+              placeholder="xhigh"
             />
           </Labelled>
         )}
-        {planeAllowsApiKey(form.kindId, form.authMode) && (
-          <Labelled label={t("agentRuntime.apiKey")} hint={t("agentRuntime.apiKeyHint")}>
-            <TextInput
-              label={t("agentRuntime.apiKey")}
-              testId="new-runtime-api-key"
-              type="password"
-              value={form.apiKey}
-              onChange={(apiKey) => patch({ apiKey })}
-              placeholder={t("agentRuntime.apiKeyPlaceholder")}
-            />
-          </Labelled>
-        )}
-        {planeAllowsEffort(form.kindId) &&
-          (plane.effort === "enum" ? (
-            <Labelled label={t("agentRuntime.effort")}>
-              <select
-                aria-label={t("agentRuntime.effort")}
-                value={form.reasoningEffort}
-                onChange={(event) => patch({ reasoningEffort: event.target.value })}
-                className="control"
-              >
-                <option value="">{t("agentRuntime.providerDefault")}</option>
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-              </select>
-            </Labelled>
-          ) : (
-            <Labelled label={t("agentRuntime.effort")}>
-              <TextInput
-                label={t("agentRuntime.effort")}
-                mono
-                value={form.reasoningEffort}
-                onChange={(reasoningEffort) => patch({ reasoningEffort })}
-                placeholder="xhigh"
-              />
-            </Labelled>
-          ))}
         {form.kindId === "codex" && (
           <Labelled label={t("agentRuntime.fast")} hint={t("agentRuntime.fastHint")}>
             <span
@@ -305,35 +337,53 @@ export function NewRuntimeDialog({
             </select>
           </Labelled>
         )}
-        {planeAllowsPermissions(form.kindId) && (
-          <Labelled label={t("agentRuntime.permissionMode")}>
-            <select
-              aria-label={t("agentRuntime.permissionMode")}
-              value={form.permissionMode}
-              onChange={(event) =>
-                patch({ permissionMode: event.target.value as CreateInstanceFormState["permissionMode"] })
-              }
-              className="control"
-            >
-              <option value="bypass">{t("agentRuntime.permissionBypass")}</option>
-              <option value="workspace-write">{t("agentRuntime.permissionWorkspaceWrite")}</option>
-              <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
-            </select>
-          </Labelled>
-        )}
-        {planeAllowsPermissions(form.kindId) && (
-          <Labelled label={t("agentRuntime.isolation")}>
-            <select
-              aria-label={t("agentRuntime.isolation")}
-              value={form.isolation}
-              onChange={(event) => patch({ isolation: event.target.value as CreateInstanceFormState["isolation"] })}
-              className="control"
-            >
-              <option value="operator-environment">{t("agentRuntime.operatorEnvironment")}</option>
-              <option value="enforced">{t("agentRuntime.instanceStateRoot")}</option>
-            </select>
-          </Labelled>
-        )}
+        <Labelled
+          label={t("agentRuntime.permissionMode")}
+          hint={
+            planeAllowsPermissions(form.kindId)
+              ? undefined
+              : t("agentRuntime.capabilityUnsupported", {
+                  provider: form.kindId,
+                  capability: t("agentRuntime.permissionMode"),
+                })
+          }
+        >
+          <select
+            aria-label={t("agentRuntime.permissionMode")}
+            value={form.permissionMode}
+            disabled={!planeAllowsPermissions(form.kindId)}
+            onChange={(event) =>
+              patch({ permissionMode: event.target.value as CreateInstanceFormState["permissionMode"] })
+            }
+            className="control"
+          >
+            <option value="bypass">{t("agentRuntime.permissionBypass")}</option>
+            <option value="workspace-write">{t("agentRuntime.permissionWorkspaceWrite")}</option>
+            <option value="read-only">{t("agentRuntime.permissionReadOnly")}</option>
+          </select>
+        </Labelled>
+        <Labelled
+          label={t("agentRuntime.isolation")}
+          hint={
+            planeAllowsPermissions(form.kindId)
+              ? undefined
+              : t("agentRuntime.capabilityUnsupported", {
+                  provider: form.kindId,
+                  capability: t("agentRuntime.isolation"),
+                })
+          }
+        >
+          <select
+            aria-label={t("agentRuntime.isolation")}
+            value={form.isolation}
+            disabled={!planeAllowsPermissions(form.kindId)}
+            onChange={(event) => patch({ isolation: event.target.value as CreateInstanceFormState["isolation"] })}
+            className="control"
+          >
+            <option value="operator-environment">{t("agentRuntime.operatorEnvironment")}</option>
+            <option value="enforced">{t("agentRuntime.instanceStateRoot")}</option>
+          </select>
+        </Labelled>
       </div>
       {form.kindId === "codex" && apiOn && (
         <label className="mt-2 flex items-center gap-1.5 font-mono ui-micro uppercase text-text-faint">

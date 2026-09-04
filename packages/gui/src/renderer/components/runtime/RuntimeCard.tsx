@@ -263,11 +263,16 @@ export function RuntimeCard({
               )}
             </div>
             {apiMode && <p className="mt-2 ui-micro text-text-faint">{t("agentRuntime.apiKeySealed")}</p>}
-            {planeUsesApiOverride(instance.kindId) && (
-              <p className="mt-2 ui-micro text-text-faint">
-                {t(apiMode ? "agentRuntime.claudeApiOverrideOn" : "agentRuntime.claudeApiOverrideOff")}
-              </p>
-            )}
+            <p className="mt-2 ui-micro text-text-faint">
+              {t(
+                planeUsesApiOverride(instance.kindId)
+                  ? apiMode
+                    ? "agentRuntime.claudeApiOverrideOn"
+                    : "agentRuntime.claudeApiOverrideOff"
+                  : "agentRuntime.capabilityUnsupported",
+                { provider: instance.kindId, capability: t("agentRuntime.apiOverride") },
+              )}
+            </p>
           </div>
         </CardBody>
       </Card>
@@ -316,17 +321,22 @@ export function RuntimeCard({
         </CardBody>
       </Card>
 
-      {planeAllowsPermissions(instance.kindId) && (
-        <Card testId="runtime-card-isolation">
-          <CardHead>
-            <CardTitle>{t("agentRuntime.isolationTitle")}</CardTitle>
-            <Hint>{t("agentRuntime.isolationHint")}</Hint>
-          </CardHead>
-          <CardBody>
-            <PermissionsEditor instance={instance} busy={busy} onUpdate={onUpdate} />
-          </CardBody>
-        </Card>
-      )}
+      <Card testId="runtime-card-isolation">
+        <CardHead>
+          <CardTitle>{t("agentRuntime.isolationTitle")}</CardTitle>
+          <Hint>
+            {t(
+              planeAllowsPermissions(instance.kindId)
+                ? "agentRuntime.isolationHint"
+                : "agentRuntime.capabilityUnsupported",
+              { provider: instance.kindId, capability: t("agentRuntime.isolationTitle") },
+            )}
+          </Hint>
+        </CardHead>
+        <CardBody>
+          <PermissionsEditor instance={instance} busy={busy} onUpdate={onUpdate} />
+        </CardBody>
+      </Card>
 
       <Card>
         <CardHead>
@@ -464,22 +474,28 @@ function ProviderEditor({
             ))}
           </select>
         </label>
-        {planeAllowsBaseUrl(instance.kindId, instance.authMode) && (
-          <label className="grid gap-0.5">
-            <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
-              {t("agentRuntime.baseUrl")}
-            </span>
-            <TextInput
-              label={t("agentRuntime.baseUrl")}
-              testId="runtime-provider-base-url"
-              mono
-              value={draft.baseUrl}
-              onChange={(baseUrl) => patch({ baseUrl })}
-              placeholder="https://api.third-party.example/v1"
-            />
-            <span className="ui-micro text-text-faint">{t("agentRuntime.baseUrlHint")}</span>
-          </label>
-        )}
+        <label className="grid gap-0.5">
+          <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
+            {t("agentRuntime.baseUrl")}
+          </span>
+          <TextInput
+            label={t("agentRuntime.baseUrl")}
+            testId="runtime-provider-base-url"
+            mono
+            value={draft.baseUrl}
+            disabled={!planeAllowsBaseUrl(instance.kindId, instance.authMode)}
+            onChange={(baseUrl) => patch({ baseUrl })}
+            placeholder="https://api.third-party.example/v1"
+          />
+          <span className="ui-micro text-text-faint">
+            {t(
+              planeAllowsBaseUrl(instance.kindId, instance.authMode)
+                ? "agentRuntime.baseUrlHint"
+                : "agentRuntime.capabilityUnsupported",
+              { provider: instance.kindId, capability: t("agentRuntime.baseUrl") },
+            )}
+          </span>
+        </label>
         <label className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.model")}
@@ -534,12 +550,13 @@ function PermissionsEditor({
   const [isolationState, setIsolationState] = useState(() =>
     runtimeIsolationState(instance.isolationState, instance.kindId),
   );
-  if (!permissionMode) return <Empty>{t("agentRuntime.permissionsUnsupported")}</Empty>;
+  const supported = planeAllowsPermissions(instance.kindId);
   return (
     <form
       data-testid="runtime-instance-permissions"
       onSubmit={(event) => {
         event.preventDefault();
+        if (!supported || !permissionMode) return;
         onUpdate({
           instanceId: instance.instanceId,
           permissionMode,
@@ -552,6 +569,7 @@ function PermissionsEditor({
           data-testid="runtime-instance-permission-mode"
           aria-label={t("agentRuntime.permissionMode")}
           value={permissionMode}
+          disabled={!supported}
           onChange={(event) => setPermissionMode(event.target.value as typeof permissionMode)}
           className="control"
         >
@@ -566,6 +584,7 @@ function PermissionsEditor({
             data-testid="runtime-instance-isolation"
             aria-label={t("agentRuntime.isolation")}
             value={isolationState}
+            disabled={!supported}
             onChange={(event) => setIsolationState(event.target.value as typeof isolationState)}
             className="control"
           >
@@ -574,7 +593,8 @@ function PermissionsEditor({
           </select>
         </CfgRow>
       )}
-      <Btn type="submit" size="sm" disabled={busy}>
+      {!supported && <Hint>{t("agentRuntime.permissionsUnsupported")}</Hint>}
+      <Btn type="submit" size="sm" disabled={busy || !supported}>
         {t("agentRuntime.savePermissions")}
       </Btn>
     </form>

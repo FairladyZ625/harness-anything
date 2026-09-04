@@ -73,6 +73,7 @@
   "agentRuntime.operatorEnvironment": "操作者环境",
   "agentRuntime.savePermissions": "保存权限",
   "agentRuntime.permissionsUnsupported": "该 provider 自己管访问策略,harness 不加权限档。",
+  "agentRuntime.capabilityUnsupported": "{provider} 的当前调用方式不支持{capability}。",
   "agentRuntime.compatibleAgents": "兼容 Agents",
   "agentRuntime.compatibleAgentsHint": "runtime_type = {kind} 或 any",
   "agentRuntime.noCompatibleAgent": "没有兼容的 Agent",

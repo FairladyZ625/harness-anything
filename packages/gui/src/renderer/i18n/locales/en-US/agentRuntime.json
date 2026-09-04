@@ -73,6 +73,7 @@
   "agentRuntime.operatorEnvironment": "Operator environment",
   "agentRuntime.savePermissions": "Save permissions",
   "agentRuntime.permissionsUnsupported": "This provider owns its own access policy; harness adds no permission mode.",
+  "agentRuntime.capabilityUnsupported": "{provider} does not support {capability} in this call path.",
   "agentRuntime.compatibleAgents": "Compatible agents",
   "agentRuntime.compatibleAgentsHint": "runtime_type = {kind} or any",
   "agentRuntime.noCompatibleAgent": "No compatible agent",

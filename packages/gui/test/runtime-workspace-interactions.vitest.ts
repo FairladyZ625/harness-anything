@@ -734,11 +734,11 @@ describe("runtime entry split (W6 IA)", () => {
     expect(onUpdate).toHaveBeenCalledWith(expect.objectContaining({ baseUrl: "" }));
   });
 
-  it("does not offer a base URL field on a subscription provider", async () => {
+  it("keeps the base URL field disabled on a subscription provider", async () => {
     const onUpdate = vi.fn();
     await mountProviderCard(onUpdate);
     await click("runtime-provider-edit");
-    expect(document.querySelector('[data-testid="runtime-provider-base-url"]')).toBeNull();
+    expect((byTestId("runtime-provider-base-url") as HTMLInputElement).disabled).toBe(true);
     await click("runtime-provider-cancel");
     expect(onUpdate).not.toHaveBeenCalled();
   });
