@@ -18,6 +18,20 @@ export async function startGuiResidentDaemonFixture({
     userRoot = path.join(parent, "user");
   let daemon = await startDaemon({ daemonId, userRoot });
   let stopped = false;
+  const pauseDaemon = async () => {
+    await daemon.stop();
+  };
+  const resumeDaemon = async () => {
+    const originalTmpdir = process.env.TMPDIR;
+    process.env.TMPDIR = "/tmp";
+    try {
+      daemon = await startDaemon({ daemonId, userRoot });
+      return daemon.endpoint;
+    } finally {
+      if (originalTmpdir === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = originalTmpdir;
+    }
+  };
   const stop = async () => {
     if (stopped) return;
     stopped = true;
@@ -69,6 +83,8 @@ export async function startGuiResidentDaemonFixture({
       packagePath,
       endpoint: daemon.endpoint,
       env: { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: daemonId, HARNESS_DAEMON_REPO_ID: repoId },
+      pauseDaemon,
+      resumeDaemon,
       stop,
     };
   } catch (error) {

@@ -103,6 +103,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
     runRoot,
   });
   driver.runRoot = runRoot;
+  driver.fixture = fixture;
   return {
     driver,
     async close() {
