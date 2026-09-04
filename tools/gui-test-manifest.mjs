@@ -25,6 +25,7 @@ export const guiVitestManifest = [
   "packages/gui/test/agenda-data.vitest.ts",
   "packages/gui/test/task-pin-actions.vitest.ts",
   "packages/gui/test/triadic-read-scoping.vitest.ts",
+  "packages/gui/test/triadic-graph-paging.vitest.ts",
   "packages/gui/test/terminal-renderer.vitest.ts",
   "packages/gui/test/terminal-pane.vitest.ts",
   "packages/gui/test/terminal-page.vitest.ts",
