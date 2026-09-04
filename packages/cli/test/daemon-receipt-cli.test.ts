@@ -132,10 +132,15 @@ test("daemon control renders status and fails closed when repository materializa
     assert.match(unregistered.stdout, /repoId=receipt/u);
     assert.match(unregistered.stdout, /changed=true/u);
 
-    const alreadyUnregistered = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
-    assert.equal(alreadyUnregistered.status, 0, alreadyUnregistered.stderr);
-    assert.match(alreadyUnregistered.stdout, /repoId=receipt/u);
-    assert.match(alreadyUnregistered.stdout, /changed=false/u);
+    // The first unregister disables and keeps history; the second removes the disabled row.
+    const removed = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
+    assert.equal(removed.status, 0, removed.stderr);
+    assert.match(removed.stdout, /repoId=receipt/u);
+    assert.match(removed.stdout, /changed=true/u);
+
+    const gone = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
+    assert.notEqual(gone.status, 0);
+    assert.match(`${gone.stdout}${gone.stderr}`, /not registered/u);
   } finally {
     rmSync(indexLock, { force: true });
     if (canonical !== null) {
