@@ -18,6 +18,7 @@ import {
   validateGuiSubmission,
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
+import { validateRelationNeighborhoodPayload } from "./daemon-protocol-validate-relation-query.ts";
 import {
   allDaemonProtocolMethods,
   type DaemonRpcCall,
@@ -34,8 +35,7 @@ import {
   type JsonObject,
 } from "./json-rpc-types.ts";
 
-export { DaemonProtocolContractError };
-export { validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
+export { DaemonProtocolContractError, validateSessionEnvironment };
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethods.some((entry) => entry.method === method);
@@ -153,15 +153,15 @@ function validateSquadRunReadPayload(value: unknown): string[] {
   return [];
 }
 
-// The wide task reads accept optional narrow/paged facets; absent payload or absent
-// fields keep the unparameterized full-result contract, so validation only constrains
-// the fields a caller actually supplies.
+// Absent facets keep the unparameterized full-result contract.
 export function validateDaemonQueryPayload(
   method: "repo.tasks.list" | "repo.triadic.relationGraph",
   value: unknown,
 ): string[] {
   if (value === undefined) return [];
   if (!isJsonObject(value)) return ["query payload must be an object"];
+  if (method === "repo.triadic.relationGraph" && (value.entity !== undefined || value.hops !== undefined))
+    return validateRelationNeighborhoodPayload(value);
   if (
     method === "repo.triadic.relationGraph" &&
     [value.facet, value.relationType, value.state, value.direction].some((field) => field !== undefined)

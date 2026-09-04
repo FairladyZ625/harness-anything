@@ -111,6 +111,14 @@ test("canonical event compatibility gate projects the locked history through pro
   assert.equal(typeof result.durationMs, "number");
 });
 
+test("the relation graph replay sample is the explicit paged read, not an implicit full-graph read", () => {
+  const sample = projectFrozenDaemonResponses(repoRoot()).find((entry) => entry.name === "validateDaemonRelationGraph");
+  assert.ok(sample, "relation graph sample is projected");
+  assert.equal(sample.value.ok, true);
+  assert.ok(Array.isArray(sample.value.edges));
+  assert.ok(sample.value.edges.length <= 500, `paged read honours its limit: ${sample.value.edges.length}`);
+});
+
 test("pre-#2158 relation strength history fails the production replay with its source event id", () => {
   const result = validateFrozenDaemonReadside(repoRoot(), undefined, (event) => {
     if (event.eventId !== "event-fixture-relation-created") return event;

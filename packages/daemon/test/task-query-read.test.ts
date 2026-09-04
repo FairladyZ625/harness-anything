@@ -48,13 +48,21 @@ const secondEventEdge = {
   relationType: "depends-on" as const,
   ownerRef: "task/task_event",
 };
+const neighborhoodQuery = () => ({
+  seed: "task/task_event",
+  direction: "both" as const,
+  relationTypes: ["derives", "depends-on"] as const,
+  maxDepth: 2,
+  maxNodes: 20,
+  state: "active" as const,
+});
 
 test("wide and narrow relation reads ignore an authored-only L1/L2 edge", (t) => {
   const rootDir = legacyRoot(t),
     read = queryRead(rootDir, projectionStub());
 
   assert.deepEqual(legacyRelationIds(rootDir), ["rel_positive"]);
-  const wide = read.relationGraph(),
+  const wide = read.relationGraphNeighborhood(neighborhoodQuery()),
     narrow = read.relationGraphPage({ state: "active" });
 
   assert.deepEqual(wide.edges, [{ ...eventEdge, current: true }]);
@@ -66,7 +74,7 @@ test("wide and narrow relation reads ignore an authored-only L1/L2 edge", (t) =>
 test("pending event truth stays pending and never borrows L1 readiness", (t) => {
   const rootDir = legacyRoot(t),
     pendingCut = { status: "pending" as const, watermark: 6, sourceRevision: 7 },
-    result = queryRead(rootDir, projectionStub({ cut: pendingCut })).relationGraph();
+    result = queryRead(rootDir, projectionStub({ cut: pendingCut })).relationGraphNeighborhood(neighborhoodQuery());
 
   assert.deepEqual(result.edges, [{ ...eventEdge, current: true }]);
   assert.deepEqual(projectionCut(result), pendingCut);
@@ -76,7 +84,7 @@ test("pending event truth stays pending and never borrows L1 readiness", (t) => 
 test("relation filters, facets, and pages select one event-backed edge universe", () => {
   const calls: TaskRelationQuery[] = [],
     read = queryRead(process.cwd(), projectionStub({ calls, edges: [eventEdge, secondEventEdge] })),
-    wide = read.relationGraph(),
+    wide = read.relationGraphNeighborhood(neighborhoodQuery()),
     filtered = read.relationGraphPage({ relationType: "derives" }),
     first = read.relationGraphPage({ limit: 1 }),
     second = read.relationGraphPage({ limit: 1, cursor: first.page?.nextCursor }),
@@ -99,7 +107,6 @@ test("relation filters, facets, and pages select one event-backed edge universe"
   assert.deepEqual(
     calls.map(({ relationType, limit, cursor }) => ({ relationType, limit, cursor })),
     [
-      { relationType: undefined, limit: undefined, cursor: undefined },
       { relationType: "derives", limit: undefined, cursor: undefined },
       { relationType: undefined, limit: 1, cursor: undefined },
       { relationType: undefined, limit: 1, cursor: "page-2" },
@@ -112,7 +119,7 @@ test("task control, review queue, and decision detail expose one real cut", () =
   const read = queryRead(process.cwd(), projectionStub()),
     tasks = read.guiTasks(),
     agenda = read.agenda(),
-    detail = read.relationGraph();
+    detail = read.relationGraphNeighborhood(neighborhoodQuery());
 
   assert.deepEqual(projectionCut(tasks), readyCut);
   assert.deepEqual(projectionCut(agenda), readyCut);
@@ -183,7 +190,10 @@ test("task snapshot list isolates an invalid row and continues serving valid row
 test("a surface fails closed instead of stitching mismatched projection cuts", () => {
   const projection = projectionStub({ decisionCut: { ...readyCut, watermark: 8, sourceRevision: 8 } }),
     read = queryRead(process.cwd(), projection);
-  assert.throws(() => read.relationGraph(), /relation graph spans multiple event projection cuts/u);
+  assert.throws(
+    () => read.relationGraphNeighborhood(neighborhoodQuery()),
+    /relation graph neighborhood spans multiple event projection cuts/u,
+  );
   assert.throws(() => read.guiTasks(), /task control surface spans multiple event projection cuts/u);
   assert.throws(() => read.agenda(), /task control surface spans multiple event projection cuts/u);
 });
@@ -199,7 +209,7 @@ test("task reads fail closed when event truth has no packageDisposition", () => 
 });
 
 test("relation graph validator accepts the canonical cut and rejects invented fields", () => {
-  const result = queryRead(process.cwd(), projectionStub()).relationGraph();
+  const result = queryRead(process.cwd(), projectionStub()).relationGraphNeighborhood(neighborhoodQuery());
   assert.deepEqual(validateDaemonRelationGraph(result), []);
   assert.match(
     validateDaemonRelationGraph({ ...result, projection: { schema: "event-projection-cut/v1", ...readyCut } })[0]!,
@@ -270,6 +280,7 @@ function projectionStub(
         : { page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null } }),
     }),
     readTaskRelations: () => ({ ...cut, rows: edges }),
+    readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),
     readTaskDependencyClosure: (sourceRefs: readonly string[]) => {
       options.dependencyCalls?.push([...sourceRefs]);
       return {

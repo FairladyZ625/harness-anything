@@ -7,6 +7,7 @@ import {
   projectDecisionReadiness,
   relationDirections,
   relationStates,
+  relationTypes,
   runtimeSessionActionIds,
   timestamp,
   type AuthorizationDecision,
@@ -680,6 +681,44 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   function relationGraphFromPayload(
     payload: Readonly<Record<string, unknown>>,
   ): DaemonGuiReadResultMap["repo.triadic.relationGraph"] {
+    if (payload.entity !== undefined || payload.hops !== undefined) {
+      const hops = payload.hops;
+      if (
+        typeof payload.entity !== "string" ||
+        !payload.entity ||
+        typeof hops !== "object" ||
+        hops === null ||
+        Array.isArray(hops)
+      )
+        throw context.cellCodedError("invalid_command", "Relation neighborhood requires entity and hops.");
+      const value = hops as Readonly<Record<string, unknown>>,
+        types = value.relationTypes;
+      if (
+        Object.keys(payload).some((field) => !["entity", "hops", "status"].includes(field)) ||
+        Object.keys(value).some((field) => !["direction", "relationTypes", "maxDepth", "maxNodes"].includes(field)) ||
+        !["outgoing", "incoming", "both"].includes(String(value.direction)) ||
+        !Array.isArray(types) ||
+        types.length === 0 ||
+        types.some((type) => !relationTypes.includes(String(type) as (typeof relationTypes)[number])) ||
+        !Number.isSafeInteger(value.maxDepth) ||
+        Number(value.maxDepth) < 1 ||
+        Number(value.maxDepth) > 4_096 ||
+        !Number.isSafeInteger(value.maxNodes) ||
+        Number(value.maxNodes) < 1 ||
+        Number(value.maxNodes) > 10_000 ||
+        (payload.status !== undefined &&
+          !relationStates.includes(String(payload.status) as (typeof relationStates)[number]))
+      )
+        throw context.cellCodedError("invalid_command", "Relation neighborhood selectors are invalid.");
+      return queryRead().relationGraphNeighborhood({
+        seed: payload.entity,
+        direction: value.direction as "outgoing" | "incoming" | "both",
+        relationTypes: types as (typeof relationTypes)[number][],
+        maxDepth: Number(value.maxDepth),
+        maxNodes: Number(value.maxNodes),
+        ...(payload.status === undefined ? {} : { state: payload.status as "active" | "retired" }),
+      });
+    }
     if (
       payload.facet !== undefined ||
       payload.relationType !== undefined ||
@@ -702,7 +741,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
     }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
-    if (!common.explicit) return queryRead().relationGraph();
+    if (!common.explicit) return queryRead().relationGraphPage({ limit: 500 });
     return queryRead().relationGraphPage({
       ...(common.status ? { state: common.status } : {}),
       ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),

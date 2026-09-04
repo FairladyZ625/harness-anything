@@ -20,6 +20,7 @@ import {
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskRelationProjectionRead,
+  type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
 } from "../../kernel/src/index.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
@@ -48,7 +49,7 @@ import {
  */
 export interface TaskQueryReadModel {
   readonly agenda: (query?: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult;
-  readonly relationGraph: () => DaemonRelationGraphFullResult;
+  readonly relationGraphNeighborhood: (query: TaskRelationNeighborhoodQuery) => DaemonRelationGraphFullResult;
   readonly relationGraphFacet: (query: DaemonRelationGraphFacetPayload) => DaemonRelationGraphFacetResult;
   readonly relationGraphPage: (query: TaskRelationQuery) => DaemonRelationGraphFullResult;
   readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
@@ -65,39 +66,8 @@ export function makeTaskQueryReadModel(input: {
   const { rootDir, projection, judgments } = input,
     closeout = judgments.closeout,
     blocking = judgments.blocking;
-  function relationGraph(): DaemonRelationGraphFullResult {
-    const relations = projection.readRelationQuery({}),
-      decisions = projection.readDecisionGraph(),
-      facts = projection.readFactGraph(),
-      cut = requireSameProjectionCut("relation graph", [relations, decisions, facts]);
-    const eventCoverage = decisions.coverageRows.map((row) => {
-      const fulfillment = row.fulfillment === "standing_policy" ? ("standing-policy" as const) : row.fulfillment;
-      return withFreshnessReason({ ...row, fulfillment });
-    });
-    const eventFacts = facts.facts.map((row) => ({
-      schema: "task-fact-row/v1" as const,
-      ref: row.ref,
-      ...(row.taskId ? { taskId: row.taskId } : {}),
-      factId: row.factId,
-      statement: row.statement,
-      source: row.evidenceSource,
-      observedAt: row.observedAt,
-      confidence: row.confidence,
-      memoryClass: row.memoryClass,
-      memoryTags: row.memoryTags,
-      provenance: relationProvenance(row.provenance),
-      liveness: row.state,
-      invalidated: row.invalidated,
-    }));
-    return {
-      ok: true,
-      edges: relations.rows.map(withRelationCurrent),
-      coverageRows: eventCoverage,
-      factAnchors: facts.factAnchors,
-      facts: eventFacts,
-      warnings: relationFacetWarnings(cut.status),
-      ...cut,
-    };
+  function relationGraphNeighborhood(query: TaskRelationNeighborhoodQuery): DaemonRelationGraphFullResult {
+    return relationGraphFromRead(projection.readTaskRelationNeighborhood(query), "relation graph neighborhood");
   }
   function relationGraphFacet(query: DaemonRelationGraphFacetPayload): DaemonRelationGraphFacetResult {
     const emptyRows = { edges: [], coverageRows: [], factAnchors: [], facts: [], domainTypes: [] } as const;
@@ -419,14 +389,16 @@ export function makeTaskQueryReadModel(input: {
    * authority with an empty filter, so query shape cannot change the truth set.
    */
   function relationGraphPage(query: TaskRelationQuery): DaemonRelationGraphFullResult {
-    const page: TaskRelationProjectionRead = projection.readRelationQuery(query),
-      refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])),
+    return relationGraphFromRead(projection.readRelationQuery(query), "relation graph page");
+  }
+  function relationGraphFromRead(page: TaskRelationProjectionRead, label: string): DaemonRelationGraphFullResult {
+    const refs = new Set(page.rows.flatMap((edge) => [edge.sourceRef, edge.targetRef])),
       factRefs = [...refs].filter((ref) => ref.startsWith("fact/")),
       facts = projection.searchFacts({ refs: factRefs }),
       factAnchors = projection.readFactAnchors(factRefs),
       decisionRefs = [...refs].filter((ref) => ref.startsWith("decision/")),
       decisions = projection.readDecisionGraph(),
-      cut = requireSameProjectionCut("relation graph page", [page, facts, factAnchors, decisions]),
+      cut = requireSameProjectionCut(label, [page, facts, factAnchors, decisions]),
       coverageRows = decisions.coverageRows.filter((row) =>
         decisionRefs.some((ref) => row.decisionRef === ref || row.claimRef === ref),
       );
@@ -460,7 +432,7 @@ export function makeTaskQueryReadModel(input: {
       ...(page.page ? { page: page.page } : {}),
     };
   }
-  return Object.freeze({ agenda, relationGraph, relationGraphFacet, relationGraphPage, guiTasks });
+  return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
 }
 /**
  * `repo.triadic.relationGraph {facet:"runtimeEdges"}` — the agent→task dispatch edges.

@@ -39,6 +39,7 @@ export type {
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
+  TaskRelationNeighborhoodQuery,
 } from "../projection/rebuildable-task-projection.ts";
 export {
   configureLedgerMaintenance,

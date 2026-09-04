@@ -234,7 +234,7 @@ function directChildCountsFrom(rows: ReturnType<TaskProjection["list"]>["rows"])
 
 export function listRelations(cell: TaskQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {
   const query = cell.relationQueryFromAction(action),
-    read = Object.keys(query).length ? cell.queryRead().relationGraphPage(query) : cell.queryRead().relationGraph(),
+    read = cell.queryRead().relationGraphPage(Object.keys(query).length ? query : { limit: 500 }),
     rows = read.edges.filter(
       (edge) =>
         (!action.entity || edge.sourceRef === action.entity || edge.targetRef === action.entity) &&

@@ -316,6 +316,7 @@ export type {
   TaskProjectionQueries,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
+  TaskRelationNeighborhoodQuery,
   TaskRelationQuery,
   WalMaterializationFenceV1,
   WalRecoveryProgress,

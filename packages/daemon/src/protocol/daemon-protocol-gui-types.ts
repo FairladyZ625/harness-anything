@@ -462,6 +462,13 @@ export interface DaemonAgendaPayload {
 }
 
 export interface DaemonRelationQueryPayload {
+  readonly entity?: string;
+  readonly hops?: {
+    readonly direction: "outgoing" | "incoming" | "both";
+    readonly relationTypes: readonly string[];
+    readonly maxDepth: number;
+    readonly maxNodes: number;
+  };
   readonly facet?: DaemonRelationGraphFacet;
   readonly relationType?: string;
   readonly state?: string;

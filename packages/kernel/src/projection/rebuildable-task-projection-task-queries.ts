@@ -8,6 +8,7 @@ import { readDecisionGraphRows } from "./decision-event-projection.ts";
 import { readFactGraphRows } from "./fact-event-projection.ts";
 import {
   readTaskDependencyClosureRows,
+  readTaskRelationNeighborhoodRows,
   readTaskIndexRows,
   readTaskRelationPage,
   readTaskRelationRows,
@@ -31,7 +32,12 @@ import {
 import { readWorkspaceSummaryRows } from "./workspace-summary-projection.ts";
 import { readRelationProjectionRows } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
-export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
+export type {
+  ProjectionPage,
+  TaskProjectionListQuery,
+  TaskRelationNeighborhoodQuery,
+  TaskRelationQuery,
+} from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
 const TASK_COMPLETION_SQL = [
@@ -93,6 +99,7 @@ export function taskQueryApi(
 ): Pick<
   TaskProjection,
   | "readTaskRelations"
+  | "readTaskRelationNeighborhood"
   | "readTaskIndex"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
@@ -148,6 +155,16 @@ export function taskQueryApi(
         return {
           status: cut.status,
           rows: readTaskRelationRows(db),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
+      }),
+    readTaskRelationNeighborhood: (query) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          rows: readTaskRelationNeighborhoodRows(db, query),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
