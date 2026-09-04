@@ -62,3 +62,23 @@ test("terminal environment warns and falls back to the legacy keys when capture 
     console.warn = previousWarn;
   }
 });
+
+test("a failed snapshot is not cached so the next terminal retries", () => {
+  const previousWarn = console.warn;
+  console.warn = () => {};
+  try {
+    let attempts = 0;
+    const capture = () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("transient");
+      return { LANG: "en_US.UTF-8", PROFILE_EXPORT: "included" };
+    };
+    const first = terminalEnvironment("linux", "/test/retry-shell", capture);
+    assert.equal("PROFILE_EXPORT" in first, false);
+    const second = terminalEnvironment("linux", "/test/retry-shell", capture);
+    assert.equal(second.PROFILE_EXPORT, "included");
+    assert.equal(attempts, 2);
+  } finally {
+    console.warn = previousWarn;
+  }
+});

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -115,7 +115,8 @@ test("trusted runtime auth terminal executes an exact non-platform fixture witho
 });
 
 test("direct terminals receive the cached login shell environment", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-terminal-environment-")),
+  // realpath: the host resolves the spawn cwd, and on macOS tmpdir() is the /var symlink.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-terminal-environment-"))),
     launches: RecordedLaunch[] = [];
   try {
     const host = openTerminalHost({

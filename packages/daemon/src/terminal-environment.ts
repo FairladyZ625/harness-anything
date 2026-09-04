@@ -26,23 +26,26 @@ export function terminalEnvironment(
   capture: (shell: string) => Readonly<Record<string, string>> = captureLoginShellEnvironment,
 ): Readonly<Record<string, string>> {
   if (platform === "win32") return legacyTerminalEnvironment(platform);
-  let environment = cachedPosixEnvironments.get(shell);
-  if (!environment) {
-    try {
-      environment = Object.freeze({
-        ...capture(shell),
-        ...sessionEnvironment(),
-        TERM: "xterm-256color",
-      });
-    } catch (error) {
-      console.warn(
-        `[terminal-environment] login shell snapshot failed; using restricted environment: ${errorMessage(error)}`,
-      );
-      consumeKnownError(error);
-      environment = Object.freeze(legacyTerminalEnvironment(platform));
-    }
-    cachedPosixEnvironments.set(shell, environment);
+  const cached = cachedPosixEnvironments.get(shell);
+  if (cached) return cached;
+  let environment: Readonly<Record<string, string>>;
+  try {
+    environment = Object.freeze({
+      ...capture(shell),
+      ...sessionEnvironment(),
+      TERM: "xterm-256color",
+    });
+  } catch (error) {
+    console.warn(
+      `[terminal-environment] login shell snapshot failed; using restricted environment: ${errorMessage(error)}`,
+    );
+    consumeKnownError(error);
+    // A failed snapshot is deliberately not cached. Caching it would pin the daemon to the
+    // restricted environment for the rest of its life after one transient failure, which is
+    // exactly the silent degradation this module exists to remove.
+    return Object.freeze(legacyTerminalEnvironment(platform));
   }
+  cachedPosixEnvironments.set(shell, environment);
   return environment;
 }
 
