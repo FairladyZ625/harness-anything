@@ -25,6 +25,11 @@
       "test": "timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt",
       "ownerTask": "task_f9443002d6d995489ebf082911",
       "quarantinedAt": "2026-09-04"
+    },
+    {
+      "test": "WAL Git materialization leaves an independent socket client within the isolation envelope",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-04"
     }
   ]
 }
