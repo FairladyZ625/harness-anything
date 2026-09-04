@@ -11,6 +11,10 @@ import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 const root = process.cwd();
 const errors = [];
 const auditInfrastructureFailures = [];
+const auditRetryDelaysMs = [15_000, 30_000];
+const auditRetryWaitMs = process.env.HARNESS_SUPPLY_CHAIN_TEST_FAST_RETRY === "1" ? [0, 0] : auditRetryDelaysMs;
+const auditFetchTimeoutMs = 60_000;
+let auditAttempts = 0;
 const policy = harnessSupplyChainReleaseReadiness;
 const manifestGateRunner = "node tools/run-manifest-gates.mjs";
 const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
@@ -46,6 +50,13 @@ function run(command) {
     // error wearing the costume of a real finding. No argument below contains a
     // space, so the shell re-parse cannot change what npm receives.
     shell: process.platform === "win32",
+    env: command.startsWith("npm audit ")
+      ? {
+          ...process.env,
+          npm_config_fetch_retries: "0",
+          npm_config_fetch_timeout: String(auditFetchTimeoutMs),
+        }
+      : process.env,
   });
 
   if (result.status !== 0) {
@@ -61,6 +72,22 @@ function run(command) {
   return result.stdout;
 }
 
+function runAudit(command) {
+  for (let attempt = 1; attempt <= auditRetryDelaysMs.length + 1; attempt += 1) {
+    auditAttempts = attempt;
+    const failureCount = auditInfrastructureFailures.length;
+    run(command);
+    if (auditInfrastructureFailures.length === failureCount) {
+      if (attempt > 1) console.error(`${auditRetrySummary(attempt)} Audit infrastructure recovered.`);
+      return;
+    }
+
+    if (attempt > auditRetryDelaysMs.length) return;
+    auditInfrastructureFailures.pop();
+    sleep(auditRetryWaitMs[attempt - 1]);
+  }
+}
+
 const policyValidation = validateSupplyChainReleaseReadiness(policy);
 for (const error of policyValidation.errors) {
   record(`supply-chain release readiness policy invalid: ${error.code}: ${error.message}`);
@@ -72,13 +99,13 @@ validateDependabot();
 validateDocsAndWorkflow();
 
 for (const command of policy.auditCommands) {
-  run(command.command);
+  runAudit(command.command);
   if (auditInfrastructureFailures.length > 0) break;
 }
 
 if (auditInfrastructureFailures.length > 0) {
   writeCiGateResult("check-supply-chain", false, { failureKind: "audit-infrastructure" });
-  console.error("Supply chain audit infrastructure failure: npm audit endpoint is unreachable.");
+  console.error(`${auditRetrySummary(auditAttempts)} Audit infrastructure failure: endpoint unreachable.`);
   for (const error of auditInfrastructureFailures) console.error(`- ${error}`);
   process.exit(2);
 }
@@ -100,6 +127,15 @@ function isAuditInfrastructureFailure(output) {
   return /(?:audit endpoint returned an error|\bHTTP(?:\/\S+)?\s+5\d\d\b|\b5\d\d Service Unavailable\b|\bE(?:CONNRESET|CONNREFUSED|TIMEDOUT|NETUNREACH)\b|socket hang up|network timeout|request timed out)/iu.test(
     output,
   );
+}
+
+function auditRetrySummary(attempts) {
+  const delays = auditRetryDelaysMs.map((delay) => `${delay / 1_000}s`).join("/");
+  return `Supply chain audit retry budget: ${auditRetryDelaysMs.length} retries (${delays}); actual attempts: ${attempts}.`;
+}
+
+function sleep(delayMs) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
 }
 
 function validatePackageMetadata() {

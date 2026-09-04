@@ -193,19 +193,50 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
 
 test("supply-chain check reports an unreachable audit endpoint as infrastructure failure", async () => {
   await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, { auditFailure: auditInfrastructureFailure() });
+    const gateResults = path.join(root, "gate-results.json");
+
+    const result = runCheck(root, {
+      HARNESS_CI_GATE_RESULTS: gateResults,
+      HARNESS_SUPPLY_CHAIN_TEST_FAST_RETRY: "1",
+    });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /^Supply chain audit retry budget:/u);
+    assert.deepEqual(JSON.parse(readFileSync(gateResults, "utf8")), [
+      { gate: "check-supply-chain", pass: false, metrics: { failureKind: "audit-infrastructure" } },
+    ]);
+  });
+});
+
+test("supply-chain check retries an audit infrastructure failure and then succeeds", async () => {
+  await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
-      auditFailure: {
-        output:
-          "npm warn audit request failed, reason: connect ECONNREFUSED 127.0.0.1:9\nnpm error audit endpoint returned an error",
-        status: 1,
-      },
+      auditResults: [auditInfrastructureFailure(), { output: "found 0 vulnerabilities", status: 0 }],
+    });
+
+    const result = runCheck(root, { HARNESS_SUPPLY_CHAIN_TEST_FAST_RETRY: "1" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /^Supply chain audit retry budget: 2 retries \(15s\/30s\); actual attempts: 2\./u);
+    assert.match(result.stderr, /Audit infrastructure recovered/u);
+  });
+});
+
+test("supply-chain check exhausts bounded retries before reporting infrastructure failure", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      auditResults: [auditInfrastructureFailure(), auditInfrastructureFailure(), auditInfrastructureFailure()],
     });
     const gateResults = path.join(root, "gate-results.json");
 
-    const result = runCheck(root, { HARNESS_CI_GATE_RESULTS: gateResults });
+    const result = runCheck(root, {
+      HARNESS_CI_GATE_RESULTS: gateResults,
+      HARNESS_SUPPLY_CHAIN_TEST_FAST_RETRY: "1",
+    });
 
     assert.equal(result.status, 2);
-    assert.match(result.stderr, /^Supply chain audit infrastructure failure:/u);
+    assert.match(result.stderr, /actual attempts: 3\. Audit infrastructure failure: endpoint unreachable\./u);
     assert.deepEqual(JSON.parse(readFileSync(gateResults, "utf8")), [
       { gate: "check-supply-chain", pass: false, metrics: { failureKind: "audit-infrastructure" } },
     ]);
@@ -353,7 +384,15 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator, options.auditFailure);
+  writeMockNpm(root, options.sbomMutator, options.auditFailure, options.auditResults);
+}
+
+function auditInfrastructureFailure() {
+  return {
+    output:
+      "npm warn audit request failed, reason: connect ECONNREFUSED 127.0.0.1:9\nnpm error audit endpoint returned an error",
+    status: 1,
+  };
 }
 
 function validReadme() {
@@ -400,7 +439,7 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root, sbomMutator, auditFailure) {
+function writeMockNpm(root, sbomMutator, auditFailure, auditResults) {
   const mockPath = path.join(root, ".mock-bin/npm");
   const sbomValue = validSbom();
   sbomMutator?.(sbomValue);
@@ -410,10 +449,16 @@ function writeMockNpm(root, sbomMutator, auditFailure) {
     ".mock-bin/npm",
     [
       "#!/usr/bin/env node",
+      "import fs from 'node:fs';",
       "const args = process.argv.slice(2).join(' ');",
       "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-      `  console.log(${JSON.stringify(auditFailure?.output ?? "found 0 vulnerabilities")});`,
-      `  process.exit(${auditFailure?.status ?? 0});`,
+      `  const results = ${JSON.stringify(auditResults ?? (auditFailure ? [auditFailure] : []))};`,
+      "  const statePath = new URL('../.mock-audit-count', import.meta.url);",
+      "  const count = fs.existsSync(statePath) ? Number(fs.readFileSync(statePath, 'utf8')) : 0;",
+      "  fs.writeFileSync(statePath, String(count + 1));",
+      "  const result = results[count] ?? results.at(-1) ?? { output: 'found 0 vulnerabilities', status: 0 };",
+      "  console.log(result.output);",
+      "  process.exit(result.status);",
       "}",
       "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
       `  console.log(${JSON.stringify(sbom)});`,
