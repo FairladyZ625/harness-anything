@@ -163,18 +163,35 @@ function validateWorkflowProjection(rootDir, contract, errors) {
     return;
   }
   const jobs = workflowJobs(readFileSync(workflowPath, "utf8"));
-  const declaredJobs = new Set((contract.declaration.gates ?? []).map((gate) => gate.job));
+  const gates = contract.declaration.gates ?? [];
+  // A gate may project into another workflow file (`gate.workflow`), e.g. the PR-body gates that
+  // live in pr-body.yml so a body edit re-runs only them. The primary workflow keeps the full
+  // inventory check (every job is a declared gate); a secondary workflow is checked only for the
+  // gates declared into it — its own inventory is owned by tools/gate-manifest.json surfaces.
+  const primaryJobs = new Set(gates.filter((gate) => gate.workflow === undefined).map((gate) => gate.job));
   for (const job of jobs.keys()) {
-    if (!declaredJobs.has(job)) errors.push(`${workflow}: workflow job is not declared by ${contract.file}: ${job}`);
+    if (!primaryJobs.has(job)) errors.push(`${workflow}: workflow job is not declared by ${contract.file}: ${job}`);
   }
-  for (const job of declaredJobs) {
-    if (!jobs.has(job)) errors.push(`${workflow}: declared gate job is missing: ${job}`);
-  }
-  for (const gate of contract.declaration.gates ?? []) {
+  const jobsByWorkflow = new Map([[workflow, jobs]]);
+  for (const gate of gates) {
+    const target = gate.workflow ?? workflow;
+    if (!jobsByWorkflow.has(target)) {
+      const targetPath = path.join(rootDir, target);
+      if (!existsSync(targetPath)) {
+        errors.push(`${contract.file}: gate ${gate.id} projects into a missing workflow: ${target}`);
+        continue;
+      }
+      jobsByWorkflow.set(target, workflowJobs(readFileSync(targetPath, "utf8")));
+    }
+    const targetJobs = jobsByWorkflow.get(target);
+    if (!targetJobs.has(gate.job)) {
+      errors.push(`${target}: declared gate job is missing: ${gate.job}`);
+      continue;
+    }
     if (typeof gate.command !== "string" || gate.command.length === 0) {
       errors.push(`${contract.file}: gate ${gate.id} must declare its projection command`);
-    } else if (jobs.has(gate.job) && !jobs.get(gate.job).includes(gate.command)) {
-      errors.push(`${workflow}: ${gate.job} does not project command for ${gate.id}: ${gate.command}`);
+    } else if (!targetJobs.get(gate.job).includes(gate.command)) {
+      errors.push(`${target}: ${gate.job} does not project command for ${gate.id}: ${gate.command}`);
     }
   }
 }

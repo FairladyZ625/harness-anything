@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -47,6 +48,44 @@ test("G11 validates workflow projections from the authoritative contract", async
   assert.match(
     validateDerivedContracts(rootDir, loaded).join("\n"),
     /workflow job is not declared|declared gate job is missing/u,
+  );
+});
+
+test("a gate may project into a secondary workflow; the primary workflow inventory ignores it and the secondary must carry its job and command", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "derived-contracts-secondary-"));
+  mkdirSync(path.join(rootDir, ".github/workflows"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, ".github/workflows/primary.yml"),
+    "jobs:\n  lint:\n    steps:\n      - run: npm run lint\n",
+  );
+  writeFileSync(
+    path.join(rootDir, ".github/workflows/body.yml"),
+    "jobs:\n  body-gate:\n    steps:\n      - run: node body.mjs\n",
+  );
+  const contract = (command) => [
+    {
+      file: "one.contract.mjs",
+      declaration: {
+        id: "one",
+        phases: ["P2"],
+        projection: { workflow: ".github/workflows/primary.yml" },
+        gates: [
+          { id: "G01", phase: "P2", job: "lint", command: "npm run lint" },
+          { id: "G02", phase: "P2", workflow: ".github/workflows/body.yml", job: "body-gate", command },
+        ],
+      },
+    },
+  ];
+  assert.deepEqual(validateDerivedContracts(rootDir, contract("node body.mjs")), []);
+  assert.match(
+    validateDerivedContracts(rootDir, contract("node other.mjs")).join("\n"),
+    /body\.yml: body-gate does not project command for G02/u,
+  );
+  const missing = contract("node body.mjs");
+  missing[0].declaration.gates[1].job = "absent";
+  assert.match(
+    validateDerivedContracts(rootDir, missing).join("\n"),
+    /body\.yml: declared gate job is missing: absent/u,
   );
 });
 
