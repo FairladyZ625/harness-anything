@@ -129,7 +129,12 @@ export function ScheduleRunDetail({
               <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-status-blocked">
                 {t("schedules.run.failure.title")}
               </h4>
-              <p className="rt-pre whitespace-pre-wrap [overflow-wrap:anywhere] rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-text">
+              <p
+                className={
+                  "rt-pre whitespace-pre-wrap [overflow-wrap:anywhere] rounded border border-danger/40 " +
+                  "bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-text"
+                }
+              >
                 {occurrence.detail}
               </p>
             </section>
@@ -178,7 +183,10 @@ export function ScheduleRunDetail({
                   type="button"
                   data-testid={`schedule-run-output-fact-${factId}`}
                   onClick={() => onSelectEntity(factId.startsWith("fact/") ? factId : `fact/${factId}`)}
-                  className="rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted hover:border-accent hover:text-accent"
+                  className={
+                    "rounded border border-border px-2 py-0.5 font-mono ui-micro " +
+                    "text-text-muted hover:border-accent hover:text-accent"
+                  }
                 >
                   {t("schedules.run.outputs.fact")}: {factId}
                 </button>
@@ -189,7 +197,10 @@ export function ScheduleRunDetail({
                   type="button"
                   data-testid={`schedule-run-output-decision-${decisionId}`}
                   onClick={() => onSelectEntity(`decision/${decisionId}`)}
-                  className="rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted hover:border-accent hover:text-accent"
+                  className={
+                    "rounded border border-border px-2 py-0.5 font-mono ui-micro " +
+                    "text-text-muted hover:border-accent hover:text-accent"
+                  }
                 >
                   {t("schedules.run.outputs.decision")}: {decisionId}
                 </button>
@@ -200,7 +211,10 @@ export function ScheduleRunDetail({
                   type="button"
                   data-testid={`schedule-run-output-task-${taskId}`}
                   onClick={() => onSelectEntity(`task/${taskId}`)}
-                  className="rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted hover:border-accent hover:text-accent"
+                  className={
+                    "rounded border border-border px-2 py-0.5 font-mono ui-micro " +
+                    "text-text-muted hover:border-accent hover:text-accent"
+                  }
                 >
                   {t("schedules.run.outputs.task")}: {taskId}
                 </button>

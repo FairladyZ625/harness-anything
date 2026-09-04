@@ -511,7 +511,10 @@ function ScheduleOverviewTab({
             {health.lastFailureDetail !== null && (
               <p
                 data-testid="schedule-health-last-failure"
-                className="mt-2 break-all rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 font-mono ui-micro text-text"
+                className={
+                  "mt-2 break-all rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 " +
+                  "font-mono ui-micro text-text"
+                }
               >
                 {t("schedules.detail.health.lastFailure")}: {health.lastFailureDetail}
               </p>
@@ -666,7 +669,10 @@ function ScheduleRunsTab({
         <div
           role="alert"
           data-testid="schedule-runs-read-error"
-          className="mb-2 rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-status-blocked"
+          className={
+            "mb-2 rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono " +
+            "ui-micro text-status-blocked"
+          }
         >
           {t("schedules.runs.readFailed")}
           {error !== null ? ` · ${error}` : ""}
