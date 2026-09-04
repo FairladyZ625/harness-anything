@@ -207,18 +207,18 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     expect(first.status).toBe("live");
     expect(first.caughtUp).toBe(true);
     expect(replayed.rows).toHaveLength(3);
-    expect(first.rows[0]!.refs.map((chip) => chip.ref)).toEqual([`task/${TASK_ID}`]);
-    expect(first.rows[1]!.refs.map((chip) => chip.ref)).toEqual([`decision/${DECISION_ID}`]);
-    expect(first.rows[2]!.refs.map((chip) => chip.ref)).toEqual([`session/${SESSION_ID}`]);
+    expect(first.rows.at(0)!.refs.map((chip) => chip.ref)).toEqual([`task/${TASK_ID}`]);
+    expect(first.rows.at(1)!.refs.map((chip) => chip.ref)).toEqual([`decision/${DECISION_ID}`]);
+    expect(first.rows.at(2)!.refs.map((chip) => chip.ref)).toEqual([`session/${SESSION_ID}`]);
   });
 
   it("日志页产出方法行,repo-log 与 daemon-log 同一形状", () => {
     for (const kind of ["repo-log", "daemon-log"] as const) {
       const state = applyObserveTailPage(initialObserveTail(), logPage(kind));
       expect(state.rows).toHaveLength(1);
-      expect(state.rows[0]!.type).toBe("repo.tasks.list");
-      expect(state.rows[0]!.text).toBe("4ms");
-      expect(state.rows[0]!.ok).toBe(true);
+      expect(state.rows.at(0)!.type).toBe("repo.tasks.list");
+      expect(state.rows.at(0)!.text).toBe("4ms");
+      expect(state.rows.at(0)!.ok).toBe(true);
       expect(state.liveCursor).toEqual({ kind, fileId: "file-g6b", offset: 88 });
       expect(state.historyCursor).toEqual({ kind, fileId: "file-g6b", offset: 0 });
     }
@@ -273,7 +273,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
 
   it("过滤命中行文本、实体引用与悬停 detail(payload 内文仍可检索)", () => {
     const state = applyObserveTailPage(initialObserveTail(), EVENT_PAGE),
-      rows = state.rows;
+      rows = state.rows.slice(0);
     expect(filterObserveRows(rows, "探针决策")).toHaveLength(1);
     expect(filterObserveRows(rows, DECISION_ID)).toHaveLength(1);
     // 文本列不渲染 payload JSON(G10 不变量),但关键字仍要能命中悬停 detail。
@@ -283,31 +283,34 @@ describe("G6-B observe 模型:分页 → 行流", () => {
 
   it("历史页插到顶部且 live follow 追加到底部,不删除已加载历史", () => {
     const event = (revision: number) => ({
-        ...(EVENT_PAGE.items[0] as object),
-        eventId: `ev-g6b-${revision}`,
-        workspaceRevision: revision,
-      }),
-      latest = applyObserveTailPage(initialObserveTail(), EVENT_PAGE),
-      withHistory = applyObserveTailPage(latest, {
-        ...EVENT_PAGE,
-        items: [event(9), event(10)] as never,
-        historyCursor: { kind: "events", revision: 9 },
-        liveCursor: { kind: "events", revision: 10 },
-        done: false,
-      }),
-      followed = applyObserveTailPage(withHistory, {
-        ...EVENT_PAGE,
-        direction: "follow",
-        items: [event(14)] as never,
-        historyCursor: null,
-        liveCursor: { kind: "events", revision: 14 },
-        sourceCursor: { kind: "events", revision: 14 },
-        done: true,
-      });
-    expect(withHistory.rows.map((row) => row.revision)).toEqual([9, 10, 11, 12, 13]);
-    expect(followed.rows.map((row) => row.revision)).toEqual([9, 10, 11, 12, 13, 14]);
-    expect(followed.historyCursor).toEqual({ kind: "events", revision: 9 });
-    expect(followed.liveCursor).toEqual({ kind: "events", revision: 14 });
+      ...(EVENT_PAGE.items[0] as object),
+      eventId: `ev-g6b-${revision}`,
+      workspaceRevision: revision,
+    });
+    // rows 是跨快照共享的活容器(常数追加,见 ObserveRowLog):中间快照的行集要在
+    // 下一次应用前取值,断言才对应当时的行集。
+    let state = applyObserveTailPage(initialObserveTail(), EVENT_PAGE);
+    state = applyObserveTailPage(state, {
+      ...EVENT_PAGE,
+      items: [event(9), event(10)] as never,
+      historyCursor: { kind: "events", revision: 9 },
+      liveCursor: { kind: "events", revision: 10 },
+      done: false,
+    });
+    const withHistoryRevisions = state.rows.slice(0).map((row) => row.revision);
+    state = applyObserveTailPage(state, {
+      ...EVENT_PAGE,
+      direction: "follow",
+      items: [event(14)] as never,
+      historyCursor: null,
+      liveCursor: { kind: "events", revision: 14 },
+      sourceCursor: { kind: "events", revision: 14 },
+      done: true,
+    });
+    expect(withHistoryRevisions).toEqual([9, 10, 11, 12, 13]);
+    expect(state.rows.slice(0).map((row) => row.revision)).toEqual([9, 10, 11, 12, 13, 14]);
+    expect(state.historyCursor).toEqual({ kind: "events", revision: 9 });
+    expect(state.liveCursor).toEqual({ kind: "events", revision: 14 });
   });
 
   it("事件行摘要不把 payload JSON 倒进文本列,实体事件只给 kind", () => {
@@ -361,7 +364,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     state = applyObserveTailPage(state, revisionPage(range(501, 900), "history"));
     state = applyObserveTailPage(state, revisionPage(range(101, 500), "history"));
     expect(state.rows).toHaveLength(900);
-    expect(state.rows[0]!.revision).toBe(101);
+    expect(state.rows.at(0)!.revision).toBe(101);
     expect(state.rows.at(-1)!.revision).toBe(1000);
   });
 
@@ -375,7 +378,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT + 1, OBSERVE_FOLLOW_ROW_LIMIT + 100), "follow"),
     );
     expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT);
-    expect(state.rows[0]!.revision).toBe(101);
+    expect(state.rows.at(0)!.revision).toBe(101);
     expect(state.rows.at(-1)!.revision).toBe(OBSERVE_FOLLOW_ROW_LIMIT + 100);
   });
 
@@ -392,7 +395,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT - 99, OBSERVE_FOLLOW_ROW_LIMIT + 100), "follow"),
     );
     expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT + 100);
-    expect(state.rows[0]!.revision).toBe(1);
+    expect(state.rows.at(0)!.revision).toBe(1);
     // 滚回底部(viewing: follow):下一页 follow 增长把行数拉回界内(丢最旧端)。
     state = applyObserveViewing(state, "follow");
     state = applyObserveTailPage(
@@ -400,7 +403,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT + 101, OBSERVE_FOLLOW_ROW_LIMIT + 110), "follow"),
     );
     expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT);
-    expect(state.rows[0]!.revision).toBe(111);
+    expect(state.rows.at(0)!.revision).toBe(111);
     expect(state.rows.at(-1)!.revision).toBe(OBSERVE_FOLLOW_ROW_LIMIT + 110);
   });
 
@@ -436,8 +439,8 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     });
     // 旧双侧上限会把 600 行裁回 500;现在标记行入列且旧行一条不丢。
     expect(gapped.rows).toHaveLength(601);
-    expect(gapped.rows[0]!.gapMarker).toEqual({ reason: "cursor-file-not-retained", requestedFileId: "file-gone" });
-    expect(gapped.rows[1]!.revision).toBe(1);
+    expect(gapped.rows.at(0)!.gapMarker).toEqual({ reason: "cursor-file-not-retained", requestedFileId: "file-gone" });
+    expect(gapped.rows.at(1)!.revision).toBe(1);
     expect(gapped.rows.at(-1)!.revision).toBe(600);
   });
 
