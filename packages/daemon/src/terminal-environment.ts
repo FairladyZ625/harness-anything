@@ -1,3 +1,4 @@
+import { consumeKnownError } from "../../kernel/src/index.ts";
 import { runProcessText } from "./process-port.ts";
 
 const loginShellSnapshotTimeoutMs = 4_000;
@@ -17,7 +18,7 @@ const sessionEnvironmentKeys = [
   "__CF_USER_TEXT_ENCODING",
 ] as const;
 
-let cachedPosixEnvironment: Readonly<Record<string, string>> | undefined;
+const cachedPosixEnvironments = new Map<string, Readonly<Record<string, string>>>();
 
 export function terminalEnvironment(
   platform: NodeJS.Platform,
@@ -25,9 +26,10 @@ export function terminalEnvironment(
   capture: (shell: string) => Readonly<Record<string, string>> = captureLoginShellEnvironment,
 ): Readonly<Record<string, string>> {
   if (platform === "win32") return legacyTerminalEnvironment(platform);
-  if (!cachedPosixEnvironment) {
+  let environment = cachedPosixEnvironments.get(shell);
+  if (!environment) {
     try {
-      cachedPosixEnvironment = Object.freeze({
+      environment = Object.freeze({
         ...capture(shell),
         ...sessionEnvironment(),
         TERM: "xterm-256color",
@@ -36,10 +38,12 @@ export function terminalEnvironment(
       console.warn(
         `[terminal-environment] login shell snapshot failed; using restricted environment: ${errorMessage(error)}`,
       );
-      cachedPosixEnvironment = Object.freeze(legacyTerminalEnvironment(platform));
+      consumeKnownError(error);
+      environment = Object.freeze(legacyTerminalEnvironment(platform));
     }
+    cachedPosixEnvironments.set(shell, environment);
   }
-  return cachedPosixEnvironment;
+  return environment;
 }
 
 export function captureLoginShellEnvironment(

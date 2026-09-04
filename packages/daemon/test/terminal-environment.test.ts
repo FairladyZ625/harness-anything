@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { captureLoginShellEnvironment } from "../src/terminal-environment.ts";
+import { captureLoginShellEnvironment, terminalEnvironment } from "../src/terminal-environment.ts";
 
 test("login shell environment parser preserves values containing equals signs", () => {
   let invocation: readonly unknown[] | undefined;
@@ -16,4 +16,49 @@ test("login shell environment parser preserves values containing equals signs", 
 test("login shell environment parser rejects empty and malformed output", () => {
   assert.throws(() => captureLoginShellEnvironment("/bin/zsh", () => ""), /empty environment/u);
   assert.throws(() => captureLoginShellEnvironment("/bin/zsh", () => "BROKEN\0"), /invalid environment entry/u);
+});
+
+test("terminal environment caches a clean snapshot and overlays enumerated session channels", () => {
+  const previous = process.env.SSH_AUTH_SOCK,
+    previousSecret = process.env.RUNTIME_ONLY_SECRET;
+  process.env.SSH_AUTH_SOCK = "/private/tmp/agent.sock";
+  process.env.RUNTIME_ONLY_SECRET = "must-not-cross";
+  let captures = 0;
+  try {
+    const capture = () => {
+      captures += 1;
+      return { LANG: "en_US.UTF-8", PROFILE_EXPORT: "included" };
+    };
+    const first = terminalEnvironment("darwin", "/test/cache-shell", capture);
+    const second = terminalEnvironment("darwin", "/test/cache-shell", capture);
+    assert.equal(first, second);
+    assert.equal(captures, 1);
+    assert.equal(first.LANG, "en_US.UTF-8");
+    assert.equal(first.PROFILE_EXPORT, "included");
+    assert.equal(first.SSH_AUTH_SOCK, "/private/tmp/agent.sock");
+    assert.equal(first.TERM, "xterm-256color");
+    assert.equal("RUNTIME_ONLY_SECRET" in first, false);
+  } finally {
+    if (previous === undefined) delete process.env.SSH_AUTH_SOCK;
+    else process.env.SSH_AUTH_SOCK = previous;
+    if (previousSecret === undefined) delete process.env.RUNTIME_ONLY_SECRET;
+    else process.env.RUNTIME_ONLY_SECRET = previousSecret;
+  }
+});
+
+test("terminal environment warns and falls back to the legacy keys when capture fails", () => {
+  const warnings: unknown[][] = [],
+    previousWarn = console.warn;
+  console.warn = (...values: unknown[]) => warnings.push(values);
+  try {
+    const environment = terminalEnvironment("linux", "/test/failing-shell", () => {
+      throw new Error("timed out");
+    });
+    assert.equal(environment.TERM, "xterm-256color");
+    assert.equal(environment.PATH, process.env.PATH);
+    assert.equal("SSH_AUTH_SOCK" in environment, false);
+    assert.match(String(warnings[0]?.[0]), /snapshot failed.*timed out/u);
+  } finally {
+    console.warn = previousWarn;
+  }
 });
