@@ -673,7 +673,7 @@ describe("agent runtime renderer", () => {
     expect(assertPreloadPayload("listSquads", { repoId: "repo-a" })).toBe(true);
     expect(() => assertPreloadPayload("listAgents", { repoId: "repo-a", agentId: "fable" })).toThrow(/not allowed/u);
   });
-  it("takes the API key only as a masked one-shot input, and only where the plane has an API mode", () => {
+  it("keeps the masked API key visible and disables it when the call path has no API mode", () => {
     const field = renderToStaticMarkup(
       createElement(TextInput, { label: "API key", type: "password", value: "", onChange: noop }),
     );
@@ -691,13 +691,19 @@ describe("agent runtime renderer", () => {
           onCreate: noop,
         }),
       );
-    for (const kind of ["claude", "codex", "agy"] as const) expect(dialog(kind)).not.toMatch(/type="password"/u);
+    for (const kind of ["claude", "codex", "agy"] as const) expect(dialog(kind)).toMatch(/type="password"/u);
+    expect(dialog("claude")).toMatch(/type="password"[^>]*disabled=""/u);
     expect(dialog("claude")).toContain("API override");
     expect(dialog("codex")).toContain("Codex-family models only.");
     expect(dialog("codex")).toContain("Fast mode");
     expect(dialog("codex")).toContain('data-testid="new-runtime-fast"');
     expect(dialog("agy")).toContain("AGY supports only its own login flow");
-    expect(dialog("agy")).not.toContain("API override");
+    expect(dialog("agy")).toContain("API override");
+    expect(dialog("agy")).toMatch(/<button[^>]*aria-label="API override"[^>]*disabled=""/u);
+    expect(dialog("agy")).toContain("agy does not support API override in this call path.");
+    expect(dialog("agy")).toMatch(/<input[^>]*data-testid="new-runtime-base-url"[^>]*disabled=""/u);
+    expect(dialog("agy")).toMatch(/<input[^>]*data-testid="new-runtime-api-key"[^>]*disabled=""/u);
+    expect(dialog("claude")).toMatch(/<input[^>]*aria-label="Effort"[^>]*disabled=""/u);
     expect(dialog("agy")).not.toContain("Fast mode");
   });
   it("renders detected models as selected checkboxes and keeps custom text behind an override", () => {
@@ -761,7 +767,9 @@ describe("agent runtime renderer", () => {
     expect(codex).not.toContain('data-testid="runtime-instance-isolation"');
     expect(claude).toContain('data-testid="runtime-instance-permission-mode"');
     expect(claude).toContain('data-testid="runtime-instance-isolation"');
-    expect(agy).not.toContain('data-testid="runtime-instance-permissions"');
+    expect(agy).toContain('data-testid="runtime-instance-permissions"');
+    expect(agy).toMatch(/data-testid="runtime-instance-permission-mode"[^>]*disabled=""/u);
+    expect(agy).toContain("This provider owns its own access policy; harness adds no permission mode.");
   });
   it("rejects a malformed session-groups projection instead of rendering it", async () => {
     const readUseCaseProjection = vi.fn(async () => sessionGroupsEnvelope({ ok: true, groups: "not-an-array" })),

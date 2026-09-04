@@ -19,35 +19,55 @@ export interface RuntimeProviderPlane {
   /** Models the user may type freely, or a fixed provider family they may only pick within. */
   readonly modelFamily: "open" | "codex-only" | "gemini-only";
   readonly effort: "none" | "free" | "enum";
+  readonly effortValues: readonly string[];
   readonly permissions: boolean;
 }
 
 const PLANES: Readonly<Record<RuntimeKindId, RuntimeProviderPlane>> = {
   agy: {
+    // Product identifiers/defaults; not covered by the capability matrix.
     kindId: "agy",
     defaultProviderId: "google",
+    // Matrix dimension 13 (C): subscription login only.
     authShape: "subscription-only",
     authModes: ["subscription"],
+    // Product model-catalog constraint; unverified and not covered by matrix dimension 11.
     modelFamily: "gemini-only",
+    // Matrix dimension 12: flag registration is E; these values remain H (unverified).
     effort: "enum",
+    effortValues: ["low", "medium", "high"],
+    // Matrix dimensions 5-6 (C/E): harness exposes no mapped permission control for agy.
     permissions: false,
   },
   claude: {
+    // Product identifiers/defaults; not covered by the capability matrix.
     kindId: "claude",
     defaultProviderId: "anthropic",
+    // Matrix dimension 13 (C): subscription login plus API-key override.
     authShape: "api-override",
     authModes: ["subscription", "api-key"],
+    // Product model-catalog constraint; unverified and not covered by matrix dimension 11.
     modelFamily: "open",
+    // Claude 2.1.260 实测接受 effort 且 launch 侧已在传，但提交链路在 preload/protocol/store 三处缺字段，
+    // 见 task_ec4aa7c3fc0a66a574dba873ab；在那条修完之前这里保持 none，以免渲染一个存不下的输入框。
     effort: "none",
+    effortValues: [],
+    // Matrix dimensions 5-6 (C/E): harness maps permission and isolation controls.
     permissions: true,
   },
   codex: {
+    // Product identifiers/defaults; not covered by the capability matrix.
     kindId: "codex",
     defaultProviderId: "openai",
+    // Matrix dimension 13 (C): subscription and API-key instances are separate.
     authShape: "separate",
     authModes: ["subscription", "api-key"],
+    // Product model-catalog constraint; unverified and not covered by matrix dimension 11.
     modelFamily: "codex-only",
+    // Matrix dimension 12 (C): harness passes a free TOML effort value.
     effort: "free",
+    effortValues: [],
+    // Matrix dimensions 5-6 (C/E): harness maps permission and sandbox controls.
     permissions: true,
   },
 };
