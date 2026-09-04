@@ -149,7 +149,7 @@ test("local daemon target honors an explicit root instead of the process working
   }
 });
 
-test("local daemon target keeps the environment repo id override authoritative", async () => {
+test("local daemon target ignores an environment repo id from another registered workspace", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const firstRoot = path.join(fixtureRoot, "first"),
     secondRoot = path.join(fixtureRoot, "second"),
@@ -170,6 +170,57 @@ test("local daemon target keeps the environment repo id override authoritative",
       userRoot,
       env: { HARNESS_DAEMON_REPO_ID: "second" },
     });
+
+    assert.equal(target.repoId, "first");
+    assert.equal(target.canonicalRoot, canonicalFirstRoot);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon target keeps a matching injected repo id", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
+  const workspaceRoot = path.join(fixtureRoot, "workspace"),
+    userRoot = path.join(fixtureRoot, "user");
+  try {
+    mkdirSync(workspaceRoot, { recursive: true });
+    mkdirSync(userRoot);
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)]), null, 2)}\n`,
+    );
+
+    const target = await resolveLocalDaemonTarget({
+      rootDir: workspaceRoot,
+      userRoot,
+      env: { HARNESS_DAEMON_REPO_ID: "runtime-worker" },
+    });
+
+    assert.equal(target.repoId, "runtime-worker");
+    assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("local daemon target keeps an explicit repo id override authoritative", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
+  const firstRoot = path.join(fixtureRoot, "first"),
+    secondRoot = path.join(fixtureRoot, "second"),
+    userRoot = path.join(fixtureRoot, "user");
+  try {
+    mkdirSync(firstRoot, { recursive: true });
+    mkdirSync(secondRoot);
+    mkdirSync(userRoot);
+    const canonicalFirstRoot = realpathSync.native(firstRoot),
+      canonicalSecondRoot = realpathSync.native(secondRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("first", canonicalFirstRoot), repo("second", canonicalSecondRoot)]), null, 2)}\n`,
+    );
+
+    const target = await resolveLocalDaemonTarget({ rootDir: firstRoot, repoIdOverride: "second", userRoot, env: {} });
 
     assert.equal(target.repoId, "second");
     assert.equal(target.canonicalRoot, canonicalSecondRoot);
