@@ -260,6 +260,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
     scheduleId: "sched-probe",
     name: "Heartbeat probe",
     state: "armed",
+    mode: "detect",
     definitionResidency: "ledger",
     definitionRevision: 7,
     trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
@@ -274,6 +275,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
     mission: "Keep the line green.",
     executionAvailability: "claimed-elsewhere",
     claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
+    health: { recent: [], bucket: "clean", failedCount: 0, lastFailureDetail: null },
     nextRunAt: null,
     actions: {
       edit: { available: true, code: null, nextAction: null },
@@ -286,6 +288,7 @@ function scheduleRow(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRow
     lastRun: null,
     missed: { count: 0, lastMissedAt: null, lastMissedReason: null },
     automaticEvaluatedThrough: null,
+    updatedAt: "2026-08-27T08:00:00.000Z",
     ...overrides,
   };
 }

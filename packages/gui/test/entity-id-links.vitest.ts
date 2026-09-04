@@ -428,10 +428,12 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         scheduleId: "heartbeat-probe",
         name: "Heartbeat probe",
         state: "armed",
+        mode: "detect",
         definitionResidency: "ledger",
         definitionRevision: 7,
         trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
         target: {
+          kind: "agent",
           agentId: AGENT_ID,
           runtimeInstanceId: PROVIDER_ID,
           model: null,
@@ -441,6 +443,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
         mission: "Probe the runtime surface.",
         executionAvailability: "local",
         claim: { nodeId: null, assignmentId: null },
+        health: { recent: ["succeeded"], bucket: "clean", failedCount: 0, lastFailureDetail: null },
         nextRunAt: AT,
         actions: {
           edit: { available: true, code: null, nextAction: null },

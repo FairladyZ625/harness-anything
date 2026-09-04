@@ -291,14 +291,13 @@ function ScheduleListPane({
   const [stateFilter, setStateFilter] = useState<StateFilter>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
-  const modeProjected = rows.some((row) => row.state !== "invalid" && scheduleRowMode(row) !== null),
-    healthProjected = rows.some((row) => row.state !== "invalid" && scheduleRowHealth(row) !== null),
+  const projected = rows.some((row) => row.state !== "invalid"),
     visible = rows.filter((row) => {
       if (stateFilter !== "all" && row.state !== stateFilter) return false;
       if (modeFilter !== "all" && (row.state === "invalid" || scheduleRowMode(row) !== modeFilter)) return false;
       // The bucket is the daemon's classification of its health rollup — the
       // renderer only selects rows whose bucket matches the requested facet.
-      if (healthFilter !== "all" && (row.state === "invalid" || scheduleRowHealth(row)?.bucket !== healthFilter))
+      if (healthFilter !== "all" && (row.state === "invalid" || scheduleRowHealth(row).bucket !== healthFilter))
         return false;
       return true;
     });
@@ -326,8 +325,7 @@ function ScheduleListPane({
           <FilterGroup
             testId="schedules-filter-mode"
             label={t("schedules.list.filter.mode")}
-            tip={modeProjected ? undefined : t("schedules.list.filter.modePending")}
-            disabled={!modeProjected}
+            disabled={!projected}
             value={modeFilter}
             options={[
               { value: "all", label: t("schedules.list.filter.all") },
@@ -339,8 +337,7 @@ function ScheduleListPane({
           <FilterGroup
             testId="schedules-filter-health"
             label={t("schedules.list.filter.health")}
-            tip={healthProjected ? undefined : t("schedules.list.filter.healthPending")}
-            disabled={!healthProjected}
+            disabled={!projected}
             value={healthFilter}
             options={[
               { value: "all", label: t("schedules.list.filter.all") },
@@ -416,7 +413,7 @@ function ScheduleListPane({
                   );
                 const stateMeta = STATE_META[row.state],
                   mode = scheduleRowMode(row),
-                  health = scheduleRowHealth(row)?.recent ?? null;
+                  health = scheduleRowHealth(row).recent;
                 return (
                   <tr
                     key={row.scheduleId}
@@ -446,11 +443,7 @@ function ScheduleListPane({
                       </span>
                     </td>
                     <td className="px-2.5 py-1.5">
-                      {mode === null ? (
-                        <Hint>{t("schedules.mode.pending")}</Hint>
-                      ) : (
-                        t(mode === "detect" ? "schedules.mode.detect" : "schedules.mode.remediate")
-                      )}
+                      {t(mode === "detect" ? "schedules.mode.detect" : "schedules.mode.remediate")}
                     </td>
                     <td className="px-2.5 py-1.5">
                       <span className="inline-flex items-center gap-1.5">
@@ -507,7 +500,7 @@ function ScheduleListPane({
                       )}
                     </td>
                     <td className="px-2.5 py-1.5">
-                      {health === null ? (
+                      {health.length === 0 ? (
                         <Hint>—</Hint>
                       ) : (
                         <span className="flex h-3 items-end gap-[2px]" data-testid={`schedule-spark-${row.scheduleId}`}>

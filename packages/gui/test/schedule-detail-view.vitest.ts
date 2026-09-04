@@ -5,12 +5,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ScheduleDetailView, deriveScheduleRunRows } from "../src/renderer/views/ScheduleDetailView.tsx";
+import { formatDurationMs } from "../src/renderer/components/scheduleRun/runMeta.ts";
 import {
-  ScheduleDetailView,
-  ScheduleSquadLanes,
-  deriveScheduleRunRows,
-  formatDurationMs,
-} from "../src/renderer/views/ScheduleDetailView.tsx";
+  scheduleReportIsJsonReceipt,
+  ScheduleRunDetail,
+} from "../src/renderer/components/scheduleRun/ScheduleRunDetail.tsx";
 import { schedulesClient, type ScheduleRunsResult } from "../src/renderer/schedules-client.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../../daemon/src/protocol/schedules-gui-contract.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -27,6 +27,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     scheduleId: "heartbeat-probe",
     name: "Heartbeat probe",
     state: "armed",
+    mode: "detect",
     definitionResidency: "ledger",
     definitionRevision: 7,
     trigger: { kind: "interval", everyMs: 7_200_000, timezone: null, summary: "every 2h" },
@@ -41,6 +42,12 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
     mission: "Keep the end-to-end mainline green.",
     executionAvailability: "claimed-elsewhere",
     claim: { nodeId: "edge-two", assignmentId: "assignment-edge-two" },
+    health: {
+      recent: ["succeeded", "failed"],
+      bucket: "degraded",
+      failedCount: 1,
+      lastFailureDetail: "cwd /missing does not exist",
+    },
     nextRunAt: "2026-08-27T10:25:00.000Z",
     actions: {
       edit: { available: true, code: null, nextAction: null },
@@ -118,7 +125,6 @@ function runsResult(runs: ScheduleRunsResult["runs"]): ScheduleRunsResult {
   return {
     ok: true,
     status: "ready",
-    repoId: "repo-a",
     scheduleId: "heartbeat-probe",
     runs,
     totals: {
@@ -126,6 +132,7 @@ function runsResult(runs: ScheduleRunsResult["runs"]): ScheduleRunsResult {
       missed: runs.filter((candidate) => candidate.outcome === "missed").length,
       failed: runs.filter((candidate) => candidate.outcome === "failed").length,
     },
+    truncated: false,
     watermark: 3,
     sourceRevision: 3,
   };
@@ -144,15 +151,21 @@ const occurrence = (
   attemptIndex: 1,
   dispatchId: "dispatch_000000000000000000000009",
   runtimeSessionId: "runtime-86b0",
-  squadRunId: null,
-  outcome: "failed",
+  outcome: "succeeded",
   missedReason: null,
-  reportRef: "harness/schedules/heartbeat-probe/runs/occurrence_86b0/report.md",
-  detail: "artifact:runtime-result/sha256/86b0",
+  reportRef: "artifact:runtime-result/sha256/86b0",
+  reportText: "# Probe report\n\nAll six steps completed.\n",
+  detail: null,
+  outputs: { facts: ["F-86B0"], decisions: ["dec_86b0"], tasks: [] },
   ...overrides,
 });
 
-async function renderDetail(focusedEntityRef: string | null, data = listResult()): Promise<HTMLElement> {
+async function renderDetail(
+  focusedEntityRef: string | null,
+  data = listResult(),
+  onSelectEntity: (ref: string) => void = noop,
+  handlers: { readonly onExitRun?: () => void; readonly onExit?: () => void } = {},
+): Promise<HTMLElement> {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -174,9 +187,9 @@ async function renderDetail(focusedEntityRef: string | null, data = listResult()
           onAction: noop,
           onSave: noop,
           onDelete: noop,
-          onSelectEntity: noop,
-          onExitRun: noop,
-          onExit: noop,
+          onSelectEntity,
+          onExitRun: handlers.onExitRun ?? noop,
+          onExit: handlers.onExit ?? noop,
         }),
       ),
     );
@@ -203,64 +216,41 @@ async function settle(): Promise<void> {
 }
 
 describe("schedule detail hub (M2)", () => {
-  it("renders Overview from the list row: mission, pending mode chip, agent link stays a G10 path", async () => {
+  it("renders Overview from the list row: mission, mode badge, daemon health rollup, agent link stays a G10 path", async () => {
     const onSelectEntity = vi.fn();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const data = listResult();
-    await act(async () => {
-      root.render(
-        createElement(
-          QueryClientProvider,
-          { client: new QueryClient() },
-          createElement(ScheduleDetailView, {
-            repoId: "repo-a",
-            row: data.schedules[0] as ScheduleGuiRowDto,
-            options: data.options,
-            scheduleIds: ["heartbeat-probe"],
-            focusedEntityRef: "schedule/heartbeat-probe",
-            busy: false,
-            receipt: null,
-            actionError: null,
-            onAction: noop,
-            onSave: noop,
-            onDelete: noop,
-            onSelectEntity,
-            onExitRun: noop,
-            onExit: noop,
-          }),
-        ),
-      );
-    });
-    mounted.push({ root, container });
+    const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
     expect(text).toContain("Keep the end-to-end mainline green.");
-    expect(text).toContain("mode pending");
+    expect(text).toContain("Detect");
     expect(text).toContain("Claimed elsewhere");
     expect(text).toContain("edge-two");
-    // Health spark is pending the backend rollup — labeled, not fabricated.
-    expect(container.querySelector('[data-testid="schedule-overview-health"]')?.textContent).toContain("pending");
+    // 健康度 rollup 是 daemon 事实:spark + 失败计数 + 最近失败原因直接渲染,无占位。
+    expect(container.querySelector('[data-testid="schedule-health-spark"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="schedule-health-spark"]')?.children).toHaveLength(2);
+    expect(container.querySelector('[data-testid="schedule-overview-health"]')?.textContent).toContain("1 failed");
+    expect(container.querySelector('[data-testid="schedule-health-last-failure"]')?.textContent).toContain(
+      "cwd /missing does not exist",
+    );
     // G10: the agent id is still a path to the agent entity.
     container.querySelector<HTMLButtonElement>('[data-testid="schedule-agent-link-probe-agent"]')?.click();
     expect(onSelectEntity).toHaveBeenCalledWith("agent/probe-agent");
   });
 
-  it("falls back to the occurrences the list read projects while repo.schedules.runs is pending", async () => {
+  it("falls back to the occurrences the list row carries when the runs read fails, labeled as an error", async () => {
+    vi.spyOn(schedulesClient, "runs").mockRejectedValue(new Error("bridge unavailable"));
     const container = await renderDetail("schedule/heartbeat-probe");
     await click(container, "schedule-tab-runs");
     await settle();
     const timeline = container.querySelector('[data-testid="schedule-runs-timeline"]');
     expect(timeline).not.toBeNull();
-    // Boundary is labeled; derived rows show running active + settled last + missed aggregate.
-    expect(container.querySelector('[data-testid="schedule-runs"]')?.textContent).toContain("repo.schedules.runs");
+    // A failed read is a real error, not a pending-backend notice.
+    const banner = container.querySelector('[data-testid="schedule-runs-read-error"]');
+    expect(banner?.textContent).toContain("Run history read failed");
+    expect(banner?.textContent).toContain("bridge unavailable");
     expect(container.querySelector('[data-testid="schedule-run-row-occurrence_now"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-run-row-occurrence_prior"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-run-row-aggregate"]')?.textContent).toContain("missed");
-    expect(container.querySelector('[data-testid="schedule-run-row-aggregate"]')?.textContent).toContain(
-      "Scheduler unavailable",
-    );
   });
 
   it("renders daemon-projected occurrence rows in daemon order, missed rows visible", async () => {
@@ -275,13 +265,21 @@ describe("schedule detail hub (M2)", () => {
           dispatchId: null,
           runtimeSessionId: null,
           reportRef: null,
+          reportText: null,
           detail: null,
           claimedAt: null,
           endedAt: null,
           durationMs: null,
           attemptIndex: null,
+          outputs: { facts: [], decisions: [], tasks: [] },
         }),
-        occurrence({ occurrenceId: "occurrence_71d0", outcome: "succeeded", kind: "manual", reportRef: null }),
+        occurrence({
+          occurrenceId: "occurrence_71d0",
+          outcome: "succeeded",
+          kind: "manual",
+          reportRef: null,
+          reportText: null,
+        }),
       ]),
     );
     const container = await renderDetail("schedule/heartbeat-probe");
@@ -297,43 +295,15 @@ describe("schedule detail hub (M2)", () => {
     expect(missedRow?.textContent).toContain("Missed");
     expect(missedRow?.textContent).toContain("not executed");
     expect(missedRow?.textContent).toContain("Scheduler unavailable");
-    // No pending-backend banner when the projection answers.
-    expect(container.querySelector('[data-testid="schedule-runs"]')?.textContent).not.toContain("repo.schedules.runs");
+    // No read-error banner when the projection answers.
+    expect(container.querySelector('[data-testid="schedule-runs-read-error"]')).toBeNull();
   });
 });
 
 describe("embedded run detail (M4)", () => {
   it("opens a run row into schedule/<id>/runs/<occurrence> — never a session/ jump", async () => {
     const onSelectEntity = vi.fn();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const data = listResult();
-    await act(async () => {
-      root.render(
-        createElement(
-          QueryClientProvider,
-          { client: new QueryClient() },
-          createElement(ScheduleDetailView, {
-            repoId: "repo-a",
-            row: data.schedules[0] as ScheduleGuiRowDto,
-            options: data.options,
-            scheduleIds: ["heartbeat-probe"],
-            focusedEntityRef: "schedule/heartbeat-probe",
-            busy: false,
-            receipt: null,
-            actionError: null,
-            onAction: noop,
-            onSave: noop,
-            onDelete: noop,
-            onSelectEntity,
-            onExitRun: noop,
-            onExit: noop,
-          }),
-        ),
-      );
-    });
-    mounted.push({ root, container });
+    const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
     await click(container, "schedule-tab-runs");
     await settle();
     await click(container, "schedule-run-open-occurrence_now");
@@ -345,35 +315,10 @@ describe("embedded run detail (M4)", () => {
   it("returns from an embedded run to the hub's Runs tab via the location patch", async () => {
     const onExitRun = vi.fn();
     const onExit = vi.fn();
-    const data = listResult();
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    await act(async () => {
-      root.render(
-        createElement(
-          QueryClientProvider,
-          { client: new QueryClient() },
-          createElement(ScheduleDetailView, {
-            repoId: "repo-a",
-            row: data.schedules[0] as ScheduleGuiRowDto,
-            options: data.options,
-            scheduleIds: ["heartbeat-probe"],
-            focusedEntityRef: "schedule/heartbeat-probe/runs/occurrence_now",
-            busy: false,
-            receipt: null,
-            actionError: null,
-            onAction: noop,
-            onSave: noop,
-            onDelete: noop,
-            onSelectEntity: noop,
-            onExitRun,
-            onExit,
-          }),
-        ),
-      );
+    const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_now", listResult(), noop, {
+      onExitRun,
+      onExit,
     });
-    mounted.push({ root, container });
     await settle();
     // A deep link straight into the run renders the run detail, not the hub tabs.
     expect(container.querySelector('[data-testid="schedule-run-detail"]')).not.toBeNull();
@@ -383,80 +328,139 @@ describe("embedded run detail (M4)", () => {
     expect(onExit).not.toHaveBeenCalled();
   });
 
-  it("embeds the run session and artifacts in-page, session id shown as text", async () => {
-    vi.spyOn(schedulesClient, "runs").mockResolvedValue(runsResult([occurrence()]));
-    const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_86b0");
+  it("embeds the report markdown, links dispatch/session and outputs, and shows failure detail", async () => {
+    const onSelectEntity = vi.fn();
+    vi.spyOn(schedulesClient, "runs").mockResolvedValue(
+      runsResult([
+        occurrence({
+          outcome: "failed",
+          reportText: "# Probe report\n\nFailed at step `sessions`.\n",
+          detail: "renderer_console_error: Content Security Policy",
+          outputs: { facts: ["F-86B0"], decisions: ["dec_86b0"], tasks: ["task_86b0"] },
+        }),
+      ]),
+    );
+    const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_86b0", listResult(), onSelectEntity);
     await settle();
     const detail = container.querySelector('[data-testid="schedule-run-detail"]');
     expect(detail).not.toBeNull();
     expect(detail?.textContent).toContain("occurrence_86b0");
-    expect(detail?.textContent).toContain("edge-sf-2");
-    expect(detail?.textContent).toContain("runtime-86b0");
     // The transcript is embedded (dispatch ledger replay container), not a link out.
     expect(container.querySelector('[data-testid="schedule-run-session-occurrence_86b0"]')).not.toBeNull();
-    expect(container.querySelector("button[data-testid^='schedule-session-link-']")).toBeNull();
-    // Artifacts + routing panel from the occurrence row.
-    expect(container.querySelector('[data-testid="schedule-run-artifact-report"]')?.textContent).toContain("report.md");
-    expect(detail?.textContent).toContain("decision-packet");
+    // Failure detail is the daemon settle reason, shown in full.
+    expect(container.querySelector('[data-testid="schedule-run-failure-detail"]')?.textContent).toContain(
+      "renderer_console_error",
+    );
+    // The report renders inline through the artifacts-page markdown reader.
+    const report = container.querySelector('[data-testid="schedule-run-report"]');
+    expect(report).not.toBeNull();
+    expect(report?.querySelector('[data-testid="doc-reader"]')).not.toBeNull();
+    expect(report?.textContent).toContain("Probe report");
+    // Dispatch + runtime session are entities: both route to the sessions view.
+    await click(container, "schedule-run-dispatch-link");
+    expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-86b0");
+    await click(container, "schedule-run-session-link");
+    expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-86b0");
+    // Outputs are entities too: each routes through the entity navigator.
+    await click(container, "schedule-run-output-fact-F-86B0");
+    expect(onSelectEntity).toHaveBeenCalledWith("fact/F-86B0");
+    await click(container, "schedule-run-output-decision-dec_86b0");
+    expect(onSelectEntity).toHaveBeenCalledWith("decision/dec_86b0");
+    await click(container, "schedule-run-output-task-task_86b0");
+    expect(onSelectEntity).toHaveBeenCalledWith("task/task_86b0");
+    // No placeholder sentences anywhere on the page.
+    const text = detail?.textContent ?? "";
+    expect(text).not.toMatch(/pending the backend|projection is pending|once wired|待后端|接线后/u);
   });
 
-  it("renders the squad lane skeleton from the SquadRunReadResult shape", async () => {
+  it("renders a JSON receipt as a collapsed, untruncated code block", async () => {
+    const receipt = `${JSON.stringify(
+      {
+        schema: "e2e-probe-journey/v1",
+        outcome: "failed",
+        failedStep: "sessions",
+        message: "sessions-view did not render",
+        screenshotPath: "/tmp/gui-e2e/failure.png",
+        consoleFailures: [],
+      },
+      null,
+      2,
+    )}\n`;
+    expect(scheduleReportIsJsonReceipt("# a report")).toBe(false);
+    expect(scheduleReportIsJsonReceipt(receipt)).toBe(true);
+    vi.spyOn(schedulesClient, "runs").mockResolvedValue(
+      runsResult([occurrence({ reportText: receipt, detail: "probe failed" })]),
+    );
+    const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_86b0");
+    await settle();
+    const block = container.querySelector('[data-testid="schedule-run-report-json"]');
+    expect(block).not.toBeNull();
+    expect(block?.textContent).toContain("e2e-probe-journey/v1");
+    expect(block?.textContent).toContain("screenshotPath");
+    expect(block?.textContent).toContain("/tmp/gui-e2e/failure.png");
+    // Markdown reader is not used for a JSON receipt.
+    expect(container.querySelector('[data-testid="schedule-run-report"] [data-testid="doc-reader"]')).toBeNull();
+  });
+
+  it("renders real empty states when a failed occurrence has no dispatch, report, or outputs", async () => {
+    vi.spyOn(schedulesClient, "runs").mockResolvedValue(
+      runsResult([
+        occurrence({
+          outcome: "failed",
+          dispatchId: null,
+          runtimeSessionId: null,
+          reportRef: null,
+          reportText: null,
+          detail: "Runtime instance gui-e2e-instance is not configured.",
+          outputs: { facts: [], decisions: [], tasks: [] },
+        }),
+      ]),
+    );
+    const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_86b0");
+    await settle();
+    expect(container.querySelector('[data-testid="schedule-run-session-empty"]')?.textContent).toContain(
+      "No dispatch for this occurrence",
+    );
+    expect(container.querySelector('[data-testid="schedule-run-report-empty"]')?.textContent).toContain("No report");
+    expect(container.querySelector('[data-testid="schedule-run-outputs-empty"]')?.textContent).toContain(
+      "produced no facts / decisions / tasks",
+    );
+    expect(container.querySelector('[data-testid="schedule-run-failure-detail"]')?.textContent).toContain(
+      "not configured",
+    );
+    // No dispatch link when the occurrence never linked one.
+    expect(container.querySelector('[data-testid="schedule-run-dispatch-link"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-run-session-link"]')).toBeNull();
+  });
+
+  it("renders the run detail body directly (component contract)", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
     await act(async () => {
       root.render(
-        createElement(ScheduleSquadLanes, {
-          run: {
-            squadRunId: "squadrun_1",
-            squadId: "squad_core",
-            taskId: "task_1",
-            mission: "probe",
-            phase: "workers_running",
-            error: null,
-            currentLeaderRuntimeSessionId: "runtime-leader",
-            leaderTurns: [
-              {
-                turnId: "turn_1",
-                trigger: { kind: "initial" },
-                dispatchId: "dispatch_a",
-                runtimeSessionId: "runtime-leader",
-                decision: { kind: "plan", dispatchCount: 2 },
-                resultText: null,
-                status: "succeeded",
-                startedAt: "2026-08-27T08:00:00.000Z",
-                endedAt: "2026-08-27T08:01:00.000Z",
-              },
-            ],
-            workerAttempts: [
-              {
-                attemptId: "attempt_1",
-                workerId: "worker_a",
-                leaderTurnId: "turn_1",
-                dispatchId: "dispatch_b",
-                runtimeSessionId: "runtime-worker-a",
-                rejection: null,
-                status: "running",
-                startedAt: "2026-08-27T08:01:00.000Z",
-                endedAt: null,
-              },
-            ],
-          },
-        }),
+        createElement(
+          QueryClientProvider,
+          { client: new QueryClient() },
+          createElement(ScheduleRunDetail, {
+            repoId: "repo-a",
+            row: row(),
+            occurrence: occurrence(),
+            onRefetchRuns: noop,
+            onSelectEntity: noop,
+          }),
+        ),
       );
     });
-    const text = container.textContent ?? "";
-    expect(container.querySelector('[data-testid="schedule-run-squad-lanes"]')).not.toBeNull();
-    expect(text).toContain("turn_1");
-    expect(text).toContain("plan");
-    expect(text).toContain("worker_a");
+    mounted.push({ root, container });
+    expect(container.querySelector('[data-testid="schedule-run-detail"]')).not.toBeNull();
     await act(async () => root.unmount());
     document.body.innerHTML = "";
   });
 });
 
 describe("run-row derivation helpers", () => {
-  it("derives only the occurrences the list read already projects", () => {
+  it("derives only the occurrences the list read already carries", () => {
     const derived = deriveScheduleRunRows(row());
     expect(derived.map((candidate) => candidate.occurrenceId)).toEqual(["occurrence_now", "occurrence_prior", ""]);
     expect(derived[0]?.outcome).toBe("running");
@@ -464,6 +468,9 @@ describe("run-row derivation helpers", () => {
     expect(derived[2]?.outcome).toBe("missed");
     // lastRun duration is arithmetic over two daemon timestamps.
     expect(derived[1]?.durationMs).toBe(252_000);
+    // Derived rows carry the empty daemon projections, not undefined fields.
+    expect(derived[1]?.reportText).toBeNull();
+    expect(derived[1]?.outputs).toEqual({ facts: [], decisions: [], tasks: [] });
     expect(
       deriveScheduleRunRows(
         row({ activeRun: null, missed: { count: 0, lastMissedAt: null, lastMissedReason: null } }),

@@ -4,7 +4,12 @@ import test from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createScheduleV1 } from "../../kernel/src/index.ts";
+import {
+  compileScheduleRunEvent,
+  createScheduleV1,
+  type CanonicalEventV1,
+  type ScheduleV1,
+} from "../../kernel/src/index.ts";
 import {
   daemonGuiActionMethods,
   daemonGuiReadMethods,
@@ -90,6 +95,7 @@ function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): Schedules
             ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
             : [],
       readTaskStatuses: () => ({ status: "ready", watermark: 9, sourceRevision: 9 }),
+      readCanonicalEvents: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
     },
     ...overrides,
   };
@@ -233,6 +239,9 @@ test("the schedules list validator locks the joined wire shape", () => {
   });
   assert.equal(row.executionAvailability, "local");
   assert.equal(row.target.kind === "agent" && row.target.fast, true);
+  // A schedule with no run history still carries a (empty) daemon-side health rollup —
+  // the renderer has no "pending projection" state left to render.
+  assert.deepEqual(row.health, { recent: [], bucket: "clean", failedCount: 0, lastFailureDetail: null });
   assert.deepEqual(row.claim, { nodeId: null, assignmentId: null });
   assert.equal(row.nextRunAt, "2026-08-27T08:30:00.000Z");
   assert.equal(row.actions.runNow.available, true);
@@ -263,6 +272,8 @@ test("the schedules list validator locks the joined wire shape", () => {
       actions: { ...row.actions, runNow: { available: false, code: null, nextAction: null } },
     }),
     (row: ScheduleGuiRowDto) => ({ ...row, missed: { ...row.missed, lastMissedReason: "vibes" } }),
+    (row: ScheduleGuiRowDto) => ({ ...row, health: { ...row.health, bucket: "iffy" } }),
+    (row: ScheduleGuiRowDto) => ({ ...row, health: { ...row.health, recent: ["vibes"] } }),
     (row: ScheduleGuiRowDto) => ({ ...row, activeRun: { occurrenceId: "x" } }),
   ];
   for (const mutate of rowMutations)
@@ -305,6 +316,7 @@ test("rows with a claimed-but-unlinked activeRun and a detail-less lastRun pass 
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: claimed, workspaceRevision: 2 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
+        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
       },
     }),
   );
@@ -340,6 +352,7 @@ test("malformed definitions degrade to invalid rows while trigger DTO variants r
         projection: {
           listEntities: (kind) => (kind === "schedule" ? [{ value: malformed, workspaceRevision: 1 }] : []),
           readTaskStatuses: guiContext().projection.readTaskStatuses,
+          readCanonicalEvents: guiContext().projection.readCanonicalEvents,
         },
       }),
     ),
@@ -400,6 +413,7 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
                   ]
                 : [],
           readTaskStatuses: guiContext().projection.readTaskStatuses,
+          readCanonicalEvents: guiContext().projection.readCanonicalEvents,
         },
       }),
     );
@@ -635,6 +649,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: pausedSchedule, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
+        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
       },
     }),
   );
@@ -647,6 +662,7 @@ test("paused and single-flight states produce precise run-now blockers", () => {
       projection: {
         listEntities: (kind) => (kind === "schedule" ? [{ value: singleFlight, workspaceRevision: 1 }] : []),
         readTaskStatuses: guiContext().projection.readTaskStatuses,
+        readCanonicalEvents: guiContext().projection.readCanonicalEvents,
       },
     }),
   );
@@ -654,6 +670,98 @@ test("paused and single-flight states produce precise run-now blockers", () => {
   assert.equal(claimed.schedules[0]!.actions.runNow.code, "schedule_single_flight_active");
   assert.equal(claimed.schedules[0]!.actions.runNow.nextAction, "schedule_single_flight_active");
 });
+
+test("the health rollup aggregates recent outcomes daemon-side from canonical run events", () => {
+  const healthy = {
+      ...armedSchedule,
+      scheduleId: "rollup-clean",
+      status: {
+        ...armedSchedule.status,
+        lastRun: {
+          occurrenceId: "occurrence_ok",
+          scheduledFor: "2026-08-27T06:00:00.000Z",
+          endedAt: "2026-08-27T06:01:00.000Z",
+          outcome: "succeeded" as const,
+          nodeId: "local",
+          assignmentId: null,
+          claimFence: "claim_ok",
+          attemptIndex: 0,
+        },
+      },
+    },
+    failing = {
+      ...armedSchedule,
+      scheduleId: "rollup-degraded",
+      status: {
+        ...armedSchedule.status,
+        lastRun: {
+          occurrenceId: "occurrence_bad",
+          scheduledFor: "2026-08-27T07:30:00.000Z",
+          endedAt: "2026-08-27T07:31:00.000Z",
+          outcome: "failed" as const,
+          nodeId: "local",
+          assignmentId: null,
+          claimFence: "claim_bad",
+          attemptIndex: 1,
+          detail: "cwd /missing does not exist",
+        },
+      },
+    },
+    events: readonly CanonicalEventV1[] = [
+      runEventOf(1, "schedule_run_settled", healthy),
+      runEventOf(2, "schedule_run_settled", failing),
+    ],
+    result = readSchedulesGui(
+      guiContext({
+        projection: {
+          listEntities: (kind) =>
+            kind === "schedule"
+              ? [healthy, failing].map((value) => ({ id: value.scheduleId, value, workspaceRevision: 1 }))
+              : kind === "agent"
+                ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
+                : [],
+          readTaskStatuses: guiContext().projection.readTaskStatuses,
+          readCanonicalEvents: (afterRevision: number, limit: number) => ({
+            status: "ready" as const,
+            events: events.filter(({ workspaceRevision }) => workspaceRevision > afterRevision).slice(0, limit),
+            watermark: events.at(-1)?.workspaceRevision ?? 0,
+            sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
+          }),
+        },
+      }),
+    );
+  assert.deepEqual(validateSchedulesList(result), []);
+  const [cleanRow, degradedRow] = result.schedules as readonly ScheduleGuiRowDto[];
+  assert.deepEqual(cleanRow.health, {
+    recent: ["succeeded"],
+    bucket: "clean",
+    failedCount: 0,
+    lastFailureDetail: null,
+  });
+  assert.deepEqual(degradedRow.health, {
+    recent: ["failed"],
+    bucket: "degraded",
+    failedCount: 1,
+    lastFailureDetail: "cwd /missing does not exist",
+  });
+});
+
+function runEventOf(
+  revision: number,
+  type: "schedule_run_settled" | "schedule_occurrence_claimed" | "schedule_occurrences_missed",
+  value: ScheduleV1,
+): CanonicalEventV1 {
+  return compileScheduleRunEvent({
+    type,
+    schedule: value,
+    eventId: `event-rollup-${revision}`,
+    opId: `op-rollup-${revision}`,
+    workspaceRevision: revision,
+    actor,
+    source: "local",
+    occurredAt: `2026-08-27T07:${String(revision).padStart(2, "0")}:00.000Z`,
+  }).event;
+}
 
 test("the schedules list schema is registry-closed with a negative fixture", () => {
   const entry = daemonGuiReadSchemas.find(({ id }) => id === DAEMON_SCHEDULES_LIST_SCHEMA.id);

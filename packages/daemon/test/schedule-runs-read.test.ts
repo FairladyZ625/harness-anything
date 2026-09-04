@@ -76,7 +76,7 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
     result = readScheduleRuns(projection(events, base), base.scheduleId, 2);
 
   assert.deepEqual(validateScheduleRuns(result), []);
-  assert.deepEqual(result.totals, { runs: 3, missed: 2 });
+  assert.deepEqual(result.totals, { runs: 3, missed: 2, failed: 0 });
   assert.equal(result.truncated, true);
   assert.deepEqual(
     result.runs.map(({ scheduledFor, outcome, missedReason }) => ({ scheduledFor, outcome, missedReason })),
@@ -99,6 +99,115 @@ test("Schedule runs project claimed, settled, and each missed occurrence from ca
   assert.equal(complete.runs[2]!.reportRef, `artifact:runtime-result/sha256/${"a".repeat(64)}`);
   assert.equal(complete.runs[2]!.nodeId, "edge-a");
 });
+
+test("Schedule runs project occurrence outputs, attempt, failure detail, and report text", () => {
+  const base = schedule(),
+    sha = "b".repeat(64),
+    settled: ScheduleV1 = {
+      ...base,
+      status: {
+        ...base.status,
+        activeRun: null,
+        lastRun: {
+          occurrenceId: "occurrence-out",
+          scheduledFor: "2026-08-26T09:00:00.000Z",
+          endedAt: "2026-08-26T09:02:00.000Z",
+          outcome: "failed",
+          nodeId: "local",
+          assignmentId: null,
+          claimFence: "claim-out",
+          attemptIndex: 2,
+          dispatchId: "dispatch-out",
+          runtimeSessionId: "runtime-out",
+          detail: `artifact:runtime-result/sha256/${sha}`,
+        },
+      },
+    },
+    events: CanonicalEventV1[] = [
+      runEvent(1, "schedule_occurrence_claimed", {
+        ...base,
+        status: {
+          ...base.status,
+          automaticEvaluatedThrough: "2026-08-26T09:00:00.000Z",
+          activeRun: {
+            occurrenceId: "occurrence-out",
+            kind: "scheduled",
+            scheduledFor: "2026-08-26T09:00:00.000Z",
+            claimedAt: "2026-08-26T09:00:01.000Z",
+            nodeId: "local",
+            assignmentId: null,
+            claimFence: "claim-out",
+            attemptIndex: 2,
+          },
+        },
+      }),
+      runEvent(2, "schedule_run_settled", settled),
+      authoredEvent(3, "fact-event/v1", "fact_recorded", { factId: "F-OUT1" }),
+      authoredEvent(4, "decision-event/v1", "decision_proposed", { decisionId: "dec_out" }),
+      authoredEvent(5, "task-event/v1", "task_created", { taskId: "task_out" }),
+      // Same kinds authored by another session (or a human) must not leak into this occurrence.
+      {
+        ...authoredEvent(6, "fact-event/v1", "fact_recorded", { factId: "F-OTHER" }),
+        actor: { principal: { personId: "someone-else" }, executor: null },
+      },
+    ],
+    report = "# Report\n\nProbe outcome: failed step `sessions`.\n",
+    result = readScheduleRuns(
+      {
+        projection: projection(events, base).projection,
+        store: { readContentBlob: (hash) => (hash === sha ? Buffer.from(report, "utf8") : null) },
+      },
+      base.scheduleId,
+    );
+
+  assert.deepEqual(validateScheduleRuns(result), []);
+  const row = result.runs[0]!;
+  assert.equal(row.occurrenceId, "occurrence-out");
+  assert.equal(row.outcome, "failed");
+  assert.equal(row.attemptIndex, 2);
+  assert.equal(row.reportRef, `artifact:runtime-result/sha256/${sha}`);
+  assert.equal(row.reportText, report);
+  assert.deepEqual(row.outputs, { facts: ["F-OUT1"], decisions: ["dec_out"], tasks: ["task_out"] });
+
+  // A failure whose detail is a reason (not the report ref) keeps it as detail.
+  const reasonSettled: ScheduleV1 = {
+      ...settled,
+      status: {
+        ...settled.status,
+        lastRun: { ...settled.status.lastRun!, detail: "cwd /missing does not exist" },
+      },
+    },
+    reasonEvents = [events[0]!, runEvent(2, "schedule_run_settled", reasonSettled)],
+    reasonResult = readScheduleRuns(projection(reasonEvents, base), base.scheduleId);
+  assert.equal(reasonResult.runs[0]!.reportRef, null);
+  assert.equal(reasonResult.runs[0]!.reportText, null);
+  assert.equal(reasonResult.runs[0]!.detail, "cwd /missing does not exist");
+  assert.deepEqual(reasonResult.runs[0]!.outputs, { facts: [], decisions: [], tasks: [] });
+  assert.equal(reasonResult.totals.failed, 1);
+});
+
+function authoredEvent(
+  revision: number,
+  schema: "fact-event/v1" | "decision-event/v1" | "task-event/v1",
+  type: string,
+  ids: Readonly<Record<string, string>>,
+): CanonicalEventV1 {
+  return {
+    schema,
+    eventId: `event-outputs-${revision}`,
+    workspaceRevision: revision,
+    opId: `op-outputs-${revision}`,
+    type,
+    actor: {
+      principal: { personId: "schedule-runs-test" },
+      executor: { kind: "agent", id: "runtime-session:runtime-out" },
+    },
+    source: "local",
+    occurredAt: `2026-08-26T09:00:${String(revision).padStart(2, "0")}.000Z`,
+    payload: {},
+    ...ids,
+  } as unknown as CanonicalEventV1;
+}
 
 test("Schedule runs reject missing schedules, invalid limits, and open wire shapes", () => {
   const base = schedule(),
