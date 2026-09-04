@@ -11,7 +11,7 @@ export type DaemonStartupPhase = "pending" | "waiting" | "timeout" | "ready";
 
 export function daemonErrorCode(error: unknown): string | null {
   return error instanceof Error && typeof (error as { readonly code?: unknown }).code === "string"
-    ? String((error as { readonly code: string }).code)
+    ? (error as Error & { readonly code: string }).code
     : null;
 }
 
