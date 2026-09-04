@@ -191,8 +191,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       } finally {
         claimed.close();
       }
-      const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
-        session = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
+      const session = await eventuallyValue(async () => {
+        const overview = await host.read(repoId, "repo.agentRuntime.overview", {}, auth),
+          projected = overview.sessions.find((candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId);
+        return projected?.associations.some(
+          (association) => association.taskId === taskId && association.executionId === executionId,
+        )
+          ? projected
+          : null;
+      });
       assert.equal(
         session?.associations.some(
           (association) => association.taskId === taskId && association.executionId === executionId,
