@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "../../kernel/src/index.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
 import { openDaemonHost } from "./daemon-host.ts";
@@ -28,8 +29,9 @@ export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
 async function settleTeardownStep(step: () => Promise<void>): Promise<void> {
   try {
     await step();
-  } catch {
-    // Intentionally swallowed: the caller is already unwinding and the remaining teardown matters more.
+  } catch (error) {
+    // The caller is already unwinding and the remaining teardown matters more than this step's reason.
+    consumeKnownError(error);
   }
 }
 
