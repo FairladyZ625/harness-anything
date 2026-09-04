@@ -76,19 +76,27 @@ export function createDaemonHostLifecycleApi(
     attachmentsSettled: context.startInitialAttachments,
     close: async () => {
       context.closing = true;
-      context.scheduleScheduler.close();
-      if (context.initialAttachments) await context.initialAttachments;
-      for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
-      if (context.fleetCenter) await context.fleetCenter.close();
-      for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
-      context.fleetEdgeRuntimes.clear();
-      context.remoteProxy.close();
-      // Every cell gets its close awaited even when one of them rejects: Promise.all would return
-      // on the first rejection while the other cells were still tearing down, and the stop sequence
-      // above this would release the pid file and lock under threads that are still alive. The
-      // first rejection still propagates so the drain failure is not swallowed.
+      // The cells close no matter what fails before them: they own the worker threads and WAL drains
+      // that the stop sequence releases the pid file and lock on top of. So the steps above them are
+      // settled into a value instead of unwinding past the cell close.
+      const preamble = await Promise.allSettled([
+        (async () => {
+          context.scheduleScheduler.close();
+          if (context.initialAttachments) await context.initialAttachments;
+          for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
+          if (context.fleetCenter) await context.fleetCenter.close();
+          for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
+          context.fleetEdgeRuntimes.clear();
+          context.remoteProxy.close();
+        })(),
+      ]);
+      // Every cell gets its close awaited even when one of them rejects (Promise.all would return on
+      // the first rejection while the others were still tearing down), and the first rejection still
+      // propagates so a drain failure is not swallowed.
       const settled = await Promise.allSettled([...context.cells.values()].map((cell) => cell.close())),
-        rejected = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === "rejected");
+        rejected = [...settled, ...preamble].find(
+          (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
+        );
       if (rejected) throw rejected.reason;
     },
   };

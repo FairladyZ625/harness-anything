@@ -101,7 +101,8 @@ export async function startDaemon(input: {
         lifecycle.record({ event: "process_exit", outcome });
         await settleTeardownStep(() => transport!.stop());
         await settleTeardownStep(() => connLog.settle());
-        rmSync(pidPath, { force: true });
+        // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
+        await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
         singleton.release();
       }
     })();
