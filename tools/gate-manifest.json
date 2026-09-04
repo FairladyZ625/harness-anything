@@ -12,7 +12,10 @@
     "taskId": "task_01KX5HEBCHAKMA25FH5KHRWSEX",
     "recordedAt": "2026-07-10",
     "packageScripts": "package.json",
-    "workflow": ".github/workflows/rewrite-ci.yml",
+    "workflows": [
+      ".github/workflows/rewrite-ci.yml",
+      ".github/workflows/pr-body.yml"
+    ],
     "branchProtectionDocument": ".github/branch-protection.md",
     "githubActualBranchProtection": {
       "branch": "main",
@@ -147,7 +150,6 @@
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
-        "pr-body-lint",
         "typecheck",
         "fast-contract",
         "crlf-checkout",
@@ -167,6 +169,15 @@
         "nightly-daemon-soak",
         "nightly-cli-command-timing"
       ]
+    },
+    "prBody": {
+      "pullRequestGateJobs": [
+        "pr-body-lint",
+        "production-delta",
+        "evidence-contract"
+      ],
+      "helperJobsNotRegisteredAsGates": [],
+      "nonPullRequestGateJobs": []
     },
     "branchProtection": {
       "requiredContexts": [
@@ -375,6 +386,10 @@
           "script": null
         },
         "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "prBody": {
           "pullRequestJobs": [
             "pr-body-lint"
           ],
@@ -460,6 +475,10 @@
           "script": null
         },
         "rewriteCi": {
+          "pullRequestJobs": [],
+          "nonPullRequestJobs": []
+        },
+        "prBody": {
           "pullRequestJobs": [
             "pr-body-lint"
           ],
@@ -481,6 +500,72 @@
         "evidence": [
           "tools/check-pr-governance.test.mjs"
         ]
+      }
+    },
+    {
+      "id": "production-delta",
+      "command": "node tools/gates/production-delta.mjs --base origin/main --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
+      "category": "meta-governance",
+      "tier": "pr-advisory",
+      "tierReason": "The live pull request body declaration is checked on every PR-body workflow run but is not a required context.",
+      "authoritySource": [
+        "tools/gates/production-delta.mjs",
+        ".github/pull_request_template.md"
+      ],
+      "consumerScope": [
+        "GitHub pull request Production-Delta declaration"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["production-delta"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": { "allowed": false },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "prBody": { "pullRequestJobs": ["production-delta"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/production-delta.test.mjs"]
+      }
+    },
+    {
+      "id": "evidence-contract",
+      "command": "node tools/gates/evidence-contract.mjs --event \"$GITHUB_EVENT_PATH\"",
+      "category": "meta-governance",
+      "tier": "pr-advisory",
+      "tierReason": "Evidence claims are checked on every PR-body workflow run but this job is not a required context.",
+      "authoritySource": [
+        "tools/gates/evidence-contract.mjs",
+        ".github/pull_request_template.md"
+      ],
+      "consumerScope": [
+        "GitHub pull request evidence claims"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["evidence-contract"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": { "allowed": false },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": [], "nonPullRequestJobs": [] },
+        "prBody": { "pullRequestJobs": ["evidence-contract"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["pr"]
+      },
+      "deterministic": false,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/evidence-contract.test.mjs"]
       }
     },
     {

@@ -27,7 +27,7 @@ Deleted-Gates-Fixtures: none
 
 ## Machine-Readable Declarations
 
-<!-- These declarations are checked by jobs in `.github/workflows/rebuild-gates.yml`, the authority for their exact formats; `tools/gate-manifest.json` does not enumerate these jobs. -->
+<!-- These declarations are checked by jobs in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for their workflow mapping. -->
 <!-- Keep every uncommented keyword and its value on the same line. Keep each applicable declaration exactly once in the entire bilingual body, only in this English block, flush left without a Markdown list marker. -->
 <!-- Replace N and M with the actual added and deleted production line counts, including zero when appropriate. -->
 Production-Delta: +N/-M
@@ -41,7 +41,7 @@ Dependency-Change: none
 
 ### Optional Evidence Claims
 
-<!-- Evidence claims are checked by the `evidence-contract` job in `.github/workflows/rebuild-gates.yml`. No claim means N/A. -->
+<!-- Evidence claims are checked by the `evidence-contract` job in `.github/workflows/pr-body.yml`. No claim means N/A. -->
 <!-- Keep every uncommented claim keyword, field, and value on the same line. Remove the comment markers from one complete block only when making that claim. -->
 <!-- `Evidence-Type: ci` may replace `CI-Attribution: ...`; `Evidence-Type: performance` may replace `Performance-Claim: ...`. -->
 <!-- CI-Attribution: <what this CI run proves> -->
@@ -153,7 +153,7 @@ Dependency-Change: none
 
 ## 机读声明说明
 
-- 这些声明由 `.github/workflows/rebuild-gates.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。
+- 这些声明由 `.github/workflows/pr-body.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。
 - 未注释的机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；下方治理字段仍是列表项，两类格式不要混用。
 - 生产增删：在英文块把 N 和 M 替换为实际新增、删除行数，适用时可填零。
 - 依赖变化：修改任意 `package.json` 或 `package-lock.json` 时，把英文行中的拒绝 sentinel `none` 换成完整的确定性变化描述；否则删除整行。

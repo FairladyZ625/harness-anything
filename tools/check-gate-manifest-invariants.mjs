@@ -5,13 +5,23 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { deriveProtectedSurfaceRules } from "./check-pr-governance.mjs";
 import { INFRASTRUCTURE_COMMANDS } from "./gate-infrastructure-commands.mjs";
+import { parseGateWorkflow } from "./gate-workflow-parser.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const SURFACE_CLASSES = new Set(["local", "pr", "main-full", "nightly", "manual"]);
 const POSITIVE_CONTROL_STATUSES = new Set(["covered", "documented-gap", "not-applicable"]);
 export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
   const manifest = readJson(path.join(root, "tools/gate-manifest.json"));
-  const workflow = parseWorkflow(readFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), "utf8"));
+  const workflows = [
+    {
+      surfaceName: "rewriteCi",
+      workflow: parseGateWorkflow(readFileSync(path.join(root, ".github/workflows/rewrite-ci.yml"), "utf8")),
+    },
+    {
+      surfaceName: "prBody",
+      workflow: parseGateWorkflow(readFileSync(path.join(root, ".github/workflows/pr-body.yml"), "utf8")),
+    },
+  ];
   const findings = [];
   const gates = Array.isArray(manifest.gates) ? manifest.gates : [];
 
@@ -19,11 +29,13 @@ export function checkGateManifestInvariants(root = DEFAULT_ROOT) {
     findings.push(`manifest schema must be harness-anything/gate-manifest/v2, got ${JSON.stringify(manifest.schema)}`);
   }
   checkProtectedSurfaceCoverage(manifest, root, findings);
-  checkWorkflowInventory(manifest, workflow, findings);
-  checkWorkflowCommands(manifest, workflow, gates, findings);
+  for (const { surfaceName, workflow } of workflows) {
+    checkWorkflowInventory(manifest, workflow, surfaceName, findings);
+    checkWorkflowCommands(manifest, workflow, gates, surfaceName, findings);
+  }
   for (const gate of gates) {
     checkClassificationFields(gate, findings);
-    checkWorkflowMapping(gate, workflow, findings);
+    for (const { surfaceName, workflow } of workflows) checkWorkflowMapping(gate, workflow, surfaceName, findings);
   }
 
   return {
@@ -80,8 +92,8 @@ function readTrackedFiles(root) {
   return result.stdout.split("\0").filter(Boolean);
 }
 
-function checkWorkflowCommands(manifest, workflow, gates, findings) {
-  const helpers = new Set(manifest.surfaces?.rewriteCi?.helperJobsNotRegisteredAsGates ?? []);
+function checkWorkflowCommands(manifest, workflow, gates, surfaceName, findings) {
+  const helpers = new Set(manifest.surfaces?.[surfaceName]?.helperJobsNotRegisteredAsGates ?? []);
   const commandToGates = new Map();
   for (const gate of gates) {
     const entries = commandToGates.get(gate.command) ?? [];
@@ -108,8 +120,8 @@ function checkWorkflowCommands(manifest, workflow, gates, findings) {
       }
       for (const gate of matchingGates) {
         const declaredJobs = job.isPullRequestJob
-          ? (gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [])
-          : (gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []);
+          ? (gate.executionSurfaces?.[surfaceName]?.pullRequestJobs ?? [])
+          : (gate.executionSurfaces?.[surfaceName]?.nonPullRequestJobs ?? []);
         if (!declaredJobs.includes(job.id)) {
           findings.push(`workflow job ${job.id} runs ${gate.id}, but that gate does not declare the job`);
         }
@@ -118,11 +130,11 @@ function checkWorkflowCommands(manifest, workflow, gates, findings) {
   }
 }
 
-function checkWorkflowInventory(manifest, workflow, findings) {
-  const rewriteCi = manifest.surfaces?.rewriteCi ?? {};
-  const helpers = new Set(rewriteCi.helperJobsNotRegisteredAsGates ?? []);
-  const expectedPr = new Set(rewriteCi.pullRequestGateJobs ?? []);
-  const expectedNonPr = new Set(rewriteCi.nonPullRequestGateJobs ?? []);
+function checkWorkflowInventory(manifest, workflow, surfaceName, findings) {
+  const surface = manifest.surfaces?.[surfaceName] ?? {};
+  const helpers = new Set(surface.helperJobsNotRegisteredAsGates ?? []);
+  const expectedPr = new Set(surface.pullRequestGateJobs ?? []);
+  const expectedNonPr = new Set(surface.nonPullRequestGateJobs ?? []);
   const actualPr = [...workflow.values()]
     .filter((job) => job.isPullRequestJob && !helpers.has(job.id))
     .map((job) => job.id);
@@ -130,8 +142,8 @@ function checkWorkflowInventory(manifest, workflow, findings) {
     .filter((job) => job.isNonPullRequestJob && !helpers.has(job.id))
     .map((job) => job.id);
 
-  compareInventory("workflow PR gate jobs", expectedPr, actualPr, findings);
-  compareInventory("workflow non-PR gate jobs", expectedNonPr, actualNonPr, findings);
+  compareInventory(`${surfaceName} workflow PR gate jobs`, expectedPr, actualPr, findings);
+  compareInventory(`${surfaceName} workflow non-PR gate jobs`, expectedNonPr, actualNonPr, findings);
   for (const helper of helpers) {
     if (!workflow.has(helper)) findings.push(`workflow helper job ${helper} is declared but absent`);
   }
@@ -147,8 +159,8 @@ function compareInventory(label, expected, actual, findings) {
   }
 }
 
-function checkWorkflowMapping(gate, workflow, findings) {
-  for (const jobId of gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []) {
+function checkWorkflowMapping(gate, workflow, surfaceName, findings) {
+  for (const jobId of gate.executionSurfaces?.[surfaceName]?.pullRequestJobs ?? []) {
     const job = workflow.get(jobId);
     if (!job?.isPullRequestJob) {
       findings.push(`${gate.id} declares PR workflow job ${jobId}, but that pull-request job does not exist`);
@@ -159,7 +171,7 @@ function checkWorkflowMapping(gate, workflow, findings) {
     }
   }
 
-  for (const jobId of gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []) {
+  for (const jobId of gate.executionSurfaces?.[surfaceName]?.nonPullRequestJobs ?? []) {
     const job = workflow.get(jobId);
     if (!job?.isNonPullRequestJob) {
       findings.push(`${gate.id} declares non-PR workflow job ${jobId}, but that non-PR job does not exist`);
@@ -191,50 +203,6 @@ function parseManifestRunner(command) {
 function jobRunsNonPrGate(job, gate) {
   if (jobRunsGate(job, gate)) return true;
   return gate.executionSurfaces?.packageJson?.check === true && job.runCommands.includes("npm run check");
-}
-
-function parseWorkflow(text) {
-  const jobs = new Map();
-  let inJobs = false;
-  let current = null;
-  for (const line of text.split(/\r?\n/u)) {
-    if (/^jobs:\s*$/u.test(line)) {
-      inJobs = true;
-      continue;
-    }
-    if (!inJobs) continue;
-
-    const jobMatch = /^  ([A-Za-z0-9_-]+):\s*$/u.exec(line);
-    if (jobMatch) {
-      current = { id: jobMatch[1], ifExpressions: [], runCommands: [] };
-      jobs.set(current.id, current);
-      continue;
-    }
-    if (!current) continue;
-
-    const ifMatch = /^\s+if:\s*(.+?)\s*$/u.exec(line);
-    if (ifMatch) current.ifExpressions.push(unquoteYamlScalar(ifMatch[1]));
-    const runMatch = /^\s+(?:-\s*)?run:\s*(.+?)\s*$/u.exec(line);
-    if (runMatch) current.runCommands.push(unquoteYamlScalar(runMatch[1]));
-  }
-
-  for (const job of jobs.values()) {
-    job.isPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name == 'pull_request'"),
-    );
-    job.isNonPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name != 'pull_request'"),
-    );
-  }
-  return jobs;
-}
-
-function unquoteYamlScalar(value) {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
 }
 
 function checkClassificationFields(gate, findings) {
@@ -275,7 +243,8 @@ function checkClassificationFields(gate, findings) {
 function checkSurfaceClassMapping(gate, classes, findings) {
   const hasClass = (surface) => classes.includes(surface);
   const rewriteCi = gate.executionSurfaces?.rewriteCi ?? {};
-  const hasPrJobs = (rewriteCi.pullRequestJobs ?? []).length > 0;
+  const prBody = gate.executionSurfaces?.prBody ?? {};
+  const hasPrJobs = [...(rewriteCi.pullRequestJobs ?? []), ...(prBody.pullRequestJobs ?? [])].length > 0;
   const hasFullCheck = (rewriteCi.nonPullRequestJobs ?? []).includes("full-check") && rewriteCi.scheduleOnly !== true;
   const hasLocalScript = Boolean(gate.executionSurfaces?.packageJson?.script);
 

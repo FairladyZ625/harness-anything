@@ -17,6 +17,7 @@ then gates *"done"* so progress compounds instead of evaporating into chat.
 
 <p>
   <a href="https://github.com/FairladyZ625/harness-anything/actions/workflows/rewrite-ci.yml"><img alt="CI" src="https://github.com/FairladyZ625/harness-anything/actions/workflows/rewrite-ci.yml/badge.svg"></a>
+  <a href="https://github.com/FairladyZ625/harness-anything/actions/workflows/pr-body.yml"><img alt="PR body checks" src="https://github.com/FairladyZ625/harness-anything/actions/workflows/pr-body.yml/badge.svg"></a>
   <a href="https://github.com/FairladyZ625/harness-anything/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FairladyZ625/harness-anything?style=flat&logo=github&color=yellow"></a>
   <img alt="Node 24+" src="https://img.shields.io/badge/node-24%2B-brightgreen">
   <a href="./LICENSE"><img alt="License: AGPL-3.0-or-later" src="https://img.shields.io/badge/license-AGPL--3.0--or--later-blue"></a>

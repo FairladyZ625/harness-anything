@@ -11,8 +11,8 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.
 // a rebase moves the merge-base and a body edit changes the declaration, and reruns replay the
 // stale payload. The job therefore reads the body through the API and diffs against origin/main.
 test("production-delta job reads the live PR body and diffs against origin/main", () => {
-  const workflow = readFileSync(path.join(rootDir, ".github/workflows/rebuild-gates.yml"), "utf8");
-  const job = workflow.slice(workflow.indexOf("  production-delta:"), workflow.indexOf("\n  lint:"));
+  const workflow = readFileSync(path.join(rootDir, ".github/workflows/pr-body.yml"), "utf8");
+  const job = workflow.slice(workflow.indexOf("  production-delta:"), workflow.indexOf("\n  evidence-contract:"));
   assert.match(job, /gh pr view "\$PR_NUMBER" --json body/);
   assert.match(job, /--base origin\/main --pr-body-file/);
   assert.doesNotMatch(job, /github\.event\.pull_request\.body/);

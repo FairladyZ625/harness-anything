@@ -16,4 +16,8 @@ export const INFRASTRUCTURE_COMMANDS = new Set([
   // gates: no manifest gate can declare them because they run before any gate does.
   "npm run build -w @harness-anything/cli",
   "git config --global core.autocrlf true",
+  'echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"',
+  "git fetch --no-tags origin main",
+  'gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"',
+  "node tools/write-ci-observation.mjs",
 ]);

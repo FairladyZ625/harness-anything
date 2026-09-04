@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { boundaryAllowlistAuthorityFindings } from "./gate-surface-boundary-policy.mjs";
 import { INFRASTRUCTURE_COMMANDS } from "./gate-infrastructure-commands.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
+import { parseGateWorkflow } from "./gate-workflow-parser.mjs";
 
 const DEFAULT_ROOT = process.cwd();
 const MANIFEST_GATE_RUNNER = "node tools/run-manifest-gates.mjs";
@@ -25,18 +26,35 @@ export function checkGateSurface(root = DEFAULT_ROOT) {
   const findings = [];
   const manifest = readJson(path.join(root, "tools/gate-manifest.json"));
   const packageJson = readJson(path.join(root, "package.json"));
-  const workflowText = readText(path.join(root, ".github/workflows/rewrite-ci.yml"));
+  const workflows = {
+    rewriteCi: parseGateWorkflow(readText(path.join(root, ".github/workflows/rewrite-ci.yml"))),
+    prBody: parseGateWorkflow(readText(path.join(root, ".github/workflows/pr-body.yml"))),
+  };
   const branchProtectionText = readText(path.join(root, ".github/branch-protection.md"));
 
   const gates = Array.isArray(manifest.gates) ? manifest.gates : [];
   const gatesById = new Map(gates.map((gate) => [gate.id, gate]));
   const commandToGateIds = buildCommandIndex(gates);
   const packageScripts = packageJson.scripts ?? {};
-  const workflow = parseRewriteCi(workflowText);
   const branchContexts = parseBranchProtectionContexts(branchProtectionText);
 
   checkPackageScripts({ findings, manifest, gates, gatesById, commandToGateIds, packageScripts });
-  checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds });
+  checkWorkflowSurface({
+    findings,
+    manifest,
+    gates,
+    workflow: workflows.rewriteCi,
+    commandToGateIds,
+    surfaceName: "rewriteCi",
+  });
+  checkWorkflowSurface({
+    findings,
+    manifest,
+    gates,
+    workflow: workflows.prBody,
+    commandToGateIds,
+    surfaceName: "prBody",
+  });
   checkBranchProtection({ findings, manifest, gates, branchContexts });
   checkTierReasons({ findings, gates });
   checkBoundaryFields({ findings, gates, packageScripts });
@@ -49,7 +67,9 @@ export function checkGateSurface(root = DEFAULT_ROOT) {
       gates: gates.length,
       packageCheckCommands: splitShellAndList(packageScripts.check ?? "").length,
       packageCheckPrCommands: splitShellAndList(packageScripts["check:pr"] ?? "").length,
-      pullRequestJobs: workflow.pullRequestJobs.length,
+      pullRequestJobs: [...workflows.rewriteCi.values(), ...workflows.prBody.values()].filter(
+        (job) => job.isPullRequestJob,
+      ).length,
       branchProtectionContexts: branchContexts.length,
     },
   };
@@ -123,28 +143,30 @@ function checkPackageScripts({ findings, manifest, gates, gatesById, commandToGa
   }
 }
 
-function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds }) {
-  const helperJobs = manifest.surfaces?.rewriteCi?.helperJobsNotRegisteredAsGates ?? [];
-  const actualPullRequestGateJobs = workflow.pullRequestJobs
+function checkWorkflowSurface({ findings, manifest, gates, workflow, commandToGateIds, surfaceName }) {
+  const surface = manifest.surfaces?.[surfaceName] ?? {};
+  const jobs = [...workflow.values()];
+  const helperJobs = surface.helperJobsNotRegisteredAsGates ?? [];
+  const actualPullRequestGateJobs = jobs
+    .filter((job) => job.isPullRequestJob)
     .filter((job) => !helperJobs.includes(job.id))
     .map((job) => job.id);
-  const actualNonPullRequestGateJobs = workflow.nonPullRequestJobs.map((job) => job.id);
+  const actualNonPullRequestGateJobs = jobs.filter((job) => job.isNonPullRequestJob).map((job) => job.id);
 
   compareIdSets({
     findings,
-    label: ".github/workflows/rewrite-ci.yml pull_request gate jobs",
-    expected: manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? [],
+    label: `.github/workflows/${surfaceName === "rewriteCi" ? "rewrite-ci" : "pr-body"}.yml pull_request gate jobs`,
+    expected: surface.pullRequestGateJobs ?? [],
     actual: actualPullRequestGateJobs,
   });
   compareIdSets({
     findings,
-    label: ".github/workflows/rewrite-ci.yml non-pull_request gate jobs",
-    expected: manifest.surfaces?.rewriteCi?.nonPullRequestGateJobs ?? [],
+    label: `.github/workflows/${surfaceName === "rewriteCi" ? "rewrite-ci" : "pr-body"}.yml non-pull_request gate jobs`,
+    expected: surface.nonPullRequestGateJobs ?? [],
     actual: actualNonPullRequestGateJobs,
   });
 
-  const jobsById = new Map(workflow.jobs.map((job) => [job.id, job]));
-  for (const job of workflow.pullRequestJobs.filter((candidate) => !helperJobs.includes(candidate.id))) {
+  for (const job of jobs.filter((candidate) => candidate.isPullRequestJob && !helperJobs.includes(candidate.id))) {
     for (const command of job.runCommands) {
       if (INFRASTRUCTURE_COMMANDS.has(command)) {
         continue;
@@ -174,20 +196,16 @@ function checkRewriteCi({ findings, manifest, gates, workflow, commandToGateIds 
   }
 
   for (const gate of gates) {
-    const rewriteSurface = gate.executionSurfaces?.rewriteCi;
-    if (!rewriteSurface) {
-      findings.push(formatFinding("rewrite-ci", `${gate.id} is missing executionSurfaces.rewriteCi.`));
+    const workflowSurface = gate.executionSurfaces?.[surfaceName];
+    if (!workflowSurface) {
+      if (surfaceName === "rewriteCi")
+        findings.push(formatFinding("rewrite-ci", `${gate.id} is missing executionSurfaces.rewriteCi.`));
       continue;
     }
 
     if (gate.tier === "pr-required") {
-      if ((rewriteSurface.pullRequestJobs ?? []).length === 0) {
-        findings.push(
-          formatFinding("rewrite-ci", `${gate.id} is pr-required but declares no pull-request workflow job.`),
-        );
-      }
-      for (const jobId of rewriteSurface.pullRequestJobs ?? []) {
-        const job = jobsById.get(jobId);
+      for (const jobId of workflowSurface.pullRequestJobs ?? []) {
+        const job = workflow.get(jobId);
         if (!job || !job.isPullRequestJob) {
           findings.push(
             formatFinding(
@@ -416,87 +434,6 @@ function buildCommandIndex(gates) {
   return commandToGateIds;
 }
 
-function parseRewriteCi(text) {
-  const lines = text.split(/\r?\n/);
-  const jobs = [];
-  let inJobs = false;
-  let current = null;
-
-  for (const line of lines) {
-    if (/^jobs:\s*$/.test(line)) {
-      inJobs = true;
-      continue;
-    }
-    if (!inJobs) {
-      continue;
-    }
-
-    const jobMatch = /^  ([A-Za-z0-9_-]+):\s*$/.exec(line);
-    if (jobMatch) {
-      current = {
-        id: jobMatch[1],
-        ifExpressions: [],
-        runCommands: [],
-        nodeVersions: [],
-      };
-      jobs.push(current);
-      continue;
-    }
-
-    if (!current) {
-      continue;
-    }
-
-    const ifMatch = /^\s+if:\s*(.+?)\s*$/.exec(line);
-    if (ifMatch) {
-      current.ifExpressions.push(unquoteYamlScalar(ifMatch[1]));
-      continue;
-    }
-
-    const runMatch = /^\s+(?:-\s*)?run:\s*(.+?)\s*$/.exec(line);
-    if (runMatch) {
-      const command = unquoteYamlScalar(runMatch[1]);
-      if (command === "|" || command === ">") {
-        current.runCommands.push("<unsupported-multiline-run>");
-      } else {
-        current.runCommands.push(command);
-      }
-      continue;
-    }
-
-    const nodeVersionMatch = /^\s+node-version:\s*(.+?)\s*$/.exec(line);
-    if (nodeVersionMatch) {
-      const value = unquoteYamlScalar(nodeVersionMatch[1]);
-      for (const version of extractNumbers(value)) {
-        current.nodeVersions.push(version);
-      }
-      continue;
-    }
-
-    const matrixNodeMatch = /^\s+node-version:\s*\[(.+?)\]\s*$/.exec(line);
-    if (matrixNodeMatch) {
-      for (const version of extractNumbers(matrixNodeMatch[1])) {
-        current.nodeVersions.push(version);
-      }
-    }
-  }
-
-  for (const job of jobs) {
-    job.isPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name == 'pull_request'"),
-    );
-    job.isNonPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name != 'pull_request'"),
-    );
-  }
-
-  return {
-    jobs,
-    pullRequestJobs: jobs.filter((job) => job.isPullRequestJob),
-    nonPullRequestJobs: jobs.filter((job) => job.isNonPullRequestJob),
-  };
-}
-
 function parseBranchProtectionContexts(text) {
   const lines = text.split(/\r?\n/);
   const contexts = [];
@@ -595,18 +532,6 @@ function compareIdSets({ findings, label, expected, actual }) {
       findings.push(formatFinding("surface-drift", `${label} contains unmanifested entry ${id}.`));
     }
   }
-}
-
-function extractNumbers(value) {
-  return [...String(value).matchAll(/\d+/g)].map((match) => Number(match[0]));
-}
-
-function unquoteYamlScalar(value) {
-  const trimmed = value.trim();
-  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
 }
 
 function readJson(filePath) {
