@@ -101,8 +101,6 @@ export async function runTaskActionCatalogRuntime(
     action.executionId.trim()
   )
     assertCurrentSubmittedExecution(current.snapshot, taskId, action.executionId);
-  if (action.kind === "task-submit" && submitValidationUnmet && contract)
-    return submitActionRejection(cell, action, binding, current.snapshot, contract, submitValidationEvaluation);
   if (action.kind === "task-submit" && submitLeaseUnmet && contract)
     return submitActionRejection(cell, action, binding, current.snapshot, contract, submitLeaseEvaluation);
   if (lifecycle?.coordination === "reserve" && !preview)
@@ -137,6 +135,8 @@ export async function runTaskActionCatalogRuntime(
     if (rejection) return rejection;
     throw error;
   }
+  if (action.kind === "task-submit" && submitValidationUnmet && contract)
+    return submitActionRejection(cell, action, binding, current.snapshot, contract, submitValidationEvaluation);
   if (
     contract?.target.kind === "task" &&
     revisionIssues(current.snapshot, {
