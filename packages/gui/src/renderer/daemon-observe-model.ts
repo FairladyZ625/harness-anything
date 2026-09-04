@@ -3,7 +3,9 @@ import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts
 /**
  * G6-B daemon 观察页的纯数据面:`observe.tail` 分页 → 可渲染行流。
  *
- * 契约(v3,权威):items 上限 64/页;累计行流双侧封顶 OBSERVE_ROW_LIMIT(方向见其注释);
+ * 契约(v3,权威):items 上限 64/页;累计行流的内存上限只在「贴底追尾」的 follow 增长上
+ * 生效(丢最旧端,见 OBSERVE_FOLLOW_ROW_LIMIT),history 方向翻页永不裁剪——用户回看
+ * 历史,已加载的行不因继续上翻或 live 追加而丢失,渲染代价由视图层窗口化保证;
  * history/live cursor 由客户端分别持有并原样回传;
  * `unavailable` 携带机器原因(edge 镜像无事件 / center request-log 未接线),
  * `gap` 携带保留缺口原因(cursor 文件不在保留集 / 偏移越界),两者都不冒充空列表。
@@ -47,6 +49,12 @@ export interface ObserveTailSnapshot {
   readonly caughtUp: boolean;
   readonly historyDone: boolean;
   readonly mode: ObserveTailMode | null;
+  /**
+   * 用户视角:贴底追尾("follow")还是回看历史("history")。回看历史期间 follow 增长
+   * 也不裁剪(用户在读旧行,任何一端的丢弃都会撕裂阅读);只有贴底追尾时 follow 增长
+   * 超过 OBSERVE_FOLLOW_ROW_LIMIT 才丢最旧端。由视图按滚动位置写入(applyObserveViewing)。
+   */
+  readonly viewing: "follow" | "history";
   /** 本视图生命周期内已接收的记录总数,用于生成稳定的日志行 key。 */
   readonly received: number;
 }
@@ -54,11 +62,13 @@ export interface ObserveTailSnapshot {
 const DETAIL_LIMIT = 2_000;
 
 /**
- * 内存上限(#1855 前为 500,当时只丢最旧端——与触顶回翻头部插入冲突而被删)。
- * 现行按增长方向的反侧丢弃:history 增长丢最新端、follow 增长丢最旧端,
- * 两个方向翻页都保持在界内,长开的 pane 也不随 live 行无限累积。
+ * 内存上限:只约束「贴底追尾」状态下的 follow 增长(丢最旧端),值远大于旧双侧 500 上限——
+ * 渲染代价由视图层窗口化保证(挂 DOM 的行数有界),这里的数值只保证长开 pane 的内存代价,
+ * 两者分开。history 翻页永不裁剪;回看历史(viewing: "history")期间 live 追加也不裁剪,
+ * 回到贴底后下一次 follow 增长再回到界内。#1855 前的双侧 500 上限会丢弃用户正读着的行,
+ * 已废。
  */
-export const OBSERVE_ROW_LIMIT = 500;
+export const OBSERVE_FOLLOW_ROW_LIMIT = 5_000;
 
 export function initialObserveTail(): ObserveTailSnapshot {
   return {
@@ -72,8 +82,14 @@ export function initialObserveTail(): ObserveTailSnapshot {
     caughtUp: false,
     historyDone: false,
     mode: null,
+    viewing: "follow",
     received: 0,
   };
+}
+
+/** 视图按滚动位置写入用户视角(贴底追尾 / 回看历史);其余字段原样保留。 */
+export function applyObserveViewing(state: ObserveTailSnapshot, viewing: "follow" | "history"): ObserveTailSnapshot {
+  return state.viewing === viewing ? state : { ...state, viewing };
 }
 
 export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTailRead): ObserveTailSnapshot {
@@ -94,7 +110,8 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
       historyGap = page.direction === "history";
     return {
       ...state,
-      rows: historyGap ? capRows([marker, ...state.rows], "history") : [marker],
+      // history 方向的缺口标记只插入行头,不裁剪已加载行(回看历史期间任何一端都不丢)。
+      rows: historyGap ? [marker, ...state.rows] : [marker],
       status: "gap",
       gap: page.gap,
       unavailable: null,
@@ -120,14 +137,16 @@ export function applyObserveTailPage(state: ObserveTailSnapshot, page: ObserveTa
     initializing = prepend && state.liveCursor === null,
     appendAfterGap = initializing && state.status === "gap",
     headGrowth = prepend && !appendAfterGap,
-    rows = capRows(
-      page.kind === "events"
-        ? mergeEventRows(state.rows, fresh, headGrowth)
-        : headGrowth
-          ? [...fresh, ...state.rows]
-          : [...state.rows, ...fresh],
-      headGrowth ? "history" : "follow",
-    );
+    rows = headGrowth
+      ? // history 翻页:只往前拼接,永不裁剪(渲染代价由视图窗口化保证)。
+        page.kind === "events"
+        ? mergeEventRows(state.rows, fresh, true)
+        : [...fresh, ...state.rows]
+      : // follow 增长:只有贴底追尾时才对 live 累积封顶(丢最旧端);回看历史期间不裁剪。
+        capFollowRows(
+          page.kind === "events" ? mergeEventRows(state.rows, fresh, false) : [...state.rows, ...fresh],
+          state.viewing,
+        );
   return {
     ...state,
     rows,
@@ -223,10 +242,13 @@ function sameCursor(left: ObserveTailCursor, right: ObserveTailCursor): boolean 
   return right.kind !== "events" && left.fileId === right.fileId && left.offset === right.offset;
 }
 
-/** 行数到达上限后按增长方向的反侧丢弃;不足上限时原数组原样返回(见 OBSERVE_ROW_LIMIT)。 */
-function capRows(rows: readonly ObserveRow[], growth: "history" | "follow"): readonly ObserveRow[] {
-  if (rows.length <= OBSERVE_ROW_LIMIT) return rows;
-  return growth === "history" ? rows.slice(0, OBSERVE_ROW_LIMIT) : rows.slice(rows.length - OBSERVE_ROW_LIMIT);
+/**
+ * follow 增长的内存上限:贴底追尾时丢最旧端;回看历史期间不裁剪(不足上限原样返回,
+ * 见 OBSERVE_FOLLOW_ROW_LIMIT)。回到贴底后的下一次 follow 增长重新把行数拉回界内。
+ */
+function capFollowRows(rows: readonly ObserveRow[], viewing: "follow" | "history"): readonly ObserveRow[] {
+  if (viewing !== "follow" || rows.length <= OBSERVE_FOLLOW_ROW_LIMIT) return rows;
+  return rows.slice(rows.length - OBSERVE_FOLLOW_ROW_LIMIT);
 }
 
 function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: string }, seq: number): ObserveRow {

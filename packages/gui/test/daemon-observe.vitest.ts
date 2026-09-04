@@ -7,11 +7,12 @@ import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import {
   applyObserveTailError,
   applyObserveTailPage,
+  applyObserveViewing,
   filterObserveRows,
   initialObserveTail,
   observeTailRequest,
   observeEventRow,
-  OBSERVE_ROW_LIMIT,
+  OBSERVE_FOLLOW_ROW_LIMIT,
 } from "../src/renderer/daemon-observe-model.ts";
 import { harnessClient, type SystemRepoRow } from "../src/renderer/api-client.ts";
 import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
@@ -128,6 +129,23 @@ function logPage(kind: "repo-log" | "daemon-log"): ObserveTailRead {
 /** 闭区间整数序列(封顶测试用它生成成段的 revision)。 */
 function range(from: number, to: number): number[] {
   return Array.from({ length: to - from + 1 }, (_, index) => from + index);
+}
+
+/** 生成一段带唯一 eventId 的 revision 事件与整页 observe.tail 读(封顶/翻页测试共用)。 */
+function revisionPage(revisions: readonly number[], direction: "history" | "follow"): ObserveTailRead {
+  return {
+    ...EVENT_PAGE,
+    direction,
+    items: revisions.map((revision) => ({
+      ...(EVENT_PAGE.items[0] as object),
+      eventId: `ev-cap-${revision}`,
+      workspaceRevision: revision,
+    })) as never,
+    historyCursor: direction === "history" ? { kind: "events", revision: Math.min(...revisions) } : null,
+    liveCursor: { kind: "events", revision: Math.max(...revisions) },
+    sourceCursor: { kind: "events", revision: Math.max(...revisions) },
+    done: true,
+  };
 }
 
 setActiveLocale("zh-CN");
@@ -337,36 +355,56 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     expect(differentOffset.caughtUp).toBe(false);
   });
 
-  it("累计行流双侧封顶:history 增长保最旧端,follow 增长保最新端", () => {
-    const event = (revision: number) => ({
-        ...(EVENT_PAGE.items[0] as object),
-        eventId: `ev-cap-${revision}`,
-        workspaceRevision: revision,
-      }),
-      page = (revisions: readonly number[], direction: "history" | "follow"): ObserveTailRead => ({
-        ...EVENT_PAGE,
-        direction,
-        items: revisions.map(event) as never,
-        historyCursor: direction === "history" ? { kind: "events", revision: Math.min(...revisions) } : null,
-        liveCursor: { kind: "events", revision: Math.max(...revisions) },
-        sourceCursor: { kind: "events", revision: Math.max(...revisions) },
-        done: true,
-      });
-    // 装满 600 行(100 行最新页 + 500 行历史页,revision 区间互不重叠):超限后保最旧 500。
-    let state = applyObserveTailPage(initialObserveTail(), page(range(901, 1000), "history"));
-    expect(state.rows).toHaveLength(100);
-    state = applyObserveTailPage(state, page(range(401, 900), "history"));
-    expect(state.rows).toHaveLength(OBSERVE_ROW_LIMIT);
-    expect(state.rows[0]!.revision).toBe(401);
-    expect(state.rows.at(-1)!.revision).toBe(900);
-    // follow 追加 10 个新 revision(510 行)再超限:保最新 500,最旧 10 行被挤掉。
-    state = applyObserveTailPage(state, page(range(1001, 1010), "follow"));
-    expect(state.rows).toHaveLength(OBSERVE_ROW_LIMIT);
-    expect(state.rows[0]!.revision).toBe(411);
-    expect(state.rows.at(-1)!.revision).toBe(1010);
+  it("history 翻页 3 次累计超过旧上限,已加载行一条不丢(触顶回看不被截断)", () => {
+    // 3 次触顶翻页:100 行最新页 + 400 + 400 行历史页 = 900 行,超过旧的 500 双侧上限。
+    let state = applyObserveTailPage(initialObserveTail(), revisionPage(range(901, 1000), "history"));
+    state = applyObserveTailPage(state, revisionPage(range(501, 900), "history"));
+    state = applyObserveTailPage(state, revisionPage(range(101, 500), "history"));
+    expect(state.rows).toHaveLength(900);
+    expect(state.rows[0]!.revision).toBe(101);
+    expect(state.rows.at(-1)!.revision).toBe(1000);
   });
 
-  it("history gap 标记行同样计入上限,不突破内存边界", () => {
+  it("follow 增长只在贴底追尾时封顶:超 OBSERVE_FOLLOW_ROW_LIMIT 丢最旧端,保最新端", () => {
+    // 装满上限行(单页 history 装载),再 follow 追加 100 行:5100 > 5000,丢最旧 100。
+    let state = applyObserveTailPage(initialObserveTail(), revisionPage(range(1, OBSERVE_FOLLOW_ROW_LIMIT), "history"));
+    expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT);
+    expect(state.viewing).toBe("follow");
+    state = applyObserveTailPage(
+      state,
+      revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT + 1, OBSERVE_FOLLOW_ROW_LIMIT + 100), "follow"),
+    );
+    expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT);
+    expect(state.rows[0]!.revision).toBe(101);
+    expect(state.rows.at(-1)!.revision).toBe(OBSERVE_FOLLOW_ROW_LIMIT + 100);
+  });
+
+  it("回看历史期间 follow 追加不裁剪,回到贴底后下一次 follow 增长恢复上限", () => {
+    // 装到上限 -100 行,上滚回看(viewing: history)后 live 追加 200 行 → 超上限也不丢。
+    let state = applyObserveTailPage(
+      initialObserveTail(),
+      revisionPage(range(1, OBSERVE_FOLLOW_ROW_LIMIT - 100), "history"),
+    );
+    state = applyObserveViewing(state, "history");
+    expect(state.viewing).toBe("history");
+    state = applyObserveTailPage(
+      state,
+      revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT - 99, OBSERVE_FOLLOW_ROW_LIMIT + 100), "follow"),
+    );
+    expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT + 100);
+    expect(state.rows[0]!.revision).toBe(1);
+    // 滚回底部(viewing: follow):下一页 follow 增长把行数拉回界内(丢最旧端)。
+    state = applyObserveViewing(state, "follow");
+    state = applyObserveTailPage(
+      state,
+      revisionPage(range(OBSERVE_FOLLOW_ROW_LIMIT + 101, OBSERVE_FOLLOW_ROW_LIMIT + 110), "follow"),
+    );
+    expect(state.rows).toHaveLength(OBSERVE_FOLLOW_ROW_LIMIT);
+    expect(state.rows[0]!.revision).toBe(111);
+    expect(state.rows.at(-1)!.revision).toBe(OBSERVE_FOLLOW_ROW_LIMIT + 110);
+  });
+
+  it("history gap 标记行插到行头,不裁剪已加载行", () => {
     const event = (revision: number) => ({
         ...(EVENT_PAGE.items[0] as object),
         eventId: `ev-gap-${revision}`,
@@ -374,13 +412,13 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       }),
       full = applyObserveTailPage(initialObserveTail(), {
         ...EVENT_PAGE,
-        items: Array.from({ length: OBSERVE_ROW_LIMIT }, (_, index) => event(index + 1)) as never,
+        items: Array.from({ length: 600 }, (_, index) => event(index + 1)) as never,
         historyCursor: { kind: "events", revision: 1 },
-        liveCursor: { kind: "events", revision: OBSERVE_ROW_LIMIT },
-        sourceCursor: { kind: "events", revision: OBSERVE_ROW_LIMIT },
+        liveCursor: { kind: "events", revision: 600 },
+        sourceCursor: { kind: "events", revision: 600 },
         done: false,
       });
-    expect(full.rows).toHaveLength(OBSERVE_ROW_LIMIT);
+    expect(full.rows).toHaveLength(600);
     const gapped = applyObserveTailPage(full, {
       schema: "daemon.observe-tail/v3",
       ok: true,
@@ -396,8 +434,11 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       done: false,
       gap: { reason: "cursor-file-not-retained", requestedFileId: "file-gone" },
     });
-    expect(gapped.rows).toHaveLength(OBSERVE_ROW_LIMIT);
+    // 旧双侧上限会把 600 行裁回 500;现在标记行入列且旧行一条不丢。
+    expect(gapped.rows).toHaveLength(601);
     expect(gapped.rows[0]!.gapMarker).toEqual({ reason: "cursor-file-not-retained", requestedFileId: "file-gone" });
+    expect(gapped.rows[1]!.revision).toBe(1);
+    expect(gapped.rows.at(-1)!.revision).toBe(600);
   });
 
   it("请求组装显式区分反向 history 与正向 follow", () => {

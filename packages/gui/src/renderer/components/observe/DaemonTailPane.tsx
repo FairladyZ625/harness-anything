@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLineDown, Pause, Play } from "@phosphor-icons/react";
 import { harnessClient } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
@@ -9,6 +9,7 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import {
   applyObserveTailError,
   applyObserveTailPage,
+  applyObserveViewing,
   filterObserveRows,
   initialObserveTail,
   observePaneCursor,
@@ -28,6 +29,10 @@ import {
  * files. Auto-tail scrolling, pause, keyword filter, and clickable entity refs on event
  * rows; `unavailable` / `gap` are rendered from their contract reasons and never faked as
  * an empty list.
+ *
+ * 行流可无限上翻(history 翻页不裁剪),挂 DOM 的行数由窗口化保证有界:行是等高 monospace
+ * 单行,只渲染视口 ± overscan 的一段,上下各留等高 spacer 占位;翻页锚定用「新增头部行 ×
+ * 固定行高」恢复视口(与 previousHeight/previousTop 高度差锚定等价,但不依赖布局回读)。
  */
 
 /** 可切的日志来源:词表由 daemon 的 observe.tail kind 决定,GUI 不另写一份来源清单。 */
@@ -69,6 +74,35 @@ const kindOptionClass = (selected: boolean) =>
     selected ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface",
   ].join(" ");
 
+/**
+ * 窗口化:每行高度由内联 style 固定(单行 truncate 内容,ui-micro 最大字号也留有余量),
+ * 视口上下各多渲染 OBSERVE_WINDOW_OVERSCAN 行,滚动时只挂这一段;DOM 行数上界 =
+ * ceil(viewport/行高) + 2×overscan(视口未量出时兜底 OBSERVE_WINDOW_MIN 行),与累计
+ * 加载行数无关。上/下 spacer 撑出完整滚动高度,触顶取历史与滚动锚定照常工作。
+ */
+export const OBSERVE_ROW_HEIGHT = 24,
+  OBSERVE_WINDOW_OVERSCAN = 24,
+  OBSERVE_WINDOW_MIN = 32;
+
+/** 纯函数:当前滚动位置应渲染的行区间 [start, end)。空列表返回 {0, 0}。 */
+export function observeWindowRange(input: {
+  readonly total: number;
+  readonly scrollTop: number;
+  readonly viewportHeight: number;
+}): { readonly start: number; readonly end: number } {
+  const { total, scrollTop, viewportHeight } = input;
+  if (total <= 0) return { start: 0, end: 0 };
+  const first = Math.max(0, Math.floor(scrollTop / OBSERVE_ROW_HEIGHT) - OBSERVE_WINDOW_OVERSCAN),
+    last = Math.min(
+      total,
+      Math.ceil((scrollTop + Math.max(viewportHeight, 0)) / OBSERVE_ROW_HEIGHT) + OBSERVE_WINDOW_OVERSCAN,
+    ),
+    // 视口高度未知(初始/测试环境)时至少渲染 MIN 行,小列表整表可见,大列表仍常数有界。
+    start = Math.min(first, Math.max(0, total - OBSERVE_WINDOW_MIN)),
+    end = Math.max(last, Math.min(total, start + OBSERVE_WINDOW_MIN));
+  return { start, end };
+}
+
 /** 行类型列的成败色:失败红、成功绿、事件行(无成败位)用强调色。 */
 function rowTone(ok: boolean | null): string {
   if (ok === false) return "text-status-blocked";
@@ -95,23 +129,41 @@ export function DaemonTailPane({
   const [paused, setPaused] = useState(false),
     [query, setQuery] = useState(""),
     [following, setFollowing] = useState(true),
+    // 窗口化输入:滚动体的 scrollTop 与 clientHeight,随 scroll 事件/贴底写入/尺寸变化更新。
+    [scroll, setScroll] = useState({ top: 0, height: 0 }),
     bodyRef = useRef<HTMLDivElement>(null),
     selfScroll = useRef(false),
     tail = useObserveTail(repoId, kind, paused),
     snapshot = tail.snapshot,
-    rows = filterObserveRows(snapshot.rows, query),
+    rows = useMemo(() => filterObserveRows(snapshot.rows, query), [snapshot.rows, query]),
     isLogPane = kind !== "events",
     // 尾随的触发键是「最后一行」而不是行数:加载历史只改第一行,不应把视口拉到底;
     // 只有 live follow 改变最后一行时才触发贴底。
-    lastKey = rows.length > 0 ? rows[rows.length - 1]!.key : null;
+    lastKey = rows.length > 0 ? rows[rows.length - 1]!.key : null,
+    // 只渲染视口附近的行;DOM 行数上界与累计加载行数无关(见 observeWindowRange)。
+    rowWindow = observeWindowRange({ total: rows.length, scrollTop: scroll.top, viewportHeight: scroll.height }),
+    visible = rows.slice(rowWindow.start, rowWindow.end);
+  useEffect(() => {
+    // 用户视角进数据面:上滚回看历史期间 live 增长不裁剪,回到贴底恢复内存上限。
+    tail.setViewing(following ? "follow" : "history");
+  }, [following, tail.setViewing]);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const measure = () => setScroll((current) => ({ ...current, height: body.clientHeight }));
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
   useEffect(() => {
     const body = bodyRef.current;
     if (!body || !following) return;
     // 自己写入的 scrollTop 派生的 scroll 事件不算用户上滚:贴底那一跳的 scroll
     // 事件派发前,下一批行可能已经落进 DOM,dist 会瞬时读出 >48 而误停尾随。
-    // 同帧内(scroll 事件先于 rAF 回调)用标志位盖掉,帧末清除。
+    // 同帧内(scroll 事件先于 rAF 回调)用标志位盖掉,帧末清除。窗口随之移到底部。
     selfScroll.current = true;
     body.scrollTop = body.scrollHeight;
+    setScroll({ top: body.scrollTop, height: body.clientHeight });
     requestAnimationFrame(() => {
       selfScroll.current = false;
     });
@@ -184,7 +236,16 @@ export function DaemonTailPane({
               : t("views.daemonObserve.following")}
         </span>
         <span data-testid={`observe-count-${kind}`}>
-          {t("views.daemonObserve.rowCount", { shown: String(rows.length), total: String(snapshot.rows.length) })}
+          {rows.length === snapshot.rows.length
+            ? t("views.daemonObserve.rowCount", { loaded: String(snapshot.rows.length) })
+            : t("views.daemonObserve.rowCountFiltered", {
+                shown: String(rows.length),
+                loaded: String(snapshot.rows.length),
+              })}
+          {" · "}
+          {snapshot.historyDone ? t("views.daemonObserve.historyDone") : t("views.daemonObserve.historyMore")}
+          {" · "}
+          {following ? t("views.daemonObserve.tailFollowing") : t("views.daemonObserve.tailBrowsing")}
         </span>
       </div>
       {snapshot.status === "unavailable" ? (
@@ -215,17 +276,22 @@ export function DaemonTailPane({
         ref={bodyRef}
         data-testid={`observe-body-${kind}`}
         onScroll={(event) => {
-          if (selfScroll.current) return;
           const el = event.currentTarget;
+          // 窗口跟随滚动前进(自己写入的 scrollTop 也在此同步,不等被盖掉的 scroll 事件)。
+          setScroll({ top: el.scrollTop, height: el.clientHeight });
+          if (selfScroll.current) return;
           setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight <= 48);
           if (el.scrollTop <= 48 && !snapshot.historyDone) {
-            const previousHeight = el.scrollHeight,
-              previousTop = el.scrollTop;
-            void tail.loadHistory().then((loaded) => {
-              if (!loaded || bodyRef.current !== el) return;
+            const previousTop = el.scrollTop;
+            void tail.loadHistory().then((headRows) => {
+              if (headRows.length === 0 || bodyRef.current !== el) return;
               requestAnimationFrame(() => {
                 selfScroll.current = true;
-                el.scrollTop = el.scrollHeight - previousHeight + previousTop;
+                // 触顶翻页锚定:头部新插入的行 × 固定行高 = 视口应下移的高度
+                // (等高行下与 previousHeight/previousTop 的高度差锚定等价,但免布局回读)。
+                const delta = filterObserveRows(headRows, query).length * OBSERVE_ROW_HEIGHT;
+                el.scrollTop = previousTop + delta;
+                setScroll({ top: el.scrollTop, height: el.clientHeight });
                 requestAnimationFrame(() => {
                   selfScroll.current = false;
                 });
@@ -233,8 +299,8 @@ export function DaemonTailPane({
             });
           }
         }}
-        // 历史页在顶部插入后由上面的高度差显式恢复视口;关闭浏览器锚定以免双重补偿。
-        className="min-h-0 flex-1 overflow-y-auto py-1 font-mono ui-micro leading-relaxed [overflow-anchor:none]"
+        // 历史页在顶部插入后由上面的行高差显式恢复视口;关闭浏览器锚定以免双重补偿。
+        className="min-h-0 flex-1 overflow-y-auto py-1 font-mono ui-micro [overflow-anchor:none]"
       >
         {rows.length === 0 ? (
           snapshot.status === "live" || snapshot.status === "idle" ? (
@@ -247,10 +313,14 @@ export function DaemonTailPane({
             </p>
           ) : null
         ) : (
-          <ol>
-            {rows.map((row) => (
+          <ol data-testid={`observe-rows-${kind}`}>
+            {rowWindow.start === 0 ? null : <li aria-hidden style={{ height: rowWindow.start * OBSERVE_ROW_HEIGHT }} />}
+            {visible.map((row) => (
               <ObserveRowView key={row.key} row={row} onNavigateEntity={onNavigateEntity} />
             ))}
+            {rowWindow.end >= rows.length ? null : (
+              <li aria-hidden style={{ height: (rows.length - rowWindow.end) * OBSERVE_ROW_HEIGHT }} />
+            )}
           </ol>
         )}
       </div>
@@ -269,7 +339,11 @@ export function DaemonTailPane({
   );
 }
 
-function ObserveRowView({
+/**
+ * 单行渲染:memo 化后行对象在快照间保持同一引用,窗口平移只挂/卸进出窗口的行,
+ * 留在窗口内的行不重渲。高度由内联 style 固定为 OBSERVE_ROW_HEIGHT(窗口化的前提)。
+ */
+const ObserveRowView = memo(function ObserveRowView({
   row,
   onNavigateEntity,
 }: {
@@ -280,7 +354,8 @@ function ObserveRowView({
     return (
       <li
         data-testid="observe-gap-marker"
-        className="my-1 border-y border-dashed border-stale/50 bg-stale/5 px-2 py-1 ui-micro text-stale"
+        style={{ height: OBSERVE_ROW_HEIGHT }}
+        className="flex items-center overflow-hidden border-y border-dashed border-stale/50 bg-stale/5 px-2 ui-micro text-stale"
       >
         {t("views.daemonObserve.gapMarker", { fileId: row.gapMarker.requestedFileId })}
       </li>
@@ -290,7 +365,8 @@ function ObserveRowView({
     <li
       data-testid="observe-row"
       title={row.detail}
-      className="flex items-baseline gap-2 px-2 py-px hover:bg-surface-raised/60"
+      style={{ height: OBSERVE_ROW_HEIGHT }}
+      className="flex items-center gap-2 overflow-hidden px-2 hover:bg-surface-raised/60"
     >
       <span className="shrink-0 text-text-faint">{time}</span>
       {row.revision === null ? null : <span className="shrink-0 text-text-faint">#{row.revision}</span>}
@@ -312,7 +388,7 @@ function ObserveRowView({
       </span>
     </li>
   );
-}
+});
 
 function unavailableText(snapshot: ObserveTailSnapshot): string {
   const detail = snapshot.unavailable;
@@ -340,7 +416,11 @@ function useObserveTail(
   repoId: string,
   kind: ObserveTailKind,
   paused: boolean,
-): { readonly snapshot: ObserveTailSnapshot; readonly loadHistory: () => Promise<boolean> } {
+): {
+  readonly snapshot: ObserveTailSnapshot;
+  readonly loadHistory: () => Promise<readonly ObserveRow[]>;
+  readonly setViewing: (viewing: "follow" | "history") => void;
+} {
   const [snapshot, setSnapshot] = useState<ObserveTailSnapshot>(initialObserveTail),
     snapshotRef = useRef<ObserveTailSnapshot>(snapshot),
     historyCursorRef = useRef<ObserveTailCursor>(null),
@@ -360,58 +440,73 @@ function useObserveTail(
     setSnapshot(initial);
   }, [repoId, kind]);
 
-  const applyPage = useCallback((page: ObserveTailRead) => {
-    if (page.status === "unavailable") {
-      historyCursorRef.current = null;
-      liveCursorRef.current = null;
-      initializedRef.current = false;
-    } else if (page.status === "gap") {
-      if (page.direction === "history") historyCursorRef.current = null;
-      else {
-        liveCursorRef.current = null;
-        initializedRef.current = false;
-      }
-    } else if (page.direction === "history") {
-      historyCursorRef.current = observePaneCursor(page.historyCursor);
-      if (!initializedRef.current) {
-        liveCursorRef.current = observePaneCursor(page.liveCursor);
-        initializedRef.current = page.liveCursor !== null;
-      }
-    } else {
-      liveCursorRef.current = observePaneCursor(page.liveCursor);
-    }
-    setSnapshot((previous) => {
-      const next = applyObserveTailPage(previous, page);
-      snapshotRef.current = next;
-      return next;
-    });
+  // snapshotRef 是唯一事实源:先同步算出 next 再 setSnapshot,任何 await 后读 ref 都是最新。
+  const commit = useCallback((next: ObserveTailSnapshot) => {
+    snapshotRef.current = next;
+    setSnapshot(next);
   }, []);
 
-  const loadHistory = useCallback(async (): Promise<boolean> => {
+  const applyPage = useCallback(
+    (page: ObserveTailRead) => {
+      if (page.status === "unavailable") {
+        historyCursorRef.current = null;
+        liveCursorRef.current = null;
+        initializedRef.current = false;
+      } else if (page.status === "gap") {
+        if (page.direction === "history") historyCursorRef.current = null;
+        else {
+          liveCursorRef.current = null;
+          initializedRef.current = false;
+        }
+      } else if (page.direction === "history") {
+        historyCursorRef.current = observePaneCursor(page.historyCursor);
+        if (!initializedRef.current) {
+          liveCursorRef.current = observePaneCursor(page.liveCursor);
+          initializedRef.current = page.liveCursor !== null;
+        }
+      } else {
+        liveCursorRef.current = observePaneCursor(page.liveCursor);
+      }
+      commit(applyObserveTailPage(snapshotRef.current, page));
+    },
+    [commit],
+  );
+
+  /** 视图按滚动位置写入用户视角(贴底追尾 / 回看历史),只影响 follow 增长是否裁剪。 */
+  const setViewing = useCallback(
+    (viewing: "follow" | "history") => {
+      commit(applyObserveViewing(snapshotRef.current, viewing));
+    },
+    [commit],
+  );
+
+  /**
+   * 触顶向后翻一页历史;返回新插入行头的行(空数组 = 没有新增),供视图按
+   * 「新增行 × 固定行高」锚定滚动位置。
+   */
+  const loadHistory = useCallback(async (): Promise<readonly ObserveRow[]> => {
     const cursor = historyCursorRef.current;
     if (!initializedRef.current || snapshotRef.current.historyDone || cursor === null || historyLoadingRef.current)
-      return false;
+      return [];
     const epoch = requestEpochRef.current;
     historyLoadingRef.current = true;
     try {
       const page = await harnessClient.tailObservability(observeTailRequest(repoId, kind, "history", cursor));
-      if (epoch !== requestEpochRef.current) return false;
+      if (epoch !== requestEpochRef.current) return [];
+      const before = snapshotRef.current.rows.length;
       applyPage(page);
-      return page.items.length > 0 || page.status === "gap";
+      const grown = snapshotRef.current.rows.length - before;
+      return grown > 0 ? snapshotRef.current.rows.slice(0, grown) : [];
     } catch (error) {
       consumeKnownError(error);
-      if (epoch !== requestEpochRef.current) return false;
+      if (epoch !== requestEpochRef.current) return [];
       const message = error instanceof Error ? error.message : String(error);
-      setSnapshot((previous) => {
-        const next = applyObserveTailError(previous, message);
-        snapshotRef.current = next;
-        return next;
-      });
-      return false;
+      commit(applyObserveTailError(snapshotRef.current, message));
+      return [];
     } finally {
       if (epoch === requestEpochRef.current) historyLoadingRef.current = false;
     }
-  }, [applyPage, kind, repoId]);
+  }, [applyPage, commit, kind, repoId]);
 
   useEffect(() => {
     if (paused) return;
@@ -446,7 +541,7 @@ function useObserveTail(
           consumeKnownError(error);
           if (cancelled) return;
           const message = error instanceof Error ? error.message : String(error);
-          setSnapshot((previous) => applyObserveTailError(previous, message));
+          commit(applyObserveTailError(snapshotRef.current, message));
           delay = TAIL_ERROR_MS;
         }
         await new Promise<void>((resolve) => {
@@ -459,6 +554,6 @@ function useObserveTail(
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [applyPage, repoId, kind, paused]);
-  return { snapshot, loadHistory };
+  }, [applyPage, commit, repoId, kind, paused]);
+  return { snapshot, loadHistory, setViewing };
 }
