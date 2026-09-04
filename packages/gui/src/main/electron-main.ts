@@ -19,7 +19,6 @@ import {
   resolveLocalDaemonTarget,
   resolveLocalDaemonTargetFromRepos,
 } from "../../../daemon/src/client/local-daemon-target.ts";
-import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
@@ -172,7 +171,6 @@ export async function startGuiApp(): Promise<void> {
     controlled = addLocalMainControls({
       bridge,
       target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
-      clientBuildCommit: daemonBuildStamp().commit,
     }),
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),

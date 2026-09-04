@@ -280,7 +280,6 @@
   "views.systemView.registrationDisabled": "Disabled",
   "views.systemView.queueDepthDerived": "Derived by summing per-repository queue depth; the daemon contract does not project a global queue.",
   "views.systemView.userRootNotProjected": "The local main process could not resolve this daemon's user root.",
-  "views.systemView.buildStale": "The daemon is running code from commit {daemon} while this GUI is from {client}. Stop it from an operator shell, then run ha gui again to start the canonical build.",
   "views.presetsView.catalogPreset": "Catalog / Preset",
   "views.presetsView.resolvedPreset": "Resolved preset",
   "views.presetsView.snapshotDefault": "snapshot default",

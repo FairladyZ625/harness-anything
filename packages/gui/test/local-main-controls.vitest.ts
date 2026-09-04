@@ -33,7 +33,6 @@ const controls = (credentialPort?: Parameters<typeof addLocalMainControls>[0]["c
       },
     },
     target,
-    clientBuildCommit: null,
     ...(credentialPort ? { credentialPort } : {}),
   });
 
@@ -72,7 +71,6 @@ describe("local main controls runtime-instance boundary", () => {
         },
       },
       target,
-      clientBuildCommit: null,
     });
     const result = await bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" });
     expect(result).toMatchObject({ ok: false, error: { code: "supervisor_required" } });
@@ -92,7 +90,6 @@ describe("local main controls runtime-instance boundary", () => {
         invoke: async (method, payload) => ({ method, payload, source: "daemon" }),
       },
       target,
-      clientBuildCommit: null,
     });
     await expect(bridge.invoke("getDaemonControlReceipt", { operationId: "daemon-operation" })).resolves.toEqual({
       method: "getDaemonControlReceipt",

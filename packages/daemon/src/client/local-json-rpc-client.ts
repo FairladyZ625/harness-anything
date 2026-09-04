@@ -135,7 +135,11 @@ export class JsonRpcLineClient {
       responseTimeoutMs === undefined
         ? await responsePromise
         : await Promise.race([responsePromise, responseDeadline(method, responseTimeoutMs)]);
-    if ("error" in response) throw new Error(response.error.message);
+    if ("error" in response)
+      throw Object.assign(new Error(response.error.message), {
+        code: response.error.code === -32601 ? "method_not_found" : `json_rpc_${response.error.code}`,
+        rpcCode: response.error.code,
+      });
     if (!jsonRpcRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
     return response.result;
   }
@@ -194,6 +198,7 @@ async function requestWithSocket(
       },
       responseTimeoutMs,
     );
+    assertDaemonAdvertisesMethod(hello, method);
     const warning =
         reportStaleBuild &&
         hello.warning !== null &&
@@ -215,6 +220,26 @@ async function requestWithSocket(
   } finally {
     client.close();
   }
+}
+function assertDaemonAdvertisesMethod(hello: JsonObject, method: string): void {
+  const methods = hello.methods;
+  if (
+    !Array.isArray(methods) ||
+    !methods.every((candidate) => typeof candidate === "string") ||
+    methods.includes(method)
+  )
+    return;
+  const commit =
+    hello.build !== null && typeof hello.build === "object" && !Array.isArray(hello.build)
+      ? (hello.build as JsonObject).commit
+      : null;
+  throw Object.assign(
+    new Error(
+      `Attached local daemon${typeof commit === "string" ? ` build ${commit}` : ""} does not advertise ` +
+        `requested method ${method}.`,
+    ),
+    { code: "daemon_method_unavailable" },
+  );
 }
 // A daemon that never answers leaves the caller with no output and no error, so a caller that knows its request is
 // cheap can name a deadline and get a classified failure instead of an open-ended wait. The hint is forked by what

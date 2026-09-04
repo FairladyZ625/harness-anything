@@ -210,7 +210,6 @@ export interface SystemStatusSuccess {
     readonly uptimeMs: number;
     readonly endpoint: string;
     readonly build: { readonly version: string; readonly commitSha: string | null };
-    readonly buildStale?: null | { readonly daemonCommit: string; readonly clientCommit: string };
     readonly userRoot?: string;
     readonly activeControl: null | {
       readonly kind: "refresh" | "restart";

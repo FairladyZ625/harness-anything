@@ -280,7 +280,6 @@
   "views.systemView.registrationDisabled": "已停用",
   "views.systemView.queueDepthDerived": "由各仓队列深度求和派生；daemon 契约未投影全局队列。",
   "views.systemView.userRootNotProjected": "本地主进程未能解析该 daemon 的用户根目录。",
-  "views.systemView.buildStale": "daemon 正在运行提交 {daemon} 的旧代码，而当前 GUI 是 {client}。请在 operator shell 停止它，再运行 ha gui 启动 canonical build。",
   "views.presetsView.catalogPreset": "目录 / Preset",
   "views.presetsView.resolvedPreset": "已解析 Preset",
   "views.presetsView.snapshotDefault": "snapshot 默认值",
