@@ -36,9 +36,8 @@ export function terminalEnvironment(
       TERM: "xterm-256color",
     });
   } catch (error) {
-    console.warn(
-      `[terminal-environment] login shell snapshot failed; using restricted environment: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    const reason = error instanceof Error ? error.message : String(error);
+    console.warn(`[terminal-environment] login shell snapshot failed; using restricted environment: ${reason}`);
     consumeKnownError(error);
     // A failed snapshot is deliberately not cached. Caching it would pin the daemon to the
     // restricted environment for the rest of its life after one transient failure, which is
