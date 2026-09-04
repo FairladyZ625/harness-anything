@@ -219,6 +219,52 @@ test("task-bound runtime identity cannot autostart the shared daemon", (context)
   }
 });
 
+test("repo bootstrap reaches an injected daemon endpoint across an isolated runtime temp directory", () => {
+  const previousTemp = process.env.TMPDIR;
+  process.env.TMPDIR = "/tmp";
+  const fixture = setup(),
+    bootstrapRoot = setupRepository(fixture.parent, "bootstrap-repo"),
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+    runtimeTemp = path.join(fixture.parent, "runtime", "isolated", "tmp");
+  try {
+    mkdirSync(runtimeTemp, { recursive: true });
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const result = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "--root",
+        bootstrapRoot,
+        "--json",
+        "init",
+        "--repo-id",
+        "runtime-bootstrap",
+        "--person-id",
+        "owner",
+        "--display-name",
+        "Owner",
+      ],
+      {
+        encoding: "utf8",
+        env: {
+          ...cliEnv(bootstrapRoot, fixture.userRoot),
+          HARNESS_DAEMON_ENDPOINT: endpoint,
+          TMPDIR: runtimeTemp,
+        },
+      },
+    );
+    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+    const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean; readonly repoId?: string };
+    assert.equal(receipt.ok, true);
+    assert.equal(receipt.repoId, "runtime-bootstrap");
+  } finally {
+    stop(fixture.root, fixture.userRoot);
+    rmSync(fixture.parent, { recursive: true, force: true });
+    if (previousTemp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = previousTemp;
+  }
+});
+
 test("a blocked vertical script keeps handshakes, snapshots, and same-repo writes live", async (context) => {
   const fixture = setup(),
     repoId = "vertical-wedge",

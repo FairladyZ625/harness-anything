@@ -125,7 +125,13 @@ export async function runCommandThroughDaemon(
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...params } = command.action,
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
+      socketPath = resolveLocalDaemonEndpoint({
+        userRoot,
+        daemonId,
+        env,
+        repoId: env.HARNESS_DAEMON_REPO_ID,
+        canonicalRoot: command.rootDir,
+      });
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(

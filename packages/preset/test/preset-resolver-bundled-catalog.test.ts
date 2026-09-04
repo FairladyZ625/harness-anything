@@ -9,7 +9,7 @@ import { compileTaskBootstrap } from "../src/index.ts";
 import { createRuntime } from "../src/preset-resolver.ts";
 
 import { git } from "./preset-resolver.fixtures.ts";
-test("all twelve bundled packages resolve through one valid catalog", async () => {
+test("all thirteen bundled packages resolve through one valid catalog", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-builtins-"));
   try {
     const runtime = createRuntime({ userRoot: root }),
@@ -39,6 +39,11 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
         { id: "docs-task", validity: "valid", errorCode: undefined },
         { id: "github-issue-repair", validity: "valid", errorCode: undefined },
         { id: "legacy-migration", validity: "valid", errorCode: undefined },
+        {
+          id: "lifecycle-blackbox-acceptance",
+          validity: "valid",
+          errorCode: undefined,
+        },
         { id: "milestone-closeout", validity: "valid", errorCode: undefined },
         { id: "module", validity: "valid", errorCode: undefined },
         { id: "standard-task", validity: "valid", errorCode: undefined },
@@ -135,6 +140,12 @@ test("all twelve bundled packages resolve through one valid catalog", async () =
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
+      [
+        "lifecycle-blackbox-acceptance",
+        "task-package-artifact",
+        [],
+        ["task.plan", "task.closeout", "task.artifacts.keep", "task.lifecycle.blackbox.acceptance"],
+      ],
       [
         "code-impact-analysis",
         "task-package-artifact",

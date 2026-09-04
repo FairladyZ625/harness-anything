@@ -1,0 +1,28 @@
+{
+  "schema": "preset-manifest/v3",
+  "id": "lifecycle-blackbox-acceptance",
+  "title": "Lifecycle Black-box Acceptance",
+  "vertical": "software/coding",
+  "version": "3.0.0",
+  "kind": "template-content",
+  "outputShape": "task-package-artifact",
+  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
+  "capabilityImports": [],
+  "profiles": [
+    {
+      "id": "baseline",
+      "title": "Baseline",
+      "checkerProfile": "standard",
+      "completionGates": [],
+      "templateSelections": [
+        {
+          "slot": "task.lifecycle.blackbox.acceptance",
+          "templateRef": "template://acceptance/lifecycle-blackbox@1",
+          "materializeAs": "lifecycle-blackbox-acceptance.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    }
+  ],
+  "defaultProfile": "baseline"
+}
