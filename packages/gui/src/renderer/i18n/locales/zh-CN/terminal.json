@@ -48,6 +48,8 @@
   "terminal.view.splitLeft": "向左分屏",
   "terminal.view.splitUp": "向上分屏",
   "terminal.view.paneMenuAria": "pane 菜单",
+  "terminal.view.copy": "复制",
+  "terminal.view.paste": "粘贴",
   "terminal.view.dragHandleTitle": "拖动到别的 pane 上换位",
   "terminal.view.taskPickerPlaceholder": "搜索 task 标题或 id…",
   "terminal.view.taskPickerEmpty": "无匹配 task",

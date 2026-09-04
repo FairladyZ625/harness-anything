@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -164,6 +164,15 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
 
 export async function startGuiApp(): Promise<void> {
   await app.whenReady();
+  if (process.platform === "darwin") {
+    const template: MenuItemConstructorOptions[] = [
+      { role: "appMenu" },
+      { role: "editMenu" },
+      { role: "viewMenu" },
+      { role: "windowMenu" },
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  }
   installContentSecurityPolicy();
   const trustedWebContentsIds = new Set<number>();
   const rootDir = resolveGuiProjectRoot(),

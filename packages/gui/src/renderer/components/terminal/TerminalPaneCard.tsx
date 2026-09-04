@@ -36,6 +36,7 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
     focused = actions.focusedPanelId === panelId;
   const [dropZone, setDropZone] = useState<TerminalSplitDirection | null>(null);
   const [menu, setMenu] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  const [selection, setSelection] = useState("");
   // 拖拽换位:标题栏是把手;别的 pane 的整张 card 是落点,按指针离哪条边最近分四个半区。
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!drag.panelId || drag.panelId === panelId) return;
@@ -88,6 +89,8 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         <PaneMenu
           at={menu}
           onClose={() => setMenu(null)}
+          selection={selection}
+          onPaste={tab?.state === "running" && tab.attachable ? (text) => actions.onInput(tab.sessionId, text) : null}
           onSplit={(direction) => actions.onSplitPane(panelId, direction)}
           onClosePane={() => actions.onClosePane(panelId, sessionId)}
           onTerminate={tab ? () => actions.setConfirmSessionId(tab.sessionId) : null}
@@ -128,12 +131,22 @@ export function TerminalPaneCard(props: IDockviewPanelProps<{ readonly sessionId
         </span>
         {tab && <TerminateControls tab={tab} />}
       </div>
-      {tab ? <LivePane tab={tab} /> : <DeadPane panelId={panelId} sessionId={sessionId} />}
+      {tab ? (
+        <LivePane tab={tab} onSelectionChange={setSelection} />
+      ) : (
+        <DeadPane panelId={panelId} sessionId={sessionId} />
+      )}
     </div>
   );
 }
 
-function LivePane({ tab }: { readonly tab: TerminalTab }) {
+function LivePane({
+  tab,
+  onSelectionChange,
+}: {
+  readonly tab: TerminalTab;
+  readonly onSelectionChange: (text: string) => void;
+}) {
   const actions = useTerminalPaneActions();
   const interactive = tab.state === "running" && tab.attachable;
   return (
@@ -159,6 +172,7 @@ function LivePane({ tab }: { readonly tab: TerminalTab }) {
             interactive={interactive}
             openUrl={actions.openUrl}
             onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}
+            onSelectionChange={onSelectionChange}
             onInput={(utf8) => actions.onInput(tab.sessionId, utf8)}
             onFit={(cols, rows) => actions.onFit(tab.sessionId, cols, rows)}
           />
@@ -224,12 +238,16 @@ function dropZoneOf(event: { readonly clientX: number; readonly clientY: number 
 function PaneMenu({
   at,
   onClose,
+  selection,
+  onPaste,
   onSplit,
   onClosePane,
   onTerminate,
 }: {
   readonly at: { readonly x: number; readonly y: number };
   readonly onClose: () => void;
+  readonly selection: string;
+  readonly onPaste: ((text: string) => void) | null;
   readonly onSplit: (direction: TerminalSplitDirection) => void;
   readonly onClosePane: () => void;
   readonly onTerminate: (() => void) | null;
@@ -255,6 +273,12 @@ function PaneMenu({
     action();
   };
   const itemClassName = "block w-full rounded px-2 py-1 text-left text-text hover:bg-surface";
+  const disabledItemClassName = [
+    itemClassName,
+    "disabled:cursor-not-allowed",
+    "disabled:text-text-faint",
+    "disabled:hover:bg-transparent",
+  ].join(" ");
   return createPortal(
     <div
       ref={ref}
@@ -264,6 +288,28 @@ function PaneMenu({
       style={{ left: at.x, top: at.y }}
       className="fixed z-50 min-w-40 rounded border border-border bg-surface-raised p-1 text-[12px] shadow-lg"
     >
+      <button
+        role="menuitem"
+        disabled={!selection}
+        onClick={pick(() => void navigator.clipboard.writeText(selection).catch(consumeKnownError))}
+        className={disabledItemClassName}
+      >
+        {t("terminal.view.copy")}
+      </button>
+      <button
+        role="menuitem"
+        disabled={onPaste === null}
+        onClick={pick(
+          () =>
+            void navigator.clipboard
+              .readText()
+              .then((text) => onPaste?.(text))
+              .catch(consumeKnownError),
+        )}
+        className={disabledItemClassName}
+      >
+        {t("terminal.view.paste")}
+      </button>
       {splitDirections.map((direction) => (
         <button key={direction} role="menuitem" onClick={pick(() => onSplit(direction))} className={itemClassName}>
           {splitLabel(direction)}
@@ -280,6 +326,10 @@ function PaneMenu({
     </div>,
     document.body,
   );
+}
+
+function consumeKnownError(error: unknown): void {
+  void error;
 }
 
 function SplitButton({ panelId, direction }: { readonly panelId: string; readonly direction: TerminalSplitDirection }) {

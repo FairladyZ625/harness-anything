@@ -31,6 +31,7 @@ export function TerminalPane({
   onFit,
   openUrl,
   onOpenLink,
+  onSelectionChange,
 }: {
   readonly output: string;
   readonly interactive: boolean;
@@ -38,6 +39,7 @@ export function TerminalPane({
   readonly onFit: (cols: number, rows: number) => void;
   readonly openUrl: ((uri: string) => void) | null;
   readonly onOpenLink: (match: TerminalLinkMatch, text: string) => void;
+  readonly onSelectionChange: (selection: string) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -49,11 +51,13 @@ export function TerminalPane({
   const onFitRef = useRef(onFit);
   const openUrlRef = useRef(openUrl);
   const onOpenLinkRef = useRef(onOpenLink);
+  const onSelectionChangeRef = useRef(onSelectionChange);
   interactiveRef.current = interactive;
   onInputRef.current = onInput;
   onFitRef.current = onFit;
   openUrlRef.current = openUrl;
   onOpenLinkRef.current = onOpenLink;
+  onSelectionChangeRef.current = onSelectionChange;
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchFound, setSearchFound] = useState(true);
@@ -84,6 +88,15 @@ export function TerminalPane({
     terminal.open(host);
     if (terminalWebglEnabled(localStorage)) terminal.loadAddon(new WebglAddon());
     terminalRef.current = terminal;
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (!event.metaKey || event.key.toLowerCase() !== "c" || !terminal.hasSelection()) return true;
+      event.preventDefault();
+      void navigator.clipboard.writeText(terminal.getSelection()).catch(consumeKnownError);
+      return false;
+    });
+    const selectionDisposable = terminal.onSelectionChange(() => {
+      onSelectionChangeRef.current(terminal.getSelection());
+    });
 
     const themeObserver = new MutationObserver(() => {
       terminal.options.theme = terminalTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark");
@@ -134,7 +147,9 @@ export function TerminalPane({
       if (frame !== undefined) cancelAnimationFrame(frame);
       linkDisposable.dispose();
       inputDisposable.dispose();
+      selectionDisposable.dispose();
       terminal.dispose();
+      onSelectionChangeRef.current("");
       terminalRef.current = null;
       searchRef.current = null;
       writtenRef.current = 0;
