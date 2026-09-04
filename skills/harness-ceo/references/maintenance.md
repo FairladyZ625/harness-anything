@@ -1,58 +1,38 @@
-# Improve the skill and model knowledge
+# 技能与模型知识的改进方法
 
-## Route the observation
+## 先判断观察该去哪里
 
-Start with an observed failure or successful pattern and its evidence. Separate
-what happened from the proposed explanation. Check whether it belongs to a model,
-a runtime/tool, one repository, or general coordination.
+从实际失败或成功模式及其证据出发。把发生的事实与推测的解释分开，判断它属于模型、运行时或工具、单个仓库，还是通用协调方法。
 
-| Observation | Destination |
+| 观察 | 落点 |
 | --- | --- |
-| Model/settings suit a task family under measured conditions | User-owned model matrix, backed by run evidence |
-| Local topology, approval, provider setup, incident, or project decision | User/project context and canonical records |
-| Reproducible tool defect | Scoped tool fix or issue, using its normal authorization path |
-| Portable judgment needed across projects | Owning skill rule or reference |
+| 模型与设置在实测条件下适合某类任务 | 用户模型矩阵，以运行证据支撑 |
+| 本地拓扑、审批、供应商配置、事故或项目决策 | 用户或项目上下文及权威记录 |
+| 可复现的工具缺陷 | 经正常授权路径修复或立项 |
+| 跨项目仍需要的判断 | 技能中负责该问题的规则或参考手册 |
 
-A tool defect is not automatic authorization to repair infrastructure or change a
-gate. Continue authorized work and record the blocker if a separate decision is
-needed. Conversely, do not create a new policy merely because a tool can be fixed
-at its source.
+工具有缺陷不自动授予修复基础设施或修改门禁的权限。需要另外决策时，继续已授权工作并记录阻塞。反过来，能从工具源头修好的问题，也不应只靠新增规则提醒。
 
-## Rewrite, then verify
+## 改写，然后验证
 
-1. Find the existing rule that the evidence changes. Rewrite or remove it; do not
-   append a competing warning. Add a section only for a genuinely distinct concern.
-2. Keep everyday decisions in SKILL.md; put scenario details in references with a
-   clear trigger link. Before moving material, ensure the destination contains the
-   actual guidance and remains discoverable.
-3. Remove obsolete workarounds and duplicated assertions. Do not turn one failed
-   run into a permanent model ban, a mandatory approval, or a universal retry rule.
-4. Check that the new wording preserves user scope and existing approvals. Any
-   authority expansion is a separate, explicit decision; “autonomy” does not supply it.
-5. Exercise a realistic scenario that distinguishes old and new behavior. For a
-   substantial revision, use a fresh evaluator when available and authorized. Give
-   it the scenario and public package without the expected answer; inspect its
-   actual outcome. Label simulated decisions separately from real dispatch tests.
-6. Inspect links, discovery metadata, and affected repository checks. Review the
-   whole changed section for contradictions, including references. Record evidence
-   in the task, not as personal incident history inside the public skill.
+1. 找到被新证据改变的既有规则，改写或删除，不追加竞争性警告。只有真正独立的新维度才新增章节。
+2. 高频判断留在 `SKILL.md`；场景细节放入带明确触发条件链接的参考资料。移动前核实目标文件已经包含完整指导，且仍然可发现。
+3. 删除过时绕行办法和重复断言。不把一次失败变成永久模型禁令、强制审批或通用重试规则。
+4. 核实新措辞保留用户范围和既有审批。扩大权限须单独明确决策，“自主执行”不提供额外授权。
+5. 用能区分修改前后行为的真实场景检验。重大修订在可用且已授权时使用新评估者，只给场景和公共技能包，不透露预期答案；检查实际结果。模拟判断与真实派工测试分开标明。
+6. 检查链接、发现元数据和受影响的仓库检查。通读修改的整节及相关参考资料，消除矛盾。证据记入任务，不把个人事故历史写进公共技能。
 
-Conciseness protects reader attention. Prefer a shorter owning rule and conditional
-references, but do not enforce arbitrary deletion ratios or keep raising character
-budgets. Remove text that does not change a reader's next decision. A new dimension
-may legitimately add material; no ceremonial deletion is required.
+精简保护读者注意力。优先采用更短的权威规则和按需参考资料，但不强制任意删除比例，也不不断抬高字符预算。删除不改变读者下一步判断的文字。新维度确实可能需要新增内容，不要求仪式性删除。
 
-## Useful behavioral probes
+## 可用的行为检验场景
 
-Choose probes relevant to the revision, rather than running all on every edit:
+按本次修订选择相关场景，不要求每次全部执行：
 
-- One available, unmeasured model and a small task: meaningful work without a
-  mandatory benchmark campaign or new Commander.
-- Three independent outputs: distinct responsibility and per-run artifacts, with
-  a clear integration owner.
-- A worker disproves the premise: accept the evidence rather than forcing the diff.
-- A disconnect after launch: reconcile before retrying; no duplicate writer.
-- Two edges propose matrix changes: preserve run evidence and central ownership.
-- No release approval: complete authorized preparation without publishing.
-- Task checks passed on unchanged state: reuse evidence, avoid ritual retesting.
-- Skill upgrade with an existing user matrix: preserve the user's data and choices.
+- 只有一个可用、未测模型和一个小任务：无需强制基准测试或新设指挥层也能推进。
+- 三个独立结果：职责和逐次运行产物各自独立，集成负责人明确。
+- 执行者证伪前提：接受证据，不强迫产生改动。
+- 派工启动后失联：重试前核对，避免重复写入者。
+- 两个边缘节点提出矩阵修改：保留各自运行证据和中心归属。
+- 没有发布审批：完成已授权准备，不发布。
+- 任务检查已通过且相关状态未变：复用证据，不仪式性重测。
+- 技能升级时已有用户矩阵：保留用户数据与选择。

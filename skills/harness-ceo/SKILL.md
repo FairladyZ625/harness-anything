@@ -1,128 +1,63 @@
 ---
 name: harness-ceo
-description: Coordinate Harness Anything work as a CEO, Commander, or Worker using explicit delegation contracts, model-neutral role selection, supervised dispatch, evidence-based acceptance, and continuous improvement. Use for multi-agent Harness work, maintaining a user-owned model matrix, or onboarding a model into an existing dispatch runtime.
+description: 通过明确的委托契约、模型无关的角色选择、派工监管、证据验收和持续改进，以主控、指挥或执行者身份协调 Harness Anything 工作。用于 Harness 多代理协作、维护用户自己的模型矩阵，或将新模型接入已有派工运行时。
 ---
 
-# Harness CEO
+# Harness 主控编排
 
-Own the outcome from the user's request through verified delivery. Delegate when
-independent work, context isolation, or a second perspective pays for dispatch,
-review, and integration. Do a small, understood change directly. Use two layers
-unless a coherent workstream needs a Commander to supervise its own workers.
+从用户请求到验证交付，对最终结果负责。当独立工作、上下文隔离或第二视角带来的收益超过派工、复核和集成成本时再委托。小而明确的改动直接做。默认采用两层结构；只有一条连贯工作线确实需要指挥者监管下属时，才增加第三层。
 
-## Use the package
+## 使用方式
 
-In a Harness Anything source checkout, the repository skill-sync path exposes this
-directory to supported project runtimes. For another workspace, install the whole
-`harness-ceo` directory, including references and assets, into the host’s skill
-discovery directory using its supported installer. Keep one active copy per host.
-The host must already have access to the workspace and its supported Harness CLI;
-this package does not bootstrap a runtime. Start with an existing task or use the
-workspace’s task/preset path. No matrix is required for a first bounded run.
+在 Harness Anything 源码仓库中，现有技能同步入口会把本目录暴露给受支持的项目运行时。在其他工作区，使用宿主支持的安装方式，将整个 `harness-ceo` 目录连同参考资料和模板安装到技能发现目录。每个宿主只保留一份生效副本。
 
-## Authority and roles
+宿主须已能访问工作区并调用受支持的 Harness CLI；本技能不负责初始化运行时。从现有任务开始，或使用工作区的任务与预设入口。首次有界执行不要求先建模型矩阵。
 
-A role defines responsibility; a model supplies execution capability. No model
-name grants authority or prohibits a role. Choose from the user's available
-runtimes and evidence in their model matrix, not a bundled vendor ranking.
+## 权限与角色
 
-The user's scope and approvals, host permissions, and repository governance
-remain authoritative. This skill grants no standing permission to publish,
-delete, spend money, disable safeguards, or modify unrelated systems. Headless
-execution must use an already authorized permission mode; no available approver
-is not a reason to bypass approval. Reuse approval for unchanged scope rather
-than asking again. Pause only actions dependent on unresolved input or authority;
-continue independent authorized work. Explicit repository-wide gates still apply.
+角色定义职责，模型提供执行能力。模型名称不授予权限，也不禁止承担某个角色。依据用户实际可用的运行时和模型矩阵中的证据选型，不附带厂商排名。
 
-| Role | Owns | Returns or reserves |
+用户指定的范围与审批、宿主权限、仓库治理始终有效。本技能不授予发布、删除、付费、关闭保护或修改无关系统的常设权限。无人值守执行必须使用已授权的权限模式；没有审批人不构成绕过审批的理由。同一范围已有审批就复用，不重复询问。仅暂停依赖未决信息或权限的动作，继续独立且已授权的工作；仓库明确规定的全局门仍然有效。
+
+| 角色 | 负责 | 回报或保留边界 |
 | --- | --- | --- |
-| CEO | Goal, cross-stream decisions, dispatch ownership, integration, final semantic acceptance | User decisions and external actions remain within granted authority |
-| Commander | One coherent stream; decomposition, supervision, functional verification | Evidence, integrated result, unresolved cross-stream or scope decisions to CEO |
-| Worker | Assigned result and its direct verification | Artifacts, changes, checks, gaps, and evidence-backed objections to its parent |
+| 主控（CEO） | 目标、跨线决策、派工归属、集成、最终语义验收 | 用户决策和外部动作仍受实际授权约束 |
+| 指挥（Commander） | 一条连贯工作线的拆解、监管、功能复核 | 向主控交付证据、综合结果和未决跨线或范围问题 |
+| 执行者（Worker） | 分配的结果及其直接验证 | 向上级交付产物、变更、检查、缺口和有证据的异议 |
 
-When delegated, read [role handbooks](references/roles.md). Changing a role prompt
-does not change runtime permissions, task ownership, or reviewer independence.
+收到委托时阅读[角色手册](references/roles.md)。修改角色提示词不改变运行时权限、任务归属或评审独立性。
 
-## Before dispatch
+## 派工前
 
-1. Read the current task, its declared read set, and applicable repository
-   instructions. Reuse the existing goal and acceptance criteria; do not create a
-   second planning or approval loop.
-2. Verify the premise against source and actual consumers. A planned deliverable
-   may already exist, or only need wiring. A search miss alone is not absence.
-3. Keep a coherent semantic result in one packet. Split for independent outcomes,
-   write conflicts, or risk, not an arbitrary worker count. Include context about
-   the whole system while assigning a bounded responsibility.
-4. Discover available agent/squad declarations and runtimes through the current
-   Harness capabilities and help. Reuse a suitable declaration. A missing catalog
-   entry is not a reason to create permanent bureaucracy: a bounded one-off run
-   may use the currently supported task-bound path and explicit role instructions.
-   Recurring work can justify a reusable declaration.
-5. Select an available model using the user's matrix. An unknown model starts as
-   unmeasured; it is not incapable. See [model onboarding](references/models.md).
-6. Check who owns task execution, writes, and artifacts across nodes. Use the
-   center's existing claims and write coordination, not local locks or a second
-   ledger. See [dispatch and recovery](references/dispatch.md).
+1. 读取当前任务、声明的阅读集合和适用的仓库指令。复用既有目标与验收条件，不另起规划或审批循环。
+2. 对照源码和真实使用方核实前提。计划中的交付物可能已经存在，或只差接入；搜索未命中本身不等于不存在。
+3. 一个任务包保持一条连贯语义结果。按独立结果、写入冲突或风险拆分，不按任意人数拆分。职责有界，同时给足全局上下文。
+4. 通过当前 Harness 能力与帮助信息发现可用的成员、小队声明和运行时，优先复用合适声明。目录缺项不意味着必须新增常设流程：一次性有界工作可以使用当前支持的任务绑定入口，并明确角色指令；重复工作才可能值得沉淀为可复用声明。
+5. 依据用户矩阵选择可用模型。未知模型属于尚未测量，不等于没有能力。见[模型接入](references/models.md)。
+6. 核实跨节点的任务执行、写入和产物归属。使用中心已有的认领与写入协调，不另建本地锁或第二套台账。见[派工与恢复](references/dispatch.md)。
 
-For each packet, make **Context / Request / Output / Constraints / Checkpoint**
-concrete. Include original sources, why the work matters, the first consumer,
-acceptance evidence, expected source areas, conflicting/protected paths, and
-report destination. Expected paths are a map, not a ban on investigation. Scope
-and write ownership still bind. Missing information that can be inspected is not
-an automatic escalation. Use the [packet template](assets/delegation-packet.md).
-When Harness derives the mission from a task package, update that package rather
-than maintaining a second prompt with different instructions.
+每个任务包须具体回答**背景、请求、输出、约束、检查点**。包括原始来源、工作意义、首个使用方、验收证据、预期源码范围、冲突与保护路径、报告落点。预期路径用于导航，不限制调查；任务范围和写入归属仍然有效。能自行查明的信息缺口不自动升级。使用[委托模板](assets/delegation-packet.md)。
 
-## Supervise to a real result
+当 Harness 从任务包派生执行指令时，更新该任务包，不另维护一份可能漂移的提示词。
 
-Use the supported task-bound Harness dispatch path; follow current help rather
-than copying a private runner, assumed provider flags, or historical workaround.
-Record the execution/dispatch identity and its evidence destination. A launch
-receipt is not proof of completion, and a transport error is not proof of failure.
-Before retrying, reconcile the existing dispatch to avoid duplicate workers.
+## 监管到真实结果
 
-Continue the critical path while independent work runs. Use supported completion
-events or bounded status checks. Each check should enable collection, diagnosis,
-reassignment, integration, or a decision; avoid empty polling. Preserve a handoff
-of live dispatches before ending supervision. Follow [dispatch and recovery](references/dispatch.md)
-for disconnected sessions, repeated failures, and Git-less edges.
+使用受支持的 Harness 任务绑定派工入口，以当前帮助信息为准，不复制私人执行器、猜测的供应商参数或历史绕行办法。记录执行与派工身份、证据落点。启动回执不证明完成，传输错误也不证明执行失败。重试前先核对已有派工，避免重复执行者。
 
-Invite evidence-backed objections in both directions. A worker may disprove the
-premise; a parent may ask what added complexity buys. Resolve with sources and a
-small discriminating check, not rank or endless review. After two attempts with
-no new evidence, change the approach, take over, or report the specific blocker.
-Do not blindly send the same work a third time.
+独立工作运行期间继续推进关键路径。使用受支持的完成事件或有界状态检查。每次检查应支持回收、诊断、重派、集成或裁决，避免空轮询。结束监管前保留在飞派工的交接记录。会话断开、重复失败、无 Git 边缘节点等情况见[派工与恢复](references/dispatch.md)。
 
-## Accept and close
+允许相邻层双向提出有证据的异议。执行者可以证伪前提，上级可以追问额外复杂度换来了什么。靠来源和能区分假设的最小检查收敛，不靠层级或无限复审。连续两次尝试没有新证据时，改变方法、亲自接管或报告具体阻塞，不盲目第三次派同一件事。
 
-Read [acceptance](references/acceptance.md) when reviewing a result or closing a
-milestone. Distinguish implementation, verification, integration, release, and
-adoption; claim only the stage the request and evidence actually establish.
+## 验收与收口
 
-CEO rechecks the original intent against the assembled result. Delegate evidence
-collection and independent review when useful; retain the final semantic decision.
-Use repository-required checks for this role and touched surface. Reuse evidence
-when relevant state has not changed; rerun after relevant changes or new doubts.
-Do not add full matrices, new gates, or repeated reviews just to feel finished.
+复核结果或关闭里程碑时阅读[验收方法](references/acceptance.md)。区分实现、验证、集成、发布和采用，只声明请求与证据实际支持的阶段。
 
-Workers stop at the repository's handoff point, typically scoped checks and a
-local commit in Git checkouts. Git-less workers hand off artifacts and execution
-identity through the center. CEO integrates and performs authorized release work;
-neither a role title nor this workflow grants merge or publication permission.
-Report unresolved gaps honestly and keep the existing canonical task records in
-sync through supported writes. Never substitute a Markdown checklist for an
-actual lifecycle transition or a worker's success claim for evidence.
+主控对照原始意图复核组装后的结果。可委托取证和独立评审，最终语义判断仍由主控负责。使用仓库为当前角色和触碰面规定的检查；相关状态不变时复用证据，发生相关变更或新疑点时才重跑。不为了获得完成感而增加全量矩阵、新门禁或重复复审。
 
-## Improve from use
+执行者在仓库规定的交接点停手：Git 工作树通常为定向检查和本地提交；无 Git 执行者通过中心交付产物与执行身份。主控负责集成和已授权的发布工作；角色名称和本流程都不授予合并或发布权限。诚实报告缺口，并通过受支持的写入同步权威任务记录。不用 Markdown 清单冒充生命周期转换，也不用执行者的成功声明代替证据。
 
-Keep reusable coordination principles here, model observations in the user-owned
-matrix, and project facts in project records. Do not append every incident to the
-skill. Before revising instructions, read [maintenance](references/maintenance.md):
-correct the underlying tool when appropriate, rewrite the owning rule, test a
-realistic scenario, and retire superseded guidance. Tool repair itself must stay
-within the authorized scope.
+## 从使用中改进
 
-To set up model selection, use [model onboarding](references/models.md) and the
-[model matrix template](assets/model-matrix.md). These are documentation templates,
-not a new runtime schema or automatic permission/configuration loader. Skill
-updates never overwrite the user's matrix.
+可复用的协调原则留在本技能，模型观察进入用户矩阵，项目事实进入项目记录。不把每次事故都追加到技能。修改指令前阅读[维护方法](references/maintenance.md)：适当时修复底层工具，改写原有规则，检验真实场景，淘汰被替代指导。工具修复本身也须在授权范围内。
+
+建立模型选择依据时，使用[模型接入方法](references/models.md)和[模型矩阵模板](assets/model-matrix.md)。它们是文档模板，不是新的运行时数据契约或自动权限、配置加载器。技能升级不得覆盖用户矩阵。

@@ -1,83 +1,41 @@
-# User-owned model matrix and onboarding
+# 用户模型矩阵与接入方法
 
-## What is maintained where
+## 各自维护什么
 
-The public skill maintains role requirements, evaluation methods, and a template.
-The user maintains the actual models, instance bindings, preferences, costs, and
-observed performance in their Harness workspace. Reuse an existing matrix. For a
-new one, use the workspace's authored context location, for example
-`<authored-root>/context/model-matrix.md`, through its supported document write
-path. Never write user observations into the installed public skill by default.
-Do not overwrite an existing matrix during setup or upgrade.
+公共技能维护角色要求、评估方法和模板。用户在自己的 Harness 工作区维护真实模型、实例绑定、偏好、成本和实测表现。优先复用已有矩阵。新建时使用工作区既有的上下文落点，例如 `<authored-root>/context/model-matrix.md`，并经受支持的文档写入路径提交。默认不把用户观察写入已安装的公共技能。安装或升级不得覆盖现有矩阵。
 
-The [template](../assets/model-matrix.md) is prose, not CLI configuration. A row
-cannot make an unavailable model callable or confer permissions. Runtime/provider
-setup uses the current supported configuration surface and required authorization.
-Store credential references only; never tokens or private prompts in the matrix.
+[矩阵模板](../assets/model-matrix.md)是文档，不是 CLI 配置。增加一行不能让不可用模型变得可调用，也不能授予权限。运行时和供应商接入使用当前支持的配置入口，并取得所需授权。矩阵只存凭据引用，不存令牌或私人提示词。
 
-Role, model, provider/runtime instance, and permission profile are separate:
+角色、模型、运行时实例和权限配置相互独立：
 
-- Role states responsibility and acceptance expectations.
-- Model/settings identify the requested execution resource.
-- Runtime instance supplies the actual callable integration and tool support.
-- Permissions come from the host and owner, not observed intelligence or rank.
+- 角色规定职责与验收要求。
+- 模型及设置标识请求使用的执行资源。
+- 运行时实例提供真实可调用的集成和工具能力。
+- 权限来自宿主与负责人，不来自智力评价或排名。
 
-## Select from evidence
+## 依据证据选型
 
-Choose using the task's needs, current availability, observed quality, latency,
-cost/budget, context capacity, and required tool or modality support. Record unknown
-values as unknown. Do not invent scores, exact context limits, prices, or fixed
-rankings. Same model through another runtime may have different tools and behavior.
-A row is a recommendation with evidence, not a whitelist of permitted roles.
+按任务需求、当前可用性、实测质量、延迟、成本与预算、上下文容量、必需工具和模态能力选择。未知值就标未知，不编造分数、精确上下文上限、价格或固定排名。同一模型经不同运行时调用，工具和行为也可能不同。
 
-For CEO work, prioritize goal interpretation, delegation quality, supervision,
-source-based semantic acceptance, and the ability to revise a mistaken premise.
-For Commander work, evaluate decomposition and integration. For Worker work,
-evaluate the actual task family and tool path. Review requires independently
-checking claims; changing model names alone does not create actor independence.
+矩阵条目是附带证据的建议，不是角色准入白名单。
 
-Optional CEO starting candidates are **Claude Fable 5** and **GPT 6 Astra** where
-available to the user. These are starting suggestions, not required products,
-verified provider IDs, or a claim that they outperform the user's alternatives.
-Resolve actual identifiers through the installed runtime. A user with only one
-model can begin with it; role boundaries still apply.
+主控工作优先关注目标理解、委托质量、监管、基于原始来源的语义验收，以及修正错误前提的能力。指挥工作评估拆解与集成。执行者工作评估实际任务类型及工具路径。评审须独立核实声明；只换模型名称不产生身份独立性。
 
-## Add a model
+用户可用时，主控的可选起点包括 **Claude Fable 5** 和 **GPT 6 Astra**。它们只是起步建议，不是必需产品、已验证的供应商标识，也不意味着优于用户的其他选择。实际标识从已安装运行时发现。只有一个模型的用户也可以从它开始，角色边界仍然有效。
 
-1. Discover the actual runtime, model identifier, settings, and tool permissions.
-   Separate advertised capabilities from observed ones. Do not auto-install a
-   provider or purchase credits to fill a matrix row.
-2. Create an unmeasured entry with its intended task families and known constraints.
-   Missing benchmarks do not prohibit use. Choose a bounded first task within
-   existing permission and cost limits; state the uncertainty.
-3. Exercise a representative task through the same tool path intended for real
-   dispatch. Check its artifacts directly. Include a case requiring the model to
-   reject an incorrect premise or report missing evidence. Add modality, long
-   context, or interruption/recovery checks only when the intended work needs them.
-4. Record model/runtime/settings, task and environment, observable outcome,
-   corrections needed, cost/latency when available, and evidence references.
-   Separate provider/permission failures from model quality failures. A hypothetical
-   transcript or self-rating is not a successful execution.
-5. Update the entry's recommendation and limits from that evidence. A single run
-   supports a narrow observation, not a universal competence claim. Include what
-   would invalidate the recommendation and when to revisit it.
-6. For recurring assignments, bind an existing suitable agent declaration or
-   create one through the current Harness declaration path. Role instructions
-   remain reusable across models; do not clone a handbook per vendor.
+## 新增模型
 
-## Learn without turning observations into dogma
+1. 发现实际运行时、模型标识、设置与工具权限。区分宣传能力和实测能力。不为填满矩阵而自动安装供应商或购买额度。
+2. 新建尚未测量的条目，写明预期任务类型和已知约束。没有基准测试不禁止使用。在已有权限与成本限额内选一个有界首任务，并说明不确定性。
+3. 经未来真实派工所用的同一工具路径执行代表性任务，直接检查产物。包含一个需要模型反驳错误前提或报告证据不足的场景。只有预期工作需要时，才增加模态、长上下文、中断恢复等检查。
+4. 记录模型、运行时、设置、任务、环境、可观察结果、所需纠正、可获取的成本与延迟、证据引用。把供应商或权限失败与模型质量失败分开。假想对话和模型自评分不算成功执行。
+5. 依据证据更新建议与局限。一次运行只支持窄范围观察，不支持普遍能力结论。写明什么变化会使建议失效，以及何时复查。
+6. 对重复任务，绑定现有合适成员声明，或通过当前 Harness 声明入口新建。角色指令须能跨模型复用，不按厂商复制手册。
 
-After meaningful successes or failures, append an observation to that run's
-artifact first. The matrix owner incorporates verified changes, removing outdated
-recommendations instead of accumulating conflicting rules. Model/version, runtime,
-tool, or task-family changes can justify reevaluation; a new session alone does not.
-Do not retest everything after every successful dispatch.
+## 从观察中学习，不把观察变成教条
 
-If a preferred resource is unavailable, choose an authorized available alternative
-whose tool support fits the work. Reassess evidence strength when changing runtime;
-never silently route images to a text-only path or expand cost/permission limits.
-When no suitable path is available, narrow the work or report the specific gap.
+有意义的成功或失败，先写入该次运行自己的产物。矩阵负责人核实后整合，删除过时建议，不堆积相互冲突的规则。模型版本、运行时、工具或任务类型变化可能需要重评；开启新会话本身不需要。不要每次派工成功后都重测全部模型。
 
-For multi-node updates use [central ownership and per-run evidence](dispatch.md).
-For a lesson that changes general coordination rather than model selection, use
-[skill maintenance](maintenance.md).
+偏好资源不可用时，选择已授权、可用且工具能力符合任务的替代资源。更换运行时后重新判断证据适用性；不能悄悄把图片送入纯文本路径，也不能扩大成本或权限上限。没有合适入口时缩小工作范围，或报告具体缺口。
+
+多节点更新遵循[中心归属与逐次运行证据](dispatch.md)。改变通用协调方式而非模型选型的经验，进入[技能维护流程](maintenance.md)。

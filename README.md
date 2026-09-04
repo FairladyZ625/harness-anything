@@ -194,7 +194,7 @@ The result is a repository that remembers more than its code:
 - [Learn](./docs-release/learn/en/00-overview.md) — understand the memory model, gates, and compounding loop. ([中文](./docs-release/learn/zh/00-overview.md))
 - [Architecture](./docs-release/architecture/en/00-overview.md) — explore the kernel, storage model, write path, and projections. ([中文](./docs-release/architecture/zh/00-overview.md))
 - [Release posture](./docs-release/release-posture.md) — see what is shipped, foundational, or planned.
-- [Harness CEO](./skills/harness-ceo/SKILL.md) — model-neutral delegation, verified acceptance, and a user-owned model matrix with onboarding and improvement methods.
+- [Harness 主控编排](./skills/harness-ceo/SKILL.md) — 模型无关的派工、证据验收，以及用户自有模型矩阵的接入与迭代方法。
 - [Migration](./docs-release/migration-genesis-replay.md) — replay an older-generation ledger into the current format. ([agent skill](./skills/harness-migration/SKILL.md))
 - [Ledger recovery](./docs-release/migration-legacy-ledger-recovery.md) — repair a repository whose legacy ledger the current daemon refuses to attach. ([中文](./docs-release/migration-legacy-ledger-recovery.zh-CN.md))
 - [Minimal example](./examples/minimal-project/) — inspect the smallest working project.

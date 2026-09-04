@@ -1,30 +1,26 @@
-# Model matrix
+# 模型矩阵
 
-User-owned selection notes. This file is not runtime configuration or authorization.
-Use the workspace's supported document write path; skill upgrades must not replace it.
+用户维护的选型记录。本文件不是运行时配置或授权。使用工作区支持的文档写入路径；技能升级不得替换它。
 
-Owner: <person or authorized coordinator>
-Canonical location: <workspace document path>
-Revision: <document revision supplied by the workspace>
-Selection policy: <user preferences and already authorized cost/permission limits>
+负责人：<用户或已授权协调者>
+权威落点：<工作区文档路径>
+版本：<工作区提供的文档版本>
+选型原则：<用户偏好与已授权的成本、权限限制>
 
-| Entry | Model and settings | Runtime instance | Observed tools/modalities | Suggested task families | Evidence and date | Limits / unknowns | Revisit trigger |
+| 条目 | 模型与设置 | 运行时实例 | 实测工具与模态 | 建议任务类型 | 证据与日期 | 局限与未知项 | 复查触发条件 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| <local name> | <actual ID, version, settings> | <configured instance> | <observed or unverified> | <recommendation, not role restriction> | <run reference or unmeasured> | <known constraints> | <relevant change> |
+| <本地名称> | <实际标识、版本、设置> | <已配置实例> | <实测或未验证> | <建议，不是角色限制> | <运行引用或尚未测量> | <已知约束> | <相关变化> |
 
-## Observation record
+## 观察记录
 
-- Entry and matrix revision used:
-- Task family and representative request:
-- Task / execution / dispatch identity:
-- Requested model/settings and observed identity (or unverified):
-- Runtime, environment, tool support, and granted permission profile:
-- Artifact references and direct verification:
-- Outcome, corrections, failures, and alternative explanations:
-- Observed latency / cost (or unavailable):
-- Proposed recommendation change and its limits:
+- 使用的条目与矩阵版本：
+- 任务类型与代表性请求：
+- 任务、执行、派工身份：
+- 请求的模型与设置、实际观察到的身份（或未验证）：
+- 运行时、环境、工具能力及已授权限配置：
+- 产物引用与直接验证：
+- 结果、纠正、失败及其他可能解释：
+- 实测延迟与成本（或不可获取）：
+- 建议调整及适用局限：
 
-Write observations to the run's own artifact destination first. The authorized
-matrix owner incorporates verified observations; workers do not overwrite this
-shared document concurrently. Never include credentials or private task content
-unnecessary for selection.
+观察先写入本次运行自己的产物落点，再由已授权的矩阵负责人整合核实后的观察；执行者不得并发覆盖本共享文档。不写入凭据或选型不需要的私人任务内容。

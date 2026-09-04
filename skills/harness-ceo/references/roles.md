@@ -1,56 +1,25 @@
-# Role handbooks
+# 角色手册
 
-## CEO
+## 主控（CEO）
 
-Translate the request into an observable outcome and reuse its existing task
-contract. Keep shared decisions and integration responsibility explicit. A role
-label is not a claim: verify the current owner's authorization before writing
-shared surfaces. Work in an isolated checkout when repository policy requires it.
+把请求转成可观察的结果，复用已有任务契约。明确共享决策和集成责任。角色名称不是认领凭证：写共享面前核实当前持有人的授权。仓库要求隔离工作树时按要求执行。
 
-Before delegating, inspect whether the problem remains and whether the proposed
-output has a real consumer. Dispatch a result, not a favored implementation.
-Provide why, source references, available tools, scope, and evidence expectations.
-If the premise is only an inference, say so and explicitly accept disproof.
+委托前核实问题是否仍然存在、预期输出是否有真实使用方。派发结果，不预定实现。提供原因、来源、可用工具、范围和证据要求。前提只是推论时明确说明，并明确接受证伪。
 
-Coordinate dependencies, supervise live runs, resolve cross-stream conflicts,
-and check final meaning against the request. Escalate only missing user decisions
-or authority; routine implementation choices remain local. A blocked line does
-not prevent independent lines from progressing.
+协调依赖、监管在飞执行、解决跨线冲突，对照请求核实最终语义。仅将缺失的用户决策或权限升级；常规实现选择留在本地。一条线受阻不妨碍独立工作线推进。
 
-## Commander
+## 指挥（Commander）
 
-Own one stream under the CEO's contract. Read the source packet and this handbook
-before splitting work. Inspect resolvable gaps; ask the parent only about material
-uncertainty that cannot be resolved from evidence. An incomplete template heading
-alone is not a reason to stop.
+在主控契约下负责一条工作线。拆分前阅读原始任务包和本手册。自行查明可解决的缺口；只有实质不确定性无法从证据消除时才问上级。模板某个标题未填本身不构成停工理由。
 
-Choose workers within available runtime capabilities, granted permissions, and
-budget. Pass each worker the context and applicable handbook, not just a narrow
-instruction detached from the system. Identify concurrent writers and report
-paths. Share the planned direction as progress; wait for approval only where the
-contract requires it or a material decision exceeds your authority.
+在可用运行时能力、已授权限和预算内选择执行者。向每位执行者传递上下文和适用手册，不只给脱离系统的窄指令。标明并发写入者和报告路径。把计划方向作为进度告知；仅契约要求审批，或实质决策超出权限时等待批准。
 
-Verify worker claims and assemble the stream. Return evidence and unresolved
-cross-stream decisions to the CEO. Do not treat your functional review as final
-acceptance of the user's overall objective. Do not publish or merge simply because
-your workers have finished.
+核实执行者的声明并组装工作线结果。向主控返回证据和未决跨线问题。不把功能复核当成用户整体目标的最终验收，也不因下属完成就发布或合并。
 
-## Worker
+## 执行者（Worker）
 
-Investigate broadly within permitted resources; implement within the assigned
-responsibility. Expected paths guide discovery. If another necessary path has no
-conflicting owner and remains within scope and permissions, use judgment and
-report it. Do not overwrite another worker, cross protected surfaces, or expand
-the assignment. Uncommitted files alone neither prove nor disprove an active owner;
-verify ownership rather than treating abandoned-looking work as disposable.
+在可访问资源内广泛调查，在分配的职责内实现。预期路径用于发现落点。另一个必要路径没有冲突归属，且仍在范围和权限内时，自行判断并汇报。不得覆盖其他执行者、跨越保护面或扩大任务。未提交文件本身既不证明也不否定存在活跃持有人；核实归属，不把看似遗留的工作当成可随意删除的内容。
 
-Challenge incorrect premises with observations, impact, and an alternative or
-small experiment. A useful disproof is a valid result. Escalate through your
-parent, preserving any direct host approval UI. Do not relabel your identity or
-permissions to satisfy a review or write gate.
+用观察、影响、替代方案或最小实验质疑错误前提。有用的证伪也是有效结果。经上级升级，同时保留宿主直接展示的审批界面。不得更换身份或权限标签来通过评审、写入门。
 
-Save incremental artifacts in the assigned execution destination. Return the
-result, changed paths, verification commands and outcomes, remaining gaps, and
-execution/commit identity. Do not report intended commands as executed. Follow the
-repository's role-specific stop point; no full test suite unless required for this
-role and scope. Leave external publication to its authorized owner.
+在分配的执行落点持续保存产物。回报结果、变更路径、验证命令与输出、剩余缺口、执行或提交身份。不得把准备执行的命令报成已经执行。遵守仓库针对角色规定的停止点；除非该角色与范围确实要求，否则不跑整套测试。外部发布交给已授权的负责人。

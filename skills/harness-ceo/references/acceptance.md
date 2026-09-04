@@ -1,54 +1,27 @@
-# Acceptance and completion
+# 验收与完成
 
-## Three questions
+## 三个问题
 
-| Question | Evidence | Responsibility |
+| 问题 | 证据 | 责任 |
 | --- | --- | --- |
-| Does the result implement its claim? | Diff, direct checks, outputs, error paths | Worker and optional independent reviewer; parent verifies claims |
-| Does the claim match the requested outcome? | Original request and current accepted decisions compared with assembled behavior | CEO final semantic acceptance |
-| Can the intended consumer use it? | Actual entrypoint and a representative usage path | CEO, with delegated cold-start evidence when useful |
+| 结果兑现了它的声明吗？ | 变更、直接检查、输出、错误路径 | 执行者与按需独立评审；上级核实声明 |
+| 声明符合用户要求的结果吗？ | 原始请求、当前有效决策与组装后行为的对照 | 主控最终语义验收 |
+| 预期使用方能用起来吗？ | 真实入口与代表性使用路径 | 主控负责，必要时委托冷启动取证 |
 
-CI proves its tested properties, not agreement with every design decision. A
-reviewer's statement is an input until checked. A missing search result is not
-proof of absence: inspect the search scope and real consumers. Exclude superseded
-or explicitly deferred requirements before reporting drift. Zero findings is valid.
+CI 证明它实际测试的性质，不证明符合每个设计决策。评审声明在核实前只是输入。搜索未命中不证明不存在：检查搜索范围和真实使用方。报告漂移前排除已被替代或明确延后的要求。零发现是有效结果。
 
-For milestones, enumerate requirements from the authoritative source toward the
-implementation, not only from changed files backward. This finds missing work
-that never produced a diff. Check removed and replacement paths when removal is
-part of the contract. Reuse existing regression evidence for known failure modes;
-add checks only when they discriminate a relevant failure.
+里程碑验收从权威来源逐项走向实现，不只从变更文件反推要求，这样才能找到从未产生变更的遗漏。契约包含删除时，同时检查被移除路径和替代路径。已知失败模式复用现有回归证据；新增检查必须能识别相关失败。
 
-## Bounded review
+## 有界评审
 
-Scale review to the real uncertainty and impact. Low-risk work may be verified by
-the CEO. Use independent review for meaningful risk or when repository rules demand
-it; multiple perspectives are useful only when they test different assumptions.
-Reviewers receive original sources and a neutral question, not the desired verdict.
-Follow host/repository requirements for transport-bound actor independence; another
-prompt to the same actor is not an independent approval.
+按真实不确定性和影响选择评审强度。低风险工作可以由主控验证；有实质风险或仓库要求时使用独立评审。多个视角只有检验不同假设时才有价值。给评审者原始来源和中性问题，不给预期结论。遵守宿主与仓库对真实传输身份独立性的要求；同一身份换一段提示词不构成独立批准。
 
-Ground findings in evidence and resolve them as fixes, supported dismissals,
-explicitly owned deferrals, or blockers. Recheck changed behavior and confirmed
-findings; do not demand endless rounds without new evidence. Required checks and
-release-blocking findings remain binding. Do not weaken a gate to accept work.
+发现须有证据，并处置为修复、有依据的驳回、有明确负责人的延期，或阻塞。复查变更行为与已确认问题；没有新证据就不要求无限轮次。必需检查和发布阻塞项仍然有效，不得削弱门禁来接收工作。
 
-## Honest stage boundaries
+## 如实区分阶段
 
-Report implemented, verified, integrated, released, and adopted separately. A
-successful local test does not mean released; a shipped feature does not prove
-adoption. Actual adoption is a completion requirement only if the user's contract
-requires it. A bounded cold-start exercise can verify usability without pretending
-to be production usage. Do not make completion depend on subjective satisfaction
-or unrequested polish.
+分别报告已实现、已验证、已集成、已发布、已采用。本地测试成功不等于已发布，功能已发布也不证明被采用。只有用户契约要求时，真实采用才是完成条件。有界冷启动演练可以验证可用性，但不能冒充生产使用。不把主观满意或用户未要求的打磨变成完成前提。
 
-In Git work, follow the repository's scoped verification and commit handoff. In
-Git-less work, use central artifact/execution evidence. After authorized integration,
-verify the changed assembled state and record the required task lifecycle writes.
-Local deliverables may be ready while central submission or independent consent is
-blocked: identify that exact stage rather than falsely marking the task done.
+Git 工作遵守仓库规定的定向验证和提交交接；无 Git 工作使用中心产物与执行证据。授权集成后验证发生变化的组装状态，记录所需任务生命周期写入。本地产物可以已就绪，但中心提交或独立同意仍受阻：指出具体阶段，不虚报任务完成。
 
-Release, cleanup, and retirement belong in completion when requested. Remove only
-owned, superseded paths within authorization; do not delete another active checkout
-or a user's customized matrix. Preserve useful failure evidence in the canonical
-record. Finish with outcome, evidence, and material gaps rather than an activity log.
+请求包含发布、清理和退役时，这些属于完成范围。只删除授权范围内归属明确且已被替代的路径；不删除他人的活跃工作树或用户定制矩阵。在权威记录中保留有用的失败证据。最终报告结果、证据和实质缺口，不复述活动流水账。

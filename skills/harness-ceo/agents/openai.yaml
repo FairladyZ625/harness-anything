@@ -1,4 +1,4 @@
 interface:
-  display_name: "Harness CEO"
-  short_description: "Coordinate model-neutral Harness work"
-  default_prompt: "Use $harness-ceo to coordinate this Harness Anything task with explicit ownership, a user-owned model matrix, and verified delivery."
+  display_name: "Harness 主控编排"
+  short_description: "通过用户模型矩阵、明确的角色契约与证据验收协调多代理工作"
+  default_prompt: "使用 $harness-ceo 协调当前 Harness Anything 任务，明确工作归属，依据用户模型矩阵派工，并完成验证交付。"

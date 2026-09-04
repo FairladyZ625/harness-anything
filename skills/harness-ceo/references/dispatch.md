@@ -1,64 +1,31 @@
-# Dispatch, concurrency, and recovery
+# 派工、并发与恢复
 
-## Discover the installed contract
+## 发现当前安装的契约
 
-Start with `ha capabilities` and the relevant command's help. Inspect existing
-agent/squad declarations and available runtime instances before selecting one.
-Validate a new declaration with the installed CLI before using or installing it.
-Do not assume example IDs, flags, provider aliases, permission modes, or callback
-behavior exist on another installation.
+从 `ha capabilities` 和相关命令帮助开始。选择前检查现有成员、小队声明和可用运行时实例。新声明须通过当前 CLI 验证后再使用或安装。不假设示例标识、参数、供应商别名、权限模式或回调行为在另一套安装中仍然成立。
 
-Use the existing task/preset creation path, declared read set, and task-bound
-runtime or squad execution. Honor the installed claim/lease and executor binding
-requirements; do not copy a fixed release/start sequence. Do not release another
-holder's lease or manufacture identities to bypass authority. Use one canonical
-mission; supplementary instructions should reference it rather than fork it.
+使用现有任务与预设创建入口、声明的阅读集合，以及任务绑定的运行时或小队执行。遵守当前认领、租约和执行者绑定要求，不照搬固定的释放再启动序列。不得释放他人的租约或伪造身份绕过权限。只保留一份权威执行指令；补充说明引用它，不另起分叉版本。
 
-If the current host cannot use a supported dispatch path, continue feasible local
-work and report the specific missing capability. Do not install private wrappers
-or configure credentials without authorization.
+宿主无法使用受支持的派工入口时，继续可行的本地工作，报告具体缺失能力。不得未经授权安装私人封装或配置凭据。
 
-## Multiple edges, one center
+## 多个边缘节点，一个中心
 
-The canonical center owns shared task state and matrix updates. Edges submit
-through the supported central write path under the current holder/claim fence;
-they do not each write a local copy and later overwrite the canonical record.
-One task execution must not acquire competing writers. Use distinct authorized
-execution units for parallel work or serialize work sharing the same lease.
-Scheduled work belongs to the schedule occurrence claim, not a permanent shared
-task that every node starts at the same time.
+权威中心负责共享任务状态和矩阵更新。边缘节点使用当前持有人及认领凭证，经受支持的中心写入路径提交；不能各写一份本地副本，再覆盖权威记录。同一任务执行不得产生竞争写入者。并行工作使用不同的已授权执行单元；共享同一租约时串行执行。
 
-Each run gets an artifact destination qualified by its actual dispatch/execution
-identity, allocated through the supported path. Never share a mutable `report.md`
-across workers. Git worktrees isolate source changes; Git-less edges hand artifacts
-back through the center without requiring Git or pretending to have a commit.
+定时工作归属调度发生次的认领，不绑定到一个所有节点同时启动的常设任务。
 
-Snapshot the matrix entry/revision used for selection in the run's evidence.
-Workers append observations to their own reports; the designated matrix owner
-reviews and incorporates them through the central write path. Concurrent runs can
-finish against different revisions without rewriting each other's observations.
-The matrix is user-owned prose: this skill introduces no separate lock, registry,
-claim type, or configuration parser.
+每次运行经受支持的入口分配产物目录，并以实际派工或执行身份区分。不同执行者不得共写可变的 `report.md`。Git 工作树隔离源码变更；无 Git 边缘节点经中心交回产物，不强求 Git，也不假装拥有提交。
 
-## Observe, reconcile, then retry
+在运行证据中记录选型使用的矩阵条目和版本。执行者把观察写入自己的报告，由指定矩阵负责人复核后，经中心写入路径整合。并发运行可以基于不同矩阵版本完成，彼此不改写对方观察。
 
-Retain task, execution, dispatch, workspace, model/runtime, and artifact identities
-from the actual run. A receipt says what was requested; inspect the supported
-status/result interface and output to establish what ran. Where the host exposes
-actual model/settings, record them; otherwise mark requested identity as unverified.
+矩阵是用户维护的文档；本技能不新增锁、注册表、认领类型或配置解析器。
 
-On timeout or connection loss, query the existing execution before redispatching.
-Reconcile runtime state, artifact timestamps/content, and process state where the
-host exposes it. An inaccessible process on another node is not proof of death.
-Do not infer inactivity from a quiet log or trust a stale running status alone.
+## 先观察、核对，再重试
 
-Use resume only when the current runtime supports it and the execution state is
-eligible. Otherwise perform the documented recovery or create a new bounded run
-referencing completed artifacts. Preserve the original failed attempt as evidence.
-Do not turn a historical provider bug into an eternal rule for every runtime.
+保存真实运行返回的任务、执行、派工、工作区、模型与运行时、产物身份。回执说明请求了什么；使用受支持的状态与结果接口和输出核实实际运行情况。宿主暴露实际模型与设置时记录它们；否则将请求身份标为未验证。
 
-After repeated attempts yield no new evidence, stop repeating that approach and
-take over, change the experiment, or escalate the missing capability. Continue
-independent work. Before closing a supervising session, hand live runs to a known
-owner or use the host's durable supervision facility; do not assume callbacks
-survive session loss. Final handoff identifies remaining live work explicitly.
+超时或失联后，重派前先查询已有执行。综合运行时状态、产物时间与内容，以及宿主可见的进程状态进行核对。看不到另一节点的进程不证明它已经死亡。日志安静不等于停止，也不能单信陈旧的运行中状态。
+
+仅当前运行时支持恢复、且执行状态符合条件时恢复执行。否则走当前文档规定的恢复路径，或新建有界运行并引用已完成产物。保留原失败尝试作为证据，不把历史供应商故障写成适用于所有运行时的永久规则。
+
+重复尝试没有新证据时，停止重复该方法，接管、改变实验或升级缺失能力；继续独立工作。结束监管会话前，把在飞运行交给明确持有人，或使用宿主持久监管设施，不假设回调在会话丢失后仍然有效。最终交接明确列出仍在飞的工作。

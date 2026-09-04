@@ -1,40 +1,38 @@
-# Delegation packet
+# 委托任务包
 
-Use these sections in the existing canonical task plan. Do not maintain a duplicate
-mission when the runtime derives it from that plan. Resolve placeholders before
-execution; inspect available sources before escalating missing material input.
+把以下章节放入现有权威任务计划。运行时从计划派生执行指令时，不另维护重复版本。执行前填实占位内容；缺少实质信息时先查可用来源，再升级。
 
-## Context
+## 背景
 
-- Original sources and applicable instructions:
-- Why this work matters and its first consumer:
-- Current state, existing implementation, and unverified premises:
-- Related work and integration context:
+- 原始来源与适用指令：
+- 工作意义与首个使用方：
+- 当前状态、已有实现、未验证前提：
+- 关联工作与集成上下文：
 
-## Request
+## 请求
 
-- Assigned role and parent / integration owner:
-- Observable objective and non-goals:
-- Acceptance behavior and evidence:
+- 分配角色、上级与集成负责人：
+- 可观察目标与非目标：
+- 验收行为与证据：
 
-## Output
+## 输出
 
-- Deliverables and consumer entrypoint:
-- Per-execution artifact destination allocated by the runtime/center:
-- Final result: outcome, changed paths, direct verification, gaps, risks, identity:
+- 交付物与使用方入口：
+- 运行时或中心分配的本次执行产物落点：
+- 最终结果：结论、变更路径、直接验证、缺口、风险、身份：
 
-## Constraints
+## 约束
 
-- Responsibility and expected source areas:
-- Concurrent owners, conflicting paths, protected surfaces:
-- Granted actions and required approvals:
-- Selected runtime/model and matrix entry/revision, or unmeasured selection:
-- Task claim/execution authority and central write path:
-- Existing budget and relevant limits (do not invent a token budget):
+- 职责与预期源码范围：
+- 并发持有人、冲突路径、保护面：
+- 已授动作与所需审批：
+- 所选运行时与模型、矩阵条目和版本，或尚未测量的选型：
+- 任务认领、执行权限与中心写入路径：
+- 已有预算与相关限制（不得编造令牌预算）：
 
-## Checkpoint
+## 检查点
 
-- Role-specific handoff condition and required verification:
-- When a material scope/authority decision returns to the parent:
-- How to report an incorrect premise, including evidence and an alternative:
-- Live-run supervision owner and handoff on session loss:
+- 当前角色的交接条件与必需验证：
+- 何时将实质范围或权限问题交回上级：
+- 如何报告错误前提，包括证据与替代方案：
+- 在飞执行监管负责人，以及会话丢失时的交接方式：
