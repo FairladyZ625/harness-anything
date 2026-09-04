@@ -1,6 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdtempSync, readlinkSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  readlinkSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,8 +24,16 @@ test("repository skills are discoverable with agent metadata", () => {
     .map((entry) => entry.name)
     .sort();
 
-  assert.deepEqual(skillNames, ["harness-contributing", "harness-install", "harness-migration", "preset-creator", "preset-trigger", "vertical-creator"]);
-  for (const skillName of ["harness-install", "harness-migration", "preset-trigger"]) {
+  assert.deepEqual(skillNames, [
+    "harness-ceo",
+    "harness-contributing",
+    "harness-install",
+    "harness-migration",
+    "preset-creator",
+    "preset-trigger",
+    "vertical-creator",
+  ]);
+  for (const skillName of ["harness-ceo", "harness-install", "harness-migration", "preset-trigger"]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
     assert.equal(existsSync(path.join(skillsRoot, skillName, "agents", "openai.yaml")), true, skillName);
   }
@@ -53,7 +70,10 @@ test("adoption skills route to the branch that carries them and to each other", 
   const install = readFileSync(path.join(skillsRoot, "harness-install", "SKILL.md"), "utf8");
   const migration = readFileSync(path.join(skillsRoot, "harness-migration", "SKILL.md"), "utf8");
 
-  for (const [skillName, body] of [["harness-install", install], ["harness-migration", migration]]) {
+  for (const [skillName, body] of [
+    ["harness-install", install],
+    ["harness-migration", migration],
+  ]) {
     assert.match(body, new RegExp(`^name: ${skillName}$`, "mu"), skillName);
     assert.match(body, /origin\/main:skills\//u, skillName);
     assert.doesNotMatch(body, /rebuild\/main/u, skillName);
@@ -69,7 +89,11 @@ test("the install skill carries the cold-start facts the CLI does not surface", 
   assert.match(body, /fromFile must stay inside the workspace/u);
   assert.match(body, /Execution Review requires an independent transport-bound arbiter/u);
   assert.match(body, /HARNESS_ACTOR=agent:/u, "executor is the only movable half of actor independence");
-  assert.match(body, /evidence\.lease\.executionId|\["lease"\]\["executionId"\]/u, "task start does not print the execution id");
+  assert.match(
+    body,
+    /evidence\.lease\.executionId|\["lease"\]\["executionId"\]/u,
+    "task start does not print the execution id",
+  );
   assert.doesNotMatch(body, /export HARNESS_DAEMON_USER_ROOT=/u, "an install must land in the serving user root");
 });
 

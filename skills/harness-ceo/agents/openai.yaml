@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness CEO"
+  short_description: "Coordinate model-neutral Harness work"
+  default_prompt: "Use $harness-ceo to coordinate this Harness Anything task with explicit ownership, a user-owned model matrix, and verified delivery."
