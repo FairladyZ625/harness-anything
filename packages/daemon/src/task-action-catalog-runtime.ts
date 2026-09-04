@@ -322,12 +322,28 @@ function taskActionFailure(
   const failure = actionCriterionFailure(error);
   if (!contract || failure?.actionId !== contract.id) return null;
   const evaluation = evaluations.find(({ criterionRef }) => criterionRef === failure.criterionRef),
-    rejected = cell.failed(
+    failed = cell.failed(
       cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, revision),
       error,
       contract,
       action,
-    );
+    ),
+    missingCancellationField = cancellationMissingField(action, error),
+    rejected = missingCancellationField
+      ? {
+          ...failed,
+          diagnostic: {
+            kind: "validation" as const,
+            entity: "task-transition",
+            field: missingCancellationField,
+            actual: "missing",
+            expectation:
+              missingCancellationField === "reason"
+                ? "a non-empty cancellation reason"
+                : "--force after execution has started",
+          },
+        }
+      : failed;
   return taskActionRejection(
     cell,
     action,
@@ -404,4 +420,15 @@ function invocationCriterionRef(contract: EntityActionContract): string {
 function isTaskLifecycleContractError(error: unknown): error is Error & { readonly issues: readonly unknown[] } {
   if (!(error instanceof Error) || error.name !== "TaskLifecycleContractError") return false;
   return Array.isArray((error as Error & { readonly issues?: unknown }).issues);
+}
+
+function cancellationMissingField(action: RepoTaskAction, error: unknown): "reason" | "force" | null {
+  if (action.kind !== "task-transition" || action.status !== "cancelled") return null;
+  if (typeof action.reason !== "string" || !action.reason.trim()) return "reason";
+  return isTaskLifecycleContractError(error) &&
+    error.issues.some(
+      (issue) => issue && typeof issue === "object" && "code" in issue && issue.code === "force_reason_required",
+    )
+    ? "force"
+    : null;
 }

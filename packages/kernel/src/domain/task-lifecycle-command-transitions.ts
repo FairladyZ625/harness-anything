@@ -312,8 +312,12 @@ export const cancel: Transition = {
       issues = revisionIssues(snapshot, command);
     if (!allowsTaskStatusMove(snapshot, "cancelled"))
       issues.push(lifecycleContractIssue("invalid_transition", "CancelTask requires an unleased non-terminal task"));
-    if (!command.force || !isNonEmptyString(command.reason))
-      issues.push(lifecycleContractIssue("force_reason_required", "CancelTask requires force and an auditable reason"));
+    if (!isNonEmptyString(command.reason))
+      issues.push(lifecycleContractIssue("missing_field", "CancelTask requires an auditable reason"));
+    if (snapshot.executions.length > 0 && !command.force)
+      issues.push(
+        lifecycleContractIssue("force_reason_required", "CancelTask requires force after execution has started"),
+      );
     return issues;
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "cancelled"),
