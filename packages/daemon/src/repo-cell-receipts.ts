@@ -199,29 +199,16 @@ export function projectedTaskIds(cell: ProjectedTaskIdsContext): Set<string> {
   }
   const taskIds = new Set<string>();
   let cursor: string | null = null;
-  try {
-    for (;;) {
-      const batch = cell.store.readBatch(cursor, 4096) as {
-        readonly events: readonly CanonicalEventV1[];
-        readonly cursor: string | null;
-        readonly done: boolean;
-      };
-      for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
-      if (batch.done) break;
-      if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
-      cursor = batch.cursor;
-    }
-  } catch {
-    throw cell.cellCodedError(
-      "content_not_ready",
-      [
-        "Task projection is catching up from revision ",
-        `${read.watermark}`,
-        " to ",
-        `${read.sourceRevision}`,
-        "; task identity cannot be determined until the canonical event stream is readable.",
-      ].join(""),
-    );
+  for (;;) {
+    const batch = cell.store.readBatch(cursor, 4096) as {
+      readonly events: readonly CanonicalEventV1[];
+      readonly cursor: string | null;
+      readonly done: boolean;
+    };
+    for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
+    if (batch.done) break;
+    if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
+    cursor = batch.cursor;
   }
   cell.knownTaskIds = taskIds;
   return cell.knownTaskIds;

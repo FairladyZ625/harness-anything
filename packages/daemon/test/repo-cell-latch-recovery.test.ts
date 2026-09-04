@@ -42,6 +42,26 @@ test("task identity lookup remains available while the projection catches up", (
   assert.deepEqual([...projectedTaskIds(cell)], ["task-existing"]);
 });
 
+test("task identity lookup preserves a canonical scan failure while the projection catches up", () => {
+  const scanFailure = Object.assign(new Error("canonical event object is unavailable"), { code: "invalid_store" }),
+    cell = {
+      knownTaskIds: null,
+      projection: { list: () => ({ watermark: 2, sourceRevision: 4, rows: [] }) },
+      store: {
+        readBatch: () => {
+          throw scanFailure;
+        },
+      },
+      cellCodedError,
+    };
+
+  assert.throws(
+    () => projectedTaskIds(cell),
+    (error: unknown) => error === scanFailure,
+  );
+  assert.equal(cell.knownTaskIds, null);
+});
+
 test("projection recovery names and carries the reachable rebuild command", () => {
   assert.equal(causeClassOf(new Error("lifecycle document projection mismatch for INDEX.md")), "projection");
   assert.equal(
