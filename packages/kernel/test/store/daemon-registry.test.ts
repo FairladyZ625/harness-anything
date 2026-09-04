@@ -367,6 +367,63 @@ test("daemon registry unregister disables a repo without deleting registry histo
   });
 });
 
+test("daemon registry removes an already disabled repo on a second unregister", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    const canonicalRoot = createHarnessRepo(path.join(root, "project"));
+
+    registerDaemonRepo({ userRoot, canonicalRoot, repoId: "canonical", createConvenienceLinks: false });
+    unregisterDaemonRepo("canonical", { userRoot, createConvenienceLinks: false });
+    const result = unregisterDaemonRepo("canonical", { userRoot, createConvenienceLinks: false });
+
+    assert.equal(result.changed, true);
+    assert.equal(result.repo.state, "disabled");
+    assert.deepEqual(readDaemonRegistry({ userRoot }).repos, []);
+
+    const rebound = registerDaemonRepo({
+      userRoot,
+      canonicalRoot,
+      repoId: "canonical",
+      createConvenienceLinks: false,
+    });
+    assert.equal(rebound.repo.state, "enabled");
+  });
+});
+
+test("daemon registry removes an already disabled invalid repo on a second unregister", () => {
+  withTempDir((root) => {
+    const userRoot = path.join(root, "user-harness");
+    mkdirSync(userRoot, { recursive: true });
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify({
+        schema: daemonRegistrySchema,
+        connections: [localConnection],
+        repos: [
+          {
+            repoId: "invalid",
+            canonicalRoot: path.join(root, "missing"),
+            displayName: "invalid",
+            authoredBranch: "main",
+            mode: "local",
+            connectionId: "missing-connection",
+            state: "enabled",
+            registeredAt: "2026-09-04T00:00:00.000Z",
+          },
+        ],
+      })}\n`,
+      "utf8",
+    );
+
+    const first = unregisterDaemonRepo("invalid", { userRoot, createConvenienceLinks: false });
+    const result = unregisterDaemonRepo("invalid", { userRoot, createConvenienceLinks: false });
+
+    assert.equal(first.repo.state, "disabled");
+    assert.equal(result.changed, true);
+    assert.deepEqual(readDaemonRegistry({ userRoot }).invalidRepos, []);
+  });
+});
+
 test("daemon registry rebinds an unregistered repoId to a new canonical root", () => {
   withTempDir((root) => {
     const userRoot = path.join(root, "user-harness");
