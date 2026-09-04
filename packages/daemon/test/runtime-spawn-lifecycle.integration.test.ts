@@ -580,23 +580,16 @@ test("attached task runtime settlement releases its execution lease before publi
       });
       assert.ok(exit, "runtime exit listener must be attached before the provider exits");
       exit(0);
-      await eventually(() => {
-        const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
-        return (
-          events.some(
+      const events = await eventuallyValue(() => {
+          const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events;
+          return events.some(
             (event) =>
               event.type === "runtime_session_outcome_observed" &&
               event.payload.runtimeSessionId === receipt.runtimeSessionId,
-          ) &&
-          events.some(
-            (event) =>
-              event.type === "lease_released" &&
-              event.taskId === taskId &&
-              event.payload.execution.executionId === executionId,
           )
-        );
-      });
-      const events = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
+            ? events
+            : null;
+        }),
         outcomeIndex = events.findIndex(
           (event) =>
             event.type === "runtime_session_outcome_observed" &&
