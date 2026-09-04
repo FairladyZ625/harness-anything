@@ -23,6 +23,16 @@ export interface DaemonServeDeferred {
   readonly witness: "unix-socket" | "singleton-lock";
 }
 export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
+/** Teardown must reach the pid file and the lock even when an earlier step rejects; the drain's own
+ *  rejection is the one that propagates, so a failing teardown step must not mask or replace it. */
+async function settleTeardownStep(step: () => Promise<void>): Promise<void> {
+  try {
+    await step();
+  } catch {
+    // Intentionally swallowed: the caller is already unwinding and the remaining teardown matters more.
+  }
+}
+
 export async function startDaemon(input: {
   readonly daemonId: string;
   readonly userRoot: string;
@@ -75,18 +85,20 @@ export async function startDaemon(input: {
     if (stopPromise) return stopPromise;
     stopping = true;
     stopPromise = (async () => {
-      // The release below is in `finally` because the invariant above is unconditional: whatever the
-      // drain does, the pid file and the lock must not outlive this call. They used to sit after the
-      // awaits, so any rejection on the way down — most easily a long migration replay failing inside
-      // RepoCell.close — left the lock held by a process that was already gone, and the next daemon
-      // could never claim it.
+      // Only the drain belongs in `try`; everything below it is teardown and the invariant above is
+      // unconditional. These used to sit after the awaits, so any rejection on the way down — most
+      // easily a long migration replay failing inside RepoCell.close — left the socket bound, the pid
+      // file present and the lock held by a process that was already gone, and the next daemon could
+      // never claim it. Each teardown step is also individually guarded, because one of them failing
+      // must not strand the ones after it: a half-released daemon is the state this whole comment
+      // exists to prevent.
       try {
         // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
         await host!.close();
-        lifecycle.record({ event: "process_exit", outcome });
-        await transport!.stop();
-        await connLog.settle();
       } finally {
+        lifecycle.record({ event: "process_exit", outcome });
+        await settleTeardownStep(() => transport!.stop());
+        await settleTeardownStep(() => connLog.settle());
         rmSync(pidPath, { force: true });
         singleton.release();
       }

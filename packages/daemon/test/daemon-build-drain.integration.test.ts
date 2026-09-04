@@ -298,6 +298,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
 
     assert.equal(existsSync(lockPath), false, "stop exit must release the singleton lock");
     assert.equal(readDaemonPid(userRoot, repoId), null, "stop exit must remove the pid file");
+    assert.equal(existsSync(testEndpoint(repoId)), false, "stop exit must remove the socket");
     daemon = undefined;
   } finally {
     await daemon?.stop().catch(() => undefined);
