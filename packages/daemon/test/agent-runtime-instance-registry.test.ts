@@ -41,11 +41,11 @@ const observed: RuntimeInstallationWitness = {
   observedAt: "2026-08-15T00:00:00.000Z",
 };
 
-test("runtime instance create RPC derives provider configuration wrappers from the inventory", () => {
+test("runtime instance create RPC leaves provider configuration wrappers open to the inventory", () => {
   const create = runtimeInstanceMethods.find((method) => method.method === "daemon.runtimeInstance.create"),
     payload = create?.params.fields.payload;
   assert.ok(payload && typeof payload === "object" && "fields" in payload);
-  for (const kindId of runtimeKindIds) assert.equal(payload.fields[kindId], "json?");
+  assert.equal(payload.open, true);
 });
 
 test("a synthetic declaration and frame parser traverse the shared provider surfaces", () => {

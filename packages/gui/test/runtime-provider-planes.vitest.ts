@@ -76,11 +76,13 @@ describe("provider edit form", () => {
     const form = runtimeInstanceEditForm(apiCodex);
     expect(form.baseUrl).toBe("https://old.example/v1");
     expect(form.baseUrlEditable).toBe(true);
-    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" })).toMatchObject({
+    const renamed = buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, name: "Codex Edited" });
+    expect(renamed).toMatchObject({
       instanceId: "codex-edit",
       baseUrl: "https://old.example/v1",
-      fast: true,
     });
+    expect("fast" in renamed).toBe(false);
+    expect(buildRuntimeInstanceUpdatePayload("codex-edit", { ...form, fast: false })).toMatchObject({ fast: false });
   });
   it("sends the edited base URL and an explicit empty value clears it", () => {
     const form = runtimeInstanceEditForm(apiCodex);

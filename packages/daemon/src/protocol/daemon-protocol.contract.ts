@@ -7,7 +7,6 @@ import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
 import { optionalEnum, shape, type RpcEnumRule, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
-import { runtimeKindIds } from "../runtime-inventory.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import {
   daemonRepoModeWords,
@@ -40,7 +39,26 @@ export {
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
-const runtimeKindConfigurationFields = Object.fromEntries(runtimeKindIds.map((kindId) => [kindId, "json?" as const]));
+export const builtInRuntimeProviderInputDeclaration = Object.freeze({
+  claude: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["effort", "baseUrl"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+  codex: Object.freeze({
+    authModes: ["subscription", "api-key"] as const,
+    fields: ["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"] as const,
+    effortField: "reasoningEffort",
+    fast: true,
+  }),
+  agy: Object.freeze({
+    authModes: ["subscription"] as const,
+    fields: ["effort"] as const,
+    effortField: "effort",
+    fast: false,
+  }),
+});
 
 // Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
@@ -185,20 +203,22 @@ export const runtimeInstanceMethods = Object.freeze([
     method: "daemon.runtimeInstance.create",
     requiresRepo: false,
     params: shape({
-      payload: shape({
-        instanceId: "string",
-        name: "string",
-        kindId: "string",
-        installationId: "string?",
-        providerId: "string",
-        models: "array",
-        defaultModel: "string?",
-        permissionMode: "string?",
-        isolationState: "string?",
-        ...runtimeKindConfigurationFields,
-        authMode: "string",
-        credentialRef: "string?",
-      }),
+      payload: shape(
+        {
+          instanceId: "string",
+          name: "string",
+          kindId: "string",
+          installationId: "string?",
+          providerId: "string",
+          models: "array",
+          defaultModel: "string?",
+          permissionMode: "string?",
+          isolationState: "string?",
+          authMode: "string",
+          credentialRef: "string?",
+        },
+        true,
+      ),
     }),
     guiBridgeMethod: "createRuntimeInstance",
   },

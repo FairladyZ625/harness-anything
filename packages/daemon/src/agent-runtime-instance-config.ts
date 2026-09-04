@@ -12,7 +12,12 @@ import type {
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
-import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "./runtime-inventory.ts";
+import {
+  isRuntimeKindId,
+  runtimeKindForId,
+  runtimeKindIds,
+  type RuntimeProviderDeclaration,
+} from "./runtime-inventory.ts";
 
 export type LegacyRuntimeInstanceConfig = {
   readonly schemaVersion: 1;
@@ -146,7 +151,10 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       ...(value.reasoningEffort === undefined ? {} : { [effortField]: value.reasoningEffort }),
       ...(value.baseUrl === undefined ? {} : { baseUrl: value.baseUrl }),
     },
-    configuration = runtimeKindConfig(flat ? flatConfiguration : value[value.kindId], declaration.configuration.fields);
+    configuration = runtimeKindConfig(
+      flat ? flatConfiguration : normalizeRuntimeInputAliases(value[value.kindId], declaration.configuration.fields),
+      declaration.configuration.fields,
+    );
   if (
     common.providerId === "openai" &&
     (configuration.wireApi !== undefined ||
@@ -161,6 +169,15 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       ].join(""),
     );
   return { ...common, kindId, [kindId]: configuration } as RuntimeInstanceConfig;
+}
+
+function normalizeRuntimeInputAliases(
+  value: unknown,
+  fields: RuntimeProviderDeclaration["configuration"]["fields"],
+): unknown {
+  if (!isRuntimeInstanceRecord(value) || !("reasoningEffort" in fields) || value.effort === undefined) return value;
+  const { effort, ...rest } = value;
+  return { ...rest, reasoningEffort: effort };
 }
 
 function runtimeKindConfig(

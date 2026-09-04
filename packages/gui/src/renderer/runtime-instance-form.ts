@@ -40,6 +40,7 @@ export type RuntimeInstanceEditFormState = {
   readonly baseUrlEditable: boolean;
   /** Codex-only default used when an individual launch does not override it. */
   readonly fast: boolean;
+  readonly initialFast: boolean;
   readonly fastEditable: boolean;
 };
 
@@ -105,6 +106,7 @@ export function runtimeInstanceEditForm(instance: RuntimeInstanceSummary): Runti
     baseUrlEditable: editable,
     baseUrl: editable ? runtimeInstanceBaseUrl(instance) : "",
     fast: fastEditable && instance.configuration.fast === true,
+    initialFast: fastEditable && instance.configuration.fast === true,
     fastEditable,
   };
 }
@@ -163,7 +165,7 @@ export function buildRuntimeInstanceUpdatePayload(
     // meaningful (back to the official endpoint), so it is sent whenever the plane has one.
     // A plane without an API mode has no base URL at all and the field is omitted there.
     ...(form.baseUrlEditable ? { baseUrl: form.baseUrl.trim() } : {}),
-    ...(form.fastEditable ? { fast: form.fast } : {}),
+    ...(form.fastEditable && form.fast !== form.initialFast ? { fast: form.fast } : {}),
   };
 }
 
