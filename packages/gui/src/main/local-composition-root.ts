@@ -147,8 +147,15 @@ function failure(method: string, prefix: string, error: unknown): JsonObject {
           "The GUI is attach-only and never starts or restarts the daemon.",
           "Run `ha gui` from an operator shell to acquire the daemon through the CLI, then retry.",
         ].join(" ")
-      : `${prefix}. Cause: ${message}`;
-  return daemonProtocolError(method, code, hint) as unknown as JsonObject;
+      : code === "daemon_method_unavailable" || code === "method_not_found"
+        ? [
+            `${prefix}. Cause: ${message}`,
+            "The GUI and attached local daemon expose different RPC method sets.",
+            "Restart the resident daemon from an operator shell, or run `ha gui` to use the canonical GUI build.",
+          ].join(" ")
+        : `${prefix}. Cause: ${message}`;
+  const receipt = daemonProtocolError(method, code, hint);
+  return { ...receipt, error: { ...receipt.error, hint } } as unknown as JsonObject;
 }
 
 export function reportInvalidTaskSnapshotRows(

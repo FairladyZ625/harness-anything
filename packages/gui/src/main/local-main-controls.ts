@@ -11,7 +11,6 @@ type Target = {
 export function addLocalMainControls(input: {
   readonly bridge: GuiServiceBridge;
   readonly target: (repoId?: string) => Promise<Target>;
-  readonly clientBuildCommit: string | null;
   readonly credentialPort?: CredentialPort;
 }): GuiServiceBridge {
   // API-key creation remains main-process-bound so the daemon receives only an opaque
@@ -25,7 +24,7 @@ export function addLocalMainControls(input: {
     invoke: async (method, payload) => {
       if (method === "createRuntimeInstance") return credentialController.create(asRecord(payload) as never);
       const result = asRecord(await input.bridge.invoke(method, payload));
-      return method === "getSystemStatus" ? overlayBuildSkew(await overlayLocalUserRoot(result)) : result;
+      return method === "getSystemStatus" ? overlayLocalUserRoot(result) : result;
     },
   };
   // The daemon system-status contract does not carry the user root; the System
@@ -39,20 +38,6 @@ export function addLocalMainControls(input: {
     } catch {
       return value;
     }
-  }
-  // A resident daemon serves the code it was started from, so the same overlay carries the verdict
-  // the renderer cannot compute for itself: whether the daemon's build commit still matches this
-  // GUI's. The System page reports the mismatch; lifecycle action remains on the CLI command surface.
-  function overlayBuildSkew(value: Record<string, unknown>): Record<string, unknown> {
-    const daemon = asRecord(value.daemon);
-    if (!daemon.daemonId) return value;
-    const reported = asRecord(daemon.build).commitSha,
-      clientCommit = input.clientBuildCommit;
-    const stale =
-      typeof reported === "string" && clientCommit !== null && reported !== clientCommit
-        ? { daemonCommit: reported, clientCommit }
-        : null;
-    return { ...value, daemon: { buildStale: stale, ...daemon } };
   }
 }
 function asRecord(value: unknown): Record<string, unknown> {

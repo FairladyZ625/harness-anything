@@ -276,10 +276,19 @@ export async function warmDaemonProjection({
   let lastDetail = "the daemon answered no projection read";
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const status = projectionStatus(await readProjection());
+      const observation = projectionObservation(await readProjection()),
+        status = observation.status;
+      if (observation.daemonBuild?.code === "daemon_build_stale")
+        throw probeError(
+          "daemon_build_stale",
+          `Canonical GUI lane cannot use daemon build ${observation.daemonBuild.loadedBuildId ?? "missing"}; ` +
+            `disk build is ${observation.daemonBuild.diskBuildId ?? "missing"}. ` +
+            "Restart the resident daemon from an operator shell before running the canonical lane.",
+        );
       if (status === "ready") return { attempts: attempt + 1, status };
       lastDetail = `projection status ${status ?? "unknown"} after ${attempt + 1} read(s)`;
     } catch (error) {
+      if (error?.code === "daemon_build_stale") throw error;
       lastDetail = error instanceof Error ? error.message : String(error);
     }
     if (attempt + 1 < attempts) await sleep(delayMs);
@@ -287,11 +296,12 @@ export async function warmDaemonProjection({
   throw probeError("daemon_projection_unready", `Daemon projection never reached ready: ${lastDetail}.`);
 }
 
-function projectionStatus(receipt) {
+function projectionObservation(receipt) {
   try {
-    return JSON.parse(receipt.evidence).status ?? null;
+    const evidence = JSON.parse(receipt.evidence);
+    return { status: evidence.status ?? null, daemonBuild: receipt.daemonBuild ?? null };
   } catch {
-    return null;
+    return { status: null, daemonBuild: null };
   }
 }
 

@@ -16,7 +16,6 @@ describe("Electron main daemon lifecycle boundary", () => {
         target: async () => {
           throw new Error("restart forwarding must not inspect or control the daemon process");
         },
-        clientBuildCommit: null,
       });
     await expect(
       bridge.invoke("requestDaemonControl", { kind: "restart", authorityRepoId: "repo-a" }),

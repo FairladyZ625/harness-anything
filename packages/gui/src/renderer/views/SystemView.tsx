@@ -229,17 +229,6 @@ export function SystemView({
             <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
             <ReachabilityBadge />
           </div>
-          {daemon.buildStale ? (
-            <p
-              className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/5 px-2 py-1.5 ui-meta text-status-blocked"
-              title={`${daemon.buildStale.daemonCommit} → ${daemon.buildStale.clientCommit}`}
-            >
-              {t("views.systemView.buildStale", {
-                daemon: daemon.buildStale.daemonCommit.slice(0, 12),
-                client: daemon.buildStale.clientCommit.slice(0, 12),
-              })}
-            </p>
-          ) : null}
           <dl className="mt-3 grid gap-2">
             <Field
               name={t("views.settingsView.systemVersion")}

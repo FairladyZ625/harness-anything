@@ -120,7 +120,8 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       repoId: repoBId,
     })) as Failure;
     assert.equal(denied.ok, false);
-    assert.deepEqual(denied.error, { code: "workspace_not_registered" });
+    assert.equal(denied.error.code, "workspace_not_registered");
+    assert.match(denied.error.hint ?? "", /ha daemon repo register/u);
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);

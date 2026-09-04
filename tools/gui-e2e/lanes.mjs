@@ -1,5 +1,16 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { daemonBuildStamp } from "../../packages/daemon/src/build-identity.ts";
+import {
+  daemonIdFromEnv,
+  daemonUserRoot,
+  resolveLocalDaemonEndpoint,
+} from "../../packages/daemon/src/client/local-daemon-target.ts";
+import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import {
+  currentDaemonProtocolVersion,
+  daemonGuiInvokeFacets,
+} from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
@@ -39,6 +50,25 @@ function writeDeclaredEntitySource(rootDir) {
 export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver }) {
   if (lane === "canonical") {
     await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
+    const endpoint = resolveLocalDaemonEndpoint({
+        userRoot: daemonUserRoot(env),
+        daemonId: daemonIdFromEnv(env),
+        env,
+      }),
+      hello = await requestDaemonJsonRpcAt(
+        endpoint,
+        "protocol.hello",
+        { protocolVersion: currentDaemonProtocolVersion },
+        2_000,
+        5_000,
+      ),
+      build = hello.build;
+    assertCanonicalDaemonMethods({
+      daemonMethods: Array.isArray(hello.methods) ? hello.methods : [],
+      requiredMethods: daemonGuiInvokeFacets.map((facet) => facet.method),
+      daemonCommit: build && typeof build === "object" && !Array.isArray(build) ? build.commit : null,
+      guiCommit: daemonBuildStamp().commit,
+    });
     const driver = await startDriver({ workspaceRoot, rootDir: workspaceRoot, env, runRoot });
     driver.runRoot = runRoot;
     return { driver, close: () => driver.close() };
@@ -76,4 +106,18 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       await fixture.stop();
     },
   };
+}
+
+export function assertCanonicalDaemonMethods({ daemonMethods, requiredMethods, daemonCommit, guiCommit }) {
+  const advertised = new Set(daemonMethods),
+    missing = requiredMethods.filter((method) => !advertised.has(method));
+  if (missing.length === 0) return;
+  throw Object.assign(
+    new Error(
+      `Canonical GUI lane requires daemon method(s) ${missing.join(", ")}; ` +
+        `attached daemon build is ${daemonCommit ?? "unknown"}, GUI build is ${guiCommit ?? "unknown"}. ` +
+        "Restart the resident daemon from an operator shell before running the canonical lane.",
+    ),
+    { code: "daemon_gui_method_drift" },
+  );
 }
