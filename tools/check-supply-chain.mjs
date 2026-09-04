@@ -55,6 +55,38 @@ function run(command) {
   return result.stdout;
 }
 
+// The advisory endpoint being down is not a vulnerability finding. Reporting it as one makes the
+// gate say something false, and a gate that cries wolf gets read as noise -- including on the day
+// it is right. These markers come from npm's own failure output, so the distinction is drawn from
+// what npm reports rather than guessed from an exit code.
+const auditUnavailableMarkers = [
+  "audit endpoint returned an error",
+  "Service Unavailable",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "socket hang up",
+];
+
+const unavailableAudits = [];
+
+function runAudit(command) {
+  const [binary, ...args] = command.split(" ");
+  const result = spawnSync(binary, args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+    shell: process.platform === "win32",
+  });
+  if (result.status === 0) return;
+  const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+  if (auditUnavailableMarkers.some((marker) => output.includes(marker))) {
+    unavailableAudits.push(`${command}: ${output.split("\n").find((line) => line.trim()) ?? "no output"}`);
+    return;
+  }
+  record(`${command} failed${output ? `:\n${output}` : ""}`);
+}
+
 const policyValidation = validateSupplyChainReleaseReadiness(policy);
 for (const error of policyValidation.errors) {
   record(`supply-chain release readiness policy invalid: ${error.code}: ${error.message}`);
@@ -66,7 +98,7 @@ validateDependabot();
 validateDocsAndWorkflow();
 
 for (const command of policy.auditCommands) {
-  run(command.command);
+  runAudit(command.command);
 }
 
 const sbomOutput = run(policy.sbom.generationCommand);
@@ -78,7 +110,21 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Supply chain check passed with ${policy.sbom.format} SBOM and release/license gates.`);
+// Surfaced as a GitHub annotation so "not audited" is visible on the PR itself, not only to whoever
+// opens the job log. Silence here would let an unaudited change look identical to an audited one.
+for (const entry of unavailableAudits) {
+  console.log(`::warning title=Supply chain audit did not run::${entry}`);
+  console.warn(`Audit unavailable, not a finding: ${entry}`);
+}
+
+if (unavailableAudits.length > 0) {
+  console.log(
+    `Supply chain check passed its offline gates with ${policy.sbom.format} SBOM; ` +
+      `${unavailableAudits.length} audit command(s) could not reach the advisory endpoint and did not run.`,
+  );
+} else {
+  console.log(`Supply chain check passed with ${policy.sbom.format} SBOM and release/license gates.`);
+}
 
 function validatePackageMetadata() {
   for (const packagePath of policy.workspacePackagePaths) {
