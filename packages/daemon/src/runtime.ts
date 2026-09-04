@@ -75,13 +75,21 @@ export async function startDaemon(input: {
     if (stopPromise) return stopPromise;
     stopping = true;
     stopPromise = (async () => {
-      // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
-      await host!.close();
-      lifecycle.record({ event: "process_exit", outcome });
-      await transport!.stop();
-      await connLog.settle();
-      rmSync(pidPath, { force: true });
-      singleton.release();
+      // The release below is in `finally` because the invariant above is unconditional: whatever the
+      // drain does, the pid file and the lock must not outlive this call. They used to sit after the
+      // awaits, so any rejection on the way down — most easily a long migration replay failing inside
+      // RepoCell.close — left the lock held by a process that was already gone, and the next daemon
+      // could never claim it.
+      try {
+        // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
+        await host!.close();
+        lifecycle.record({ event: "process_exit", outcome });
+        await transport!.stop();
+        await connLog.settle();
+      } finally {
+        rmSync(pidPath, { force: true });
+        singleton.release();
+      }
     })();
     return stopPromise;
   };
