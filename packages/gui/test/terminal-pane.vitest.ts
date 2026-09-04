@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-const xterm = vi.hoisted(() => ({ loaded: [] as string[], lastOptions: null as Record<string, unknown> | null }));
+const xterm = vi.hoisted(() => ({
+  loaded: [] as string[],
+  lastOptions: null as Record<string, unknown> | null,
+  keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
+  selection: "",
+}));
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80;
@@ -27,6 +32,18 @@ vi.mock("@xterm/xterm", () => ({
     }
     open() {}
     onData() {
+      return { dispose() {} };
+    }
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      xterm.keyHandler = handler;
+    }
+    hasSelection() {
+      return xterm.selection.length > 0;
+    }
+    getSelection() {
+      return xterm.selection;
+    }
+    onSelectionChange() {
       return { dispose() {} };
     }
     focus() {}
@@ -86,6 +103,8 @@ let root: Root;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   xterm.loaded = [];
+  xterm.keyHandler = null;
+  xterm.selection = "";
   localStorage.clear();
   container = document.createElement("div");
   document.body.append(container);
@@ -108,6 +127,7 @@ function mount() {
         onFit: () => undefined,
         openUrl: null,
         onOpenLink: () => undefined,
+        onSelectionChange: () => undefined,
       }),
     ),
   );
@@ -139,5 +159,25 @@ describe("TerminalPane addon lifecycle (W4a)", () => {
     localStorage.setItem(terminalWebglStorageKey, "enabled");
     mount();
     expect(xterm.loaded).toContain("webgl");
+  });
+
+  it("copies an xterm selection on Cmd+C without forwarding the key", () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    xterm.selection = "selected output";
+    mount();
+    const event = new KeyboardEvent("keydown", { key: "c", metaKey: true, cancelable: true });
+    expect(xterm.keyHandler?.(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(writeText).toHaveBeenCalledWith("selected output");
+  });
+
+  it("forwards Ctrl+C and Cmd+C without a selection to the PTY path", () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    mount();
+    expect(xterm.keyHandler?.(new KeyboardEvent("keydown", { key: "c", ctrlKey: true }))).toBe(true);
+    expect(xterm.keyHandler?.(new KeyboardEvent("keydown", { key: "c", metaKey: true }))).toBe(true);
+    expect(writeText).not.toHaveBeenCalled();
   });
 });

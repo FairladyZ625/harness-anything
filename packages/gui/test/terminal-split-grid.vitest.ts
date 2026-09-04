@@ -7,15 +7,27 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
 
+const terminalPaneMock = vi.hoisted(() => ({ onSelectionChange: null as ((text: string) => void) | null }));
+
 // pane 内容用桩替代真 xterm:本文件测的是 pane 树(分割/关闭/序列化/每 pane 上报),
 // 不是终端仿真;桩把 onFit 暴露成一次点击,才能对「每个 pane 各自上报 cols/rows」下断言。
 vi.mock("../src/renderer/components/terminal/TerminalPane.tsx", () => ({
-  TerminalPane: ({ output, onFit }: { readonly output: string; readonly onFit: (c: number, r: number) => void }) =>
-    createElement("button", {
+  TerminalPane: ({
+    output,
+    onFit,
+    onSelectionChange,
+  }: {
+    readonly output: string;
+    readonly onFit: (c: number, r: number) => void;
+    readonly onSelectionChange: (text: string) => void;
+  }) => {
+    terminalPaneMock.onSelectionChange = onSelectionChange;
+    return createElement("button", {
       "data-testid": "terminal-pane",
       "data-output": output,
       onClick: () => onFit(120, 40),
-    }),
+    });
+  },
 }));
 
 const AT = "2026-09-01T00:00:00.000Z";
@@ -165,6 +177,7 @@ afterEach(() => {
   container = null;
   delete (window as unknown as Record<string, unknown>).harness;
   vi.restoreAllMocks();
+  terminalPaneMock.onSelectionChange = null;
 });
 
 function mountView() {
@@ -452,6 +465,8 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
     expect(menu).not.toBeNull();
     expect(menu!.style.left).toBe("40px");
     expect([...menu!.querySelectorAll("[role=menuitem]")].map((item) => item.textContent)).toEqual([
+      "Copy",
+      "Paste",
       "Split left",
       "Split right",
       "Split up",
@@ -467,12 +482,51 @@ describe("terminal split panes (PLT-TerminalWorkspace W1)", () => {
       pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
     });
     act(() => {
-      document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]')[2].click();
+      document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]')[4].click();
     });
     await flush();
     expect(document.querySelector('[data-testid="terminal-pane-menu"]')).toBeNull();
     expect(bridge.spawnTerminal).toHaveBeenCalledTimes(1);
     expect(panes()).toHaveLength(2);
+  });
+
+  it("disables copy without a selection and copies or pastes through the active pane", async () => {
+    const writeText = vi.fn(async () => undefined);
+    const readText = vi.fn(async () => "pasted input");
+    Object.defineProperty(navigator, "clipboard", { value: { writeText, readText }, configurable: true });
+    const { bridge } = stubBridge([sessionRow()]);
+    mountView();
+    await flush();
+    const pane = panes()[0];
+    act(() => {
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    let items = document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]');
+    expect(items[0].disabled).toBe(true);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      terminalPaneMock.onSelectionChange?.("selected output");
+    });
+    act(() => {
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    items = document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]');
+    expect(items[0].disabled).toBe(false);
+    act(() => items[0].click());
+    expect(writeText).toHaveBeenCalledWith("selected output");
+    act(() => {
+      pane.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+    items = document.querySelectorAll<HTMLButtonElement>('[data-testid="terminal-pane-menu"] [role=menuitem]');
+    act(() => items[1].click());
+    await flush();
+    expect(readText).toHaveBeenCalledTimes(1);
+    expect(bridge.sendTerminalInput).toHaveBeenCalledWith({
+      repoId: "repo-a",
+      sessionId: "s-restore",
+      clientSeq: 1,
+      utf8: "pasted input",
+    });
   });
 
   it("resizes the sidebar by dragging its right edge and remembers the width", async () => {
