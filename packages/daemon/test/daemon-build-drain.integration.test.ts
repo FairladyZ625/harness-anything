@@ -9,7 +9,7 @@ import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/d
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { readDaemonLifecycleRecords, type DaemonLifecycleRecorder } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
-import { readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
+import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
 test("the daemon binds and serves status and queued commands before repository attachment settles", async () => {
@@ -307,6 +307,36 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
   } finally {
     await daemon?.stop().catch(() => undefined);
     await realCell?.close().catch(() => undefined);
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a pid file that cannot be removed still releases the singleton lock", async () => {
+  // Pid removal sits between the socket teardown and the lock release. If it throws, the lock must
+  // still go: a held lock with no live daemon behind it is exactly the state stop exists to prevent.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-stop-pid-stuck-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "stop-pid-stuck",
+    lockPath = daemonSingletonLockPath(userRoot, repoId),
+    pidPath = daemonPidPath(userRoot, repoId);
+  let daemon: RunningDaemon | undefined;
+  rosterRepo(rootDir, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(await startDaemon({ daemonId: repoId, userRoot, endpoint: testEndpoint(repoId) }));
+    assert.equal(existsSync(lockPath), true, "the running daemon holds the singleton lock");
+    // A non-empty directory in the pid file's place makes the non-recursive rmSync throw.
+    rmSync(pidPath, { force: true });
+    mkdirSync(path.join(pidPath, "stuck"), { recursive: true });
+
+    await daemon.stop();
+
+    assert.equal(existsSync(lockPath), false, "stop exit must release the singleton lock");
+    assert.equal(existsSync(testEndpoint(repoId)), false, "stop exit must remove the socket");
+    daemon = undefined;
+  } finally {
+    await daemon?.stop().catch(() => undefined);
     rmSync(parent, { recursive: true, force: true });
   }
 });
