@@ -20,9 +20,13 @@ test("login shell environment parser rejects empty and malformed output", () => 
 
 test("terminal environment caches a clean snapshot and overlays enumerated session channels", () => {
   const previous = process.env.SSH_AUTH_SOCK,
-    previousSecret = process.env.RUNTIME_ONLY_SECRET;
+    previousSecret = process.env.RUNTIME_ONLY_SECRET,
+    previousLang = process.env.LANG;
   process.env.SSH_AUTH_SOCK = "/private/tmp/agent.sock";
   process.env.RUNTIME_ONLY_SECRET = "must-not-cross";
+  // LANG is a session channel now, so an ambient value would overlay the captured one and make
+  // this assertion depend on whoever started the test runner.
+  delete process.env.LANG;
   let captures = 0;
   try {
     const capture = () => {
@@ -43,6 +47,8 @@ test("terminal environment caches a clean snapshot and overlays enumerated sessi
     else process.env.SSH_AUTH_SOCK = previous;
     if (previousSecret === undefined) delete process.env.RUNTIME_ONLY_SECRET;
     else process.env.RUNTIME_ONLY_SECRET = previousSecret;
+    if (previousLang === undefined) delete process.env.LANG;
+    else process.env.LANG = previousLang;
   }
 });
 
