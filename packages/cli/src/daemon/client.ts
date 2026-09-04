@@ -96,6 +96,24 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     ? "daemon_target_conflict"
     : null;
 }
+// Repo bootstrap and runtime-instance commands must reach the daemon an isolated runtime injected
+// through HARNESS_DAEMON_ENDPOINT, not the implicit user socket: the resolver honours the injected
+// endpoint and the repo scope.
+function repoScopedDaemonEndpoint(
+  env: NodeJS.ProcessEnv,
+  command: ThinCommand,
+  userRoot: string,
+  daemonId: string,
+): string {
+  return resolveLocalDaemonEndpoint({
+    userRoot,
+    daemonId,
+    env,
+    repoId: env.HARNESS_DAEMON_REPO_ID,
+    canonicalRoot: command.rootDir,
+  });
+}
+
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -125,7 +143,7 @@ export async function runCommandThroughDaemon(
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...params } = command.action,
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
+      socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(
@@ -149,13 +167,7 @@ export async function runCommandThroughDaemon(
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...payload } = command.action,
-      socketPath = resolveLocalDaemonEndpoint({
-        userRoot,
-        daemonId,
-        env,
-        repoId: env.HARNESS_DAEMON_REPO_ID,
-        canonicalRoot: command.rootDir,
-      });
+      socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
     return withAutostart(
       () =>
         requestLocalDaemonJsonRpcForTarget(

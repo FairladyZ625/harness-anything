@@ -1,0 +1,52 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-lifecycle-blackbox-acceptance",
+    "title": "lifecycle-blackbox-acceptance",
+    "version": "3.0.0",
+    "owner": "preset",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
+    {
+      "id": "acceptance/lifecycle-blackbox",
+      "version": "1",
+      "documentKind": "acceptance-script",
+      "slot": "task.lifecycle.blackbox.acceptance",
+      "materializeAs": "lifecycle-blackbox-acceptance.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Consumer Contract",
+        "## Isolated Setup",
+        "## Hooks Negative Case",
+        "## Lifecycle Scenario",
+        "## Evidence"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Consumer Contract",
+            "## Isolated Setup",
+            "## Hooks Negative Case",
+            "## Lifecycle Scenario",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.lifecycle.blackbox.acceptance/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Consumer Contract",
+            "## Isolated Setup",
+            "## Hooks Negative Case",
+            "## Lifecycle Scenario",
+            "## Evidence"
+          ],
+          "bodyPath": "templates/task.lifecycle.blackbox.acceptance/en-US.md"
+        }
+      ]
+    }
+  ]
+}
