@@ -1044,7 +1044,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
           schema: "runtime-batch/v1",
           maxConcurrency: 2,
           dispatches: [
-            { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject", task: taskId },
+            { instance: "cli-worker", agent: "fable", to: "missing-agent", prompt: "must reject" },
             {
               instance: "cli-worker",
               agent: "fable",
