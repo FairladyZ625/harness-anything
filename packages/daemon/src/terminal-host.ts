@@ -27,6 +27,7 @@ import {
   type TmuxController,
 } from "./terminal-tmux.ts";
 import { resolveContainedPath } from "./contained-path.ts";
+import { terminalEnvironment } from "./terminal-environment.ts";
 
 const scrollbackLimit = 1024 * 1024,
   replayLimit = 256 * 1024,
@@ -84,6 +85,7 @@ type OpenTerminalHostInput = {
   readonly platform?: NodeJS.Platform;
   readonly tmux?: TmuxController;
   readonly registryFilePath?: string;
+  readonly resolveTerminalEnvironment?: (platform: NodeJS.Platform, shell: string) => Readonly<Record<string, string>>;
 };
 type SpawnLaunch = {
   readonly key: string;
@@ -131,7 +133,8 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   const now = input.now ?? (() => new Date().toISOString()),
     spawnPty = input.spawnPty ?? pty.spawn;
   const platform = input.platform ?? process.platform,
-    tmux = input.tmux ?? systemTmuxController;
+    tmux = input.tmux ?? systemTmuxController,
+    resolveTerminalEnvironment = input.resolveTerminalEnvironment ?? terminalEnvironment;
   const tmuxProbe = tmux.probe();
   const registryFilePath =
     input.registryFilePath ?? path.join(input.rootDir, ".harness", "generated", "terminal-sessions.json");
@@ -173,13 +176,17 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     const selection = selectLocalTerminalBackend(terminalBackend(payload.backend), tmuxProbe);
     const namespace = selection.backend === "tmux" ? terminalTmuxNamespace(input.repoId, sessionId) : null;
     const executable = selection.backend === "tmux" ? tmuxProbe.executable! : command;
-    const args = selection.backend === "tmux" ? ["-u", "new-session", "-A", "-s", namespace!, "-c", cwd, command] : [];
+    const env = resolveTerminalEnvironment(platform, command);
+    const args =
+      selection.backend === "tmux"
+        ? ["-u", "new-session", "-A", "-s", namespace!, "-c", cwd, ...tmuxEnvironmentArgs(env), command]
+        : [];
     return spawnProcess({
       key,
       name: optional(payload.name) ?? "Terminal",
       command: executable,
       args,
-      env: terminalEnvironment(platform),
+      env,
       cwd,
       publicCwd: path.relative(input.rootDir, cwd) || ".",
       profile,
@@ -475,7 +482,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       cols: 80,
       rows: 24,
       cwd: session.spawnCwd,
-      env: terminalEnvironment(platform),
+      env: resolveTerminalEnvironment(platform, shell(session.shellProfile, platform)),
     });
     bindChild(session, child);
     session.attachable = true;
@@ -704,11 +711,8 @@ function terminalCommand(
 function quoteCmdArgument(value: string): string {
   return /^[^\s"&|<>^()]+$/u.test(value) ? value : `"${value.replaceAll('"', '""')}"`;
 }
-function terminalEnvironment(platform: NodeJS.Platform): Record<string, string> {
-  const result: Record<string, string> = { TERM: "xterm-256color" },
-    keys = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", ...(platform === "win32" ? ["SystemRoot"] : [])];
-  for (const key of keys) if (process.env[key]) result[key] = process.env[key]!;
-  return result;
+function tmuxEnvironmentArgs(environment: Readonly<Record<string, string>>): string[] {
+  return Object.entries(environment).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
 }
 function frameSize(frame: Frame): number {
   return Buffer.byteLength(frame.utf8, "utf8") + 96;
