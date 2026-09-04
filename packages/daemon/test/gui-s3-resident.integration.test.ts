@@ -175,7 +175,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
 
     const catalog = await rpc("repo.gui.catalog.snapshot", { repo: { repoId: "alpha" } });
     assert.equal(catalog.schema, "gui-catalog-snapshot/v1");
-    assert.equal((catalog.presets as unknown[]).length, 12);
+    assert.equal((catalog.presets as unknown[]).length, 13);
     const reread = await rpc("repo.gui.catalog.reread", {
       repo: { repoId: "alpha" },
       payload: { expectedDigest: catalog.catalogDigest },
