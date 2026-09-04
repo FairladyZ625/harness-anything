@@ -82,3 +82,18 @@ test("a failed snapshot is not cached so the next terminal retries", () => {
     console.warn = previousWarn;
   }
 });
+
+test("terminal environment prefers the session locale over the one login profiles produce", () => {
+  const previous = process.env.LANG;
+  process.env.LANG = "en_US.UTF-8";
+  try {
+    const environment = terminalEnvironment("darwin", "/test/locale-shell", () => ({
+      LANG: "C.UTF-8",
+      PATH: "/usr/bin",
+    }));
+    assert.equal(environment.LANG, "en_US.UTF-8");
+  } finally {
+    if (previous === undefined) delete process.env.LANG;
+    else process.env.LANG = previous;
+  }
+});

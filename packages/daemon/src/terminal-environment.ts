@@ -16,6 +16,14 @@ const sessionEnvironmentKeys = [
   "LOGNAME",
   // Keeps macOS terminal text encoding aligned with the logged-in user session.
   "__CF_USER_TEXT_ENCODING",
+  // Keeps the locale identical to the user's session. Login profiles are not the
+  // authority here: this machine's profiles produce C.UTF-8 while the user's own
+  // terminal runs en_US.UTF-8, because terminal apps inject the locale themselves.
+  "LANG",
+  // Keeps an explicit override intact; it outranks LANG wherever the user sets it.
+  "LC_ALL",
+  // Keeps character classification aligned when it is set apart from LANG.
+  "LC_CTYPE",
 ] as const;
 
 const cachedPosixEnvironments = new Map<string, Readonly<Record<string, string>>>();
