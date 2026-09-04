@@ -35,6 +35,7 @@ test("Task help replaces every descriptor-backed lifecycle row", () => {
   }
   assert.match(help, /ha task create/u);
   assert.match(help, /ha task progress append/u);
+  assert.match(help, /ha task delete \[--soft <soft>\].*--soft — optional; value; format: <task-id>/su);
   assert.doesNotMatch(help, /availability: (?:true|false)|available: (?:true|false)/u);
 });
 

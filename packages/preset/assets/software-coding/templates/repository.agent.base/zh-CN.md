@@ -17,7 +17,7 @@
 ## Kernel Workflow
 
 - task 是工作单元与状态时间线。
-- fact 是对承重观察的显式、append-only 晋升；事实数量为可选 `0..N`，不是完成门槛。
+- fact 是对承重观察的显式、append-only 晋升；默认 `code-doc-reconciliation` 完成门至少需要一条 fact，缺失时以 `fact_missing` 拒绝。
 - decision 保存承重 why：选择、推翻、长期边界与派生后续工作的判断。
 - prose 提及不能替代 canonical fact、decision 或 relation。
 
@@ -30,5 +30,5 @@
 ## Write Coordination
 
 - 机读字段、生命周期变化与 relation 使用 Harness 命令写入。
-- 已登记的 authored prose 按仓库 doc-sync policy 处理。
+- 已登记的 authored prose 按仓库 doc-sync policy 处理；`ha doc sync --submit --path` 的路径以 configured authored root（通常是 `harness/`）为基准，误加仓库根前缀会以 `document_not_found` 拒绝。
 - `.harness/` 下的 generated state 仅本地有效，不得提交。

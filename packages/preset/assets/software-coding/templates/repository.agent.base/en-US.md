@@ -17,7 +17,7 @@ This file contains stable repository operating rules. Current milestone state an
 ## Kernel Workflow
 
 - A task is the work unit and status timeline.
-- A fact is an explicit, append-only promotion of a load-bearing observation; facts are optional `0..N`, not a completion quantity gate.
+- A fact is an explicit, append-only promotion of a load-bearing observation; the default `code-doc-reconciliation` completion gate requires at least one fact and rejects its absence with `fact_missing`.
 - A decision records the load-bearing why: choices, reversals, long-lived boundaries, and downstream work-spawning judgments.
 - Prose mentions do not replace canonical facts, decisions, or relations.
 
@@ -30,5 +30,5 @@ This file contains stable repository operating rules. Current milestone state an
 ## Write Coordination
 
 - Use Harness commands for machine-read fields, lifecycle changes, and relations.
-- Follow repository doc-sync policy for registered authored prose.
+- Follow repository doc-sync policy for registered authored prose; `ha doc sync --submit --path` resolves paths from the configured authored root (normally `harness/`) and rejects repository-root-prefixed paths with `document_not_found`.
 - Generated state under `.harness/` is local-only and must not be committed.

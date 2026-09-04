@@ -2,12 +2,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { materializePacketStdin } from "../src/index.ts";
+import { materializePacketStdin, rawTemplateBody } from "../src/index.ts";
+import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
 
 test("thin parser derives builtin vertical, template, and script discovery actions", () => {
   const vertical = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
     templates = parseThinCommand(["template", "list"]),
-    render = parseThinCommand(["template", "render", "template://repository/adr-template@1", "--locale", "zh-CN"]),
+    render = parseThinCommand([
+      "template",
+      "render",
+      "template://repository/adr-template@1",
+      "--locale",
+      "zh-CN",
+      "--raw",
+    ]),
     scripts = parseThinCommand(["script", "list"]),
     inspect = parseThinCommand(["script", "inspect", "vertical:software-coding:repository-audit"]);
   assert.equal(
@@ -25,6 +33,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
       kind: "template-render",
       templateRef: "template://repository/adr-template@1",
       locale: "zh-CN",
+      raw: true,
     });
   if (scripts.ok) assert.deepEqual(scripts.command.action, { kind: "script-list" });
   if (inspect.ok)
@@ -64,6 +73,20 @@ test("thin parser derives builtin vertical, template, and script discovery actio
   );
   assert.equal(parseThinCommand(["preset", "run", "standard-task"]).ok, false);
   assert.equal(parseThinCommand(["preset", "action", "standard-task"]).ok, false);
+});
+
+test("raw template rendering extracts only markdown body", () => {
+  assert.equal(rawTemplateBody({ ok: true, evidence: JSON.stringify({ body: "# Agent\n" }) }), "# Agent\n");
+  assert.throws(() => rawTemplateBody({ ok: true, evidence: JSON.stringify({}) }), /missing its rendered body/u);
+});
+
+test("structured packets name missing required fields", () => {
+  assert.throws(
+    () => packetJson(JSON.stringify({ completionClaim: "done" }), ["completionClaim", "commitSha"]),
+    (error: unknown) =>
+      (error as { code?: string; message?: string }).code === "missing_field" &&
+      /commitSha/u.test((error as Error).message),
+  );
 });
 
 test("Relation commands replace hosted Task and Decision relation ingress", () => {

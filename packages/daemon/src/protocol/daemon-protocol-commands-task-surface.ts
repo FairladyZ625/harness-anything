@@ -181,12 +181,24 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Soft-delete through production authority; hard delete remains rejected with a repair path.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--soft", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--hard", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--soft",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { format: "<task-id>" },
+      ),
+      cliInput(
+        "--hard",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { format: "<task-id>" },
+      ),
       cliInput("--confirm", "single", false, {
         code: "invalid_field",
       }),

@@ -167,12 +167,9 @@ export function buildCommand(
     if (!submitted?.submission)
       throw cellCodedError(
         "invalid_transition",
-        [
-          "Execution Review requires a submitted execution on the current ",
-          "iteration; submit ",
-          `${executionId}`,
-          " before review.",
-        ].join(""),
+        `Execution Review requires a submitted execution on the current iteration; current task status is ` +
+          `${snapshot.task?.status ?? "missing"} and execution status is ${submitted?.state ?? "missing"}. ` +
+          `Submit ${executionId} before review.`,
       );
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReview",
