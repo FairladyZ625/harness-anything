@@ -422,13 +422,12 @@ function isTaskLifecycleContractError(error: unknown): error is Error & { readon
   return Array.isArray((error as Error & { readonly issues?: unknown }).issues);
 }
 
+// The kernel cancel rule is the single source: it emits `missing_field` for an empty reason and
+// `force_reason_required` once execution has started. The handler only names the field.
 function cancellationMissingField(action: RepoTaskAction, error: unknown): "reason" | "force" | null {
-  if (action.kind !== "task-transition" || action.status !== "cancelled") return null;
-  if (typeof action.reason !== "string" || !action.reason.trim()) return "reason";
-  return isTaskLifecycleContractError(error) &&
-    error.issues.some(
-      (issue) => issue && typeof issue === "object" && "code" in issue && issue.code === "force_reason_required",
-    )
-    ? "force"
-    : null;
+  if (action.kind !== "task-transition" || !isTaskLifecycleContractError(error)) return null;
+  const codes = new Set(
+    error.issues.map((issue) => (issue && typeof issue === "object" && "code" in issue ? String(issue.code) : "")),
+  );
+  return codes.has("missing_field") ? "reason" : codes.has("force_reason_required") ? "force" : null;
 }
