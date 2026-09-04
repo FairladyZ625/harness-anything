@@ -9,7 +9,6 @@ import {
   makeTaskEventStore,
   normalizeTaskLifecycleCommand,
   reviewDigest,
-  submissionDigest,
   type TaskLifecycleCommand,
 } from "../../kernel/src/index.ts";
 import { consentJsonFields } from "../../preset/src/index.ts";
@@ -17,6 +16,7 @@ import { type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract
 import { cellCodedError } from "./repo-cell-errors.ts";
 import {
   explicitExecutionId,
+  reviewExecutionSelection,
   reviewConsentSelection,
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
@@ -140,50 +140,20 @@ export function buildCommand(
   }
   if (lifecycleAction?.commandType === "RecordReview") {
     const packet = reviewPacket(rootDir, action),
-      executionId =
-        explicitExecutionId(action) ??
-        uniqueDerivedExecutionId(
-          currentSubmittedExecutions(snapshot),
-          "Current submitted execution",
-          [
-            "Run ha task show ",
-            `${taskId}`,
-            "; if the task is active, run ha task submit ",
-            `${taskId}`,
-            " --json-input '<submission-json>'.",
-          ].join(""),
-          (candidate) =>
-            [
-              "ha task review-execution ",
-              `${taskId}`,
-              " --execution-id ",
-              `${candidate}`,
-              " --review-id <review-id> --from-file <review.json>",
-            ].join(""),
-        ),
-      submitted = snapshot.executions.find(
-        (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
-      );
-    if (!submitted?.submission)
-      throw cellCodedError(
-        "invalid_transition",
-        `Execution Review requires a submitted execution on the current iteration; current task status is ` +
-          `${snapshot.task?.status ?? "missing"} and execution status is ${submitted?.state ?? "missing"}. ` +
-          `Submit ${executionId} before review.`,
-      );
+      selection = reviewExecutionSelection(action, snapshot, taskId);
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReview",
       taskId,
-      executionId,
+      executionId: selection.executionId,
       reviewId: requiredCellText(action.reviewId, "reviewId"),
       verdict: reviewVerdict(packet.value.verdict),
       reason: requiredCellText(packet.value.reason, "reason"),
       evidenceChecked: cellStringList(packet.value.evidenceChecked),
       ...reviewQualificationFields(packet.value),
-      commitSha: submitted.submission.commitSha,
-      iteration: submitted.iteration,
+      commitSha: selection.commitSha,
+      iteration: selection.iteration,
       contentDigest: packet.digest,
-      submissionDigest: submissionDigest(submitted.submission),
+      submissionDigest: selection.submissionDigest,
     });
   }
   if (action.kind === "task-review-consent") {

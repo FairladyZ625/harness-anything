@@ -104,11 +104,19 @@ export async function runCommandThroughDaemon(
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
   const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
-    // The CLI renders build drift alongside the successful receipt. Attach-only clients keep their
-    // existing command-result shape while the resident daemon drains cooperatively.
+    // The CLI renders build drift alongside ordinary receipts. A schema-sensitive request is held
+    // back until the resident daemon has drained, so a new field never reaches an older validator.
+    staleSensitiveField =
+      command.method === "repo.agentRuntime.spawn" && typeof command.action.agentId === "string"
+        ? "agentId"
+        : undefined,
     requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(((target, ...rest) =>
       rpc.requestLocalDaemonJsonRpcForTarget(
-        { ...target, reportStaleBuild: true },
+        {
+          ...target,
+          reportStaleBuild: true,
+          ...(staleSensitiveField ? { rejectStaleBuildField: staleSensitiveField } : {}),
+        },
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show",

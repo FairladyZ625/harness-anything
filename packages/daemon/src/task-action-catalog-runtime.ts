@@ -93,12 +93,6 @@ export async function runTaskActionCatalogRuntime(
     submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_PROOF_CRITERION),
     submitValidationUnmet = submitValidationEvaluation?.status === "unmet",
     submitLeaseUnmet = submitLeaseEvaluation?.status === "unmet";
-  if (action.kind === "task-submit" && submitValidationUnmet && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
-      submitValidationEvaluation,
-    ]);
-  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (lifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
       rootDir: cell.rootDir,
@@ -107,6 +101,8 @@ export async function runTaskActionCatalogRuntime(
       slot: "task.plan",
       transition: "task.start",
     });
+  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   let normalized: ReturnType<RepoCellOperationalContext["buildCommand"]>;
   try {
     normalized = cell.buildCommand(
@@ -131,6 +127,10 @@ export async function runTaskActionCatalogRuntime(
     if (rejection) return rejection;
     throw error;
   }
+  if (action.kind === "task-submit" && submitValidationUnmet && contract)
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+      submitValidationEvaluation,
+    ]);
   if (
     contract?.target.kind === "task" &&
     revisionIssues(current.snapshot, {
@@ -153,10 +153,43 @@ export async function runTaskActionCatalogRuntime(
       executionId = commandFields[lifecycle.targetIdField];
     if (typeof executionId !== "string")
       throw cell.cellCodedError("invalid_command", `${lifecycle.commandType} requires a target entity id.`);
-    if (!canStartExecution(current.snapshot, executionId) && contract)
-      return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
-        criterionEvaluation(evaluations, START_CRITERION),
-      ]);
+    if (!canStartExecution(current.snapshot, executionId) && contract) {
+      const activeExecution = current.snapshot.executions.find(
+          (candidate) => candidate.state === "active" && candidate.iteration === current.snapshot.task?.iteration,
+        ),
+        rejected = activeExecution
+          ? cell.failed(
+              cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+              cell.cellCodedError(
+                "invalid_transition",
+                `Current task round already has active execution ${activeExecution.executionId}.`,
+                {
+                  kind: "validation",
+                  entity: `task ${taskId}`,
+                  field: "executionId",
+                  actual:
+                    `active execution=${activeExecution.executionId} ` +
+                    `status=${current.snapshot.task?.status ?? "missing"} ` +
+                    `node=${current.snapshot.task?.currentNode ?? "missing"}`,
+                  expectation:
+                    `Current round already has an active execution; run ha task start ${taskId} ` +
+                    "without --execution-id to reuse it",
+                },
+              ),
+              contract,
+              action,
+            )
+          : undefined;
+      return taskActionRejection(
+        cell,
+        action,
+        binding,
+        current.snapshot.revision,
+        contract,
+        [criterionEvaluation(evaluations, START_CRITERION)],
+        rejected,
+      );
+    }
   }
   if (preview && lifecycle) {
     const commandFields = normalized as unknown as Readonly<Record<string, unknown>>,

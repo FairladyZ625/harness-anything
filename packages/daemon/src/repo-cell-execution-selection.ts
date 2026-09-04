@@ -3,6 +3,7 @@ import {
   closeoutReadiness,
   currentSubmittedExecutions,
   getExecutableEntityAction,
+  submissionDigest,
   taskActionUsage,
 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
@@ -21,6 +22,93 @@ export function uniqueDerivedExecutionId(
 ): string {
   if (candidates.length === 1) return candidates[0]!.executionId;
   return rejectExecutionSelection(candidates, label, zeroNext, commandFor);
+}
+
+export function reviewExecutionSelection(
+  action: RepoTaskAction,
+  snapshot: Snapshot,
+  taskId: string,
+): {
+  readonly executionId: string;
+  readonly commitSha: string;
+  readonly iteration: 0 | 1;
+  readonly submissionDigest: `sha256:${string}`;
+} {
+  const requestedExecutionId = explicitExecutionId(action),
+    submittedExecutions = currentSubmittedExecutions(snapshot);
+  const executionId =
+      requestedExecutionId ??
+      uniqueDerivedExecutionId(
+        submittedExecutions,
+        "Current submitted execution",
+        `Run ha task show ${taskId}; if the task is active, run ha task submit ${taskId} ` +
+          "--json-input '<submission-json>'.",
+        (candidate) =>
+          `ha task review-execution ${taskId} --execution-id ${candidate} ` +
+          "--review-id <review-id> --from-file <review.json>",
+      ),
+    submitted = snapshot.executions.find(
+      (candidate) => candidate.executionId === executionId && candidate.iteration === snapshot.task?.iteration,
+    );
+  if (!submitted?.submission) throw reviewExecutionStateError(snapshot, taskId, submitted, executionId);
+  return {
+    executionId,
+    commitSha: submitted.submission.commitSha,
+    iteration: submitted.iteration,
+    submissionDigest: submissionDigest(submitted.submission),
+  };
+}
+
+export function assertExecutionExecutorDeclarationEligible(
+  snapshot: Snapshot,
+  taskId: string,
+  executionId: string,
+  candidates: readonly { readonly executionId: string }[],
+): void {
+  if (candidates.some((candidate) => candidate.executionId === executionId)) return;
+  const execution = snapshot.executions.find((candidate) => candidate.executionId === executionId),
+    executor = execution?.actor.executor,
+    assigned = executor !== null && executor !== undefined;
+  throw cellCodedError(
+    "invalid_proof",
+    "Executor declaration is only valid for a current submitted review execution with no executor.",
+    {
+      kind: "validation",
+      entity: `execution ${executionId}`,
+      field: "declareExecutor",
+      actual:
+        `status=${execution?.state ?? "missing"} node=${snapshot.task?.currentNode ?? "missing"} ` +
+        `executor=${executor ? `${executor.kind}:${executor.id}` : "none"}`,
+      expectation: assigned
+        ? "Use declare-executor only when status=submitted node=review executor=none; this assigned execution " +
+          `must continue with ha task review-execution ${taskId} --execution-id ${executionId} ` +
+          "--review-id <review-id> --from-file <review.json>"
+        : "Use declare-executor only when status=submitted node=review executor=none; run " +
+          `ha task show ${taskId}, submit the current execution if needed, then retry the declaration`,
+    },
+  );
+}
+
+function reviewExecutionStateError(
+  snapshot: Snapshot,
+  taskId: string,
+  execution: Snapshot["executions"][number] | undefined,
+  requestedExecutionId?: string,
+): Error {
+  const executionId = requestedExecutionId ?? execution?.executionId;
+  return cellCodedError(
+    "invalid_transition",
+    `Execution Review requires a submitted execution on the current iteration; current task status is ` +
+      `${snapshot.task?.status ?? "missing"} and execution status is ${execution?.state ?? "missing"}. ` +
+      `Submit ${executionId ?? "the current execution"} before review.`,
+    {
+      kind: "validation",
+      entity: executionId ? `execution ${executionId}` : `task ${taskId}`,
+      field: "status",
+      actual: execution?.state ?? "missing",
+      expectation: "Execution status must be submitted on the current task iteration before review",
+    },
+  );
 }
 
 export function rejectExecutionSelection(

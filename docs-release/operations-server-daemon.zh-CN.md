@@ -5,11 +5,11 @@ registry 选择；一个仓库只能注册为其中一种模式。
 
 ## 连接模式 / Connection modes
 
-| Registry 模式 | 适用场景 | 本机运行内容 | 数据与写入权威 |
-| --- | --- | --- | --- |
-| `local` | 普通本地开发 | daemon、runtime、GUI 与工作区 | 本机台账及其单写队列 |
-| `remote-proxy` | 纯展示服务器仓库 | GUI 与透传 daemon；没有工作区 | 远端 daemon 及其单写队列 |
-| `remote-center` / `remote-edge` | 既有 Fleet 中心和边缘部署 | 视场景运行中心或边缘组件与镜像 | Fleet 中心 lease 队列 |
+| Registry 模式                   | 适用场景                  | 本机运行内容                   | 数据与写入权威           |
+| ------------------------------- | ------------------------- | ------------------------------ | ------------------------ |
+| `local`                         | 普通本地开发              | daemon、runtime、GUI 与工作区  | 本机台账及其单写队列     |
+| `remote-proxy`                  | 纯展示服务器仓库          | GUI 与透传 daemon；没有工作区  | 远端 daemon 及其单写队列 |
+| `remote-center` / `remote-edge` | 既有 Fleet 中心和边缘部署 | 视场景运行中心或边缘组件与镜像 | Fleet 中心 lease 队列    |
 
 要开发服务器上的仓库，请 SSH 到服务器。`remote-proxy` 本机没有工作区，也不是远程 CLI
 开发环境。
@@ -63,6 +63,20 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 ha daemon start --service
 ha gui
 ```
+
+## 从 task 与 runtime 拒绝中恢复
+
+回执的 validation diagnostic 会指出被拒字段、当前值与重试命令。恢复时按以下状态规则处理：
+
+| 错误码                                | 条件                                                   | 恢复方式                                                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_submission`                  | submission 字段类型或取值错误                          | 修正回执点名的 JSON 字段，再运行 `ha task submit <task-id> --execution-id <execution-id> --from-file <submission.json>`。                               |
+| `invalid_runtime_mission`             | `--mission` 收到路径或非法 id                          | 使用小写裸 id；daemon 读取 `harness/<task-package>/artifacts/missions/<name>.md`，再运行 `ha runtime run <runtime> --task <task-id> --mission <name>`。 |
+| `declare-executor` 的 `invalid_proof` | execution 不满足 `submitted/review` 且 `executor=none` | 已分配的 submitted execution 运行 `ha task review-execution`；仅未分配的 execution 使用 `ha task declare-executor`。                                    |
+| `executor_binding_invalid`            | 声明的 executor 与 task binding 或 held lease 不同     | 从 diagnostic 点名的 expected executor 执行回执里的重试命令。                                                                                           |
+| `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
+| `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
+| `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
 
 ## registry v2 硬切
 

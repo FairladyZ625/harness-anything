@@ -5,9 +5,32 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
+import { failed } from "../src/repo-cell-settlement.ts";
+import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+
+test("path-like runtime missions produce an actionable receipt without exposing the path", (context) => {
+  let error: unknown;
+  try {
+    runtimeMissionName("tasks/task-owner/artifacts/missions/continue-01.md");
+  } catch (caught) {
+    error = caught;
+  }
+  const receipt = failed("op-runtime-mission", error);
+  assert.equal(receipt.code, "invalid_runtime_mission");
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: "runtime mission",
+    field: "mission",
+    actual: "path-like value",
+    expectation:
+      "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
+      "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+  });
+  context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(receipt)}`);
+});
 
 test("exit zero is success evidence even when provider protocol evidence is incomplete", () => {
   const result = classifyRuntimeExit(active({ protocolError: true }), 0);

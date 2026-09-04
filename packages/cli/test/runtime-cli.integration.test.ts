@@ -511,6 +511,28 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(mismatch.status, 1);
     assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
     const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
+    const pathLikeMission = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--mission",
+      existingMissionPath,
+      "--task",
+      taskId,
+      "--no-stream",
+    ]);
+    assert.equal(pathLikeMission.status, 1);
+    assert.equal(pathLikeMission.receipt.code, "invalid_runtime_mission");
+    assert.deepEqual(pathLikeMission.receipt.diagnostic, {
+      kind: "validation",
+      entity: "runtime mission",
+      field: "mission",
+      actual: "path-like value",
+      expectation:
+        "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
+        "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+    });
+    context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(pathLikeMission.receipt)}`);
     // The unavailable rejection is only deterministic while the file is absent: once it exists on
     // disk, the WAL materializer's authored-candidate settlement may auto-submit it after any
     // flush, racing both this rejection and a doc status that expects "eligible".
@@ -906,6 +928,15 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ]);
     assert.equal(readOnly.status, 0, `${readOnly.stderr}\n${JSON.stringify(readOnly.receipt)}`);
     assert.equal(readOnly.receipt.outcome, "succeeded");
+    const readOnlySpawn = readOnly.receipt.spawn as Record<string, unknown>;
+    assert.deepEqual(
+      { ledgerAccess: readOnlySpawn.ledgerAccess, reportDelivery: readOnlySpawn.reportDelivery },
+      { ledgerAccess: "unavailable", reportDelivery: "stdout" },
+    );
+    assert.match(
+      String((readOnly.receipt.result as Record<string, unknown>).text),
+      /Read-only Dispatch Contract[\s\S]*daemon-ledger commands are unavailable[\s\S]*final stdout/u,
+    );
     const noAction = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "no-action", "--no-stream"]);
     assert.equal(noAction.status, 0, `${noAction.stderr}\n${JSON.stringify(noAction.receipt)}`);
     assert.equal(noAction.receipt.outcome, "succeeded");
@@ -953,7 +984,23 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       undefined,
       { env },
     );
-    assert.equal(unknownSpawn.code, "invalid_request");
+    assert.equal(unknownSpawn.code, "unknown_field");
+    const unknownSpawnDiagnostic = unknownSpawn.diagnostic as Record<string, unknown>;
+    assert.deepEqual(
+      {
+        kind: unknownSpawnDiagnostic.kind,
+        entity: unknownSpawnDiagnostic.entity,
+        field: unknownSpawnDiagnostic.field,
+        actual: unknownSpawnDiagnostic.actual,
+      },
+      {
+        kind: "validation",
+        entity: "repo.agentRuntime.spawn",
+        field: "permission_mode",
+        actual: "unknown",
+      },
+    );
+    assert.match(String(unknownSpawnDiagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u);
     const unknownCancel = await runCommandThroughDaemon(
       {
         rootDir: safePath(root),
@@ -965,7 +1012,14 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       undefined,
       { env },
     );
-    assert.equal(unknownCancel.code, "invalid_request");
+    assert.equal(unknownCancel.code, "unknown_field");
+    assert.deepEqual(
+      {
+        kind: (unknownCancel.diagnostic as Record<string, unknown>).kind,
+        field: (unknownCancel.diagnostic as Record<string, unknown>).field,
+      },
+      { kind: "validation", field: "force" },
+    );
     const unknownFact = await runCommandThroughDaemon(
       {
         rootDir: safePath(root),

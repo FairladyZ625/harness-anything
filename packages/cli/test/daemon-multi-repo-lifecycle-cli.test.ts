@@ -368,7 +368,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       { userRoot: fixture.userRoot },
     );
     assert.equal(spoof.ok, false);
-    assert.equal((spoof.error as { code?: string }).code, "invalid_request");
+    assert.equal((spoof.error as { code?: string }).code, "unknown_field");
     const logicalRevisions = new Map([
       [fixture.alpha, makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
       [fixture.beta, makeTaskEventReader({ rootDir: fixture.beta, repoId: "beta" }).read().revision],

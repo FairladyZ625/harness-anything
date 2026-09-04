@@ -9,13 +9,14 @@ import {
 } from "../../kernel/src/index.ts";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonFields, taskSubmissionJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
+import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
 
-export function packetJson(value: unknown, fields: readonly string[]): Record<string, unknown> {
+export function packetJson(value: unknown, fields: readonly string[], entity = "JSON packet"): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(requiredCellText(value, "jsonInput"));
@@ -27,13 +28,20 @@ export function packetJson(value: unknown, fields: readonly string[]): Record<st
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
     throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
-  const present = Object.keys(parsed),
+  const packet = parsed as Record<string, unknown>,
+    present = Object.keys(packet),
     missing = fields.filter((field) => !present.includes(field));
   if (missing.length)
-    throw cellCodedError("missing_field", `JSON packet is missing required fields: ${missing.join(", ")}.`);
+    throw cellCodedError("missing_field", `JSON packet is missing required fields: ${missing.join(", ")}.`, {
+      kind: "validation",
+      entity,
+      field: missing[0]!,
+      actual: "missing",
+      expectation: `Required fields: ${fields.join(", ")}`,
+    });
   if (present.sort().join("\0") !== [...fields].sort().join("\0"))
     throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
-  return parsed as Record<string, unknown>;
+  return packet;
 }
 
 export function workspaceText(rootDir: string, requestedValue: unknown, field: string): string {
@@ -57,13 +65,14 @@ export function packetRecord(
   rootDir: string,
   action: Readonly<Record<string, unknown>>,
   fields: readonly string[],
+  entity?: string,
 ): {
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
 } {
   const body = readPacketSource(rootDir, action);
   return {
-    value: packetJson(body, fields),
+    value: packetJson(body, fields, entity),
     digest: packetDigest(body),
   };
 }
@@ -141,9 +150,24 @@ export function submissionPacket(action: RepoTaskAction, rootDir: string): GuiSu
       "invalid_command",
       "Submit accepts either its RPC submission or one CLI JSON source, not both.",
     );
-  const value = action.submission ?? packetRecord(rootDir, action, taskSubmissionJsonFields).value,
+  const value = action.submission ?? packetRecord(rootDir, action, taskSubmissionJsonFields, "task submission").value,
     issues = validateGuiSubmission(value);
-  if (issues.length) throw cellCodedError("invalid_submission", issues.join("; "));
+  if (issues.length) {
+    const first = validationDiagnostic(issues[0]!);
+    throw cellCodedError(
+      "invalid_submission",
+      issues.join("; "),
+      first
+        ? {
+            ...first,
+            entity: "task submission",
+            expectation:
+              `${first.expectation}; fix the packet, then retry ha task submit ${String(action.taskId)} ` +
+              `--execution-id ${String(action.executionId)} --from-file <submission.json>`,
+          }
+        : undefined,
+    );
+  }
   return value as unknown as GuiSubmissionV1;
 }
 

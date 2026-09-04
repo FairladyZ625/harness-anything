@@ -16,6 +16,7 @@ import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } fr
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
+import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
 import { runSquadEntityMigration } from "./squad-entity-migration.ts";
 import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
@@ -419,10 +420,11 @@ export function declareExecutionExecutor(
         " --reason <reason>.",
       ].join(""),
     );
-  const executionId =
+  const candidates = executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
+    executionId =
       requestedExecutionId ??
       cell.uniqueDerivedExecutionId(
-        executionExecutorDeclarationCandidates(snapshot, taskId, binding.actor),
+        candidates,
         "Eligible executor-declaration execution",
         [
           `Run ha task show ${taskId}; unblock the Task if needed, then retry when`,
@@ -430,8 +432,9 @@ export function declareExecutionExecutor(
         ].join(" "),
         (candidate: string) =>
           `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
-      ),
-    dispatchProof = dispatchedExecutor(cell, action, taskId, executionId),
+      );
+  assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, candidates);
+  const dispatchProof = dispatchedExecutor(cell, action, taskId, executionId),
     canonicalAction = { ...action, agent: dispatchProof.executor.id },
     opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
     existing = cell.store.readEvent(opId);

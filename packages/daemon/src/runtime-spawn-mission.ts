@@ -168,6 +168,15 @@ export function runtimeMissionName(value: unknown): string {
     throw runtimeSpawnError(
       "invalid_runtime_mission",
       "Use --mission <name> with 1..64 lowercase letters, digits, or hyphens; path separators are forbidden.",
+      {
+        kind: "validation",
+        entity: "runtime mission",
+        field: "mission",
+        actual: typeof value === "string" && /[/\\]/u.test(value) ? "path-like value" : "invalid mission id",
+        expectation:
+          "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
+          "and did not look up this file. Retry ha runtime run <runtime-instance> --task <task-id> --mission <name>",
+      },
     );
   return value;
 }
