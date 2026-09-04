@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type DaemonControlReceipt, type SystemRepoRow } from "./api-client.ts";
+import { daemonRetryDelay, isRetryableDaemonError } from "./daemon-startup.ts";
 
 export const systemQueryKeys = {
   status: () => ["system", "global", "status"] as const,
@@ -18,6 +19,8 @@ export function useSystemStatusQuery() {
     queryFn: () => harnessClient.getSystemStatus(),
     staleTime: 3_000,
     refetchInterval: 10_000,
+    retry: (failureCount, error) => failureCount < 16 && isRetryableDaemonError(error),
+    retryDelay: daemonRetryDelay,
   });
 }
 

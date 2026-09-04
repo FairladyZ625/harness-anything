@@ -14,6 +14,7 @@ import declaredEntityKinds from "./scenarios/declared-entity-kinds.mjs";
 import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
 import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
 import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
+import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -32,6 +33,7 @@ export const catalog = [
   systemDaemonLogs,
   sessionsGrouping,
   scheduleRunHistory,
+  daemonStartupWait,
 ];
 
 export function selectScenarios({ lane, ids }) {

@@ -26,6 +26,7 @@ import type {
 import { isFactDomainTypeSummaryRow, isRendererRecord, type FactDomainTypeSummaryRow } from "./result-validation.ts";
 import { isSettingsSuccess } from "./settings-payload.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { daemonBridgeError } from "./daemon-startup.ts";
 
 export interface TaskListSuccess {
   readonly ok: true;
@@ -901,8 +902,7 @@ function readDecisionShowResult(value: unknown): DecisionShowSuccess {
 }
 
 function readSystemStatus(value: unknown): SystemStatusSuccess {
-  if (!isSystemStatusSuccess(value))
-    throw new Error(localErrorHint(value, "System status bridge returned an invalid result."));
+  if (!isSystemStatusSuccess(value)) throw daemonBridgeError(value, "System status bridge returned an invalid result.");
   return value;
 }
 function readDaemonControlReceipt(value: unknown): DaemonControlReceipt {
