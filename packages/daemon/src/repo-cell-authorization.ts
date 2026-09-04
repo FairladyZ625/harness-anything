@@ -455,10 +455,20 @@ function invalidExecutorBindingFor(
         : "malformed executor descriptor",
     expected = lease?.actor.executor ? `agent:${lease.actor.executor.id}` : null,
     retry = executorRetryCommand(input.action, taskId, executionId),
-    expectation = expected
-      ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-      : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-        `${taskId ?? "<task-id>"}, then retry ${retry}`,
+    reviewerRedispatch =
+      input.action.kind === "task-review-execution" &&
+      taskId !== null &&
+      isExecutorDescriptorRecord(raw) &&
+      raw.kind === "agent" &&
+      typeof raw.id === "string" &&
+      raw.id.startsWith("runtime-session:"),
+    expectation = reviewerRedispatch
+      ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
+        `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ${retry}`
+      : expected
+        ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+        : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+          `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]

@@ -107,6 +107,44 @@ test("executor binding rejection names the claimed and held executors", async (t
   assert.equal(context.observedActor, null);
 });
 
+test("a reviewer bound to an earlier execution receives a reviewer redispatch command", async () => {
+  const nextExecutionId = "exec-runtime-second-round",
+    nextRuntimeActor = {
+      principal: runtimeActor.principal,
+      executor: { kind: "agent" as const, id: "runtime-session:second-round-runtime" },
+    },
+    context = contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => ({ ...lease, executionId: nextExecutionId, actor: nextRuntimeActor }),
+    ),
+    receipt = await createRepoCellApi(context).run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId: nextExecutionId,
+        reviewId: "review-second-round",
+        fromFile: "review.json",
+        executor: runtimeActor.executor,
+      },
+      binding,
+    );
+
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "executor_binding_invalid");
+  assert.deepEqual(receipt.diagnostic, {
+    kind: "validation",
+    entity: `task ${taskId} execution ${nextExecutionId}`,
+    field: "executor",
+    actual: `agent:${runtimeActor.executor.id}`,
+    expectation:
+      `Expected a reviewer RuntimeSession bound to execution ${nextExecutionId}; run ` +
+      `ha runtime run <runtime-instance-id> --role reviewer --task ${taskId}, then retry ` +
+      `the ha task review execution command`,
+  });
+  assert.equal(context.observedActor, null);
+});
+
 test("executor-free actions reach the publication queue synchronously", async () => {
   const context = contextFor(
       Promise.resolve(),

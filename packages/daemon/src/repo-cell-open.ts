@@ -749,7 +749,13 @@ export async function openRepoWriterCell(
     const runtimeExecutor = { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       runtimeBinding = { ...binding, actor: { principal: binding.actor.principal, executor: runtimeExecutor } };
     let lease = projection.currentLease(taskId, now());
-    const executionId = lease?.executionId;
+    const snapshot = projection.read(taskId).snapshot,
+      executionId = snapshot.executions.find(
+        (execution) =>
+          execution.executionId === lease?.executionId &&
+          execution.iteration === snapshot.task?.iteration &&
+          execution.state === "active",
+      )?.executionId;
     if (lease?.phase === "held" && !isSameExecution(lease.actor, runtimeBinding.actor)) {
       const heldRuntimeSessionId =
           lease.actor.executor?.kind === "agent" && lease.actor.executor.id.startsWith("runtime-session:")
