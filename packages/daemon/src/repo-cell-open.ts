@@ -52,6 +52,7 @@ import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./re
 import { operationId } from "./repo-cell-proof.ts";
 import { taskSurfaceWriteAt } from "./repo-cell-task-command-docs.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
+import { scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
@@ -834,9 +835,9 @@ export async function openRepoWriterCell(
   }
   readSettings = settings.read;
   settleScheduledOutcome = async (terminal) => {
-    const scheduled = terminal.schedule,
-      detail = terminal.resultRef ?? terminal.reason;
+    const scheduled = terminal.schedule;
     if (!scheduled) return;
+    const detail = scheduleSettlementDetail(rootDir, scheduled, terminal.resultRef ?? terminal.reason);
     const settlement = {
         scheduleId: scheduled.scheduleId,
         claimFence: scheduled.claimFence,

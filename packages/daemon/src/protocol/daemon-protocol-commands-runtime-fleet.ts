@@ -284,7 +284,6 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
     "model",
     "reasoningEffort",
     "fast",
-    "cwd",
     "idempotencyKey",
   ] as const),
   scheduleDeleteJsonFields = Object.freeze(["scheduleId"] as const),
@@ -369,9 +368,6 @@ export const scheduleProtocolCommands = Object.freeze([
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-      }),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
       }),
       cliInput("--disabled", "boolean", false, {
         code: "invalid_field",
@@ -469,9 +465,6 @@ export const scheduleProtocolCommands = Object.freeze([
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
-      }),
-      cliInput("--cwd", "single", false, {
-        code: "invalid_field",
       }),
       scheduleIdInput(),
     ],

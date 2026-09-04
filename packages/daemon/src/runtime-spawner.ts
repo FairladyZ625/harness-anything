@@ -817,15 +817,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           agentId: scheduled.agentId,
           prompt: scheduled.mission,
           idempotencyKey: `${scheduled.scheduleId}:${scheduled.claimFence}`,
-          cwd: scheduled.cwd ? { scope: "repo-relative", path: scheduled.cwd } : { scope: "repo-root" },
+          cwd:
+            scheduled.cwd === input.rootDir
+              ? { scope: "repo-root" }
+              : { scope: "repo-relative", path: path.relative(input.rootDir, scheduled.cwd) },
           ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
           ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
-          ...(scheduled.mode === "detect" ? { permissionMode: "read-only" } : {}),
+          permissionMode: scheduled.mode === "detect" ? "read-only" : "workspace-write",
         },
         binding,
         undefined,
-        { scheduleId: scheduled.scheduleId, claimFence: scheduled.claimFence, mode: scheduled.mode },
+        scheduled,
       ),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),

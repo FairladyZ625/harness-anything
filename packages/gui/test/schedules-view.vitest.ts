@@ -88,7 +88,6 @@ function dto(
           efforts: ["low", "medium", "high", "xhigh"],
         },
       ],
-      cwd: [".", "packages/gui"],
     },
     schedules: [row],
     watermark: 12,
@@ -447,7 +446,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(list.querySelector('[data-testid="schedule-form-instance"]')?.tagName).toBe("SELECT");
     expect(list.querySelector('[data-testid="schedule-form-model"]')?.tagName).toBe("SELECT");
     expect(list.querySelector('[data-testid="schedule-form-effort"]')?.tagName).toBe("SELECT");
-    expect(list.querySelector('[data-testid="schedule-form-cwd"]')?.tagName).toBe("SELECT");
+    expect(list.querySelector('[data-testid="schedule-form-cwd"]')).toBeNull();
     await click(list, "schedule-form-submit");
     await flush();
     expect(create).toHaveBeenCalledWith(

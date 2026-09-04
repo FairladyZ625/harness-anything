@@ -323,7 +323,6 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "model",
     "reasoningEffort",
     "fast",
-    "cwd",
     "idempotencyKey",
   ];
   if (!isPreloadPayloadRecord(value) || !closed(value, fields)) return false;
@@ -337,7 +336,7 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     return false;
   return (
     (value.fast === undefined || typeof value.fast === "boolean") &&
-    [value.model, value.reasoningEffort, value.cwd].every(
+    [value.model, value.reasoningEffort].every(
       (field) =>
         field === undefined ||
         (nullableOptionals && field === null) ||

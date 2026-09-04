@@ -25,6 +25,11 @@ import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
+import {
+  prepareScheduleOccurrenceWorkspace,
+  settleScheduleOccurrenceWorkspace,
+  type ScheduleOccurrenceWorkspace,
+} from "./schedule-occurrence-workspace.ts";
 
 type ScheduleSpawnReceipt = {
   readonly outcome: string;
@@ -126,8 +131,27 @@ async function dispatchClaimedReceipt(
     active = schedule?.status.activeRun;
   if (claimed.outcome !== "applied" || !schedule || !active || cell.mode === "remote-center") return claimed;
   if (active.dispatchId && active.runtimeSessionId) return claimed;
+  let workspace: ScheduleOccurrenceWorkspace;
+  try {
+    workspace = prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule);
+  } catch (error) {
+    const settled = await runInternal(
+      {
+        kind: "schedule-settle",
+        scheduleId: schedule.scheduleId,
+        claimFence: active.claimFence,
+        outcome: "failed",
+        endedAt: cell.now(),
+        detail: error instanceof Error ? error.message : String(error),
+        idempotencyKey: `${idempotencyKey}:workspace-failed`,
+      },
+      binding,
+    );
+    return { ...settled, code: "schedule_workspace_failed" };
+  }
   const dispatched = await dispatchClaimedSchedule<WriteReceipt, JsonObject & ScheduleSpawnReceipt & WriteReceipt>({
     schedule,
+    workspace,
     idempotencyKey,
     now: cell.now,
     spawn: async (scheduled) => {
@@ -307,6 +331,7 @@ export async function dispatchClaimedSchedule<
   TSpawnReceipt extends ScheduleSpawnReceipt = ScheduleSpawnReceipt,
 >(input: {
   readonly schedule: ScheduleV1;
+  readonly workspace: ScheduleOccurrenceWorkspace;
   readonly idempotencyKey: string;
   readonly now: () => string;
   readonly spawn: (scheduled: TrustedScheduleSpawn) => Promise<TSpawnReceipt>;
@@ -351,21 +376,29 @@ export async function dispatchClaimedSchedule<
       ...(target.model ? { model: target.model } : {}),
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
       ...(target.fast === undefined ? {} : { fast: target.fast }),
-      ...(target.cwd ? { cwd: target.cwd } : {}),
+      cwd: input.workspace.cwd,
       mode: input.schedule.mode,
+      occurrenceId: active.occurrenceId,
+      ...(input.workspace.runtime.worktree ? { worktree: input.workspace.runtime.worktree } : {}),
     });
   } catch (error) {
+    const cleanup = settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
     const receipt = await input.settleFailure({
       scheduleId: input.schedule.scheduleId,
       claimFence: active.claimFence,
       outcome: "failed",
       endedAt: input.now(),
-      detail: error instanceof Error ? error.message : String(error),
+      detail: [error instanceof Error ? error.message : String(error), cleanup.retainedDetail]
+        .filter(Boolean)
+        .join(" "),
       idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
     });
     return { kind: "spawn-failed", error, receipt } as const;
   }
-  if (spawned.outcome !== "applied") return { kind: "spawn-unapplied", receipt: spawned } as const;
+  if (spawned.outcome !== "applied") {
+    settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
+    return { kind: "spawn-unapplied", receipt: spawned } as const;
+  }
   const dispatchId = String(spawned.dispatchId),
     runtimeSessionId = String(spawned.runtimeSessionId),
     receipt = await input.linkDispatch({

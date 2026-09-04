@@ -71,8 +71,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "--effort",
     "high",
     "--fast",
-    "--cwd",
-    "packages/cli",
     "--idempotency-key",
     "update-e2e-probe",
   ]);
@@ -87,7 +85,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       model: "gpt-5.6-sol",
       reasoningEffort: "high",
       fast: true,
-      cwd: "packages/cli",
       idempotencyKey: "update-e2e-probe",
     });
   const deleted = parseThinCommand([

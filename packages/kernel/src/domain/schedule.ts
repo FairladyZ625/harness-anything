@@ -49,7 +49,6 @@ export interface ScheduleAgentTargetV1 {
   readonly model?: string;
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
-  readonly cwd?: string;
 }
 
 export interface ScheduleSquadTargetV1 {
@@ -134,7 +133,6 @@ const targetSchema: EntityJsonObjectSchema = {
     model: { type: "string", minLength: 1 },
     reasoningEffort: { type: "string", minLength: 1 },
     fast: { type: "boolean" },
-    cwd: { type: "string", minLength: 1 },
     squadId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
   },
   required: ["kind"],
@@ -361,7 +359,7 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
       typeof value.squadId === "string" &&
       new RegExp(ENTITY_ID_PATTERN, "u").test(value.squadId)
     );
-  const optionalText = ["model", "reasoningEffort", "cwd"],
+  const optionalText = ["model", "reasoningEffort"],
     optional = [...optionalText, "fast"],
     required = ["kind", "agentId", "runtimeInstanceId"];
   return (

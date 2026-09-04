@@ -355,7 +355,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           mission: "Inspect the updated repository and report success.",
           model: definition.model,
           reasoningEffort: "high",
-          cwd: null,
           idempotencyKey: "update-e2e-probe",
         }),
       );

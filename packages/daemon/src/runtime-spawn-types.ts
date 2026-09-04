@@ -48,8 +48,14 @@ export type RuntimeBinding = {
 
 export interface TrustedScheduleRuntime {
   readonly scheduleId: string;
+  readonly occurrenceId: string;
   readonly claimFence: string;
   readonly mode: "detect" | "remediate";
+  readonly worktree?: {
+    readonly cwd: string;
+    readonly branch: string;
+    readonly baseRef: "origin/main";
+  };
 }
 
 export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
@@ -59,7 +65,7 @@ export interface TrustedScheduleSpawn extends TrustedScheduleRuntime {
   readonly model?: string;
   readonly effort?: string;
   readonly fast?: boolean;
-  readonly cwd?: string;
+  readonly cwd: string;
 }
 
 /** The execution lease generation a task-bound dispatch was authorized against; terminal

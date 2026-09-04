@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   nextScheduleOccurrence,
   validateScheduleV1,
@@ -26,7 +25,6 @@ import type {
 } from "./protocol/schedules-gui-contract.ts";
 import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
 import { admitRepoMode } from "./repo-mode.ts";
-import { makeGitReadinessSource } from "./process-port.ts";
 
 /** Schedule GUI 读侧 join(S4)。上游事实全部来自已合入面:S1 的 ScheduleV1 领域形状与
  * nextScheduleOccurrence、S3 的投影/action 语义、dec_9C393CDA 的 residency 拆分。
@@ -291,7 +289,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
                 model: schedule.spec.target.model ?? null,
                 reasoningEffort: schedule.spec.target.reasoningEffort ?? null,
                 fast: schedule.spec.target.fast ?? false,
-                cwd: schedule.spec.target.cwd ?? null,
+                cwd: null,
               }
             : { kind: "squad", squadId: schedule.spec.target.squadId },
         ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
@@ -349,27 +347,22 @@ function scheduleOptions(
   agents: readonly ScheduleGuiAgentOptionDto[],
 ): ScheduleGuiOptionsDto {
   const instances = (context.input.runtimeInstances?.() ?? [])
-      .filter(({ enabled }) => enabled)
-      .map((instance) => ({
-        instanceId: instance.instanceId,
-        name: instance.name,
-        kindId: instance.kindId,
-        models: instance.models,
-        efforts:
-          instance.kindId === "codex"
-            ? scheduleReasoningEfforts
-            : instance.kindId === "agy"
-              ? scheduleReasoningEfforts.filter((effort) => ["low", "medium", "high"].includes(effort))
-              : [],
-      })),
-    cwd = new Set<string>([".", ...trackedDirectories(context.rootDir)]);
-  for (const schedule of schedules)
-    if (schedule.state !== "invalid" && schedule.target.kind === "agent" && schedule.target.cwd)
-      cwd.add(schedule.target.cwd);
+    .filter(({ enabled }) => enabled)
+    .map((instance) => ({
+      instanceId: instance.instanceId,
+      name: instance.name,
+      kindId: instance.kindId,
+      models: instance.models,
+      efforts:
+        instance.kindId === "codex"
+          ? scheduleReasoningEfforts
+          : instance.kindId === "agy"
+            ? scheduleReasoningEfforts.filter((effort) => ["low", "medium", "high"].includes(effort))
+            : [],
+    }));
   return {
     agents: [...agents].sort((left, right) => left.agentId.localeCompare(right.agentId)),
     instances: instances.sort((left, right) => left.instanceId.localeCompare(right.instanceId)),
-    cwd: [...cwd].sort((left, right) => (left === "." ? -1 : right === "." ? 1 : left.localeCompare(right))),
   };
 }
 
@@ -436,18 +429,4 @@ function invalidScheduleGuiRow(
     invalidReason: errors.join("; "),
     definitionRevision: row.workspaceRevision,
   };
-}
-
-function trackedDirectories(rootDir: string): readonly string[] {
-  const listed = makeGitReadinessSource().run(rootDir, ["ls-files"]);
-  if (!listed.ok || !listed.stdout) return [];
-  const directories = new Set<string>();
-  for (const file of listed.stdout.split("\n")) {
-    let directory = path.posix.dirname(file);
-    while (directory !== ".") {
-      directories.add(directory);
-      directory = path.posix.dirname(directory);
-    }
-  }
-  return [...directories];
 }

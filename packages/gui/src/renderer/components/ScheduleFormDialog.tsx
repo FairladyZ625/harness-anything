@@ -104,7 +104,6 @@ export function ScheduleForm({
     [model, setModel] = useState(initialAgentTarget?.model ?? ""),
     [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
     [fast, setFast] = useState(initialAgentTarget?.fast ?? false),
-    [cwd, setCwd] = useState(initialAgentTarget?.cwd ?? "."),
     [mission, setMission] = useState(initial?.mission ?? ""),
     // Purpose + routing are semantic scaffolding (design §4); the write path for
     // `mode`/`routing` fields is pending the backend task, stated in the UI below.
@@ -149,8 +148,7 @@ export function ScheduleForm({
       intervalReady &&
       agent !== null &&
       instance !== null &&
-      mission.trim().length > 0 &&
-      options.cwd.includes(cwd);
+      mission.trim().length > 0;
   const submit = () => {
     if (!ready || instance === null || intervalMs === null) return;
     const base: ScheduleDefinitionInput = {
@@ -165,13 +163,11 @@ export function ScheduleForm({
             ...(selectedModel ? { model: selectedModel } : {}),
             ...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),
             ...(selectedFast ? { fast: true } : {}),
-            ...(cwd === "." ? {} : { cwd }),
           }
         : {
             model: selectedModel || null,
             reasoningEffort: selectedEffort || null,
             fast: selectedFast,
-            cwd: cwd === "." ? null : cwd,
           }),
     };
     onSubmit(base);
@@ -413,20 +409,6 @@ export function ScheduleForm({
               </span>
             </FormField>
           ) : null}
-          <FormField label={t("schedules.fields.cwd")}>
-            <select
-              data-testid="schedule-form-cwd"
-              className="control w-full"
-              value={cwd}
-              onChange={(event) => setCwd(event.target.value)}
-            >
-              {options.cwd.map((option) => (
-                <option key={option} value={option}>
-                  {option === "." ? t("schedules.form.repoRoot") : option}
-                </option>
-              ))}
-            </select>
-          </FormField>
         </div>
         <PlannedBox>{t("schedules.form.executor.squadPending")}</PlannedBox>
       </FormSection>
