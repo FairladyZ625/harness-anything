@@ -13,6 +13,7 @@ import {
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../../packages/gui/test-support/triadic-ledger.mjs";
+import { seedGuiE2eRuntimeSessions } from "./scenarios/sessions-grouping.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
@@ -82,7 +83,10 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       daemonId: "g",
       repoId: "gui-e2e-catalog",
       task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
-      beforeRestart: seedTriadicEvents,
+      beforeRestart: async (rootDir, repoId) => {
+        await seedTriadicEvents(rootDir, repoId);
+        await seedGuiE2eRuntimeSessions(rootDir, repoId);
+      },
     });
   } finally {
     if (originalTmpdir === undefined) delete process.env.TMPDIR;

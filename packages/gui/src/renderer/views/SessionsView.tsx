@@ -387,7 +387,7 @@ export function SessionsView({
             "outline-none focus-visible:border-accent"
           }
         />
-        <span className="ml-auto truncate font-mono ui-micro text-text-faint">
+        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-micro text-text-faint">
           {segment === "sessions"
             ? t("agentRuntime.sessionsCounts", {
                 range: rangeLabel[range],
