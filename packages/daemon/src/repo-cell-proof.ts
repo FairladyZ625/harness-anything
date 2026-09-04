@@ -9,6 +9,7 @@ import {
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
   isIndependentFrom,
+  isSameExecution,
   isSamePerson,
   localGitObjectRefStore,
   makeTaskProjection,
@@ -136,8 +137,8 @@ export async function proofFor(
       throw new Error(`Task review criterion ${REVIEW_PROOF_CRITERION} has no capability evaluation.`);
     const executionActor = execution?.actor,
       leaseHolder = snapshot.lease?.executionId === command.executionId ? snapshot.lease.actor : null,
-      runtimeIsExecutionActor = executionActor !== undefined && isSamePerson(executionActor, command.actor),
-      runtimeHoldsLease = leaseHolder !== null && isSamePerson(leaseHolder, command.actor);
+      runtimeIsExecutionActor = executionActor !== undefined && isSameExecution(executionActor, command.actor),
+      runtimeHoldsLease = leaseHolder !== null && isSameExecution(leaseHolder, command.actor);
     if (runtimeBinding !== null && (runtimeIsExecutionActor || runtimeHoldsLease))
       throw cellCriterionError(
         "runtime_task_self_review_forbidden",

@@ -615,7 +615,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
   }
 });
 
-test("task-bound runtime sessions cannot review their own execution across exit and resume", async () => {
+test("review binding permits independent runtimes but still rejects the execution runtime", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-runtime-bound-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -770,15 +770,15 @@ test("task-bound runtime sessions cannot review their own execution across exit 
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
     );
 
-    // A dedicated reviewer runtime has no binding to this task/execution, so it can execute the
-    // refusal's named command without changing either identity or review packet.
-    const unbound = await cell.spawnRuntime(
+    // Reviewer dispatch derives the task mission and records task dispatch provenance without
+    // taking the execution lease or becoming its executor.
+    const reviewer = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
         cwd: { scope: "repo-root" },
-        prompt: "Review only.",
-        taskId: null,
-        idempotencyKey: "unbound-reviewer",
+        taskId,
+        role: "reviewer",
+        idempotencyKey: "task-reviewer",
       },
       implementer,
     );
@@ -786,27 +786,33 @@ test("task-bound runtime sessions cannot review their own execution across exit 
       rootDir,
       "review-runtime-bound",
       (event) =>
-        event.type === "runtime_session_provider_bound" && event.payload.runtimeSessionId === unbound.runtimeSessionId,
+        event.type === "runtime_session_task_bound" &&
+        event.payload.runtimeSessionId === reviewer.runtimeSessionId &&
+        event.payload.taskId === taskId &&
+        event.payload.executionId === executionId,
     );
+    const afterReviewerDispatch = JSON.parse(
+      String((await cell.run({ kind: "task-show", taskId }, implementer)).evidence),
+    ) as { readonly lease: unknown };
+    assert.equal(afterReviewerDispatch.lease, null);
+    const denied = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "review-executor", fromFile: "review.json" },
+      arbiter(`runtime-session:${resumed.runtimeSessionId}`),
+    );
+    assert.equal(denied.code, "runtime_task_self_review_forbidden");
     for (const [reviewId, runtimeSessionId] of [
-      ["review-exited", original.runtimeSessionId],
-      ["review-resumed", resumed.runtimeSessionId],
-    ] as const) {
-      const denied = await cell.run(
-        { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
-        arbiter(`runtime-session:${runtimeSessionId}`),
-      );
-      assert.equal(denied.code, "runtime_task_self_review_forbidden");
+      ["review-prior-runtime", original.runtimeSessionId],
+      ["review-dispatched-reviewer", reviewer.runtimeSessionId],
+    ] as const)
       assert.equal(
         (
           await cell.run(
             { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
-            arbiter(`runtime-session:${unbound.runtimeSessionId}`),
+            arbiter(`runtime-session:${runtimeSessionId}`),
           )
         ).outcome,
         "applied",
       );
-    }
 
     const directTaskId = "task-direct-review",
       directExecutionId = "execution-direct-review";
