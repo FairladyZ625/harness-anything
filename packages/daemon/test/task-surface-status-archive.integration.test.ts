@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import {
   makeTaskEventReader,
   makeTaskEventStore,
@@ -47,12 +48,18 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
     );
     assert.equal(bareCancellation.outcome, "op_rejected");
     assert.equal(bareCancellation.code, "missing_field");
+    assert.deepEqual(bareCancellation.diagnostic, {
+      kind: "validation",
+      entity: "task-transition",
+      field: "reason",
+      actual: "missing",
+      expectation: "a non-empty cancellation reason",
+    });
     const cancelled = await cell.run(
       {
         kind: "task-transition",
         taskId: "task_terminal",
         status: "cancelled",
-        force: true,
         reason: "Audited cancellation after invalid scope",
       },
       binding,
@@ -105,6 +112,40 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
       ).outcome,
       "applied",
     );
+    const leased = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task_leased",
+        title: "Leased terminal",
+        profileId: "baseline",
+      },
+      binding,
+    );
+    await realizeTaskPlanFixture(rootDir, String(leased.packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId: "task_leased", executionId: "execution_leased" }, binding)).outcome,
+      "applied",
+    );
+    const leasedCancellation = await cell.run(
+      {
+        kind: "task-transition",
+        taskId: "task_leased",
+        status: "cancelled",
+        reason: "Cancellation requires execution confirmation",
+      },
+      binding,
+    );
+    assert.equal(leasedCancellation.outcome, "op_rejected");
+    assert.equal(leasedCancellation.code, "missing_field");
+    assert.deepEqual(leasedCancellation.diagnostic, {
+      kind: "validation",
+      entity: "task-transition",
+      field: "force",
+      actual: "missing",
+      expectation: "--force after execution has started",
+    });
     await cell.run(
       {
         kind: "task-archive",

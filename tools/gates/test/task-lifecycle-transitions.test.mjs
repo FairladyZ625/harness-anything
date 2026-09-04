@@ -248,7 +248,7 @@ test("G10 block, unblock, and cancel are catalog transitions while unrelated act
   assert.deepEqual(reduceTaskEvent(blocked.snapshot, cancelled.event), cancelled.snapshot);
   assert.throws(
     () => applyTransition(blocked.snapshot, transition(3, "cancelled", "", false), {}),
-    /force and an auditable reason/u,
+    /auditable reason/u,
   );
 
   const started = applyTransition(created.snapshot, start(2), startProof());
