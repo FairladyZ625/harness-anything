@@ -300,7 +300,10 @@ function submitActionRejection(
       contract,
       action,
     );
-  return taskActionRejection(cell, action, binding, snapshot.revision, contract, [evaluation], rejected);
+  return {
+    ...taskActionRejection(cell, action, binding, snapshot.revision, contract, [evaluation], rejected),
+    nextActions: Object.freeze([...new Set(evaluation.nextActions)]),
+  };
 }
 
 function taskActionFailure(
