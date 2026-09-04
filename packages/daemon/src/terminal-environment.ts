@@ -37,7 +37,7 @@ export function terminalEnvironment(
     });
   } catch (error) {
     console.warn(
-      `[terminal-environment] login shell snapshot failed; using restricted environment: ${errorMessage(error)}`,
+      `[terminal-environment] login shell snapshot failed; using restricted environment: ${error instanceof Error ? error.message : String(error)}`,
     );
     consumeKnownError(error);
     // A failed snapshot is deliberately not cached. Caching it would pin the daemon to the
@@ -82,8 +82,4 @@ function legacyTerminalEnvironment(platform: NodeJS.Platform): Record<string, st
     keys = ["PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", ...(platform === "win32" ? ["SystemRoot"] : [])];
   for (const key of keys) if (process.env[key]) result[key] = process.env[key]!;
   return result;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
