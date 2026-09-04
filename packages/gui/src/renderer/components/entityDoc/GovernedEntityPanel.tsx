@@ -3,13 +3,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "@phosphor-icons/react";
 import type { EntityKindRow } from "../../entity-kind-catalog-client.ts";
 import type { GovernedEntityRow } from "../../graph/governedEntities.ts";
-import { entityKindQueryKeys, useGovernedEntityRows } from "../../entity-kind-data.ts";
+import { entityKindQueryKeys } from "../../entity-kind-data.ts";
 import { importEntity } from "../../entity-locator-client.ts";
-import { EntityLocatorPreview } from "./EntityLocatorPreview.tsx";
 import { NewGovernedEntityForm, type NewGovernedEntityInput } from "./NewGovernedEntityForm.tsx";
 
 /**
- * 声明实体的实况面:这个 kind 现在有哪些实体、点开看它的正文、以及新建一个。
+ * 声明实体的实况面·左列形态:这个 kind 现在有哪些实体、搜一个、新建一个。
+ * 选中哪条的正文渲染在详情页右栏(EntityLocatorPreview),所以选择状态上提到
+ * EntityDocDetailView,本组件只报 `onSelect`。
  *
  * 「新建」按钮只在读面说这个 kind `importable` 时出现——判据是它有没有可执行的 import
  * 动作,不是一份写死的可写 kind 名单。提交走 `repo.entity.import`,与 CLI 同一条写路。
@@ -17,58 +18,79 @@ import { NewGovernedEntityForm, type NewGovernedEntityInput } from "./NewGoverne
 export function GovernedEntityPanel({
   repoId,
   row,
-  selectedEntityRef,
+  rows,
+  selectedRef,
+  onSelect,
 }: {
   readonly repoId: string;
   readonly row: EntityKindRow;
-  readonly selectedEntityRef: string | null;
+  readonly rows: readonly GovernedEntityRow[];
+  readonly selectedRef: string | null;
+  readonly onSelect: (ref: string) => void;
 }) {
-  const rows = useGovernedEntityRows(repoId).filter((entity) => entity.kind === row.kind);
-  const [selected, setSelected] = useState<string | null>(selectedEntityRef);
-  const active = rows.find((entity) => entity.ref === (selected ?? selectedEntityRef)) ?? rows[0] ?? null;
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const visible =
+    needle === ""
+      ? rows
+      : rows.filter((entity) =>
+          [entity.title ?? "", entity.entityId, entity.locator?.value ?? ""].some((text) =>
+            text.toLowerCase().includes(needle),
+          ),
+        );
   return (
-    <section data-testid={`governed-entity-panel`} className="flex flex-col gap-3">
+    <section data-testid="governed-entity-panel" className="mt-6 border-t border-border pt-4">
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="ui-body font-semibold">本仓实体</h2>
         <span className="ui-micro text-text-faint">{rows.length} 条</span>
         {row.importable && <NewEntityControl repoId={repoId} row={row} />}
       </header>
       {rows.length === 0 ? (
-        <p data-testid="governed-entity-empty" className="ui-meta text-text-faint">
+        <p data-testid="governed-entity-empty" className="mt-2 ui-meta text-text-faint">
           本仓还没有这个 kind 的实体。
         </p>
       ) : (
-        <div className="grid gap-3 md:grid-cols-[minmax(220px,320px)_1fr]">
-          <ul data-testid="governed-entity-list" className="flex max-h-96 flex-col gap-1 overflow-y-auto">
-            {rows.map((entity) => (
-              <li key={entity.ref}>
-                <button
-                  type="button"
-                  data-testid={`governed-entity-row-${entity.entityId}`}
-                  onClick={() => setSelected(entity.ref)}
-                  className={[
-                    "w-full rounded-md border px-2 py-1.5 text-left",
-                    entity.ref === active?.ref
-                      ? "border-border-strong bg-surface-raised"
-                      : "border-border hover:bg-surface-raised",
-                  ].join(" ")}
-                >
-                  <span className="block truncate ui-meta text-text">{entity.title ?? entity.entityId}</span>
-                  <span className="block truncate font-mono ui-micro text-text-faint">
-                    {entity.locator?.value ?? entity.entityId}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="flex min-h-0 flex-col rounded-md border border-border">
-            {active === null || active.locator === null ? (
-              <p className="p-4 ui-meta text-text-faint">这条实体没有 locator,没有可渲染的正文。</p>
-            ) : (
-              <EntityLocatorPreview repoId={repoId} locator={active.locator} />
-            )}
-          </div>
-        </div>
+        <>
+          <input
+            type="search"
+            data-testid="governed-entity-search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索标题 / id / locator"
+            className={[
+              "mt-2 w-full rounded-md border border-border bg-surface px-2 py-1 ui-meta",
+              "text-text placeholder:text-text-faint focus:border-border-strong focus:outline-none",
+            ].join(" ")}
+          />
+          {visible.length === 0 ? (
+            <p data-testid="governed-entity-search-empty" className="mt-2 ui-meta text-text-faint">
+              没有匹配「{query.trim()}」的实体。
+            </p>
+          ) : (
+            <ul data-testid="governed-entity-list" className="mt-2 flex flex-col gap-1">
+              {visible.map((entity) => (
+                <li key={entity.ref}>
+                  <button
+                    type="button"
+                    data-testid={`governed-entity-row-${entity.entityId}`}
+                    onClick={() => onSelect(entity.ref)}
+                    className={[
+                      "w-full rounded-md border px-2 py-1.5 text-left",
+                      entity.ref === selectedRef
+                        ? "border-border-strong bg-surface-raised"
+                        : "border-border hover:bg-surface-raised",
+                    ].join(" ")}
+                  >
+                    <span className="block truncate ui-meta text-text">{entity.title ?? entity.entityId}</span>
+                    <span className="block truncate font-mono ui-micro text-text-faint">
+                      {entity.locator?.value ?? entity.entityId}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   );
