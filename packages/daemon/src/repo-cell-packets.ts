@@ -191,7 +191,7 @@ export function lifecycleReceipt(
       event.type === "review_recorded" || event.type === "review_consent_recorded" ? event.payload.review : undefined,
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
-    declarationNeeded = undeclared && reviews.length === 0,
+    declarationNeeded = snapshot.task?.status === "in_review" && undeclared && reviews.length === 0,
     consentCandidates = approved.length ? approved : approvedHistory,
     consentReviewId = consentCandidates.length === 1 ? consentCandidates[0]!.reviewId : "<review-id>",
     from =
@@ -260,12 +260,7 @@ export function lifecycleReceipt(
     summary =
       event.type === "execution_submitted" && event.payload.supersedesSubmissionId !== undefined
         ? "Submission amended; prior Review and consent pins are stale until reviewed or explicitly consented again."
-        : event.type === "execution_started" && undeclared
-          ? [
-              "Execution declared no executor; a same-person review will require an ",
-              "audited agent executor declaration before review.",
-            ].join("")
-          : undefined;
+        : undefined;
   return {
     outcome: "applied",
     opId: event.opId,

@@ -197,7 +197,13 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       unknown
     >;
     assert.equal(started.outcome, "applied");
-    assert.match(String(started.summary), /declared no executor/u);
+    assert.deepEqual(started.next, [
+      {
+        command: `ha task submit ${taskId} --json-input '<submission-json>'`,
+        reason: "Run the canonical next command for this lifecycle state.",
+      },
+    ]);
+    assert.doesNotMatch(JSON.stringify(started), /declare-executor/u);
     const worker = await cell.spawnRuntime(
       {
         runtimeInstanceId: "review-runtime",
@@ -237,15 +243,12 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
         commitSha,
       }),
     );
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-submit", taskId, executionId: priorExecutionId, fromFile: "submission.json" },
-          bare,
-        )
-      ).outcome,
-      "applied",
+    const submitted = await cell.run(
+      { kind: "task-submit", taskId, executionId: priorExecutionId, fromFile: "submission.json" },
+      bare,
     );
+    assert.equal(submitted.outcome, "applied");
+    assert.match(JSON.stringify(submitted.next), /ha task declare-executor/u);
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
       JSON.stringify({
