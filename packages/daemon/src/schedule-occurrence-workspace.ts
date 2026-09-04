@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { /* @gate-identity check-sync-subprocess/sync-subprocess-018 */ execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "../../kernel/src/index.ts";
@@ -23,10 +23,14 @@ export function prepareScheduleOccurrenceWorkspace(rootDir: string, schedule: Sc
 
   const branch = `occ-${active.occurrenceId}`,
     cwd = path.join(rootDir, ".worktrees", branch);
-  execFileSync("git", ["-C", rootDir, "worktree", "add", cwd, "-b", branch, "origin/main"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
+  /* @gate-identity check-sync-subprocess/sync-subprocess-019 */ execFileSync(
+    "git",
+    ["-C", rootDir, "worktree", "add", cwd, "-b", branch, "origin/main"],
+    {
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
   return { rootDir, cwd, runtime: { ...base, worktree: { cwd, branch, baseRef: "origin/main" } } };
 }
 
@@ -49,14 +53,22 @@ export function settleScheduleOccurrenceWorkspace(
           .filter(Boolean)
           .join(", ")}).`,
       };
-    execFileSync("git", ["-C", rootDir, "worktree", "remove", worktree.cwd], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    execFileSync("git", ["-C", rootDir, "branch", "-D", worktree.branch], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    /* @gate-identity check-sync-subprocess/sync-subprocess-020 */ execFileSync(
+      "git",
+      ["-C", rootDir, "worktree", "remove", worktree.cwd],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
+    /* @gate-identity check-sync-subprocess/sync-subprocess-021 */ execFileSync(
+      "git",
+      ["-C", rootDir, "branch", "-D", worktree.branch],
+      {
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
     return { retainedDetail: null };
   } catch (error) {
     return {
@@ -77,5 +89,8 @@ export function scheduleSettlementDetail(
 }
 
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true }).trim();
+  return /* @gate-identity check-sync-subprocess/sync-subprocess-022 */ execFileSync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    windowsHide: true,
+  }).trim();
 }

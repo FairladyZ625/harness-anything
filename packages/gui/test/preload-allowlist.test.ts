@@ -251,7 +251,7 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     idempotencyKey: "retry-1",
   };
   assert.equal(assertPreloadPayload("createSchedule", definition), true);
-  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, model: null, cwd: null }), true);
+  assert.equal(assertPreloadPayload("updateSchedule", { ...definition, model: null }), true);
   assert.equal(
     assertPreloadPayload("deleteSchedule", {
       repoId: "repo-a",
