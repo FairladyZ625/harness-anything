@@ -273,7 +273,12 @@ function PaneMenu({
     action();
   };
   const itemClassName = "block w-full rounded px-2 py-1 text-left text-text hover:bg-surface";
-  const disabledItemClassName = `${itemClassName} disabled:cursor-not-allowed disabled:text-text-faint disabled:hover:bg-transparent`;
+  const disabledItemClassName = [
+    itemClassName,
+    "disabled:cursor-not-allowed",
+    "disabled:text-text-faint",
+    "disabled:hover:bg-transparent",
+  ].join(" ");
   return createPortal(
     <div
       ref={ref}
