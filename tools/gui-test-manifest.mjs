@@ -71,6 +71,7 @@ export const guiVitestManifest = [
   "packages/gui/test/docTree.vitest.ts",
   "packages/gui/test/system-view-detail.vitest.ts",
   "packages/gui/test/daemon-observe.vitest.ts",
+  "packages/gui/test/observe-follow-cost.vitest.ts",
   "packages/gui/test/observe-windowing.vitest.ts",
   "packages/gui/test/preset-detail.vitest.ts",
   "packages/gui/test/settings-repository-selectors.vitest.ts",
