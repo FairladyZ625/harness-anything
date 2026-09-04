@@ -32,6 +32,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     tracker = path.join(root, ".batch-tracker"),
     nonzeroTrace = path.join(root, ".notify-nonzero.json"),
     notificationStarted = path.join(root, ".notify-hold-started"),
+    notificationRelease = path.join(root, ".notify-hold-release"),
     notificationFinished = path.join(root, ".notify-hold-finished"),
     notificationOnce = path.join(root, ".notify-once"),
     version = "0.0.0-runtime-cli-fixture",
@@ -50,7 +51,10 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     ),
     holdNotifier = writeProviderExecutable(
       path.join(parent, "notify-hold"),
-      `const fs = require("node:fs"); fs.readFileSync(0, "utf8"); fs.writeFileSync(".notify-hold-started", "started\\n"); setTimeout(() => { fs.writeFileSync(".notify-hold-finished", "finished\\n"); }, 4000);\n`,
+      'const fs = require("node:fs"); fs.readFileSync(0, "utf8"); ' +
+        'const watcher = fs.watch(".", (_, filename) => { if (filename !== ".notify-hold-release") return; ' +
+        'watcher.close(); fs.writeFileSync(".notify-hold-finished", "finished\\n"); }); ' +
+        'fs.writeFileSync(".notify-hold-started", "started\\n");\n',
     ),
     onceNotifier = writeProviderExecutable(
       path.join(parent, "notify-once"),
@@ -832,7 +836,6 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     await eventuallyFile(notificationStarted);
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,
-      writeStartedAt = performance.now(),
       queueWrite = run(root, env, [
         "task",
         "progress",
@@ -843,20 +846,20 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "--evidence",
         "test:reports/notification-queue.txt:write progressed while callback was active",
       ]),
-      writeLatencyMs = performance.now() - writeStartedAt,
       revisionAfter = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0;
     assert.ok(revisionAfter > revisionBefore, `${revisionBefore} -> ${revisionAfter}`);
-    assert.ok(writeLatencyMs < 3000, `repo write waited ${writeLatencyMs.toFixed(3)}ms behind a 4000ms notifier`);
     assert.equal(
       existsSync(notificationFinished),
       false,
       "the notification must still be executing when the repo write commits",
     );
+    writeFileSync(notificationRelease, "release\n");
     const queueNotificationTrace = await eventuallyNotification(root, String(queueNotification.dispatchId));
+    assert.equal(queueNotificationTrace.started?.phase, "started");
     assert.equal(queueNotificationTrace.finished?.timedOut, false);
     assert.equal(existsSync(notificationFinished), true);
     context.diagnostic(
-      `notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, writeLatencyMs: Number(writeLatencyMs.toFixed(3)), notifierStillRunningAtCommit: true })}`,
+      `notification queue concurrency: ${JSON.stringify({ revisionBefore, revisionAfter, writeReceiptRevision: queueWrite.revision, notifierStillRunningAtCommit: true })}`,
     );
     const submittedTaskId = `${taskId}-submitted`,
       submittedExecutionId = `${executionId}-submitted`,
