@@ -19,7 +19,7 @@ import { runFactRekey } from "./fact-rekey.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
 import { runSquadEntityMigration } from "./squad-entity-migration.ts";
-import { type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
+import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -433,9 +433,9 @@ export function declareExecutionExecutor(
         (candidate: string) =>
           `ha task declare-executor ${taskId} --execution-id ${candidate} --agent <dispatch-agent> --reason <reason>`,
       );
+  const dispatchProof = dispatchedExecutor(cell, action, taskId, executionId, snapshot, candidates);
   assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, candidates);
-  const dispatchProof = dispatchedExecutor(cell, action, taskId, executionId),
-    canonicalAction = { ...action, agent: dispatchProof.executor.id },
+  const canonicalAction = { ...action, agent: dispatchProof.executor.id },
     opId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision),
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
@@ -479,6 +479,8 @@ function dispatchedExecutor(
   action: RepoTaskAction,
   taskId: string,
   executionId: string,
+  snapshot: Snapshot,
+  declarationCandidates: readonly { readonly executionId: string }[],
 ): {
   readonly executor: { readonly kind: "agent"; readonly id: string };
   readonly dispatchTaskId: string;
@@ -514,13 +516,15 @@ function dispatchedExecutor(
       dispatchTaskId: matches[0]!.dispatchTaskId,
     };
   const choices = candidates.map((candidate) => candidate.executorId);
-  if (candidates.length === 0)
+  if (candidates.length === 0) {
+    assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
     throw cell.cellCodedError(
       "invalid_proof",
       `Task ${taskId} has no recorded runtime dispatch on itself or its parent chain. ` +
         `Run ha task dispatches ${taskId}; ` +
         "executor declaration remains unavailable until a real dispatch record exists.",
     );
+  }
   if (requested)
     throw cell.cellCodedError(
       "invalid_proof",

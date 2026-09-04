@@ -10,7 +10,8 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
-import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction } from "./repo-cell-types.ts";
+import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
+import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
@@ -93,6 +94,17 @@ export async function runTaskActionCatalogRuntime(
     submitLeaseEvaluation = evaluations.find(({ criterionRef }) => criterionRef === SUBMIT_PROOF_CRITERION),
     submitValidationUnmet = submitValidationEvaluation?.status === "unmet",
     submitLeaseUnmet = submitLeaseEvaluation?.status === "unmet";
+  if (
+    action.kind === "task-submit" &&
+    action.amend === true &&
+    typeof action.executionId === "string" &&
+    action.executionId.trim()
+  )
+    assertCurrentSubmittedExecution(current.snapshot, taskId, action.executionId);
+  if (action.kind === "task-submit" && submitValidationUnmet && contract)
+    return submitActionRejection(cell, action, binding, current.snapshot, contract, submitValidationEvaluation);
+  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
+    return submitActionRejection(cell, action, binding, current.snapshot, contract, submitLeaseEvaluation);
   if (lifecycle?.coordination === "reserve" && !preview)
     cell.assertTaskTransitionDocumentReady({
       rootDir: cell.rootDir,
@@ -125,12 +137,6 @@ export async function runTaskActionCatalogRuntime(
     if (rejection) return rejection;
     throw error;
   }
-  if (action.kind === "task-submit" && submitValidationUnmet && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
-      submitValidationEvaluation,
-    ]);
-  if (action.kind === "task-submit" && submitLeaseUnmet && contract)
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [submitLeaseEvaluation]);
   if (
     contract?.target.kind === "task" &&
     revisionIssues(current.snapshot, {
@@ -257,6 +263,44 @@ export async function runTaskActionCatalogRuntime(
       proof: result.proof,
     };
   return cell.rejected(command.opId, result.code ?? "publication_unknown");
+}
+
+function submitActionRejection(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  snapshot: Snapshot,
+  contract: EntityActionContract,
+  evaluation: { readonly criterionRef: string; readonly nextActions: readonly string[] },
+): WriteReceipt {
+  const criterion = contract.criteria.find(({ ref }) => ref === evaluation.criterionRef);
+  if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${evaluation.criterionRef} is not declared.`);
+  const proofFailure = evaluation.criterionRef === SUBMIT_PROOF_CRITERION,
+    lease = snapshot.lease,
+    executor = lease?.actor.executor,
+    actual = proofFailure
+      ? lease
+        ? `held by personId=${lease.actor.principal.personId}, ` +
+          `executor=${executor ? `${executor.kind}:${executor.id}` : "none"}`
+        : "no matching active lease for the authenticated actor"
+      : `status=${snapshot.task?.status ?? "missing"} node=${snapshot.task?.currentNode ?? "missing"} ` +
+        `amend=${String(action.amend === true)}`,
+    rejected = cell.failed(
+      cell.operationId(action, binding, cell.input.repoId, snapshot.revision),
+      cell.cellCodedError(criterion.failureCode, criterion.explain, {
+        kind: "validation",
+        entity:
+          typeof action.executionId === "string"
+            ? `task ${String(action.taskId)} execution ${action.executionId}`
+            : `task ${String(action.taskId)}`,
+        field: proofFailure ? "lease" : "status",
+        actual,
+        expectation: evaluation.nextActions.join(" ") || criterion.explain,
+      }),
+      contract,
+      action,
+    );
+  return taskActionRejection(cell, action, binding, snapshot.revision, contract, [evaluation], rejected);
 }
 
 function taskActionFailure(
