@@ -20,12 +20,13 @@ import {
   RUNTIME_KIND_IDS,
   type RuntimeKindId,
 } from "../../runtime-provider-planes.ts";
+import { runtimeKindForId } from "../../../../../daemon/src/runtime-inventory.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
-const KIND_LABEL: Record<RuntimeKindId, string> = { claude: "Claude Code", codex: "Codex", agy: "AGY (Gemini)" };
+const kindLabel = (kindId: RuntimeKindId): string => runtimeKindForId(kindId).displayName;
 const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   instanceId: "",
   name: "",
@@ -118,7 +119,7 @@ export function NewRuntimeDialog({
           label={t("agentRuntime.provider")}
           value={form.kindId}
           onChange={setKind}
-          options={RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: KIND_LABEL[kindId] }))}
+          options={RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: kindLabel(kindId) }))}
         />
         <KindDot kind={form.kindId} />
         <Hint>{t(`agentRuntime.plane_${form.kindId}` as never)}</Hint>
@@ -312,7 +313,7 @@ export function NewRuntimeDialog({
             />
           </Labelled>
         )}
-        {form.kindId === "codex" && (
+        {"fast" in runtimeKindForId(form.kindId).configuration.fields && (
           <Labelled label={t("agentRuntime.fast")} hint={t("agentRuntime.fastHint")}>
             <span
               data-testid="new-runtime-fast"
@@ -323,7 +324,7 @@ export function NewRuntimeDialog({
             </span>
           </Labelled>
         )}
-        {form.kindId === "codex" && apiOn && (
+        {"wireApi" in runtimeKindForId(form.kindId).configuration.fields && apiOn && (
           <Labelled label="wire_api">
             <select
               aria-label="wire_api"
@@ -385,7 +386,7 @@ export function NewRuntimeDialog({
           </select>
         </Labelled>
       </div>
-      {form.kindId === "codex" && apiOn && (
+      {"httpHeaders" in runtimeKindForId(form.kindId).configuration.fields && apiOn && (
         <label className="mt-2 flex items-center gap-1.5 font-mono ui-micro uppercase text-text-faint">
           <input
             type="checkbox"

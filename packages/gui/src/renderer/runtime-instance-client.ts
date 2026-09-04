@@ -2,7 +2,7 @@ import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-i
 import type { TerminalControlReceipt } from "../../../daemon/src/gui-s3-control.ts";
 export interface RuntimeInstallationRow {
   readonly installationId: string;
-  readonly kindId: "claude" | "codex" | "agy";
+  readonly kindId: string;
   readonly version: string;
   readonly observedAt: string;
   readonly models?: readonly string[];
@@ -38,27 +38,10 @@ type RuntimeInstanceCreateCommon = {
 };
 // api-key creation carries the user-typed key exactly once, main-process-bound:
 // main stores it in the native vault and the daemon sees only an opaque reference.
-export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon &
-  (
-    | { readonly kindId: "claude"; readonly claude: { readonly baseUrl?: string } }
-    | {
-        readonly kindId: "codex";
-        readonly codex: {
-          readonly reasoningEffort?: string;
-          readonly fast?: boolean;
-          readonly baseUrl?: string;
-          readonly wireApi?: string;
-          readonly requiresOpenAiAuth?: boolean;
-          readonly httpHeaders?: Readonly<Record<string, string>>;
-        };
-      }
-    | {
-        readonly kindId: "agy";
-        readonly agy: { readonly effort?: "low" | "medium" | "high" };
-        readonly authMode: "subscription";
-      }
-  ) &
-  ({ readonly authMode: "subscription" } | { readonly authMode: "api-key"; readonly apiKey: string });
+export type RuntimeInstanceCreateInput = RuntimeInstanceCreateCommon & {
+  readonly kindId: string;
+  readonly [field: string]: unknown;
+} & ({ readonly authMode: "subscription" } | { readonly authMode: "api-key"; readonly apiKey: string });
 type Bridge = {
   readonly listRuntimeInstances: (payload: { readonly all: true }) => Promise<unknown>;
   readonly showRuntimeInstance: (payload: {

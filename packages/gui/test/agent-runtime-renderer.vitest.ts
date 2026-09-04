@@ -82,7 +82,7 @@ const instance = {
   defaultModel: definition.model,
   enabled: true,
   permissionMode: "bypass",
-  codex: {
+  configuration: {
     reasoningEffort: definition.reasoningEffort,
     fast: definition.fast,
     baseUrl: definition.baseUrl,
@@ -103,7 +103,7 @@ const claudeInstance = {
   kindId: "claude",
   authMode: "subscription",
   isolationState: "operator-environment",
-  claude: { baseUrl: null, baseUrlConfigured: false },
+  configuration: { baseUrl: null, baseUrlConfigured: false },
 } as never;
 const agyInstance = {
   ...instance,
@@ -113,7 +113,7 @@ const agyInstance = {
   authMode: "subscription",
   permissionMode: null,
   isolationState: "operator-environment",
-  agy: { effort: "high" },
+  configuration: { effort: "high" },
 } as never;
 const agentRows = [
   {

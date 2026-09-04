@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
+import { runtimeKindForId } from "../../../../../daemon/src/runtime-inventory.ts";
 import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
@@ -155,64 +156,14 @@ export function RuntimeCard({
               <Field label="default model" value={instance.defaultModel} />
               <Field label="models" value={instance.models.join(", ")} />
               <Field label="installation" value={instance.installationId} />
-              {instance.kindId === "codex" && (
-                <>
-                  <Field
-                    label="codex.reasoningEffort"
-                    value={instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault")}
-                    faint={instance.codex.reasoningEffort === null}
-                  />
-                  <Field label="codex.fast" value={String(instance.codex.fast)} />
-                </>
-              )}
-              {instance.kindId === "agy" && (
+              {Object.entries(instance.configuration).map(([field, value]) => (
                 <Field
-                  label="agy.effort"
-                  value={instance.agy.effort ?? t("agentRuntime.providerDefault")}
-                  faint={instance.agy.effort === null}
+                  key={field}
+                  label={`${instance.kindId}.${field}`}
+                  value={configurationValue(value) ?? t("agentRuntime.providerDefault")}
+                  faint={value === null}
                 />
-              )}
-              {instance.kindId === "claude" && (
-                <Field
-                  label="claude.baseUrl"
-                  value={instance.claude.baseUrl ?? t("agentRuntime.officialEndpoint")}
-                  faint={!instance.claude.baseUrlConfigured}
-                />
-              )}
-              {instance.kindId === "codex" && (
-                <>
-                  <Field
-                    label="codex.baseUrl"
-                    value={instance.codex.baseUrl ?? t("agentRuntime.officialEndpoint")}
-                    faint={!instance.codex.baseUrlConfigured}
-                  />
-                  <Field
-                    label="codex.wire_api"
-                    value={instance.codex.wire_api ?? t("agentRuntime.providerDefault")}
-                    faint={instance.codex.wire_api === null}
-                  />
-                  <Field
-                    label="codex.requires_openai_auth"
-                    value={
-                      instance.codex.requires_openai_auth === null
-                        ? t("agentRuntime.providerDefault")
-                        : String(instance.codex.requires_openai_auth)
-                    }
-                    faint={instance.codex.requires_openai_auth === null}
-                  />
-                  <Field
-                    label="codex.http_headers"
-                    value={
-                      instance.codex.http_headers
-                        ? Object.entries(instance.codex.http_headers)
-                            .map(([name, value]) => `${name}=${value}`)
-                            .join(", ")
-                        : t("agentRuntime.providerDefault")
-                    }
-                    faint={instance.codex.http_headers === null}
-                  />
-                </>
-              )}
+              ))}
             </FieldGrid>
           )}
         </CardBody>
@@ -403,6 +354,12 @@ export function RuntimeCard({
   );
 }
 
+function configurationValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" || typeof value === "boolean") return String(value);
+  return typeof value === "object" ? JSON.stringify(value) : null;
+}
+
 function ProviderEditor({
   instance,
   installations,
@@ -545,10 +502,10 @@ function PermissionsEditor({
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void;
 }) {
   const [permissionMode, setPermissionMode] = useState(() =>
-    runtimePermissionMode(instance.permissionMode ?? undefined, instance.kindId),
+    runtimePermissionMode(instance.permissionMode ?? undefined, runtimeKindForId(instance.kindId).kindId),
   );
   const [isolationState, setIsolationState] = useState(() =>
-    runtimeIsolationState(instance.isolationState, instance.kindId),
+    runtimeIsolationState(instance.isolationState, runtimeKindForId(instance.kindId).kindId),
   );
   const supported = planeAllowsPermissions(instance.kindId);
   return (

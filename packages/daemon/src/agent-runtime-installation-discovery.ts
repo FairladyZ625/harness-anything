@@ -4,6 +4,7 @@ import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { runtimeKindForId, runtimeKinds } from "./runtime-inventory.ts";
 
 export const runtimeModelCatalogCache = new Map<
   string,
@@ -29,9 +30,9 @@ export async function discoverRuntimeInstallations(
     }[] = [],
     suffixes = platform === "win32" ? ["", ".cmd", ".exe"] : [""];
   for (const directory of (env.PATH ?? "").split(path.delimiter).filter(Boolean))
-    for (const kindId of ["claude", "codex", "agy"] as const)
+    for (const { kindId, executable } of runtimeKinds)
       for (const suffix of suffixes) {
-        const executableEntryPath = path.resolve(directory, `${kindId}${suffix}`),
+        const executableEntryPath = path.resolve(directory, `${executable.command}${suffix}`),
           key = `${kindId}\0${executableEntryPath}`;
         try {
           accessSync(executableEntryPath, constants.X_OK);
@@ -89,18 +90,14 @@ export function discoverRuntimeModelCatalog(input: {
   const discovered = (async () => {
     let models: string[] = [];
     try {
-      const args =
-          input.kindId === "codex"
-            ? ["debug", "models", "--bundled"]
-            : input.kindId === "agy"
-              ? ["models"]
-              : ["--help"],
+      const declaration = runtimeKindForId(input.kindId),
+        args = declaration.executable.modelProbe,
         output = await runExecutable(input.platform, input.executablePath, args, {
           env: input.env,
           timeoutMs: 8_000,
           captureOutput: true,
         });
-      if (input.kindId === "codex") {
+      if (declaration.executable.modelProbeFormat === "json-models") {
         const decoded = JSON.parse(output) as {
           readonly models?: readonly {
             readonly slug?: unknown;
@@ -110,7 +107,7 @@ export function discoverRuntimeModelCatalog(input: {
         models = (decoded.models ?? [])
           .map((model) => (typeof model.slug === "string" ? model.slug : typeof model.id === "string" ? model.id : ""))
           .filter(Boolean);
-      } else if (input.kindId === "agy")
+      } else if (declaration.executable.modelProbeFormat === "tabular-models")
         models = output
           .split(/\r?\n/u)
           .map((line) => (line.includes("\t") ? line.split("\t", 1)[0]!.trim() : ""))

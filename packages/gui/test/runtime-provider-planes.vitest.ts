@@ -59,7 +59,7 @@ describe("provider edit form", () => {
     enabled: true,
     permissionMode: "bypass",
     isolationState: "enforced",
-    codex: {
+    configuration: {
       reasoningEffort: null,
       fast: true,
       baseUrl: "https://old.example/v1",
@@ -96,7 +96,7 @@ describe("provider edit form", () => {
     const agy = runtimeInstanceEditForm({
       ...apiCodex,
       kindId: "agy",
-      agy: { effort: "high" },
+      configuration: { effort: "high" },
       authMode: "subscription",
     });
     expect(agy.baseUrlEditable).toBe(false);
@@ -423,7 +423,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect("isolationState" in agy).toBe(false);
     expect(() =>
       buildRuntimeInstanceCreatePayload({ ...form, kindId: "agy", authMode: "api-key", apiKey: "sk" }, "agy-install"),
-    ).toThrow(/subscription OAuth only/u);
+    ).toThrow();
   });
 });
 

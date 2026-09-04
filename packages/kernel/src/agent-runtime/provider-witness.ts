@@ -36,7 +36,8 @@ export function parseProviderWitness(value: unknown): ProviderWitnessV1 {
     !isRecord(value) ||
     !hasOnlyFields(value, fields) ||
     value.schema !== "agent-runtime-witness/v1" ||
-    !["claude-compatible", "codex", "agy"].includes(String(value.protocolFamily)) ||
+    typeof value.protocolFamily !== "string" ||
+    value.protocolFamily.length === 0 ||
     !["wrapper", "hook"].includes(String(value.channel)) ||
     ![...agentRuntimeEventTypes, "heartbeat"].includes(value.type as AgentRuntimeEventType | "heartbeat") ||
     !isRecord(value.payload)

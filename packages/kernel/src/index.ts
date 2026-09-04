@@ -3,7 +3,6 @@ export * from "./domain/index.ts";
 export {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
-  runtimeProtocolFamilies,
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,

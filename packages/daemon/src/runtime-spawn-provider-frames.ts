@@ -2,27 +2,35 @@ import { consumeKnownError } from "../../kernel/src/index.ts";
 import { validateAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
-import { runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeKindForId, runtimeKindIds } from "./runtime-inventory.ts";
+import { sessionIdentityResolverFor } from "./session-identity/index.ts";
 import type { ProviderFrame } from "./runtime-spawn-types.ts";
 import { providerFaultFromFrame } from "./runtime-provider-fault.ts";
 
 export function parseProviderFrame(kindId: RuntimeInstanceKind, value: unknown): ProviderFrame {
   if (!isPlainRecord(value) || (typeof value.event !== "string" && typeof value.type !== "string"))
     throw new Error("provider frame is not a structured event");
-  const identity = runtimeKindForId(kindId).sessionIdentityResolver.resolve({
+  const identity = sessionIdentityResolverFor(runtimeKindForId(kindId).protocolFamily).resolve({
       runtime: kindId,
       dispatchEvents: [value],
     }),
-    semantic =
-      kindId === "claude"
-        ? parseClaudeFrame(value, identity.sessionId)
-        : kindId === "codex"
-          ? parseCodexFrame(value, identity.sessionId)
-          : parseAgyFrame(value, identity.sessionId);
+    parser = providerFrameParsers[kindId],
+    semantic = parser(value, identity.sessionId);
   const providerFault = providerFaultFromFrame(kindId, value),
     observed = providerFault ? { ...semantic, providerFault } : semantic;
   return identity.sessionId === null ? observed : { ...observed, sessionIdentity: identity };
 }
+
+export const providerFrameParsers: Record<
+  string,
+  (value: Record<string, unknown>, sessionId: string | null) => ProviderFrame
+> = {
+  claude: parseClaudeFrame,
+  codex: parseCodexFrame,
+  agy: parseAgyFrame,
+};
+if (!runtimeKindIds.every((kindId) => Object.hasOwn(providerFrameParsers, kindId)))
+  throw new Error("provider frame parser registry is incomplete");
 
 export function isStructuredSuccessResult(value: string): boolean {
   try {

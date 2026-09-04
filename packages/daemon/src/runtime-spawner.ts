@@ -501,8 +501,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       }),
       definition = prepared.definition,
       installation = prepared.installation,
-      launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, definition.kindId);
-    if (agent && !runtimeTypeMatchesKind(agent.runtime_type, definition.kindId))
+      declaredKindId = runtimeKindForId(definition.kindId).kindId,
+      launchedPermissionMode = runtimePermissionMode(effectivePermissionMode, declaredKindId);
+    if (agent && !runtimeTypeMatchesKind(agent.runtime_type, declaredKindId))
       throw runtimeSpawnError(
         "agent_runtime_type_mismatch",
         [

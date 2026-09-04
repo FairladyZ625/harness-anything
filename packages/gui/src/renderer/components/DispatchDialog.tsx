@@ -9,6 +9,8 @@ import {
 } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
 import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
+import { planeAllowsEffort } from "../runtime-provider-planes.ts";
+import { runtimeKindForId } from "../../../../daemon/src/runtime-inventory.ts";
 
 // The dispatch modal from the Agent Runtime prototype, in the order the design argues for:
 // who → which task → what mission → where it runs. The dialog only authors the request;
@@ -69,7 +71,7 @@ export function DispatchDialog({
       cwd: cwdScope === "repo-root" ? { scope: "repo-root" } : { scope: "repo-relative", path: cwdPath.trim() },
       taskId: task!.taskId,
       ...(model ? { model } : {}),
-      ...(effort && (instance.kindId === "codex" || instance.kindId === "agy") ? { effort } : {}),
+      ...(effort && planeAllowsEffort(instance.kindId) ? { effort } : {}),
       idempotencyKey: `gui-dispatch-${crypto.randomUUID()}`,
     });
   };
@@ -271,16 +273,17 @@ export function DispatchDialog({
                 ))}
               </select>
             </label>
-            {(instance.kindId === "codex" || instance.kindId === "agy") && (
+            {planeAllowsEffort(instance.kindId) && (
               <label className="grid gap-1 ui-micro text-text-muted">
                 {t("agentRuntime.effort")}
                 <input
                   value={effort}
                   onChange={(event) => setEffort(event.target.value)}
                   placeholder={
-                    instance.kindId === "codex"
-                      ? (instance.codex.reasoningEffort ?? t("agentRuntime.providerDefault"))
-                      : (instance.agy.effort ?? t("agentRuntime.providerDefault"))
+                    "reasoningEffort" in runtimeKindForId(instance.kindId).configuration.fields
+                      ? (runtimeConfigurationText(instance.configuration.reasoningEffort) ??
+                        t("agentRuntime.providerDefault"))
+                      : (runtimeConfigurationText(instance.configuration.effort) ?? t("agentRuntime.providerDefault"))
                   }
                   className="control"
                 />
@@ -316,6 +319,10 @@ export function DispatchDialog({
       </Step>
     </Modal>
   );
+}
+
+function runtimeConfigurationText(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 function Step({
   no,

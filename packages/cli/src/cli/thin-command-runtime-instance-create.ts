@@ -1,6 +1,7 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinParseResult } from "./thin-command-types.ts";
+import { isRuntimeKindId, runtimeKindForId } from "../../../daemon/src/runtime-inventory.ts";
 
 type ParsedFlags = Extract<ReturnType<typeof readFlags>, { readonly ok: true }>;
 
@@ -14,14 +15,16 @@ export function parseRuntimeInstanceCreate(
     credentialRef = flags.one.get("--credential-ref"),
     kindId = flags.one.get("--kind"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
+  if (!isRuntimeKindId(kindId)) return rejected("invalid_field", `Unknown runtime kind: ${String(kindId)}.`, json);
   if (authMode === "api-key" && !credentialRef)
     return rejected("missing_field", "API-key instances require --credential-ref <opaque-ref>.", json);
   if (authMode === "subscription" && credentialRef)
     return rejected("invalid_field", "Subscription instances cannot accept a credential reference.", json);
-  if (kindId === "agy" && authMode !== "subscription")
-    return rejected("invalid_field", "agy runtime instances support subscription OAuth only.", json);
-  if (kindId !== "codex" && flags.booleans.has("--fast"))
-    return rejected("invalid_runtime_fast", "Fast mode is supported only by Codex runtime instances.", json);
+  const declaration = runtimeKindForId(kindId);
+  if (!declaration.auth.modes.some((mode) => mode === authMode))
+    return rejected("invalid_field", `${kindId} runtime instances do not support ${String(authMode)} auth.`, json);
+  if (!("fast" in declaration.configuration.fields) && flags.booleans.has("--fast"))
+    return rejected("invalid_runtime_fast", `Fast mode is not supported by ${kindId} runtime instances.`, json);
   if (!header.ok) return rejected("invalid_field", header.hint, json);
   if (hasForeignAdapterOptions(kindId, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
@@ -55,17 +58,13 @@ function hasForeignAdapterOptions(
   flags: ParsedFlags,
   headers: Readonly<Record<string, string>> | undefined,
 ): boolean {
+  if (!isRuntimeKindId(kindId)) return true;
+  const fields = runtimeKindForId(kindId).configuration.fields;
   return (
-    (kindId === "claude" &&
-      (flags.one.has("--wire-api") ||
-        flags.booleans.has("--requires-openai-auth") ||
-        headers !== undefined)) ||
-    (kindId === "agy" &&
-      (flags.one.has("--base-url") ||
-        flags.one.has("--wire-api") ||
-        flags.booleans.has("--requires-openai-auth") ||
-        headers !== undefined ||
-        flags.one.has("--isolation")))
+    (flags.one.has("--base-url") && !("baseUrl" in fields)) ||
+    (flags.one.has("--wire-api") && !("wireApi" in fields)) ||
+    (flags.booleans.has("--requires-openai-auth") && !("requiresOpenAiAuth" in fields)) ||
+    (headers !== undefined && !("httpHeaders" in fields))
   );
 }
 
@@ -76,29 +75,18 @@ function runtimeInstanceKindConfig(
   baseUrl: string | undefined,
   headers: Readonly<Record<string, string>> | undefined,
 ) {
-  return kindId === "codex"
-    ? {
-        codex: {
-          ...(one.get("--effort") ? { reasoningEffort: one.get("--effort") } : {}),
-          ...(booleans.has("--fast") ? { fast: true } : {}),
-          ...(baseUrl ? { baseUrl } : {}),
-          ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
-          ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
-          ...(headers ? { httpHeaders: headers } : {}),
-        },
-      }
-    : kindId === "agy"
-      ? {
-          agy: {
-            ...(one.get("--effort") ? { effort: one.get("--effort") } : {}),
-          },
-        }
-      : {
-          claude: {
-            ...(one.get("--effort") ? { effort: one.get("--effort") } : {}),
-            ...(baseUrl ? { baseUrl } : {}),
-          },
-        };
+  if (!isRuntimeKindId(kindId)) return {};
+  const fields = runtimeKindForId(kindId).configuration.fields,
+    effortField = "reasoningEffort" in fields ? "reasoningEffort" : "effort",
+    configuration = {
+      ...(one.get("--effort") && effortField in fields ? { [effortField]: one.get("--effort") } : {}),
+      ...(booleans.has("--fast") && "fast" in fields ? { fast: true } : {}),
+      ...(baseUrl && "baseUrl" in fields ? { baseUrl } : {}),
+      ...(one.get("--wire-api") && "wireApi" in fields ? { wireApi: one.get("--wire-api") } : {}),
+      ...(booleans.has("--requires-openai-auth") && "requiresOpenAiAuth" in fields ? { requiresOpenAiAuth: true } : {}),
+      ...(headers && "httpHeaders" in fields ? { httpHeaders: headers } : {}),
+    };
+  return { [kindId]: configuration };
 }
 
 function runtimeHttpHeaderFlags(

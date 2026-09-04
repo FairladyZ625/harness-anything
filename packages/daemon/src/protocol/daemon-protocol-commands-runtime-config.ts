@@ -215,7 +215,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { enum: ["claude", "codex", "agy"] },
+        {},
       ),
       cliInput("--installation", "single", false, {
         code: "invalid_field",

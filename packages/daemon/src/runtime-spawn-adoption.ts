@@ -12,6 +12,8 @@ import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
+import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
+import { isRuntimeKindId } from "./runtime-inventory.ts";
 
 export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<void> {
   const sessions = context.input.remote
@@ -138,7 +140,7 @@ function ownedByRuntimeNode(binding: RuntimeBinding, runtimeNodeId: string | und
 
 function adoptableMetadata(header: DispatchStreamHeader): {
   readonly dispatchOpId: string;
-  readonly kindId: "claude" | "codex" | "agy";
+  readonly kindId: RuntimeInstanceKind;
   readonly permissionMode: RuntimePermissionMode | null;
   readonly binding: RuntimeBinding;
   readonly cwd: string;
@@ -149,7 +151,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
 } | null {
   if (
     typeof header.dispatchOpId !== "string" ||
-    !["claude", "codex", "agy"].includes(String(header.kindId)) ||
+    !isRuntimeKindId(header.kindId) ||
     (header.permissionMode !== null &&
       !["bypass", "workspace-write", "read-only"].includes(String(header.permissionMode))) ||
     !isBinding(header.binding) ||
@@ -162,7 +164,7 @@ function adoptableMetadata(header: DispatchStreamHeader): {
     return null;
   return {
     dispatchOpId: header.dispatchOpId,
-    kindId: header.kindId as "claude" | "codex" | "agy",
+    kindId: header.kindId,
     permissionMode: header.permissionMode as RuntimePermissionMode | null,
     binding: header.binding,
     cwd: header.cwd,

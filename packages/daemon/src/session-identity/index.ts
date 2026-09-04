@@ -1,5 +1,4 @@
 import {
-  runtimeProtocolFamilies,
   runtimeSessionIdFromActor,
   unavailableSessionIdentity,
   type RuntimeProtocolFamily,
@@ -8,20 +7,59 @@ import {
   type SessionIdentityResolverInput,
   type TaskProjection,
 } from "../../../kernel/src/index.ts";
-import { agySessionIdentityResolver } from "./agy.ts";
-import { claudeCompatibleSessionIdentityResolver } from "./claude-compatible.ts";
-import { codexSessionIdentityResolver } from "./codex.ts";
-
-const sessionIdentityResolvers = Object.freeze({
-  "claude-compatible": claudeCompatibleSessionIdentityResolver,
-  codex: codexSessionIdentityResolver,
-  agy: agySessionIdentityResolver,
-} satisfies Record<RuntimeProtocolFamily, SessionIdentityResolver>);
-if (!runtimeProtocolFamilies.every((family) => Object.hasOwn(sessionIdentityResolvers, family)))
-  throw new Error("session identity resolver registry is incomplete");
+import { runtimeKinds, runtimeProtocolFamilies } from "../runtime-inventory.ts";
 
 export function sessionIdentityResolverFor(protocolFamily: RuntimeProtocolFamily): SessionIdentityResolver {
-  return sessionIdentityResolvers[protocolFamily];
+  const declaration = runtimeKinds.find((kind) => kind.protocolFamily === protocolFamily);
+  if (!declaration) throw new Error(`Unknown runtime protocol family: ${protocolFamily}`);
+  return {
+    resolve: (input) => {
+      const clean = (value: unknown): string | null =>
+          typeof value === "string" && value.trim() ? value.trim() : null,
+        binding = clean(input.providerBinding?.sessionId),
+        recordedBinding =
+          (input.dispatchEvents ?? [])
+            .filter(
+              (value): value is Record<string, unknown> =>
+                value !== null && typeof value === "object" && !Array.isArray(value),
+            )
+            .filter((value) => value.kind === "provider_binding")
+            .map((value) => clean(value.providerSessionId))
+            .find((value) => value !== null) ?? null,
+        event = (input.dispatchEvents ?? []).map(providerEvent).find((candidate) => {
+          const expected = declaration.sessionIdentity.eventDiscriminator;
+          return candidate && (expected === null || candidate[expected[0]] === expected[1]);
+        }),
+        eventId = clean(event?.[declaration.sessionIdentity.eventIdField]),
+        environmentIds = declaration.sessionIdentity.environmentFields
+          .map((field) => clean(input.env?.[field]))
+          .filter((value): value is string => value !== null),
+        candidates = [binding, recordedBinding, eventId, ...environmentIds].filter(
+          (value): value is string => value !== null,
+        );
+      if (new Set(candidates).size > 1) return unavailableSessionIdentity(input.runtime);
+      const sessionId = candidates[0] ?? null;
+      return sessionId === null
+        ? unavailableSessionIdentity(input.runtime)
+        : {
+            runtime:
+              binding === null && recordedBinding === null && eventId === null ? declaration.kindId : input.runtime,
+            sessionId,
+            transcriptReachability:
+              binding === null && recordedBinding === null && eventId === null
+                ? "by_session_id"
+                : declaration.sessionIdentity.transcriptReachability,
+          };
+    },
+  };
+}
+
+function providerEvent(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return record.kind === "provider_event" && record.event !== null && typeof record.event === "object"
+    ? (record.event as Record<string, unknown>)
+    : record;
 }
 export function resolveSessionIdentity(
   protocolFamily: RuntimeProtocolFamily,

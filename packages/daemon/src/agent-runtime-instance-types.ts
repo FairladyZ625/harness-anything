@@ -1,8 +1,9 @@
 import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
+import type { RuntimeKindId } from "./runtime-inventory.ts";
 
-export type RuntimeInstanceKind = "claude" | "codex" | "agy";
+export type RuntimeInstanceKind = RuntimeKindId;
 
 export type RuntimeInstanceAuth =
   | { readonly mode: "subscription" }
@@ -42,15 +43,28 @@ export interface AgyRuntimeInstanceConfig {
   readonly effort?: "low" | "medium" | "high";
 }
 
-export type RuntimeInstanceConfig = RuntimeInstanceCommon &
-  (
-    | {
-        readonly kindId: "claude";
-        readonly claude: ClaudeRuntimeInstanceConfig;
-      }
-    | { readonly kindId: "codex"; readonly codex: CodexRuntimeInstanceConfig }
-    | { readonly kindId: "agy"; readonly agy: AgyRuntimeInstanceConfig }
-  );
+export type RuntimeInstanceConfig = RuntimeInstanceCommon & {
+  readonly kindId: RuntimeInstanceKind;
+  readonly [field: string]: unknown;
+};
+
+export interface RuntimeProviderInstanceConfig {
+  readonly [field: string]: unknown;
+  readonly effort?: string;
+  readonly reasoningEffort?: string;
+  readonly fast?: boolean;
+  readonly baseUrl?: string;
+  readonly wireApi?: string;
+  readonly requiresOpenAiAuth?: boolean;
+  readonly httpHeaders?: Readonly<Record<string, string>>;
+}
+
+export function runtimeProviderConfig(config: RuntimeInstanceConfig): RuntimeProviderInstanceConfig {
+  const value = config[config.kindId];
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new Error(`Runtime instance ${config.instanceId} has no ${config.kindId} configuration.`);
+  return value as RuntimeProviderInstanceConfig;
+}
 
 export interface RuntimeInstallationWitness {
   readonly installationId: string;

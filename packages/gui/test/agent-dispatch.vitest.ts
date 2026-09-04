@@ -30,7 +30,7 @@ const codexInstance = {
   defaultModel: "gpt-5.6-terra",
   enabled: true,
   permissionMode: "bypass",
-  codex: {
+  configuration: {
     reasoningEffort: "high",
     baseUrl: null,
     baseUrlConfigured: false,
@@ -48,14 +48,14 @@ const claudeInstance = {
   instanceId: "claude-one",
   name: "Claude One",
   kindId: "claude",
-  claude: { baseUrl: null, baseUrlConfigured: false },
+  configuration: { baseUrl: null, baseUrlConfigured: false },
 } as never;
 const agyInstance = {
   ...codexInstance,
   instanceId: "agy-one",
   name: "Agy One",
   kindId: "agy",
-  agy: { effort: "high" },
+  configuration: { effort: "high" },
 } as never;
 const agentSubject: DispatchSubject = {
   kind: "agent",

@@ -7,8 +7,8 @@ import type {
 export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
-  readonly kindId: "claude" | "codex" | "agy";
-  readonly protocolFamily: "claude-compatible" | "codex" | "agy";
+  readonly kindId: string;
+  readonly protocolFamily: string;
   readonly version: string;
   readonly attachCapability: "supported" | "unsupported";
   readonly lastObservedAt: string;
@@ -32,31 +32,11 @@ interface AgentRuntimeInstanceCommonDto {
   };
   readonly githubCredentialState?: "configured";
   readonly isolationState: "enforced" | "operator-environment";
+  readonly configuration: Readonly<Record<string, unknown>>;
 }
-export type AgentRuntimeInstanceDto = AgentRuntimeInstanceCommonDto &
-  (
-    | {
-        readonly kindId: "claude";
-        readonly claude: {
-          readonly effort?: string | null;
-          readonly baseUrl: string | null;
-          readonly baseUrlConfigured: boolean;
-        };
-      }
-    | {
-        readonly kindId: "codex";
-        readonly codex: {
-          readonly reasoningEffort: string | null;
-          readonly fast: boolean;
-          readonly baseUrl: string | null;
-          readonly baseUrlConfigured: boolean;
-          readonly wire_api: string | null;
-          readonly requires_openai_auth: boolean | null;
-          readonly http_headers: Readonly<Record<string, string>> | null;
-        };
-      }
-    | { readonly kindId: "agy"; readonly agy: { readonly effort: "low" | "medium" | "high" | null } }
-  );
+export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
+  readonly kindId: string;
+}
 export interface AgentRuntimeAssociationDto {
   readonly taskId: string;
   readonly executionId: string;
@@ -87,7 +67,7 @@ export interface AgentRuntimeSessionDto {
   readonly providerSessionId: string | null;
   readonly instanceId: string;
   readonly installationId: string;
-  readonly kindId: "claude" | "codex" | "agy";
+  readonly kindId: string;
   /** Omitted while the referenced installation is still witnessed, preserving the established DTO bytes. */
   readonly installationState?: Exclude<RuntimeInstallationState, "present">;
   readonly installationError?: AgentRuntimeInstallationErrorDto;
@@ -332,8 +312,10 @@ function validInstallation(value: unknown): value is AgentRuntimeInstallationDto
       "lastObservedAt",
     ]) &&
     typeof value.installationId === "string" &&
-    ["claude", "codex", "agy"].includes(String(value.kindId)) &&
-    ["claude-compatible", "codex", "agy"].includes(String(value.protocolFamily)) &&
+    typeof value.kindId === "string" &&
+    value.kindId.length > 0 &&
+    typeof value.protocolFamily === "string" &&
+    value.protocolFamily.length > 0 &&
     typeof value.version === "string" &&
     attachCapabilities.includes(String(value.attachCapability)) &&
     typeof value.lastObservedAt === "string"
@@ -341,94 +323,51 @@ function validInstallation(value: unknown): value is AgentRuntimeInstallationDto
 }
 function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
   if (!isAgentRuntimeContractRecord(value)) return false;
-  const field = value.kindId === "codex" ? "codex" : value.kindId === "agy" ? "agy" : "claude",
-    common =
-      hasAgentRuntimeContractFields(
-        value,
-        [
-          "schemaVersion",
-          "instanceId",
-          "name",
-          "kindId",
-          "installationId",
-          "providerId",
-          "models",
-          "defaultModel",
-          "enabled",
-          "permissionMode",
-          field,
-          "authMode",
-          "authState",
-          "authReadiness",
-          "isolationState",
-        ],
-        ["githubCredentialState"],
-      ) &&
-      value.schemaVersion === 2 &&
-      Array.isArray(value.models) &&
-      value.models.length > 0 &&
-      value.models.every((item) => typeof item === "string" && item.length > 0) &&
-      typeof value.defaultModel === "string" &&
-      value.models.includes(value.defaultModel) &&
-      typeof value.enabled === "boolean" &&
-      (value.permissionMode === null ||
-        ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
-      [value.instanceId, value.name, value.installationId, value.providerId].every(
-        (item) => typeof item === "string" && item.length > 0,
-      ) &&
-      ["subscription", "api-key"].includes(String(value.authMode)) &&
-      ["configured", "authenticated", "unauthenticated", "unknown"].includes(String(value.authState)) &&
-      (value.githubCredentialState === undefined || value.githubCredentialState === "configured") &&
-      ["enforced", "operator-environment"].includes(String(value.isolationState)) &&
-      validReadiness(value.authReadiness);
-  if (!common) return false;
-  return value.kindId === "claude"
-    ? validClaudeInstanceConfig(value.claude)
-    : value.kindId === "codex"
-      ? validCodexInstanceConfig(value.codex)
-      : validAgyInstanceConfig(value.agy);
-}
-function validClaudeInstanceConfig(value: unknown): boolean {
+  const common =
+    hasAgentRuntimeContractFields(
+      value,
+      [
+        "schemaVersion",
+        "instanceId",
+        "name",
+        "kindId",
+        "installationId",
+        "providerId",
+        "models",
+        "defaultModel",
+        "enabled",
+        "permissionMode",
+        "configuration",
+        "authMode",
+        "authState",
+        "authReadiness",
+        "isolationState",
+      ],
+      ["githubCredentialState"],
+    ) &&
+    value.schemaVersion === 2 &&
+    Array.isArray(value.models) &&
+    value.models.length > 0 &&
+    value.models.every((item) => typeof item === "string" && item.length > 0) &&
+    typeof value.defaultModel === "string" &&
+    value.models.includes(value.defaultModel) &&
+    typeof value.enabled === "boolean" &&
+    (value.permissionMode === null ||
+      ["bypass", "workspace-write", "read-only"].includes(String(value.permissionMode))) &&
+    [value.instanceId, value.name, value.installationId, value.providerId].every(
+      (item) => typeof item === "string" && item.length > 0,
+    ) &&
+    ["subscription", "api-key"].includes(String(value.authMode)) &&
+    ["configured", "authenticated", "unauthenticated", "unknown"].includes(String(value.authState)) &&
+    (value.githubCredentialState === undefined || value.githubCredentialState === "configured") &&
+    ["enforced", "operator-environment"].includes(String(value.isolationState)) &&
+    validReadiness(value.authReadiness);
   return (
-    isAgentRuntimeContractRecord(value) &&
-    hasAgentRuntimeContractFields(value, ["baseUrl", "baseUrlConfigured"], ["effort"]) &&
-    (value.effort === undefined || value.effort === null || typeof value.effort === "string") &&
-    (value.baseUrl === null || typeof value.baseUrl === "string") &&
-    typeof value.baseUrlConfigured === "boolean"
-  );
-}
-function validCodexInstanceConfig(value: unknown): boolean {
-  return (
-    isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "reasoningEffort",
-      "fast",
-      "baseUrl",
-      "baseUrlConfigured",
-      "wire_api",
-      "requires_openai_auth",
-      "http_headers",
-    ]) &&
-    (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
-    typeof value.fast === "boolean" &&
-    (value.baseUrl === null || typeof value.baseUrl === "string") &&
-    typeof value.baseUrlConfigured === "boolean" &&
-    (value.wire_api === null || typeof value.wire_api === "string") &&
-    (value.requires_openai_auth === null || typeof value.requires_openai_auth === "boolean") &&
-    (value.http_headers === null ||
-      (isAgentRuntimeContractRecord(value.http_headers) &&
-        Object.entries(value.http_headers).every(
-          ([name, header]) =>
-            !/(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) &&
-            typeof header === "string",
-        )))
-  );
-}
-function validAgyInstanceConfig(value: unknown): boolean {
-  return (
-    isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, ["effort"]) &&
-    (value.effort === null || ["low", "medium", "high"].includes(String(value.effort)))
+    common &&
+    typeof value.kindId === "string" &&
+    value.kindId.length > 0 &&
+    isAgentRuntimeContractRecord(value.configuration) &&
+    safeKeys(value.configuration)
   );
 }
 function validReadiness(value: unknown): boolean {
@@ -470,7 +409,8 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     [value.instanceId, value.installationId, value.definitionSnapshotRef].every(
       (item) => typeof item === "string" && item.length > 0,
     ) &&
-    ["claude", "codex", "agy"].includes(String(value.kindId)) &&
+    typeof value.kindId === "string" &&
+    value.kindId.length > 0 &&
     validInstallationState(value.installationState, value.installationError) &&
     typeof value.definitionSnapshotPersisted === "boolean" &&
     (value.definitionSnapshot === null ||
@@ -589,7 +529,8 @@ export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinit
     [value.instanceId, value.installationId, value.providerId, value.model].every(
       (item) => typeof item === "string" && item.length > 0,
     ) &&
-    ["claude", "codex", "agy"].includes(String(value.kindId)) &&
+    typeof value.kindId === "string" &&
+    value.kindId.length > 0 &&
     (value.reasoningEffort === null || typeof value.reasoningEffort === "string") &&
     (value.fast === undefined || typeof value.fast === "boolean") &&
     (value.baseUrl === null || typeof value.baseUrl === "string") &&
