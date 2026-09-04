@@ -169,7 +169,9 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(factReceipt.outcome, "applied", JSON.stringify(factReceipt));
 
     const taskBytes = JSON.stringify(await cell.read("repo.tasks.list", {})),
-      graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph", { limit: 500 }));
+      graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph")),
+      unparameterizedGraph = JSON.parse(graphBytes) as { edges: unknown[]; page?: { limit: number } };
+    assert.equal(unparameterizedGraph.page?.limit, 500, "unparameterized relation graph keeps the paged full read");
     const unparameterized = JSON.parse(taskBytes) as {
       page?: unknown;
       rows: {
@@ -211,7 +213,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       "unparameterized task list must be byte-identical across reopen",
     );
     assert.equal(
-      JSON.stringify(await cell.read("repo.triadic.relationGraph", { limit: 500 })),
+      JSON.stringify(await cell.read("repo.triadic.relationGraph")),
       graphBytes,
       "unparameterized relation graph must be byte-identical across reopen",
     );

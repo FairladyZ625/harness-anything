@@ -741,8 +741,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       return queryRead().relationGraphFacet(payload as DaemonRelationGraphFacetPayload);
     }
     const common = queryPayloadFacets(payload, "repo.triadic.relationGraph");
-    if (!common.explicit)
-      throw context.cellCodedError("invalid_command", "Relation graph requires a bounded neighborhood or page query.");
+    if (!common.explicit) return queryRead().relationGraphPage({ limit: 500 });
     return queryRead().relationGraphPage({
       ...(common.status ? { state: common.status } : {}),
       ...(common.updatedAfter ? { updatedAfter: common.updatedAfter } : {}),

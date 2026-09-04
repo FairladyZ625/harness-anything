@@ -303,7 +303,7 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
       ["validateDaemonTaskSnapshotList", taskRead],
       ["validateDaemonWorkspaceSummary", workspaceSummaryFromReads(taskRead, decisionRead)],
       ["validateDaemonAgenda", model.agenda({ limit: 100 })],
-      ["validateDaemonRelationGraph", model.relationGraph()],
+      ["validateDaemonRelationGraph", model.relationGraphPage({ limit: 500 })],
       ["validateDaemonDecisionList", decisionRead],
       [
         "validateDaemonDocumentRead",

@@ -18,6 +18,7 @@ import {
   validateGuiSubmission,
 } from "./daemon-protocol-validate-entities.ts";
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
+import { validateRelationNeighborhoodPayload } from "./daemon-protocol-validate-relation-query.ts";
 import {
   allDaemonProtocolMethods,
   type DaemonRpcCall,
@@ -34,8 +35,7 @@ import {
   type JsonObject,
 } from "./json-rpc-types.ts";
 
-export { DaemonProtocolContractError };
-export { validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
+export { DaemonProtocolContractError, validateSessionEnvironment };
 
 export function isDaemonGuiReadMethod(method: string): method is DaemonGuiRpcReadMethod {
   return daemonGuiReadMethods.some((entry) => entry.method === method);
@@ -153,36 +153,15 @@ function validateSquadRunReadPayload(value: unknown): string[] {
   return [];
 }
 
-// The wide task reads accept optional narrow/paged facets; absent payload or absent
-// fields keep the unparameterized full-result contract, so validation only constrains
-// the fields a caller actually supplies.
+// Absent facets keep the unparameterized full-result contract.
 export function validateDaemonQueryPayload(
   method: "repo.tasks.list" | "repo.triadic.relationGraph",
   value: unknown,
 ): string[] {
   if (value === undefined) return [];
   if (!isJsonObject(value)) return ["query payload must be an object"];
-  if (method === "repo.triadic.relationGraph" && (value.entity !== undefined || value.hops !== undefined)) {
-    const allowed = ["entity", "hops", "status"],
-      unknown = unknownFieldViolation(value, allowed);
-    if (unknown) return [`repo.triadic.relationGraph.payload contains an ${unknown}`];
-    if (!nonEmpty(value.entity) || !isJsonObject(value.hops))
-      return ["repo.triadic.relationGraph.payload requires entity and hops"];
-    const hops = value.hops,
-      hopsUnknown = unknownFieldViolation(hops, ["direction", "relationTypes", "maxDepth", "maxNodes"]);
-    if (hopsUnknown) return [`repo.triadic.relationGraph.payload.hops contains an ${hopsUnknown}`];
-    if (!["outgoing", "incoming", "both"].includes(String(hops.direction)))
-      return ["repo.triadic.relationGraph.payload.hops.direction is invalid"];
-    if (!stringArray(hops.relationTypes) || hops.relationTypes.length === 0)
-      return ["repo.triadic.relationGraph.payload.hops.relationTypes is invalid"];
-    if (!integer(hops.maxDepth) || Number(hops.maxDepth) < 1 || Number(hops.maxDepth) > 4_096)
-      return ["repo.triadic.relationGraph.payload.hops.maxDepth is invalid"];
-    if (!integer(hops.maxNodes) || Number(hops.maxNodes) < 1 || Number(hops.maxNodes) > 10_000)
-      return ["repo.triadic.relationGraph.payload.hops.maxNodes is invalid"];
-    if (value.status !== undefined && !statusWord(relationStateWords, value.status))
-      return ["repo.triadic.relationGraph.payload.status is invalid"];
-    return [];
-  }
+  if (method === "repo.triadic.relationGraph" && (value.entity !== undefined || value.hops !== undefined))
+    return validateRelationNeighborhoodPayload(value);
   if (
     method === "repo.triadic.relationGraph" &&
     [value.facet, value.relationType, value.state, value.direction].some((field) => field !== undefined)
