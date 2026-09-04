@@ -71,6 +71,39 @@ test("Relation kind and actions expose the BaseEntity and G1 concurrency contrac
   assert.equal(getExecutableEntityAction("decision-relate"), undefined);
 });
 
+test("Relation admission distinguishes reversed direction from an invalid target kind", () => {
+  const compile = (sourceRef: string, targetRef: string, type: "implements" | "refines") => {
+    const identity = { source: sourceRef, target: targetRef, type, direction: "directed" as const };
+    return compileRelationCreatedEvent({
+      record: {
+        relation_id: deriveRelationId(identity),
+        ...identity,
+        origin: "declared",
+        state: "active",
+        rationale: "Negative admission contract.",
+        targetObservedVersion: 1,
+      },
+      actor,
+      source,
+      opId: `relation-invalid-${type}`,
+      occurredAt: "2026-09-04T00:00:00.000Z",
+      workspaceRevision: 1,
+    });
+  };
+  assert.throws(
+    () => compile("decision/dec_RELATION_TARGET", "task/task_RELATION_TARGET", "implements"),
+    (error: unknown) =>
+      (error as { code?: string }).code === "relation_direction_invalid" &&
+      /task --implements--> decision/u.test(JSON.stringify((error as { diagnostic?: unknown }).diagnostic)),
+  );
+  assert.throws(
+    () => compile("decision/dec_RELATION_TARGET", "task/task_RELATION_TARGET", "refines"),
+    (error: unknown) =>
+      (error as { code?: string }).code === "relation_target_kind_invalid" &&
+      /decision --refines-->.*decision/u.test(JSON.stringify((error as { diagnostic?: unknown }).diagnostic)),
+  );
+});
+
 test("native Relation history reduces and projects one versioned aggregate row", () => {
   const relation = record(),
     created = compileRelationCreatedEvent({

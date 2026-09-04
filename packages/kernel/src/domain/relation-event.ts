@@ -490,14 +490,60 @@ export function assertRelationAdmission(
   directions: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): void {
   const kinds = relationEndpointKinds(record);
-  if (!isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions))
-    throw Object.assign(
-      new Error(
-        `Relation triple ${kinds.source} --${record.type}--> ${kinds.target} is not declared ` +
-          "in the canonical direction registry",
-      ),
-      { code: "relation_triple_undeclared" },
+  if (isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions)) return;
+  const writable = directions.filter(({ registration }) => registration !== "derived"),
+    reversed = writable.find(
+      ({ sourceKind, type, targetKind }) =>
+        sourceKind === kinds.target && type === record.type && targetKind === kinds.source,
+    ),
+    acceptedTargets = writable.filter(({ sourceKind, type }) => sourceKind === kinds.source && type === record.type);
+  if (reversed)
+    relationAdmissionError(
+      "relation_direction_invalid",
+      record,
+      kinds,
+      `Use canonical direction ${reversed.sourceKind} --${reversed.type}--> ${reversed.targetKind}; ` +
+        `next: ha relation relate --source-ref ${record.target} --target-ref ${record.source} ` +
+        `--type ${record.type} --rationale <why> --expected-version 0`,
     );
+  if (acceptedTargets.length > 0)
+    relationAdmissionError(
+      "relation_target_kind_invalid",
+      record,
+      kinds,
+      `Allowed target ${acceptedTargets.map(({ targetKind }) => targetKind).join(" or ")} for ` +
+        `${kinds.source} --${record.type}-->; replace --target-ref with a matching canonical Entity ref`,
+    );
+  relationAdmissionError(
+    "relation_triple_undeclared",
+    record,
+    kinds,
+    "Choose a declared source --type--> target triple from ha relation relate --help",
+  );
+}
+
+function relationAdmissionError(
+  code: string,
+  record: Pick<EntityRelationRecord, "type">,
+  kinds: { readonly source: string; readonly target: string },
+  expectation: string,
+): never {
+  throw Object.assign(
+    new Error(
+      `Relation triple ${kinds.source} --${record.type}--> ${kinds.target} is not declared ` +
+        "in the canonical direction registry",
+    ),
+    {
+      code,
+      diagnostic: {
+        kind: "validation",
+        entity: "relation",
+        field: "source-ref/type/target-ref",
+        actual: `${kinds.source} --${record.type}--> ${kinds.target}`,
+        expectation,
+      },
+    },
+  );
 }
 
 function relationEndpointKinds(record: Pick<EntityRelationRecord, "source" | "target">): {
