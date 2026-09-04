@@ -64,4 +64,4 @@ Task Contract: harness-task v1
 
 - **停止点 = 本次改动面的定向测试全绿 + 本地 commit。完整门矩阵是 GitHub CI 的活，不是这台机器的活。** 点名本任务改动面需要的具体测试文件或 `--tier` 选择，并把 runner 的真实输出贴进本节，别只写「全绿」——输出是产物，断言不是。不要为了求安心在本机串行跑全量：一台机器顺序跑完所有 job 严格慢于 CI 并行跑，而且会占住全机槽预算、把同机其他 worker 全堵在后面。`npm run check:ci` 仍然保留，用于**刻意在本地复现某个 CI 失败**，它不是停止点。
 - 列出本任务额外需要的 review 与人工验收条件。
-- 依据 `dec_mrg3z1we/CH4`，Fact 是 `0..N` 的显式晋升，不是 review 或 completion 的数量门；交付通过 Execution outputs、review、closeout 与适用的 completion gates 验证。
+- 默认完成契约下至少记录一条 fact：`code-doc-reconciliation` 会以 `fact_missing` 拒绝没有 fact 的完成请求；交付通过 Execution outputs、review、closeout 与全部适用 completion gate 验证。

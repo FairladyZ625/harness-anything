@@ -1,9 +1,14 @@
 ## Harness CLI (software/coding)
 
 - Use `ha <command>` or `npx harness-anything <command>` and inspect command help before composing writes.
-- Create task packages with `ha task create --title "<title>"`; do not hand-scaffold task directories.
+- Create task packages with `ha task create --title "<title>"`; do not hand-scaffold task directories, and replace every required `task_plan.md` placeholder before dispatch or `runtime run` rejects it with `plan_placeholder`.
 - Select from the effective catalog with `ha preset list`. Packages reported unavailable must not be used to publish guidance or create a task.
 - Milestone creation requires an explicit `--task-class milestone`; the preset ID does not infer task class.
+- Both `--opt value` and `--opt=value` are accepted for value options; an unsupported option is rejected with `unknown_field`.
+- `runtime run --mission` takes a synced mission name, not a file path; submit the mission with `ha doc sync --submit` first or dispatch rejects it with `mission_not_found`.
+- Closeout order is start → submit → independent `review-execution` → `review-consent` → complete; an out-of-order lifecycle action is `invalid_transition`, and self-review is `actor_unauthorized`.
+- `ha task complete --path` resolves paths from the project repository root and rejects paths absent from the submitted commit with `invalid_proof`.
+- Before completion, replace `closeout.md` with the exact sections `## Summary`, `## Verification`, `## Residual Risk`, and `## Same Mechanism Elsewhere`, or completion rejects it with `closeout_placeholder`.
 
 ## Repository Scaffolds
 
