@@ -18,6 +18,8 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "update",
     "--default-preset",
     "strict-task",
+    "--review-independence",
+    "principal",
     "--locale",
     "zh-CN",
     "--task-scaffold",
@@ -32,6 +34,7 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     assert.deepEqual(update.command.action, {
       kind: "settings-update",
       defaultPreset: "strict-task",
+      reviewIndependence: "principal",
       locale: "zh-CN",
       taskScaffold: "governance/task-scaffold.json",
       expectedVersion: 42,

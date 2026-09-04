@@ -6,6 +6,8 @@ export const SETTINGS_ID = "repository";
 export const SETTINGS_LOCAL_PATH = ".harness/settings.local.json";
 export const settingsLocales = ["en-US", "zh-CN"] as const;
 export type SettingsLocale = (typeof settingsLocales)[number];
+export const reviewIndependenceLevels = ["execution", "principal"] as const;
+export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
@@ -29,6 +31,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   defaultVertical: "repository",
   defaultPreset: "repository",
   defaultProfile: "repository",
+  reviewIndependence: "repository",
   locale: "local",
   scaffolds: "repository",
   walFlush: "repository",
@@ -49,6 +52,7 @@ export interface RepositorySettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
+  readonly reviewIndependence: ReviewIndependence;
   readonly scaffolds: {
     readonly task: string;
     readonly repository: string;
@@ -67,6 +71,7 @@ export interface SettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
+  readonly reviewIndependence: ReviewIndependence;
   readonly locale: SettingsLocale;
   readonly scaffolds: {
     readonly task: string;
@@ -93,6 +98,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   defaultVertical: "software/coding",
   defaultPreset: "standard-task",
   defaultProfile: "baseline",
+  reviewIndependence: "execution",
   locale: "en-US",
   scaffolds: Object.freeze({
     task: "governance/task-scaffold.json",
@@ -128,6 +134,10 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
+    reviewIndependence: ownedSchema("reviewIndependence", {
+      type: "string",
+      enum: reviewIndependenceLevels,
+    }),
     locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
     scaffolds: {
       ...ownedSchema("scaffolds", {}),
@@ -157,6 +167,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     "defaultVertical",
     "defaultPreset",
     "defaultProfile",
+    "reviewIndependence",
     "locale",
     "scaffolds",
     "walFlush",
@@ -185,6 +196,10 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
+    reviewIndependence: ownedSchema("reviewIndependence", {
+      type: "string",
+      enum: reviewIndependenceLevels,
+    }),
     scaffolds: {
       ...ownedSchema("scaffolds", {}),
       type: "object",
@@ -202,7 +217,16 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
   },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
+  required: [
+    "schema",
+    "settingsId",
+    "defaultVertical",
+    "defaultPreset",
+    "defaultProfile",
+    "reviewIndependence",
+    "scaffolds",
+    "walFlush",
+  ],
   additionalProperties: false,
 };
 
@@ -217,6 +241,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     defaultVertical: settings.defaultVertical,
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
+    reviewIndependence: settings.reviewIndependence ?? INITIAL_SETTINGS_V1.reviewIndependence,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
     walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
   };
@@ -244,6 +269,8 @@ export function readSettingsFacet(body: string): SettingsV1 {
     defaultVertical: setting(body, "defaultVertical") ?? INITIAL_SETTINGS_V1.defaultVertical,
     defaultPreset: setting(body, "defaultPreset") ?? INITIAL_SETTINGS_V1.defaultPreset,
     defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
+    reviewIndependence: (setting(body, "reviewIndependence") ??
+      INITIAL_SETTINGS_V1.reviewIndependence) as ReviewIndependence,
     locale: (setting(body, "locale") ?? INITIAL_SETTINGS_V1.locale) as SettingsLocale,
     scaffolds: {
       task: settingBlockValue(body, "scaffolds", "task") ?? INITIAL_SETTINGS_V1.scaffolds.task,
@@ -282,6 +309,13 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     "defaultProfile",
     repository.defaultProfile,
     INITIAL_SETTINGS_V1.defaultProfile,
+  );
+  next = replaceOptionalDefaultedScalar(
+    next,
+    "  ",
+    "reviewIndependence",
+    repository.reviewIndependence,
+    INITIAL_SETTINGS_V1.reviewIndependence,
   );
   next = replaceDefaultedBlockScalar(
     next,
@@ -381,6 +415,20 @@ function replaceScalar(body: string, indent: string, key: string, value: string)
 function replaceDefaultedScalar(body: string, indent: string, key: string, value: string, fallback: string): string {
   if (setting(body, key) === undefined && value === fallback) return body;
   return replaceScalar(body, indent, key, value);
+}
+
+function replaceOptionalDefaultedScalar(
+  body: string,
+  indent: string,
+  key: string,
+  value: string,
+  fallback: string,
+): string {
+  if (setting(body, key) !== undefined) return replaceScalar(body, indent, key, value);
+  if (value === fallback) return body;
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${indent}${key}: ${value}\n`);
 }
 
 function replaceBlockScalar(body: string, block: string, key: string, value: string): string {

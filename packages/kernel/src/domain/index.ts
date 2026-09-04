@@ -256,13 +256,14 @@ export {
   SETTINGS_LOCAL_PATH,
   parseLocalSettings,
   readSettingsFacet,
+  reviewIndependenceLevels,
   repositorySettings,
   serializeLocalSettings,
   validateRepositorySettings,
   validateSettingsV1,
   writeRepositorySettingsFacet,
 } from "./settings.ts";
-export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
+export type { RepositorySettingsV1, ReviewIndependence, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
 export { settingsActionLocale } from "./settings-action-contract.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";

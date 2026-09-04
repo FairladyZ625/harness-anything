@@ -62,6 +62,15 @@ const settingsWriteTopology = {
         settingValueInput("--default-preset"),
         settingValueInput("--default-profile"),
         cliInput(
+          "--review-independence",
+          "single",
+          false,
+          { code: "invalid_field" },
+          {
+            enum: ["execution", "principal"],
+          },
+        ),
+        cliInput(
           "--locale",
           "single",
           false,

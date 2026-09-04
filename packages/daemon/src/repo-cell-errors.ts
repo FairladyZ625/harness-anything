@@ -28,8 +28,9 @@ export function cellCriterionError(
   actionId: string,
   criterionRef: string,
   nextActions: readonly string[] = [],
+  diagnostic?: ReceiptDiagnostic,
 ): Error {
-  return attributeCellCriterion(cellCodedError(code, text), actionId, criterionRef, nextActions);
+  return attributeCellCriterion(cellCodedError(code, text, diagnostic), actionId, criterionRef, nextActions);
 }
 
 export function attributeCellCriterion(

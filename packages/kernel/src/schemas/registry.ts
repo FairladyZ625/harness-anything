@@ -78,6 +78,7 @@ export const HarnessConfigSchema = Schema.Struct({
       defaultVertical: Schema.optional(ConfigIdentifierSchema),
       defaultPreset: Schema.optional(ConfigIdentifierSchema),
       defaultProfile: Schema.optional(ConfigIdentifierSchema),
+      reviewIndependence: Schema.optional(Schema.Literal("execution", "principal")),
       tasks: Schema.optional(
         Schema.Struct({
           wipLimit: Schema.optional(TaskWipLimitSchema),

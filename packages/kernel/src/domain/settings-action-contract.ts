@@ -13,6 +13,7 @@ import { compileSettingsChangedEvent, type SettingsEventBundle } from "./setting
 import {
   SETTINGS_ID,
   repositorySettings,
+  reviewIndependenceLevels,
   settingsLocales,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
@@ -38,6 +39,7 @@ const repositoryFieldNames = Object.freeze([
   "defaultVertical",
   "defaultPreset",
   "defaultProfile",
+  "reviewIndependence",
   "taskScaffold",
   "repositoryScaffold",
   "walFlushAdaptive",
@@ -120,6 +122,7 @@ export function createSettingsActionCatalog(
           field("defaultVertical"),
           field("defaultPreset"),
           field("defaultProfile"),
+          field("reviewIndependence", "string", false, reviewIndependenceLevels),
           field("locale", "string", false, settingsLocales),
           field("taskScaffold"),
           field("repositoryScaffold"),
@@ -194,6 +197,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       defaultVertical: updatedText(input.action, "defaultVertical", current.defaultVertical),
       defaultPreset: updatedText(input.action, "defaultPreset", current.defaultPreset),
       defaultProfile: updatedText(input.action, "defaultProfile", current.defaultProfile),
+      reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
       scaffolds: {
         task: updatedText(input.action, "taskScaffold", current.scaffolds.task),
         repository: updatedText(input.action, "repositoryScaffold", current.scaffolds.repository),
@@ -236,10 +240,10 @@ export function settingsActionLocale(value: unknown): SettingsLocale | undefined
 }
 
 function currentSettings(input: EntityActionCompileInput): RepositorySettingsV1 {
-  const current = input.currentEntity;
+  const current = repositorySettings(input.currentEntity as RepositorySettingsV1);
   if (validateRepositorySettings(current).length)
     rejectSettings("content_not_ready", `Settings ${SETTINGS_ID} has no valid canonical projection.`);
-  return repositorySettings(current as RepositorySettingsV1);
+  return current;
 }
 
 function updatedText(action: Readonly<Record<string, unknown>>, name: string, current: string): string {
@@ -247,6 +251,16 @@ function updatedText(action: Readonly<Record<string, unknown>>, name: string, cu
   const value = action[name];
   if (typeof value === "string" && value.trim()) return value.trim();
   rejectSettings("invalid_command", `${name} must be a non-empty string.`);
+}
+
+function updatedReviewIndependence(
+  value: unknown,
+  current: RepositorySettingsV1["reviewIndependence"],
+): RepositorySettingsV1["reviewIndependence"] {
+  if (value === undefined) return current;
+  if (reviewIndependenceLevels.includes(value as RepositorySettingsV1["reviewIndependence"]))
+    return value as RepositorySettingsV1["reviewIndependence"];
+  rejectSettings("invalid_command", `reviewIndependence must be one of ${reviewIndependenceLevels.join(", ")}.`);
 }
 
 function updatedBoolean(action: Readonly<Record<string, unknown>>, name: string, current: boolean): boolean {

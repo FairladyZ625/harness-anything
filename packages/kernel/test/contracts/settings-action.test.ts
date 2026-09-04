@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 import { SettingsActionError } from "../../src/domain/settings-action-contract.ts";
+import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
 import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
 
 const documentBody = [
@@ -49,6 +50,23 @@ test("Settings update compiles the existing audit event with actor and parent do
   assert.match(draft.result.bundle.blobs[0].body, /defaultPreset: docs-task/u);
 });
 
+test("Settings update persists principal review independence through the existing event", () => {
+  const draft = compile({ reviewIndependence: "principal" });
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") return;
+  assert.equal(draft.result.bundle.event.payload.settings.reviewIndependence, "principal");
+  assert.match(draft.result.bundle.blobs[0].body, /reviewIndependence: principal/u);
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("Settings update hydrates the default when the projected event predates review independence", () => {
+  const { reviewIndependence: _legacyMissing, ...legacyCurrent } = current;
+  const draft = compile({ reviewIndependence: "principal" }, legacyCurrent);
+  assert.equal(draft.kind, "settings");
+  if (draft.kind !== "settings" || draft.result.kind !== "event") return;
+  assert.equal(draft.result.bundle.event.payload.settings.reviewIndependence, "principal");
+});
+
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {
   assert.throws(
     () => compile({ walFlushEvents: 512, expectedVersion: 6 }),
@@ -67,7 +85,7 @@ test("Settings locale remains outside the canonical event compiler", () => {
   assert.deepEqual(draft.result, { kind: "no-changes", settings: current, revision: 7 });
 });
 
-function compile(action: Readonly<Record<string, unknown>>) {
+function compile(action: Readonly<Record<string, unknown>>, currentEntity: unknown = current) {
   const compiler = getExecutableEntityAction("settings-update")?.execution?.compile;
   assert.ok(compiler);
   return compiler({
@@ -81,7 +99,7 @@ function compile(action: Readonly<Record<string, unknown>>) {
     opId: "settings-action-contract",
     occurredAt: "2026-09-01T00:00:00.000Z",
     workspaceRevision: 8,
-    currentEntity: current,
+    currentEntity,
     entityRevision: 7,
     currentDocumentBody: documentBody,
   });

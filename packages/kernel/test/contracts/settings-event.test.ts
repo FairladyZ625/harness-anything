@@ -45,6 +45,11 @@ test("every Settings business field declares repository or local ownership", () 
     );
 });
 
+test("Settings defaults review independence to the execution axis when omitted", () => {
+  assert.equal(readSettingsFacet(original).reviewIndependence, "execution");
+  assert.equal(repositorySettings(readSettingsFacet(original)).reviewIndependence, "execution");
+});
+
 test("Settings facet codec changes owned fields and preserves every unowned byte", () => {
   const settings: SettingsV1 = {
       ...readSettingsFacet(original),

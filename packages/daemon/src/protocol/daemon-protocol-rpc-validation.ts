@@ -283,18 +283,10 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.task.submit") errors.push(...validateGuiSubmission(value.submission));
   if (method === "repo.settings.update") {
-    const settingFields = [
-        "defaultVertical",
-        "defaultPreset",
-        "defaultProfile",
-        "locale",
-        "taskScaffold",
-        "repositoryScaffold",
-        "walFlushAdaptive",
-        "walFlushEvents",
-        "walFlushBytes",
-        "walFlushMilliseconds",
-      ],
+    const settingFields = (
+        "defaultVertical defaultPreset defaultProfile reviewIndependence locale taskScaffold repositoryScaffold " +
+        "walFlushAdaptive walFlushEvents walFlushBytes walFlushMilliseconds"
+      ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
     if (
@@ -306,7 +298,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       [value.walFlushEvents, value.walFlushBytes, value.walFlushMilliseconds].some(
         (item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1),
       ) ||
-      (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale)))
+      (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
+      (value.reviewIndependence !== undefined && !["execution", "principal"].includes(String(value.reviewIndependence)))
     )
       errors.push("settings update is invalid");
   }

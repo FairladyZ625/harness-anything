@@ -21,6 +21,7 @@ import {
   type AuthorizationDecision,
   type CompleteTaskCommand,
   type ProofFor,
+  type SettingsV1,
   type TaskLifecycleCommand,
   type WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -41,6 +42,7 @@ export async function proofFor(
   binding: RepoCellBinding,
   projection: ReturnType<typeof makeTaskProjection>,
   rootDir: string,
+  settings: SettingsV1,
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
@@ -147,18 +149,49 @@ export async function proofFor(
         REVIEW_PROOF_CRITERION,
         reviewCriterion.nextActions,
       );
-    const independentActor = execution !== undefined && isIndependentFrom(execution.actor, command.actor),
+    const independentActor =
+        execution !== undefined &&
+        (settings.reviewIndependence === "execution"
+          ? isIndependentFrom(execution.actor, command.actor)
+          : !isSamePerson(execution.actor, command.actor)),
       externalCompletionEvidence = independentActor
         ? false
         : validExternalCompletionEvidence(command, projection, rootDir),
       explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
     if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
+      const principalSettingGuidance =
+        settings.reviewIndependence === "principal" &&
+        execution !== undefined &&
+        isSamePerson(execution.actor, command.actor)
+          ? [
+              "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
+                "actor must have different principals.",
+              "ha settings update --review-independence execution",
+            ]
+          : reviewCriterion.nextActions;
       throw cellCriterionError(
         "actor_unauthorized",
-        "Task review actor independence proof was not satisfied.",
+        settings.reviewIndependence === "principal" &&
+          execution !== undefined &&
+          isSamePerson(execution.actor, command.actor)
+          ? "Repository setting reviewIndependence is principal; the reviewer and execution actor have the same " +
+              "principal. Change it with `ha settings update --review-independence execution`."
+          : "Task review actor independence proof was not satisfied.",
         "review",
         REVIEW_PROOF_CRITERION,
-        reviewCriterion.nextActions,
+        principalSettingGuidance,
+        settings.reviewIndependence === "principal" &&
+          execution !== undefined &&
+          isSamePerson(execution.actor, command.actor)
+          ? {
+              kind: "validation",
+              entity: "repository setting",
+              field: "reviewIndependence",
+              actual: "principal",
+              expectation:
+                "Use a reviewer with a different principal, or run ha settings update --review-independence execution",
+            }
+          : undefined,
       );
     }
     return {

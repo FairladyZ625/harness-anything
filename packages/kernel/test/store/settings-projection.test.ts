@@ -24,7 +24,12 @@ test(rebuildTitle, async () => {
     const original = initRepo(rootDir),
       eventStore = makeTaskEventStore({ repoId: "settings-projection", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore }),
-      settings = { ...readSettingsFacet(original), defaultPreset: "strict-task", locale: "zh-CN" } as SettingsV1,
+      settings = {
+        ...readSettingsFacet(original),
+        defaultPreset: "strict-task",
+        reviewIndependence: "principal" as const,
+        locale: "zh-CN" as const,
+      },
       candidate = writeRepositorySettingsFacet(original, settings),
       bundle = compileSettingsChangedEvent({
         settings,
