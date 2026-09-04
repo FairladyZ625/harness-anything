@@ -265,7 +265,10 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
     userRoot = path.join(parent, "user"),
     repoId = "stop-drain-reject",
     lockPath = daemonSingletonLockPath(userRoot, repoId);
-  let daemon: RunningDaemon | undefined;
+  let daemon: RunningDaemon | undefined,
+    // The injected close never reaches the real cell, so the test owns closing it: otherwise its
+    // worker thread keeps the test process alive after every assertion has passed.
+    realCell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
   rosterRepo(rootDir, repoId);
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   try {
@@ -276,6 +279,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
         endpoint: testEndpoint(repoId),
         openCell: async (input) => {
           const cell = await openBootstrappedRepoCell(input);
+          realCell = cell;
           return {
             ...cell,
             close: async () => {
@@ -302,6 +306,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
     daemon = undefined;
   } finally {
     await daemon?.stop().catch(() => undefined);
+    await realCell?.close().catch(() => undefined);
     rmSync(parent, { recursive: true, force: true });
   }
 });
