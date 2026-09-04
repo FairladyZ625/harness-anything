@@ -44,7 +44,12 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
       for (const fulfillment of event.payload.fulfillments ?? []) {
         const claim = current.claims.find((entry) => entry.id === fulfillment.claimId);
         if (!claim) fail("anchor_not_found", `Claim ${fulfillment.claimId} does not exist.`);
-        if (claim.fulfillment) fail("invalid_transition", `Claim ${fulfillment.claimId} already has a fulfillment.`);
+        if (claim.fulfillment && claim.fulfillment !== fulfillment.mode)
+          fail(
+            "invalid_transition",
+            `Claim ${fulfillment.claimId} already has fulfillment ${claim.fulfillment}; ` +
+              `cannot change it to ${fulfillment.mode}.`,
+          );
       }
       if (
         event.payload.standingPolicy &&

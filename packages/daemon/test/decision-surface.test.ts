@@ -317,6 +317,100 @@ test("decision accept rejects a heading-only proposal body", async () => {
   }
 });
 
+test("decision transition accepts repeated matching proposal fulfillments and dry-run uses admission", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-fulfillments-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-fulfillments"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-fulfillments-test",
+    now: monotonicClock(),
+  });
+  try {
+    const proposed = await cell.run(
+        {
+          kind: "decision-propose",
+          jsonInput: JSON.stringify({
+            title: "Pre-fulfilled claims",
+            question: "Can acceptance repeat the proposal fulfillment declarations?",
+            riskTier: "high",
+            urgency: "high",
+            vertical: "software/coding",
+            preset: "architecture-decision",
+            decisionClass: "ordinary",
+            appliesTo: { modules: ["daemon"], productLines: [] },
+            chosen: [{ id: "CH1", text: "Treat matching declarations as idempotent" }],
+            rejected: [{ id: "RJ1", text: "Reject every repeat", whyNot: "It rejects the canonical CLI flow" }],
+            claims: [
+              { id: "C1", text: "The first claim is evidenced.", loadBearing: true },
+              { id: "C2", text: "The second claim is evidenced.", loadBearing: true },
+            ],
+            fulfillments: [
+              { claimId: "C1", mode: "evidenced" },
+              { claimId: "C2", mode: "evidenced" },
+            ],
+          }),
+          body: "# Pre-fulfilled claims\n\nThe complete proposal body.\n",
+        },
+        proposer,
+      ),
+      decisionId = String(receiptJson(proposed).decisionId),
+      before = makeTaskEventReader({ repoId: "decision-fulfillments", rootDir }).read().revision,
+      transition = {
+        kind: "decision-transition",
+        targetState: "in_effect",
+        decisionId,
+        judgmentOnlyRationale: "The arbiter verified both claims and accepts the recorded evidence.",
+        standingPolicy: false,
+        fulfillments: [
+          { claimId: "C1", mode: "evidenced" },
+          { claimId: "C2", mode: "evidenced" },
+        ],
+      } as const,
+      conflictingPreview = await cell.run(
+        {
+          ...transition,
+          fulfillments: [
+            { claimId: "C1", mode: "delivered" },
+            { claimId: "C2", mode: "evidenced" },
+          ],
+          dryRun: true,
+        },
+        arbiter,
+      ),
+      preview = await cell.run({ ...transition, dryRun: true }, arbiter);
+    assert.equal(conflictingPreview.outcome, "op_rejected", JSON.stringify(conflictingPreview));
+    assert.equal(conflictingPreview.code, "invalid_transition");
+    assert.equal(preview.outcome, "pending", JSON.stringify(preview));
+    assert.equal(makeTaskEventReader({ repoId: "decision-fulfillments", rootDir }).read().revision, before);
+    const accepted = await cell.run(transition, arbiter);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+
+    const unevidenced = await cell.run(
+        { ...proposal("Unevidenced preview"), body: "# Unevidenced preview\n\nComplete prose without evidence.\n" },
+        proposer,
+      ),
+      unevidencedId = String(receiptJson(unevidenced).decisionId),
+      rejectedPreview = await cell.run(
+        {
+          kind: "decision-transition",
+          targetState: "in_effect",
+          decisionId: unevidencedId,
+          judgmentOnlyRationale: null,
+          standingPolicy: false,
+          fulfillments: [],
+          dryRun: true,
+        },
+        arbiter,
+      );
+    assert.equal(rejectedPreview.outcome, "op_rejected", JSON.stringify(rejectedPreview));
+    assert.equal(rejectedPreview.code, "invalid_transition");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function proposal(title: string) {
   return {
     kind: "decision-propose",

@@ -263,6 +263,7 @@ export function makeEntityActionCatalogExecutor(input: {
     if (dryRun) {
       if (bundle.event.schema !== "decision-event/v1")
         reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
+      input.projection.admitDecision(bundle.event);
       return { ...decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0), authorizationDecision };
     }
     if (isFactBundle(bundle)) {
