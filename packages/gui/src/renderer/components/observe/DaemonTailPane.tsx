@@ -355,7 +355,10 @@ const ObserveRowView = memo(function ObserveRowView({
       <li
         data-testid="observe-gap-marker"
         style={{ height: OBSERVE_ROW_HEIGHT }}
-        className="flex items-center overflow-hidden border-y border-dashed border-stale/50 bg-stale/5 px-2 ui-micro text-stale"
+        className={
+          "flex items-center overflow-hidden border-y border-dashed border-stale/50 " +
+          "bg-stale/5 px-2 ui-micro text-stale"
+        }
       >
         {t("views.daemonObserve.gapMarker", { fileId: row.gapMarker.requestedFileId })}
       </li>
