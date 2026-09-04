@@ -140,7 +140,8 @@ test("daemon control renders status and fails closed when repository materializa
 
     const gone = runText(fixture, ["daemon", "repo", "unregister", "--repo-id", "receipt"]);
     assert.notEqual(gone.status, 0);
-    assert.match(`${gone.stdout}${gone.stderr}`, /not registered/u);
+    // The daemon route refuses an unknown repoId as repo_namespace_unknown; the kernel path says "not registered".
+    assert.match(`${gone.stdout}${gone.stderr}`, /not registered|repo_namespace_unknown/u);
   } finally {
     rmSync(indexLock, { force: true });
     if (canonical !== null) {
