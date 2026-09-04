@@ -5,7 +5,6 @@ import type { ThinCommand } from "./cli/thin-command.ts";
 import {
   consumeKnownError,
   openRuntimeStatusReader,
-  resolveLocalDaemonTarget,
   runCommandThroughDaemon,
   streamRuntimeThroughDaemon,
 } from "./daemon/client.ts";
@@ -24,6 +23,7 @@ type RuntimeStreamWait = {
 
 const fallbackPollBaseMs = 500,
   fallbackPollMaxMs = 2_000,
+  subscriptionReconnectAttemptLimit = 5,
   settlementWaitMs = 5_000;
 
 export async function waitForRuntime(
@@ -39,7 +39,6 @@ export async function waitForRuntime(
   try {
     const readStatus = () =>
         readDaemonSubscription(
-          command,
           async () => {
             statusReader ??= await openRuntimeStatusReader(command, runtimeSessionId, target);
             return statusReader.read();
@@ -193,7 +192,7 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
   };
   let current: JsonObject | undefined;
   for (;;) {
-    const next = await readDaemonSubscription(command, () =>
+    const next = await readDaemonSubscription(() =>
       runCommandThroughDaemon(readCommand, () => undefined, { autostart: false }),
     );
     if (isDaemonGone(next)) {
@@ -250,7 +249,6 @@ export async function waitForTaskDispatches(command: ThinCommand, taskId: string
 }
 
 async function readDaemonSubscription(
-  command: ThinCommand,
   read: () => Promise<JsonObject>,
   reset: () => void = () => undefined,
 ): Promise<JsonObject | DaemonGone> {
@@ -262,7 +260,11 @@ async function readDaemonSubscription(
       consumeKnownError(error);
       reset();
       if (!recoverableSubscriptionFailure(error)) throw error;
-      if (await daemonGone(command)) return { kind: "daemon-gone", cause: cliErrorMessage(error) };
+      if (attempt >= subscriptionReconnectAttemptLimit)
+        return {
+          kind: "daemon-gone",
+          cause: `reconnect budget exhausted after ${String(attempt)} attempts: ${cliErrorMessage(error)}`,
+        };
       await new Promise((resolve) => setTimeout(resolve, Math.min(250 * 2 ** attempt++, 5_000)));
     }
   }
@@ -279,15 +281,6 @@ function recoverableSubscriptionFailure(error: unknown): boolean {
     message === "daemon_unavailable" ||
     message === "daemon_stream_unavailable"
   );
-}
-
-async function daemonGone(command: ThinCommand): Promise<boolean> {
-  const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
-    { daemonProcessAlive, daemonSocketProbe, readDaemonPid } = await import("../../daemon/src/daemon-singleton.ts"),
-    pid = readDaemonPid(target.userRoot, target.daemonId),
-    livePid = pid !== null && daemonProcessAlive(pid),
-    liveSocket = await daemonSocketProbe(target.socketPath);
-  return !livePid && !liveSocket;
 }
 
 function isDaemonGone(value: JsonObject | DaemonGone): value is DaemonGone {
@@ -326,7 +319,8 @@ function daemonGoneReceipt(
   summaryCommand = command,
 ): JsonObject {
   const hint =
-    `The daemon process and socket are gone. Last known dispatch status: ${lastKnownStatus}. ` +
+    `The daemon connection could not be restored within its reconnect budget. ` +
+    `Last known dispatch status: ${lastKnownStatus}. ` +
     "Restart the daemon, then inspect the recorded status before deciding whether to run again.";
   return {
     schema: "command-receipt/v2",

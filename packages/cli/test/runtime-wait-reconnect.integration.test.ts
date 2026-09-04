@@ -239,6 +239,38 @@ test("runtime status --wait reconnects after a protocol.hello deadline and retur
   }
 });
 
+test("runtime status --wait reconnects after the daemon disappears and returns the adopted terminal dispatch", async () => {
+  const fixture = await openFixtureDaemon("daemon-restart");
+  let statusReads = 0,
+    restarted = false;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    if (!restarted) {
+      reply(socket, request.id, runtimeStatus(false));
+      restarted = true;
+      void fixture.restart();
+      return;
+    }
+    reply(socket, request.id, runtimeStatus(true));
+  };
+  const invocation = runWait(fixture);
+  try {
+    const result = await invocation.result(12_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal((result.receipt.result as Record<string, unknown>).text, "settled after reconnect");
+    assert.equal(statusReads, 2, "the new daemon must provide the terminal status after adoption");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("runtime status --wait returns daemon_gone with the last-known dispatch after pid and socket loss", async () => {
   const fixture = await openFixtureDaemon("daemon-gone");
   let statusReads = 0;
@@ -397,6 +429,7 @@ interface FixtureDaemon {
   readonly daemonId: string;
   onRequest: (socket: net.Socket, request: RpcRequest) => void;
   readonly die: () => void;
+  readonly restart: () => Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -433,8 +466,32 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
       ],
     }),
   );
-  writeFileSync(daemonPidPath(userRoot, daemonId), `${process.pid}\n`);
-  const fixture = {
+  let server: net.Server;
+  const start = async (): Promise<void> => {
+      rmSync(socketPath, { force: true });
+      server = net.createServer((socket) => {
+        sockets.add(socket);
+        socket.once("close", () => sockets.delete(socket));
+        socket.on("error", () => undefined);
+        let buffered = "";
+        socket.on("data", (chunk) => {
+          buffered += String(chunk);
+          for (;;) {
+            const newline = buffered.indexOf("\n");
+            if (newline < 0) break;
+            const line = buffered.slice(0, newline);
+            buffered = buffered.slice(newline + 1);
+            fixture.onRequest(socket, JSON.parse(line) as RpcRequest);
+          }
+        });
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, () => resolve());
+      });
+      writeFileSync(daemonPidPath(userRoot, daemonId), `${process.pid}\n`);
+    },
+    fixture = {
       root,
       userRoot,
       daemonId,
@@ -445,6 +502,16 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
         for (const socket of sockets) socket.destroy();
         rmSync(socketPath, { force: true });
       },
+      restart: async () => {
+        await new Promise<void>((resolve) => {
+          if (!server.listening) resolve();
+          else {
+            server.once("close", resolve);
+            fixture.die();
+          }
+        });
+        await start();
+      },
       close: async () => {
         fixture.die();
         await new Promise<void>((resolve) => {
@@ -453,28 +520,8 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
         });
         rmSync(parent, { recursive: true, force: true });
       },
-    } satisfies FixtureDaemon,
-    server = net.createServer((socket) => {
-      sockets.add(socket);
-      socket.once("close", () => sockets.delete(socket));
-      socket.on("error", () => undefined);
-      let buffered = "";
-      socket.on("data", (chunk) => {
-        buffered += String(chunk);
-        for (;;) {
-          const newline = buffered.indexOf("\n");
-          if (newline < 0) break;
-          const line = buffered.slice(0, newline);
-          buffered = buffered.slice(newline + 1);
-          fixture.onRequest(socket, JSON.parse(line) as RpcRequest);
-        }
-      });
-    });
-  rmSync(socketPath, { force: true });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(socketPath, () => resolve());
-  });
+    } satisfies FixtureDaemon;
+  await start();
   return fixture;
 }
 
