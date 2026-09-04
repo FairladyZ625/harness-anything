@@ -357,7 +357,10 @@ export function RuntimeCard({
 function configurationValue(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   if (typeof value === "string" || typeof value === "boolean") return String(value);
-  return typeof value === "object" ? JSON.stringify(value) : null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.entries(value)
+    .map(([key, item]) => `${key}=${String(item)}`)
+    .join(", ");
 }
 
 function ProviderEditor({

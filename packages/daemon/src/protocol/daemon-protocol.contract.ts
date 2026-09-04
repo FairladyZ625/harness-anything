@@ -7,6 +7,7 @@ import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
 import { optionalEnum, shape, type RpcEnumRule, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
+import { runtimeKindIds } from "../runtime-inventory.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import {
   daemonRepoModeWords,
@@ -38,6 +39,8 @@ export {
 };
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
+
+const runtimeKindConfigurationFields = Object.fromEntries(runtimeKindIds.map((kindId) => [kindId, "json?" as const]));
 
 // Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
@@ -192,9 +195,7 @@ export const runtimeInstanceMethods = Object.freeze([
         defaultModel: "string?",
         permissionMode: "string?",
         isolationState: "string?",
-        claude: "json?",
-        codex: "json?",
-        agy: "json?",
+        ...runtimeKindConfigurationFields,
         authMode: "string",
         credentialRef: "string?",
       }),
@@ -206,7 +207,7 @@ export const runtimeInstanceMethods = Object.freeze([
     phase: "Runtime-Instances-S1",
     method: "daemon.runtimeInstance.list",
     requiresRepo: false,
-    params: shape({ payload: shape({ all: "boolean?" }) }),
+    params: shape({ payload: shape({ all: "boolean?", probe: "boolean?" }) }),
     guiBridgeMethod: "listRuntimeInstances",
   },
   {

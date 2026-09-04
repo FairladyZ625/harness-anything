@@ -319,11 +319,14 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     path: ["runtime", "instance", "list"],
     summary: [
       "List enabled runtime instances and currently witnessed installations ",
-      "without secrets or host paths; use --all to include disabled instances.",
+      "without secrets or host paths; use --all to include disabled instances and --probe to verify authentication.",
     ].join(""),
     method: "daemon.runtimeInstance.list",
     inputs: [
       cliInput("--all", "boolean", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--probe", "boolean", false, {
         code: "invalid_field",
       }),
     ],

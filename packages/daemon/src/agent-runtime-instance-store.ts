@@ -389,13 +389,12 @@ export function openRuntimeInstanceStore(input: {
     if (kind === "runtime-instance-list") {
       const all = action.all === true,
         witnessed = input.discover(),
-        instances = read(witnessed)
-          .filter((config) => all || config.enabled)
-          .map((config) => publicConfig(config, readiness.get(config.instanceId))),
+        configs = read(witnessed).filter((config) => all || config.enabled),
         installations = witnessed.map(
           ({ executableEntryPath: _entry, executablePath: _path, ...installation }) => installation,
-        ),
-        summary = [
+        );
+      const listed = (instances: readonly RuntimeInstanceSummary[]) => {
+        const summary = [
           "ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS",
           ...instances.map((instance) =>
             [
@@ -423,13 +422,22 @@ export function openRuntimeInstanceStore(input: {
               `${installationId}\t${kindId}\t${version}\t${observedAt}`,
           ),
         ].join("\n");
-      return {
-        ...base,
-        instances,
-        installations,
-        evidence: JSON.stringify({ instances, installations }),
-        summary,
+        return {
+          ...base,
+          instances,
+          installations,
+          evidence: JSON.stringify({ instances, installations }),
+          summary,
+        };
       };
+      if (action.probe === true)
+        return Promise.all(
+          configs.map(async (config) =>
+            publicConfig(config, await authStatus(config.instanceId, { witnessed, config })),
+          ),
+        ).then(listed);
+      const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
+      return listed(instances);
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");
     if (kind === "runtime-instance-github-credential-set" || kind === "runtime-instance-github-credential-unset") {

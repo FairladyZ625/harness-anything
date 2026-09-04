@@ -22,7 +22,11 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/agent-runtime-instances.ts";
-import { daemonProtocolCommands, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  daemonProtocolCommands,
+  runtimeInstanceMethods,
+  validateDaemonRpcCall,
+} from "../src/protocol/daemon-protocol.contract.ts";
 import { runtimeKindIds, runtimeKinds, type RuntimeProviderDeclaration } from "../src/runtime-inventory.ts";
 import { parseProviderFrame, providerFrameParsers } from "../src/runtime-spawn-provider-frames.ts";
 import { runtimeProviderPlane } from "../../gui/src/renderer/runtime-provider-planes.ts";
@@ -36,6 +40,13 @@ const observed: RuntimeInstallationWitness = {
   version: "0.146.1",
   observedAt: "2026-08-15T00:00:00.000Z",
 };
+
+test("runtime instance create RPC derives provider configuration wrappers from the inventory", () => {
+  const create = runtimeInstanceMethods.find((method) => method.method === "daemon.runtimeInstance.create"),
+    payload = create?.params.fields.payload;
+  assert.ok(payload && typeof payload === "object" && "fields" in payload);
+  for (const kindId of runtimeKindIds) assert.equal(payload.fields[kindId], "json?");
+});
 
 test("a synthetic declaration and frame parser traverse the shared provider surfaces", () => {
   const declaration = {
@@ -1070,6 +1081,11 @@ test("runtime catalog reads and auth probes reuse one installation discovery sna
     discoveries = 0;
     store.command({ kind: "runtime-instance-list", all: true });
     assert.equal(discoveries, 1);
+
+    discoveries = 0;
+    const probed = await store.command({ kind: "runtime-instance-list", probe: true });
+    assert.equal(discoveries, 1);
+    assert.equal(probed.instances[0]?.authReadiness.status, "ready");
 
     discoveries = 0;
     await store.command({ kind: "runtime-instance-show", instanceId: "codex-discovery-snapshot", probe: true });
