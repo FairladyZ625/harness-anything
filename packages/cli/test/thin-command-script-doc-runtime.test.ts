@@ -193,6 +193,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "--no-stream",
     ]),
     taskOnly = parseThinCommand(["runtime", "run", "worker", "--agent", "terra", "--task", "task-1", "--cwd", "."]),
+    reviewer = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--role", "reviewer"]),
     file = parseThinCommand(["runtime", "run", "worker", "--prompt-file", "prompt.txt"]),
     mission = parseThinCommand(["runtime", "run", "worker", "--task", "task-1", "--mission", "api-review"]),
     missionJson = parseThinCommand([
@@ -232,6 +233,7 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   for (const parsed of [
     run,
     taskOnly,
+    reviewer,
     mission,
     missionJson,
     batch,
@@ -265,6 +267,14 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       runtimeInstanceId: "worker",
       agentId: "terra",
+      cwd: { scope: "repo-root" },
+      taskId: "task-1",
+    });
+  if (reviewer.ok)
+    assert.deepEqual(reviewer.command.action, {
+      kind: "runtime-run",
+      runtimeInstanceId: "worker",
+      role: "reviewer",
       cwd: { scope: "repo-root" },
       taskId: "task-1",
     });
