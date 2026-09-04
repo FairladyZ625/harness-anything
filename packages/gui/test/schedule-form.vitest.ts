@@ -25,7 +25,6 @@ const options: ScheduleGuiOptionsDto = {
       efforts: ["low", "medium", "high", "xhigh"],
     },
   ],
-  cwd: [".", "packages/gui"],
 };
 
 const initialRow: ScheduleGuiRowDto = {

@@ -57,8 +57,6 @@ export interface ScheduleGuiOptionsDto {
     readonly models: readonly string[];
     readonly efforts: readonly string[];
   }[];
-  /** `.` is the repository root; all other values are repository-relative directories. */
-  readonly cwd: readonly string[];
 }
 
 export interface ScheduleGuiRowDto {
@@ -77,7 +75,7 @@ export interface ScheduleGuiRowDto {
         readonly model: string | null;
         readonly reasoningEffort: string | null;
         readonly fast: boolean;
-        readonly cwd: string | null;
+        readonly cwd: null;
       }
     | { readonly kind: "squad"; readonly squadId: string };
   readonly targetState?: "invalid" | "missing";
@@ -242,7 +240,7 @@ function validTargetDto(value: unknown): boolean {
     nullableNonEmpty(value.model) &&
     nullableNonEmpty(value.reasoningEffort) &&
     typeof value.fast === "boolean" &&
-    nullableNonEmpty(value.cwd)
+    value.cwd === null
   );
 }
 
@@ -379,10 +377,9 @@ function validRootActions(value: unknown): boolean {
 function validOptions(value: unknown): boolean {
   if (
     !isJsonObject(value) ||
-    Object.keys(value).length !== 3 ||
+    Object.keys(value).length !== 2 ||
     !Array.isArray(value.agents) ||
-    !Array.isArray(value.instances) ||
-    !Array.isArray(value.cwd)
+    !Array.isArray(value.instances)
   )
     return false;
   return (
@@ -398,10 +395,7 @@ function validOptions(value: unknown): boolean {
         instance.models.every(scheduleNonEmptyText) &&
         Array.isArray(instance.efforts) &&
         instance.efforts.every(scheduleNonEmptyText),
-    ) &&
-    value.cwd.length > 0 &&
-    value.cwd[0] === "." &&
-    value.cwd.every(scheduleNonEmptyText)
+    )
   );
 }
 

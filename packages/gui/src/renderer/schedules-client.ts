@@ -135,7 +135,6 @@ export interface ScheduleDefinitionInput {
   readonly model?: string | null;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
-  readonly cwd?: string | null;
 }
 
 export const schedulesClient = {

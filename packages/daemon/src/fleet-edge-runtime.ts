@@ -33,6 +33,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
+import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
@@ -321,9 +322,9 @@ export function openFleetEdgeRuntime(input: {
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }
-      const scheduled = terminal.schedule,
-        detail = terminal.resultRef ?? terminal.reason;
+      const scheduled = terminal.schedule;
       if (!scheduled) return;
+      const detail = scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.resultRef ?? terminal.reason);
       schedule(async () => {
         const response = await runFleetScheduleCommandClient({
           ...peer,
@@ -445,6 +446,7 @@ export function openFleetEdgeRuntime(input: {
     trustedScheduleAgents.set(trustedAgent.id, trustedAgent);
     const dispatched = await dispatchClaimedSchedule({
       schedule: scheduleValueV1,
+      workspace: prepareScheduleOccurrenceWorkspace(request.workspaceRoot, scheduleValueV1),
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {

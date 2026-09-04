@@ -198,7 +198,6 @@ test(
         assert.equal(initial.options.instances[0]?.instanceId, definition.instanceId);
         assert.deepEqual(initial.options.instances[0]?.models, [definition.model]);
         assert.deepEqual(initial.options.instances[0]?.efforts, ["minimal", "low", "medium", "high", "xhigh", "max"]);
-        assert.equal(initial.options.cwd[0], ".");
         const created = initial.schedules[0] as ScheduleGuiRowDto;
         assert.equal(created.state, "armed");
         assert.equal(created.definitionResidency, "ledger");

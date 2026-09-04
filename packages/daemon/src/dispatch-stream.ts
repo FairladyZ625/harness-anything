@@ -41,8 +41,14 @@ export interface DispatchStreamHeader {
   readonly leaseVersion?: number;
   readonly schedule?: {
     readonly scheduleId: string;
+    readonly occurrenceId: string;
     readonly claimFence: string;
     readonly mode: "detect" | "remediate";
+    readonly worktree?: {
+      readonly cwd: string;
+      readonly branch: string;
+      readonly baseRef: "origin/main";
+    };
   };
   readonly runtimeSessionId: string;
   readonly instanceId: string;

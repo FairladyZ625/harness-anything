@@ -75,7 +75,6 @@ export function parseSchedule(
         "--model",
         "--effort",
         "--fast",
-        "--cwd",
       ];
     if (mission && missionFile)
       return rejected("invalid_field", "Use --mission <text> or --mission-file <path>, not both.", json);
@@ -101,7 +100,6 @@ export function parseSchedule(
         ["--instance", "runtimeInstanceId"],
         ["--model", "model"],
         ["--effort", "reasoningEffort"],
-        ["--cwd", "cwd"],
       ]),
       ...(everyMs === undefined ? {} : { everyMs }),
       ...(cronExpression === undefined ? {} : { cronExpression }),
@@ -142,7 +140,6 @@ export function parseSchedule(
     ...optionalFlags(flags.one, [
       ["--model", "model"],
       ["--effort", "reasoningEffort"],
-      ["--cwd", "cwd"],
     ]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),

@@ -199,7 +199,8 @@ test("the six schedule GUI actions reuse the canonical action kinds", () => {
     idempotencyKey: "retry-1",
   };
   assert.deepEqual(validate("repo.schedule.create", definition), []);
-  assert.deepEqual(validate("repo.schedule.update", { ...definition, model: null, cwd: null }), []);
+  assert.match(validate("repo.schedule.update", { ...definition, cwd: null })[0] ?? "", /unknown field "cwd"/u);
+  assert.deepEqual(validate("repo.schedule.update", { ...definition, model: null }), []);
   assert.deepEqual(
     validate("repo.schedule.delete", {
       scheduleId: "heartbeat-probe",
@@ -243,7 +244,6 @@ test("the schedules list validator locks the joined wire shape", () => {
   assert.deepEqual(result.options, {
     agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
     instances: [],
-    cwd: ["."],
   });
   assert.equal(row.watermarkParent, undefined);
   for (const mutation of [

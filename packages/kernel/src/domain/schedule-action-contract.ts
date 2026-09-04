@@ -94,7 +94,6 @@ const definitionFields = Object.freeze([
   field("model"),
   field("reasoningEffort", "string", false, ["minimal", "low", "medium", "high", "xhigh"]),
   field("fast", "boolean"),
-  field("cwd"),
 ]);
 const createDefinitionFields = Object.freeze([
   field("name", "string", true),
@@ -405,7 +404,6 @@ function compileScheduleAction(
           ...(typeof action.model === "string" ? { model: action.model } : {}),
           ...(typeof action.reasoningEffort === "string" ? { reasoningEffort: action.reasoningEffort } : {}),
           ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
-          ...(typeof action.cwd === "string" ? { cwd: action.cwd } : {}),
         },
         mission: text(action.mission, "mission"),
       },
@@ -689,7 +687,7 @@ function mergeScheduleUpdate(
   const currentSpec = record(value.spec) ? value.spec : null,
     currentTarget = currentSpec && record(currentSpec.target) ? currentSpec.target : null,
     trigger = scheduleTriggerFromUpdate(action, currentSpec?.trigger, occurredAt),
-    optionalTarget = (name: "model" | "reasoningEffort" | "cwd"): string | undefined =>
+    optionalTarget = (name: "model" | "reasoningEffort"): string | undefined =>
       Object.hasOwn(action, name)
         ? action[name] === null
           ? undefined
@@ -699,7 +697,6 @@ function mergeScheduleUpdate(
           : undefined,
     model = optionalTarget("model"),
     reasoningEffort = optionalTarget("reasoningEffort"),
-    cwd = optionalTarget("cwd"),
     fast = Object.hasOwn(action, "fast")
       ? action.fast === true
       : currentTarget?.kind === "agent" && typeof currentTarget.fast === "boolean"
@@ -716,7 +713,6 @@ function mergeScheduleUpdate(
             ...(model ? { model } : {}),
             ...(reasoningEffort ? { reasoningEffort } : {}),
             ...(fast === undefined ? {} : { fast }),
-            ...(cwd ? { cwd } : {}),
           }
         : currentSpec?.target,
     candidate = {

@@ -18,4 +18,9 @@ export const syncSubprocessBaseline = Object.freeze([
   { key: "sync-subprocess-015", kind: "call", api: "execFileSync" }, // execFileSync call @ runGitAs
   { key: "sync-subprocess-016", kind: "call", api: "execFileSync" }, // execFileSync call @ localGitBytes
   { key: "sync-subprocess-017", kind: "call", api: "execFileSync" }, // execFileSync call @ <module>
+  { key: "sync-subprocess-018", kind: "import", api: "execFileSync" }, // execFileSync import @ <module>
+  { key: "sync-subprocess-019", kind: "call", api: "execFileSync" }, // execFileSync call @ prepareScheduleOccurrenceWorkspace
+  { key: "sync-subprocess-020", kind: "call", api: "execFileSync" }, // execFileSync call @ settleScheduleOccurrenceWorkspace
+  { key: "sync-subprocess-021", kind: "call", api: "execFileSync" }, // execFileSync call @ settleScheduleOccurrenceWorkspace
+  { key: "sync-subprocess-022", kind: "call", api: "execFileSync" }, // execFileSync call @ git
 ]);

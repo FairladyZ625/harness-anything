@@ -21,6 +21,8 @@
       "evidence": [
         "packages/daemon/src/daemon-host.ts",
         "packages/daemon/src/repo-bootstrap.ts",
+        "packages/daemon/src/schedule-action-runtime.ts",
+        "packages/daemon/src/schedule-occurrence-workspace.ts",
         "packages/kernel/src/daemon/registry.ts"
       ]
     },
@@ -65,6 +67,7 @@
     "packages/daemon/src/repo-cell-lock.ts",
     "packages/daemon/src/request-log.ts",
     "packages/daemon/src/runtime.ts",
+    "packages/daemon/src/schedule-occurrence-workspace.ts",
     "packages/daemon/src/transport/unix-socket.ts",
     "packages/daemon/src/writer-epoch.ts",
     "packages/gui/src/main/artifact-open-ipc.ts",
