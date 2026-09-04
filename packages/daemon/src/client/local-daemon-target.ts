@@ -88,14 +88,21 @@ export function resolveLocalDaemonTargetFromRepos(
     );
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
   const rootDir = bindCanonicalRoot(input.rootDir);
-  const repo = requested
+  const rootedRepos = registeredRepos
+    .filter(
+      (candidate) => candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`),
+    )
+    .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length);
+  const repo = input.repoIdOverride
     ? registeredRepos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
-    : registeredRepos
-        .filter(
+    : env.HARNESS_DAEMON_REPO_ID
+      ? (registeredRepos.find(
           (candidate) =>
-            candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`),
-        )
-        .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length)[0];
+            candidate.repoId === requested &&
+            candidate.state === "enabled" &&
+            (candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`)),
+        ) ?? rootedRepos[0])
+      : rootedRepos[0];
   if (!repo || repo.state !== "enabled")
     throw Object.assign(
       new Error(
