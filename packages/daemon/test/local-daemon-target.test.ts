@@ -324,6 +324,64 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
   }
 });
 
+test("workspace relay resolves without exposing a daemon user root to the runtime", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
+    endpoint = path.join(workspaceRoot, ".harness", "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workerRoot, { recursive: true });
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot),
+      target = await resolveLocalDaemonTarget({
+        rootDir: workerRoot,
+        env: {
+          HARNESS_DAEMON_RELAY: "1",
+          HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
+          HARNESS_DAEMON_REPO_ID: "runtime-worker",
+          HARNESS_DAEMON_ENDPOINT: endpoint,
+        },
+      });
+    assert.deepEqual(target, {
+      repoId: "runtime-worker",
+      canonicalRoot: canonicalWorkspaceRoot,
+      userRoot: path.join(canonicalWorkspaceRoot, ".harness", "relay-client"),
+      daemonId: "relay",
+      socketPath: endpoint,
+    });
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("workspace relay rejects a missing endpoint instead of deriving a fallback socket", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-missing-")),
+    workspaceRoot = path.join(fixtureRoot, "workspace");
+  try {
+    mkdirSync(workspaceRoot);
+    await assert.rejects(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: workspaceRoot,
+          env: {
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: workspaceRoot,
+            HARNESS_DAEMON_REPO_ID: "runtime-worker",
+          },
+        }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.deepEqual((error as { readonly params?: unknown }).params, {
+          endpoint: null,
+          repoId: "runtime-worker",
+        });
+        return true;
+      },
+    );
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
 test("local daemon target rejects an injected endpoint owned by another user root", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-conflict-")),
     workspaceRoot = path.join(fixtureRoot, "workspace"),

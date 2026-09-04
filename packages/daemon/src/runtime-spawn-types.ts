@@ -28,13 +28,22 @@ export interface RuntimeProcess {
 
 export type RuntimeLauncher = (
   input: PreparedRuntimeLaunch,
-  persistence: { readonly rootDir: string; readonly dispatchId: string },
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: RuntimeCallbackRelay;
+  },
 ) => RuntimeProcess;
 
 export interface RuntimeDaemonRoute {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly endpoint: string;
+}
+
+export interface RuntimeCallbackRelay {
+  readonly endpoint: string;
+  readonly path: string;
 }
 
 export type RuntimeBinding = {
