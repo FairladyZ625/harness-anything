@@ -156,6 +156,39 @@ export type AgentRuntimeEventsResult = {
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
 export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "unattributed";
 export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "lost";
+/**
+ * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
+ * the words the group DTO can report. The kernel keeps its semantic-state list private, so the
+ * two halves are pinned together here rather than restated per caller.
+ */
+export const agentRuntimeSessionGroupStatusWords = Object.freeze([
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "ended-indeterminate",
+  "unavailable",
+  "unknown",
+  "lost",
+] as const satisfies readonly AgentRuntimeSessionGroupStatus[]);
+export const agentRuntimeSessionGroupStatusWordsAreExact: [AgentRuntimeSessionGroupStatus] extends [
+  (typeof agentRuntimeSessionGroupStatusWords)[number],
+]
+  ? true
+  : never = true;
+/**
+ * A session lands outside every named group for one of three reasons, and they are not the same
+ * question for the operator: no task binding, a dispatch row that names no squad, or no dispatch
+ * row at all (a direct session, or one dispatched on another node — dispatch rows are node-local
+ * while sessions replicate). One bucket labelled "Unattributed" said all three at once.
+ */
+export const agentRuntimeUnattributedGroupKeys = Object.freeze({
+  noTask: "unattributed:no-task",
+  noSquad: "unattributed:no-squad",
+  noDispatch: "unattributed:no-dispatch",
+} as const);
+export type AgentRuntimeUnattributedGroupKey =
+  (typeof agentRuntimeUnattributedGroupKeys)[keyof typeof agentRuntimeUnattributedGroupKeys];
 export interface AgentRuntimeSessionGroupRoundDto {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;

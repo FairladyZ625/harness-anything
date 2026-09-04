@@ -1,8 +1,10 @@
+import type { AgentRuntimeUnattributedGroupKey } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import {
   relativeTime,
   sessionStatusDot,
   sessionStatusKey,
   sessionStatusTone,
+  sessionUnattributedKey,
   shortRef,
   type SessionGroup,
   type SessionOrphan,
@@ -146,7 +148,9 @@ function GroupSection({
         )}
         <LiveDot state={sessionStatusDot[group.latestStatus]} tip={t(sessionStatusKey[group.latestStatus] as never)} />
         <b className="min-w-0 flex-1 truncate ui-meta">
-          {group.kind === "unattributed" ? t("agentRuntime.unattributed") : group.label}
+          {group.kind === "unattributed"
+            ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
+            : group.label}
         </b>
         {expandable && group.taskId && (
           <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.taskId, 11)}</span>

@@ -2,6 +2,7 @@ import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
   AgentRuntimeSessionGroupsResult,
+  AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionResult,
 } from "../../../daemon/src/agent-runtime-contract.ts";
 import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
@@ -34,6 +35,8 @@ export type SessionGroupsQuery = {
   /** 精确归属过滤(G12 §4b):按派工行 agentId/squadId 精确匹配,不走子串。 */
   readonly agentId?: string;
   readonly squadId?: string;
+  /** 状态维度筛选:成员级,与 groupBy/since/query 同一条读的入参,不是第二个读。 */
+  readonly status?: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit?: number;
 };
 /**

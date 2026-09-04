@@ -379,6 +379,46 @@ describe("runtime entry split (W6 IA)", () => {
     expect(agentRuntimeClient.sessionGroups).toHaveBeenCalledTimes(2);
   });
 
+  it("narrows by status through the daemon read and keys the cache by the selection (G12 §4d)", async () => {
+    await mountSessions("session/runtime-bound");
+    const statusChip = (label: string) =>
+      [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
+        (button) => button.textContent === label,
+      ) as HTMLButtonElement;
+    // 词表就是 daemon 的八个状态,前端不另立分类。
+    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(8);
+    const firstCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).not.toHaveProperty("status");
+
+    await act(async () => statusChip("Failed").click());
+    await flushEffects();
+    // 切筛选必须重新读:query key 含状态选择,否则会命中未筛选的缓存。
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBeGreaterThan(firstCallCount);
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
+    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("true");
+
+    // 集合语义:第二个状态是「或」,不是替换。
+    await act(async () => statusChip("Lost").click());
+    await flushEffects();
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({
+      status: ["failed", "lost"],
+    });
+    // 计数条说清这是筛后的数,而不是会话消失了。
+    expect(byTestId("sessions-view").textContent).toContain("filtered to Failed / Lost");
+
+    // 去掉一个状态仍是新的选择,所以是一次新读。
+    await act(async () => statusChip("Failed").click());
+    await flushEffects();
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["lost"] });
+    // 清空选择回到不筛:那个 key 首读就缓存过,命中缓存不再发读,计数条的筛选说明消失。
+    const lostOnlyCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
+    await act(async () => statusChip("Lost").click());
+    await flushEffects();
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length).toBe(lostOnlyCallCount);
+    expect(byTestId("sessions-view").textContent).not.toContain("filtered to");
+    expect(statusChip("Failed").getAttribute("aria-pressed")).toBe("false");
+  });
+
   it("keeps a dimension switch sticky while a session focus exists (G12 §1a)", async () => {
     await mountSessions("session/runtime-bound");
     const agentDimension = [...byTestId("sessions-view").querySelectorAll("button")].find(

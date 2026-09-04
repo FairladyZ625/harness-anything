@@ -867,7 +867,7 @@ function useCaseProjectionSelectorFields(name: UseCaseProjectionName): readonly 
   const base = ["name", "facet"];
   if (name === "schedule-plane") return base;
   if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
-  return [...base, "groupBy", "since", "query", "agentId", "squadId", "limit"];
+  return [...base, "groupBy", "since", "query", "agentId", "squadId", "status", "limit"];
 }
 
 export function isUseCaseProjectionName(value: unknown): value is UseCaseProjectionName {
@@ -923,5 +923,7 @@ export interface DaemonUseCaseProjectionPayload {
   readonly squadId?: string;
   readonly since?: string;
   readonly query?: string;
+  /** Session status words the group read narrows to; the daemon owns the vocabulary. */
+  readonly status?: readonly string[];
   readonly limit?: number;
 }

@@ -94,7 +94,7 @@ function SessionFacts({
                 />
               </KVRow>
             ) : (
-              <KVRow name="agent">{t("agentRuntime.unattributed")}</KVRow>
+              <KVRow name="agent">{t("agentRuntime.unattributedNoAgent")}</KVRow>
             )}
             {squadId ? (
               <KVRow name="squad">

@@ -5,11 +5,12 @@ import {
   runtimeSessionSemanticState,
   type RuntimeSession,
 } from "../../kernel/src/index.ts";
-import type {
-  AgentRuntimeSessionGroupBy,
-  AgentRuntimeSessionGroupDto,
-  AgentRuntimeSessionGroupsResult,
-  AgentRuntimeSessionGroupStatus,
+import {
+  agentRuntimeUnattributedGroupKeys,
+  type AgentRuntimeSessionGroupBy,
+  type AgentRuntimeSessionGroupDto,
+  type AgentRuntimeSessionGroupsResult,
+  type AgentRuntimeSessionGroupStatus,
 } from "./agent-runtime-contract.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 
@@ -20,6 +21,11 @@ interface AgentRuntimeSessionGroupsQuery {
   /** 精确归属过滤(G12 §4b):按派工行的 agentId/squadId 精确匹配,替代子串检索。 */
   readonly agentId: string | null;
   readonly squadId: string | null;
+  /**
+   * 状态维度筛选:成员级、与检索词同层。空集合表示不筛。作用在成员而非组的
+   * `latestStatus` 上——后者会把「含 failed 成员但最新是 succeeded」的组整个滤掉。
+   */
+  readonly status: readonly AgentRuntimeSessionGroupStatus[];
   readonly limit: number;
 }
 
@@ -56,7 +62,11 @@ export function buildAgentRuntimeSessionGroups(input: {
         input,
       ),
     ),
-    filtered = members.filter((member) => input.query.tokens.every((token) => member.searchable.includes(token))),
+    filtered = members.filter(
+      (member) =>
+        (input.query.status.length === 0 || input.query.status.includes(member.status)) &&
+        input.query.tokens.every((token) => member.searchable.includes(token)),
+    ),
     accumulators = new Map<string, GroupAccumulator>();
   for (const member of filtered) addMember(accumulators, member);
   const allGroups = [...accumulators.values()].map(finishGroup).sort(compareGroups),
@@ -122,8 +132,10 @@ function membersForSession(
         : dispatch?.taskId && dispatch.taskId !== "unattributed"
           ? [dispatch.taskId]
           : [];
-    if (taskIds.length === 0)
-      return [member(unattributed(), session, null, status, startedAt, agentName, commonSearch)];
+    if (taskIds.length === 0) {
+      const identity = unattributed("task", dispatch !== null);
+      return [member(identity, session, null, status, startedAt, agentName, commonSearch)];
+    }
     return taskIds.map((taskId) => {
       const taskDispatch = dispatch?.taskId === taskId ? dispatch : null;
       return member(
@@ -148,7 +160,7 @@ function membersForSession(
               label: input.entityLabel("squad", squadId) ?? squadId,
               squadId,
             }
-          : unattributed(),
+          : unattributed("squad", dispatch !== null),
         session,
         dispatch,
         status,
@@ -208,8 +220,18 @@ function member(
   };
 }
 
-function unattributed(): GroupIdentity {
-  return { key: "unattributed", kind: "unattributed", label: "Unattributed" };
+/**
+ * Name the bucket after the thing that is actually missing. A missing dispatch row outranks the
+ * dimension: it is why the squad (and often the task) is unknown, and it is the shape a session
+ * dispatched on another node takes here, because dispatch rows are read from node-local files
+ * while the sessions themselves come from the replicated projection.
+ */
+function unattributed(groupBy: "task" | "squad", hasDispatch: boolean): GroupIdentity {
+  if (!hasDispatch)
+    return { key: agentRuntimeUnattributedGroupKeys.noDispatch, kind: "unattributed", label: "No dispatch record" };
+  return groupBy === "task"
+    ? { key: agentRuntimeUnattributedGroupKeys.noTask, kind: "unattributed", label: "No task binding" }
+    : { key: agentRuntimeUnattributedGroupKeys.noSquad, kind: "unattributed", label: "No squad" };
 }
 
 function addMember(groups: Map<string, GroupAccumulator>, member: GroupMember): void {

@@ -116,15 +116,28 @@ const taskGroup: SessionGroup = {
   },
 };
 const unattributedGroup: SessionGroup = {
-  key: "unattributed",
+  key: "unattributed:no-squad",
   kind: "unattributed",
-  label: "Unattributed",
+  label: "No squad",
   latestStatus: "unavailable",
   latestActivityAt: "2026-08-23T01:00:00.000Z",
   runningCount: 0,
   sessionCount: 4,
   roundCount: 0,
   latestRound: null,
+};
+/** 同一个 kind 的另外两个成因桶:它们此前与上面那个共用一个「未归属」标签。 */
+const unattributedNoTaskGroup: SessionGroup = {
+  ...unattributedGroup,
+  key: "unattributed:no-task",
+  label: "No task binding",
+  latestActivityAt: "2026-08-23T00:30:00.000Z",
+};
+const unattributedNoDispatchGroup: SessionGroup = {
+  ...unattributedGroup,
+  key: "unattributed:no-dispatch",
+  label: "No dispatch record (direct or another node)",
+  latestActivityAt: "2026-08-23T00:20:00.000Z",
 };
 const rounds = sessionRounds("task_1994d52c", "GUI 会话页重构", [
   dispatchRow(0, { delegatedByAgentId: "fable", delegatedByAgentName: "Fable" }),
@@ -311,7 +324,22 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain("Running");
     expect(markup).toContain("2 rounds");
     expect(markup).toContain("3 sessions");
-    expect(markup).toContain("Unattributed");
+    expect(markup).toContain("No squad");
+  });
+
+  it("names each unattributed bucket after the thing that is missing, not one shared word", () => {
+    const markup = groupList({
+      expandedKeys: new Set(),
+      groups: [taskGroup, unattributedGroup, unattributedNoTaskGroup, unattributedNoDispatchGroup],
+    });
+    expect(markup).toContain("No squad");
+    expect(markup).toContain("No task binding");
+    expect(markup).toContain("No dispatch record (direct or another node)");
+    // 三个桶各有自己的 section,不再折叠成一个 key 为 "unattributed" 的桶。
+    expect(markup).toContain('data-testid="session-group-unattributed:no-squad"');
+    expect(markup).toContain('data-testid="session-group-unattributed:no-task"');
+    expect(markup).toContain('data-testid="session-group-unattributed:no-dispatch"');
+    expect(markup).not.toContain(">Unattributed<");
   });
 
   it("expands a task group into full round rows and the no-dispatch orphans, with no batch button", () => {
