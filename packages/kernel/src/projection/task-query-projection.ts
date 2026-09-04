@@ -3,7 +3,7 @@
 // from rebuildable-task-projection.ts, which owns the governed writable open.
 import type { DatabaseSync } from "node:sqlite";
 import type { RuntimeSession } from "../domain/agent-runtime.ts";
-import type { EntityRelationRecord } from "../domain/entity-relation.ts";
+import type { EntityRelationRecord, RelationType } from "../domain/entity-relation.ts";
 import type { EntityVersion, EntityVersionWitness, RelationFreshness } from "../domain/entity-freshness.ts";
 import { validateTaskV2, type ReplayTaskStatus, type TaskV2 } from "../domain/task.ts";
 import type { TaskIndexProjectionRow } from "./projection-reads.ts";
@@ -42,6 +42,14 @@ export interface TaskRelationQuery {
   readonly updatedBefore?: string;
   readonly limit?: number;
   readonly cursor?: string;
+}
+export interface TaskRelationNeighborhoodQuery {
+  readonly seed: string;
+  readonly direction: "outgoing" | "incoming" | "both";
+  readonly relationTypes: readonly RelationType[];
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly state?: EntityRelationRecord["state"];
 }
 export interface TaskRelationProjectionRow {
   readonly relationId: string;
@@ -289,6 +297,92 @@ export function readTaskRelationsByTargets(
       target_observed_version, rationale, owner_ref, source_path, record_index
     FROM matching_rows ORDER BY target_order, relation_id`;
   return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType));
+}
+
+/** Indexed, cycle-safe graph neighborhood. Both budgets fail closed: callers never
+ * receive a partial neighborhood represented as a complete result. */
+export function readTaskRelationNeighborhoodRows(
+  db: DatabaseSync,
+  query: TaskRelationNeighborhoodQuery,
+): readonly TaskRelationProjectionRow[] {
+  checkedRefs([query.seed], "relation neighborhood seed");
+  if (query.relationTypes.length === 0) throw new Error("relation neighborhood types requires at least one ref");
+  checkedRefs(query.relationTypes, "relation neighborhood types");
+  if (!Number.isSafeInteger(query.maxDepth) || query.maxDepth < 1 || query.maxDepth > 4_096)
+    throw new Error("relation neighborhood depth limit must be an integer between 1 and 4096");
+  if (!Number.isSafeInteger(query.maxNodes) || query.maxNodes < 1 || query.maxNodes > 10_000)
+    throw new Error("relation neighborhood node budget must be an integer between 1 and 10000");
+  const outgoing = query.direction === "outgoing" || query.direction === "both",
+    incoming = query.direction === "incoming" || query.direction === "both";
+  if (!outgoing && !incoming) throw new Error("relation neighborhood direction is invalid");
+  const state = query.state ?? null,
+    types = JSON.stringify(query.relationTypes),
+    arms = [
+      ...(outgoing
+        ? [
+            `SELECT edge.target_ref, walk.depth + 1, walk.visited_path || edge.target_ref || char(31), edge.relation_id
+        FROM walk CROSS JOIN relation_edge AS edge INDEXED BY relation_edge_source
+        WHERE edge.source_ref = walk.ref AND edge.relation_type IN (SELECT value FROM json_each(?))
+          AND (? IS NULL OR edge.state = ?) AND walk.depth < ?
+          AND instr(walk.visited_path, char(31) || edge.target_ref || char(31)) = 0`,
+          ]
+        : []),
+      ...(incoming
+        ? [
+            `SELECT edge.source_ref, walk.depth + 1, walk.visited_path || edge.source_ref || char(31), edge.relation_id
+        FROM walk CROSS JOIN relation_edge AS edge INDEXED BY relation_edge_target
+        WHERE edge.target_ref = walk.ref AND edge.relation_type IN (SELECT value FROM json_each(?))
+          AND (? IS NULL OR edge.state = ?) AND walk.depth < ?
+          AND instr(walk.visited_path, char(31) || edge.source_ref || char(31)) = 0`,
+          ]
+        : []),
+    ],
+    parameters: (string | number | null)[] = [query.seed];
+  for (let index = 0; index < arms.length; index += 1) parameters.push(types, state, state, query.maxDepth);
+  const boundaryPredicates = [
+      ...(outgoing ? ["edge.source_ref = walk.ref"] : []),
+      ...(incoming ? ["edge.target_ref = walk.ref"] : []),
+    ].join(" OR "),
+    nextRef =
+      outgoing && incoming
+        ? "CASE WHEN edge.source_ref = walk.ref THEN edge.target_ref ELSE edge.source_ref END"
+        : outgoing
+          ? "edge.target_ref"
+          : "edge.source_ref",
+    sql = `WITH RECURSIVE walk(ref, depth, visited_path, relation_id) AS (
+      SELECT ?, 0, char(31) || ? || char(31), NULL
+      UNION ALL ${arms.join(" UNION ALL ")}
+    ), nodes AS (SELECT DISTINCT ref FROM walk), overflow AS (
+      SELECT 1 AS present FROM walk CROSS JOIN relation_edge AS edge
+      WHERE walk.depth = ? AND (${boundaryPredicates})
+        AND edge.relation_type IN (SELECT value FROM json_each(?)) AND (? IS NULL OR edge.state = ?)
+        AND instr(walk.visited_path, char(31) || ${nextRef} || char(31)) = 0 LIMIT 1
+    )
+    SELECT edge.relation_id, edge.source_ref, edge.target_ref, edge.relation_type,
+      json_extract(row_json, '$.direction') AS direction, json_extract(row_json, '$.strength') AS strength,
+      json_extract(row_json, '$.origin') AS origin, edge.state, target_observed_version,
+      json_extract(row_json, '$.rationale') AS rationale, edge.owner_ref,
+      json_extract(row_json, '$.sourcePath') AS source_path, json_extract(row_json, '$.recordIndex') AS record_index,
+      (SELECT count(*) FROM nodes) AS node_count, EXISTS(SELECT 1 FROM overflow) AS depth_overflow
+    FROM relation_edge AS edge WHERE edge.relation_id IN (SELECT relation_id FROM walk WHERE relation_id IS NOT NULL)
+    UNION ALL
+    SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      (SELECT count(*) FROM nodes), EXISTS(SELECT 1 FROM overflow)
+    ORDER BY relation_id`;
+  parameters.unshift(query.seed);
+  parameters.push(query.maxDepth, types, state, state);
+  const records = queryRows<ProjectionSqlRow & { readonly node_count: number; readonly depth_overflow: number }>(
+    db,
+    sql,
+    ...parameters,
+  );
+  if (records[0]?.depth_overflow === 1) throw new Error(`relation neighborhood depth limit ${query.maxDepth} exceeded`);
+  const nodeCount = records[0]?.node_count ?? 1;
+  if (nodeCount > query.maxNodes) throw new Error(`relation neighborhood node budget ${query.maxNodes} exceeded`);
+  return taskRelationRowsAtCut(
+    db,
+    records.filter((record) => record.relation_id !== null),
+  );
 }
 
 /** Indexed transitive depends-on read. The path token prevents cycles from being traversed,

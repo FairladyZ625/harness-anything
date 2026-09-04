@@ -169,7 +169,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(factReceipt.outcome, "applied", JSON.stringify(factReceipt));
 
     const taskBytes = JSON.stringify(await cell.read("repo.tasks.list", {})),
-      graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph", {}));
+      graphBytes = JSON.stringify(await cell.read("repo.triadic.relationGraph", { limit: 500 }));
     const unparameterized = JSON.parse(taskBytes) as {
       page?: unknown;
       rows: {
@@ -211,7 +211,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       "unparameterized task list must be byte-identical across reopen",
     );
     assert.equal(
-      JSON.stringify(await cell.read("repo.triadic.relationGraph", {})),
+      JSON.stringify(await cell.read("repo.triadic.relationGraph", { limit: 500 })),
       graphBytes,
       "unparameterized relation graph must be byte-identical across reopen",
     );
@@ -270,6 +270,22 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     assert.equal(graphPage.edges.length, 1);
     assert.equal(graphPage.page?.limit, 1);
     assert.ok(graphPage.page?.nextCursor, "one edge per page must leave a next cursor when more edges remain");
+    const neighborhood = await cell.read("repo.triadic.relationGraph", {
+      entity: "task/task_real_Alpha",
+      hops: {
+        direction: "both",
+        relationTypes: ["depends-on", "derives", "executes", "produces"],
+        maxDepth: 4,
+        maxNodes: 100,
+      },
+      status: "active",
+    });
+    assert.ok(neighborhood.edges.length > 0);
+    assert.ok(
+      neighborhood.edges.some(
+        (edge) => edge.sourceRef === "task/task_real_Alpha" || edge.targetRef === "task/task_real_Alpha",
+      ),
+    );
     let graphWalk = await cell.read("repo.triadic.relationGraph", { limit: 1 }),
       walked: typeof graphWalk.edges = [];
     while (true) {

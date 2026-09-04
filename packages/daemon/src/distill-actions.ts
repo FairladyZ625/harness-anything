@@ -61,18 +61,25 @@ export function readDistillEntity(projection: any, entityRef: string): DistillEn
     entityId = entityRef.slice(separator + 1),
     entity = separator > 0 && entityId ? projection.getEntity(kind, entityId) : null;
   if (entity === null) throw distillActionError("invalid_command", `Artifact entity ${entityRef} is not installed.`);
-  const relationRead = projection.readRelationQuery();
+  const relationReads = [
+    projection.readRelationQuery({ source: entityRef, state: "active", limit: 500 }),
+    projection.readRelationQuery({ target: entityRef, state: "active", limit: 500 }),
+  ];
+  if (relationReads.some((read) => read.page?.nextCursor))
+    throw distillActionError("content_not_ready", `Artifact ${entityRef} exceeds the 500-edge distillation budget.`);
+  const edges = [
+      ...new Map(relationReads.flatMap((read) => read.rows).map((edge) => [edge.relationId, edge])).values(),
+    ],
+    relationRead = relationReads[0];
   return {
     descriptor: artifactDescriptorFromProjection(entity.value),
-    edges: relationRead.rows
-      .filter((edge: any) => edge.state === "active" && (edge.sourceRef === entityRef || edge.targetRef === entityRef))
-      .map((edge: any) => ({
-        relationId: edge.relationId,
-        type: edge.relationType,
-        peerRef: edge.sourceRef === entityRef ? edge.targetRef : edge.sourceRef,
-        revision: Number(edge.workspaceRevision ?? 0),
-        freshness: edge.freshness,
-      })),
+    edges: edges.map((edge: any) => ({
+      relationId: edge.relationId,
+      type: edge.relationType,
+      peerRef: edge.sourceRef === entityRef ? edge.targetRef : edge.sourceRef,
+      revision: Number(edge.workspaceRevision ?? 0),
+      freshness: edge.freshness,
+    })),
     projectionCut: { watermark: relationRead.watermark, sourceRevision: relationRead.sourceRevision },
   };
 }

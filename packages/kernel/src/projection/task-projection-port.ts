@@ -81,6 +81,9 @@ export interface TaskProjection {
   readonly readTaskIndex: () => import("./projection-reads.ts").TaskIndexProjectionRead;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
+  readonly readTaskRelationNeighborhood: (
+    query: import("./task-query-projection.ts").TaskRelationNeighborhoodQuery,
+  ) => TaskRelationProjectionRead;
   readonly readTaskDependencyClosure: (sourceRefs: readonly string[], maxDepth?: number) => TaskRelationProjectionRead;
   readonly readTaskRelationsByTargets: (
     targetRefs: readonly string[],

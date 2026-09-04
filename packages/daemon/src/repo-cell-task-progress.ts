@@ -303,8 +303,20 @@ function factRetirementAssessment(
   taskId: string,
   stillHoldsAttestations: readonly FactStillHoldsAttestation[],
 ): FactRetirementAssessment {
-  const relationRead = cell.projection.readRelationQuery({}),
-    relationReady = relationRead.status === "ready";
+  const taskRef = `task/${taskId}`,
+    taskRelationReads = [
+      cell.projection.readRelationQuery({ source: taskRef, state: "active", limit: 500 }),
+      cell.projection.readRelationQuery({ target: taskRef, state: "active", limit: 500 }),
+    ];
+  if (taskRelationReads.some((read) => read.page?.nextCursor))
+    throw cell.cellCodedError("content_not_ready", `Task ${taskId} exceeds the 500-edge Fact retirement budget.`);
+  const relationRead = {
+      ...taskRelationReads[0],
+      rows: [
+        ...new Map(taskRelationReads.flatMap((read) => read.rows).map((edge) => [edge.relationId, edge])).values(),
+      ],
+    },
+    relationReady = taskRelationReads.every((read) => read.status === "ready");
   if (!relationReady)
     throw cell.cellCodedError(
       "content_not_ready",
@@ -316,7 +328,7 @@ function factRetirementAssessment(
           if (
             edge.state !== "active" ||
             edge.relationType !== "derives" ||
-            edge.targetRef !== `task/${taskId}` ||
+            edge.targetRef !== taskRef ||
             typeof edge.sourceRef !== "string"
           )
             return [];
@@ -334,10 +346,42 @@ function factRetirementAssessment(
       "content_not_ready",
       `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.`,
     );
+  const claimRefs = decisionRead.decisions.flatMap((decision) =>
+      decision.claims
+        .filter((claim) => claim.loadBearing)
+        .map((claim) => `decision/${decision.decisionId}/${claim.id}`),
+    ),
+    producedFactRefs = relationRead.rows
+      .filter((edge) => edge.relationType === "produces" && edge.sourceRef === taskRef)
+      .map((edge) => edge.targetRef),
+    narrowReads = [...claimRefs, ...producedFactRefs].map((source) =>
+      cell.projection.readRelationQuery({ source, state: "active", limit: 500 }),
+    );
+  if (narrowReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Task ${taskId} Fact retirement neighborhood is not ready or exceeds budget.`,
+    );
+  const upstreamFactRefs = narrowReads
+      .flatMap((read) => read.rows)
+      .filter((edge) => edge.relationType === "evidenced-by")
+      .map((edge) => edge.targetRef),
+    livenessReads = upstreamFactRefs.map((source) =>
+      cell.projection.readRelationQuery({ source, relationType: "supersedes-fact", state: "active", limit: 500 }),
+    );
+  if (livenessReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
+    throw cell.cellCodedError(
+      "content_not_ready",
+      `Task ${taskId} Fact liveness neighborhood is not ready or exceeds budget.`,
+    );
   return assessFactRetirement({
     taskId,
     decisions: decisionRead.decisions,
-    relations: relationRead.rows,
+    relations: [
+      ...relationRead.rows,
+      ...narrowReads.flatMap((read) => read.rows),
+      ...livenessReads.flatMap((read) => read.rows),
+    ],
     stillHoldsAttestations,
   });
 }

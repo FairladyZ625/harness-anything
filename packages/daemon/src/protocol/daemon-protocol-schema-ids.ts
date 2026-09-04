@@ -240,6 +240,8 @@ export const daemonTaskQueryPayloadShape = shape({
 });
 
 export const daemonRelationQueryPayloadShape = shape({
+  entity: "string?",
+  hops: "json?",
   facet: optionalEnum(["edges", "facts", "coverageRows", "factAnchors", "runtimeEdges"]),
   relationType: "string?",
   state: "string?",

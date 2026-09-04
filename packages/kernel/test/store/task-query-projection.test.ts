@@ -12,6 +12,7 @@ import {
 } from "../../src/projection/fact-event-projection.ts";
 import { deriveRelationId, type EntityRelationRecord } from "../../src/domain/entity-relation.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import { readTaskRelationNeighborhoodRows } from "../../src/projection/task-query-projection.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -389,8 +390,89 @@ test("historical task relation events replay into the Relation projection and su
       projection.readRelationQuery({ relationType: "depends-on", state: "active" }).rows,
       projected.rows,
     );
+    const neighborhood = projection.readTaskRelationNeighborhood({
+      seed: "task/task_query_03",
+      direction: "incoming",
+      relationTypes: ["depends-on"],
+      maxDepth: 1,
+      maxNodes: 2,
+      state: "active",
+    });
+    assert.deepEqual(
+      neighborhood.rows.map(({ sourceRef, targetRef }) => [sourceRef, targetRef]),
+      [["task/task_query_02", "task/task_query_03"]],
+    );
+    assert.deepEqual(
+      { status: neighborhood.status, watermark: neighborhood.watermark, sourceRevision: neighborhood.sourceRevision },
+      { status: projected.status, watermark: projected.watermark, sourceRevision: projected.sourceRevision },
+    );
+    assert.throws(
+      () =>
+        projection.readTaskRelationNeighborhood({
+          seed: "task/task_query_03",
+          direction: "incoming",
+          relationTypes: ["depends-on"],
+          maxDepth: 1,
+          maxNodes: 1,
+          state: "active",
+        }),
+      /relation neighborhood node budget 1 exceeded/u,
+    );
+    assert.throws(
+      () =>
+        projection.readTaskRelationNeighborhood({
+          seed: "task/task_query_03",
+          direction: "incoming",
+          relationTypes: [],
+          maxDepth: 1,
+          maxNodes: 2,
+        }),
+      /relation neighborhood types requires at least one ref/u,
+    );
     assert.deepEqual(projection.readRelationQuery({ updatedAfter: "2026-08-26T00:00:00.000Z" }).rows, []);
   });
+});
+
+test("relation neighborhood fails closed at the depth boundary", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    const insert = db.prepare(
+      "INSERT INTO relation_edge(relation_id, source_ref, target_ref, relation_type, state, owner_ref, row_json, workspace_revision) VALUES (?, ?, ?, 'depends-on', 'active', ?, ?, 1)",
+    );
+    for (const [id, source, target] of [
+      ["rel-a", "task/a", "task/b"],
+      ["rel-b", "task/b", "task/c"],
+    ])
+      insert.run(
+        id,
+        source,
+        target,
+        source,
+        JSON.stringify({
+          direction: "directed",
+          strength: "strong",
+          origin: "declared",
+          rationale: "fixture",
+          sourcePath: "fixture",
+          recordIndex: 0,
+        }),
+      );
+    assert.throws(
+      () =>
+        readTaskRelationNeighborhoodRows(db, {
+          seed: "task/a",
+          direction: "outgoing",
+          relationTypes: ["depends-on"],
+          maxDepth: 1,
+          maxNodes: 10,
+          state: "active",
+        }),
+      /relation neighborhood depth limit 1 exceeded/u,
+    );
+  } finally {
+    db.close();
+  }
 });
 
 test("unparameterized list stays byte-identical across reopen after the schema bump", async () => {

@@ -1,5 +1,10 @@
 // Public compatibility façade for the rebuildable task projection.
-export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
+export type {
+  ProjectionPage,
+  TaskProjectionListQuery,
+  TaskRelationNeighborhoodQuery,
+  TaskRelationQuery,
+} from "./task-query-projection.ts";
 export type {
   TaskProjection,
   TaskProjectionQueries,
