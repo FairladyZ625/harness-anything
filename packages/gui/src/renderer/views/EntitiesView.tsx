@@ -90,6 +90,11 @@ export function EntitiesView({
 
 const NAV_SELF_LABEL = "实体说明";
 
+/**
+ * 目录卡片。长 kind 名(声明实体的 `software/coding/x@1`)与它的路径模板都是
+ * 不含空格的机器字面量,常规断行救不了:kind 名 `break-all` 兜底换行并把全名放进
+ * `title`,路径模板独立成第二行——两者不再共享一行窄空间互相顶出去。
+ */
 function EntityDocCard({
   doc,
   live,
@@ -109,15 +114,24 @@ function EntityDocCard({
         "hover:border-border-strong",
       ].join(" ")}
     >
-      <div className="flex min-w-0 items-center gap-2">
-        <b className="font-mono ui-body">{doc.kind}</b>
-        {doc.refTemplate && <code className="shrink-0 font-mono ui-micro text-text-faint">{doc.refTemplate}</code>}
+      <div className="flex min-w-0 items-start gap-2">
+        <b title={doc.kind} className="min-w-0 flex-1 self-center break-all font-mono ui-body leading-snug text-text">
+          {doc.kind}
+        </b>
         {live ? (
-          <span title="本仓活行数" className="ml-auto shrink-0 font-mono ui-micro text-text-muted">
+          <span title="本仓活行数" className="ml-auto shrink-0 self-center font-mono ui-micro text-text-muted">
             {liveLabel(live)}
           </span>
         ) : null}
       </div>
+      {doc.refTemplate ? (
+        <code
+          title={doc.refTemplate}
+          className="mt-0.5 block break-all font-mono ui-micro leading-snug text-text-faint"
+        >
+          {doc.refTemplate}
+        </code>
+      ) : null}
       <p className="mt-1 line-clamp-2 ui-meta leading-relaxed text-text-muted">{doc.definition}</p>
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
         {doc.schemaId && (
