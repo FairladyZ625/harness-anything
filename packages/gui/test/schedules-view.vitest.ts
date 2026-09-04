@@ -30,6 +30,7 @@ function dto(
     scheduleId: "heartbeat-probe",
     name: "Heartbeat probe",
     state: "armed",
+    mode: "detect",
     definitionResidency: "ledger",
     definitionRevision: 7,
     trigger: { kind: "interval", everyMs: 1_800_000, timezone: null, summary: "every 30m" },
@@ -44,6 +45,7 @@ function dto(
     mission: "Scan the previous day of pull requests.",
     executionAvailability: "local",
     claim: { nodeId: null, assignmentId: null },
+    health: { recent: ["succeeded"], bucket: "clean", failedCount: 0, lastFailureDetail: null },
     nextRunAt: "2026-08-27T08:30:00.000Z",
     actions: {
       edit: { available: true, code: null, nextAction: null },
@@ -188,7 +190,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(container.querySelectorAll('[data-testid="schedule-form-agent"] option')).toHaveLength(1);
   });
 
-  it("filters rows by state, and keeps mode/health facets off until the daemon projects them", async () => {
+  it("filters rows by state while mode/health facets read the daemon-projected row fields", async () => {
     const first = dto({
       missed: { count: 0, lastMissedAt: null, lastMissedReason: null },
     }).schedules[0] as ScheduleGuiRowDto;
@@ -221,18 +223,12 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).toBeNull();
     expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
     await click(container, "schedules-filter-state-all");
-    // The renderer does not re-derive health/mode from outcomes: both facets stay
-    // disabled until the daemon projects the fields.
+    // mode/health 是 daemon 列表行的必有字段:有行即可筛,不再有「待投影」禁用态。
     const modeFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-mode-detect"]');
-    expect(modeFilter?.disabled).toBe(true);
-    expect(
-      container.querySelector<HTMLElement>('[data-testid="schedules-filter-mode"]')?.getAttribute("data-tip"),
-    ).toContain("mode");
+    expect(modeFilter?.disabled).toBe(false);
     const healthFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-health-degraded"]');
-    expect(healthFilter?.disabled).toBe(true);
-    expect(
-      container.querySelector<HTMLElement>('[data-testid="schedules-filter-health"]')?.getAttribute("data-tip"),
-    ).toContain("health");
+    expect(healthFilter?.disabled).toBe(false);
+    expect(container.querySelector('[data-testid="schedules-filter-mode"]')?.getAttribute("data-tip")).toBeNull();
   });
 
   it("lights the mode/health facets and the spark when the daemon projects the rollup fields", async () => {
@@ -241,14 +237,25 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
       ...base,
       scheduleId: "clean-probe",
       name: "Clean probe",
-      health: { recent: ["succeeded", "succeeded"], bucket: "clean" },
+      mode: "remediate",
+      health: {
+        recent: ["succeeded", "succeeded"],
+        bucket: "clean",
+        failedCount: 0,
+        lastFailureDetail: null,
+      },
     };
     const degraded = {
       ...base,
       scheduleId: "degraded-probe",
       name: "Degraded probe",
       mode: "detect",
-      health: { recent: ["succeeded", "failed"], bucket: "degraded" },
+      health: {
+        recent: ["succeeded", "failed"],
+        bucket: "degraded",
+        failedCount: 1,
+        lastFailureDetail: "cwd /missing does not exist",
+      },
     };
     const container = await renderSurface(
       createElement(ScheduleWorkspace, {

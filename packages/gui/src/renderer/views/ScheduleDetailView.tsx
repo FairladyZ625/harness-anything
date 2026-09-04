@@ -5,7 +5,6 @@ import type {
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import { isAvailableSquadRunDetail, type SquadRunReadResult } from "../../../../daemon/src/squad-run-contract.ts";
 import {
   Badge,
   Btn,
@@ -20,16 +19,21 @@ import {
   Hint,
   KV,
   KVRow,
-  PlannedBox,
   Right,
   RoleTag,
   Sect,
 } from "../components/runtime/parts.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
-import { SessionTranscript } from "../components/sessions/SessionTranscript.tsx";
+import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
+import {
+  RUN_OUTCOME_META,
+  SPARK_COLOR,
+  formatDurationMs,
+  missedReasonLabel,
+  time,
+} from "../components/scheduleRun/runMeta.ts";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { formatTime } from "../model/time.ts";
 import {
   schedulesClient,
   scheduleRunRef,
@@ -45,10 +49,9 @@ import {
 
 // Schedule detail hub (design M2–M5): the list row ref `schedule/<id>` renders this
 // page instead of the retired 420px inspector. Everything shown is a daemon fact —
-// the list row, the occurrence rows (from `repo.schedules.runs` once it lands, else
-// the occurrences the list read already projects), and the embedded session replay
-// (dispatch ledger via SessionTranscript). Run sessions render here by design; the
-// old jump into the global Sessions view is gone.
+// the list row, the occurrence rows (`schedule-run-history`), and the embedded run
+// detail (报告正文、产出互链、失败详情都在那一页)。Run sessions render here by design;
+// the old jump into the global Sessions view is gone.
 
 type StateMeta = { readonly key: MessageKey; readonly tone: "active" | "in-review" };
 const STATE_META: Record<ScheduleGuiRowDto["state"], StateMeta> = {
@@ -71,60 +74,22 @@ const OUTCOME_META: Record<string, MessageKey> = {
   unknown: "schedules.outcome.unknown",
   cancelled: "schedules.outcome.cancelled",
 };
-const RUN_OUTCOME_META: Record<ScheduleRunOutcomeWord, { readonly key: MessageKey; readonly tone: string }> = {
-  running: { key: "schedules.outcome.running", tone: "active" },
-  succeeded: { key: "schedules.outcome.succeeded", tone: "done" },
-  failed: { key: "schedules.outcome.failed", tone: "blocked" },
-  missed: { key: "schedules.outcome.missed", tone: "planned" },
-  cancelled: { key: "schedules.outcome.cancelled", tone: "cancelled" },
-  unknown: { key: "schedules.outcome.unknown", tone: "unknown" },
-};
-const SPARK_COLOR: Record<ScheduleRunOutcomeWord, string> = {
-  running: "var(--color-status-active)",
-  succeeded: "var(--color-status-done)",
-  failed: "var(--color-status-blocked)",
-  missed: "var(--color-status-planned)",
-  cancelled: "var(--color-status-cancelled)",
-  unknown: "var(--color-status-unknown)",
-};
-const MISSED_REASON_META: Record<string, MessageKey> = {
-  scheduler_unavailable: "schedules.missedReason.schedulerUnavailable",
-  single_flight: "schedules.missedReason.singleFlight",
-};
-
-const time = (iso: string | null): string => (iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso));
 
 /** Shared styling for the occurrence shortcut buttons (keeps lines under the
- * 120-character budget without compressing the class string). */
+ *  120-character budget without compressing the class string). */
 const OCCURRENCE_CHIP_CLASS =
   "rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted " +
   "hover:border-accent hover:text-accent";
 
-// Word → label lookups stay total: an unknown daemon word renders as its own
-// text (missed reasons) or the shared "unknown" label (outcomes), never a crash.
+// Word → label lookups stay total: an unknown daemon word renders as the shared
+// "unknown" label, never a crash.
 const outcomeLabel = (outcome: string): MessageKey =>
   outcome in OUTCOME_META ? OUTCOME_META[outcome] : "schedules.outcome.unknown";
-const missedReasonLabel = (reason: string | null): string =>
-  reason === null ? "—" : reason in MISSED_REASON_META ? t(MISSED_REASON_META[reason]) : reason;
-
-export function formatDurationMs(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60),
-    seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
-  const hours = Math.floor(minutes / 60),
-    rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h${rest}m`;
-}
 
 /**
- * Fallback occurrence rows while the `repo.schedules.runs` projection is pending
- * the backend task: exactly the occurrences the list read already carries
- * (activeRun, lastRun) plus the missed aggregate, with the boundary labeled in
- * the UI. The only derived value is the lastRun duration — arithmetic over two
- * daemon-projected timestamps, same class as formatting them.
+ * Fallback occurrence rows while the runs read fails (daemon unreachable): exactly
+ * the occurrences the list read already carries (activeRun, lastRun) plus the missed
+ * aggregate, with the read failure labeled as an error — not as a pending backend.
  */
 export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly ScheduleGuiRunRowDto[] {
   const rows: ScheduleGuiRunRowDto[] = [];
@@ -140,11 +105,12 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
       attemptIndex: row.activeRun.attemptIndex,
       dispatchId: row.activeRun.dispatchId,
       runtimeSessionId: row.activeRun.runtimeSessionId,
-      squadRunId: null,
       outcome: "running",
       missedReason: null,
       reportRef: null,
+      reportText: null,
       detail: null,
+      outputs: { facts: [], decisions: [], tasks: [] },
     });
   }
   if (row.lastRun !== null && row.lastRun.occurrenceId !== row.activeRun?.occurrenceId) {
@@ -152,7 +118,7 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
       scheduled = Date.parse(row.lastRun.scheduledFor);
     rows.push({
       occurrenceId: row.lastRun.occurrenceId,
-      kind: null,
+      kind: "scheduled",
       scheduledFor: row.lastRun.scheduledFor,
       claimedAt: null,
       endedAt: row.lastRun.endedAt,
@@ -161,11 +127,12 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
       attemptIndex: row.lastRun.attemptIndex,
       dispatchId: row.lastRun.dispatchId,
       runtimeSessionId: row.lastRun.runtimeSessionId,
-      squadRunId: null,
       outcome: row.lastRun.outcome in RUN_OUTCOME_META ? (row.lastRun.outcome as ScheduleRunOutcomeWord) : "unknown",
       missedReason: null,
       reportRef: null,
+      reportText: null,
       detail: row.lastRun.detail,
+      outputs: { facts: [], decisions: [], tasks: [] },
     });
   }
   if (row.missed.count > 0) {
@@ -180,11 +147,12 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
       attemptIndex: null,
       dispatchId: null,
       runtimeSessionId: null,
-      squadRunId: null,
       outcome: "missed",
       missedReason: row.missed.lastMissedReason,
       reportRef: null,
+      reportText: null,
       detail: null,
+      outputs: { facts: [], decisions: [], tasks: [] },
     });
   }
   return rows;
@@ -220,7 +188,7 @@ export function ScheduleDetailView({
   readonly onAction: (kind: "enable" | "disable" | "runNow") => void;
   readonly onSave: (input: ScheduleDefinitionInput) => void;
   readonly onDelete: () => void;
-  /** Entity routing for non-session refs (agent/provider). Run sessions stay embedded. */
+  /** Entity routing for refs with their own view (agent/provider/session/fact/…). Run sessions stay embedded. */
   readonly onSelectEntity: (ref: string) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
   readonly onFocusGraph?: (ref: string) => void;
@@ -241,7 +209,7 @@ export function ScheduleDetailView({
   // One daemon projection paints the timeline; the renderer never recomputes
   // cadence/nextRun/health and never invents occurrences the daemon did not emit.
   const occurrenceRows = runsQuery.data?.runs ?? deriveScheduleRunRows(row);
-  const runsPendingBackend = runsQuery.isError;
+  const runsReadFailed = runsQuery.isError;
   const occurrence =
     runOccurrence === null
       ? null
@@ -249,7 +217,7 @@ export function ScheduleDetailView({
   const stateMeta = STATE_META[row.state],
     mode = scheduleRowMode(row),
     targetKind = scheduleRowTargetKind(row),
-    health = scheduleRowHealth(row)?.recent ?? null;
+    health = scheduleRowHealth(row);
 
   return (
     <div data-testid="schedule-detail" className="min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
@@ -343,11 +311,12 @@ export function ScheduleDetailView({
         occurrence === null ? (
           <Empty>{t("schedules.run.missing", { occurrence: runOccurrence })}</Empty>
         ) : (
-          <ScheduleRunDetailView
+          <ScheduleRunDetail
             repoId={repoId}
             row={row}
             occurrence={occurrence}
             onRefetchRuns={() => void runsQuery.refetch()}
+            onSelectEntity={onSelectEntity}
           />
         )
       ) : (
@@ -392,7 +361,7 @@ export function ScheduleDetailView({
           ) : tab === "runs" ? (
             <ScheduleRunsTab
               rows={occurrenceRows}
-              pendingBackend={runsPendingBackend}
+              readFailed={runsReadFailed}
               error={runsQuery.error instanceof Error ? runsQuery.error.message : null}
               onOpenRun={(occurrenceId) => onSelectEntity(scheduleRunRef(row.scheduleId, occurrenceId))}
             />
@@ -425,13 +394,7 @@ export function ScheduleDetailView({
   );
 }
 
-function ModeBadge({ mode }: { readonly mode: "detect" | "remediate" | null }) {
-  if (mode === null)
-    return (
-      <Chip tone="mono" tip={t("schedules.mode.pendingTip")}>
-        {t("schedules.mode.pending")}
-      </Chip>
-    );
+function ModeBadge({ mode }: { readonly mode: "detect" | "remediate" }) {
   return (
     <Chip tone="mono" tip={t(mode === "detect" ? "schedules.mode.detectBoundary" : "schedules.mode.remediateBoundary")}>
       {t(mode === "detect" ? "schedules.mode.detect" : "schedules.mode.remediate")}
@@ -496,8 +459,8 @@ function ScheduleOverviewTab({
   onOpenRun,
 }: {
   readonly row: ScheduleGuiRowDto;
-  readonly mode: "detect" | "remediate" | null;
-  readonly health: readonly ScheduleRunOutcomeWord[] | null;
+  readonly mode: "detect" | "remediate";
+  readonly health: ReturnType<typeof scheduleRowHealth>;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
@@ -527,17 +490,31 @@ function ScheduleOverviewTab({
         <Card testId="schedule-overview-health">
           <CardHead>
             <CardTitle>{t("schedules.detail.health.title")}</CardTitle>
+            <Right>
+              <Badge status={health.bucket === "degraded" ? "blocked" : "done"}>
+                {t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
+              </Badge>
+            </Right>
           </CardHead>
           <CardBody>
-            {health === null ? (
-              <PlannedBox>{t("schedules.detail.health.pending")}</PlannedBox>
-            ) : health.length === 0 ? (
+            {health.recent.length === 0 ? (
               <Empty>{t("schedules.runs.empty")}</Empty>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
-                <HealthSpark outcomes={health} />
-                <Hint>{t("schedules.detail.health.legend", { count: String(health.length) })}</Hint>
+                <HealthSpark outcomes={health.recent} />
+                <Hint>{t("schedules.detail.health.legend", { count: String(health.recent.length) })}</Hint>
+                {health.failedCount > 0 && (
+                  <Hint>{t("schedules.detail.health.failedCount", { count: String(health.failedCount) })}</Hint>
+                )}
               </div>
+            )}
+            {health.lastFailureDetail !== null && (
+              <p
+                data-testid="schedule-health-last-failure"
+                className="mt-2 break-all rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 font-mono ui-micro text-text"
+              >
+                {t("schedules.detail.health.lastFailure")}: {health.lastFailureDetail}
+              </p>
             )}
           </CardBody>
         </Card>
@@ -667,12 +644,12 @@ const OUTCOME_ROW_TONE: Record<string, string> = {
 
 function ScheduleRunsTab({
   rows,
-  pendingBackend,
+  readFailed,
   error,
   onOpenRun,
 }: {
   readonly rows: readonly ScheduleGuiRunRowDto[];
-  readonly pendingBackend: boolean;
+  readonly readFailed: boolean;
   readonly error: string | null;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
@@ -685,9 +662,13 @@ function ScheduleRunsTab({
         {failed > 0 && <Chip>{t("schedules.runs.failedCount", { count: String(failed) })}</Chip>}
         {missed > 0 && <Chip>{t("schedules.runs.missedCount", { count: String(missed) })}</Chip>}
       </div>
-      {pendingBackend && (
-        <div className="mb-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
-          {t("schedules.runs.pendingBackend")}
+      {readFailed && (
+        <div
+          role="alert"
+          data-testid="schedule-runs-read-error"
+          className="mb-2 rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-status-blocked"
+        >
+          {t("schedules.runs.readFailed")}
           {error !== null ? ` · ${error}` : ""}
         </div>
       )}
@@ -817,191 +798,6 @@ function ScheduleDangerTab({
           </span>
         )}
       </div>
-    </div>
-  );
-}
-
-function ScheduleRunDetailView({
-  repoId,
-  row,
-  occurrence,
-  onRefetchRuns,
-}: {
-  readonly repoId: string;
-  readonly row: ScheduleGuiRowDto;
-  readonly occurrence: ScheduleGuiRunRowDto;
-  readonly onRefetchRuns: () => void;
-}) {
-  const meta = RUN_OUTCOME_META[occurrence.outcome];
-  return (
-    <div data-testid="schedule-run-detail" className="mt-3">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border pb-2.5">
-        <Badge status={meta.tone}>{t(meta.key)}</Badge>
-        <b className="font-mono ui-body">{occurrence.occurrenceId}</b>
-        {occurrence.kind !== null && <Chip tone="mono">{occurrence.kind}</Chip>}
-        <span className="flex-1" />
-        <Hint>
-          node {occurrence.nodeId ?? "—"} · {t("schedules.fields.nextRun")} {time(occurrence.scheduledFor)} ·{" "}
-          {time(occurrence.endedAt)} · {formatDurationMs(occurrence.durationMs)}
-        </Hint>
-      </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-[5fr_7fr]">
-        <div className="min-w-0">
-          <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-            {t("schedules.run.session.title")}
-          </h4>
-          {/* M4: the run session is embedded here — occurrence replay through the
-              dispatch ledger, not a jump into the global Sessions view. */}
-          {occurrence.dispatchId === null ? (
-            <PlannedBox>{t("schedules.run.session.noDispatch")}</PlannedBox>
-          ) : (
-            <div data-testid={`schedule-run-session-${occurrence.occurrenceId}`}>
-              <SessionTranscript
-                repoId={repoId}
-                dispatchId={occurrence.dispatchId}
-                live={occurrence.outcome === "running"}
-                onSettled={onRefetchRuns}
-              />
-            </div>
-          )}
-          {occurrence.squadRunId !== null && <ScheduleSquadLanesPlaceholder squadRunId={occurrence.squadRunId} />}
-          {scheduleRowTargetKind(row) === "agent" && <Hint>{t("schedules.run.session.squadNote")}</Hint>}
-        </div>
-        <div className="min-w-0">
-          <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-            {t("schedules.run.artifacts.title")}
-          </h4>
-          {occurrence.reportRef === null && occurrence.detail === null ? (
-            <PlannedBox>{t("schedules.run.artifacts.none")}</PlannedBox>
-          ) : (
-            <>
-              {occurrence.reportRef !== null && (
-                <ArtifactRow
-                  testId="schedule-run-artifact-report"
-                  title="report.md"
-                  artifactRef={occurrence.reportRef}
-                />
-              )}
-              {occurrence.detail !== null && (
-                <ArtifactRow
-                  testId="schedule-run-artifact-runtime"
-                  title="runtime-result"
-                  artifactRef={occurrence.detail}
-                />
-              )}
-            </>
-          )}
-          <KV>
-            {occurrence.dispatchId !== null && (
-              <KVRow name={t("schedules.fields.dispatch")}>{occurrence.dispatchId}</KVRow>
-            )}
-            {/* The runtime session id is a fact of this occurrence, shown as text:
-                its transcript is embedded above, by design not a global-list link. */}
-            {occurrence.runtimeSessionId !== null && (
-              <KVRow name={t("schedules.fields.session")}>{occurrence.runtimeSessionId}</KVRow>
-            )}
-            <KVRow name={t("schedules.fields.attempt")}>
-              {occurrence.attemptIndex === null ? "—" : String(occurrence.attemptIndex)}
-            </KVRow>
-            <KVRow name={t("schedules.fields.claimedAt")}>{time(occurrence.claimedAt)}</KVRow>
-          </KV>
-          <h4 className="mb-1.5 mt-3 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-            {t("schedules.run.routing.title")}
-          </h4>
-          <div className="rounded border border-border bg-surface-raised px-2.5 py-2">
-            <ol className="ml-4 list-decimal ui-micro text-text-muted">
-              <li>{t("schedules.run.routing.step1")}</li>
-              <li>{t("schedules.run.routing.step2")}</li>
-              <li>{t("schedules.run.routing.step3")}</li>
-            </ol>
-            <PlannedBox>{t("schedules.run.routing.pending")}</PlannedBox>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ArtifactRow({
-  testId,
-  title,
-  artifactRef,
-}: {
-  readonly testId: string;
-  readonly title: string;
-  readonly artifactRef: string;
-}) {
-  return (
-    <div
-      data-testid={testId}
-      className="mb-1.5 flex items-start gap-2 rounded border border-border px-2.5 py-1.5 ui-micro"
-    >
-      <b className="shrink-0">{title}</b>
-      <span className="min-w-0 flex-1 break-all font-mono ui-micro text-text-faint">{artifactRef}</span>
-    </div>
-  );
-}
-
-/**
- * M4 squad executor skeleton: shape follows `SquadRunReadResult`
- * (leaderTurns[] / workerAttempts[]) so the lanes render from the existing squad
- * read once `target.kind: "squad"` is wired. Only the join id is forward-projected
- * on occurrence rows today, so this placeholder names the read it is waiting for.
- */
-export function ScheduleSquadLanes({ run }: { readonly run: SquadRunReadResult["run"] }) {
-  if (!isAvailableSquadRunDetail(run))
-    return (
-      <div
-        data-testid="schedule-run-squad-lanes"
-        className="mt-2 flex items-center gap-2 rounded border border-border px-2.5 py-2"
-      >
-        <span className="font-mono ui-micro text-text-faint">{run.squadRunId}</span>
-        <Badge tip={run.projectionError.hint}>{t("agentRuntime.catalogInvalid")}</Badge>
-      </div>
-    );
-  return (
-    <div data-testid="schedule-run-squad-lanes" className="mt-2 rounded border border-border px-2.5 py-2">
-      <b className="ui-meta">{t("schedules.run.squad.leaderTurns", { count: String(run.leaderTurns.length) })}</b>
-      <ol className="mt-1 space-y-1">
-        {run.leaderTurns.map((turn) => (
-          <li key={turn.turnId} className="rounded border border-border px-2 py-1 ui-micro">
-            <span className="font-mono ui-micro text-text-muted">{turn.turnId}</span>{" "}
-            <Chip tone="mono">{turn.trigger.kind}</Chip>{" "}
-            {turn.decision !== null && (
-              <Chip tone="mono">
-                {turn.decision.kind === "plan"
-                  ? t("schedules.run.squad.plan", { count: String(turn.decision.dispatchCount) })
-                  : t("schedules.run.squad.converged")}
-              </Chip>
-            )}{" "}
-            <Hint>
-              {turn.startedAt ?? "—"} → {turn.endedAt ?? "—"}
-            </Hint>
-          </li>
-        ))}
-      </ol>
-      <b className="mt-2 block ui-meta">
-        {t("schedules.run.squad.workerAttempts", { count: String(run.workerAttempts.length) })}
-      </b>
-      <ol className="mt-1 space-y-1">
-        {run.workerAttempts.map((attempt) => (
-          <li key={attempt.attemptId} className="rounded border border-border px-2 py-1 ui-micro">
-            <span className="font-mono ui-micro text-text-muted">{attempt.workerId}</span>{" "}
-            <Chip tone="mono">{attempt.status ?? "—"}</Chip>{" "}
-            <Hint>
-              {attempt.startedAt ?? "—"} → {attempt.endedAt ?? "—"}
-            </Hint>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
-}
-
-function ScheduleSquadLanesPlaceholder({ squadRunId }: { readonly squadRunId: string }) {
-  return (
-    <div className="mt-2 rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
-      {t("schedules.run.squad.pendingJoin", { squadRunId })}
     </div>
   );
 }

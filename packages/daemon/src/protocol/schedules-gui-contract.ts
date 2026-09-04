@@ -59,6 +59,17 @@ export interface ScheduleGuiOptionsDto {
   }[];
 }
 
+/**
+ * 健康度 rollup(最近若干次 occurrence 的 daemon 侧聚合)。`bucket` 是 daemon 的分类,
+ * renderer 只渲染;`recent` 旧 → 新,运行中的 occurrence 是最后一段。
+ */
+export interface ScheduleGuiHealthDto {
+  readonly recent: readonly ("running" | "succeeded" | "failed" | "missed" | "cancelled" | "unknown")[];
+  readonly bucket: "degraded" | "clean";
+  readonly failedCount: number;
+  readonly lastFailureDetail: string | null;
+}
+
 export interface ScheduleGuiRowDto {
   readonly scheduleId: string;
   readonly name: string;
@@ -83,6 +94,7 @@ export interface ScheduleGuiRowDto {
   readonly mission: string;
   readonly executionAvailability: ScheduleExecutionAvailability;
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
+  readonly health: ScheduleGuiHealthDto;
   readonly nextRunAt: string | null;
   readonly actions: {
     readonly edit: ScheduleGuiActionFacet;
@@ -167,6 +179,7 @@ const scheduleGuiRowFields = [
   "mission",
   "executionAvailability",
   "claim",
+  "health",
   "nextRunAt",
   "actions",
   "activeRun",
@@ -343,6 +356,7 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       Object.keys(row.claim).length !== 2 ||
       !nullableNonEmpty(row.claim.nodeId) ||
       !nullableNonEmpty(row.claim.assignmentId) ||
+      !validHealthRollup(row.health) ||
       !utcTimestamp(row.nextRunAt, true) ||
       !isJsonObject(row.actions) ||
       Object.keys(row.actions).length !== 5 ||
@@ -428,6 +442,21 @@ function validTargetProjection(row: Record<string, unknown>): boolean {
     hasError &&
     ["invalid", "missing"].includes(String(row.targetState)) &&
     validProjectionError(row.targetError)
+  );
+}
+
+function validHealthRollup(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    Object.keys(value).length === 4 &&
+    Array.isArray(value.recent) &&
+    value.recent.every((outcome) =>
+      ["running", "succeeded", "failed", "missed", "cancelled", "unknown"].includes(String(outcome)),
+    ) &&
+    ["degraded", "clean"].includes(String(value.bucket)) &&
+    Number.isSafeInteger(value.failedCount) &&
+    Number(value.failedCount) >= 0 &&
+    nullableNonEmpty(value.lastFailureDetail)
   );
 }
 

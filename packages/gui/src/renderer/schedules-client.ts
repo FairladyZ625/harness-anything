@@ -1,8 +1,13 @@
 import type {
+  ScheduleGuiHealthDto,
   ScheduleGuiListRowDto,
   ScheduleGuiRowDto,
   SchedulesListResult,
 } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type {
+  ScheduleRunOutputsDto,
+  ScheduleRunsResult as DaemonScheduleRunsResult,
+} from "../../../daemon/src/protocol/schedule-runs-contract.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 
@@ -33,14 +38,9 @@ const bridge = (): SchedulesBridge => {
 };
 
 // ---------------------------------------------------------------------------
-// Forward read-projection contract (design.html §6 / backend task
-// task_57be99e9e287dc4626be1ade09). The daemon will expose `repo.schedules.runs`
-// and extend the list row with `mode` / target kind / health rollup; the shapes
-// below follow that table so the UI skeleton can be built before the read side
-// lands. Everything stays optional from the renderer's point of view: a missing
-// field renders as an explicit "pending projection" state, never as a fabricated
-// fact. When the backend lands, align field names here first, then delete the
-// fallbacks that depended on absence.
+// Read-projection contract(design.html §6):`schedule-run-history` 读已落地,列表行
+// 带 mode/target/健康度 rollup——这里只复述 daemon 形状,不再保留「后端未投影」的
+// 可选字段垫层;没有数据就是 daemon 投影的空值,不是渲染层的猜测。
 // ---------------------------------------------------------------------------
 
 /** Outcome vocabulary for one occurrence row; `missed` rows are visible history. */
@@ -48,7 +48,7 @@ export type ScheduleRunOutcomeWord = "running" | "succeeded" | "failed" | "misse
 /** Purpose dimension (design §4 A): detect = read-only boundary, remediate = write/PR boundary. */
 export type ScheduleModeWord = "detect" | "remediate";
 
-/** One occurrence in the run-history timeline (M3): daemon-formatted facts only. */
+/** One occurrence in the run-history timeline: daemon-formatted facts only. */
 export interface ScheduleGuiRunRowDto {
   readonly occurrenceId: string;
   readonly kind: "scheduled" | "manual" | null;
@@ -61,59 +61,38 @@ export interface ScheduleGuiRunRowDto {
   readonly attemptIndex: number | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
-  /** Set when the occurrence executed as a squad; the M4 lanes then read `SquadRunReadResult`. */
-  readonly squadRunId: string | null;
   readonly outcome: ScheduleRunOutcomeWord;
   /** Populated on `missed` rows (`scheduler_unavailable` / `single_flight`). */
   readonly missedReason: string | null;
-  /** Artifact ref of the occurrence report (`runs/<occurrence>/report.md`). */
+  /** Artifact ref of the occurrence report (runtime-result)。 */
   readonly reportRef: string | null;
+  /** report artifact 的完整正文;无报告/未就绪为 null,由 daemon 原样给出(不截断)。 */
+  readonly reportText: string | null;
+  /** settle detail 中非报告引用的部分——失败原因等真实细节。 */
   readonly detail: string | null;
+  /** 该 occurrence 的 runtime session 写入的 fact/decision/task 产出。 */
+  readonly outputs: ScheduleRunOutputsDto;
 }
 
-export type ScheduleRunsResult = {
-  readonly ok: true;
-  readonly status: "ready" | "pending";
-  readonly repoId: string;
-  readonly scheduleId: string;
+export type ScheduleRunsResult = Omit<DaemonScheduleRunsResult, "runs"> & {
   readonly runs: readonly ScheduleGuiRunRowDto[];
-  readonly totals: { readonly runs: number; readonly missed: number; readonly failed: number };
-  readonly watermark: number;
-  readonly sourceRevision: number;
 };
 
 /**
- * Health rollup the daemon aggregates over recent occurrences (design §6 M1:
- * derived from the runs read so the list never fans out N+1). `bucket` is the
+ * Health rollup the daemon aggregates over recent occurrences. `bucket` is the
  * daemon's classification — the renderer never re-derives degraded/clean from
  * outcomes (dec_8DCD52E98BAB268B0194B1E399: status judgments are daemon-side).
  */
-export interface ScheduleHealthRollup {
-  readonly recent: readonly ScheduleRunOutcomeWord[];
-  readonly bucket: "degraded" | "clean";
-}
+export type ScheduleHealthRollup = ScheduleGuiHealthDto;
 
-/** List-row projection fields the backend task will add; absent until it lands. */
-export type ScheduleRowProjection = ScheduleGuiRowDto & {
-  readonly mode?: ScheduleModeWord;
-  readonly targetKind?: "agent" | "squad";
-  readonly health?: ScheduleHealthRollup;
-};
+/** mode 是 daemon 列表行的必有事实(detect/remediate),渲染层不再保留 pending 态。 */
+export const scheduleRowMode = (row: ScheduleGuiRowDto): ScheduleModeWord => row.mode;
 
-/** null = the mode field has not landed yet; the UI must not guess a default. */
-export const scheduleRowMode = (row: ScheduleGuiRowDto): ScheduleModeWord | null =>
-  (row as ScheduleRowProjection).mode ?? null;
+/** 执行体种类来自 target 判别式(agent/squad),不是本地默认。 */
+export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): "agent" | "squad" => row.target.kind;
 
-/**
- * Today every schedule target is a single agent (kernel hardcodes it), so the
- * absence of `targetKind` is a present fact, not a guess: "agent".
- */
-export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): "agent" | "squad" =>
-  (row as ScheduleRowProjection).targetKind ?? "agent";
-
-/** null = the health rollup has not landed yet; the spark renders a pending state. */
-export const scheduleRowHealth = (row: ScheduleGuiRowDto): ScheduleHealthRollup | null =>
-  (row as ScheduleRowProjection).health ?? null;
+/** 健康度 rollup 由 daemon 投影;无效行(invalid)没有该字段,调用方先行过滤。 */
+export const scheduleRowHealth = (row: ScheduleGuiRowDto): ScheduleHealthRollup => row.health;
 
 export interface ScheduleActionReceipt {
   readonly ok: boolean;
@@ -151,10 +130,10 @@ export const schedulesClient = {
     return value as unknown as SchedulesListResult;
   },
   /**
-   * The `schedule-run-history` use-case projection: the occurrence run history (M3). When the
-   * projection bridge is absent the Runs surface still falls back to the occurrences the plane
-   * projection already carries (activeRun / lastRun / missed aggregate), with the boundary
-   * labeled in the UI instead of fabricated rows.
+   * The `schedule-run-history` use-case projection: the occurrence run history (M3), including
+   * each occurrence's report artifact text and the fact/decision/task outputs its runtime
+   * session wrote. Read failures surface as errors (the hub then shows the occurrences the
+   * plane projection still carries, with the failure labeled).
    */
   runs: async (repoId: string, scheduleId: string): Promise<ScheduleRunsResult> => {
     const value = await readUseCaseProjection({ repoId, name: "schedule-run-history", scheduleId });

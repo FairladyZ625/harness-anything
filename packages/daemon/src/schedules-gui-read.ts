@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import {
   nextScheduleOccurrence,
   validateScheduleV1,
+  type CanonicalEventV1,
   type DaemonRepoMode,
   type ScheduleV1,
 } from "../../kernel/src/index.ts";
@@ -16,6 +17,7 @@ import type {
   ScheduleExecutionAvailability,
   ScheduleGuiAgentOptionDto,
   ScheduleGuiActionFacet,
+  ScheduleGuiHealthDto,
   ScheduleGuiInvalidRowDto,
   ScheduleGuiListRowDto,
   ScheduleGuiOptionsDto,
@@ -24,6 +26,8 @@ import type {
   SchedulesListResult,
 } from "./protocol/schedules-gui-contract.ts";
 import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
+import { emptyScheduleHealthRollup, scheduleHealthRollupsFromEvents } from "./schedule-projection.ts";
+import { pageAllCanonicalEvents } from "./schedule-runs-read.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 
 /** Schedule GUI 读侧 join(S4)。上游事实全部来自已合入面:S1 的 ScheduleV1 领域形状与
@@ -47,6 +51,16 @@ export interface SchedulesGuiReadContext {
     }[];
     readonly readTaskStatuses: () => {
       readonly status: "ready" | "pending";
+      readonly watermark: number;
+      readonly sourceRevision: number;
+    };
+    /** 健康度 rollup 的事件源:与运行历史读同一分页纪律一次读全量。 */
+    readonly readCanonicalEvents: (
+      afterRevision: number,
+      limit: number,
+    ) => {
+      readonly status: "ready" | "pending";
+      readonly events: readonly CanonicalEventV1[];
       readonly watermark: number;
       readonly sourceRevision: number;
     };
@@ -240,7 +254,13 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
     roster = rosterOf(mode, context.rootDir, context.fleetRoster),
     cut = context.projection.readTaskStatuses(),
     agentOptions = scheduleAgentOptions(context),
-    agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent]));
+    agentsById = new Map(agentOptions.map((agent) => [agent.agentId, agent])),
+    // 健康度 rollup:一次事件扫描为全部 schedule 各折一份(daemon 侧聚合,renderer 只渲染)。
+    healthRollups = scheduleHealthRollupsFromEvents(
+      pageAllCanonicalEvents(context.projection.readCanonicalEvents).events,
+    ),
+    healthRollupOf = (scheduleId: string): ScheduleGuiHealthDto =>
+      healthRollups.get(scheduleId) ?? emptyScheduleHealthRollup();
   const schedules = context.projection
     .listEntities("schedule")
     .map((row): ScheduleGuiListRowDto => {
@@ -248,6 +268,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
       if (errors.length > 0) return invalidScheduleGuiRow(row, errors);
       const schedule = row.value as ScheduleV1,
         active = activeRunDtoOf(schedule),
+        health = healthRollupOf(schedule.scheduleId),
         availability = deriveScheduleExecutionAvailability({
           mode,
           viewerNodeId,
@@ -300,6 +321,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
           : assignment
             ? { nodeId: assignment.nodeId, assignmentId: assignment.assignmentId }
             : { nodeId: null, assignmentId: null },
+        health,
         nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, now) : null,
         actions: {
           edit: admissionFacet("schedule-update", mode),
