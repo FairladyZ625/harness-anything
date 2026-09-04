@@ -13,6 +13,7 @@ export function parseRuntimeInstanceCreate(
   const authMode = flags.one.get("--auth"),
     credentialRef = flags.one.get("--credential-ref"),
     kindId = flags.one.get("--kind"),
+    credentialHeader = flags.one.get("--credential-header"),
     header = runtimeHttpHeaderFlags(flags.many.get("--http-header") ?? []);
   if (authMode === "api-key" && !credentialRef)
     return rejected("missing_field", "API-key instances require --credential-ref <opaque-ref>.", json);
@@ -26,7 +27,14 @@ export function parseRuntimeInstanceCreate(
   if (hasForeignAdapterOptions(kindId, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);
   const baseUrl = flags.one.get("--base-url"),
-    kindConfig = runtimeInstanceKindConfig(kindId, flags.one, flags.booleans, baseUrl, header.value);
+    kindConfig = runtimeInstanceKindConfig(
+      kindId,
+      flags.one,
+      flags.booleans,
+      baseUrl,
+      header.value,
+      credentialHeader,
+    );
   return accepted(
     rootDir,
     undefined,
@@ -57,14 +65,18 @@ function hasForeignAdapterOptions(
 ): boolean {
   return (
     (kindId === "claude" &&
-      (flags.one.has("--wire-api") ||
+      (flags.booleans.has("--allow-insecure-http") ||
+        flags.one.has("--wire-api") ||
         flags.booleans.has("--requires-openai-auth") ||
+        flags.one.has("--credential-header") ||
         headers !== undefined)) ||
     (kindId === "agy" &&
       (flags.one.has("--base-url") ||
+        flags.booleans.has("--allow-insecure-http") ||
         flags.one.has("--wire-api") ||
         flags.booleans.has("--requires-openai-auth") ||
         headers !== undefined ||
+        flags.one.has("--credential-header") ||
         flags.one.has("--isolation")))
   );
 }
@@ -75,6 +87,7 @@ function runtimeInstanceKindConfig(
   booleans: Set<string>,
   baseUrl: string | undefined,
   headers: Readonly<Record<string, string>> | undefined,
+  credentialHeader: string | undefined,
 ) {
   return kindId === "codex"
     ? {
@@ -82,9 +95,11 @@ function runtimeInstanceKindConfig(
           ...(one.get("--effort") ? { reasoningEffort: one.get("--effort") } : {}),
           ...(booleans.has("--fast") ? { fast: true } : {}),
           ...(baseUrl ? { baseUrl } : {}),
+          ...(booleans.has("--allow-insecure-http") ? { allowInsecureHttp: true } : {}),
           ...(one.get("--wire-api") ? { wireApi: one.get("--wire-api") } : {}),
           ...(booleans.has("--requires-openai-auth") ? { requiresOpenAiAuth: true } : {}),
           ...(headers ? { httpHeaders: headers } : {}),
+          ...(credentialHeader ? { credentialHeader } : {}),
         },
       }
     : kindId === "agy"
@@ -107,7 +122,7 @@ function runtimeHttpHeaderFlags(
   | { readonly ok: true; readonly value?: Readonly<Record<string, string>> }
   | { readonly ok: false; readonly hint: string } {
   if (values.length === 0) return { ok: true };
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {}, normalizedNames = new Set<string>();
   for (const value of values) {
     const separator = value.indexOf("=");
     if (separator < 1 || separator === value.length - 1)
@@ -116,12 +131,14 @@ function runtimeHttpHeaderFlags(
         hint: "Use --http-header Name=Value with a non-secret static header.",
       };
     const name = value.slice(0, separator),
-      item = value.slice(separator + 1);
-    if (Object.hasOwn(headers, name))
+      item = value.slice(separator + 1),
+      normalizedName = name.toLowerCase();
+    if (normalizedNames.has(normalizedName))
       return {
         ok: false,
         hint: `HTTP header ${name} was provided more than once.`,
       };
+    normalizedNames.add(normalizedName);
     headers[name] = item;
   }
   return { ok: true, value: headers };

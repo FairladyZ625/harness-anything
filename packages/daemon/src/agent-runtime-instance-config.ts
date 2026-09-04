@@ -171,17 +171,42 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
       agy: agyRuntimeConfig(flat ? {} : value.agy),
     };
   const codex = codexRuntimeConfig(
-    flat ? { reasoningEffort: value.reasoningEffort, baseUrl: value.baseUrl } : value.codex,
+    flat
+      ? {
+          reasoningEffort: value.reasoningEffort,
+          baseUrl: value.baseUrl,
+          allowInsecureHttp: value.allowInsecureHttp,
+        }
+      : value.codex,
   );
+  if (codex.credentialHeader !== undefined && auth.mode !== "api-key")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader is available only for API-key runtime instances.",
+    );
+  if (
+    codex.credentialHeader !== undefined &&
+    codex.httpHeaders !== undefined &&
+    Object.keys(codex.httpHeaders).some(
+      (header) => header.toLowerCase() === codex.credentialHeader!.toLowerCase(),
+    )
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must not overlap a static HTTP header.",
+    );
   if (
     common.providerId === "openai" &&
-    (codex.wireApi !== undefined || codex.requiresOpenAiAuth !== undefined || codex.httpHeaders !== undefined)
+    (codex.allowInsecureHttp !== undefined ||
+      codex.wireApi !== undefined ||
+      codex.requiresOpenAiAuth !== undefined ||
+      codex.httpHeaders !== undefined ||
+      codex.credentialHeader !== undefined)
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
       [
-        "The built-in openai provider cannot accept a custom wireApi, ",
-        "requiresOpenAiAuth, or httpHeaders; use a distinct providerId.",
+        "The built-in openai provider cannot accept custom transport or credential options; use a distinct providerId.",
       ].join(""),
     );
   return { ...common, kindId: "codex", codex };
@@ -204,29 +229,51 @@ export function codexRuntimeConfig(value: unknown): CodexRuntimeInstanceConfig {
   if (
     !isRuntimeInstanceRecord(value) ||
     Object.keys(value).some(
-      (key) => !["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"].includes(key),
+      (key) =>
+        ![
+          "reasoningEffort",
+          "fast",
+          "baseUrl",
+          "allowInsecureHttp",
+          "wireApi",
+          "requiresOpenAiAuth",
+          "httpHeaders",
+          "credentialHeader",
+        ].includes(key),
     )
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
-      "codex configuration accepts only reasoningEffort, fast, baseUrl, wireApi, requiresOpenAiAuth, and httpHeaders.",
+      [
+        "codex configuration accepts only reasoningEffort, fast, baseUrl, allowInsecureHttp, ",
+        "wireApi, requiresOpenAiAuth, httpHeaders, and credentialHeader.",
+      ].join(""),
     );
   const effort = value.reasoningEffort === undefined ? undefined : runtimeEffort(value.reasoningEffort),
     fast = value.fast === undefined ? undefined : requireBoolean(value.fast, "fast"),
-    baseUrl = value.baseUrl === undefined ? undefined : secureRuntimeBaseUrl(value.baseUrl),
+    allowInsecureHttp =
+      value.allowInsecureHttp === undefined ? undefined : requireBoolean(value.allowInsecureHttp, "allowInsecureHttp"),
+    baseUrl =
+      value.baseUrl === undefined
+        ? undefined
+        : secureRuntimeBaseUrl(value.baseUrl, { allowInsecureHttp: allowInsecureHttp === true }),
     wireApi = value.wireApi === undefined ? undefined : identifier(value.wireApi, "wireApi"),
     requiresOpenAiAuth =
       value.requiresOpenAiAuth === undefined
         ? undefined
         : requireBoolean(value.requiresOpenAiAuth, "requiresOpenAiAuth"),
-    httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders);
+    httpHeaders = value.httpHeaders === undefined ? undefined : runtimeHttpHeaders(value.httpHeaders),
+    credentialHeader =
+      value.credentialHeader === undefined ? undefined : runtimeCredentialHeader(value.credentialHeader);
   return {
     ...(effort ? { reasoningEffort: effort } : {}),
     ...(fast === undefined ? {} : { fast }),
     ...(baseUrl ? { baseUrl } : {}),
+    ...(allowInsecureHttp ? { allowInsecureHttp } : {}),
     ...(wireApi ? { wireApi } : {}),
     ...(requiresOpenAiAuth === undefined ? {} : { requiresOpenAiAuth }),
     ...(httpHeaders ? { httpHeaders } : {}),
+    ...(credentialHeader ? { credentialHeader } : {}),
   };
 }
 
@@ -243,22 +290,35 @@ export function runtimeHttpHeaders(value: unknown): Readonly<Record<string, stri
       "invalid_runtime_http_headers",
       "httpHeaders must be a non-empty object of non-secret HTTP headers.",
     );
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = {}, normalizedNames = new Set<string>();
   for (const [name, item] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
     if (
       !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ||
       /(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) ||
       typeof item !== "string" ||
       !item ||
-      /[\r\n]/u.test(item)
+      /[\r\n]/u.test(item) ||
+      normalizedNames.has(normalizedName)
     )
       throw runtimeInstanceError(
         "invalid_runtime_http_headers",
         "httpHeaders must contain valid non-secret header names and single-line values.",
       );
+    normalizedNames.add(normalizedName);
     result[name] = item;
   }
   return result;
+}
+
+export function runtimeCredentialHeader(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name))
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must be a valid HTTP header name.",
+    );
+  return name;
 }
 
 export function needsRuntimeInstanceNormalization(value: unknown): boolean {

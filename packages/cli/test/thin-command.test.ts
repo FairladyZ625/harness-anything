@@ -535,6 +535,42 @@ test("thin parser derives closed preset and task-create payloads from descriptor
     });
 });
 
+test("runtime instance parser rejects repeated static headers regardless of spelling", () => {
+  const base = [
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "codex-headers",
+    "--name",
+    "Codex Headers",
+    "--kind",
+    "codex",
+    "--provider",
+    "sidecar",
+    "--model",
+    "gpt-5.6-sol",
+    "--auth",
+    "api-key",
+    "--credential-ref",
+    "credential:v1:codex-headers",
+  ];
+  const accepted = parseThinCommand([...base, "--http-header", "X-Custom=static"]);
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  if (accepted.ok) assert.deepEqual(accepted.command.action.codex, { httpHeaders: { "X-Custom": "static" } });
+  for (const duplicate of [
+    ["X-Custom=first", "X-Custom=second"],
+    ["X-Custom=first", "x-custom=second"],
+  ]) {
+    const rejected = parseThinCommand([...base, ...duplicate.flatMap((value) => ["--http-header", value])]);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    if (!rejected.ok) {
+      assert.equal(rejected.code, "invalid_field");
+      assert.match(rejected.nextAction, /HTTP header .* was provided more than once\./u);
+    }
+  }
+});
+
 test("thin parser routes CI observation pulls through the repo task command", () => {
   const parsed = parseThinCommand(["ci", "observe", "pull", "--limit", "20"]);
   assert.equal(parsed.ok, true, JSON.stringify(parsed));

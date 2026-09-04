@@ -160,7 +160,10 @@ export function credentialHint(error: unknown): string {
     : credentialUnavailableHint;
 }
 
-export function secureRuntimeBaseUrl(value: unknown): string {
+export function secureRuntimeBaseUrl(
+  value: unknown,
+  options: { readonly allowInsecureHttp?: boolean } = {},
+): string {
   const text = requiredRuntimeInstanceText(value, "baseUrl");
   let parsed: URL;
   try {
@@ -174,11 +177,30 @@ export function secureRuntimeBaseUrl(value: unknown): string {
     parsed.search ||
     parsed.hash ||
     (parsed.protocol !== "https:" &&
-      !(parsed.protocol === "http:" && ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname)))
+      !(parsed.protocol === "http:" && ["127.0.0.1", "::1", "localhost"].includes(parsed.hostname)) &&
+      !(
+        parsed.protocol === "http:" &&
+        options.allowInsecureHttp === true &&
+        isPrivateIpv4(parsed.hostname)
+      ))
   )
     throw runtimeInstanceError(
       "invalid_base_url",
-      "baseUrl must use HTTPS or loopback HTTP and cannot contain credentials, query, or fragment.",
+      [
+        "baseUrl must use HTTPS or loopback HTTP; private HTTP requires explicit ",
+        "allowInsecureHttp, and credentials, query, and fragments are forbidden.",
+      ].join(""),
     );
   return parsed.toString();
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+  const octets = hostname.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  )
+    return false;
+  const [first, second] = octets;
+  return first === 10 || (first === 192 && second === 168) || (first === 172 && second >= 16 && second <= 31);
 }
