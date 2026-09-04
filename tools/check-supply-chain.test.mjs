@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -191,6 +191,48 @@ test("supply-chain check invokes npm instead of reading fixture output from env"
   });
 });
 
+test("supply-chain check reports an unreachable audit endpoint as infrastructure failure", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      auditFailure: {
+        output:
+          "npm warn audit request failed, reason: connect ECONNREFUSED 127.0.0.1:9\nnpm error audit endpoint returned an error",
+        status: 1,
+      },
+    });
+    const gateResults = path.join(root, "gate-results.json");
+
+    const result = runCheck(root, { HARNESS_CI_GATE_RESULTS: gateResults });
+
+    assert.equal(result.status, 2);
+    assert.match(result.stderr, /^Supply chain audit infrastructure failure:/u);
+    assert.deepEqual(JSON.parse(readFileSync(gateResults, "utf8")), [
+      { gate: "check-supply-chain", pass: false, metrics: { failureKind: "audit-infrastructure" } },
+    ]);
+  });
+});
+
+test("supply-chain check preserves the vulnerability failure path", async () => {
+  await withFixtureRepo((root) => {
+    writeValidSupplyChainFixture(root, {
+      auditFailure: {
+        output: "lodash  <=4.17.20\nSeverity: high\nfix available via npm audit fix\n1 high severity vulnerability",
+        status: 1,
+      },
+    });
+    const gateResults = path.join(root, "gate-results.json");
+
+    const result = runCheck(root, { HARNESS_CI_GATE_RESULTS: gateResults });
+
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /^Supply chain check failed:/u);
+    assert.match(result.stderr, /1 high severity vulnerability/u);
+    assert.deepEqual(JSON.parse(readFileSync(gateResults, "utf8")), [
+      { gate: "check-supply-chain", pass: false, metrics: { failureKind: "gate-failure" } },
+    ]);
+  });
+});
+
 test("supply-chain check rejects Dependabot directory under wrong ecosystem", async () => {
   await withFixtureRepo((root) => {
     writeValidSupplyChainFixture(root, {
@@ -204,12 +246,13 @@ test("supply-chain check rejects Dependabot directory under wrong ecosystem", as
   });
 });
 
-function runCheck(root) {
+function runCheck(root, environment = {}) {
   return spawnSync(process.execPath, [scriptPath], {
     cwd: root,
     encoding: "utf8",
     env: {
       ...process.env,
+      ...environment,
       PATH: `${path.join(root, ".mock-bin")}${path.delimiter}${process.env.PATH ?? ""}`,
     },
   });
@@ -310,7 +353,7 @@ function writeValidSupplyChainFixture(root, options = {}) {
   writeFile(root, ".github/workflows/rewrite-ci.yml", options.workflowBody ?? validWorkflow());
   writeFile(root, "README.md", validReadme());
   writeFile(root, "docs-release/release-posture.md", options.supplyDocBody ?? validSupplyDoc());
-  writeMockNpm(root, options.sbomMutator);
+  writeMockNpm(root, options.sbomMutator, options.auditFailure);
 }
 
 function validReadme() {
@@ -357,7 +400,7 @@ function validWorkflow() {
   ].join("\n");
 }
 
-function writeMockNpm(root, sbomMutator) {
+function writeMockNpm(root, sbomMutator, auditFailure) {
   const mockPath = path.join(root, ".mock-bin/npm");
   const sbomValue = validSbom();
   sbomMutator?.(sbomValue);
@@ -369,8 +412,8 @@ function writeMockNpm(root, sbomMutator) {
       "#!/usr/bin/env node",
       "const args = process.argv.slice(2).join(' ');",
       "if (args === 'audit --audit-level=high' || args === 'audit --omit=dev --audit-level=high') {",
-      "  console.log('found 0 vulnerabilities');",
-      "  process.exit(0);",
+      `  console.log(${JSON.stringify(auditFailure?.output ?? "found 0 vulnerabilities")});`,
+      `  process.exit(${auditFailure?.status ?? 0});`,
       "}",
       "if (args === 'sbom --sbom-format=cyclonedx --sbom-type=application') {",
       `  console.log(${JSON.stringify(sbom)});`,

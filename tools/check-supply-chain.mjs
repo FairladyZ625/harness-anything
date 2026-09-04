@@ -5,10 +5,12 @@ import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness,
 } from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
+import { writeCiGateResult } from "./ci-gate-result.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
 const errors = [];
+const auditInfrastructureFailures = [];
 const policy = harnessSupplyChainReleaseReadiness;
 const manifestGateRunner = "node tools/run-manifest-gates.mjs";
 const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
@@ -48,6 +50,10 @@ function run(command) {
 
   if (result.status !== 0) {
     const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+    if (command.startsWith("npm audit ") && isAuditInfrastructureFailure(output)) {
+      auditInfrastructureFailures.push(`${command} failed${output ? `:\n${output}` : ""}`);
+      return "";
+    }
     record(`${command} failed${output ? `:\n${output}` : ""}`);
     return "";
   }
@@ -67,18 +73,34 @@ validateDocsAndWorkflow();
 
 for (const command of policy.auditCommands) {
   run(command.command);
+  if (auditInfrastructureFailures.length > 0) break;
+}
+
+if (auditInfrastructureFailures.length > 0) {
+  writeCiGateResult("check-supply-chain", false, { failureKind: "audit-infrastructure" });
+  console.error("Supply chain audit infrastructure failure: npm audit endpoint is unreachable.");
+  for (const error of auditInfrastructureFailures) console.error(`- ${error}`);
+  process.exit(2);
 }
 
 const sbomOutput = run(policy.sbom.generationCommand);
 if (sbomOutput) validateSbom(sbomOutput);
 
 if (errors.length > 0) {
+  writeCiGateResult("check-supply-chain", false, { failureKind: "gate-failure" });
   console.error("Supply chain check failed:");
   for (const error of errors) console.error(`- ${error}`);
   process.exit(1);
 }
 
+writeCiGateResult("check-supply-chain", true, {});
 console.log(`Supply chain check passed with ${policy.sbom.format} SBOM and release/license gates.`);
+
+function isAuditInfrastructureFailure(output) {
+  return /(?:audit endpoint returned an error|\bHTTP(?:\/\S+)?\s+5\d\d\b|\b5\d\d Service Unavailable\b|\bE(?:CONNRESET|CONNREFUSED|TIMEDOUT|NETUNREACH)\b|socket hang up|network timeout|request timed out)/iu.test(
+    output,
+  );
+}
 
 function validatePackageMetadata() {
   for (const packagePath of policy.workspacePackagePaths) {
