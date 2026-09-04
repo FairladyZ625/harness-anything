@@ -690,6 +690,7 @@ function tabFromRow(
     attachmentId: null,
     lastSeq: existing?.lastSeq ?? afterSeq,
     output: existing?.output ?? "",
+    outputBytes: existing?.outputBytes ?? 0,
     notice: existing?.notice ?? null,
     cwd: row.cwd,
     requestedBackend: row.requestedBackend,

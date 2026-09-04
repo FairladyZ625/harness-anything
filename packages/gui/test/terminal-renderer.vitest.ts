@@ -24,6 +24,7 @@ const tab: TerminalTab = {
   attachmentId: "attach-a",
   lastSeq: 2,
   output: "ready\n",
+  outputBytes: 6,
   notice: null,
   cwd: ".",
   requestedBackend: "direct-pty",
@@ -52,6 +53,29 @@ describe("terminal renderer control", () => {
     expect(terminate).not.toHaveBeenCalled();
     expect(await requestTerminalTermination("repo-a", tab, true, { terminate })).toEqual({ state: "requested" });
     expect(terminate).toHaveBeenCalledWith("repo-a", "terminal-a", true);
+  });
+
+  it("keeps counting produced bytes after output hits the retention cap", () => {
+    const cap = 131_072,
+      frame = (seq: number, utf8: string) =>
+        ({
+          schema: "terminal-attach-event/v1",
+          sessionId: "terminal-a",
+          seq,
+          kind: "output",
+          utf8,
+          droppedThrough: null,
+          occurredAt: "2026-01-01T00:00:00.000Z",
+        }) as const;
+    // Fill to the cap, then keep going. `output` stops growing here; `outputBytes` must not,
+    // because the pane uses it to decide what still needs to reach xterm. When it stopped, the
+    // terminal froze permanently at the moment the cap was crossed.
+    const filled = reduceTerminalStream(tab, frame(3, "x".repeat(cap)));
+    expect(filled.output.length).toBe(cap);
+    const after = reduceTerminalStream(filled, frame(4, "later"));
+    expect(after.output.length).toBe(cap);
+    expect(after.outputBytes).toBe(filled.outputBytes + 5);
+    expect(after.output.endsWith("later")).toBe(true);
   });
 
   it("surfaces sequence gaps and daemon backpressure instead of presenting continuous output", () => {

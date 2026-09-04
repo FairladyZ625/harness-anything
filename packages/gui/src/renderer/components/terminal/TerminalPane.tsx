@@ -17,7 +17,8 @@ import { t } from "../../i18n/index.tsx";
  * 输入/输出接到 rebuild 的 daemon 直连 PTY 流)。
  *
  * - 输出:daemon attach 流经 terminal-model 聚成 output 字符串,本组件按
- *   增量写入 xterm;output 因滚动上限被截短(reset)时整屏重写。
+ *   增量写入 xterm。游标用单调的 outputBytes 而不是 output.length——output 到达
+ *   截短上限后长度恒定,用它做游标会让写入永久停止。
  * - 输入:onData → onInput(utf8),由 Dock 携带 clientSeq 串行发 daemon。
  * - 尺寸:ResizeObserver → FitAddon.fit → onFit(cols, rows),Dock 负责
  *   resize receipt;键盘输入焦点在面板自身,行式输入表单退役。
@@ -26,6 +27,7 @@ import { t } from "../../i18n/index.tsx";
  */
 export function TerminalPane({
   output,
+  outputBytes,
   interactive,
   onInput,
   onFit,
@@ -34,6 +36,7 @@ export function TerminalPane({
   onSelectionChange,
 }: {
   readonly output: string;
+  readonly outputBytes: number;
   readonly interactive: boolean;
   readonly onInput: (utf8: string) => void;
   readonly onFit: (cols: number, rows: number) => void;
@@ -178,19 +181,23 @@ export function TerminalPane({
     );
   };
 
-  // 增量写屏;output 缩短(模型截短)时 reset 后整屏重写。
+  // 增量写屏。游标是会话产出的总字节数,单调递增;`output` 被截短上限压住后长度不再增长,
+  // 拿它当游标会让两个分支同时为假,终端在越过上限的那一刻永久停止更新。
   useEffect(() => {
     const terminal = terminalRef.current;
     if (!terminal) return;
-    if (writtenRef.current > output.length) {
+    if (outputBytes < writtenRef.current) {
+      // 会话被重建(计数归零),而不是历史被截短。截短不该 reset:xterm 自己的 scrollback
+      // 已经持有那些行,重写只会清空用户的滚动历史。
       terminal.reset();
       writtenRef.current = 0;
     }
-    if (output.length > writtenRef.current) {
-      terminal.write(output.slice(writtenRef.current));
-      writtenRef.current = output.length;
-    }
-  }, [output]);
+    const pending = outputBytes - writtenRef.current;
+    if (pending <= 0) return;
+    // 单帧产出超过截短上限时只写得到保留的部分;此外 pending 恒 <= output.length。
+    terminal.write(pending >= output.length ? output : output.slice(-pending));
+    writtenRef.current = outputBytes;
+  }, [output, outputBytes]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface p-1">

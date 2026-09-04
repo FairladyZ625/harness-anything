@@ -169,6 +169,7 @@ function LivePane({
         <ErrorBoundary>
           <TerminalPane
             output={tab.output}
+            outputBytes={tab.outputBytes}
             interactive={interactive}
             openUrl={actions.openUrl}
             onOpenLink={(match, text) => actions.openLink(match, text, tab.cwd)}

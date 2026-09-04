@@ -6,6 +6,9 @@ export interface TerminalTab {
   readonly attachmentId: string | null;
   readonly lastSeq: number;
   readonly output: string;
+  // Monotonic count of every byte the session has ever produced. `output` is capped and therefore
+  // stops growing, so its length cannot be used to track what has been rendered.
+  readonly outputBytes: number;
   readonly notice: string | null;
   readonly cwd: string;
   readonly requestedBackend: "direct-pty" | "tmux";
@@ -47,7 +50,13 @@ export function reduceTerminalStream(tab: TerminalTab, frame: TerminalStreamFram
   if (frame.kind === "exit")
     return { ...tab, state: "exited", lastSeq: frame.seq, notice: skipped ?? "Process exited; this tab is read-only." };
   const output = `${tab.output}${frame.utf8}`;
-  return { ...tab, lastSeq: frame.seq, output: output.slice(-131_072), notice: skipped ?? tab.notice };
+  return {
+    ...tab,
+    lastSeq: frame.seq,
+    output: output.slice(-131_072),
+    outputBytes: tab.outputBytes + frame.utf8.length,
+    notice: skipped ?? tab.notice,
+  };
 }
 
 export function reconcileTerminalGeneration(
