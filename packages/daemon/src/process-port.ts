@@ -92,12 +92,14 @@ export function runProcessText(
   args: readonly string[],
   cwd?: string,
   env?: NodeJS.ProcessEnv,
+  timeoutMs?: number,
 ): string {
   return (
     /* @gate-identity check-sync-subprocess/sync-subprocess-009 */
     execFileSync(command, [...args], {
       cwd,
       ...(env ? { env } : {}),
+      ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
