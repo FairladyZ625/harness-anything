@@ -5,13 +5,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildEntityKindCatalog, validateEntityKindCatalog } from "../../kernel/src/index.ts";
-import { compiledArtifactKinds } from "../src/artifact-entity-action.ts";
+import { compiledArtifactKinds, relationDirectionRegistry } from "../src/artifact-entity-action.ts";
 import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 
-const ADR_KIND = "software/coding/architecture-decision-record@1";
+const ADR_KIND = "software/coding/architecture-decision-record@1",
+  RESEARCH_KIND = "software/coding/research@1";
 
 /**
  * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
@@ -57,6 +58,25 @@ test("the declared ADR kind is addressed by its full type identity and is import
   assert.equal(
     catalog.kinds.some(({ kind }) => kind === "architecture-decision-record"),
     false,
+  );
+});
+
+test("the declared research kind is importable and carries both governed relation directions", () => {
+  const catalog = buildEntityKindCatalog(compiledArtifactKinds()),
+    research = catalog.kinds.find(({ kind }) => kind === RESEARCH_KIND);
+  assert.ok(research, `catalog must carry ${RESEARCH_KIND}`);
+  assert.equal(research.importable, true);
+  assert.equal(research.declaration?.idPrefix, "RES");
+  assert.equal(research.declaration?.pathTemplate, "entities/research/{id}.json");
+  assert.deepEqual(research.declaration?.locatorKinds, ["repository-path"]);
+  assert.deepEqual(
+    relationDirectionRegistry()
+      .filter(({ sourceKind }) => sourceKind === RESEARCH_KIND)
+      .map(({ type, sourceKind, targetKind }) => ({ type, sourceKind, targetKind })),
+    [
+      { type: "relates", sourceKind: RESEARCH_KIND, targetKind: "decision" },
+      { type: "relates", sourceKind: RESEARCH_KIND, targetKind: "task" },
+    ],
   );
 });
 

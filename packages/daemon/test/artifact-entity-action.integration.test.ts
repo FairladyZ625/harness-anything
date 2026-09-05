@@ -1,17 +1,19 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
+import { deriveArtifactContentVersion, makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
 const kind = "software/coding/architecture-decision-record@1",
+  researchKind = "software/coding/research@1",
   binding = withRoleBinding(
     {
       actor: {
@@ -146,26 +148,6 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(updatedEvidence.preview.entityId, preview.entityId);
     assert.notEqual(updatedEvidence.preview.candidateContentVersion, preview.candidateContentVersion);
 
-    const eventsBeforeResolverFailure = observer.read().events.length,
-      unreadableLocator = "docs/unreadable-source";
-    mkdirSync(path.join(rootDir, unreadableLocator), { recursive: true });
-    const unavailable = await cell.run(
-      { kind: "entity-import", entityKind: kind, locator: unreadableLocator, expectedVersion: 0 },
-      binding,
-    );
-    assert.equal(unavailable.outcome, "op_rejected", JSON.stringify(unavailable));
-    assert.equal(unavailable.code, "source_resolution_failed");
-    assert.equal(observer.read().events.length, eventsBeforeResolverFailure, "resolver errors append no missing event");
-    const currentList = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
-      currentEntity = (
-        JSON.parse(String(currentList.evidence)) as {
-          entities: readonly { id: string; freshness: string; currentVersion: string | number | null }[];
-        }
-      ).entities[0];
-    assert.equal(currentEntity?.id, preview.entityId);
-    assert.equal(currentEntity?.freshness, "current");
-    assert.equal(currentEntity?.currentVersion, updatedEvidence.preview.candidateContentVersion);
-
     rmSync(absoluteSource);
     const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding);
     assert.equal(missing.outcome, "applied", JSON.stringify(missing));
@@ -249,6 +231,115 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
   }
 });
 
+test("Directory artifact import fingerprints files, replays unchanged content, and records missing", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-directory-artifact-import-")),
+    sourcePath = "research/2026-09-05-directory-artifacts",
+    absoluteSource = path.join(rootDir, sourcePath),
+    repoId = workspaceId("directory-artifact-import");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(absoluteSource, "notes"), { recursive: true });
+    const readmeContent = "# Directory artifacts\n\nResearch summary.\n",
+      evidenceContent = "<p>first observation</p>\n";
+    writeFileSync(path.join(absoluteSource, "README.md"), readmeContent);
+    writeFileSync(path.join(absoluteSource, "Z-evidence.html"), evidenceContent);
+    writeFileSync(path.join(absoluteSource, "notes", "a.md"), "supporting note\n");
+    writeFileSync(path.join(absoluteSource, ".DS_Store"), "ignored metadata\n");
+    git(rootDir, "add", sourcePath);
+    git(rootDir, "commit", "-qm", "add directory artifact source");
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "directory-artifact-import-center",
+      now: () => "2026-09-05T02:00:00.000Z",
+    });
+
+    const request = { kind: "entity-import", entityKind: researchKind, locator: sourcePath, expectedVersion: 0 },
+      first = await cell.run(request, binding),
+      replay = await cell.run(request, secondaryNodeBinding),
+      firstPreview = (
+        JSON.parse(String(first.evidence)) as {
+          preview: { entityId: string; candidateContentVersion: string };
+        }
+      ).preview;
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.equal(replay.outcome, "no_changes", JSON.stringify(replay));
+    assert.equal(replay.opId, first.opId);
+    assert.match(firstPreview.entityId, /^RES-[a-f0-9]{16}$/u);
+
+    const manifest = [
+      `${sha256(readmeContent)}  "README.md"`,
+      `${sha256(evidenceContent)}  "Z-evidence.html"`,
+      `${sha256("supporting note\n")}  "notes/a.md"`,
+    ].join("\n");
+    assert.equal(
+      firstPreview.candidateContentVersion,
+      deriveArtifactContentVersion({ kind: "content", content: manifest }),
+    );
+    const listed = await cell.run({ kind: "entity-list", entityKind: researchKind }, binding),
+      entity = (
+        JSON.parse(String(listed.evidence)) as {
+          entities: readonly {
+            id: string;
+            value: { title: string };
+            currentVersion: string | number | null;
+          }[];
+        }
+      ).entities[0];
+    assert.equal(entity?.value.title, "Directory artifacts");
+    assert.equal(entity?.currentVersion, firstPreview.candidateContentVersion);
+
+    writeFileSync(path.join(absoluteSource, ".DS_Store"), "changed ignored metadata\n");
+    const systemFileOnly = await cell.run(request, binding);
+    assert.equal(systemFileOnly.outcome, "no_changes", JSON.stringify(systemFileOnly));
+    assert.equal(systemFileOnly.opId, first.opId);
+
+    writeFileSync(path.join(absoluteSource, "Z-evidence.html"), "<p>second observation</p>\n");
+    const updated = await cell.run({ ...request, expectedVersion: first.revision }, binding),
+      updatedPreview = (
+        JSON.parse(String(updated.evidence)) as {
+          preview: { candidateContentVersion: string };
+        }
+      ).preview;
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    assert.notEqual(updatedPreview.candidateContentVersion, firstPreview.candidateContentVersion);
+
+    const fallbackPath = "research/no-readme-package",
+      fallbackSource = path.join(rootDir, fallbackPath);
+    mkdirSync(fallbackSource, { recursive: true });
+    writeFileSync(path.join(fallbackSource, "notes.md"), "No heading.\n");
+    const fallback = await cell.run(
+        { kind: "entity-import", entityKind: researchKind, locator: fallbackPath, expectedVersion: 0 },
+        binding,
+      ),
+      fallbackList = await cell.run({ kind: "entity-list", entityKind: researchKind }, binding),
+      fallbackEntity = (
+        JSON.parse(String(fallbackList.evidence)) as {
+          entities: readonly { value: { title: string; locator: { value: string } } }[];
+        }
+      ).entities.find(({ value }) => value.locator.value === fallbackPath);
+    assert.equal(fallback.outcome, "applied", JSON.stringify(fallback));
+    assert.equal(fallbackEntity?.value.title, "no-readme-package");
+
+    rmSync(absoluteSource, { recursive: true });
+    const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding),
+      missingReceipt = await cell.run({ kind: "receipt-show", opId: missing.opId }, binding);
+    assert.equal(missing.outcome, "applied", JSON.stringify(missing));
+    assert.equal(
+      (JSON.parse(String(missingReceipt.evidence)) as { eventType: string }).eventType,
+      "entity_target_missing",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
 }

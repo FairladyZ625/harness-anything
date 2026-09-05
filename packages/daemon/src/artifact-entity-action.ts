@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   ArtifactEntityServiceError,
@@ -310,6 +311,20 @@ async function resolveArtifactSource(input: {
         reason: "ENOENT",
         resolver: `repository:${input.repositoryId}`,
       };
+    if (statSync(target).isDirectory()) {
+      const readme = path.join(target, "README.md"),
+        content = directoryContentManifest(target);
+      return {
+        status: "observed",
+        source,
+        witness: { kind: "content", content },
+        title:
+          existsSync(readme) && statSync(readme).isFile()
+            ? titleFromContent(readFileSync(readme), relative)
+            : path.basename(relative),
+        resolver: `repository:${input.repositoryId}`,
+      };
+    }
     const content = readFileSync(target);
     return {
       status: "observed",
@@ -338,6 +353,29 @@ async function resolveArtifactSource(input: {
     "source_resolution_failed",
     `No external-key resolver is installed for ${input.contract.typeIdentity}.`,
   );
+}
+
+const SYSTEM_DIRECTORY_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini"]);
+
+function directoryContentManifest(root: string): string {
+  const files: Array<{ readonly path: string; readonly sha256: string }> = [];
+  function visit(directory: string): void {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (SYSTEM_DIRECTORY_ENTRIES.has(entry.name) || entry.name.startsWith("._")) continue;
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else if (entry.isFile()) {
+        const relative = path.relative(root, target).split(path.sep).join("/");
+        files.push({
+          path: relative,
+          sha256: createHash("sha256").update(readFileSync(target)).digest("hex"),
+        });
+      } else throw new Error(`Directory artifact entry ${target} is neither a file nor a directory.`);
+    }
+  }
+  visit(root);
+  files.sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));
+  return files.map(({ path: relative, sha256 }) => `${sha256}  ${JSON.stringify(relative)}`).join("\n");
 }
 
 function readCurrentArtifact(
