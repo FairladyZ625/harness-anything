@@ -1,11 +1,11 @@
 import { validateActorIdentity } from "./actor-identity.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import {
-  artifactEntityActionCatalog,
   getEntityKindContract,
   type EntityActionContract,
   type EntityActionInputField,
 } from "./entity-kind-registry.ts";
+import { artifactEntityActionCatalog } from "./artifact-entity-actions.ts";
 import { isEntityActionUnmetCriterion, type EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 

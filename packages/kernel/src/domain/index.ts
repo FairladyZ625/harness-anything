@@ -167,7 +167,6 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
-  artifactEntityImportActionInput,
   getExecutableEntityAction,
   getEntityKindContract,
   getTaskActionForTransition,
@@ -306,9 +305,12 @@ export type {
   SquadDeclarationV1,
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
+export { artifactEntityActionCatalog, artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
 
 export {
   compileEntityContentObserved,
+  compileEntityArchived,
+  compileEntityUpdated,
   compileEntityTargetMissing,
   compileEntityUpsert,
   contractForDeclarationEvent,
@@ -318,6 +320,8 @@ export {
 } from "./entity-event.ts";
 export type {
   EntityContentObservedBundle,
+  EntityArchivedBundle,
+  EntityUpdatedBundle,
   EntityEventV1,
   EntityTargetMissingBundle,
   EntityUpsertBundle,

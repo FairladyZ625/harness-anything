@@ -13,6 +13,7 @@ export interface GovernedEntityRow {
   readonly title: string | null;
   readonly locator: { readonly kind: string; readonly value: string } | null;
   readonly revision: number;
+  readonly archived: boolean;
 }
 
 /** 没有标题就显示 entityId——不编造一个好看的名字。 */

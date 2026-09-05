@@ -188,7 +188,9 @@ export function applyEvent(
       event.workspaceRevision,
       `event:${event.opId}`,
       "current",
-      event.type === "entity_content_observed" ? event.payload.observedContentVersion : event.workspaceRevision,
+      event.type === "entity_content_observed" || event.type === "entity_updated"
+        ? event.payload.observedContentVersion
+        : event.workspaceRevision,
     );
     return;
   }

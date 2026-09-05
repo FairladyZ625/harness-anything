@@ -27,6 +27,7 @@ export interface EntityRowV1 {
   readonly title: string | null;
   readonly locator: { readonly kind: string; readonly value: string } | null;
   readonly revision: number;
+  readonly archived: boolean;
 }
 
 export interface EntityRowListV1 {
@@ -59,6 +60,7 @@ export function readDeclaredEntityRows(input: {
       title: instance.name,
       locator: { kind: "entity-ref", value: `provider/${instance.instanceId}` },
       revision: 0,
+      archived: false,
     });
   }
   return { schema: ENTITY_ROW_LIST_SCHEMA, ok: true, rows };
@@ -66,7 +68,12 @@ export function readDeclaredEntityRows(input: {
 
 function entityRow(
   kind: string,
-  row: { readonly id: string; readonly workspaceRevision: number; readonly value: unknown },
+  row: {
+    readonly id: string;
+    readonly workspaceRevision: number;
+    readonly freshness: string;
+    readonly value: unknown;
+  },
 ): EntityRowV1 {
   const descriptor = isJsonObject(row.value) ? row.value : {};
   const locator = descriptor.locator;
@@ -80,6 +87,7 @@ function entityRow(
         ? { kind: locator.kind, value: locator.value }
         : null,
     revision: row.workspaceRevision,
+    archived: row.freshness === "orphaned",
   };
 }
 
@@ -112,6 +120,7 @@ function validateRow(value: unknown): readonly string[] {
     errors.push("locator must carry kind and value");
   if (!Number.isSafeInteger(value.revision) || Number(value.revision) < 0)
     errors.push("revision must be a non-negative integer");
+  if (typeof value.archived !== "boolean") errors.push("archived must be a boolean");
   return errors;
 }
 

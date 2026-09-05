@@ -9,13 +9,13 @@ import { baseEntityTypeContract, entityTypeContracts, type EntityTypeContract } 
 import { artifactEntityIdPattern } from "./entity-ref.ts";
 import { artifactDescriptorSchema, deepFreeze } from "./artifact-entity.ts";
 import {
-  artifactEntityActionCatalog,
   entityKindContracts,
   genericAuthoring,
   genericEntityStore,
   noSdkExposure,
   type EntityKindContract,
 } from "./entity-kind-registry.ts";
+import { artifactEntityActionCatalog } from "./artifact-entity-actions.ts";
 import {
   compileGovernedRelationDirections,
   type GovernedRelationCompilationAuthority,

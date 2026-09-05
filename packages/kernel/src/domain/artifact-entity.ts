@@ -246,7 +246,7 @@ export function artifactEntityContractFromSnapshot(
     id: identity,
     residency: { authored: "ledger" as const },
     relationEndpoint: { eligible: true as const },
-    baseActions: ["pin", "unpin", "relate", "unrelate", "archive", "explain"],
+    baseActions: ["pin", "unpin", "relate", "unrelate", "update", "archive", "explain"],
     schema: artifactDescriptorSchema(
       {
         descriptorSchemaRef: decoded.descriptorSchemaRef,

@@ -10,7 +10,15 @@ export type EntityDisposition = PackageDisposition;
 export type EntityResidency = "ledger" | "runtime-local" | "projection";
 export type EntityResidencyFacets = Readonly<Record<string, EntityResidency>>;
 
-export const baseEntityActionIds = Object.freeze(["pin", "unpin", "relate", "unrelate", "archive", "explain"] as const);
+export const baseEntityActionIds = Object.freeze([
+  "pin",
+  "unpin",
+  "relate",
+  "unrelate",
+  "update",
+  "archive",
+  "explain",
+] as const);
 export type BaseEntityActionId = (typeof baseEntityActionIds)[number];
 
 export interface RelationEndpointEligibility {

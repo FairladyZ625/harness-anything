@@ -21,6 +21,31 @@ export const entityImportGuiActions = Object.freeze([
     "/api/entities/import",
     "repo-write",
   ),
+  guiAction(
+    "entity.update",
+    "repo.entity.update",
+    "entity-update",
+    shape({
+      entityKind: "string",
+      entityId: "string",
+      expectedVersion: "number",
+      title: "string?",
+      locator: "string?",
+      contentVersion: "string?",
+    }),
+    "updateEntity",
+    "/api/entities/update",
+    "repo-write",
+  ),
+  guiAction(
+    "entity.archive",
+    "repo.entity.archive",
+    "entity-archive",
+    shape({ entityKind: "string", entityId: "string", expectedVersion: "number", reason: "string" }),
+    "archiveEntity",
+    "/api/entities/archive",
+    "repo-write",
+  ),
 ] as const);
 
 /** Agent/Squad 声明文档的写入面;两者共用 generic entity store 的同一条写路。 */

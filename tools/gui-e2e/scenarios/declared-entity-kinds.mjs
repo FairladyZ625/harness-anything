@@ -80,7 +80,21 @@ export default {
       await markdown.waitFor();
       assert.match(await markdown.innerText(), /声明实体探针/u);
 
-      // 6. 第二种声明 kind:external-issue(url locator)不改 GUI 就出现在同一目录里。
+      // 6. 同一行完成 descriptor update → archive。写后列表由失效查询重新读取;
+      //    archive 默认隐藏,打开「显示已归档」后以灰显行保留审计可见性。
+      await list.getByRole("button", { name: "编辑" }).click();
+      await list.getByLabel("title").fill("ADR-0001 · 已更新");
+      await list.getByLabel("repository-path locator").fill(LOCATOR);
+      await list.getByLabel("content version").fill("revision:gui-e2e-2");
+      await list.getByRole("button", { name: "保存" }).click();
+      await list.getByText("ADR-0001 · 已更新").waitFor();
+      await list.getByRole("button", { name: "归档" }).click();
+      await list.getByLabel("archive reason").fill("E2E lifecycle complete");
+      await list.getByRole("button", { name: "确认归档" }).click();
+      await page.getByLabel("显示已归档").check();
+      await list.getByText("ADR-0001 · 已更新").waitFor();
+
+      // 7. 第二种声明 kind:external-issue(url locator)不改 GUI 就出现在同一目录里。
       await page
         .getByRole("button", { name: /返回上一级|Back to previous/u })
         .first()
@@ -93,7 +107,7 @@ export default {
       await page.getByTestId("entity-declaration-facets").waitFor();
       await page.getByTestId("governed-entity-empty").waitFor();
 
-      // 7. url locator 的新建:表单出现 locator 类型选择(声明给了 url/external-key),
+      // 8. url locator 的新建:表单出现 locator 类型选择(声明给了 url/external-key),
       //    locator 字符串按 http(s) 前缀推断为 url kind,daemon 真实 GET 一次性 HTTP 服务。
       await page.getByTestId("governed-entity-new").click();
       await page.getByTestId("new-governed-entity-form").waitFor();
@@ -106,7 +120,7 @@ export default {
       const issueRowText = await issueRows.first().innerText();
       assert.match(issueRowText, /issues\/2224/u, "the external-issue row must show its url locator");
 
-      // 8. 领地筛选按 kind 生效:两个声明 kind 的类型 chip 都由读面派生,标签取声明显示名;
+      // 9. 领地筛选按 kind 生效:两个声明 kind 的类型 chip 都由读面派生,标签取声明显示名;
       //    图节点层:每种声明 kind 一块领地,chip 的 navRef 是 <kind>/<entityId>。
       await page
         .getByRole("button", { name: /关系图|Relation Graph/u })

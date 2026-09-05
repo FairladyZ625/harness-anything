@@ -32,6 +32,22 @@ type LocatorBridge = {
     readonly expectedVersion: number;
     readonly title?: string;
   }) => Promise<unknown>;
+  readonly updateEntity: (payload: {
+    readonly repoId: string;
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly expectedVersion: number;
+    readonly title?: string;
+    readonly locator?: string;
+    readonly contentVersion?: string;
+  }) => Promise<unknown>;
+  readonly archiveEntity: (payload: {
+    readonly repoId: string;
+    readonly entityKind: string;
+    readonly entityId: string;
+    readonly expectedVersion: number;
+    readonly reason: string;
+  }) => Promise<unknown>;
 };
 
 const bridge = (): Partial<LocatorBridge> => (window.harness as unknown as Partial<LocatorBridge> | undefined) ?? {};
@@ -85,4 +101,34 @@ export async function importEntity(input: EntityImportInput): Promise<GuiActionR
   if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
     throw new Error(rendererErrorHint(value, "Entity import bridge returned an invalid result."));
   return value as unknown as GuiActionResult;
+}
+
+async function mutationResult(channel: ((payload: never) => Promise<unknown>) | undefined, payload: object) {
+  if (!channel) throw new Error("Entity mutation bridge is unavailable.");
+  const value = await channel(payload as never);
+  if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
+    throw new Error(rendererErrorHint(value, "Entity mutation bridge returned an invalid result."));
+  return value as unknown as GuiActionResult;
+}
+
+export function updateEntity(input: {
+  readonly repoId: string;
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly expectedVersion: number;
+  readonly title?: string;
+  readonly locator?: string;
+  readonly contentVersion?: string;
+}): Promise<GuiActionResult> {
+  return mutationResult(bridge().updateEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+}
+
+export function archiveEntity(input: {
+  readonly repoId: string;
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly expectedVersion: number;
+  readonly reason: string;
+}): Promise<GuiActionResult> {
+  return mutationResult(bridge().archiveEntity as ((payload: never) => Promise<unknown>) | undefined, input);
 }

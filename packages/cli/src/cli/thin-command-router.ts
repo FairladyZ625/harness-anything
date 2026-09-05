@@ -102,6 +102,14 @@ export function parseRouted(
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") {
     if (route.id === "entity-import") return parseEntityImportRouted(route, args, rootDir, repoId, json, inputs);
+    if (route.id === "entity-update" || route.id === "entity-archive") {
+      const entityKind = args[2],
+        projected = parseProjected(route.id, args.slice(3), rootDir, repoId, json, inputs, {}, {}, route.method);
+      if (!nonEmpty(entityKind))
+        return rejected("missing_field", `Use ha entity ${route.id.slice("entity-".length)} <kind>.`, json);
+      if (!projected.ok) return projected;
+      return accepted(rootDir, repoId, json, { ...projected.command.action, entityKind });
+    }
     const entityKind = args[2],
       f = readFlags(route.id, args.slice(3), inputs);
     if (!nonEmpty(entityKind))

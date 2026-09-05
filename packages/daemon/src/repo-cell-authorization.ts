@@ -140,6 +140,8 @@ export function authorizeDurableRepoCellAction(
     case "doc-submit":
       return authorizeRepoCellAction(input);
     case "entity-import":
+    case "entity-update":
+    case "entity-archive":
       return authorizeRepoCellAction(input);
     case "entity-migrate-squads":
       return authorizeRepoCellAction(input);

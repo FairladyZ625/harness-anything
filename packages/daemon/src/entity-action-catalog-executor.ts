@@ -42,7 +42,7 @@ import {
   matchingRuntimeSessionReplayBundle,
   type RuntimeSessionBundle,
 } from "./entity-action-runtime-session.ts";
-import { executeArtifactEntityImport } from "./artifact-entity-action.ts";
+import { executeArtifactEntityImport, executeArtifactEntityMutation } from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -125,6 +125,20 @@ export function makeEntityActionCatalogExecutor(input: {
         now: input.now,
         authorizationDecision,
       }).then((result) => deriveActionResult(result.contract, result.action, result.receipt));
+    }
+    if (action.kind === "entity-update" || action.kind === "entity-archive") {
+      const authorizationDecision = decisionAuthorization(action, binding, opId, input),
+        result = executeArtifactEntityMutation({
+          rootDir: input.rootDir ?? process.cwd(),
+          repositoryId: input.repositoryId ?? "repository",
+          action,
+          binding,
+          store: input.store,
+          projection: input.projection,
+          now: input.now,
+          authorizationDecision,
+        });
+      return deriveActionResult(result.contract, result.action, result.receipt);
     }
     const contract = executableAction(action.kind),
       prepare = runtimes.prepare?.[contract.target.kind],

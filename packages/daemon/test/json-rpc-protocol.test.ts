@@ -316,6 +316,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }],
     ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }],
     ["repo.entity.import", { entityKind: "software/coding/architecture-decision-record@1", locator: "harness/adr/ADR-0001-example.md", expectedVersion: 0, title: "Example ADR" }],
+    ["repo.entity.update", { entityKind: "software/coding/architecture-decision-record@1", entityId: "ADR-abc", expectedVersion: 7, title: "Updated", locator: "harness/adr/ADR-0002.md", contentVersion: "git:abc" }],
+    ["repo.entity.archive", { entityKind: "software/coding/architecture-decision-record@1", entityId: "ADR-abc", expectedVersion: 8, reason: "Superseded" }],
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.settings.update", { defaultPreset: "strict-task", locale: "zh-CN", idempotencyKey: "settings-once" }],
     ["repo.gui.catalog.reread", {}],
