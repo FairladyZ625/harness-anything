@@ -15,6 +15,7 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
@@ -438,7 +439,11 @@ export function childProcessErrorCode(error: unknown): string {
 
 export function launchNative(
   input: PreparedRuntimeLaunch,
-  persistence: { readonly rootDir: string; readonly dispatchId: string },
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
+  },
 ): RuntimeProcess {
   const command = nativeCommand(input);
   const workerHost = import.meta.url.endsWith(".js") ? "./runtime-worker-host.js" : "./runtime-worker-host.ts";
@@ -465,12 +470,38 @@ export function launchNative(
       cwd: input.cwd,
       env: input.env,
       prompt: input.prompt,
+      ...(persistence.callbackRelay
+        ? {
+            callbackRelay: {
+              endpoint: persistence.callbackRelay.endpoint,
+              path: persistence.callbackRelay.path,
+            },
+          }
+        : {}),
       windowsVerbatimArguments:
         process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
     }),
   );
   child.unref();
-  return observed;
+  if (!persistence.callbackRelay) return observed;
+  const cleanupRelay = (): void => removeRuntimeCallbackRelay(persistence.rootDir, persistence.dispatchId);
+  return {
+    ...observed,
+    terminate: () => {
+      observed.terminate();
+      cleanupRelay();
+    },
+    terminateTree: async () => {
+      try {
+        await observed.terminateTree?.();
+      } finally {
+        cleanupRelay();
+      }
+    },
+    release: () => {
+      observed.release?.();
+    },
+  };
 }
 
 export function adoptNativeProcess(

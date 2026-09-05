@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { DaemonRegistryRepo } from "../../../kernel/src/index.ts";
@@ -58,8 +58,13 @@ export function resolveLocalDaemonEndpoint(input: {
   const endpoint = endpointIdentity(injected);
   // An enforced runtime changes TMPDIR, so a matching POSIX socket may live in a different
   // directory. Its basename still carries the hash of the sealed (userRoot, daemonId) pair.
-  if (process.platform !== "win32" ? path.basename(endpoint) === path.basename(expected) : endpoint === expected)
-    return endpoint;
+  const accepted =
+    env.HARNESS_DAEMON_RELAY === "1"
+      ? input.canonicalRoot !== undefined && isWorkspaceRelayEndpoint(endpoint, input.canonicalRoot)
+      : process.platform !== "win32"
+        ? path.basename(endpoint) === path.basename(expected)
+        : endpoint === expected;
+  if (accepted) return endpoint;
   throw Object.assign(new Error("daemon_target_conflict"), {
     code: "daemon_target_conflict",
     params: {
@@ -73,8 +78,33 @@ export function resolveLocalDaemonEndpoint(input: {
   });
 }
 export async function resolveLocalDaemonTarget(input: LocalDaemonTargetInput): Promise<LocalDaemonTarget> {
-  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(input.env ?? process.env));
+  const env = input.env ?? process.env,
+    relayTarget = resolveWorkspaceRelayTarget(input, env);
+  if (relayTarget) return relayTarget;
+  const userRoot = path.resolve(input.userRoot ?? daemonUserRoot(env));
   return resolveLocalDaemonTargetFromRepos(input, await readRegisteredRepos(userRoot));
+}
+
+function resolveWorkspaceRelayTarget(input: LocalDaemonTargetInput, env: NodeJS.ProcessEnv): LocalDaemonTarget | null {
+  if (env.HARNESS_DAEMON_RELAY !== "1") return null;
+  const repoId = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID,
+    endpoint = env.HARNESS_DAEMON_ENDPOINT?.trim();
+  if (!repoId || !endpoint)
+    throw Object.assign(new Error("daemon_relay_target_required"), {
+      code: "daemon_target_conflict",
+      params: { endpoint: endpoint ?? null, repoId: repoId ?? null },
+    });
+  const canonicalRoot = bindCanonicalRoot(env.HARNESS_CANONICAL_ROOT ?? input.rootDir),
+    userRoot = path.join(canonicalRoot, ".harness", "relay-client"),
+    daemonId = "relay",
+    socketPath = resolveLocalDaemonEndpoint({
+      userRoot,
+      daemonId,
+      env,
+      repoId,
+      canonicalRoot,
+    });
+  return { repoId: workspaceId(repoId), canonicalRoot, userRoot, daemonId, socketPath };
 }
 export function resolveLocalDaemonTargetFromRepos(
   input: LocalDaemonTargetInput,
@@ -147,4 +177,18 @@ function safeDaemonId(value: string): string {
 }
 function unixEndpoint(id: string): string {
   return path.join(os.tmpdir(), "harness-anything", `daemon-${process.getuid?.() ?? 0}-${safeDaemonId(id)}.sock`);
+}
+
+function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
+  const root = path.resolve(rootDir),
+    relative = path.relative(root, path.resolve(endpoint)),
+    parts = relative.split(path.sep);
+  if (parts.length !== 2 || parts[0] !== ".harness" || !/^r-[a-f0-9]{24}\.sock$/u.test(parts[1] ?? "")) return false;
+  let current = root;
+  for (const part of parts) {
+    current = path.join(current, part);
+    const info = lstatSync(current, { throwIfNoEntry: false });
+    if (info?.isSymbolicLink()) return false;
+  }
+  return true;
 }

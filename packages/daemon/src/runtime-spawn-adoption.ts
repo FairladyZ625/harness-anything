@@ -6,6 +6,7 @@ import {
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptNativeProcess, runtimePidIsAlive } from "./runtime-spawn-process.ts";
 import { durableOutputRecordCount, restoreDurableOutputRecords } from "./runtime-spawn-provider-stream.ts";
@@ -33,11 +34,17 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
       session.outcome !== null ||
       !metadata ||
       !ownedByRuntimeNode(metadata.binding, context.input.runtimeNodeId)
-    )
+    ) {
+      if (metadata && ownedByRuntimeNode(metadata.binding, context.input.runtimeNodeId))
+        removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
       continue;
+    }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
       stream = fullStream ?? readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
-    if (!stream?.process) continue;
+    if (!stream?.process) {
+      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      continue;
+    }
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
@@ -115,6 +122,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
           active.lossReason = reason;
           active.lossExitCode = current?.process?.exitCode ?? null;
           active.lossSignal = current?.process?.signal ?? null;
+          removeRuntimeCallbackRelay(context.input.rootDir, active.dispatchId);
           appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
             kind: "process_lost",
             occurredAt: context.input.now(),
