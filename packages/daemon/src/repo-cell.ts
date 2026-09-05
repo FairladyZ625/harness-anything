@@ -150,7 +150,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   configureLedgerMaintenance(context.rootDir);
   const sqliteShadow = openSqliteEventStore({ repoId: context.input.repoId, rootInput: context.rootDir });
   let store: ReturnType<typeof makeTaskEventStore>,
-    sqliteShadowUnseeded = false;
+    sqliteShadowGapWarned = false;
   store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,
@@ -208,15 +208,17 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   });
   const appendWalStore = store.append,
     shadowAccepted = (bundle: Parameters<typeof appendWalStore>[0]): void => {
-      if (sqliteShadowUnseeded) return;
       const events = [...(bundle.preceding ?? []).map((preceding) => preceding.event), bundle.event],
         nextRevision = sqliteShadow.revision() + 1;
       if (nextRevision !== events[0]!.workspaceRevision) {
-        sqliteShadowUnseeded = true;
-        console.warn(
-          `[sqlite-shadow] append skipped: generation 1 is unseeded at revision ${nextRevision - 1}; ` +
-            `next WAL bundle begins at revision ${events[0]!.workspaceRevision}`,
-        );
+        // Not seeded (or behind): skip this bundle only. Seeding is the explicit
+        // `ha migrate ledger --generation 1`; the next write after it follows again.
+        if (!sqliteShadowGapWarned)
+          console.warn(
+            `[sqlite-shadow] append skipped: generation 1 is unseeded at revision ${nextRevision - 1}; ` +
+              `next WAL bundle begins at revision ${events[0]!.workspaceRevision}`,
+          );
+        sqliteShadowGapWarned = true;
         return;
       }
       const fence = context.activeWriterEpochFenceDescriptor;
