@@ -168,6 +168,13 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     leader = record(receipt.leader) ? humanError(receipt.leader) : null;
   if (code === "squad_leader_failed" && leader && leader.code !== "unknown")
     return { code, hint: renderTemplate("failure", "squad-leader", leader) };
+  if (code === "write_rejected" && typeof receipt.rejectionExplanation === "string")
+    return {
+      code,
+      hint:
+        `${receipt.rejectionExplanation} ` +
+        `Inner receipt: ${typeof receipt.summary === "string" ? receipt.summary : "summary unavailable"}`,
+    };
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
   if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,

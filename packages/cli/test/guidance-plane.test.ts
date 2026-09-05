@@ -97,6 +97,27 @@ test("failure guidance renders structured missing-section, validator, and worksp
   );
 });
 
+test("write_rejected renders the inner receipt reason and summary without suggesting a retry", () => {
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: false,
+      command: "squad-run",
+      code: "write_rejected",
+      rejectionExplanation:
+        'The inner receipt outcome "running" is not a declared write outcome; inspect the producing action instead of retrying it.',
+      summary: "squad-run debug-squad: squad_0123456789abcdef01234567",
+      error: { code: "write_rejected" },
+    }),
+    {
+      stream: "stderr",
+      text:
+        'error code=write_rejected hint=The inner receipt outcome "running" is not a declared write outcome; ' +
+        "inspect the producing action instead of retrying it. Inner receipt: " +
+        "squad-run debug-squad: squad_0123456789abcdef01234567",
+    },
+  );
+});
+
 test("receipt registry preserves migrated family goldens", () => {
   assert.deepEqual(renderCliReceipt({ command: "runtime-batch", dispatches: [] }), {
     stream: "stdout",

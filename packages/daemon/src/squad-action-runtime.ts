@@ -132,11 +132,10 @@ function coordinatorReceipt(
   revision: number,
   effects: readonly string[],
 ): WriteReceipt {
-  const cut = cell.projection.list(),
-    outcome = raw.outcome === "running" ? "running" : "applied";
+  const cut = cell.projection.list();
   return {
     ...raw,
-    outcome,
+    outcome: "applied",
     opId,
     revision,
     evidence: JSON.stringify(raw),

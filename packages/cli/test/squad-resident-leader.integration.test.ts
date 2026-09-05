@@ -90,19 +90,29 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
     run(root, env, ["doc", "sync", "--submit", "--path", `${residentPackage}/task_plan.md`]);
     mkdirSync(path.join(root, "squadwork"));
 
-    const started = run(root, env, [
-      "squad",
-      "run",
-      "core-squad",
-      "--instance",
-      "resident-worker",
-      "--cwd",
-      "squadwork",
-      "--task",
-      "resident-task",
-    ]);
-    assert.equal(started.outcome, "running", JSON.stringify(started));
+    const runArgs = [
+        "squad",
+        "run",
+        "core-squad",
+        "--instance",
+        "resident-worker",
+        "--cwd",
+        "squadwork",
+        "--task",
+        "resident-task",
+      ] as const,
+      started = run(root, env, runArgs);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    assert.equal(started.status, "leader_running", JSON.stringify(started));
     assert.match(String(started.squadRunId), /^squad_[a-f0-9]{24}$/u);
+    const duplicate = runMaybe(root, env, runArgs);
+    assert.equal(duplicate.status, 1, JSON.stringify(duplicate));
+    assert.equal(duplicate.receipt.code, "squad_run_active", JSON.stringify(duplicate));
+    assert.ok(
+      (duplicate.receipt.nextActions as unknown[]).some((next) => String(next).includes(String(started.squadRunId))),
+      JSON.stringify(duplicate),
+    );
 
     const current = pollSquadStatus(root, env, String(started.squadRunId));
     assert.equal(current.status, "converged", JSON.stringify(current));
@@ -521,7 +531,9 @@ test(
         "--task",
         "squad-api-task",
       ]);
-      assert.equal(started.outcome, "running", JSON.stringify(started));
+      assert.equal(started.ok, true, JSON.stringify(started));
+      assert.equal(started.outcome, "applied", JSON.stringify(started));
+      assert.equal(started.status, "leader_running", JSON.stringify(started));
       const current = pollSquadStatus(root, env, String(started.squadRunId));
       assert.equal(current.status, "converged", JSON.stringify(current));
       const workers = current.workers as Array<Record<string, unknown>>;

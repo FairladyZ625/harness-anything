@@ -187,6 +187,7 @@ function evaluateCriterion(
     };
   if (
     criterionRef === "squad/task-mission-ready" ||
+    criterionRef === "squad/task-run-available" ||
     criterionRef === "squad/execution-lease-holder" ||
     criterionRef === "squad/execution-lease-reacquisition" ||
     criterionRef === "squad/leader-dispatch"

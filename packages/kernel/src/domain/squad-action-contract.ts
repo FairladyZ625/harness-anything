@@ -233,6 +233,7 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
         "squad_task_unavailable",
         "The requested Task has a mission that can be dispatched.",
       ),
+      criterion("squad/task-run-available", "squad_run_active", "The requested Task has no active Squad run."),
       criterion(
         "squad/execution-lease-holder",
         "lease_conflict",
