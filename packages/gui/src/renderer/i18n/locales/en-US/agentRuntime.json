@@ -229,6 +229,7 @@
   "agentRuntime.modelHint_claude": "Any claude-compatible model; for a third-party API use that provider's model name.",
   "agentRuntime.modelHint_codex": "Codex-family models only.",
   "agentRuntime.modelHint_agy": "Gemini-family models only.",
+  "agentRuntime.modelHint_zcode": "Open, free-form model names configured per instance (no catalog probe); defaults to zai.",
   "agentRuntime.baseUrl": "Base URL",
   "agentRuntime.baseUrlHint": "Point at a third-party endpoint here; leave empty for the official one.",
   "agentRuntime.apiKey": "API key",

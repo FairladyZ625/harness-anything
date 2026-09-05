@@ -229,6 +229,7 @@
   "agentRuntime.modelHint_claude": "任意 claude 兼容模型;第三方 API 填对方的模型名。",
   "agentRuntime.modelHint_codex": "只接受 codex 系模型。",
   "agentRuntime.modelHint_agy": "只接受 gemini 系模型。",
+  "agentRuntime.modelHint_zcode": "开放模型名,按实例自填(无目录探测);默认接 zai。",
   "agentRuntime.baseUrl": "Base URL",
   "agentRuntime.baseUrlHint": "第三方端点填这里;留空走官方端点。",
   "agentRuntime.apiKey": "API Key",
