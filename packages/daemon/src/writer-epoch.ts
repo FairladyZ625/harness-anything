@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError, type WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease {
   readonly repoId: string;
@@ -90,7 +90,11 @@ export function openPersistentWriterEpoch(options: {
       database.exec("COMMIT");
       return result;
     } catch (error) {
-      database.exec("ROLLBACK");
+      try {
+        database.exec("ROLLBACK");
+      } catch (rollbackError) {
+        consumeKnownError(rollbackError);
+      }
       throw error;
     }
   };

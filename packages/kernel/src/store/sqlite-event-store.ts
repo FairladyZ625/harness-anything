@@ -10,6 +10,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
 
@@ -116,7 +117,13 @@ export function openSqliteEventStore(options: {
       /* @gate-identity check-bypass-write-boundary/bypass-write-124 */ db.exec("COMMIT");
       return result;
     } catch (error) {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-123 */ db.exec("ROLLBACK");
+      // SQLite may already have rolled back on its own (I/O error, disk full); a failing ROLLBACK
+      // must not replace the original error, which is the only record of the root cause.
+      try {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-123 */ db.exec("ROLLBACK");
+      } catch (rollbackError) {
+        consumeKnownError(rollbackError);
+      }
       throw error;
     }
   };
