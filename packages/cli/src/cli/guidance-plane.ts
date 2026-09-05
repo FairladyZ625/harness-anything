@@ -102,6 +102,11 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["cli:daemon-connection-failure", (args) => `Local daemon request failed. Cause: ${textArg(args, "message")}`],
   ["cli:daemon-build-stale", () => "Restart the local daemon so its build matches this CLI, then retry the command."],
   [
+    "cli:daemon-restarting",
+    (args) =>
+      `daemon is restarting (old build -> new build); waited ${numberArg(args, "waitedSeconds")}s but it is not ready`,
+  ],
+  [
     "cli:daemon-target-conflict",
     (args) =>
       `Daemon target conflict: injected target endpoint=${JSON.stringify(textArg(args, "endpoint"))} ` +
@@ -164,6 +169,7 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
   if (code === "squad_leader_failed" && leader && leader.code !== "unknown")
     return { code, hint: renderTemplate("failure", "squad-leader", leader) };
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
+  if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
     declaredGuidance = renderReceiptGuidance(receipt),
