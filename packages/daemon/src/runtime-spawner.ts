@@ -36,6 +36,11 @@ import type { RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
+import {
+  isSealedRuntimeDaemonRoute,
+  removeRuntimeCallbackRelay,
+  runtimeCallbackRelaySpec,
+} from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
@@ -102,6 +107,7 @@ import {
   projectionWaitBudget,
   waitForTaskProjection,
 } from "./projection-readiness-wait.ts";
+import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
@@ -405,29 +411,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      selfContainedMission =
-        taskMission && daemonRoute
-          ? assembleTaskMission({
-              mission,
-              repoId: input.repoId,
-              canonicalRoot: input.rootDir,
-              workerRoot: cwd,
-              taskPackageRoot: taskMission.packageRoot,
-              daemonRoute,
-              runtimeActor,
-            })
-          : trustedSchedule && daemonRoute
-            ? assembleScheduledMission({
-                mission,
-                repoId: input.repoId,
-                canonicalRoot: input.rootDir,
-                workerRoot: cwd,
-                scheduleId: trustedSchedule.scheduleId,
-                claimFence: trustedSchedule.claimFence,
-                daemonRoute,
-                runtimeActor,
-              })
-            : mission,
       squad =
         squadId || targetAgentId
           ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId) ??
@@ -483,10 +466,43 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         instances: input.runtimeInstances?.() ?? [],
         sessions: runtimeSessions,
       }),
-      configuredPermissionMode =
-        input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId)?.permissionMode ??
-        undefined,
+      runtimeInstance = input.runtimeInstances?.().find((instance) => instance.instanceId === runtimeInstanceId),
+      configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
       effectivePermissionMode = permissionMode ?? configuredPermissionMode,
+      callbackRelay =
+        globalThis.process?.platform !== "win32" &&
+        daemonRoute &&
+        isSealedRuntimeDaemonRoute(daemonRoute) &&
+        runtimeInstance?.kindId === "codex" &&
+        runtimeInstance.isolationState === "enforced" &&
+        effectivePermissionMode === "workspace-write"
+          ? runtimeCallbackRelaySpec(input.rootDir, newDispatchId, daemonRoute)
+          : undefined,
+      missionDaemonRoute =
+        callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
+      selfContainedMission =
+        taskMission && daemonRoute
+          ? assembleTaskMission({
+              mission,
+              repoId: input.repoId,
+              canonicalRoot: input.rootDir,
+              workerRoot: cwd,
+              taskPackageRoot: taskMission.packageRoot,
+              daemonRoute: missionDaemonRoute!,
+              runtimeActor,
+            })
+          : trustedSchedule && daemonRoute
+            ? assembleScheduledMission({
+                mission,
+                repoId: input.repoId,
+                canonicalRoot: input.rootDir,
+                workerRoot: cwd,
+                scheduleId: trustedSchedule.scheduleId,
+                claimFence: trustedSchedule.claimFence,
+                daemonRoute: missionDaemonRoute!,
+                runtimeActor,
+              })
+            : mission,
       readOnlyDispatch = effectivePermissionMode === "read-only",
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
       prompt = agent ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills) : dispatchMission,
@@ -520,6 +536,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       );
     if (
       definition.instanceId !== runtimeInstanceId ||
+      (runtimeInstance !== undefined && runtimeInstance.kindId !== definition.kindId) ||
       definition.installationId !== installation.installationId ||
       definition.kindId !== installation.kindId ||
       prepared.executablePath !== installation.executablePath ||
@@ -579,7 +596,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 .join(path.delimiter),
               HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
               HARNESS_DAEMON_ID: daemonRoute.daemonId,
-              HARNESS_DAEMON_ENDPOINT: daemonRoute.endpoint,
+              HARNESS_DAEMON_ENDPOINT: callbackRelay?.path ?? daemonRoute.endpoint,
+              HARNESS_DAEMON_RELAY: callbackRelay ? "1" : undefined,
               HARNESS_DAEMON_REPO_ID: input.repoId,
               HARNESS_ACTOR: runtimeActor,
               ...(taskId ? { HARNESS_TASK_BOUND: "1" } : {}),
@@ -652,15 +670,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding: activeBinding,
       });
     };
+    const cleanupCallbackRelay = (): void => {
+      if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
+    };
     if (providerSessionId)
       try {
         openStream();
-        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        process = launch(workerLaunch, {
+          rootDir: input.rootDir,
+          dispatchId: newDispatchId,
+          ...(callbackRelay ? { callbackRelay } : {}),
+        });
         resumeObservation = observeResumeProcess(process, definition.kindId, providerSessionId);
         await resumeObservation.ready;
       } catch (error) {
         process?.terminate();
         process?.release?.();
+        cleanupCallbackRelay();
         removeDispatchStream(input.rootDir, newDispatchId);
         await settleFailedHandoff(error);
         if (runtimeErrorCode(error) === "runtime_resume_failed") throw error;
@@ -705,6 +731,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     } catch (error) {
       process?.terminate();
       process?.release?.();
+      cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       await settleFailedHandoff(error);
       throw error;
@@ -730,6 +757,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     } catch (error) {
       process?.terminate();
       process?.release?.();
+      cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       await settleFailedHandoff(error);
       throw error;
@@ -737,8 +765,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     if (!process)
       try {
         openStream();
-        process = launch(workerLaunch, { rootDir: input.rootDir, dispatchId: newDispatchId });
+        process = launch(workerLaunch, {
+          rootDir: input.rootDir,
+          dispatchId: newDispatchId,
+          ...(callbackRelay ? { callbackRelay } : {}),
+        });
       } catch (error) {
+        cleanupCallbackRelay();
         removeDispatchStream(input.rootDir, newDispatchId);
         await settleFailedHandoff(error);
         await publishRuntimeEvent(
@@ -1043,52 +1076,4 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }, remainingMs);
     timer.unref();
   }
-}
-
-function requiredRuntimeFast(value: unknown): boolean {
-  if (typeof value !== "boolean") throw runtimeSpawnError("invalid_runtime_fast", "Runtime fast must be a boolean.");
-  return value;
-}
-
-function initialFallbackAttempt(
-  agent: RuntimeAgent | null,
-  requestedInstance: string | undefined,
-  requestedModel: string | undefined,
-  providerSessionId: string | null | undefined,
-  idempotencyKey: string,
-  mission: string,
-): RuntimeFallbackAttempt | undefined {
-  const declared = agent?.fallback;
-  if (!declared || providerSessionId) return undefined;
-  const requestedIndex =
-    requestedInstance === undefined
-      ? 0
-      : declared.chain.findIndex(
-          (candidate) =>
-            candidate.instance === requestedInstance &&
-            (requestedModel === undefined || candidate.model === undefined || candidate.model === requestedModel),
-        );
-  if (requestedIndex < 0) return undefined;
-  const candidates = declared.chain.slice(requestedIndex),
-    digest = createHash("sha256").update(`${agent!.id}\0${idempotencyKey}`).digest("hex");
-  return {
-    attemptGroupId: `attempt_${digest.slice(0, 24)}`,
-    attemptIndex: 0,
-    rootIdempotencyKey: idempotencyKey,
-    originalMission: mission,
-    candidates,
-    backoff: declared.backoff,
-  };
-}
-
-function continuationMission(outcome: RuntimeAttemptOutcome, originalMission: string): string {
-  return [
-    "# Provider fallback continuation",
-    [
-      `上次 attempt 用 ${outcome.provider.instance}/${outcome.provider.model} 因 ${outcome.reason} 中断；`,
-      "worktree 现状保留在原 cwd；继续同一任务，不使用 provider resume。",
-    ].join(""),
-    "",
-    originalMission,
-  ].join("\n");
 }

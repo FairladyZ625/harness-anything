@@ -15,6 +15,7 @@ import {
   scrubProviderValue,
   type DispatchStreamWriter,
 } from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { ResumeProcessEvent, ResumeProcessObservation, RuntimeProcess } from "./runtime-spawn-types.ts";
@@ -438,7 +439,11 @@ export function childProcessErrorCode(error: unknown): string {
 
 export function launchNative(
   input: PreparedRuntimeLaunch,
-  persistence: { readonly rootDir: string; readonly dispatchId: string },
+  persistence: {
+    readonly rootDir: string;
+    readonly dispatchId: string;
+    readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
+  },
 ): RuntimeProcess {
   const command = nativeCommand(input);
   const workerHost = import.meta.url.endsWith(".js") ? "./runtime-worker-host.js" : "./runtime-worker-host.ts";
@@ -465,6 +470,14 @@ export function launchNative(
       cwd: input.cwd,
       env: input.env,
       prompt: input.prompt,
+      ...(persistence.callbackRelay
+        ? {
+            callbackRelay: {
+              endpoint: persistence.callbackRelay.endpoint,
+              path: persistence.callbackRelay.path,
+            },
+          }
+        : {}),
       windowsVerbatimArguments:
         process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
     }),
@@ -557,8 +570,17 @@ function observeDispatchProcess(
       exitListener = listener;
       if (exited) queueMicrotask(() => listener(exitCode));
     },
-    terminate: () => terminateRuntimePid(pid),
-    terminateTree: () => terminateRuntimeTree(rootDir, dispatchId, pid),
+    terminate: () => {
+      terminateRuntimePid(pid);
+      removeRuntimeCallbackRelay(rootDir, dispatchId);
+    },
+    terminateTree: async () => {
+      try {
+        await terminateRuntimeTree(rootDir, dispatchId, pid);
+      } finally {
+        removeRuntimeCallbackRelay(rootDir, dispatchId);
+      }
+    },
     release: () => {
       released = true;
       clearInterval(timer);

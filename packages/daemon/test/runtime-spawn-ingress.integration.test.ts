@@ -51,17 +51,25 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       ...definition,
       authMode: "subscription" as const,
     },
-    ingressInstallation = { ...installation, executablePath };
+    ingressInstallation = { ...installation, executablePath },
+    claudeInstallation = {
+      ...ingressInstallation,
+      installationId: "installation-claude",
+      kindId: "claude" as const,
+    };
   let launchedEnv: NodeJS.ProcessEnv | null = null,
     launchedPrompt = "",
+    launchedPersistence: { readonly callbackRelay?: { readonly endpoint: string; readonly path: string } } | null =
+      null,
     launchCount = 0;
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-ingress",
     userRoot,
-    runtimeDiscover: () => [ingressInstallation],
-    runtimeLaunch: (prepared) => {
+    runtimeDiscover: () => [ingressInstallation, claudeInstallation],
+    runtimeLaunch: (prepared, persistence) => {
       launchedEnv = prepared.env;
       launchedPrompt = prepared.prompt;
+      launchedPersistence = persistence;
       launchCount += 1;
       return {
         pid: 4310,
@@ -112,6 +120,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         installationId: ingressDefinition.installationId,
         providerId: ingressDefinition.providerId,
         models: [ingressDefinition.model],
+        permissionMode: "workspace-write",
+        isolationState: "enforced",
         codex: { reasoningEffort: ingressDefinition.reasoningEffort, fast: ingressDefinition.fast },
         authMode: ingressDefinition.authMode,
       },
@@ -139,7 +149,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
       assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress");
       assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId);
-      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
+      assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
+      assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
+      assert.equal(launchedPersistence?.callbackRelay?.endpoint, endpoint);
       assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u"));
       assert.ok(launchedPrompt.includes("Repository registration: enabled"));
       assert.ok(launchedPrompt.includes(`Canonical repository root: ${realpathSync(root)}`));
@@ -150,8 +164,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         ),
       );
       assert.match(launchedPrompt, new RegExp(`Runtime actor: agent:runtime-session:${receipt.runtimeSessionId}`, "u"));
-      assert.ok(launchedPrompt.includes(`Daemon user root: ${userRoot}`));
-      assert.ok(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"));
+      assert.equal(launchedPrompt.includes(userRoot), false);
+      assert.equal(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"), false);
       assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
       const bound = await eventuallyValue(
         async () =>
@@ -242,7 +256,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           "read-only",
           "--detach",
         ],
-        launchedEnv!,
+        {
+          ...launchedEnv,
+          HARNESS_DAEMON_ENDPOINT: endpoint,
+          HARNESS_DAEMON_RELAY: undefined,
+        },
       );
       assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
       const receipt = JSON.parse(result.stdout) as Record<string, unknown>;
@@ -256,6 +274,79 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         launchedPrompt,
         /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Mission\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
       );
+    });
+    await t.test("only enforced Codex workspace-write receives a callback relay", async () => {
+      const directEndpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
+        cases = [
+          {
+            id: "claude-direct-route",
+            kindId: "claude" as const,
+            installationId: claudeInstallation.installationId,
+            permissionMode: "workspace-write" as const,
+            isolationState: "enforced" as const,
+            provider: "anthropic",
+            extra: { claude: {} },
+          },
+          {
+            id: "codex-operator-route",
+            kindId: "codex" as const,
+            installationId: ingressInstallation.installationId,
+            permissionMode: "workspace-write" as const,
+            isolationState: "operator-environment" as const,
+            provider: "openai",
+            extra: { codex: {} },
+          },
+          {
+            id: "codex-read-only-route",
+            kindId: "codex" as const,
+            installationId: ingressInstallation.installationId,
+            permissionMode: "read-only" as const,
+            isolationState: "enforced" as const,
+            provider: "openai",
+            extra: { codex: {} },
+          },
+        ];
+      for (const [index, runtime] of cases.entries()) {
+        host.runtimeInstance(
+          "daemon.runtimeInstance.create",
+          {
+            instanceId: runtime.id,
+            name: runtime.id,
+            kindId: runtime.kindId,
+            installationId: runtime.installationId,
+            providerId: runtime.provider,
+            models: ["gpt-5.6-sol"],
+            defaultModel: "gpt-5.6-sol",
+            enabled: true,
+            permissionMode: runtime.permissionMode,
+            isolationState: runtime.isolationState,
+            authMode: "subscription",
+            ...runtime.extra,
+          },
+          auth,
+        );
+        const taskId = `task-runtime-direct-route-${String(index)}`;
+        await createReadyTask(taskId, `Direct route ${runtime.id}`);
+        assert.equal(
+          (await host.run(repoId, { kind: "task-start", taskId, executionId: `exec-${taskId}` }, auth)).outcome,
+          "applied",
+        );
+        const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: runtime.id,
+            cwd: { scope: "repo-root" },
+            prompt: `Direct route ${runtime.id}`,
+            taskId,
+            idempotencyKey: runtime.id,
+          },
+        });
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        assert.equal(launchedEnv?.HARNESS_DAEMON_ENDPOINT, directEndpoint);
+        assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, undefined);
+        assert.equal(launchedPersistence?.callbackRelay, undefined);
+        assert.ok(launchedPrompt.includes(`Daemon endpoint: ${directEndpoint}`));
+      }
     });
     await t.test("the first dispatch holds the task lease and a concurrent second dispatch is rejected", async () => {
       const taskId = "task-runtime-dispatcher-handoff",
@@ -325,7 +416,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         projection.close();
       }
     });
-    await t.test("a worker that changes its user root is rejected before it can reach the parent daemon", async () => {
+    await t.test("a worker cannot replace its relay with the private daemon endpoint", async () => {
       const scratchUserRoot = path.join(parent, "isolated-user");
       registerDaemonRepo({
         canonicalRoot: root,
@@ -338,6 +429,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         ...launchedEnv,
         HARNESS_DAEMON_USER_ROOT: scratchUserRoot,
         HARNESS_DAEMON_ID: "isolated",
+        HARNESS_DAEMON_ENDPOINT: endpoint,
       });
       assert.equal(result.status, 1, `${result.stderr}\n${result.stdout}`);
       const receipt = JSON.parse(result.stdout) as Record<string, unknown>;

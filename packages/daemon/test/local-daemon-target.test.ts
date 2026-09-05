@@ -178,6 +178,31 @@ test("local daemon target ignores an environment repo id from another registered
   }
 });
 
+test("local daemon relay rejects an unregistered environment target from another root", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-relay-target-")),
+    canonicalRoot = realpathSync.native(process.cwd()),
+    endpoint = path.join(canonicalRoot, ".harness", "r-000000000000000000000000.sock");
+  try {
+    assert.equal(existsSync(endpoint), false);
+    await assert.rejects(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: process.platform === "darwin" ? "/private/tmp" : tmpdir(),
+          userRoot,
+          env: {
+            HARNESS_CANONICAL_ROOT: canonicalRoot,
+            HARNESS_DAEMON_REPO_ID: "unregistered-a",
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_DAEMON_ENDPOINT: endpoint,
+          },
+        }),
+      { code: "workspace_not_registered" },
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("local daemon target keeps a matching injected repo id", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-target-"));
   const workspaceRoot = path.join(fixtureRoot, "workspace"),
@@ -319,6 +344,78 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
       env: { HARNESS_DAEMON_ENDPOINT: endpoint, TMPDIR: path.join(fixtureRoot, "isolated-tmp") },
     });
     assert.equal(target.socketPath, endpoint);
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("workspace relay resolves through an enabled registration matching the current root", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace"),
+    workerRoot = path.join(workspaceRoot, ".worktrees", "worker"),
+    endpoint = path.join(realpathSync.native(fixtureRoot), "workspace", ".harness", "r-0123456789abcdef01234567.sock");
+  try {
+    mkdirSync(workerRoot, { recursive: true });
+    const canonicalWorkspaceRoot = realpathSync.native(workspaceRoot);
+    mkdirSync(userRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      JSON.stringify(registry([repo("runtime-worker", canonicalWorkspaceRoot)])),
+    );
+    const target = await resolveLocalDaemonTarget({
+      rootDir: workerRoot,
+      userRoot,
+      env: {
+        HARNESS_DAEMON_RELAY: "1",
+        HARNESS_CANONICAL_ROOT: canonicalWorkspaceRoot,
+        HARNESS_DAEMON_REPO_ID: "runtime-worker",
+        HARNESS_DAEMON_ENDPOINT: endpoint,
+      },
+    });
+    assert.deepEqual(target, {
+      repoId: "runtime-worker",
+      canonicalRoot: canonicalWorkspaceRoot,
+      userRoot,
+      daemonId: "default",
+      socketPath: endpoint,
+    });
+  } finally {
+    rmSync(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test("workspace relay rejects a missing endpoint instead of deriving a fallback socket", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-relay-missing-")),
+    userRoot = path.join(fixtureRoot, "user"),
+    workspaceRoot = path.join(fixtureRoot, "workspace");
+  try {
+    mkdirSync(workspaceRoot);
+    mkdirSync(userRoot);
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      JSON.stringify(registry([repo("runtime-worker", realpathSync.native(workspaceRoot))])),
+    );
+    await assert.rejects(
+      () =>
+        resolveLocalDaemonTarget({
+          rootDir: workspaceRoot,
+          userRoot,
+          env: {
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: workspaceRoot,
+            HARNESS_DAEMON_REPO_ID: "runtime-worker",
+          },
+        }),
+      (error: unknown) => {
+        assert.equal((error as { readonly code?: string }).code, "daemon_target_conflict");
+        assert.deepEqual((error as { readonly params?: unknown }).params, {
+          endpoint: null,
+          repoId: "runtime-worker",
+        });
+        return true;
+      },
+    );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });
   }

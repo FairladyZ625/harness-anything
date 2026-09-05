@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { consumeKnownError } from "../../kernel/src/index.ts";
 import { appendRuntimeWorkerRecord, scrubProviderValue } from "./dispatch-stream.ts";
+import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
+import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 
 type RuntimeWorkerManifest = {
   readonly rootDir: string;
@@ -11,6 +13,7 @@ type RuntimeWorkerManifest = {
   readonly env: NodeJS.ProcessEnv;
   readonly prompt: string;
   readonly windowsVerbatimArguments: boolean;
+  readonly callbackRelay?: RuntimeCallbackRelay;
 };
 
 async function runRuntimeWorkerHost(): Promise<void> {
@@ -20,48 +23,72 @@ async function runRuntimeWorkerHost(): Promise<void> {
       occurredAt: new Date().toISOString(),
       ...value,
     });
-  const child = spawn(manifest.executablePath, [...manifest.args], {
-    cwd: manifest.cwd,
-    env: manifest.env,
-    stdio: ["pipe", "pipe", "pipe"],
-    windowsHide: true,
-    ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-  });
-  let outputBuffer = "";
+  const relay = manifest.callbackRelay
+    ? createRuntimeCallbackRelay({
+        rootDir: manifest.rootDir,
+        dispatchId: manifest.dispatchId,
+        route: {
+          userRoot: manifest.env.HARNESS_DAEMON_USER_ROOT ?? "",
+          daemonId: manifest.env.HARNESS_DAEMON_ID ?? "",
+          endpoint: manifest.callbackRelay.endpoint,
+        },
+        relayPath: manifest.callbackRelay.path,
+      })
+    : null;
+  let child: ReturnType<typeof spawn> | undefined;
   let settled = false;
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  const consumeOutput = (chunk: string, flush = false): void => {
-    outputBuffer += chunk;
-    const lines = outputBuffer.split(/\r?\n/u);
-    const trailing = lines.pop() ?? "";
-    outputBuffer = flush ? "" : trailing;
-    for (const line of lines) if (line.trim()) appendProviderLine(append, line);
-    if (flush && trailing.trim()) appendProviderLine(append, trailing);
-  };
-  child.stdout.on("data", (chunk: string) => consumeOutput(chunk));
-  child.stderr.on("data", (chunk: string) =>
-    append({
-      kind: "provider_stderr",
-      chunk: scrubProviderValue(chunk) as string,
-    }),
-  );
-  const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
-    if (settled) return;
-    settled = true;
-    consumeOutput("", true);
-    append({ kind: "process_exit", exitCode, signal });
-  };
-  child.once("error", (error) => {
-    append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
-    finish(null, null);
-  });
-  child.once("close", finish);
-  process.once("SIGTERM", () => {
-    if (!settled) child.kill("SIGTERM");
-  });
-  child.stdin.end(manifest.prompt);
-  await new Promise<void>((resolve) => child.once("close", () => resolve()));
+  try {
+    await relay?.start();
+    const {
+        HARNESS_DAEMON_USER_ROOT: _daemonUserRoot,
+        HARNESS_DAEMON_ID: _daemonId,
+        ...providerEnvironment
+      } = manifest.env,
+      providerEnv = relay ? { ...providerEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : manifest.env;
+    child = spawn(manifest.executablePath, [...manifest.args], {
+      cwd: manifest.cwd,
+      env: providerEnv,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+      ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+    });
+    let outputBuffer = "";
+    child.stdout!.setEncoding("utf8");
+    child.stderr!.setEncoding("utf8");
+    const consumeOutput = (chunk: string, flush = false): void => {
+      outputBuffer += chunk;
+      const lines = outputBuffer.split(/\r?\n/u);
+      const trailing = lines.pop() ?? "";
+      outputBuffer = flush ? "" : trailing;
+      for (const line of lines) if (line.trim()) appendProviderLine(append, line);
+      if (flush && trailing.trim()) appendProviderLine(append, trailing);
+    };
+    child.stdout!.on("data", (chunk: string) => consumeOutput(chunk));
+    child.stderr!.on("data", (chunk: string) =>
+      append({
+        kind: "provider_stderr",
+        chunk: scrubProviderValue(chunk) as string,
+      }),
+    );
+    const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return;
+      settled = true;
+      consumeOutput("", true);
+      append({ kind: "process_exit", exitCode, signal });
+    };
+    child.once("error", (error) => {
+      append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
+      finish(null, null);
+    });
+    child.once("close", finish);
+    process.once("SIGTERM", () => {
+      if (!settled) child?.kill("SIGTERM");
+    });
+    child.stdin!.end(manifest.prompt);
+    await new Promise<void>((resolve) => child?.once("close", () => resolve()));
+  } finally {
+    await relay?.stop();
+  }
 }
 
 function appendProviderLine(append: (value: Readonly<Record<string, unknown>>) => void, line: string): void {
@@ -90,7 +117,11 @@ function parseManifest(value: string): RuntimeWorkerManifest {
     typeof parsed.cwd !== "string" ||
     !isRuntimeWorkerRecord(parsed.env) ||
     typeof parsed.prompt !== "string" ||
-    typeof parsed.windowsVerbatimArguments !== "boolean"
+    typeof parsed.windowsVerbatimArguments !== "boolean" ||
+    (parsed.callbackRelay !== undefined &&
+      (!isRuntimeWorkerRecord(parsed.callbackRelay) ||
+        typeof parsed.callbackRelay.endpoint !== "string" ||
+        typeof parsed.callbackRelay.path !== "string"))
   )
     throw new Error("runtime worker manifest is invalid");
   return parsed as RuntimeWorkerManifest;

@@ -231,8 +231,9 @@ export function assembleTaskMission(input: {
     `Canonical repository root: ${input.canonicalRoot}`,
     `Worker repository root: ${input.workerRoot}`,
     `Task package root: ${input.taskPackageRoot}`,
-    `Daemon user root: ${input.daemonRoute.userRoot}`,
-    `Daemon id: ${input.daemonRoute.daemonId}`,
+    ...(input.daemonRoute.userRoot
+      ? [`Daemon user root: ${input.daemonRoute.userRoot}`, `Daemon id: ${input.daemonRoute.daemonId}`]
+      : []),
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
     [
@@ -264,8 +265,9 @@ export function assembleScheduledMission(input: {
     `Worker repository root: ${input.workerRoot}`,
     `Schedule id: ${input.scheduleId}`,
     `Schedule claim fence: ${input.claimFence}`,
-    `Daemon user root: ${input.daemonRoute.userRoot}`,
-    `Daemon id: ${input.daemonRoute.daemonId}`,
+    ...(input.daemonRoute.userRoot
+      ? [`Daemon user root: ${input.daemonRoute.userRoot}`, `Daemon id: ${input.daemonRoute.daemonId}`]
+      : []),
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
     "The daemon route, repository selection, runtime actor, and Schedule claim are sealed into this launch.",
