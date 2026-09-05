@@ -1,5 +1,4 @@
 export { consumeKnownError } from "./error-consumption.ts";
-export { migrateEventsToSqlite, openSqliteEventStore } from "./store/sqlite-event-store.ts";
 export * from "./domain/index.ts";
 export {
   compareRuntimeActivity,
@@ -297,6 +296,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   runEventShapeMigration,
+  migrateEventsToSqlite,
+  openSqliteEventStore,
   makeTaskProjectionReader,
   runWalMaterializationRequest,
 } from "./composition/index.ts";
