@@ -1,5 +1,5 @@
 import { deriveRelationId } from "./entity-relation.ts";
-import { parseEntityJsonSchema } from "./entity-json-schema.ts";
+import { parseEntityJsonSchema, type EntityJsonSchemaValidationOptions } from "./entity-json-schema.ts";
 import type { EntityKindContract } from "./entity-kind-registry.ts";
 
 export type EntityProjectionContract = Pick<
@@ -28,6 +28,9 @@ export interface InterpretedEntityRelation {
   readonly recordIndex: number;
 }
 
+/** Projection replay re-reads declarations the writer already accepted under the schema of their day. */
+const REPLAY_VALIDATION: EntityJsonSchemaValidationOptions = { allowUnknownFields: true };
+
 export interface InterpretedEntityProjection extends InterpretedEntityValue {
   readonly ownerId: string | null;
   readonly workspaceRevision: number;
@@ -46,8 +49,9 @@ export function interpretEntityValue(
   contract: Pick<EntityKindContract, "kind" | "schema" | "id">,
   value: unknown,
   label = `${contract.kind} declaration`,
+  options: EntityJsonSchemaValidationOptions = {},
 ): InterpretedEntityValue {
-  const parsed = parseEntityJsonSchema(contract.schema, value, label);
+  const parsed = parseEntityJsonSchema(contract.schema, value, label, options);
   if (!isEntityRecord(parsed)) throw new Error(`${label} must be an object`);
   const id = parsed[contract.id.field];
   if (typeof id !== "string") throw new Error(`${label} has no string identity`);
@@ -60,7 +64,12 @@ export function interpretEntityProjection(
   workspaceRevision: number,
   sourcePath: string,
 ): InterpretedEntityProjection | null {
-  return deriveEntityProjection(contract, interpretEntityValue(contract, value), workspaceRevision, sourcePath);
+  return deriveEntityProjection(
+    contract,
+    interpretEntityValue(contract, value, undefined, REPLAY_VALIDATION),
+    workspaceRevision,
+    sourcePath,
+  );
 }
 
 export function deriveEntityProjection(

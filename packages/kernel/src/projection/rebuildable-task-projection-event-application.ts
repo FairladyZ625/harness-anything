@@ -31,7 +31,7 @@ import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
-import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
+import { validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
@@ -160,7 +160,7 @@ export function applyEvent(
       throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
     }
     const contract = contractForDeclarationEvent(event),
-      entity = interpretEntityValue(contract, value),
+      entity = interpretEntityValue(contract, value, undefined, { allowUnknownFields: true }),
       contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
     if (contractErrors.length) throw new Error(contractErrors.join("; "));
     if (entity.id !== event.payload.entityId)
@@ -221,11 +221,12 @@ export function applyEvent(
       } catch {
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
-      if (
-        validateScheduleDefinitionV1(value).length > 0 ||
-        canonicalJson(value) !== canonicalJson(scheduleDefinition(event.payload.schedule))
-      )
-        throw new Error(`schedule definition blob ${claim.sha256} does not match the event definition facet`);
+      // Replay re-reads a declaration the writer already accepted under the schema of its day: hash and size
+      // prove integrity, and fields the current schema no longer declares are tolerated. Re-deriving the facet
+      // from the event and demanding byte equality was a second implementation of the same truth; it latched
+      // every repository whose history predates a schema change.
+      if (validateScheduleDefinitionV1(value, true).length > 0)
+        throw new Error(`schedule definition blob ${claim.sha256} is not a schedule definition`);
       const document: DocumentState = {
         path: claim.path as DocumentState["path"],
         blobSha256: claim.sha256,

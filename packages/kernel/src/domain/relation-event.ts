@@ -163,7 +163,9 @@ export function reduceRelationEntity(
     });
   }
   if (relation === null) throw new Error(`Relation ${id} has no facet payload`);
-  assertRelationEventRecord(relation, false, migrated?.kind === "relation" ? migrated.registry : undefined);
+  // The reducer replays facets the writer already accepted under the schema of their day (validateCurrentRelationEvent
+  // stays strict at accept time): fields since removed are ignored and targetObservedVersion may be absent.
+  assertRelationEventRecord(relation, true, migrated?.kind === "relation" ? migrated.registry : undefined);
   return Object.freeze({
     ...base,
     source: relation.source,

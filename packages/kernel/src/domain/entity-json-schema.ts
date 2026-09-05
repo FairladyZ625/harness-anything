@@ -62,18 +62,29 @@ export class EntitySchemaContractError extends Error {
   }
 }
 
+export interface EntityJsonSchemaValidationOptions {
+  /** Replay of already-accepted declarations: fields the current schema no longer declares are tolerated. */
+  readonly allowUnknownFields?: boolean;
+}
+
 export function validateEntityJsonSchema(
   schema: EntityDocumentJsonSchema,
   value: unknown,
   label = "entity declaration",
+  options: EntityJsonSchemaValidationOptions = {},
 ): readonly string[] {
   const errors: string[] = [];
-  validateNode(schema, value, label, errors);
+  validateNode(schema, value, label, errors, options.allowUnknownFields === true);
   return errors;
 }
 
-export function parseEntityJsonSchema<T>(schema: EntityDocumentJsonSchema<T>, value: unknown, label?: string): T {
-  const errors = validateEntityJsonSchema(schema, value, label);
+export function parseEntityJsonSchema<T>(
+  schema: EntityDocumentJsonSchema<T>,
+  value: unknown,
+  label?: string,
+  options: EntityJsonSchemaValidationOptions = {},
+): T {
+  const errors = validateEntityJsonSchema(schema, value, label, options);
   if (errors.length) throw new EntitySchemaContractError(errors.join("; "));
   return value as T;
 }
@@ -95,15 +106,27 @@ export function explainEntityJsonSchema(schema: EntityDocumentJsonSchema): reado
   }));
 }
 
-function validateNode(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
+function validateNode(
+  schema: EntityJsonSchemaNode,
+  value: unknown,
+  path: string,
+  errors: string[],
+  allowUnknown = false,
+): void {
   if (value === null && schema["x-nullable"] === true) return;
   const errorStart = errors.length;
-  validateNodeValue(schema, value, path, errors);
+  validateNodeValue(schema, value, path, errors, allowUnknown);
   if (errors.length > errorStart && schema["x-error"] !== undefined)
     errors.splice(errorStart, errors.length - errorStart, `${path} ${schema["x-error"]}`);
 }
 
-function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
+function validateNodeValue(
+  schema: EntityJsonSchemaNode,
+  value: unknown,
+  path: string,
+  errors: string[],
+  allowUnknown = false,
+): void {
   if (Array.isArray(schema.type)) {
     const valid = schema.type.some((type) =>
       type === "null"
@@ -166,7 +189,7 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
     }
     if (schema.minItems !== undefined && value.length < schema.minItems)
       errors.push(`${path} must contain at least ${schema.minItems} item(s).`);
-    value.forEach((item, index) => validateNode(schema.items, item, `${path}[${index}]`, errors));
+    value.forEach((item, index) => validateNode(schema.items, item, `${path}[${index}]`, errors, allowUnknown));
     if (schema.uniqueItems && new Set(value.map(stableJson)).size !== value.length)
       errors.push(`${path} entries must be unique.`);
     const uniqueBy = schema["x-unique-by"];
@@ -184,13 +207,13 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
   for (const field of schema.required)
     if (!Object.hasOwn(value, field) || value[field] === undefined)
       errors.push(`${path} is missing required field ${JSON.stringify(field)}.`);
-  if (!schema.additionalProperties)
+  if (!schema.additionalProperties && !allowUnknown)
     for (const field of Object.keys(value))
       if (!Object.hasOwn(schema.properties, field))
         errors.push(`${path} field ${JSON.stringify(field)} is unknown; remove it.`);
   for (const [field, fieldSchema] of Object.entries(schema.properties))
     if (Object.hasOwn(value, field) && value[field] !== undefined)
-      validateNode(fieldSchema, value[field], `${path} field ${JSON.stringify(field)}`, errors);
+      validateNode(fieldSchema, value[field], `${path} field ${JSON.stringify(field)}`, errors, allowUnknown);
 }
 
 function stableJson(value: unknown): string {

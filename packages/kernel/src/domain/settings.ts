@@ -161,16 +161,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     },
     walFlush: walFlushSchema(),
   },
-  required: [
-    "schema",
-    "settingsId",
-    "defaultVertical",
-    "defaultPreset",
-    "defaultProfile",
-    "locale",
-    "scaffolds",
-    "walFlush",
-  ],
+  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "locale", "scaffolds"],
   additionalProperties: false,
 };
 
@@ -216,7 +207,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     },
     walFlush: walFlushSchema(),
   },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
+  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds"],
   additionalProperties: false,
 };
 
