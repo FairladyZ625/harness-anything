@@ -185,6 +185,20 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     assert.equal(titleOnlyUpdate.outcome, "applied", JSON.stringify(titleOnlyUpdate));
     assert.notEqual(titleOnlyUpdate.opId, descriptorUpdate.opId);
     assert.match(String(titleOnlyUpdate.opId), /^entity-update-/u);
+    // A retry that presents the same fence replays the applied update instead of revision_conflict.
+    const titleOnlyRetry = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: kind,
+        entityId: preview.entityId,
+        expectedVersion: descriptorUpdate.revision,
+        title: "Revised title again",
+      },
+      binding,
+    );
+    assert.equal(titleOnlyRetry.outcome, "no_changes", JSON.stringify(titleOnlyRetry));
+    assert.equal(titleOnlyRetry.opId, titleOnlyUpdate.opId);
+    assert.equal(titleOnlyRetry.revision, titleOnlyUpdate.revision);
     const archived = await cell.run(
       {
         kind: "entity-archive",
@@ -196,6 +210,18 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       binding,
     );
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
+    const archiveRetry = await cell.run(
+      {
+        kind: "entity-archive",
+        entityKind: kind,
+        entityId: preview.entityId,
+        expectedVersion: titleOnlyUpdate.revision,
+        reason: "Superseded by ADR-0002",
+      },
+      binding,
+    );
+    assert.equal(archiveRetry.outcome, "no_changes", JSON.stringify(archiveRetry));
+    assert.equal(archiveRetry.opId, archived.opId);
     const artifactEvents = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.filter((event) => event.schema === "entity-event/v1" && event.payload.entityKind === kind);
