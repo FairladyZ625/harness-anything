@@ -111,10 +111,14 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
-    if (action.generation !== undefined) {
+    if (typeof action.generation === "number") {
       const fence = binding.writerEpochFence;
       if (!fence) throw cell.cellCodedError("invalid_command", "SQLite generation migration requires a writer fence.");
-      const sqlite = openSqliteEventStore({ repoId: cell.input.repoId, rootInput: cell.rootDir });
+      const sqlite = openSqliteEventStore({
+        repoId: cell.input.repoId,
+        rootInput: cell.rootDir,
+        generation: action.generation,
+      });
       try {
         const migration = migrateEventsToSqlite({
           store: sqlite,

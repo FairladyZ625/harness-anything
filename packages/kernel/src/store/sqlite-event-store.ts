@@ -47,12 +47,13 @@ export interface SqliteEventStore {
     readonly beforeOutcome?: () => void;
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
 
-export function sqliteLedgerPath(input: HarnessLayoutInput): string {
-  return path.join(resolveHarnessLayout(input).localRoot, "ledger.sqlite");
+export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
+  return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
 }
 
 export function openSqliteEventStore(options: {
@@ -61,11 +62,12 @@ export function openSqliteEventStore(options: {
   readonly databasePath?: string;
   readonly generation?: number;
 }): SqliteEventStore {
-  const databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd());
+  const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
+    databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation);
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = new DatabaseSync(databasePath);
-  db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000");
-  createSchema(db, options.repoId, options.generation ?? SQLITE_LEDGER_GENERATION);
+  db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; " + "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000");
+  createSchema(db, options.repoId, generation);
   const sqliteVersion = String(db.prepare("SELECT sqlite_version() AS version").get()!.version);
 
   const transaction = <A>(run: () => A): A => {
@@ -123,23 +125,19 @@ export function openSqliteEventStore(options: {
       ).run(input.fence.repoId, input.fence.holder, input.fence.epoch);
       if (input.rejectionCode && input.events.length)
         throw new TaskEventStoreError("invalid_write_plan", "a rejected command cannot append events");
-      const head = Number(db.prepare("SELECT revision FROM ledger_meta WHERE singleton=1").get()!.revision);
+      const head = readRevision(db);
       for (const [offset, event] of input.events.entries()) {
         const revision = head + offset + 1;
         if (event.workspaceRevision !== revision)
           throw new TaskEventStoreError(
             "revision_conflict",
-            `workspace revision ${event.workspaceRevision} must equal allocated revision ${revision}`,
+            `workspace revision ${event.workspaceRevision} must equal ` + `allocated revision ${revision}`,
           );
         const eventJson = serializePersistedCanonicalEvent(event),
           digest = `sha256:${sha256Text(eventJson)}`;
-        db.prepare("INSERT INTO event(revision, op_id, event_json, digest, occurred_at) VALUES (?, ?, ?, ?, ?)").run(
-          revision,
-          event.opId,
-          eventJson,
-          digest,
-          event.occurredAt,
-        );
+        db.prepare(
+          "INSERT INTO event(revision, op_id, event_json, digest, occurred_at) " + "VALUES (?, ?, ?, ?, ?)",
+        ).run(revision, event.opId, eventJson, digest, event.occurredAt);
         applyDerivedGuards(db, event);
       }
       const firstRevision = input.events.length ? head + 1 : null,
@@ -149,7 +147,8 @@ export function openSqliteEventStore(options: {
       input.beforeOutcome?.();
       db.prepare(
         "INSERT INTO command_outcome(" +
-          "op_id, status, first_revision, last_revision, intent_digest, intent_summary, rejection_code" +
+          "op_id, status, first_revision, last_revision, intent_digest, " +
+          "intent_summary, rejection_code" +
           ") VALUES (?, ?, ?, ?, ?, ?, ?)",
       ).run(
         input.intent.opId,
@@ -168,6 +167,7 @@ export function openSqliteEventStore(options: {
     claimWriter,
     appendCommand,
     outcome,
+    revision: () => readRevision(db),
     events: () =>
       db
         .prepare("SELECT event_json FROM event ORDER BY revision")
@@ -183,28 +183,38 @@ export function migrateEventsToSqlite(input: {
   readonly events: readonly CanonicalEventV1[];
   readonly holder?: string;
   readonly epoch?: number;
+  readonly verifyExact?: boolean;
 }): { readonly migrated: number; readonly revision: number } {
-  const fence = { repoId: input.repoId, holder: input.holder ?? "generation-migrator", epoch: input.epoch ?? 1 };
+  const fence = {
+    repoId: input.repoId,
+    holder: input.holder ?? "generation-migrator",
+    epoch: input.epoch ?? 1,
+  };
   input.store.claimWriter(fence);
-  let migrated = 0;
-  for (const event of input.events) {
+  const existingRevision = input.store.revision();
+  if (existingRevision > input.events.length)
+    throw new TaskEventStoreError("invalid_store", "SQLite migration revision exceeds the source stream");
+  for (const event of input.events.slice(existingRevision)) {
     const eventJson = serializePersistedCanonicalEvent(event),
       intentDigest = `sha256:${sha256Text(eventJson)}` as const;
-    const before = input.store.outcome(event.opId);
     input.store.appendCommand({
       fence,
       intent: { opId: event.opId, intentDigest, summary: event.type },
       events: [event],
     });
-    if (!before) migrated += 1;
   }
+  const revision = input.store.revision();
+  if (input.verifyExact === false) return { migrated: revision - existingRevision, revision };
   const stored = input.store.events();
   if (stored.length !== input.events.length || stored.at(-1)?.workspaceRevision !== stored.length)
     throw new TaskEventStoreError("invalid_store", "SQLite migration count and maximum revision differ");
-  for (const [index, event] of input.events.entries())
-    if (serializePersistedCanonicalEvent(stored[index]!) !== serializePersistedCanonicalEvent(event))
+  for (const [index, event] of input.events.entries()) {
+    const storedBytes = serializePersistedCanonicalEvent(stored[index]!),
+      sourceBytes = serializePersistedCanonicalEvent(event);
+    if (storedBytes !== sourceBytes)
       throw new TaskEventStoreError("invalid_store", `SQLite migration digest differs at revision ${index + 1}`);
-  return { migrated, revision: stored.length };
+  }
+  return { migrated: revision - existingRevision, revision };
 }
 
 function createSchema(db: DatabaseSync, repoId: string, generation: number): void {
@@ -223,12 +233,17 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       first_revision INTEGER, last_revision INTEGER, intent_digest TEXT NOT NULL,
       intent_summary TEXT NOT NULL, rejection_code TEXT,
       recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-      CHECK((status='accepted_durable' AND rejection_code IS NULL) OR (status='rejected' AND rejection_code IS NOT NULL))
+      CHECK(
+        (status='accepted_durable' AND rejection_code IS NULL)
+        OR (status='rejected' AND rejection_code IS NOT NULL)
+      )
     ) STRICT;
     CREATE TABLE IF NOT EXISTS writer_lease (
       repo_id TEXT PRIMARY KEY, holder TEXT NOT NULL, epoch INTEGER NOT NULL CHECK(epoch>0)
     ) STRICT;
-    CREATE TABLE IF NOT EXISTS lease_cas (task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL) STRICT;
+    CREATE TABLE IF NOT EXISTS lease_cas (
+      task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS lease_interval (
       task_id TEXT NOT NULL, execution_id TEXT NOT NULL, acquired_revision INTEGER NOT NULL,
       released_revision INTEGER, holder_json TEXT NOT NULL, previous_holder_json TEXT,
@@ -236,10 +251,9 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     ) STRICT;
   `);
-  db.prepare("INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) VALUES (1, ?, ?, 0)").run(
-    repoId,
-    generation,
-  );
+  db.prepare(
+    "INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) " + "VALUES (1, ?, ?, 0)",
+  ).run(repoId, generation);
   const meta = db.prepare("SELECT repo_id, generation FROM ledger_meta WHERE singleton=1").get()!;
   if (meta.repo_id !== repoId || Number(meta.generation) !== generation)
     throw new TaskEventStoreError(
@@ -272,7 +286,8 @@ function readWriter(db: DatabaseSync, repoId: string): { readonly holder: string
 function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
   const row = db
     .prepare(
-      "SELECT op_id, status, first_revision, last_revision, intent_digest, intent_summary, rejection_code " +
+      "SELECT op_id, status, first_revision, last_revision, intent_digest, " +
+        "intent_summary, rejection_code " +
         "FROM command_outcome WHERE op_id=?",
     )
     .get(opId);
@@ -286,4 +301,8 @@ function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | nul
     summary: String(row.intent_summary),
     rejectionCode: row.rejection_code === null ? null : String(row.rejection_code),
   };
+}
+
+function readRevision(db: DatabaseSync): number {
+  return Number(db.prepare("SELECT revision FROM ledger_meta WHERE singleton=1").get()!.revision);
 }

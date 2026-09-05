@@ -208,31 +208,34 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
   });
   const appendWalStore = store.append,
-    shadowAccepted = (bundle: Parameters<typeof appendWalStore>[0], full: boolean): void => {
+    bootstrapSqliteShadow = (): void => {
+      const fence = context.activeWriterEpochFenceDescriptor;
+      if (!fence) throw new Error("writer epoch fence is unavailable for SQLite shadow bootstrap");
+      migrateEventsToSqlite({
+        store: sqliteShadow,
+        repoId: fence.repoId,
+        events: store.read().events,
+        holder: fence.holderId,
+        epoch: fence.epoch,
+        verifyExact: false,
+      });
+      sqliteShadowBootstrapped = true;
+    },
+    shadowAccepted = (bundle: Parameters<typeof appendWalStore>[0]): void => {
       const fence = context.activeWriterEpochFenceDescriptor;
       if (!fence) throw new Error("writer epoch fence is unavailable for SQLite shadow append");
-      const sqliteFence = { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch };
-      if (!sqliteShadowBootstrapped || full) {
-        migrateEventsToSqlite({
-          store: sqliteShadow,
-          repoId: fence.repoId,
-          events: store.read().events,
-          holder: fence.holderId,
-          epoch: fence.epoch,
-        });
-        sqliteShadowBootstrapped = true;
-        return;
-      }
-      sqliteShadow.claimWriter(sqliteFence);
-      const eventJson = serializePersistedCanonicalEvent(bundle.event);
+      if (!sqliteShadowBootstrapped) bootstrapSqliteShadow();
+      const sqliteFence = { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
+        events = [...(bundle.preceding ?? []).map((preceding) => preceding.event), bundle.event],
+        eventBytes = events.map(serializePersistedCanonicalEvent);
       sqliteShadow.appendCommand({
         fence: sqliteFence,
         intent: {
           opId: bundle.event.opId,
-          intentDigest: `sha256:${sha256Text(eventJson)}`,
+          intentDigest: `sha256:${sha256Text(JSON.stringify(eventBytes))}`,
           summary: bundle.event.type,
         },
-        events: [bundle.event],
+        events,
       });
     };
   const drainWalStore = store.drain;
@@ -241,7 +244,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     append: (bundle, additionalFiles) => {
       const receipt = appendWalStore(bundle, additionalFiles);
       try {
-        shadowAccepted(bundle, additionalFiles !== undefined || (bundle.preceding?.length ?? 0) > 0);
+        shadowAccepted(bundle);
       } catch (error) {
         console.warn(`[sqlite-shadow] append failed: ${error instanceof Error ? error.message : String(error)}`);
         consumeKnownError(error);
@@ -265,6 +268,12 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       watermark: null,
     });
     let recovery = store.recover();
+    try {
+      bootstrapSqliteShadow();
+    } catch (error) {
+      console.warn(`[sqlite-shadow] bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
+      consumeKnownError(error);
+    }
     projection = makeTaskProjection({
       rootDir: context.rootDir,
       eventStore: store,
