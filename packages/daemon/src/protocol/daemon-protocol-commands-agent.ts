@@ -162,6 +162,16 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
+    id: "settings-wal-flush-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "settings-wal-flush"],
+    summary:
+      "Fill the historical repository Settings walFlush snapshot with its declared default. " +
+      "Stop daemon writers first; --dry-run reports the rewrites.",
+    method: "repo.task.run",
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
+  }),
+  defineLedgerWriteCommand({
     id: "dispatch-records-migrate",
     phase: "Migration-A",
     path: ["migrate", "dispatch-records"],

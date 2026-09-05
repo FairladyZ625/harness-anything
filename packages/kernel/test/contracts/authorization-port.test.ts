@@ -50,7 +50,8 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-05:声明实体 update / archive 进入 durable inventory(CEO 已确认),111 → 113。
   // 2026-09-05:vertical declaration migrate / kind upsert / kind retire 进入 durable inventory,113 → 116。
   // 2026-09-05:schedule-definitions-migrate 修复存量 schedule 声明形状,116 → 117。
-  assert.equal(durablePolicyActions.length, 117);
+  // 2026-09-05:settings-wal-flush-migrate 补齐存量 Settings WAL 快照,117 → 118。
+  assert.equal(durablePolicyActions.length, 118);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

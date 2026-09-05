@@ -16,6 +16,10 @@ const recoveryCommands: Readonly<Record<string, RecoveryCommandPolicy>> = Object
     causes: Object.freeze(["data-shape"] as const),
     settlesLatch: true,
   }),
+  "settings-wal-flush-migrate": Object.freeze({
+    causes: Object.freeze(["data-shape"] as const),
+    settlesLatch: true,
+  }),
   "receipt-show": Object.freeze({
     causes: Object.freeze(["data-shape", "infrastructure"] as const),
     settlesLatch: false,
