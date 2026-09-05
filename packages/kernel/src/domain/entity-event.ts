@@ -4,6 +4,7 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import {
   artifactEntityContractFromSnapshot,
   artifactImportOperationId,
+  artifactUpdateOperationId,
   artifactObservationId,
   canonicalArtifactLocator,
   canonicalArtifactSourceIdentity,
@@ -350,7 +351,16 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
   if (value.type === "entity_content_observed")
     return validateObservedPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   if (value.type === "entity_updated")
-    return validateObservedPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
+    return validateObservedPayload(
+      value.payload,
+      hasFields,
+      String(value.opId),
+      allowUnknownFields,
+      artifactUpdateOperationId({
+        entityId: String(value.payload.entityId),
+        workspaceRevision: Number(value.workspaceRevision),
+      }),
+    );
   if (value.type === "entity_archived") {
     const payload = value.payload;
     try {
@@ -513,6 +523,7 @@ function validateObservedPayload(
   hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
   opId: string,
   allowUnknownFields: boolean,
+  expectedOperation?: string,
 ): readonly string[] {
   const fields = [
     "entityKind",
@@ -530,7 +541,7 @@ function validateObservedPayload(
   if (common.length) return common;
   if (typeof payload.observedContentVersion !== "string" || !payload.observedContentVersion)
     return ["entity observed content version is invalid"];
-  if (!validObservationIdentity(payload, payload.observedContentVersion, opId))
+  if (!validObservationIdentity(payload, payload.observedContentVersion, opId, expectedOperation))
     return ["entity observed idempotency identity is invalid"];
   let contract: EntityStoreKindContract;
   try {
@@ -628,10 +639,15 @@ function validateUpsertPayload(
   return validateClaim(payload, contract, hasFields, schema);
 }
 
-function validObservationIdentity(payload: Record<string, unknown>, resolution: string, opId: string): boolean {
+function validObservationIdentity(
+  payload: Record<string, unknown>,
+  resolution: string,
+  opId: string,
+  expectedOperation?: string,
+): boolean {
   const locator = payload.locator as unknown as ArtifactLocator,
-    expected = artifactObservationId({ entityId: String(payload.entityId), locator, resolution }),
-    expectedOperation = artifactImportOperationId({ entityId: String(payload.entityId), locator, resolution });
+    expected = artifactObservationId({ entityId: String(payload.entityId), locator, resolution });
+  expectedOperation ??= artifactImportOperationId({ entityId: String(payload.entityId), locator, resolution });
   return payload.observationId === expected && opId === expectedOperation;
 }
 

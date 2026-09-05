@@ -11,7 +11,7 @@ import {
 import {
   compiledRelationDirections,
   artifactEntityContractSnapshot,
-  artifactImportOperationId,
+  artifactUpdateOperationId,
   canonicalArtifactLocator,
   compileEntityArchived,
   compileEntityUpdated,
@@ -224,7 +224,7 @@ function updatedBundle(
         ? canonicalArtifactLocator({ kind: current.locator.kind, value: action.locator })
         : current.locator,
     contentVersion = typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.contentVersion,
-    opId = artifactImportOperationId({ entityId: current.entityId, locator, resolution: contentVersion });
+    opId = artifactUpdateOperationId({ entityId: current.entityId, workspaceRevision: envelope.workspaceRevision });
   return compileEntityUpdated({
     ...envelope,
     eventId: `event-${opId}`,
@@ -423,7 +423,13 @@ function readCurrentArtifact(
   for (const event of store.read().events) {
     if (!isEntityEvent(event) || event.payload.entityKind !== kind || event.payload.entityId !== entityId) continue;
     revision = Math.max(revision, event.workspaceRevision);
-    if (!isEntityDeclarationEvent(event) || event.type !== "entity_content_observed") continue;
+    // Both observations and descriptor updates carry the full descriptor blob; folding only observations would make
+    // every later update start from a stale descriptor and silently drop the previous update.
+    if (
+      !isEntityDeclarationEvent(event) ||
+      (event.type !== "entity_content_observed" && event.type !== "entity_updated")
+    )
+      continue;
     const claim = event.payload.declarationDocumentClaim,
       bytes = store.readContentBlob(claim.sha256);
     if (!bytes) throw new Error(`Artifact descriptor blob ${claim.sha256} is unavailable.`);

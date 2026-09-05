@@ -336,6 +336,7 @@ export {
   artifactEntityContractSnapshot,
   artifactImportOperationId,
   artifactObservationId,
+  artifactUpdateOperationId,
   canonicalArtifactLocator,
   canonicalSourceIdentity,
   decodeArtifactDescriptor,
