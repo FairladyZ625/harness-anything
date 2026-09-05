@@ -35,6 +35,7 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
       userRoot: parent,
       daemonId,
       restartBudgetMs: 1_000,
+      commandCategory: "operation",
     });
     assert.equal(result.outcome, "applied");
     assert.deepEqual(result.daemonRestart, {
@@ -69,6 +70,7 @@ test("restart budget exhaustion returns daemon_restarting without resending", as
         userRoot: parent,
         daemonId,
         restartBudgetMs: 25,
+        commandCategory: "operation",
       },
     );
     assert.equal(result.code, "daemon_restarting");
@@ -78,6 +80,36 @@ test("restart budget exhaustion returns daemon_restarting without resending", as
       retries: 0,
     });
     assert.equal(calls.length, 1);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon lifecycle commands preserve daemon_stopping without waiting or resending", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-lifecycle-")),
+    daemonId = "restart-lifecycle";
+  writeFileSync(daemonPidPath(parent, daemonId), "111\n");
+  let calls = 0;
+  try {
+    const result = await withAutostart(
+      async () => {
+        calls += 1;
+        return { ok: false, code: "daemon_stopping" };
+      },
+      unusedLaunch,
+      path.join(parent, "daemon.sock"),
+      {
+        autostart: true,
+        env: {},
+        invokingRoot: process.cwd(),
+        userRoot: parent,
+        daemonId,
+        restartBudgetMs: 1_000,
+        commandCategory: "daemon-lifecycle",
+      },
+    );
+    assert.equal(result.code, "daemon_stopping");
+    assert.equal(calls, 1);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

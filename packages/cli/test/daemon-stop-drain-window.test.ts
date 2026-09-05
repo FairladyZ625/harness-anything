@@ -29,8 +29,8 @@ test("a drain longer than the stop budget is reported as draining, not as a time
   try {
     const stopStartedAt = Date.now(),
       stop = runCli(fixture, ["daemon", "stop", "--json"]);
-    // The refusal is what marks the drain as begun, so every observation below is inside the window.
-    const refused = await waitForStoppingRefusal(fixture),
+    // The lifecycle observation marks the drain as begun, so everything below is inside the window.
+    const stopping = await waitForStoppingObservation(fixture),
       inWindow = await snapshot(fixture),
       status = await runCli(fixture, ["daemon", "status", "--json"]);
     const stopped = JSON.parse((await stop).stdout) as Record<string, unknown>;
@@ -48,8 +48,8 @@ test("a drain longer than the stop budget is reported as draining, not as a time
     assert.equal(reported.ok, true, JSON.stringify(reported));
     assert.match(String(reported.summary), /Stopping: draining \d+ live runtime session\(s\)/u);
     assert.ok(
-      refused.elapsedMs < drainMs,
-      `a draining daemon must answer at once, not be waited out: ${refused.elapsedMs}ms`,
+      stopping.elapsedMs < drainMs,
+      `a draining daemon must answer at once, not be waited out: ${stopping.elapsedMs}ms`,
     );
 
     await waitForRelease(fixture);
@@ -207,14 +207,17 @@ async function snapshot(
 }
 
 // Before the stop request lands the daemon still serves normally, so the fixture waits for the first
-// refusal rather than assuming a freshly spawned `daemon stop` has already reached it.
-async function waitForStoppingRefusal(fixture: Fixture): Promise<CliRun> {
+// lifecycle observation rather than assuming a freshly spawned `daemon stop` has already reached it.
+async function waitForStoppingObservation(fixture: Fixture): Promise<CliRun> {
   const deadline = Date.now() + drainMs;
   for (;;) {
-    const run = await runCli(fixture, ["task", "list", "--json"], "env"),
-      receipt = JSON.parse(run.stdout) as { readonly code?: string };
-    if (receipt.code === "daemon_stopping") return run;
-    if (Date.now() > deadline) throw new Error(`daemon ${fixture.daemonId} never refused new work: ${run.stdout}`);
+    // A normal repository command intentionally waits for a replacement generation during
+    // daemon_stopping. Probe through the daemon lifecycle surface instead: lifecycle commands
+    // must report the active drain immediately and must never trigger restart-window recovery.
+    const run = await runCli(fixture, ["daemon", "status", "--json"]),
+      receipt = JSON.parse(run.stdout) as { readonly summary?: string };
+    if (/Stopping: draining/u.test(receipt.summary ?? "")) return run;
+    if (Date.now() > deadline) throw new Error(`daemon ${fixture.daemonId} never reported its drain: ${run.stdout}`);
     await delay(50);
   }
 }

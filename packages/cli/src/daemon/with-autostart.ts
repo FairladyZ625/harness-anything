@@ -15,12 +15,19 @@ export async function withAutostart(
     readonly userRoot?: string;
     readonly daemonId?: string;
     readonly restartBudgetMs?: number;
+    readonly commandCategory: "operation" | "daemon-lifecycle";
   },
 ): Promise<JsonObject> {
   const startedAt = Date.now();
   try {
     const result = await request();
-    if (!isDaemonStopping(result) || !options.userRoot || !options.daemonId) return result;
+    if (
+      !isDaemonStopping(result) ||
+      options.commandCategory === "daemon-lifecycle" ||
+      !options.userRoot ||
+      !options.daemonId
+    )
+      return result;
     const { readDaemonPid } = await import("../../../daemon/src/daemon-singleton.ts"),
       { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
         "../../../daemon/src/client/daemon-autostart.ts"
