@@ -34,6 +34,10 @@ test("top-level help renders a derived domain directory and domain help filters 
   assert.doesNotMatch(scriptHelp, /--task-id/u);
   assert.match(factHelp, /ha fact record \[task-id\].*--text <text>/u);
   assert.match(decisionHelp, /--json-input <json-input>[\s\S]*JSON required fields: title, question/u);
+  assert.match(
+    decisionHelp,
+    /JSON defaulted fields: vertical \(repository defaultVertical\), preset \(decision-conformance\)/u,
+  );
   assert.match(decisionHelp, /--json-input <json-input>[\s\S]*<json\|@->/u);
   assert.match(help, /capabilities \[--json\].*--version.*ha daemon start --service/su);
 });

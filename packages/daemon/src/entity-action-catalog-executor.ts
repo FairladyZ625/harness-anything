@@ -273,7 +273,14 @@ export function makeEntityActionCatalogExecutor(input: {
     }
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
-    return decisionReceipt(result, bundle.event, authorizationDecision);
+    return decisionReceipt(
+      result,
+      bundle.event,
+      authorizationDecision,
+      Array.isArray(action.defaultedDecisionPacketFields)
+        ? action.defaultedDecisionPacketFields.filter((field): field is string => typeof field === "string")
+        : [],
+    );
   };
 
   const runEntityWrite = (
@@ -662,6 +669,7 @@ function decisionReceipt(
   },
   event: DecisionEventV1,
   authorizationDecision: AuthorizationDecision,
+  defaultedFields: readonly string[] = [],
 ): WriteReceipt {
   const consentId = "judgmentConsent" in event.payload ? event.payload.judgmentConsent.consentId : null,
     relationReplacement =
@@ -683,6 +691,7 @@ function decisionReceipt(
         cut: result.cut,
         documentSha256: result.documentSha256,
         consentId,
+        ...(defaultedFields.length ? { defaultedFields } : {}),
         ...(relationReplacement ? { relationReplacement } : {}),
       }),
       visibility: "center" as const,

@@ -250,7 +250,7 @@ export async function executeAction(
     );
   if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
-    const resolved = cell.decisionProposalAction(cell.rootDir, action);
+    const resolved = cell.decisionProposalAction(cell.rootDir, action, cell.settings.read());
     return cell.entityActionExecutor.run(
       resolved,
       binding,

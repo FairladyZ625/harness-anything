@@ -1,6 +1,11 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { decisionProposalJsonFields, taskCreateJsonFields } from "../../preset/src/index.ts";
+import {
+  decisionProposalJsonFields,
+  decisionProposalRequiredJsonFields,
+  taskCreateJsonFields,
+} from "../../preset/src/index.ts";
+import type { SettingsV1 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { packetRecord, readPacketSource, workspaceText } from "./repo-cell-packets.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
@@ -145,7 +150,7 @@ export function legacyTaskCreateAction(rootDir: string, action: RepoTaskAction):
   };
 }
 
-export function decisionProposalAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+export function decisionProposalAction(rootDir: string, action: RepoTaskAction, settings: SettingsV1): RepoTaskAction {
   if (action.kind === "decision-amend") {
     if (typeof action.body === "string" && typeof action.bodyFile === "string")
       throw cellCodedError("invalid_command", "Use only one of --body or --body-file.");
@@ -185,12 +190,23 @@ export function decisionProposalAction(rootDir: string, action: RepoTaskAction):
       "invalid_command",
       "Decision propose requires one structured packet and at most one body source.",
     );
-  const packet = packetRecord(rootDir, action, decisionProposalFields).value,
+  const defaults = {
+      vertical: settings.defaultVertical,
+      preset: "decision-conformance",
+      appliesTo: { modules: [], productLines: [] },
+      fulfillments: [],
+    },
+    packet = packetRecord(rootDir, action, decisionProposalRequiredJsonFields, "decision proposal", defaults),
     body =
       typeof action.body === "string"
         ? action.body
         : typeof action.bodyFile === "string"
           ? workspaceText(rootDir, action.bodyFile, "bodyFile")
-          : `\n# ${requiredCellText(packet.title, "title")}\n`;
-  return { kind: "decision-propose", ...packet, body };
+          : `\n# ${requiredCellText(packet.value.title, "title")}\n`;
+  return {
+    kind: "decision-propose",
+    ...packet.value,
+    body,
+    defaultedDecisionPacketFields: [...packet.defaultedFields, "relations"],
+  };
 }
