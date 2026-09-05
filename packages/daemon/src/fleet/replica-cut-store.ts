@@ -218,7 +218,11 @@ export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaC
       pruned = prune(store);
       store.exec("COMMIT");
     } catch (error) {
-      store.exec("ROLLBACK");
+      try {
+        store.exec("ROLLBACK");
+      } catch (rollbackError) {
+        consumeKnownError(rollbackError);
+      }
       throw error;
     }
     for (const orphan of pruned)

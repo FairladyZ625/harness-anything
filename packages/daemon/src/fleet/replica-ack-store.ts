@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { consumeKnownError } from "../../../kernel/src/index.ts";
 import type { FleetCut } from "./contract.ts";
 
 export interface ReplicaDeliveryKey {
@@ -195,7 +196,11 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       store.prepare("DELETE FROM active_offer WHERE node_id=? AND view_id=?").run(key.nodeId, key.viewId);
       store.exec("COMMIT");
     } catch (error) {
-      store.exec("ROLLBACK");
+      try {
+        store.exec("ROLLBACK");
+      } catch (rollbackError) {
+        consumeKnownError(rollbackError);
+      }
       throw error;
     }
     return { outcome: "applied" as const, cursor: cursor(key) };
