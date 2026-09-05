@@ -178,7 +178,8 @@ test("50k bootstrap is incremental and subsequent shadow bundles append one comm
         epoch: fence.epoch,
         verifyExact: false,
       }),
-      samplesMs: number[] = [];
+      samplesMs: number[] = [],
+      appended: ReturnType<typeof eventAt>[] = [];
     assert.deepEqual(bootstrapped, { migrated: 50_000, revision: 50_000 });
     assert.deepEqual(incremental, { migrated: 0, revision: 50_000 });
     for (let revision = 50_001; revision <= 50_100; revision += 1) {
@@ -195,6 +196,7 @@ test("50k bootstrap is incremental and subsequent shadow bundles append one comm
         events: [event],
       });
       samplesMs.push(performance.now() - started);
+      appended.push(event);
     }
     samplesMs.sort((left, right) => left - right);
     const p50Ms = percentile(samplesMs, 0.5),
@@ -202,7 +204,7 @@ test("50k bootstrap is incremental and subsequent shadow bundles append one comm
       afterAppends = migrateEventsToSqlite({
         store,
         repoId,
-        events: sourceEvents,
+        events: [...sourceEvents, ...appended],
         holder: fence.holder,
         epoch: fence.epoch,
         verifyExact: false,
