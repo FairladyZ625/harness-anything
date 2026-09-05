@@ -115,7 +115,8 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
   if (value.kindId === "zcode" && models.length !== 1)
     throw runtimeInstanceError(
       "invalid_command",
-      "ZCode runtime instances require exactly one model because ZCode selects model.main from its per-instance config; create a separate instance for each model.",
+      "ZCode runtime instances require exactly one model because ZCode selects model.main from its " +
+        "per-instance config; create a separate instance for each model.",
     );
   if (!models.includes(defaultModel))
     throw runtimeInstanceError(
