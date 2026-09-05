@@ -310,14 +310,21 @@ export function artifactImportOperationId(input: {
   return `entity-import-${sha256(identity).slice(0, 32)}`;
 }
 
-/** `entity_updated` carries its own operation identity: the same entity at the same revision fence is one
- * operation (retries replay), while an update that leaves contentVersion untouched must never collide with the
- * `entity-import-*` event that first observed that content. */
-export function artifactUpdateOperationId(input: {
+/** Mutations (`entity_updated` / `entity_archived`) key their operation identity on the revision fence the caller
+ * presented, not on the store revision the event lands at: a retry that presents the same fence recomputes the same
+ * opId and replays the applied operation instead of surfacing `revision_conflict`, while an update that leaves
+ * contentVersion untouched never collides with the `entity-import-*` event that first observed that content. */
+export function artifactMutationOperationId(input: {
+  readonly mutation: "update" | "archive";
   readonly entityId: string;
-  readonly workspaceRevision: number;
+  readonly expectedVersion: number;
 }): string {
-  return `entity-update-${input.entityId}-${input.workspaceRevision}`;
+  return `entity-${input.mutation}-${input.entityId}-${input.expectedVersion}`;
+}
+
+export function isArtifactMutationOperationId(mutation: "update" | "archive", entityId: string, opId: string): boolean {
+  const prefix = `entity-${mutation}-${entityId}-`;
+  return opId.startsWith(prefix) && /^(?:0|[1-9][0-9]*)$/u.test(opId.slice(prefix.length));
 }
 
 function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {

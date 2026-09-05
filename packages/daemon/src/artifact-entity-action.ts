@@ -11,7 +11,7 @@ import {
 import {
   compiledRelationDirections,
   artifactEntityContractSnapshot,
-  artifactUpdateOperationId,
+  artifactMutationOperationId,
   canonicalArtifactLocator,
   compileEntityArchived,
   compileEntityUpdated,
@@ -155,7 +155,16 @@ export function executeArtifactEntityMutation(input: {
     expectedVersion = Number(input.action.expectedVersion);
   if (!current?.descriptor)
     throw Object.assign(new Error(`Entity ${kind}/${entityId} does not exist.`), { code: "entity_not_found" });
-  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== current.revision)
+  if (!Number.isSafeInteger(expectedVersion))
+    throw Object.assign(new Error(`Entity ${entityId} expected revision ${String(expectedVersion)} is invalid.`), {
+      code: "revision_conflict",
+    });
+  const mutation = input.action.kind === "entity-update" ? "update" : "archive",
+    opId = artifactMutationOperationId({ mutation, entityId, expectedVersion }),
+    replayed = readEntityOperation(input.store, opId);
+  // A retry presenting the same fence replays the operation it already applied instead of tripping the CAS below.
+  if (replayed) return { action: input.action, contract, receipt: mutationReplayReceipt(replayed, input) };
+  if (expectedVersion !== current.revision)
     throw Object.assign(
       new Error(
         `Entity ${entityId} expected revision ${String(expectedVersion)}, current revision is ${current.revision}.`,
@@ -172,11 +181,11 @@ export function executeArtifactEntityMutation(input: {
     },
     bundle =
       input.action.kind === "entity-update"
-        ? updatedBundle(input.action, current.descriptor, compiled, contractSnapshot, envelope)
+        ? updatedBundle(input.action, current.descriptor, compiled, contractSnapshot, { ...envelope, opId })
         : compileEntityArchived({
             ...envelope,
-            eventId: `event-entity-archive-${workspaceRevision}`,
-            opId: `entity-archive-${entityId}-${workspaceRevision}`,
+            eventId: `event-${opId}`,
+            opId,
             contractSnapshot,
             entityId,
             reason: requiredArtifactText(input.action.reason, "reason"),
@@ -213,6 +222,7 @@ function updatedBundle(
   compiled: CompiledArtifactKindContract,
   contractSnapshot: ReturnType<typeof artifactEntityContractSnapshot>,
   envelope: {
+    readonly opId: string;
     readonly workspaceRevision: number;
     readonly actor: RepoCellBinding["actor"];
     readonly source: RepoCellBinding["source"];
@@ -223,12 +233,10 @@ function updatedBundle(
       typeof action.locator === "string"
         ? canonicalArtifactLocator({ kind: current.locator.kind, value: action.locator })
         : current.locator,
-    contentVersion = typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.contentVersion,
-    opId = artifactUpdateOperationId({ entityId: current.entityId, workspaceRevision: envelope.workspaceRevision });
+    contentVersion = typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.contentVersion;
   return compileEntityUpdated({
     ...envelope,
-    eventId: `event-${opId}`,
-    opId,
+    eventId: `event-${envelope.opId}`,
     contract: compiled.entityKindContract as Parameters<typeof compileEntityUpdated>[0]["contract"],
     contractSnapshot,
     descriptor: {
@@ -468,6 +476,33 @@ function previewReceipt(
     authorizationDecision: input.authorizationDecision,
     effects: [],
     updatedProjection: null,
+  };
+}
+
+function mutationReplayReceipt(
+  event: EntityEventV1,
+  input: { readonly authorizationDecision: AuthorizationDecision },
+): ArtifactImportReceipt {
+  return {
+    outcome: "no_changes",
+    opId: event.opId,
+    revision: event.workspaceRevision,
+    entityId: event.payload.entityId,
+    evidence: JSON.stringify({
+      schema: "artifact-entity-mutation-result/v1",
+      eventType: event.type,
+      idempotent: true,
+      sameResult: true,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: event.workspaceRevision,
+      appliedCut: event.workspaceRevision,
+      durable: true,
+      canonicalVisible: true,
+      worktreeVisible: event.type === "entity_updated",
+    },
+    authorizationDecision: input.authorizationDecision,
   };
 }
 
