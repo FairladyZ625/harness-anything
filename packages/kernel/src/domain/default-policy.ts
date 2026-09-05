@@ -27,6 +27,8 @@ const repositoryWriteActions = Object.freeze([
   "doc-retire",
   "doc-submit",
   "entity-import",
+  "entity-update",
+  "entity-archive",
   "entity-migrate-squads",
   "fact-reclassify",
   "fact-record",

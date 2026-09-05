@@ -316,7 +316,7 @@ const capabilityExposure = (target: string, schemaId: string): EntitySdkExposure
     sdk: Object.freeze({ target: `${target[0]!.toUpperCase()}${target.slice(1)}Capability`, schemaId }),
     agentCapability: Object.freeze({ target, schemaId }),
   });
-const entityAction = (
+export const entityAction = (
   kind: string,
   identity: EntityKindContract["id"],
   id: string,
@@ -374,106 +374,6 @@ export const genericAuthoring = Object.freeze({
 });
 export const genericEntityStore = (pathTemplate: string, validate?: (value: unknown) => readonly string[]) =>
   Object.freeze({ document: declarationDocument(pathTemplate), ...(validate ? { validate } : {}) });
-
-export const artifactEntityImportActionInput = Object.freeze({
-  schema: "entity-action-input/v1" as const,
-  fields: Object.freeze([
-    { field: "entityKind", type: "string" as const, required: true },
-    { field: "locator", type: "string" as const, required: true },
-    { field: "expectedVersion", type: "number" as const, required: true },
-    { field: "title", type: "string" as const, required: false },
-    { field: "entityId", type: "string" as const, required: false },
-    { field: "sourceIdentity", type: "string" as const, required: false },
-    { field: "idempotencyKey", type: "string" as const, required: false },
-    { field: "dryRun", type: "boolean" as const, required: false },
-  ]),
-  exactlyOneOf: Object.freeze([]),
-} as const satisfies EntityActionInputContract);
-
-export function artifactEntityActionCatalog(
-  kind: string,
-  identity: EntityKindContract["id"],
-): NonNullable<EntityKindContract["actionCatalog"]> {
-  const declared = entityAction(
-    kind,
-    identity,
-    "import",
-    noSdkExposure,
-    Object.freeze({
-      ingress: "entity-import",
-      compile: null,
-      read: false,
-      implementation: "catalog-runtime" as const,
-      topology: "center-forward-write" as const,
-      targetIdField: "entityId",
-    }),
-  );
-  return Object.freeze({
-    ref: "kernel/entity-event/v1",
-    actions: Object.freeze([
-      Object.freeze({
-        ...declared,
-        input: artifactEntityImportActionInput,
-        criteria: Object.freeze([
-          Object.freeze({
-            ref: "entity/aggregate-revision",
-            failureCode: "revision_conflict",
-            explain: "The expected Entity revision must equal the latest canonical observation revision.",
-          }),
-          Object.freeze({
-            ref: "entity/source-resolution",
-            failureCode: "source_resolution_failed",
-            explain:
-              "The declared resolver must return either authoritative content or an authoritative missing result.",
-          }),
-        ]),
-        concurrency: Object.freeze({
-          expectedVersion: Object.freeze({ authority: "entity-aggregate-revision", required: true }),
-          leasePolicy: Object.freeze({ authority: "center-repo-cell-single-writer" }),
-          occurrenceClaim: Object.freeze({ authority: "entity-observation-id" }),
-          idempotency: Object.freeze({ authority: "entity-source-resolution-operation-id" }),
-          artifactOwnership: Object.freeze({
-            owner: "entity-revision",
-            refTemplate: "entity/{entityId}/revision/{revision}",
-          }),
-        }),
-        effects: Object.freeze([
-          Object.freeze({ ref: "entity-event/entity_content_observed", projection: "entity/v1" }),
-          Object.freeze({ ref: "entity-event/entity_target_missing", projection: "entity/v1" }),
-        ]),
-        explain:
-          `${kind}.import resolves one artifact source and appends entity-event/v1 under the ` +
-          "entity aggregate revision fence; dry-run performs no write.",
-      }),
-      Object.freeze({
-        ...entityAction(kind, identity, "distill-candidate", noSdkExposure, {
-          ingress: "distill-candidate",
-          compile: null,
-          read: false,
-          implementation: "catalog-runtime",
-          topology: "center-forward-write",
-          targetIdField: "entityRef",
-        }),
-        criteria: Object.freeze([
-          Object.freeze({
-            ref: "artifact/distill-candidate.validate",
-            failureCode: "invalid_command",
-            explain: "The distill candidate input must identify a valid workspace file or governed artifact entity.",
-          }),
-        ]),
-        failureCodes: Object.freeze([
-          Object.freeze({
-            code: "invalid_command",
-            source: "criterion",
-            explain: "distill-candidate may reject with invalid_command.",
-            nextCapabilityRef: null,
-          }),
-        ]),
-        explain: `${kind}.distill-candidate creates a generated candidate artifact without canonical writes.`,
-      }),
-    ]),
-  });
-}
 
 const taskExposure = capabilityExposure("task", "task-frontmatter");
 const factExposure = capabilityExposure("fact", "fact-event");

@@ -183,7 +183,7 @@ export async function executeAction(
       ),
     );
   }
-  if (action.kind === "entity-import")
+  if (["entity-import", "entity-update", "entity-archive"].includes(action.kind))
     return cell.entityActionExecutor.run(
       action,
       binding,

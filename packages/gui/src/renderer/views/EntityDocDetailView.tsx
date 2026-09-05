@@ -14,7 +14,7 @@ import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 const LEFT_COLUMN_CLASS = "w-[400px] shrink-0 overflow-y-auto border-r border-border px-4 py-4";
 
 /**
- * 实体说明面·详情:两栏骨架——左列(固定宽,内部自滚动)承载说明本体:描述、存放、
+ * 实体页·详情:两栏骨架——左列(固定宽,内部自滚动)承载说明本体:描述、存放、
  * GUI 入口、核心字段(含合法写入动作)、状态词表、关系,以及声明实体的「本仓实体」
  * 清单(含搜索与新建);右栏是选中实体的自适应渲染器(`entity-locator-renderer.ts`
  * 按 locator 类型选),占满剩余宽度与全高,未选中时呈真实空态。内核实体(task /

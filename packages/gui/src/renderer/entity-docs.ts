@@ -2,7 +2,7 @@ import type { ViewId } from "./navigation/viewHistory.ts";
 import type { EntityKindCatalog, EntityKindRow } from "./entity-kind-catalog-client.ts";
 
 /**
- * 实体说明面(dec_2935057783CD5D56E9F287AE4D CH4)的说明内容目录。
+ * 实体页(dec_2935057783CD5D56E9F287AE4D CH4)的说明内容目录。
  *
  * 这是一个**静态策展目录**:renderer 不能在浏览器里 import kernel(kernel 带
  * node 内置模块),所以说明内容在这里以数据形式落地。它与代码实况的一致性

@@ -68,6 +68,13 @@ export interface ArtifactTargetMissingPayload {
   readonly artifactContract: ArtifactEntityContractSnapshot;
 }
 
+export interface ArtifactEntityArchivedPayload {
+  readonly entityKind: string;
+  readonly entityId: string;
+  readonly reason: string;
+  readonly artifactContract: ArtifactEntityContractSnapshot;
+}
+
 export type EntityUpsertEventV1 = EventEnvelope<
   "entity-event/v1",
   "entity_upserted",
@@ -86,7 +93,24 @@ export type EntityTargetMissingEventV1 = EventEnvelope<
   ActorIdentity,
   ArtifactTargetMissingPayload
 >;
-export type EntityEventV1 = EntityUpsertEventV1 | EntityContentObservedEventV1 | EntityTargetMissingEventV1;
+export type EntityUpdatedEventV1 = EventEnvelope<
+  "entity-event/v1",
+  "entity_updated",
+  ActorIdentity,
+  ArtifactContentObservedPayload
+>;
+export type EntityArchivedEventV1 = EventEnvelope<
+  "entity-event/v1",
+  "entity_archived",
+  ActorIdentity,
+  ArtifactEntityArchivedPayload
+>;
+export type EntityEventV1 =
+  | EntityUpsertEventV1
+  | EntityContentObservedEventV1
+  | EntityTargetMissingEventV1
+  | EntityUpdatedEventV1
+  | EntityArchivedEventV1;
 
 // Append-only history predating the generic store carries the upsert payload under this retired envelope.
 export type LegacyAgentEntityEventV1 = EventEnvelope<
@@ -96,12 +120,18 @@ export type LegacyAgentEntityEventV1 = EventEnvelope<
   EntityUpsertPayload
 >;
 export type StoredEntityEventV1 = EntityEventV1 | LegacyAgentEntityEventV1;
-export type EntityDeclarationEventV1 = EntityUpsertEventV1 | EntityContentObservedEventV1 | LegacyAgentEntityEventV1;
+export type EntityDeclarationEventV1 =
+  | EntityUpsertEventV1
+  | EntityContentObservedEventV1
+  | EntityUpdatedEventV1
+  | LegacyAgentEntityEventV1;
 
 const entityEventEnvelopes: ReadonlyArray<readonly [schema: string, type: string]> = [
   ["entity-event/v1", "entity_upserted"],
   ["entity-event/v1", "entity_content_observed"],
   ["entity-event/v1", "entity_target_missing"],
+  ["entity-event/v1", "entity_updated"],
+  ["entity-event/v1", "entity_archived"],
   ["agent-entity-event/v1", "agent_entity_written"],
 ];
 const LEGACY_AGENT_ENTITY_POLICY_ID = "typed-agent-entity/v1";
@@ -128,6 +158,18 @@ export interface EntityContentObservedBundle {
 export interface EntityTargetMissingBundle {
   readonly event: EntityTargetMissingEventV1;
   readonly plan: FrozenWritePlan<"EntityTargetMissing">;
+  readonly blobs: readonly [];
+}
+
+export interface EntityUpdatedBundle {
+  readonly event: EntityUpdatedEventV1;
+  readonly plan: FrozenWritePlan<"EntityUpdated">;
+  readonly blobs: readonly [EntityDeclarationBlob];
+}
+
+export interface EntityArchivedBundle {
+  readonly event: EntityArchivedEventV1;
+  readonly plan: FrozenWritePlan<"EntityArchived">;
   readonly blobs: readonly [];
 }
 
@@ -221,6 +263,60 @@ export function compileEntityTargetMissing(
   return { event, plan: entityTargetMissingWritePlan(event), blobs: [] };
 }
 
+export function compileEntityUpdated(
+  input: EntityEventEnvelopeInput & {
+    readonly contract: EntityStoreKindContract;
+    readonly contractSnapshot: ArtifactEntityContractSnapshot;
+    readonly descriptor: ArtifactDescriptor;
+  },
+): EntityUpdatedBundle {
+  const descriptor = decodeArtifactDescriptor(input.contract, input.descriptor),
+    { body, claim } = declarationContent(input.contract, descriptor.entityId, descriptor),
+    observationId = artifactObservationId({
+      entityId: descriptor.entityId,
+      locator: descriptor.locator,
+      resolution: descriptor.contentVersion,
+    }),
+    event: EntityUpdatedEventV1 = {
+      ...eventEnvelope(input),
+      type: "entity_updated",
+      payload: {
+        entityKind: input.contract.kind,
+        entityId: descriptor.entityId,
+        declarationDocumentClaim: claim,
+        locator: descriptor.locator,
+        sourceIdentity: descriptor.source,
+        observedContentVersion: descriptor.contentVersion,
+        resolver: "descriptor-update",
+        observationId,
+        artifactContract: input.contractSnapshot,
+      },
+    };
+  assertValidCurrent(event);
+  return { event, plan: declarationWritePlan("EntityUpdated", event, "entity/v1"), blobs: [blob(claim, body)] };
+}
+
+export function compileEntityArchived(
+  input: EntityEventEnvelopeInput & {
+    readonly contractSnapshot: ArtifactEntityContractSnapshot;
+    readonly entityId: string;
+    readonly reason: string;
+  },
+): EntityArchivedBundle {
+  const event: EntityArchivedEventV1 = {
+    ...eventEnvelope(input),
+    type: "entity_archived",
+    payload: {
+      entityKind: input.contractSnapshot.typeIdentity,
+      entityId: input.entityId,
+      reason: input.reason.trim(),
+      artifactContract: input.contractSnapshot,
+    },
+  };
+  assertValidCurrent(event);
+  return { event, plan: entityArchivedWritePlan(event), blobs: [] };
+}
+
 export function validateEntityEvent(value: unknown): readonly string[] {
   return validateEntityEventFields(value, true);
 }
@@ -253,6 +349,22 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
   if (validateEventEnvelopeIdentity(value, allowUnknownFields).length) return ["entity event identity is invalid"];
   if (value.type === "entity_content_observed")
     return validateObservedPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
+  if (value.type === "entity_updated")
+    return validateObservedPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
+  if (value.type === "entity_archived") {
+    const payload = value.payload;
+    try {
+      artifactEntityContractFromSnapshot(payload.artifactContract, allowUnknownFields);
+    } catch {
+      return ["entity archive artifact contract is invalid"];
+    }
+    return typeof payload.entityKind === "string" &&
+      typeof payload.entityId === "string" &&
+      typeof payload.reason === "string" &&
+      payload.reason.length > 0
+      ? []
+      : ["entity archive payload is invalid"];
+  }
   if (value.type === "entity_target_missing")
     return validateMissingPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   return validateUpsertPayload(value.schema, value.payload, hasFields);
@@ -263,7 +375,7 @@ export function isEntityEvent(event: { readonly schema: string; readonly type: s
 }
 
 export function isEntityDeclarationEvent(event: StoredEntityEventV1): event is EntityDeclarationEventV1 {
-  return event.type !== "entity_target_missing";
+  return event.type !== "entity_target_missing" && event.type !== "entity_archived";
 }
 
 export function entityUpsertWritePlan(event: EntityUpsertEventV1): FrozenWritePlan<"EntityUpsert"> {
@@ -292,6 +404,20 @@ export function entityTargetMissingWritePlan(
   );
 }
 
+export function entityArchivedWritePlan(event: EntityArchivedEventV1): FrozenWritePlan<"EntityArchived"> {
+  return freezeDeclaredWritePlan(
+    {
+      commandType: "EntityArchived",
+      targets: [
+        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "entity/v1", key: event.payload.entityId },
+      ],
+    },
+    ["EntityArchived"],
+  );
+}
+
 export function assertEntityEventInputs(
   event: EntityEventV1,
   plan: FrozenWritePlan | undefined,
@@ -302,13 +428,20 @@ export function assertEntityEventInputs(
     readonly body: string;
   }[],
 ): void {
-  if (event.type === "entity_target_missing") {
-    assertExactWritePlan(plan, entityTargetMissingWritePlan(event));
+  if (event.type === "entity_target_missing" || event.type === "entity_archived") {
+    assertExactWritePlan(
+      plan,
+      event.type === "entity_archived" ? entityArchivedWritePlan(event) : entityTargetMissingWritePlan(event),
+    );
     if (blobs.length) throw new Error("entity target-missing event must not carry content blobs");
     return;
   }
   const expected =
-    event.type === "entity_content_observed" ? entityContentObservedWritePlan(event) : entityUpsertWritePlan(event);
+    event.type === "entity_content_observed"
+      ? entityContentObservedWritePlan(event)
+      : event.type === "entity_updated"
+        ? declarationWritePlan("EntityUpdated", event, "entity/v1")
+        : entityUpsertWritePlan(event);
   assertExactWritePlan(plan, expected);
   const claim = event.payload.declarationDocumentClaim,
     declarationBlob = blobs.find((candidate) => candidate.sha256 === claim.sha256),
@@ -327,7 +460,7 @@ export function assertEntityEventInputs(
     throw new Error("entity declaration blob must be JSON");
   }
   const entity =
-    event.type === "entity_content_observed"
+    event.type === "entity_content_observed" || event.type === "entity_updated"
       ? decodeArtifactDescriptor(contract, value)
       : parseEntityJsonSchema(contract.schema, value, `${contract.kind} declaration`);
   if (!isRecord(entity) || entity[contract.id.field] !== event.payload.entityId)
@@ -359,14 +492,18 @@ export function assertEntityUpsertWritePlan(event: EntityEventV1, plan: FrozenWr
   const expected =
     event.type === "entity_target_missing"
       ? entityTargetMissingWritePlan(event)
-      : event.type === "entity_content_observed"
-        ? entityContentObservedWritePlan(event)
-        : entityUpsertWritePlan(event);
+      : event.type === "entity_archived"
+        ? entityArchivedWritePlan(event)
+        : event.type === "entity_content_observed"
+          ? entityContentObservedWritePlan(event)
+          : event.type === "entity_updated"
+            ? declarationWritePlan("EntityUpdated", event, "entity/v1")
+            : entityUpsertWritePlan(event);
   assertExactWritePlan(plan, expected);
 }
 
 export function contractForDeclarationEvent(event: EntityDeclarationEventV1): EntityStoreKindContract {
-  return event.type === "entity_content_observed"
+  return event.type === "entity_content_observed" || event.type === "entity_updated"
     ? artifactEntityContractFromSnapshot(event.payload.artifactContract)
     : requireEntityStoreKindContract(event.payload.entityKind);
 }
@@ -531,7 +668,7 @@ function declarationContent(contract: EntityStoreKindContract, entityId: string,
   return { body, claim };
 }
 
-function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObserved">(
+function declarationWritePlan<Command extends "EntityUpsert" | "EntityContentObserved" | "EntityUpdated">(
   commandType: Command,
   event: EntityDeclarationEventV1,
   projection: string,

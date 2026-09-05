@@ -58,7 +58,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
     assert.deepEqual(
       explained.subjects[0]?.actions.map(({ action }) => action.id),
-      ["import", "distill-candidate"],
+      ["import", "update", "archive", "distill-candidate"],
     );
     assert.equal(explained.subjects[0]?.actions[0]?.available, null);
 
@@ -175,12 +175,42 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       "entity_target_missing",
     );
     assert.equal(missingReplay.proof?.worktreeVisible, false);
+    const descriptorUpdate = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: kind,
+        entityId: preview.entityId,
+        expectedVersion: missing.revision,
+        title: "Revised title",
+        locator: sourcePath,
+        contentVersion: "revision:manual-2",
+      },
+      secondaryNodeBinding,
+    );
+    assert.equal(descriptorUpdate.outcome, "applied", JSON.stringify(descriptorUpdate));
+    const archived = await cell.run(
+      {
+        kind: "entity-archive",
+        entityKind: kind,
+        entityId: preview.entityId,
+        expectedVersion: descriptorUpdate.revision,
+        reason: "Superseded by ADR-0002",
+      },
+      binding,
+    );
+    assert.equal(archived.outcome, "applied", JSON.stringify(archived));
     const artifactEvents = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.filter((event) => event.schema === "entity-event/v1" && event.payload.entityKind === kind);
     assert.deepEqual(
       artifactEvents.map(({ type }) => type),
-      ["entity_content_observed", "entity_content_observed", "entity_target_missing"],
+      [
+        "entity_content_observed",
+        "entity_content_observed",
+        "entity_target_missing",
+        "entity_updated",
+        "entity_archived",
+      ],
     );
 
     const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
@@ -205,8 +235,9 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
         row = rebuilt.getEntity(kind, preview.entityId);
       assert.equal(receipt.watermark, rebuildStore.readHead()?.revision);
       assert.equal(row?.id, preview.entityId);
-      assert.equal(row?.workspaceRevision, missing.revision);
-      assert.equal(row?.value.contentVersion, updatedEvidence.preview.candidateContentVersion);
+      assert.equal(row?.workspaceRevision, archived.revision);
+      assert.equal(row?.value.contentVersion, "revision:manual-2");
+      assert.equal(row?.value.title, "Revised title");
       assert.equal(row?.freshness, "orphaned");
       assert.equal(row?.currentVersion, null);
     } finally {

@@ -121,6 +121,7 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
       title: "ADR-0020 · Decision 与 ADR 边界",
       locator: { kind: "repository-path", value: "harness/adr/ADR-0020.md" },
       revision: 42,
+      archived: false,
     },
   ]);
 });
@@ -157,6 +158,7 @@ test("entity rows include daemon-local runtime instances with Provider deep link
       title: "Codex Sol",
       locator: { kind: "entity-ref", value: "provider/codex-sol" },
       revision: 0,
+      archived: false,
     },
   ]);
 });

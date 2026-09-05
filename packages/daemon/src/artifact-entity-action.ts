@@ -9,6 +9,11 @@ import {
 } from "../../application/src/index.ts";
 import {
   compiledRelationDirections,
+  artifactEntityContractSnapshot,
+  artifactImportOperationId,
+  canonicalArtifactLocator,
+  compileEntityArchived,
+  compileEntityUpdated,
   compileVerticalContract,
   composeCanonicalRelationDirections,
   isEntityDeclarationEvent,
@@ -88,6 +93,118 @@ export async function executeArtifactEntityImport(input: {
     );
   const receipt = await runArtifactEntityImport({ ...input, contracts });
   return { action: { ...input.action, entityId: receipt.entityId }, contract, receipt };
+}
+
+export function executeArtifactEntityMutation(input: {
+  readonly rootDir: string;
+  readonly repositoryId: string;
+  readonly action: RepoTaskAction;
+  readonly binding: RepoCellBinding;
+  readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
+  readonly now: () => string;
+  readonly authorizationDecision: AuthorizationDecision;
+}): {
+  readonly action: RepoTaskAction;
+  readonly contract: EntityActionContract;
+  readonly receipt: ArtifactImportReceipt;
+} {
+  const contracts = compiledArtifactKinds(),
+    kind = requiredArtifactText(input.action.entityKind, "entityKind"),
+    entityId = requiredArtifactText(input.action.entityId, "entityId"),
+    compiled = contracts.find(({ typeIdentity }) => typeIdentity === kind),
+    contract = compiled?.entityKindContract.actionCatalog?.actions.find(({ id }) => id === input.action.kind.slice(7));
+  if (!compiled || !contract?.execution)
+    throw Object.assign(new Error(`Artifact kind ${kind} has no executable ${input.action.kind} action.`), {
+      code: "unsupported_command",
+    });
+  const current = readCurrentArtifact(input.store, contracts, kind, entityId),
+    expectedVersion = Number(input.action.expectedVersion);
+  if (!current?.descriptor)
+    throw Object.assign(new Error(`Entity ${kind}/${entityId} does not exist.`), { code: "entity_not_found" });
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== current.revision)
+    throw Object.assign(
+      new Error(
+        `Entity ${entityId} expected revision ${String(expectedVersion)}, current revision is ${current.revision}.`,
+      ),
+      { code: "revision_conflict" },
+    );
+  const contractSnapshot = artifactEntityContractSnapshot(compiled),
+    workspaceRevision = (input.store.readHead()?.revision ?? 0) + 1,
+    envelope = {
+      workspaceRevision,
+      actor: input.binding.actor,
+      source: input.binding.source,
+      occurredAt: input.now(),
+    },
+    bundle =
+      input.action.kind === "entity-update"
+        ? updatedBundle(input.action, current.descriptor, compiled, contractSnapshot, envelope)
+        : compileEntityArchived({
+            ...envelope,
+            eventId: `event-entity-archive-${workspaceRevision}`,
+            opId: `entity-archive-${entityId}-${workspaceRevision}`,
+            contractSnapshot,
+            entityId,
+            reason: requiredArtifactText(input.action.reason, "reason"),
+          }),
+    appended = input.store.append(bundle),
+    _applied = input.projection.apply(bundle.event, bundle.plan),
+    applied = input.projection.readOperation(bundle.event.opId),
+    visible = !!applied && applied.watermark >= bundle.event.workspaceRevision,
+    receipt: ArtifactImportReceipt = {
+      outcome: visible ? "applied" : "pending",
+      opId: bundle.event.opId,
+      revision: appended.revision,
+      entityId,
+      evidence: JSON.stringify({ schema: "artifact-entity-mutation-result/v1", eventType: bundle.event.type }),
+      visibility: "center",
+      proof: {
+        committedRevision: appended.revision,
+        appliedCut: applied?.watermark ?? 0,
+        durable: true,
+        canonicalVisible: visible,
+        worktreeVisible: bundle.event.type === "entity_updated",
+      },
+      authorizationDecision: input.authorizationDecision,
+      commitSha: appended.commitSha?.sha ?? null,
+      cut: appended.cut,
+      ...(visible ? {} : { guidance: [{ kind: "retry-receipt", args: { opId: bundle.event.opId } }] }),
+    };
+  return { action: input.action, contract, receipt };
+}
+
+function updatedBundle(
+  action: RepoTaskAction,
+  current: NonNullable<ArtifactEntityCurrent["descriptor"]>,
+  compiled: CompiledArtifactKindContract,
+  contractSnapshot: ReturnType<typeof artifactEntityContractSnapshot>,
+  envelope: {
+    readonly workspaceRevision: number;
+    readonly actor: RepoCellBinding["actor"];
+    readonly source: RepoCellBinding["source"];
+    readonly occurredAt: string;
+  },
+) {
+  const locator =
+      typeof action.locator === "string"
+        ? canonicalArtifactLocator({ kind: current.locator.kind, value: action.locator })
+        : current.locator,
+    contentVersion = typeof action.contentVersion === "string" ? action.contentVersion.trim() : current.contentVersion,
+    opId = artifactImportOperationId({ entityId: current.entityId, locator, resolution: contentVersion });
+  return compileEntityUpdated({
+    ...envelope,
+    eventId: `event-${opId}`,
+    opId,
+    contract: compiled.entityKindContract as Parameters<typeof compileEntityUpdated>[0]["contract"],
+    contractSnapshot,
+    descriptor: {
+      ...current,
+      locator,
+      contentVersion,
+      ...(typeof action.title === "string" ? { title: action.title.trim() } : {}),
+    },
+  });
 }
 
 export async function runArtifactEntityImport(input: {

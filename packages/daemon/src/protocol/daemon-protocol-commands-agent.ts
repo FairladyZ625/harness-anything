@@ -264,6 +264,52 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
     ],
   }),
+  defineCenterForwardWriteCommand({
+    id: "entity-update",
+    phase: "Governed-Entity-W2",
+    path: ["entity", "update", "<kind>"],
+    summary: "Update mutable fields of one compiled vertical Artifact Entity.",
+    method: "repo.task.run",
+    positional: "entityKind",
+    inputs: [
+      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+        },
+      ),
+      cliInput("--title", "single", false, { code: "invalid_field" }),
+      cliInput("--locator", "single", false, { code: "invalid_field" }),
+      cliInput("--content-version", "single", false, { code: "invalid_field" }, { field: "contentVersion" }),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "entity-archive",
+    phase: "Governed-Entity-W2",
+    path: ["entity", "archive", "<kind>"],
+    summary: "Archive one compiled vertical Artifact Entity without deleting its descriptor.",
+    method: "repo.task.run",
+    positional: "entityKind",
+    inputs: [
+      cliInput("--id", "single", true, { code: "missing_field" }, { field: "entityId" }),
+      cliInput("--reason", "single", true, { code: "missing_field" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          regex: "^(?:0|[1-9][0-9]*)$",
+          projection: "number",
+        },
+      ),
+    ],
+  }),
   defineRepoReadCommand({
     id: "entity-get",
     phase: "Runtime-B",

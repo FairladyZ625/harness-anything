@@ -23,7 +23,7 @@ export interface EntityDetailTarget {
  * decision/<id> → 决策详情页;fact/<anchor> → 事实详情页;其余 → null。
  *
  * `declaredKinds` 是已注册 kind 读面上的 kind 清单:声明出来的实体没有专页,统一落
- * 实体说明面的该 kind 详情(与 entitydoc/<kind> 同一落点),整条 ref 原样下发,由那一页
+ * 实体页的该 kind 详情(与 entitydoc/<kind> 同一落点),整条 ref 原样下发,由那一页
  * 选中对应实体。本函数不持有 kind 清单——不传就只认代码里有专页的那些。
  */
 export function entityDetailTargetOf(ref: string, declaredKinds: readonly string[] = []): EntityDetailTarget | null {
@@ -59,7 +59,7 @@ export function entityDetailTargetOf(ref: string, declaredKinds: readonly string
     if (!presetId) return null;
     return { view: "presets", focusedEntityRef: `preset/${presetId}` };
   }
-  // entitydoc/<kind> → 实体说明面内的实体详情(dec_2935057783CD5D56E9F287AE4D CH4):
+  // entitydoc/<kind> → 实体页内的实体详情(dec_2935057783CD5D56E9F287AE4D CH4):
   // 与 preset/<id> 同一条「目录页内详情」路径——落 entities 视图,focusedEntityRef
   // 区分目录/详情,推栈回撤原路返回。
   if (ref.startsWith("entitydoc/")) {

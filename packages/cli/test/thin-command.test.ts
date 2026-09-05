@@ -112,6 +112,55 @@ test("entity import projects its concurrency and dry-run flags into one daemon A
   );
 });
 
+test("entity update and archive preserve the entity revision fence", () => {
+  const update = parseThinCommand([
+    "entity",
+    "update",
+    "software/coding/architecture-decision-record@1",
+    "--id",
+    "ADR-abc",
+    "--title",
+    "Revised",
+    "--locator",
+    "docs/revised.md",
+    "--content-version",
+    "git:abc",
+    "--expected-version",
+    "7",
+  ]);
+  assert.equal(update.ok, true);
+  if (update.ok)
+    assert.deepEqual(update.command.action, {
+      kind: "entity-update",
+      entityKind: "software/coding/architecture-decision-record@1",
+      entityId: "ADR-abc",
+      title: "Revised",
+      locator: "docs/revised.md",
+      contentVersion: "git:abc",
+      expectedVersion: 7,
+    });
+  const archive = parseThinCommand([
+    "entity",
+    "archive",
+    "software/coding/architecture-decision-record@1",
+    "--id",
+    "ADR-abc",
+    "--reason",
+    "Superseded",
+    "--expected-version",
+    "8",
+  ]);
+  assert.equal(archive.ok, true);
+  if (archive.ok)
+    assert.deepEqual(archive.command.action, {
+      kind: "entity-archive",
+      entityKind: "software/coding/architecture-decision-record@1",
+      entityId: "ADR-abc",
+      reason: "Superseded",
+      expectedVersion: 8,
+    });
+});
+
 test("dispatch record migration projects its dry-run flag into the daemon Action", () => {
   const parsed = parseThinCommand(["migrate", "dispatch-records", "--dry-run"]);
   assert.equal(parsed.ok, true);
@@ -191,7 +240,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-dry-run",
       "doc-sync-submit",
     ],
-    entity: ["entity-get", "entity-import", "entity-list"],
+    entity: ["entity-archive", "entity-get", "entity-import", "entity-list", "entity-update"],
     explain: ["explain"],
     fact: ["fact-reclassify", "fact-record", "fact-search", "fact-show", "fact-type-list", "fact-type-register"],
     gui: ["gui"],
