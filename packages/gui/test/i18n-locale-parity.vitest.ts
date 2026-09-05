@@ -22,10 +22,13 @@ describe("i18n bilingual catalogs (REQ-GUI-09 language switch)", () => {
     expect(typeof initialLocale()).toBe("string");
   });
 
-  it("has a plane_<kind> caption for every runtime kind (guards the ZCODE black-screen)", () => {
+  it("has plane_<kind> and modelHint_<kind> captions for every runtime kind (guards the ZCODE black-screen)", () => {
     const keys = new Set(catalogKeys("zh-CN"));
-    for (const kindId of RUNTIME_KIND_IDS)
-      expect(keys.has(`agentRuntime.plane_${kindId}`), `missing agentRuntime.plane_${kindId}`).toBe(true);
+    // NewRuntimeDialog renders both t(`agentRuntime.plane_${kindId}`) and t(`agentRuntime.modelHint_${kindId}`);
+    // a missing key on either used to crash the renderer, so both prefixes must exist for every kind.
+    for (const prefix of ["plane", "modelHint"] as const)
+      for (const kindId of RUNTIME_KIND_IDS)
+        expect(keys.has(`agentRuntime.${prefix}_${kindId}`), `missing agentRuntime.${prefix}_${kindId}`).toBe(true);
   });
 
   it("returns the key itself for a missing message instead of throwing", () => {
