@@ -305,7 +305,7 @@ export type {
   SquadDeclarationV1,
 } from "./agent-squad-schema.ts";
 export { EntitySchemaContractError } from "./entity-json-schema.ts";
-export { artifactEntityActionCatalog, artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
+export { artifactEntityImportActionInput } from "./artifact-entity-actions.ts";
 
 export {
   compileEntityContentObserved,
@@ -320,8 +320,6 @@ export {
 } from "./entity-event.ts";
 export type {
   EntityContentObservedBundle,
-  EntityArchivedBundle,
-  EntityUpdatedBundle,
   EntityEventV1,
   EntityTargetMissingBundle,
   EntityUpsertBundle,

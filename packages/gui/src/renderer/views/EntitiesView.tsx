@@ -12,7 +12,7 @@ import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 
 /**
- * 实体说明面(dec_2935057783CD5D56E9F287AE4D CH4):三元语与扩展实体集中在一
+ * 实体目录面(dec_2935057783CD5D56E9F287AE4D CH4):三元语与扩展实体集中在一
  * 个目录上「看见它们是什么」。双重身份:对内是限制面(受控词表与合法动作在这
  * 里可见,不允许随手自由文本),对外是产品展示面(陌生人第一次看懂三元语内核
  * 的入口)。目录 + 详情沿用 PresetsView 的范式(entitydoc/<kind> 深链接,推栈
@@ -28,7 +28,7 @@ export function EntitiesView({
 }: {
   readonly repoId: string;
   /**
-   * 详情落点。两种形态:`entitydoc/<kind>`(打开某 kind 的说明)与声明实体的
+   * 详情落点。两种形态:`entitydoc/<kind>`(打开某 kind 的详情)与声明实体的
    * `<kind>/<entityId>`(打开该 kind 并选中这一个实体)。null = 目录页。
    */
   readonly focusedRef: string | null;

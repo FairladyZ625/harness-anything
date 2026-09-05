@@ -149,7 +149,8 @@ test("preload exposes only the approved API methods", () => {
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
   assert.equal(getPreloadApiCapability("getTasks").status, "shipped");
-  assert.equal(daemonGuiActionMethods.length, 31);
+  // entity.update / entity.archive add the updateEntity and archiveEntity GUI methods.
+  assert.equal(daemonGuiActionMethods.length, 33);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"),
     false,
