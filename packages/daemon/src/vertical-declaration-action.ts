@@ -11,6 +11,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { noChanges, reject } from "./entity-action-write-helpers.ts";
 
 export async function runVerticalDeclarationAction(input: {
   readonly action: RepoTaskAction;
@@ -22,7 +23,12 @@ export async function runVerticalDeclarationAction(input: {
 }): Promise<WriteReceiptDraft> {
   const target = path.join(input.rootDir, "harness", "vertical.json"),
     current = existsSync(target) ? parseVerticalDeclarationDocument(JSON.parse(readFileSync(target, "utf8"))) : null;
-  if (input.action.kind === "vertical-declaration-migrate" && current) return noChanges(current.revision);
+  if (input.action.kind === "vertical-declaration-migrate" && current)
+    return noChanges({
+      opId: `vertical-declaration-existing-${current.revision}`,
+      revision: current.revision,
+      evidence: JSON.stringify({ schema: "vertical-declaration-result/v1", idempotent: true }),
+    });
   const nextRevision = (input.store.readHead()?.revision ?? 0) + 1,
     occurredAt = input.now(),
     result = candidate(input.action, current, occurredAt),
@@ -97,25 +103,4 @@ function candidate(
     kindId,
     reason: retire ? reason : null,
   };
-}
-
-function noChanges(revision: number): WriteReceiptDraft {
-  return {
-    outcome: "no_changes",
-    opId: `vertical-declaration-existing-${revision}`,
-    revision,
-    evidence: JSON.stringify({ schema: "vertical-declaration-result/v1", idempotent: true }),
-    visibility: "center",
-    proof: {
-      committedRevision: revision,
-      appliedCut: revision,
-      durable: true,
-      canonicalVisible: true,
-      worktreeVisible: true,
-    },
-  };
-}
-
-function reject(code: string, message: string): never {
-  throw Object.assign(new Error(message), { code });
 }

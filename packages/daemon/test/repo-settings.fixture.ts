@@ -3,11 +3,13 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
+  compileVerticalDeclarationEvent,
   makeTaskEventStore,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
 } from "../../kernel/src/index.ts";
+import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 
@@ -103,6 +105,21 @@ async function settleSettingsEvent(input: {
         actor: { principal: { personId: "fixture" }, executor: null },
         source: "local",
         occurredAt: "2026-08-27T00:00:00.000Z",
+      }),
+    );
+  }
+  if (!stream.events.some((event) => event.schema === "vertical-declaration-event/v1")) {
+    const workspaceRevision = store.read().revision + 1;
+    store.append(
+      compileVerticalDeclarationEvent({
+        type: "vertical_declared",
+        definition: JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8")),
+        eventId: `event-vertical-declaration-fixture-${workspaceRevision}`,
+        opId: `vertical-declaration-fixture-${workspaceRevision}`,
+        workspaceRevision,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: "2026-09-05T00:00:00.000Z",
       }),
     );
   }

@@ -201,3 +201,7 @@ export type ArtifactRelationDefinition = NonNullable<ArtifactEntityKindDefinitio
 export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
   return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
 }
+
+export function decodeForwardCompatibleVerticalDefinition(input: unknown): VerticalDefinition {
+  return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "ignore" })(input);
+}

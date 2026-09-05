@@ -315,6 +315,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.decision.accept", { decisionId: "dec_A", rationale: "Approved", judgmentOnlyRationale: "Judgment" }],
     ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }],
     ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }],
+    ["repo.vertical.kind.upsert", { kindId: "runbook", declaration: { id: "runbook" }, expectedVersion: 2 }],
+    ["repo.vertical.kind.retire", { kindId: "runbook", reason: "Superseded", expectedVersion: 3 }],
     ["repo.entity.import", { entityKind: "software/coding/architecture-decision-record@1", locator: "harness/adr/ADR-0001-example.md", expectedVersion: 0, title: "Example ADR" }],
     ["repo.entity.update", { entityKind: "software/coding/architecture-decision-record@1", entityId: "ADR-abc", expectedVersion: 7, title: "Updated", locator: "harness/adr/ADR-0002.md", contentVersion: "git:abc" }],
     ["repo.entity.archive", { entityKind: "software/coding/architecture-decision-record@1", entityId: "ADR-abc", expectedVersion: 8, reason: "Superseded" }],
@@ -928,7 +930,7 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    const ledgerRoot = path.join(rootDir, "harness"); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "1"); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
+    const ledgerRoot = path.join(rootDir, "harness"); assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2"); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 

@@ -139,8 +139,9 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    assert.equal(stream.revision, 1);
+    assert.equal(stream.revision, 2);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     const settingsRead = run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings;
     assert.equal(settingsRead.locale, "en-US");
     assert.deepEqual(
@@ -162,7 +163,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(repeated.created, []);
     assert.deepEqual(repeated.updated, []);
     assert.deepEqual(repeated.preserved, initialized.created);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2");
+    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "3");
     const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], {
       cwd: fixture.repo,
       encoding: "utf8",
@@ -210,7 +211,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     const reports = readdirSync(reportsRoot, { withFileTypes: true });
     assert.equal(reports.length, 1);
     assert.equal(reports[0]?.isFile(), true);
-    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "2");
+    assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), "3");
     const textReceipt = spawnSync(
       process.execPath,
       [

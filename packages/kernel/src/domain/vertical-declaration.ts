@@ -1,6 +1,10 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { decodeVerticalDefinition, type VerticalDefinition } from "../schemas/vertical-definition.ts";
+import {
+  decodeForwardCompatibleVerticalDefinition,
+  decodeVerticalDefinition,
+  type VerticalDefinition,
+} from "../schemas/vertical-definition.ts";
 import {
   freezeDeclaredWritePlan,
   hasContractFields,
@@ -185,7 +189,7 @@ function validateVerticalDeclarationEventFields(value: unknown, allowUnknownFiel
   )
     return ["vertical declaration event envelope or payload is invalid"];
   try {
-    const declaration = parseVerticalDeclarationDocument(value.payload.declaration),
+    const declaration = parseVerticalDeclarationDocumentForValidation(value.payload.declaration, allowUnknownFields),
       claim = value.payload.declarationDocumentClaim;
     if (
       declaration.revision !== value.workspaceRevision ||
@@ -211,6 +215,25 @@ function validateVerticalDeclarationEventFields(value: unknown, allowUnknownFiel
   return validateEventEnvelopeIdentity(value, allowUnknownFields).length
     ? ["vertical declaration event identity is invalid"]
     : [];
+}
+
+function parseVerticalDeclarationDocumentForValidation(
+  value: unknown,
+  allowUnknownFields: boolean,
+): VerticalDeclarationDocumentV1 {
+  if (
+    !isRecord(value) ||
+    value.schema !== "repository-vertical-declaration/v1" ||
+    !Number.isSafeInteger(value.revision)
+  )
+    throw new Error("repository vertical declaration is invalid");
+  return {
+    schema: value.schema,
+    revision: Number(value.revision),
+    definition: allowUnknownFields
+      ? decodeForwardCompatibleVerticalDefinition(value.definition)
+      : decodeVerticalDefinition(value.definition),
+  };
 }
 
 export function isVerticalDeclarationEvent(event: { readonly schema: string }): event is VerticalDeclarationEventV1 {
