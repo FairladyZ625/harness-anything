@@ -16,6 +16,7 @@ then gates *"done"* so progress compounds instead of evaporating into chat.
 </p>
 
 <p>
+  <a href="https://skills.sh/FairladyZ625/harness-anything"><img alt="Skills 安装" src="https://skills.sh/b/FairladyZ625/harness-anything"></a>
   <a href="https://github.com/FairladyZ625/harness-anything/actions/workflows/rewrite-ci.yml"><img alt="CI" src="https://github.com/FairladyZ625/harness-anything/actions/workflows/rewrite-ci.yml/badge.svg"></a>
   <a href="https://github.com/FairladyZ625/harness-anything/actions/workflows/pr-body.yml"><img alt="PR body checks" src="https://github.com/FairladyZ625/harness-anything/actions/workflows/pr-body.yml/badge.svg"></a>
   <a href="https://github.com/FairladyZ625/harness-anything/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/FairladyZ625/harness-anything?style=flat&logo=github&color=yellow"></a>
@@ -123,25 +124,46 @@ contributor hot-reload tool.
 Ready to use it on a project? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
 
-### Or have an agent install it for you
+### 通过 Skills 生态一段话完成安装
 
-**You do not need anything installed first.** Paste this to a coding agent
-working in the project you want to adopt it in:
+先把引导技能装到你使用的 Agent。下面以 Codex 和 Claude Code 为例；可以删掉不用的 Agent 参数，或交互选择其他受支持的 Agent：
 
-> Read `skills/harness-install/SKILL.md` from
-> https://github.com/FairladyZ625/harness-anything and follow it to install
-> Harness Anything in this project. Ask me before each decision the skill says
-> to ask about.
+```bash
+bunx skills add FairladyZ625/harness-anything --skill harness-download -g -a codex claude-code
+```
 
-The skill reads your project first — language, layout, CI, whether you already
-have an `AGENTS.md` — then initializes a ledger, attaches it to a daemon, and
-drives one real task all the way to `done`, so the install is proven rather than
-assumed. It stops and asks you wherever a choice is hard to undo: the person id
-it is about to write, and any file of yours it would have to merge into.
+没有 Bun 时，把 `bunx` 换成 `npx` 即可。Bun 运行的是 Skills 安装器；Harness 当前仍使用 Node 24+ 和持久源码运行。
 
-If the project **already has** a `harness/` ledger from an earlier release, use
-the [migration skill](#breaking-change-existing-repositories-must-migrate)
-below instead.
+然后在目标项目里给 Agent 这一段话：
+
+> 使用 harness-download 带我完成 Harness Anything 首次接入：检查环境，把源码放到持久目录，将整套技能软链接到我选定的 Agent 用户目录，然后继续初始化当前仓库、建立主控知识入口，并用 harness-ceo 带完一个真实任务。能从项目和环境查到的信息请直接读取；需要我选择或批准时，给出具体方案后再问，已确认内容不要重复确认。
+
+整个流程连续完成：
+
+| 技能 | 负责什么 |
+| --- | --- |
+| [harness-download](./skills/harness-download/SKILL.md) | 准备环境、下载持久源码、链接整套技能，并协调后续引导 |
+| [harness-install](./skills/harness-install/SKILL.md) | 把可用的 Harness 接入指定仓库，保留既有指令与身份审批 |
+| [harness-ceo](./skills/harness-ceo/SKILL.md) | 初始化用户知识位置、选择模型、开展真实工作并验证交付 |
+
+下载工具只做一次；接入另一个仓库时直接使用 `harness-install`，日常工作使用 `harness-ceo`。用户矩阵、问题记录和反馈保留在工作区，升级公共技能不覆盖。
+
+也可以查看或直接安装仓库里的整组技能：
+
+```bash
+bunx skills add FairladyZ625/harness-anything --list
+bunx skills add FairladyZ625/harness-anything --skill '*' -g -a codex claude-code
+```
+
+Skills CLI 的安装副本与源码安装不是同一回事。下载引导随后会把所选 Agent 的技能接到持久源码；已有同名定制内容先检查冲突，不自动覆盖。源码目录移走会使链接失效，因此不放临时目录。
+
+如果没有安装 Skills CLI，也可直接把这句话发给 Agent：
+
+> 读取 https://github.com/FairladyZ625/harness-anything 中的 `skills/harness-download/SKILL.md`，按它完成上述首次引导，并在各阶段继续执行。
+
+已有当前可用台账会直接复用；明确属于旧代时才走 [harness-migration](./skills/harness-migration/SKILL.md)，不会因目录已存在就覆盖或自动迁移。
+
+安装语法与目录选择见 [Skills CLI 官方说明](https://github.com/vercel-labs/skills)。技能可以直接从 GitHub 发现；[skills.sh](https://skills.sh/docs) 的展示与收录由其服务处理，不以仓库内新增文档作为已收录证明。
 
 ## Breaking change: existing repositories must migrate
 
@@ -194,6 +216,7 @@ The result is a repository that remembers more than its code:
 - [Learn](./docs-release/learn/en/00-overview.md) — understand the memory model, gates, and compounding loop. ([中文](./docs-release/learn/zh/00-overview.md))
 - [Architecture](./docs-release/architecture/en/00-overview.md) — explore the kernel, storage model, write path, and projections. ([中文](./docs-release/architecture/zh/00-overview.md))
 - [Release posture](./docs-release/release-posture.md) — see what is shipped, foundational, or planned.
+- [Harness 主控编排](./skills/harness-ceo/SKILL.md) — 模型无关的派工、证据验收，以及用户自有模型矩阵的接入与迭代方法。
 - [Migration](./docs-release/migration-genesis-replay.md) — replay an older-generation ledger into the current format. ([agent skill](./skills/harness-migration/SKILL.md))
 - [Ledger recovery](./docs-release/migration-legacy-ledger-recovery.md) — repair a repository whose legacy ledger the current daemon refuses to attach. ([中文](./docs-release/migration-legacy-ledger-recovery.zh-CN.md))
 - [Minimal example](./examples/minimal-project/) — inspect the smallest working project.

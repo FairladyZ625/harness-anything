@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness 下载与引导"
+  short_description: "从源码环境与技能链接开始，连续引导仓库初始化和主控首次使用"
+  default_prompt: "使用 $harness-download 带我完成 Harness Anything 的环境准备、持久源码下载、Agent 技能链接、目标仓库初始化，以及主控技能的首次使用。"

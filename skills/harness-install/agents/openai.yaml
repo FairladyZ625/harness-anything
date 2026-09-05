@@ -1,4 +1,4 @@
 interface:
-  display_name: "Harness Install"
-  short_description: "Install Harness Anything into a project that has never had it"
-  default_prompt: "Use $harness-install to adopt Harness Anything in this project: read the project first, initialize a ledger, attach it to a daemon, and drive one real task to done so the install is proven. Ask me before each decision the skill says to ask about."
+  display_name: "Harness 仓库初始化"
+  short_description: "将可用的 Harness 接入目标仓库并由主控带完首个真实任务"
+  default_prompt: "使用 $harness-install 初始化这个仓库的 Harness；缺少工具时先完成下载引导，再继续主控知识初始化与首任务验证。"

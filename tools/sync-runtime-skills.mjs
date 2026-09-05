@@ -2,15 +2,12 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRepoRoot = path.resolve(path.dirname(scriptPath), "..");
 
-export const runtimeSkillTargetDirs = [
-  ".agents/skills",
-  ".claude/skills",
-  ".codex/skills"
-];
+export const runtimeSkillTargetDirs = [".agents/skills", ".claude/skills", ".codex/skills"];
 
 export function discoverRepositorySkills(repoRoot = defaultRepoRoot) {
   const skillsRoot = path.join(repoRoot, "skills");
@@ -25,11 +22,21 @@ export function syncRuntimeSkills(options = {}) {
   const repoRoot = path.resolve(options.repoRoot ?? defaultRepoRoot);
   const skillsRoot = path.join(repoRoot, "skills");
   const skillNames = discoverRepositorySkills(repoRoot);
+  const targetDirs = options.targetDirs ?? runtimeSkillTargetDirs;
+  if (!Array.isArray(targetDirs) || targetDirs.length === 0) {
+    throw new Error("至少指定一个技能目标目录");
+  }
+  const targets = [...new Set(targetDirs.map((dir) => path.resolve(repoRoot, dir)))];
+  // Check every collision before changing any target, including broken symlinks.
+  for (const targetDir of targets) {
+    for (const skillName of skillNames) {
+      assertSkillTarget(path.join(targetDir, skillName), path.join(skillsRoot, skillName));
+    }
+  }
   const linked = [];
   const pruned = [];
 
-  for (const targetDirTemplate of runtimeSkillTargetDirs) {
-    const targetDir = path.join(repoRoot, targetDirTemplate);
+  for (const targetDir of targets) {
     mkdirSync(targetDir, { recursive: true });
 
     for (const skillName of skillNames) {
@@ -50,20 +57,20 @@ export function syncRuntimeSkills(options = {}) {
     }
   }
 
-  return { skillNames, targetDirs: runtimeSkillTargetDirs, linked, pruned };
+  return { skillNames, targetDirs, linked, pruned };
+}
+
+function assertSkillTarget(link, source) {
+  const stat = lstatSync(link, { throwIfNoEntry: false });
+  if (!stat) return;
+  if (!stat.isSymbolicLink() || path.resolve(path.dirname(link), readlinkSync(link)) !== source) {
+    throw new Error(`技能目标已存在且不属于本源码链接，请先核对并保留用户内容：${link}`);
+  }
 }
 
 function ensureSkillSymlink(link, source, targetDir) {
-  if (existsSync(link)) {
-    const stat = lstatSync(link);
-    if (!stat.isSymbolicLink()) {
-      throw new Error(`runtime skill target exists and is not a symlink: ${link}`);
-    }
-    const existing = path.resolve(targetDir, readlinkSync(link));
-    if (existing === source) return;
-    rmSync(link);
-  }
-
+  assertSkillTarget(link, source);
+  if (lstatSync(link, { throwIfNoEntry: false })) return;
   const relativeSource = path.relative(targetDir, source).split(path.sep).join("/");
   symlinkSync(relativeSource, link, "dir");
 }
@@ -74,6 +81,18 @@ function isInside(parent, child) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
-  const result = syncRuntimeSkills();
-  console.log(JSON.stringify(result, null, 2));
+  const { values } = parseArgs({
+    options: {
+      "target-dir": { type: "string", multiple: true },
+      help: { type: "boolean" },
+    },
+  });
+  if (values.help) {
+    console.log(
+      "用法：node tools/sync-runtime-skills.mjs [--target-dir <Agent技能目录>]...\n不传目录时仅同步本仓库的项目级技能；显式目录可用于用户级安装。现有不同内容或不同来源链接不会被覆盖。",
+    );
+  } else {
+    const result = syncRuntimeSkills({ targetDirs: values["target-dir"] });
+    console.log(JSON.stringify(result, null, 2));
+  }
 }

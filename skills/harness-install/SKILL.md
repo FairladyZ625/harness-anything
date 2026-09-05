@@ -1,723 +1,196 @@
 ---
 name: harness-install
-description: Install Harness Anything into a project that has never had it, from a machine with no prior installation. Use when a user wants to adopt, set up, install, or try Harness Anything on an existing or brand-new project, when a repository has no harness/ ledger yet, or when someone asks how to get started with harness-anything. Reads the project first, then initializes, then drives one real task to done so the install is proven rather than assumed.
+description: 将已经可用的 Harness Anything 接入一个尚无台账的目标仓库：检查项目、确认身份、初始化、合并 Agent 入口、建立主控知识位置，并用一个真实任务验证完整流程。缺少源码或 CLI 时先使用 harness-download 完成工具准备，再返回本流程；不重复维护下载步骤。
 ---
 
-# Harness Install
+# Harness 仓库初始化
 
-Adopt Harness Anything in a project that does not have it yet: read the project,
-initialize a ledger, attach it to a daemon, and drive one real task all the way
-to `done`.
+本技能负责把 Harness 接入具体项目。机器环境、持久源码与用户级技能链接由 [harness-download](../harness-download/SKILL.md) 负责；本技能从可用 CLI 开始。完整引导过程中由同一个 Agent 连续执行，不要求用户在阶段之间重新发指令。
 
-**This skill assumes nothing is installed.** It fetches the current source and
-runs everything from there. It ends with a working install the user keeps — not
-a throwaway sandbox.
+## 入口与版本
 
-## Before anything: confirm this is the right document, and the right skill
+使用本次安装所选源码中的完整技能包，不混用不同版本的技能与 CLI。正式源码分发来自 `main`，可用 `git show origin/main:skills/harness-install/SKILL.md` 核对发布分支；明确验证候选分支时使用该候选包并记录版本。
 
-This skill is versioned in the `harness-anything` repository as
-`skills/harness-install/SKILL.md` on **`main`**, and that branch is the
-authority. **Read it from a git ref, never from whatever working tree happens to
-be at hand** — a checkout parked on another branch may not carry this file at
-all, or may carry an older revision, and neither difference is visible once the
-text is in front of you.
+读取项目之前不写入。检查已有 `harness/`、`.harness/`、配置及 CLI 可读状态：
 
-```bash
-git -C <any-checkout-of-harness-anything> show origin/main:skills/harness-install/SKILL.md
-```
+- 已有当前可用台账：复用工作区，转入主控初始化和用户任务，不重新 `init`。
+- 明确为旧代台账且用户要迁移：转 [harness-migration](../harness-migration/SKILL.md)，保留它的数据处置审批。
+- `harness/` 是无关业务目录，或无法判断已有内容：展示真实冲突，先澄清，不覆盖。
+- 没有台账：继续。
 
-The front matter settles identity: this skill's `name:` is exactly
-`harness-install`.
+## 0. 先读项目
 
-**Then check you are not holding the wrong half of the pair.** There are two
-adoption skills and they are not interchangeable:
+读取项目布局、Git 状态和历史、现有 `AGENTS.md` / `CLAUDE.md`、忽略规则、CI、构建和测试入口。能从磁盘得到的答案不问用户。
 
-```bash
-ls -d <project>/harness <project>/.harness 2>/dev/null
-```
-
-- `<project>/harness/` **exists and contains a ledger** (`harness.yaml`, or
-  `events/`, `tasks/`, `decisions/`) → **stop and use `harness-migration`
-  instead.** That project already has a Harness generation on disk; this skill
-  would initialize over the top of it. Migration is one-shot and archives the
-  old ledger first; there is no way back once you have run `ha init` there.
-- `<project>/harness/` exists but is something else entirely — a source
-  directory the project happens to have named `harness` — → stop and ask the
-  user. `ha init` writes into `harness/` and this is not a collision you get to
-  resolve on their behalf.
-- Neither exists → this skill.
-
-## 0. Read the project before you install anything
-
-**Do this first and do it from the disk, not from the user.** Half the choices
-below have a right answer that is already sitting in the repository, and asking
-for what you can read is how an install turns into an interview.
-
-```bash
-cd /absolute/path/to/the/project
-git rev-parse --is-inside-work-tree 2>/dev/null || echo "NOT A GIT REPOSITORY"
-git log --oneline -1 2>/dev/null || echo "NO COMMITS"
-ls -a
-ls .github/workflows 2>/dev/null
-git shortlog -sne --all 2>/dev/null | head
-git remote -v
-```
-
-What each answer changes:
-
-| Reading | Consequence |
+| 观察 | 对下一步的影响 |
 | --- | --- |
-| **Not a git repository, or no commits** | `ha init` needs a git repository at the project root. Create one, and give it at least one commit, before step 3 — see the note there. |
-| **`AGENTS.md` or `CLAUDE.md` already exists** | `ha init` will **preserve** yours and report it as `drifted`. The harness agent entry never lands. Step 4 exists entirely for this case. |
-| **A `.gitignore` already exists** | `ha init` **appends** `/harness/` and `/.harness/`. Existing rules are untouched. Nothing to do, but expect `.gitignore` to show as modified afterwards. |
-| **CI workflows present** | The `ci` completion gate has a real referent. Note the command CI runs; step 6 needs it. |
-| **No CI at all** | The `ci` gate still exists in the default contract and is still satisfied by `--ci passed`. Say so plainly to the user rather than letting them think a check ran. |
-| **More than one contributor in `shortlog`** | Read the independence rule in step 6 **before** promising anything about review. Identity is derived from the unix account, so "two people" on one machine is one person to the harness. |
-| **A public `origin`** | The ledger must never be committed into this repository. Step 3's ignore rules are what prevent it; verify them rather than assuming. |
-| **Build/test command** (`package.json` scripts, `Makefile`, `pyproject.toml`, …) | This is what the first task in step 6 should be about. A real first task teaches the loop; a task called "test" teaches nothing. |
+| 当前初始化方式要求 Git，但项目无仓库或提交 | 在用户授权的目标内先建立必要基础，不操作其他目录 |
+| 已有 Agent 指令 | 预备合并草案，保留原指令并取得具体合并批准 |
+| 已有忽略规则 | 初始化后回读差异，确认私有台账不会进入公开项目 |
+| 有 CI | 记录真实验证入口，首任务按实际结果收口 |
+| 没有 CI | 不把完成参数当成真实运行证据；按任务类型取得可验证结果，明确未运行 CI |
+| 多人协作 | 提前说明 owner 与评审身份的实际绑定，不能把环境变量当作另一个人 |
+| 用户已给首任务 | 直接复用，不再造一个名为“安装测试”的占位任务 |
 
-Then ask the user only what the disk cannot answer — **in one message, not one
-question at a time**:
+只合并询问尚缺少的项目标识、首次任务等信息。owner 身份与指令文件合并仍按下文保留具体审批。
 
-1. A repository id (short, lowercase, stable — it names this workspace in the
-   daemon registry).
-2. Their person id and display name (see step 2 — this one is expensive to get
-   wrong).
-3. What the first real task should be, given what you found.
+## 1. 取得当前 CLI 入口
 
-Do **not** offer them a choice of ledger placement. `ha init` puts the ledger at
-`<project>/harness` as a git repository of its own, and that is the only shape
-this skill installs. A ledger shared across machines from a directory of its own
-is a real configuration, but it is reached by registering an existing ledger
-elsewhere — not by `init` — and offering it here produces a promise the rest of
-this document does not keep.
+复用 `harness-download` 传来的绝对源码入口和 Node 路径。工具未准备好时读取同一技能包里的下载技能，完成其环境、源码、链接阶段后返回；不在这里再复制 clone 或 npm 安装配方。
 
-## 1. Get a working CLI
+下面用 `ha` 表示本次已核实的 CLI。若使用源码，后续调用均展开为 `node "<源码目录>/packages/cli/src/index.ts" ...`；临时 shell 函数不会跨工具调用自动保留，不把“node 加参数”装进一个字符串再当命令执行。
 
-**Node 24 or newer and a working C/C++ toolchain are required.** Check both
-before cloning:
+检查目标是否已有中心注册和在飞初始化，使用正常的服务根。不要通过 `HARNESS_DAEMON_USER_ROOT` 为正式安装切换到测试根；若发现现有环境指向隔离根，先核实用途，明确选择正式入口，不能静默把用户已有配置清掉。
 
-```bash
-node --version
-command -v make g++ python3
-```
+## 2. 确认初始 owner
 
-The CLI is run from its TypeScript entry point, which relies on Node's native
-type stripping. On an older Node every command fails with
+读取当前 `ha init --help`。向用户展示将写入的人员标识、显示名和当前传输身份绑定，再取得明确答复。已对同一内容确认过就复用，不能从 `git config user.name` 猜出 owner 并直接写入。
 
-```
-TypeError [ERR_UNKNOWN_FILE_EXTENSION]: Unknown file extension ".ts"
-```
-
-which reads like a missing build step and is not one — no amount of `npm run
-build` fixes it. Stop and tell the user to upgrade Node; nothing below works
-until they do.
-
-**The toolchain is not optional either, and this is the single most likely place
-a clean machine stops.** The daemon statically imports `node-pty`, which is a
-native addon with no prebuilt binary for most targets, so `npm install` compiles
-it. Without `make`/`g++` the install fails partway:
-
-```
-npm error gyp ERR! stack Error: not found: make
-npm error gyp ERR! cwd .../node_modules/node-pty
-```
-
-The failure is loud, but its consequence is not: `npm install` leaves
-`node_modules` **empty**, and the next command reports a missing dependency
-somewhere else entirely — `Cannot find package 'effect'` — which looks like a
-broken lockfile rather than a missing compiler.
-
-**Do not reach for `npm install --ignore-scripts` to get past it.** The install
-then succeeds and every read-only command still works, so it looks like the fix.
-It is not: the daemon crashes the moment it loads, with
-
-```
-Error: Failed to load native module: pty.node, checked: build/Release, build/Debug, prebuilds/linux-arm64
-```
-
-and every write command comes back `daemon_bind_timeout` pointing at a socket
-that will never open. Install the toolchain instead — on Debian/Ubuntu
-`apt-get install -y build-essential python3`, on macOS `xcode-select --install`.
-A container image with build tools already present (`node:24` rather than
-`node:24-slim`) avoids the question entirely.
-
-**First, check whether the machine already has a current `ha`**, and do not
-assume it does not:
-
-```bash
-command ha --version; echo "exit=$?"
-```
-
-A current-generation CLI prints a version and exits `0` — use it, and skip the
-clone. A previous-generation one rejects the flag outright:
-
-```
-{"ok":false,"command":"parse","error":{"code":"unknown_option",
- "hint":"Unknown option '--version' for 'ha'. Did you mean '--json'?"}}
-```
-
-**Route on whether the flag is accepted, never on the number it prints.** The
-version string is `0.1.0` on both a source checkout and a current global
-install, so the number discriminates nothing.
-
-If `--version` is rejected, the machine is running a previous generation. That
-is a migration situation for any repository it already serves — say so — but
-this project has no ledger, so you may still proceed here **provided you
-replace the installed CLI** with the one you are about to build. Two current
-generations cannot serve the same user root.
-
-```bash
-export HA_SRC="$HOME/.harness-anything-src"
-git clone --depth 1 --branch main https://github.com/FairladyZ625/harness-anything.git "$HA_SRC"
-cd "$HA_SRC" && npm install --no-audit --no-fund
-export HA_ENTRY="$HA_SRC/packages/cli/src/index.ts"
-ha() { node "$HA_ENTRY" "$@"; }
-ha --version
-```
-
-**Put the checkout somewhere durable, not in `mktemp -d`.** Unlike a migration,
-this install has to keep working tomorrow: the ledger you are about to create
-needs a daemon serving it, and that daemon is started from this entry point. A
-checkout under `$TMPDIR` takes the user's install down with it at the next
-reboot.
-
-**`ha` here is a shell function, not an exported variable.** The obvious
-`export HA="node …/index.ts"` followed by `$HA --version` works in bash and
-silently fails in zsh, which does not word-split unquoted parameters: zsh passes
-`node …/index.ts` as a **single** argument and the receipt comes back
-`unsupported_command`. A function behaves identically in both shells.
-
-If your shell does not persist between tool calls, write the state to a file and
-source it every time — otherwise `HA_ENTRY` is unset on the second command and
-nothing below works:
-
-```bash
-export HA_INSTALL_ENV="$HA_SRC/install-env.sh"
-{ echo "export HA_SRC='$HA_SRC'"
-  echo "export HA_ENTRY='$HA_ENTRY'"
-  echo 'ha() { node "$HA_ENTRY" "$@"; }'; } > "$HA_INSTALL_ENV"
-# every later command:  . "$HA_INSTALL_ENV" && <command>
-```
-
-Two things not to waste time on:
-
-- **Do not look for `node_modules/.bin/ha`.** The published `bin` points at
-  `dist/`, which a source checkout does not contain, so the linked binary is
-  absent. Running the TypeScript entry directly is the supported path and needs
-  no build step.
-- **Do not `npm install @harness-anything/cli`.** It is not on a registry;
-  `npm view` returns 404. If the user wants a plain `ha` on `PATH`, that is a
-  build plus a local global install, offered at hand-over in step 7 — not a
-  prerequisite here.
-
-**Do not set `HARNESS_DAEMON_USER_ROOT`.** This is the one place an install
-differs sharply from a migration: the migration skill isolates itself into a
-throwaway daemon root precisely so it touches nothing, but an install that runs
-under an isolated root produces a ledger **that nothing serves** once the
-variable goes out of scope, and the failure appears days later as
-`daemon_unavailable`. The default root (`$HOME/.harness`) is the correct target.
-If the variable is already exported in your environment, unset it now:
-
-```bash
-unset HARNESS_DAEMON_USER_ROOT
-```
-
-## 2. Settle the bootstrap owner identity before initialization
-
-`ha init` writes `harness/people.yaml` with the person id, display name, and a
-credential binding. Later roster changes must use `ha people add`,
-`ha people set-role`, or `ha people remove`; `doc sync` refuses the path because
-generic document writes may not bypass `people-registry`. Never hand-edit it.
-
-The bootstrap owner remains a load-bearing identity even though the roster now
-has an Action write road. **Ask for the person id, show the user what you are
-about to write, and get an answer** — do not
-derive it from `git config user.name` and proceed. This is a stop-and-ask point.
-
-What gets written, so you can show it:
-
-```json
-{ "personId": "<their answer>", "displayName": "<their answer>",
-  "roles": ["owner"],
-  "credentials": [{ "kind": "unix-socket-owner-boundary",
-                    "issuer": "host:<hostname>", "subject": "<uid>" }] }
-```
-
-Read the credential out loud, because it is the constraint everything in step 6
-bends around: **identity is derived from the unix account that opened the
-socket.** It is not a flag, and no environment variable overrides it. One unix
-account is one person, forever, no matter how many humans use the machine.
-
-## 3. Initialize
-
-If step 0 reported no git repository or no commits, fix that first — `ha init`
-publishes into a git repository and has nothing to publish onto otherwise:
-
-```bash
-cd /absolute/path/to/the/project
-git init -q .                                  # only if not already a repository
-git commit -q --allow-empty -m "base"          # only if there are no commits
-```
-
-```bash
-ha --root "$PWD" init --repo-id <repo-id> --person-id <person-id> --display-name '<Display Name>'
-```
-
-All three flags are required; there are no defaults. Expect a receipt like:
-
-```
-initialized harness at harness/harness.yaml
-outcome: applied
-created: ["harness/harness.yaml","harness/people.yaml", … ,"CLAUDE.md","AGENTS.md"]
-updated: []
-preserved: []
-drifted: []
-commit: <sha>
-next: ha daemon repo register --repo-id <repo-id> --root "…"; ha --root "…" daemon status
-```
-
-Read four things off it and act on them:
-
-- **`preserved` / `drifted` listing `AGENTS.md` or `CLAUDE.md`.** The project
-  already had those files, they were left exactly as they were, and the harness
-  agent entry **did not land**. This is the single most skippable failure in the
-  whole install: everything reports success, and the agents that read `AGENTS.md`
-  never learn the harness exists. Go to step 4.
-- **`.gitignore` is not in `created`, but it was written anyway.** The receipt
-  does not declare it. Confirm by hand — this is the rule that keeps a private
-  ledger out of a public repository, so verify it rather than trusting the
-  receipt's silence:
-
-  ```bash
-  git check-ignore -v harness .harness
-  ```
-
-- **The `next:` line tells you to run `ha daemon repo register`. You do not need
-  to.** `init` has already registered the workspace; the line is stale
-  advice. Confirm rather than obey:
-
-  ```bash
-  cat "$HOME/.harness/registry.json"
-  ```
-
-  The project should be listed with `"state": "enabled"`. Running the register
-  command anyway is harmless, but treating a completed step as an outstanding one
-  is how an agent invents work to do.
-- **`commit:` is a commit in the ledger, not in the project.** `harness/` is a
-  git repository of its own with its own history. Nothing was committed to the
-  project — `AGENTS.md`, `CLAUDE.md` and `.gitignore` are sitting untracked or
-  modified in the project tree, and committing them is the user's call.
-
-One more property worth naming before it confuses someone: **the ledger's branch
-comes from the machine's `init.defaultBranch`, not from the project's branch.**
-A project on `main` routinely gets a ledger on `master`. That is not a
-misconfiguration and it must not be "fixed" — the daemon binds to the branch
-recorded in the registry, and renaming it out from under a running daemon
-produces `publication_indeterminate` on the next write.
-
-If `init` fails, do not repair a half-initialized project in place. Start again
-from clean — and note that **deleting the project directory is not clean**, because
-the writer lock is a **sibling of the root**, not a child of it:
-
-```bash
-ha daemon repo unregister --repo-id <repo-id>     # releases this workspace only
-rm -rf <project>/harness <project>/.harness "<project>.harness-anything-writer.lock"
-```
-
-Release the workspace rather than reaching for `ha daemon stop`: on a machine
-that already had Harness, the daemon is serving the user's other repositories
-too, and stopping it interrupts work you are not responsible for restoring.
-`stop` is only the right verb when `registry.json` lists nothing else.
-
-Skip the lock and the retry fails with `error code=writer_rejected hint=Workspace
-writer lock is held for <project>: EEXIST … '<project>.harness-anything-writer.lock'`,
-which names the path but reads like a concurrency problem rather than debris from
-the attempt you just abandoned. Also drop the half-written `/harness/` and
-`/.harness/` lines from `.gitignore` if you are starting the project over rather
-than just re-running `init`.
-
-## 4. Carry the agent entry into an existing `AGENTS.md`
-
-**Only when step 3 reported `AGENTS.md` or `CLAUDE.md` as preserved/drifted.**
-
-The canonical text is a template, so read it from the CLI rather than
-transcribing it from a repository you happen to have open:
-
-```bash
-for REF in agent-base agent-overlay claude-entry; do
-  ha --root "$PWD" --json template render "template://repository/$REF@1" \
-    | python3 -c 'import json,sys; e=json.loads(json.load(sys.stdin)["evidence"]); print(e.get("requiredAnchors")); print(e["body"])'
-done
-```
-
-The `body` and the `requiredAnchors` list live **inside the parsed `evidence`**,
-not at the top level of the receipt — see the note in step 5. `requiredAnchors`
-names the section headings the composed entry is expected to contain.
-`agent-base` is the deterministic base, `agent-overlay` is the software/coding
-overlay; the file `ha init` writes on a clean project is the two of them
-composed, with a trailing "Repository Specifics" section left for the project.
-
-**Merge into the user's file; do not replace it.** Their `AGENTS.md` is why the
-merge is necessary in the first place — it holds instructions their agents
-already follow. Append the harness sections, keep every one of the
-`requiredAnchors` headings intact, and fold the project's own rules into the
-"Repository Specifics" section at the end.
-
-Show the user the resulting diff before you move on. This is the second
-stop-and-ask point: you are editing a file that governs how every agent behaves
-in their repository.
-
-## 5. Prove the install answers
-
-```bash
-ha --root "$PWD" --json daemon status | python3 -m json.tool
-ha --root "$PWD" task list
-```
-
-`daemon status` should report the project with `"state":"attached"`, a
-`generation`, and `queueDepth: 0`.
-
-**Use `--json` for `daemon status`.** In text mode it prints the single word
-`daemon` and nothing else — no repos, no pid, no state. It is not broken and it
-is not telling you the daemon is unhealthy; the text renderer for that one
-command emits nothing useful. Every field exists in the JSON receipt.
-
-**Learn the receipt shape here, before you need it under pressure.** `daemon
-status` is one of the few commands whose payload sits at the top level of the
-JSON. For almost everything else — `task show`, `task list`, `decision propose`,
-`decision list`, `template render` — the payload is under `evidence`, and
-`evidence` is a **JSON-encoded string, not an object**. You parse twice:
-
-```bash
-ha --root "$PWD" --json task list | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["evidence"]))'
-```
-
-Reading `receipt["body"]` or `receipt["decisionId"]` directly raises `KeyError`
-on a receipt that is perfectly fine, which is an easy half hour to lose. Every
-JSON example below parses `evidence` for that reason.
-
-`task list` on a fresh install prints an empty row set and `count=0` with
-`status=ready`. That is the install answering, and it is the last thing you can
-check without doing real work.
-
-## 6. Drive one real task to `done`
-
-**An install is not proven until a task reaches `done`.** Everything up to here
-would look identical if the completion path were broken, and the completion path
-is where every remaining surprise lives. Use the real task from step 0, not a
-placeholder.
-
-### First, the rule that decides the shape of this whole section
-
-Completion requires an **Execution Review by an independent actor**. Reviewing
-your own submission fails with:
-
-```
-error code=actor_unauthorized hint=Execution Review requires an independent transport-bound arbiter.
-```
-
-Independence is judged on the pair **(person, executor)**. The person half is
-transport-derived from the unix account and cannot be changed. The executor half
-is declared by the caller:
-
-```bash
-export HARNESS_ACTOR=agent:<id>     # must match agent:<alphanumeric . _ : - >
-```
-
-So the loop is closable by one human on one machine — **the working commands and
-the review command must run under different `HARNESS_ACTOR` values**, and an
-unset variable counts as its own distinct executor (`null`). Decide the two
-values before you start and keep them straight; discovering this at the review
-step means unpicking a submission.
-
-Say plainly what that means, because it is a governance claim and not a trick:
-the harness is recording that a *different executor* checked the work. If the
-user expects a second *human* reviewer, this install does not give them one, and
-no amount of executor juggling will — that needs a second unix account, or the
-team server. Tell them which of the two they have.
-
-### The loop
-
-```bash
-export HARNESS_ACTOR=agent:worker
-ha --root "$PWD" task create --title "<the real first task>" --kind <feat|fix|refactor|docs|test|chore>
-```
-
-The receipt prints the task id and package path. **Take the path from the
-receipt.** The directory name is `<task-id>-<slug>` and the slug is derived, so
-a hand-assembled path points at a directory that does not exist.
-
-```bash
-ha --root "$PWD" task transition <task-id> active
-ha --root "$PWD" task start <task-id>
-```
-
-**`task start` takes the task id as a positional argument even though
-`ha task --help` does not show it.** The usage line reads
-`ha task start [--execution-id …] [--ttl-ms …] [--dry-run]`. Omitting the id
-fails with `error code=missing_field hint=Run ha task start <task-id>`, which is
-the correct instruction; the help text is what is wrong.
-
-**Then recover the execution id, because `task start` does not print it.** In
-text mode the entire receipt is `task-start: applied`. The lease is real and the
-execution id exists, but a second `task start` will not reissue it — it fails
-with `invalid_transition` / `the current round already has an active execution
-or lease`. Read it back instead:
-
-```bash
-ha --root "$PWD" --json task show <task-id> | python3 -c 'import json,sys; print(json.loads(json.load(sys.stdin)["evidence"])["lease"]["executionId"])'
-```
-
-Now do the actual work the task is about. Then record what the run observed:
-
-```bash
-ha --root "$PWD" fact record --task <task-id> \
-  --statement "<one checkable observation>" --source "<where it came from>"
-```
-
-Facts are optional `0..N`, not a quota. Record what a later reader would need and
-stop.
-
-### A decision, if the task settled one
-
-The proposal is a JSON packet. **The packet shape is not discoverable from
-`--help` or from the error messages, so it is written out here in full** — the
-help line lists only the four input flags, the first error names the required
-field names without their types, and the type errors (`decisionClass is
-invalid`, `appliesTo must be an object`) name no legal values. Copy this and
-edit it:
+例如本地 Unix socket 传输可能使用以下绑定；实际字段由当前初始化能力提供：
 
 ```json
 {
-  "title": "<short imperative title>",
-  "question": "<the question, under 500 characters>",
+  "personId": "<用户确认的标识>",
+  "displayName": "<用户确认的显示名>",
+  "roles": ["owner"],
+  "credentials": [{ "kind": "unix-socket-owner-boundary", "issuer": "host:<主机>", "subject": "<uid>" }]
+}
+```
+
+说明一个系统账号与一个人类身份的对应边界；改环境变量不会变成另一位用户。后续人员变更走 `ha people` 的现有写入入口，不手改 `people.yaml`，也不用通用文档同步绕过人员注册契约。
+
+## 3. 初始化并回读
+
+命令形状以当前帮助为准，在明确的目标仓库执行：
+
+```bash
+ha --root "<目标仓库绝对路径>" init --repo-id <项目标识> --person-id <人员标识> --display-name "<显示名>"
+```
+
+初次本地安装若要求 Git 基础，先核实是否已有仓库与提交，只补真正缺失的部分，不重置原历史。多个边缘节点不能各自初始化同一个逻辑工作区；由当前有权协调者完成中心写入，其他节点接入已有记录。
+
+回读而不是只看成功回执：
+
+- `preserved` / `drifted` 中有原 Agent 文件时，确认新入口是否尚未进入，继续下一节。
+- 用 `git check-ignore -v harness .harness` 和 `git ls-files harness .harness` 核对私有目录边界，检查实际忽略差异。`git check-ignore -q` 一次只传一个路径。
+- 用当前 JSON 状态入口核对工作区是否已注册、已附着，不机械重做回执里的下一步。
+- 台账自动提交与目标项目提交是两件事。列出项目中新建或修改的指令、忽略文件；是否提交项目变更按用户范围处理。
+- 台账分支可能与项目分支不同；不为了名字统一重命名正在服务的分支。
+
+失败时先识别哪些写入已完成、是否有当前持有者及可用恢复路径。不能自动删台账、清锁或重启服务重来。必要的破坏性清理由用户对具体对象与影响确认；不能影响同一服务下其他项目。
+
+## 4. 合并既有 Agent 指令
+
+只有原文件存在且 Harness 入口尚未接入时才合并。通过当前 `template render` 读取仓库模板，如 `template://repository/agent-base@1`、`agent-overlay@1`、`claude-entry@1`，以返回的正文与必需锚点为准，不复制其他人的 AGENTS 文件。
+
+保留原文与项目特有规则；先准备完整合并结果和差异，再让用户批准这一具体修改。保留明确要求的锚点，不用模板覆盖用户内容。同一差异已获批时不再确认。
+
+## 5. 验证能读取，并初始化知识位置
+
+```bash
+ha --root "<目标仓库绝对路径>" --json daemon status
+ha --root "<目标仓库绝对路径>" --json task list
+```
+
+查看目标工作区真实状态和错误，不因文本摘要过短就判断服务损坏。空任务集是新工作区的正常结果。
+
+部分 CLI 回执的 `evidence` 是 JSON 编码字符串。按实际类型解析，不直接假定字段在顶层；例如读取任务时先解析外层，再解析 `evidence`。报错与业务数据要分开判断。
+
+随后读取 [harness-ceo](../harness-ceo/SKILL.md) 的[知识初始化方法](../harness-ceo/references/initialization.md)，建立或复用用户约定、模型矩阵、运行时问题、反馈与执行证据的落点。只建必要索引，不填满空表，不将公共技能中的建议当成用户事实。
+
+## 6. 由主控带完一个真实任务
+
+复用用户给的首任务，在主控方法下完成真实工作和仓库要求的收口。本阶段与下载引导的首任务是同一个任务。
+
+### 真实的评审独立性
+
+当前完成契约若要求独立执行评审，应在实施前明确可用评审身份与负责人。可能的拒绝为：
+
+```text
+Execution Review requires an independent transport-bound arbiter.
+```
+
+`HARNESS_ACTOR=agent:...` 是身份声明，不是创造独立评审者的方法。不能同一个执行者改名批准自己，也不能清空变量冒充用户的判断。需另一真实执行者、用户判断或宿主支持的独立评审通道时，交付可审阅材料后由该身份完成。只有一个模型不等于只有一个身份，但是否独立必须符合当前契约。
+
+### 创建、执行和取证
+
+先读 [preset-trigger](../preset-trigger/SKILL.md) 选择当前预设；一般任务形状如下：
+
+```bash
+ha --root "<目标仓库绝对路径>" task create --title "<真实任务>" --vertical software/coding --preset standard-task
+ha --root "<目标仓库绝对路径>" task start <任务标识>
+```
+
+从回执取得真实任务路径，不能手拼派生的 slug。按当前生命周期要求执行，重复启动前先回读已有执行。若启动回执未带执行标识，查询 `task show`；部分版本将其放在 `evidence.lease.executionId`，需先解析 `evidence` 字符串，再读取 `["lease"]["executionId"]`。
+
+做实际工作并取得证据。交付日志和报告归本次执行；会支撑后续判断的可复核观察按当前事实入口记录，不为凑数量编造事实。仓库规定的事实与关系要求仍然有效。
+
+### 确有承重选择时记录决策
+
+读取当前决策能力和输入契约；以下展示常见结构，实际字段和合法值以所用版本为准：
+
+```json
+{
+  "title": "<决策标题>",
+  "question": "<要解决的问题>",
   "riskTier": "low",
   "urgency": "low",
-  "vertical": "software-coding",
-  "preset": "software-coding",
   "decisionClass": "ordinary",
   "appliesTo": { "modules": [], "productLines": [] },
-  "chosen":   [{ "id": "CH1", "text": "<what was chosen>", "rationale": "<why>" }],
-  "rejected": [{ "id": "RJ1", "text": "<the real alternative>", "whyNot": "<why not>" }],
+  "chosen": [{ "id": "CH1", "text": "<选择>", "rationale": "<理由>" }],
+  "rejected": [{ "id": "RJ1", "text": "<真实替代>", "whyNot": "<未采用原因>" }],
   "claims": [], "fulfillments": [], "relations": []
 }
 ```
 
-- `riskTier` and `urgency` are each `low` / `medium` / `high`.
-- `decisionClass` is `ordinary` or `standing_policy` — nothing else.
-- `chosen` and `rejected` are both **non-empty**, ids prefixed `CH` and `RJ`.
-- `appliesTo` must be an object with exactly `modules` and `productLines`.
+`decisionClass` 常用 `ordinary` 或 `standing_policy`；不编造替代方案。输入文件放在工作区允许的任务产物位置。遇到 `fromFile must stay inside the workspace` 时修正输入落点，不能把临时目录当成有效来源。
 
-```bash
-ha --root "$PWD" decision propose --from-file "$PWD/decision-packet.json" --body-file "$PWD/decision-body.md"
-```
+原始观察先记录，再按当前 `ha relation` 契约将决策声明关联证据，选择关联派生任务。不要复制退役的 `decision relate` 命令。用户需要裁决时展示问题、选择、替代和证据后取得批准，由真实有权身份办理；不通过更换环境变量代替用户。
 
-**Both files must live inside the project.** A packet written to the session
-scratchpad or `$TMPDIR` is rejected with `error code=invalid_field
-hint=fromFile must stay inside the workspace`, which the help text does not
-mention. Write them at the project root and delete them afterwards; they are
-inputs, not records.
+### 提交、独立评审、同意和完成
 
-**Take the decision id from that receipt.** The text receipt ends with
-`decisionId=dec_…`; from `--json` it is `json.loads(receipt["evidence"])
-["decisionId"]`, not `receipt["decisionId"]`. If you go looking in
-`ha decision list` instead, note that its evidence keys the rows under
-`decisions` while `task list` keys them under `rows`, so a parser written
-against one raises `KeyError` on the other rather than returning nothing.
+把收口材料写实，先 `doc status` 检查候选，再通过受支持的 `doc sync --submit` 登记本任务文档。不要提交无关候选；路径限定与执行身份的组合以当前能力为准。
 
-Relate it to the task, then accept it:
+提交材料示例：
 
-```bash
-ha --root "$PWD" decision relate <decision-id> --anchor CH1 --type derives \
-  --target task/<task-id> --rationale "<why this task follows from that choice>"
-
-env -u HARNESS_ACTOR node "$HA_ENTRY" --root "$PWD" \
-  decision transition active <decision-id> \
-  --judgment-only "<why this is a judgment, not an evidenced claim>"
-```
-
-Two separate refusals guard that transition, and they are easy to confuse:
-
-- Without either a claim-to-evidence relation or `--judgment-only`, it is
-  refused with `decision accept requires a claim-to-evidence relation or
-  --judgment-only <rationale>`. **`--judgment-only` is a recorded consent, not a
-  bypass** — it writes a consent record naming the accepting actor. Use it when
-  the choice really is a judgment; do not reach for it to get past the error.
-- **Under the same `HARNESS_ACTOR` that proposed it**, it is refused with
-  `error code=invalid_transition hint=An agent cannot judge its own Decision
-  proposal.` — even with `--judgment-only`. The self-judgment guard is anchored
-  on the **executor**, the same axis as the review rule above.
-
-So the accept has to leave the working executor behind. **Clearing
-`HARNESS_ACTOR` is the honest way to do it**, because a decision with no declared
-agent executor is recorded as the human's own judgment, which is what accepting a
-decision on the owner's behalf should mean. Note `env -u` execs a program and
-therefore does **not** see the `ha` shell function from step 1 — spell out
-`node "$HA_ENTRY"` there, or unset the variable in the shell and re-export it
-afterwards.
-
-If the user is present, this is a natural third stop-and-ask point: show them the
-question, the chosen option, and the rejected alternative, and let them tell you
-to accept it.
-
-### Closeout, submission, review, consent, completion
-
-The closeout file ships as a placeholder and `task complete` rejects placeholder
-text. Write it **before** submitting, and land it through `doc sync` — editing
-an authored file is not the same as recording it:
-
-```bash
-$EDITOR harness/tasks/<task-id>-<slug>/closeout.md      # Summary / Verification / Residual Risk
-ha --root "$PWD" doc sync --submit --path "tasks/<task-id>-<slug>/closeout.md"
-```
-
-`--path` is relative to the **authored root** (`harness/`), not to the project.
-A project-relative path is not found.
-
-The submission packet has exactly seven fields, and the review packet exactly
-five. Neither is documented anywhere but the rejection message:
-
-```bash
-cat > "$PWD/submission.json" <<EOF
-{"completionClaim":"<what is now true>","deliverables":["<path or artifact>"],
- "outputs":["tasks/<task-id>-<slug>/closeout.md"],
- "verificationNotes":["<what you ran and what it said>"],
- "knownGaps":[],"residualRisks":[],"commitSha":"$(git rev-parse HEAD)"}
-EOF
-ha --root "$PWD" task submit <task-id> --execution-id <execution-id> --from-file "$PWD/submission.json"
+```json
+{
+  "completionClaim": "<已成立的结果>",
+  "deliverables": ["<真实产物>"],
+  "outputs": ["<收口记录>"],
+  "verificationNotes": ["<实际执行和结果>"],
+  "knownGaps": [],
+  "residualRisks": [],
+  "commitSha": "<实际源码提交>"
+}
 ```
 
 ```bash
-cat > "$PWD/review.json" <<EOF
-{"verdict":"approved","reason":"<what convinced you>",
- "evidenceChecked":["<what you actually looked at>"],
- "commitSha":"$(git rev-parse HEAD)","iteration":0}
-EOF
-HARNESS_ACTOR=agent:reviewer \
-  ha --root "$PWD" --json task review-execution <task-id> --execution-id <execution-id> \
-     --review-id review-1 --from-file "$PWD/review.json"
+ha --root "<目标仓库绝对路径>" task submit <任务标识> --execution-id <执行标识> --from-file "<工作区内提交材料>"
 ```
 
-`verdict` is `approved`, `changes_requested`, or `dismissed`. `iteration` is `0`
-or `1`. The `HARNESS_ACTOR` on that one command is what makes the review
-independent — see the rule at the top of this section.
+代码文档锚通过当前 `task code-doc reconcile` 在所需阶段产生，不手写机器文件。由真实独立评审者提交评审，其材料包含：
 
-**Consent needs no packet.** The consent binds itself to the recorded Review —
-the harness derives `reviewDigest` and `contentDigest` from the review you just
-recorded, so there is nothing to copy or recompute:
-
-```bash
-ha --root "$PWD" task review-consent <task-id> --execution-id <execution-id> \
-   --review-id review-1 --consent-id consent-1
+```json
+{ "verdict": "approved", "reason": "<依据>", "evidenceChecked": ["<实际检查的证据>"] }
 ```
 
-(`--from-file` with both digests still works for pinning them yourself; a
-mismatched digest is rejected.)
+`verdict` 使用当前合法值，如 `approved`、`changes_requested`、`dismissed`。owner 的同意绑定实际已记录评审与内容版本，不把工作者的报告当作同意。使用当前 `task review-consent` 和 `task complete` 契约完成；不添加过期的提交版本参数或自己制造摘要。
 
-Consent is the owner's, so run it under the working actor, not the reviewer one.
+`--ci passed` 是声明，不会替你运行 CI。没有真实证据就不能据此声称检查通过。所选任务无需 CI 时按实际契约处理；无法满足必需门时交付具体缺口，不伪造完成。
 
-```bash
-ha --root "$PWD" task complete <task-id> --execution-id <execution-id> \
-   --ci passed --commit-sha "$(git rev-parse HEAD)" --iteration 0 --path <repo-relative-source-path>
-ha --root "$PWD" task list
-```
+最后回读任务是否真的到 `done`，并检查原始目标确实实现。独立评审尚缺时，准确报告“环境和仓库已就绪，首任务待评审”，不能把整个引导说成已验证。
 
-`--ci passed` and `--path` satisfy the two completion gates the default coding
-contract declares (`ci`, `code-doc-reconciliation`). **`--ci passed` is an
-assertion you are making, not a check the harness runs.** If step 0 found a CI
-command, run it and let the result decide what you pass; if it found none, tell
-the user that this gate currently records a claim.
+## 7. 交接
 
-`task list` must now show the task as `done`. That, and nothing earlier, is the
-install proven.
+交付绝对 CLI 入口、目标工作区、用户知识索引、首任务与其证据、真实评审身份及未完成项。工具进入 PATH 的选项由下载技能统一负责，本技能不另提供第二套安装命令。
 
-## 7. Hand over
+说明台账与项目各自的历史边界，不在台账里手工补 `git commit`。列出项目仍未提交的文件，不替用户隐瞒这些变化。下一次使用 `harness-ceo`，另一个新项目直接使用本技能。
 
-Tell the user, in their own terms:
+## 完成条件
 
-- **the exact command that drives this ledger** — the `ha` function and the path
-  it points at, or their existing `ha` if step 1 found a current one. If they
-  want a plain `ha` on `PATH`, it is
-  `cd "$HA_SRC/packages/cli" && npm run build && npm install -g .`; say whether
-  that replaces an existing installation;
-- **the ledger is a git repository of its own** under `harness/`, the project
-  ignores it, and it must never be committed into the project;
-- **never run `git commit` inside `harness/`.** The ledger's HEAD must be the
-  last event commit; an extra commit on top breaks the compare-and-swap and every
-  later write fails with `publication_indeterminate`. Recovery is a `git reset`
-  to the sha the error calls `expected`, followed by retrying the write. The
-  repository recovery path re-probes the repaired refs and resumes without a
-  daemon restart; wait for `ha daemon status` to return to `ok` before retrying
-  again if the first retry reports the old latch;
-- **which files the install left uncommitted in the project** — `AGENTS.md`,
-  `CLAUDE.md`, `.gitignore` — and that committing them is theirs to decide;
-- **the two `HARNESS_ACTOR` values** the loop used, and that review independence
-  is executor-based, not human-based, until they add a second unix account;
-- where the first task's records now live, and how to read them back
-  (`ha task list`, `ha task show`, `ha decision list`, `ha fact search`).
-
-## Done when
-
-- The project has `harness/` as a git repository of its own, and both ignore
-  rules hold. Check them **one path per call** — `git check-ignore -q` accepts
-  only a single pathname and fails with `fatal: --quiet is only valid with a
-  single pathname` when given two, which reads like the check failing:
-
-  ```bash
-  for p in harness .harness; do git check-ignore -q "$p" && echo "ignored: $p"; done
-  ```
-
-- `git ls-files harness .harness` is empty — the project tracks no ledger file.
-- `ha --json daemon status` reports the repo `attached`.
-- If the project already had `AGENTS.md` or `CLAUDE.md`, the harness entry has
-  been merged into it and the user has seen the diff.
-- One real task reached `done` and `ha task list` shows it.
-- That task carries a closeout that went through `doc sync --submit`, a
-  submission, an independent review, a consent, and a completion.
-- `git -C harness status --porcelain` is empty, or every remaining dirty file has
-  been named to the user as having no write road.
-- The user has been handed the exact command that now drives this ledger.
-
-## Known rough edges
-
-- **`ha daemon status` prints only the word `daemon` in text mode.** Every field
-  is in the `--json` receipt. Do not read the text output as a health signal.
-- **`ha task start`'s usage line omits the positional `<task-id>`** it requires.
-  The runtime error names it correctly; the help does not.
-- **`task start` does not print the execution id** it just issued, and a second
-  `task start` refuses rather than reissuing. Recover it from
-  `--json task show`, under `evidence.lease.executionId`.
-- **`ha init` writes `.gitignore` without listing it** in the receipt's
-  `created`. It appends when the file exists, so nothing is lost — but the one
-  rule that keeps a private ledger out of a public repository is undeclared.
-  Verify with `git check-ignore`.
-- **`ha init`'s `next:` line tells you to register a workspace it already
-  registered.** Check `registry.json` instead of following it.
-- **`init` preserves an existing `AGENTS.md`/`CLAUDE.md` and reports it only as
-  `drifted`.** Success and "your agents were never told about the harness" look
-  identical from the receipt alone.
-- **The ledger's branch comes from the machine's `init.defaultBranch`**, so a
-  project on `main` normally gets a ledger on `master`. Leave it alone.
-- **The decision proposal packet is not discoverable.** `--help` lists the input
-  flags, the first rejection lists field names without types, and the type
-  rejections name no legal values (`decisionClass is invalid` does not say
-  `ordinary|standing_policy`). Step 6 carries the full shape for that reason.
-- **`--from-file` and `--body-file` must resolve inside the workspace**
-  (`invalid_field` / `fromFile must stay inside the workspace`). The help text
-  does not say so, and a session scratchpad is the natural wrong place.
-- **The submission and review packet shapes appear only in rejection hints**, and
-  both hints call them a "proposal packet" regardless of which command produced
-  them.
-- **Execution Review rejects the submitting actor** with `actor_unauthorized`.
-  Independence is `(personId, executor.id)`; the person half is transport-derived
-  from the unix uid and no environment variable overrides it. `HARNESS_ACTOR`
-  moves only the executor half.
-- **`task complete` rejects placeholder closeout text** with
-  `closeout_placeholder` and a `nextAction` telling you to edit the file. It does
-  not tell you the edit must then go through `ha doc sync --submit --path`, which
-  it must.
-- **`harness/people.yaml` is owned by the People Action road.** Use
-  `ha people add`, `ha people set-role`, or `ha people remove`; `doc sync`
-  correctly refuses the path because generic document writes may not bypass
-  the roster contract.
+- CLI 和同版本技能可用；实际目标工作区可读写。
+- 私有台账未进入公开项目；既有指令修改经过具体批准。
+- 用户知识入口能找到模型、问题、反馈与证据位置。
+- 一个用户指定的真实任务完成当前契约要求的取证、提交、独立评审与同意，回读状态为 `done`。
+- 未提交文件、未验证部分和使用命令已如实交接；任一必需阶段仍受阻就报告该阶段，不提前宣称全流程完成。
