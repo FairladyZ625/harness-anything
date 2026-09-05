@@ -163,6 +163,27 @@ test("attempt-bound classification falls back only before tools or for recognize
   assert.equal(classifyRuntimeExit(recovered, 1).classification, "gate_red");
 });
 
+test("observed provider fault takes precedence over a later runtime loss", () => {
+  const result = classifyRuntimeExit(
+    active({
+      lossReason: "runtime process disappeared",
+      providerFault: {
+        code: "quota_exhausted",
+        faultClass: "quota_exhausted",
+        reason: "HTTP 429: insufficient_quota credit balance exhausted",
+        resetAt: "2026-09-06T05:06:07.000Z",
+      },
+    }),
+    null,
+  );
+
+  assert.equal(result.outcome, "unknown");
+  assert.equal(result.classification, "provider_fault");
+  assert.equal(result.faultClass, "quota_exhausted");
+  assert.equal(result.resetAt, "2026-09-06T05:06:07.000Z");
+  assert.equal(result.reason, "HTTP 429: insufficient_quota credit balance exhausted");
+});
+
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {
     dispatchId: "dispatch_0123456789abcdef01234567",
