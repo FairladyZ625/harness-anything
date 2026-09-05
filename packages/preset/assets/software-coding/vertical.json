@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "entityFieldExtensions": [
     {
       "extends": "task",
@@ -80,6 +80,41 @@
           "sourceKind": "external-issue",
           "targetKind": "task",
           "reads": "the external issue relates to the target task for traceability",
+          "strength": "weak",
+          "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+          "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+        }
+      ]
+    },
+    {
+      "id": "research",
+      "entityType": "artifact",
+      "version": 1,
+      "idPrefix": "RES",
+      "display": {
+        "singular": "Research Package",
+        "plural": "Research Packages"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/research/{id}.json"
+      },
+      "locatorKinds": ["repository-path"],
+      "relations": [
+        {
+          "type": "relates",
+          "sourceKind": "research",
+          "targetKind": "decision",
+          "reads": "the research package relates to the target decision",
+          "strength": "weak",
+          "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+          "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+        },
+        {
+          "type": "relates",
+          "sourceKind": "research",
+          "targetKind": "task",
+          "reads": "the research package relates to the target task",
           "strength": "weak",
           "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
           "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
