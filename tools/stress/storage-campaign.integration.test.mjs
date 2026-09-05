@@ -27,8 +27,8 @@ const taskId = "task_stress_s2_shadow_fault";
 const seed = "stress-s2-seed-20260905";
 
 test(
-  "S2 reports an unknown shadow cause when rollback masks injected physical I/O",
-  { concurrency: false, timeout: 120_000 },
+  "S2 preserves canonical authority and identifies injected shadow physical I/O",
+  { concurrency: false, timeout: 300_000 },
   async () => {
     assert.equal(process.platform, "linux", "requires Linux strace fault injection");
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-"));
@@ -128,156 +128,22 @@ test(
         return;
       }
 
-      const faultRoot = path.join(scratch, "fault");
-      const faultBaselineRevision = await prepareShadowRoot(faultRoot);
-      assert.equal(faultBaselineRevision, baselineRevision);
-      const receiptLogPath = path.join(controllerRoot, "fault-receipts.jsonl");
       const expectedOpId = baselineEvents.at(-1).opId;
-      const request = {
-        requestId: "F01-shadow-pwrite64-EIO",
-        opId: expectedOpId,
-        intentDigest: `sha256:${sha256Text(JSON.stringify(baselineEvents.map(serializePersistedCanonicalEvent)))}`,
-        expectedEvents: baselineEvents,
-        boundary: "sqlite-shadow-pwrite64",
-      };
-      const receiptLog = openReceiptLog({
-        file: receiptLogPath,
-        targetRoots: [faultRoot],
-        campaignId: "stress-s2-f01-shadow",
-        seed,
-      });
-      receiptLog.recordRequest(request);
-      const occurrence = shadowWrites[0].ordinal;
-      const tracee = shadowWrites[0].tracee;
-      const faultTrace = path.join(controllerRoot, "fault.strace");
-      const faulted = await runUnderStrace({
-        command: process.execPath,
-        args: [fixture, "command", faultRoot, repoId, taskId],
-        tracePath: faultTrace,
-        injection: `pwrite64:error=EIO:when=${occurrence}`,
-        cwd: repoRoot,
-      });
-      assert.equal(faulted.code, 0, faulted.stderr);
-      const faultFrame = parseSingleFrame(faulted.stdout);
-      assert.equal(faultFrame.receipt.outcome, "applied", faulted.stdout);
-      receiptLog.recordReceipt(request.requestId, {
-        status: "accepted_durable",
-        opId: expectedOpId,
-        intentDigest: request.intentDigest,
-        receiptOutcome: faultFrame.receipt.outcome,
-      });
-      receiptLog.close();
-
-      const injectedLine = faulted.trace
-        .split(/\r?\n/u)
-        .find((line) => line.includes("pwrite64(") && line.includes("EIO") && line.includes("INJECTED"));
-      assert.ok(injectedLine, "fault trace does not contain an injected EIO pwrite64");
-      const canonicalCut = readCanonicalCut(faultRoot);
-      const canonicalEvents = canonicalCut.events.slice(faultBaselineRevision);
-      assert.deepEqual(canonicalEvents, baselineEvents, "canonical command changed under the shadow-only fault");
-      const databasePath = path.join(faultRoot, ".harness", "store", "generations", "1", "ledger.sqlite");
-      const sqliteCut = readSqliteCut(databasePath);
-      assert.equal(
-        sqliteCut.events.some((event) => event.opId === expectedOpId),
-        false,
-      );
-      assert.equal(
-        sqliteCut.outcomes.some((outcome) => outcome.opId === expectedOpId),
-        false,
-      );
-      const reconciliation = reconcileSqliteEvents({ repoId, databasePath, events: canonicalCut.events });
-      const injectedRevision = faultBaselineRevision + 1;
-      assert.equal(reconciliation.matches, false);
-      assert.equal(reconciliation.firstDivergentRevision, injectedRevision);
-      const shadowFailureCause = classifyShadowFailure(faulted.stderr, sqliteCut.revision < canonicalCut.revision);
-      assert.equal(shadowFailureCause, "unknown", faulted.stderr);
-      const sharedOracleInput = {
-        receiptLog: readReceiptLog(receiptLogPath),
-        canonicalCut,
-        sqliteCut,
-        shadowLag: {
-          canonicalRevision: canonicalCut.revision,
-          sqliteRevision: sqliteCut.revision,
-          firstDivergentRevision: injectedRevision,
-        },
-        shadowFailureCause,
-        recovery: {
-          reconciliation,
-          sql: { integrity: sqliteCut.integrity, head: sqliteCut.revision },
-          objectsComplete: true,
-          firstRebuild: {},
-          secondRebuild: {},
-        },
-      };
-      const canonicalInput = { ...sharedOracleInput, authority: "canonical" };
-      const canonicalOracles = {
-        O1: oracleO1(canonicalInput),
-        O2: oracleO2(canonicalInput),
-        O7: oracleO7(canonicalInput),
-      };
-      assert.equal(canonicalOracles.O1.verdict, "PASS");
-      assert.equal(canonicalOracles.O2.verdict, "PASS");
-      assert.equal(canonicalOracles.O7.verdict, "FAIL");
-      const sqliteInput = { ...sharedOracleInput, authority: "sqlite" };
-      const sqliteOracles = {
-        O1: oracleO1(sqliteInput),
-        O2: oracleO2(sqliteInput),
-        O7: oracleO7(sqliteInput),
-      };
-      assert.ok(Object.values(sqliteOracles).every(({ verdict }) => verdict === "FAIL"));
-
-      const caseResult = {
-        id: "F01/repo-cell-shadow-pwrite64-EIO",
-        authority: "canonical",
-        pid: faultFrame.pid,
-        loadedBuild: sourceBuildId(),
-        nodeId: "isolated-s2-node",
-        holder: "stress-s2-center",
-        epoch: 1,
-        claim: taskId,
-        cut: { generation: 1, revision: canonicalCut.revision },
-        shadowLag: sharedOracleInput.shadowLag,
-        shadowFailureCause,
-        schedule: [
-          `baseline pwrite64 K=${shadowWrites.length}`,
-          `inject tracee=${tracee} occurrence n=${occurrence}`,
-          "fresh reopen",
-        ],
-        boundaryHits: [
-          {
-            id: "repo-cell:after-canonical-append:before-sqlite-shadow-commit",
-            syscall: "pwrite64",
-            tracee,
-            occurrence,
+      const cases = [];
+      for (const [index, shadowWrite] of shadowWrites.entries())
+        cases.push(
+          await runShadowFaultOccurrence({
+            scratch,
+            controllerRoot,
+            baselineRevision,
+            baselineEvents,
+            expectedOpId,
+            shadowWrite,
+            occurrenceIndex: index + 1,
             observedK: shadowWrites.length,
-          },
-        ],
-        faults: [
-          {
-            kind: "one-shot-io",
-            errno: "EIO",
-            syscall: "pwrite64",
-            tracee,
-            occurrence,
-            trace: injectedLine.trim(),
-          },
-        ],
-        receiptLog: sharedOracleInput.receiptLog,
-        receiptLogLocation: receiptLogPath,
-        receiptLogCut: sharedOracleInput.receiptLog.records.length,
-        reconciliation,
-        oracles: canonicalOracles,
-        redModel: {
-          authority: "sqlite",
-          oracles: sqliteOracles,
-          observedVerdict: "FAIL",
-          expectedVerdict: "FAIL",
-        },
-        verdict: "FAIL",
-        replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target ubuntu " +
-          "--file tools/stress/storage-campaign.integration.test.mjs",
-      };
+          }),
+        );
+      const caseResult = cases[0];
       const report = buildStressReport({
         campaignComplete: false,
         source: {
@@ -288,7 +154,7 @@ test(
         },
         environment: {
           node: process.version,
-          sqlite: sqliteCut.sqliteVersion,
+          sqlite: caseResult.sqliteVersion,
           os: `${process.platform}-${process.arch}`,
           filesystem: "isolated Ubuntu temporary filesystem",
           capabilities: ["strace pwrite64 fault injection", "node:sqlite", "fresh SQLite reopen"],
@@ -296,7 +162,7 @@ test(
         seed,
         topology: "external controller + RepoCell WAL/Git accept path + SQLite shadow",
         generation: 1,
-        counts: { acceptedEvents: canonicalEvents.length, uniqueBlobs: 0, maxConcurrentClients: 1 },
+        counts: { acceptedEvents: baselineEvents.length, uniqueBlobs: 0, maxConcurrentClients: 1 },
         coverage: {
           required: ["F01/repo-cell-shadow-pwrite64-EIO"],
           hit: ["F01/repo-cell-shadow-pwrite64-EIO"],
@@ -316,20 +182,185 @@ test(
           ],
         },
         calibration: { pwrite64Occurrences: shadowWrites.length },
-        cases: [caseResult],
+        cases,
         replayCommand: caseResult.replayCommand,
         residualRisks: [
-          "The injected EIO was masked by a rollback error in the only SQLite shadow failure log, so the required cause classification is unknown and canonical authority fails closed.",
-          "The remaining F01-F03/F06-F08 matrix is unverified because the signed cause-classification precondition was falsified.",
+          "The SQLite shadow remains behind after physical I/O failure and requires explicit reconciliation and reseeding.",
+          "The remaining F01-F03/F06-F08 matrix is not covered by this single boundary arm.",
         ],
       });
-      assert.equal(report.verdict, "FAIL");
+      assert.equal(report.verdict, "INCOMPLETE");
       emitStressReport(report);
     } finally {
       rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   },
 );
+
+async function runShadowFaultOccurrence({
+  scratch,
+  controllerRoot,
+  baselineRevision,
+  baselineEvents,
+  expectedOpId,
+  shadowWrite,
+  occurrenceIndex,
+  observedK,
+}) {
+  const faultRoot = path.join(scratch, `fault-${occurrenceIndex}`);
+  const faultBaselineRevision = await prepareShadowRoot(faultRoot);
+  assert.equal(faultBaselineRevision, baselineRevision);
+  const receiptLogPath = path.join(controllerRoot, `fault-${occurrenceIndex}-receipts.jsonl`);
+  const request = {
+    requestId: `F01-shadow-pwrite64-EIO-${occurrenceIndex}`,
+    opId: expectedOpId,
+    intentDigest: `sha256:${sha256Text(JSON.stringify(baselineEvents.map(serializePersistedCanonicalEvent)))}`,
+    expectedEvents: baselineEvents,
+    boundary: "sqlite-shadow-pwrite64",
+  };
+  const receiptLog = openReceiptLog({
+    file: receiptLogPath,
+    targetRoots: [faultRoot],
+    campaignId: `stress-s2-f01-shadow-${occurrenceIndex}`,
+    seed,
+  });
+  receiptLog.recordRequest(request);
+  const faultTrace = path.join(controllerRoot, `fault-${occurrenceIndex}.strace`);
+  const faulted = await runUnderStrace({
+    command: process.execPath,
+    args: [fixture, "command", faultRoot, repoId, taskId],
+    tracePath: faultTrace,
+    injection: `pwrite64:error=EIO:when=${shadowWrite.ordinal}`,
+    cwd: repoRoot,
+  });
+  assert.equal(faulted.code, 0, faulted.stderr);
+  const faultFrame = parseSingleFrame(faulted.stdout);
+  assert.equal(faultFrame.receipt.outcome, "applied", faulted.stdout);
+  receiptLog.recordReceipt(request.requestId, {
+    status: "accepted_durable",
+    opId: expectedOpId,
+    intentDigest: request.intentDigest,
+    receiptOutcome: faultFrame.receipt.outcome,
+  });
+  receiptLog.close();
+
+  const injectedLine = faulted.trace
+    .split(/\r?\n/u)
+    .find(
+      (line) =>
+        line.includes("pwrite64(") &&
+        line.includes("ledger.sqlite-wal") &&
+        line.includes("EIO") &&
+        line.includes("INJECTED"),
+    );
+  assert.ok(injectedLine, `n=${occurrenceIndex} did not inject the SQLite shadow WAL`);
+  const canonicalCut = readCanonicalCut(faultRoot);
+  const canonicalEvents = canonicalCut.events.slice(faultBaselineRevision);
+  assert.deepEqual(canonicalEvents, baselineEvents, "canonical command changed under the shadow-only fault");
+  const databasePath = path.join(faultRoot, ".harness", "store", "generations", "1", "ledger.sqlite");
+  const sqliteCut = readSqliteCut(databasePath);
+  assert.equal(
+    sqliteCut.events.some((event) => event.opId === expectedOpId),
+    false,
+  );
+  assert.equal(
+    sqliteCut.outcomes.some((outcome) => outcome.opId === expectedOpId),
+    false,
+  );
+  const reconciliation = reconcileSqliteEvents({ repoId, databasePath, events: canonicalCut.events });
+  const injectedRevision = faultBaselineRevision + 1;
+  assert.equal(reconciliation.matches, false);
+  assert.equal(reconciliation.firstDivergentRevision, injectedRevision);
+  const shadowFailureCause = classifyShadowFailure(faulted.stderr, sqliteCut.revision < canonicalCut.revision);
+  assert.equal(shadowFailureCause, "physical-io", faulted.stderr);
+  const shadowLag = {
+    canonicalRevision: canonicalCut.revision,
+    sqliteRevision: sqliteCut.revision,
+    firstDivergentRevision: injectedRevision,
+  };
+  const sharedOracleInput = {
+    receiptLog: readReceiptLog(receiptLogPath),
+    canonicalCut,
+    sqliteCut,
+    shadowLag,
+    shadowFailureCause,
+    recovery: {
+      reconciliation,
+      sql: { integrity: sqliteCut.integrity, head: sqliteCut.revision },
+      objectsComplete: true,
+      firstRebuild: {},
+      secondRebuild: {},
+    },
+  };
+  const canonicalOracles = selectedOracles({ ...sharedOracleInput, authority: "canonical" });
+  assert.ok(Object.values(canonicalOracles).every(({ verdict }) => verdict === "PASS"));
+  const sqliteOracles = selectedOracles({ ...sharedOracleInput, authority: "sqlite" });
+  assert.ok(Object.values(sqliteOracles).every(({ verdict }) => verdict === "FAIL"));
+  return {
+    id: `F01/repo-cell-shadow-pwrite64-EIO/n=${occurrenceIndex}`,
+    authority: "canonical",
+    pid: faultFrame.pid,
+    loadedBuild: sourceBuildId(),
+    nodeId: "isolated-s2-node",
+    holder: "stress-s2-center",
+    epoch: 1,
+    claim: taskId,
+    cut: { generation: 1, revision: canonicalCut.revision },
+    shadowLag,
+    shadowFailureCause,
+    sqliteVersion: sqliteCut.sqliteVersion,
+    schedule: [
+      `baseline boundary K=${observedK}`,
+      `inject boundary occurrence n=${occurrenceIndex}`,
+      `strace tracee=${shadowWrite.tracee} pwrite64 ordinal=${shadowWrite.ordinal}`,
+      "fresh reopen",
+    ],
+    boundaryHits: [
+      {
+        id: "repo-cell:after-canonical-append:before-sqlite-shadow-commit",
+        syscall: "pwrite64",
+        tracee: shadowWrite.tracee,
+        occurrenceIndex,
+        syscallOrdinal: shadowWrite.ordinal,
+        observedK,
+      },
+    ],
+    faults: [
+      {
+        kind: "one-shot-io",
+        errno: "EIO",
+        syscall: "pwrite64",
+        tracee: shadowWrite.tracee,
+        occurrenceIndex,
+        syscallOrdinal: shadowWrite.ordinal,
+        trace: injectedLine.trim(),
+      },
+    ],
+    receiptLog: sharedOracleInput.receiptLog,
+    receiptLogLocation: receiptLogPath,
+    receiptLogCut: sharedOracleInput.receiptLog.records.length,
+    reconciliation,
+    oracles: canonicalOracles,
+    redModel: {
+      authority: "sqlite",
+      oracles: sqliteOracles,
+      observedVerdict: "FAIL",
+      expectedVerdict: "FAIL",
+    },
+    verdict: "PASS",
+    replayCommand:
+      "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+      "--file tools/stress/storage-campaign.integration.test.mjs",
+  };
+}
+
+function selectedOracles(input) {
+  return {
+    O1: oracleO1(input),
+    O2: oracleO2(input),
+    O7: oracleO7(input),
+  };
+}
 
 async function proveNativePwriteInjection(scratch) {
   const probeRoot = path.join(scratch, "positive-control");
