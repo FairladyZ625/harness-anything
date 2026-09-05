@@ -224,6 +224,7 @@ export async function startFleetCenterAdmission(
     center: await listenFleetTls({
       host: input.host,
       stateRoot,
+      writerEpochStateRoot: path.join(input.userRoot, "fleet"),
       key: material(input.payload.keyPath, "--key"),
       cert: material(input.payload.certPath, "--cert"),
       hostname: input.payload.bind,

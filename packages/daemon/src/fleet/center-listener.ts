@@ -50,7 +50,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     now = options.now ?? (() => new Date().toISOString()),
     knownKeys = new Map<string, ReplicaDeliveryKey>(),
     writerEpoch = openPersistentWriterEpoch({
-      stateRoot: options.stateRoot,
+      stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
       holderId: options.writerId,
       now,
     }),
@@ -83,7 +83,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           writerEpoch.withAppendFence(assignment.repoId, lease.epoch, lease.holderId, operation),
         writerEpochFence: {
           schema: "harness-writer-epoch-fence/v1" as const,
-          stateRoot: options.stateRoot,
+          stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
           repoId: assignment.repoId,
           epoch: lease.epoch,
           holderId: lease.holderId,

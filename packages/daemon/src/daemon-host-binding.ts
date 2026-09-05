@@ -6,6 +6,11 @@ import { makeTransportDerivedIdentityProvider } from "./identity/transport-deriv
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { declaredRoleBindingsForActor } from "./identity/declared-role-binding-projection.ts";
+import {
+  assertWriterEpochFenceDescriptor,
+  withWriterEpochFenceDescriptor,
+  type WriterEpochFenceDescriptor,
+} from "./writer-epoch.ts";
 
 export function localSystemBinding(
   rootDir: string,
@@ -32,6 +37,20 @@ export function localSystemBinding(
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };
   return deriveLocalBinding(rootDir, actor);
+}
+
+export function withLocalWriterEpochFence(
+  binding: RepoCellBinding,
+  descriptor: WriterEpochFenceDescriptor,
+): RepoCellBinding {
+  if (binding.source !== "local" || binding.writerEpochFence) return binding;
+  return {
+    ...binding,
+    writerEpoch: descriptor.epoch,
+    assertWriterEpoch: () => assertWriterEpochFenceDescriptor(descriptor),
+    withWriterEpochFence: <T>(operation: () => T) => withWriterEpochFenceDescriptor(descriptor, operation),
+    writerEpochFence: descriptor,
+  };
 }
 
 function deriveLocalBinding(rootDir: string, actor: RepoCellBinding["actor"]): RepoCellBinding {

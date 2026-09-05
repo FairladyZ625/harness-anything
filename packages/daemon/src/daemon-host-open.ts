@@ -1,4 +1,5 @@
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
+import path from "node:path";
 import {
   consumeKnownError,
   readDaemonRegistry,
@@ -19,7 +20,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding, localSystemBinding } from "./daemon-host-binding.ts";
+import { binding as deriveBinding, localSystemBinding, withLocalWriterEpochFence } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -76,6 +77,7 @@ import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
+import { openPersistentWriterEpoch, type PersistentWriterEpoch, type WriterEpochLease } from "./writer-epoch.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -150,6 +152,34 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
+  let localWriterEpoch: PersistentWriterEpoch | null = null;
+  const localWriterLeases = new Map<string, WriterEpochLease>(),
+    localWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
+      if (base.source !== "local" || base.writerEpochFence) return base;
+      localWriterEpoch ??= openPersistentWriterEpoch({
+        stateRoot: path.join(input.userRoot, "fleet"),
+        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
+        now,
+      });
+      const lease = localWriterLeases.get(repoId) ?? localWriterEpoch.acquire(repoId);
+      localWriterLeases.set(repoId, lease);
+      return withLocalWriterEpochFence(base, {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: path.join(input.userRoot, "fleet"),
+        repoId,
+        epoch: lease.epoch,
+        holderId: lease.holderId,
+      });
+    },
+    hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
+      const base = await deriveBinding(rootDir, auth, executor);
+      return writerRepoId ? localWriterBinding(writerRepoId, base) : base;
+    },
+    closeLocalWriterEpoch = () => {
+      localWriterEpoch?.close();
+      localWriterEpoch = null;
+      localWriterLeases.clear();
+    };
   void refreshDiscovery().catch(consumeKnownError);
   const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
       const key = `${request.repoId}\0${request.assignmentId}\0${request.host}\0${request.port}`,
@@ -169,7 +199,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     scheduleScheduler = makeScheduleScheduler({
       cells,
       now,
-      localBinding: (rootDir) => localSystemBinding(rootDir),
+      localBinding: (repoId, rootDir, required) => {
+        const base = localSystemBinding(rootDir);
+        return required === "repo-read" ? base : localWriterBinding(repoId, base);
+      },
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
         if (!config || config.repoId !== repoId)
@@ -441,7 +474,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts,
     failedConfigureVerify,
     hostCodedError,
-    binding,
+    binding: hostBinding,
+    closeLocalWriterEpoch,
     attach,
     localOnly,
     settleWarming,

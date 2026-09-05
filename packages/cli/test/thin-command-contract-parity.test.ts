@@ -75,6 +75,12 @@ test("all public commands expose the canonical structured input facet", () => {
     [["--generation", "single", false]],
     "ledger-migrate",
   );
+  const ledgerReconcile = daemonProtocolCommands.find((command) => command.id === "ledger-reconcile");
+  assert.deepEqual(
+    ledgerReconcile?.inputs.map((input) => [input.name, input.kind, input.required]),
+    [["--generation", "single", true]],
+    "ledger-reconcile",
+  );
   // daemon-stop is the one daemon control with a flag: --force is the supported escalation when
   // a cooperative stop times out, and the usage line is derived from this declaration.
   const daemonStop = daemonProtocolCommands.find((command) => command.id === "daemon-stop");

@@ -320,6 +320,18 @@ test("migrate ledger accepts only the declared SQLite generation option", () => 
   assert.equal(parseThinCommand(["migrate", "ledger", "--dry-run"]).ok, false);
 });
 
+test("ledger reconcile requires the declared SQLite generation", () => {
+  const parsed = parseThinCommand(["ledger", "reconcile", "--generation", "1", "--json"]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.deepEqual(parsed.command.action, { kind: "ledger-reconcile", generation: 1 });
+    assert.equal(parsed.command.method, "repo.task.read");
+    assert.equal(parsed.command.json, true);
+  }
+  assert.equal(parseThinCommand(["ledger", "reconcile"]).ok, false);
+  assert.equal(parseThinCommand(["ledger", "reconcile", "--generation", "2"]).ok, false);
+});
+
 test("thin parser rejects retired caller-supplied gate receipts", () => {
   const parsed = parseThinCommand([
     "task",

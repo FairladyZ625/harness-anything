@@ -113,7 +113,13 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly runtimePorts: DaemonRuntimePorts;
   readonly failedConfigureVerify: typeof import("./daemon-host-errors.ts").failedConfigureVerify;
   readonly hostCodedError: typeof import("./daemon-host-errors.ts").hostCodedError;
-  readonly binding: typeof import("./daemon-host-binding.ts").binding;
+  readonly binding: (
+    rootDir: string,
+    auth: DaemonAuthenticationContext,
+    executor?: import("./repo-cell-types.ts").RepoCellBinding["actor"]["executor"],
+    writerRepoId?: string,
+  ) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
+  readonly closeLocalWriterEpoch: () => void;
   readonly attach: (
     rootDir: string,
     repoId: string,

@@ -84,7 +84,11 @@ export function createDaemonHostLifecycleApi(
           context.scheduleScheduler.close();
           if (context.initialAttachments) await context.initialAttachments;
           for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
-          if (context.fleetCenter) await context.fleetCenter.close();
+          try {
+            if (context.fleetCenter) await context.fleetCenter.close();
+          } finally {
+            context.closeLocalWriterEpoch();
+          }
           for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
           context.fleetEdgeRuntimes.clear();
           context.remoteProxy.close();
