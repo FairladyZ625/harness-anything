@@ -171,12 +171,12 @@ test("vertical entity-kind commands coexist with the existing vertical command s
       verticalSource: "software/coding",
     });
   assert.equal(upsert.ok, true);
-  if (upsert.ok) assert.deepEqual(upsert.command.action, { kind: "vertical-kind-upsert-cli", fromFile: "kind.json" });
+  if (upsert.ok) assert.deepEqual(upsert.command.action, { kind: "vertical-kind-upsert", fromFile: "kind.json" });
   const retire = parseThinCommand(["vertical", "entity-kind", "retire", "runbook", "--reason", "Superseded"]);
   assert.equal(retire.ok, true);
   if (retire.ok)
     assert.deepEqual(retire.command.action, {
-      kind: "vertical-kind-retire-cli",
+      kind: "vertical-kind-retire",
       kindId: "runbook",
       reason: "Superseded",
     });

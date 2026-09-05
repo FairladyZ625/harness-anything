@@ -10,7 +10,7 @@ import {
 export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "vertical-kind-upsert-cli",
-    actionKind: "vertical-kind-upsert-cli",
+    actionKind: "vertical-kind-upsert",
     phase: "Governed-Entity-W2",
     path: ["vertical", "entity-kind", "upsert"],
     summary: "Create or replace one Artifact kind from a complete vertical declaration JSON object.",
@@ -53,7 +53,7 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "vertical-kind-retire-cli",
-    actionKind: "vertical-kind-retire-cli",
+    actionKind: "vertical-kind-retire",
     phase: "Governed-Entity-W2",
     path: ["vertical", "entity-kind", "retire", "<kind>"],
     summary: "Retire one Artifact kind with a required reason while preserving its declaration.",

@@ -2,7 +2,6 @@ import {
   cliInput,
   defineCliCommand,
   defineRepoReadCommand,
-  ledgerWriteCommandTopology,
   presetCommands,
   presetMethods,
 } from "../../../preset/src/preset-command-contract.ts";
@@ -141,10 +140,6 @@ export function resolveThinCliCommand(args: readonly string[]): (typeof daemonPr
 }
 
 export function commandDescriptorForAction(kind: string) {
-  const verticalGui = daemonGuiActionMethods.find(
-    (entry) => entry.actionKind === kind && kind.startsWith("vertical-kind-"),
-  );
-  if (verticalGui) return { ...verticalGui, ...ledgerWriteCommandTopology };
   const descriptor =
     daemonProtocolCommands.find((entry) => commandAcceptsAction(entry, kind)) ??
     presetMethods.find((entry) => entry.actionKind === kind);

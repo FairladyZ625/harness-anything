@@ -11,7 +11,8 @@ type DeclarationRead = {
 };
 
 export function isVerticalKindFacadeCommand(command: ThinCommand): boolean {
-  return command.action.kind === "vertical-kind-upsert-cli" || command.action.kind === "vertical-kind-retire-cli";
+  const kind = command.action.kind;
+  return (kind === "vertical-kind-upsert" || kind === "vertical-kind-retire") && !("expectedVersion" in command.action);
 }
 
 export async function runVerticalKindFacadeCommand(command: ThinCommand): Promise<JsonObject> {
@@ -21,7 +22,7 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
     action: { kind: "vertical-declaration-read-cli" },
   });
   if (!isDeclarationRead(current)) return current;
-  if (command.action.kind === "vertical-kind-retire-cli")
+  if (command.action.kind === "vertical-kind-retire")
     return runCommandThroughDaemon({
       ...command,
       action: {

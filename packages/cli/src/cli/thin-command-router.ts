@@ -123,10 +123,11 @@ function parseVerticalKindRouted(
   const offset = route.id === "vertical-kind-retire-cli" ? 4 : 3,
     projected = parseProjected(route.id, args.slice(offset), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (!projected.ok) return projected;
-  if (route.id !== "vertical-kind-retire-cli") return projected;
+  if (route.id !== "vertical-kind-retire-cli")
+    return accepted(rootDir, repoId, json, { ...projected.command.action, kind: "vertical-kind-upsert" });
   const kindId = args[3];
   return nonEmpty(kindId)
-    ? accepted(rootDir, repoId, json, { ...projected.command.action, kindId })
+    ? accepted(rootDir, repoId, json, { ...projected.command.action, kind: "vertical-kind-retire", kindId })
     : rejected("missing_field", "Use ha vertical entity-kind retire <kind> --reason <reason>.", json);
 }
 
