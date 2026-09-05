@@ -196,6 +196,7 @@ export async function runFleetUploadBoundaryCampaign() {
           observations: {
             outcomes: concurrent.results.map(({ center: result }) => result.outcome),
             winnerNodeId: concurrent.winner.nodeId,
+            loserCode: concurrent.loser.center.code,
           },
           oracles: { O1: o1, O3: o3, O6: o6 },
           verdict: "PASS",
@@ -307,9 +308,10 @@ async function concurrentSameContent(fixture, center, assignmentRecords, target)
   const results = await Promise.all(runs.map(completedUpload)),
     accepted = results.map((result, index) => ({ ...result, nodeId: assignmentRecords[index].nodeId })),
     winners = accepted.filter(({ center: result }) => result.outcome === "applied"),
-    losers = accepted.filter(({ center: result }) => result.outcome !== "applied");
+    losers = accepted.filter(({ center: result }) => result.outcome === "op_rejected");
   assert.equal(winners.length, 1, JSON.stringify(results));
   assert.equal(losers.length, 1, JSON.stringify(results));
+  assert.equal(losers[0].center.code, "base_ledger_changed", JSON.stringify(losers[0].center));
   assert.notEqual(results[0].descriptors[0].ref, results[1].descriptors[0].ref);
   return { body, results, winner: winners[0], loser: losers[0] };
 }
