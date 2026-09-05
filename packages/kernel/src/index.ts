@@ -152,6 +152,7 @@ export {
   classifyTextualArtifactPath,
   OPAQUE_TEXTUAL_POLICY_ID,
   type OpaqueTextualMediaType,
+  worktreeDocumentMediaType,
 } from "./domain/artifact-text-classification.ts";
 export {
   parseCanonicalEvent,

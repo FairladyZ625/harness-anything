@@ -254,7 +254,16 @@ test("opaque textual paths preserve their media type", () => {
     mediaType: "text/plain",
     policyId: DOC_POLICY_ID,
   });
-  assert.equal(classifyTextualArtifactPath("context/report.html"), null);
+  assert.deepEqual(classifyTextualArtifactPath("context/report.html"), {
+    kind: "opaque-textual",
+    mediaType: "text/html",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  assert.deepEqual(classifyTextualArtifactPath("context/report.htm"), {
+    kind: "opaque-textual",
+    mediaType: "text/html",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
   assert.equal(classifyTextualArtifactPath("context/architecture/notes.json"), null);
   assert.equal(classifyTextualArtifactPath("context/architecture/views/write-path.c4"), null);
 });

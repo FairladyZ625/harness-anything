@@ -1,16 +1,68 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DOC_POLICY_ID, makeTaskEventStore, parseDocWriteIntent, sha256Text } from "../../kernel/src/index.ts";
+import {
+  DOC_POLICY_ID,
+  makeTaskEventStore,
+  OPAQUE_TEXTUAL_POLICY_ID,
+  parseDocWriteIntent,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blockedAuthoredCandidateReason } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+
+test("HTML research documents are eligible, submit as opaque text, and become clean", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-html-research-"));
+  initRepo(rootDir);
+  const logical = "context/research/2026-09-05-foundation-audit/index.html",
+    body = "<!doctype html>\n<title>Foundation audit</title>\n<p>canonical HTML</p>\n",
+    repoId = workspaceId("html-research"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "html-research-daemon",
+    }),
+    binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, logical, body);
+    const dryRun = await cell.run({ kind: "doc-dry-run", paths: [logical] }, binding);
+    assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
+    assert.deepEqual(
+      rows(dryRun.evidence).map((row) => [row.path, row.state, row.mediaType]),
+      [[logical, "eligible", "text/html"]],
+    );
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(submitted.opId);
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema === "doc-event/v1") {
+      const change = event.payload.changes[0]!;
+      assert.equal(change.policyId, OPAQUE_TEXTUAL_POLICY_ID);
+      assert.deepEqual(change.candidate, {
+        sha256: sha256Text(body),
+        size: Buffer.byteLength(body),
+        mediaType: "text/html",
+      });
+    }
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), body);
+    const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
+    assert.deepEqual(
+      rows(status.evidence).map((row) => [row.path, row.state]),
+      [[logical, "clean"]],
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("status, dry-run, and submit share the repeatable-path scanner and automatic base", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-scanner-"));
   initRepo(rootDir);

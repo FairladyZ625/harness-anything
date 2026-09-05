@@ -6,6 +6,7 @@ import {
   documentPath,
   resolveDocRoute,
   resolveHarnessLayout,
+  worktreeDocumentMediaType,
   sha256Bytes,
   stableStringify,
   type DocEventV1,
@@ -258,8 +259,7 @@ export function listProjectedTaskDocuments(
 }
 
 const worktreeDocumentMaxBytes = 2 * 1024 * 1024,
-  worktreeDocumentMaxEntries = 2000,
-  worktreeDocumentExtensions = new Set([".md", ".json", ".yaml", ".yml", ".txt", ".html", ".htm"]);
+  worktreeDocumentMaxEntries = 2000;
 
 type WorktreeDocumentRow = {
   readonly path: string;
@@ -287,19 +287,6 @@ function resolveWorktreeDocumentPath(packageRoot: string | null, relative: strin
     if (statLinkSync(cursor)?.isSymbolicLink()) return null;
   }
   return target;
-}
-
-function worktreeDocumentMediaType(relative: string): string {
-  const extension = path.extname(relative).toLowerCase();
-  return extension === ".json"
-    ? "application/json"
-    : extension === ".html" || extension === ".htm"
-      ? "text/html"
-      : extension === ".yaml" || extension === ".yml"
-        ? "application/yaml"
-        : extension === ".md"
-          ? "text/markdown"
-          : "text/plain";
 }
 
 /** One live file from the task package's working copy, or null when it is absent. */
@@ -341,7 +328,8 @@ function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDoc
         queue.push(target);
         continue;
       }
-      if (!entry.isFile() || !worktreeDocumentExtensions.has(path.extname(entry.name).toLowerCase())) continue;
+      const mediaType = worktreeDocumentMediaType(entry.name);
+      if (!entry.isFile() || mediaType === null) continue;
       const stat = statFileSync(target);
       if (stat === null || stat.size > worktreeDocumentMaxBytes) continue;
       const bytes = readFileSync(target);
@@ -349,7 +337,7 @@ function worktreeDocumentIndex(packageRoot: string | null): readonly WorktreeDoc
         path: path.relative(root, target).split(path.sep).join("/"),
         blobSha256: sha256Bytes(bytes),
         size: stat.size,
-        mediaType: worktreeDocumentMediaType(entry.name),
+        mediaType,
         uncommitted: true,
       });
     }
