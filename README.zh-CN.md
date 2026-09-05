@@ -201,3 +201,7 @@ Harness Anything 用三个长期存在的原语承载 agent 工作：
 ## License
 
 [AGPL-3.0-or-later](./LICENSE)。Harness Anything 保持开源，包括有人把它作为服务提供时。
+
+## Star 趋势
+
+[![GitHub Star 增长趋势图](https://api.star-history.com/svg?repos=FairladyZ625/harness-anything&type=Date)](https://star-history.com/#FairladyZ625/harness-anything&Date)

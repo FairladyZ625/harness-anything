@@ -254,3 +254,7 @@ documentation fixes are especially useful right now. See
 
 [AGPL-3.0-or-later](./LICENSE). Harness Anything stays open, including when it
 is offered as a service.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=FairladyZ625/harness-anything&type=Date)](https://star-history.com/#FairladyZ625/harness-anything&Date)
