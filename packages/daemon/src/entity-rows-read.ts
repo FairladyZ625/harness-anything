@@ -1,5 +1,5 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
-import type { EntityKindCatalogV1, TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type EntityKindCatalogV1, type TaskProjection } from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 /**
@@ -45,7 +45,13 @@ export function readDeclaredEntityRows(input: {
     if (origin !== "vertical") continue;
     for (const row of input.projection.listEntities(kind)) rows.push(entityRow(kind, row));
   }
-  for (const instance of input.runtimeInstances?.() ?? []) {
+  let runtimeInstances: readonly RuntimeInstanceSummary[] = [];
+  try {
+    runtimeInstances = input.runtimeInstances?.() ?? [];
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  for (const instance of runtimeInstances) {
     rows.push({
       kind: "runtime-instance",
       entityId: instance.instanceId,

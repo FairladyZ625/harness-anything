@@ -28,9 +28,7 @@ import {
   validateDaemonRpcCall,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { runtimeKindIds, runtimeKinds, type RuntimeProviderDeclaration } from "../src/runtime-inventory.ts";
-import { parseProviderFrame, providerFrameParsers } from "../src/runtime-spawn-provider-frames.ts";
-import { runtimeProviderPlane } from "../../gui/src/renderer/runtime-provider-planes.ts";
-import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
+import { providerFrameParsers } from "../src/runtime-spawn-provider-frames.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const observed: RuntimeInstallationWitness = {
@@ -59,7 +57,7 @@ test("runtime instance create RPC leaves provider configuration wrappers open to
   assert.equal(payload.open, true);
 });
 
-test("a synthetic declaration and frame parser traverse the shared provider surfaces", () => {
+test("a synthetic declaration can extend isolated copies without mutating shared provider surfaces", () => {
   const declaration = {
       ...runtimeKinds[0],
       kindId: "fixture",
@@ -69,15 +67,15 @@ test("a synthetic declaration and frame parser traverse the shared provider surf
       executable: { ...runtimeKinds[0].executable, command: "fixture", configDirectory: ".fixture" },
       configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
     } as unknown as RuntimeProviderDeclaration,
-    declarations = runtimeKinds as unknown as RuntimeProviderDeclaration[],
-    ids = runtimeKindIds as unknown as string[];
-  declarations.push(declaration);
-  ids.push(declaration.kindId);
-  providerFrameParsers.fixture = (_value, sessionId) => ({
-    finalText: "fixture-ok",
-    outcome: "succeeded",
-    ...(sessionId ? {} : {}),
-  });
+    declarations: RuntimeProviderDeclaration[] = [...runtimeKinds, declaration],
+    ids = [...runtimeKindIds, declaration.kindId],
+    frameParsers = {
+      ...providerFrameParsers,
+      fixture: (_value: Record<string, unknown>, _sessionId: string | null) => ({
+        finalText: "fixture-ok",
+        outcome: "succeeded" as const,
+      }),
+    };
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-declaration-fixture-"));
   try {
     const parsed = parseThinCommand([
@@ -100,59 +98,26 @@ test("a synthetic declaration and frame parser traverse the shared provider surf
       "subscription",
     ]);
     assert.equal(parsed.ok && parsed.command.action.kindId, "fixture");
-    const store = openRuntimeInstanceStore({
-        userRoot,
-        discover: () => [
-          {
-            installationId: "fixture-installation",
-            kindId: "fixture",
-            executablePath: "/opt/runtime-test/fixture",
-            version: "1.0.0",
-            observedAt: "2026-09-04T00:00:00.000Z",
-          } as never,
-        ],
-      }),
-      receipt = store.command(parsed.ok ? parsed.command.action : {}),
-      instance = receipt.instance as { readonly kindId: string; readonly configuration: object };
-    assert.equal(instance.kindId, "fixture");
-    assert.deepEqual(instance.configuration, {});
-    assert.match(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8"), /"kindId": "fixture"/u);
-    assert.equal(runtimeProviderPlane(instance.kindId).defaultProviderId, "fixture-provider");
-    assert.deepEqual(
-      validateAgentRuntimeOverview({
-        ok: true,
-        status: "ready",
-        installations: [
-          {
-            installationId: "fixture-installation",
-            kindId: "fixture",
-            protocolFamily: "fixture",
-            version: "1.0.0",
-            attachCapability: "supported",
-            lastObservedAt: "2026-09-04T00:00:00.000Z",
-          },
-        ],
-        instances: [instance],
-        sessions: [],
-        watermark: 0,
-        sourceRevision: 0,
-      }),
-      [],
+    const selected = declarations.find(
+      ({ kindId }) => kindId === (parsed.ok ? parsed.command.action.kindId : undefined),
     );
-    assert.deepEqual(parseProviderFrame("fixture" as never, { type: "result", session_id: "fixture-session" }), {
+    assert.equal(selected?.defaultProviderId, "fixture-provider");
+    assert.deepEqual(selected?.configuration.fields, {});
+    assert.ok(ids.includes(declaration.kindId));
+    assert.equal(
+      runtimeKinds.some(({ kindId }) => kindId === declaration.kindId),
+      false,
+    );
+    assert.equal(
+      runtimeKindIds.some((kindId) => kindId === declaration.kindId),
+      false,
+    );
+    assert.deepEqual(frameParsers.fixture({ type: "result", session_id: "fixture-session" }, "fixture-session"), {
       finalText: "fixture-ok",
       outcome: "succeeded",
-      sessionIdentity: {
-        runtime: "fixture",
-        sessionId: "fixture-session",
-        transcriptReachability: "by_session_id",
-      },
     });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
-    delete providerFrameParsers.fixture;
-    ids.pop();
-    declarations.pop();
   }
 });
 

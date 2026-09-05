@@ -161,6 +161,17 @@ test("entity rows include daemon-local runtime instances with Provider deep link
   ]);
 });
 
+test("entity rows remain available when daemon-local runtime inventory is unreadable", () => {
+  const rows = readDeclaredEntityRows({
+    catalog: buildEntityKindCatalog([]),
+    projection: { listEntities: () => [] },
+    runtimeInstances: () => {
+      throw new Error("unreadable runtime inventory fixture");
+    },
+  });
+  assert.deepEqual(rows, { schema: "entity-row-list/v1", ok: true, rows: [] });
+});
+
 test("locator read serves repo files and directories and refuses to escape the root", () => {
   const root = mkdtempSync(path.join(tmpdir(), "entity-locator-"));
   try {
