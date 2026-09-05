@@ -42,7 +42,7 @@ export async function proofFor(
   binding: RepoCellBinding,
   projection: ReturnType<typeof makeTaskProjection>,
   rootDir: string,
-  settings: SettingsV1,
+  getSettings: () => SettingsV1,
 ): Promise<TaskLifecycleServiceProof<typeof command> & { readonly authorizationDecision?: AuthorizationDecision }> {
   if (command.type === "CreateReplayTask") return { taskIdUnique: true, actorBinding: command.actor };
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((candidate) => candidate.matches(command, snapshot)),
@@ -107,6 +107,7 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReview") {
+    const settings = getSettings();
     const runtimeSessionId = runtimeSessionIdFromActor(command.actor),
       runtimeSession = runtimeSessionId === null ? null : projection.readRuntimeSession(runtimeSessionId),
       runtimeBinding = runtimeSession?.taskBindings.some(

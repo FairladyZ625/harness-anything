@@ -45,6 +45,7 @@ function seedQueries(client: QueryClient): void {
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
       defaultProfile: "baseline",
+      reviewIndependence: "execution",
       locale: "zh-CN",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
       walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },

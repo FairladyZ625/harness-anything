@@ -318,7 +318,7 @@ export function createRepoCellActionContext(bindings: {
       snapshot: Parameters<typeof proofFor>[1],
       binding: Parameters<typeof proofFor>[2],
       projection: Parameters<typeof proofFor>[3],
-    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings()),
+    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings),
     lifecycleReceipt,
     publicPublication: bindings.publicPublication,
     explicitExecutionId,
