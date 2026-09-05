@@ -73,19 +73,15 @@ export function classifyRuntimeExit(
       attemptGroupId,
       attemptIndex,
     });
-  if (active.cancelRequested || active.lossReason)
-    return classified(
-      "worker_stop",
-      active.cancelRequested
-        ? "Worker stop was requested."
-        : `Worker process stopped before settlement: ${active.lossReason}`,
-    );
+  if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
   if (attemptFailed && providerFault)
     return {
       ...classified("provider_fault", providerFault.reason),
       ...(providerFault.faultClass ? { faultClass: providerFault.faultClass } : {}),
       ...(providerFault.resetAt ? { resetAt: providerFault.resetAt } : {}),
     };
+  if (active.lossReason)
+    return classified("worker_stop", `Worker process stopped before settlement: ${active.lossReason}`);
   if (exitCode === null)
     return classified("provider_fault", "Provider process disconnected before completing the attempt.");
   if (attemptFailed && !active.toolCallObserved) {
