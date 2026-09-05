@@ -11,6 +11,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
 import { runAgentEntityAction } from "./agent-entities.ts";
+import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
@@ -243,7 +244,8 @@ export async function executeAction(
   if (action.kind === "preset-upgrade") return cell.upgradePresetSnapshot(action, binding);
   if (/^entity-(?:get|list)$/u.test(action.kind)) {
     const revision = cell.store.readHead()?.revision ?? 0,
-      kind = cell.requiredCellText(action.entityKind, "entityKind");
+      requestedKind = cell.requiredCellText(action.entityKind, "entityKind"),
+      kind = resolveEntityReadKind(requestedKind, compiledArtifactKinds(cell.rootDir, cell.input.repoId));
     if (action.kind === "entity-list")
       return cell.readResult(
         cell.operationId(action, binding, cell.input.repoId, revision),

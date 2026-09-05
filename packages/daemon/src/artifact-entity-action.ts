@@ -68,6 +68,10 @@ export function compiledArtifactKinds(rootDir: string, repositoryId: string): re
   return canonicalVertical(rootDir, repositoryId).contract.artifactKinds;
 }
 
+export function resolveEntityReadKind(kind: string, contracts: readonly CompiledArtifactKindContract[]): string {
+  return contracts.find(({ declaration }) => declaration.id === kind)?.typeIdentity ?? kind;
+}
+
 /**
  * The registry relation writes are admitted against: kernel rows plus the governed rows the canonical
  * vertical compiled, so a kind-declared triple is writable through the same authority as a code row.

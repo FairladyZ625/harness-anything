@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { buildEntityKindCatalog, validateEntityKindCatalog } from "../../kernel/src/index.ts";
-import { compiledArtifactKinds, relationDirectionRegistry } from "../src/artifact-entity-action.ts";
+import {
+  compiledArtifactKinds,
+  relationDirectionRegistry,
+  resolveEntityReadKind,
+} from "../src/artifact-entity-action.ts";
 import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-rows-read.ts";
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
@@ -92,6 +96,15 @@ test("the declared research kind is importable and carries both governed relatio
       { type: "relates", sourceKind: RESEARCH_KIND, targetKind: "task" },
     ],
   );
+});
+
+test("entity projection reads resolve vertical declaration ids to canonical kind identities", () => {
+  const kinds = repositoryKinds();
+  assert.equal(resolveEntityReadKind("architecture-decision-record", kinds), ADR_KIND);
+  assert.equal(resolveEntityReadKind("external-issue", kinds), "software/coding/external-issue@1");
+  assert.equal(resolveEntityReadKind("research", kinds), RESEARCH_KIND);
+  assert.equal(resolveEntityReadKind(RESEARCH_KIND, kinds), RESEARCH_KIND);
+  assert.equal(resolveEntityReadKind("agent", kinds), "agent");
 });
 
 test("builtin rows carry no declaration and declared rows always do", () => {
