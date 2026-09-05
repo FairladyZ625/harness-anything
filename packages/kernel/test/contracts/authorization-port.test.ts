@@ -48,7 +48,8 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // task_046460a29d5a147d3c9ecf7f92:dispatch-records-migrate 从 canonical 派工副本恢复事件,109 → 110。
   // 2026-09-03 W1-F:center-only Squad migration 进入 durable inventory(CEO 已裁 cutover),110 → 111。
   // 2026-09-05:声明实体 update / archive 进入 durable inventory(CEO 已确认),111 → 113。
-  assert.equal(durablePolicyActions.length, 113);
+  // 2026-09-05:vertical declaration migrate / kind upsert / kind retire 进入 durable inventory,113 → 116。
+  assert.equal(durablePolicyActions.length, 116);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

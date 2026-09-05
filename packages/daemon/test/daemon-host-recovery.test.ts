@@ -6,7 +6,12 @@ import { DatabaseSync } from "node:sqlite";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjection, readDaemonRegistry, taskLifecycleWritePlan } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  makeTaskProjection,
+  readDaemonRegistry,
+  taskLifecycleWritePlan,
+} from "../../kernel/src/index.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
@@ -236,6 +241,10 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
   rosterRepo(rootDir, repoId);
   const prepared = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "prepare-materialization" });
   await prepared.close();
+  const bootstrapEvents = makeTaskEventReader({ repoId, rootDir }).read().events;
+  assert.equal(bootstrapEvents.length, 2);
+  assert.equal(bootstrapEvents[1]?.schema, "vertical-declaration-event/v1");
+  assert.equal(bootstrapEvents[1]?.type, "vertical_declared");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   const host = await openDaemonHost({
     daemonId: "host-materialization",
@@ -262,8 +271,8 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
     context.diagnostic(`failed daemon status row: ${JSON.stringify(failed)}`);
     assert.deepEqual(failed.materialization, {
       state: "failed",
-      lastCheckpointRevision: 1,
-      lastCheckpointAt: "2026-08-27T00:00:00.000Z",
+      lastCheckpointRevision: 2,
+      lastCheckpointAt: "2026-09-05T00:00:00.000Z",
       pendingWalEvents: 1,
       reason: "retry_budget_exhausted",
       lastError: "simulated worker materialization failure",
@@ -278,8 +287,8 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
     assert.equal(rejected.code, "materialization_failed");
     assert.deepEqual(rejected.diagnostic, {
       kind: "materialization-failed",
-      lastCheckpointRevision: 1,
-      lastCheckpointAt: "2026-08-27T00:00:00.000Z",
+      lastCheckpointRevision: 2,
+      lastCheckpointAt: "2026-09-05T00:00:00.000Z",
       pendingWalEvents: 1,
       reason: "retry_budget_exhausted",
       lastError: "simulated worker materialization failure",
@@ -288,7 +297,7 @@ test("daemon status turns materialization red, rejects writes, and returns to ok
     await host.settleMaterialization(repoId, "materialization recovery control");
     const healthy = await waitForRepoMaterialization(host, repoId, "ok");
     context.diagnostic(`recovered daemon status row: ${JSON.stringify(healthy)}`);
-    assert.equal(healthy.materialization?.lastCheckpointRevision, 2);
+    assert.equal(healthy.materialization?.lastCheckpointRevision, 3);
     assert.equal(healthy.materialization?.pendingWalEvents, 0);
     const recovered = await host.run(
       repoId,
