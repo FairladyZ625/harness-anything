@@ -12,6 +12,10 @@ const recoveryCommands: Readonly<Record<string, RecoveryCommandPolicy>> = Object
   "migrate-import": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
   "projection-rebuild": Object.freeze({ causes: Object.freeze(["projection"] as const), settlesLatch: true }),
   "relation-events-migrate": Object.freeze({ causes: Object.freeze(["data-shape"] as const), settlesLatch: true }),
+  "schedule-definitions-migrate": Object.freeze({
+    causes: Object.freeze(["data-shape"] as const),
+    settlesLatch: true,
+  }),
   "receipt-show": Object.freeze({
     causes: Object.freeze(["data-shape", "infrastructure"] as const),
     settlesLatch: false,

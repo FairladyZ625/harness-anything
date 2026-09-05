@@ -1,13 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   canonicalEventWritePlan,
+  compileScheduleDefinitionEvent,
+  contentObjectRelativePath,
+  createScheduleV1,
   deriveRelationId,
   eventObjectRelativePath,
   makeTaskEventReader,
@@ -19,6 +22,7 @@ import {
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
   sha256Text,
+  validateScheduleV1,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type RelationEventV1,
@@ -85,6 +89,11 @@ function sortedJson(value: unknown): string {
   );
 }
 
+function definitionOf(schedule: ReturnType<typeof createScheduleV1>) {
+  const { status: _status, ...definition } = schedule;
+  return definition;
+}
+
 test("relation_created history in the pre-derived-strength shape cold-rebuilds only after `migrate relation-events`", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-relation-events-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -128,6 +137,7 @@ test("relation_created history in the pre-derived-strength shape cold-rebuilds o
       ownerId: "event-shape-test",
       now: () => "2026-09-02T12:00:00.000Z",
     });
+    assert.equal(cell.status().causeClass, "data-shape");
     const binding = { actor, source };
     const preview = (await cell.run({ kind: "relation-events-migrate", dryRun: true }, binding)) as Record<
       string,
@@ -175,6 +185,115 @@ test("relation_created history in the pre-derived-strength shape cold-rebuilds o
     );
 
     const repeat = (await cell.run({ kind: "relation-events-migrate" }, binding)) as Record<string, unknown>;
+    assert.equal(repeat.outcome, "pending");
+    assert.equal((JSON.parse(String(repeat.evidence)) as { rewrittenEvents: number }).rewrittenEvents, 0);
+  } finally {
+    await cell?.close?.();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("historical schedule targets cold-rebuild only after `migrate schedule-definitions`", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-schedule-definitions-")),
+    repoId = "schedule-definition-fixture";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(scratch);
+    const store = makeTaskEventStore({ repoId, rootDir: scratch }),
+      schedule = createScheduleV1({
+        scheduleId: "legacy-schedule",
+        name: "Legacy schedule",
+        mode: "detect",
+        spec: {
+          mission: "Exercise the historical target shape.",
+          trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-01T00:00:00.000Z" },
+          target: { kind: "agent", agentId: "worker", runtimeInstanceId: "codex" },
+        },
+        actor,
+        occurredAt: "2026-09-01T00:00:00.000Z",
+      }),
+      compiled = compileScheduleDefinitionEvent({
+        type: "schedule_created",
+        schedule,
+        eventId: "event-legacy-schedule",
+        opId: "op-legacy-schedule",
+        workspaceRevision: 1,
+        actor,
+        source,
+        occurredAt: "2026-09-01T00:00:00.000Z",
+      });
+    store.append(compiled);
+    await store.settlePendingMaterialization?.("fixture");
+    const layout = store.layout(),
+      legacyTarget = { ...schedule.spec.target, cwd: ".worktrees/legacy" },
+      legacySchedule = { ...schedule, spec: { ...schedule.spec, target: legacyTarget } },
+      legacyDefinition = { ...definitionOf(schedule), spec: { ...schedule.spec, target: legacyTarget } },
+      legacyBody = `${JSON.stringify(legacyDefinition, null, 2)}\n`,
+      legacySha = sha256Text(legacyBody),
+      legacyClaim = {
+        ...compiled.event.payload.declarationDocumentClaim,
+        sha256: legacySha,
+        size: Buffer.byteLength(legacyBody),
+      },
+      legacyEvent = {
+        ...compiled.event,
+        payload: { schedule: legacySchedule, declarationDocumentClaim: legacyClaim },
+      };
+    const legacyBlobPath = path.join(scratch, "harness", contentObjectRelativePath(legacySha, layout));
+    mkdirSync(path.dirname(legacyBlobPath), { recursive: true });
+    writeFileSync(legacyBlobPath, legacyBody);
+    writeFileSync(
+      path.join(scratch, "harness", eventObjectRelativePath(compiled.event.opId, layout)),
+      `${sortedJson(legacyEvent)}\n`,
+    );
+    execFileSync("git", ["-C", scratch, "add", "harness"]);
+    execFileSync("git", ["-C", scratch, "commit", "-qm", "legacy schedule shape"]);
+    execFileSync("git", ["-C", scratch, "update-ref", "refs/ha/canonical", "HEAD"]);
+    await store.drain();
+
+    const coldPath = path.join(scratch, ".harness/cache/cold-schedule.sqlite"),
+      cold = () =>
+        makeTaskProjection({
+          rootDir: scratch,
+          eventStore: makeTaskEventReader({ repoId, rootDir: scratch }),
+          projectionPath: coldPath,
+        });
+    assert.throws(() => cold().rebuild(), /does not match the event definition facet/u);
+
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "event-shape-test",
+      now: () => "2026-09-02T12:00:00.000Z",
+    });
+    assert.equal(cell.status().causeClass, "data-shape");
+    const binding = { actor, source },
+      preview = (await cell.run({ kind: "schedule-definitions-migrate", dryRun: true }, binding)) as Record<
+        string,
+        unknown
+      >;
+    assert.equal(preview.outcome, "pending", JSON.stringify(preview));
+    const previewReport = JSON.parse(String(preview.evidence)) as { readonly rewrittenEvents: number };
+    assert.equal(previewReport.rewrittenEvents, 1);
+
+    const applied = (await cell.run({ kind: "schedule-definitions-migrate" }, binding)) as Record<string, unknown>;
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(cell.status().state, "attached");
+    const rebuilt = cold().rebuild();
+    assert.equal(rebuilt.watermark, applied.revision);
+    const migratedStore = makeTaskEventReader({ repoId, rootDir: scratch }),
+      migrated = migratedStore
+        .read()
+        .events.find((event) => event.opId === compiled.event.opId)! as typeof compiled.event,
+      claim = migrated.payload.declarationDocumentClaim,
+      blob = migratedStore.readContentBlob(claim.sha256);
+    assert.ok(blob);
+    const value = JSON.parse(new TextDecoder().decode(blob));
+    assert.deepEqual(validateScheduleV1({ ...value, status: migrated.payload.schedule.status }), []);
+    assert.equal(Object.hasOwn(migrated.payload.schedule.spec.target, "cwd"), false);
+    assert.deepEqual(value, definitionOf(migrated.payload.schedule));
+
+    const repeat = (await cell.run({ kind: "schedule-definitions-migrate" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "pending");
     assert.equal((JSON.parse(String(repeat.evidence)) as { rewrittenEvents: number }).rewrittenEvents, 0);
   } finally {

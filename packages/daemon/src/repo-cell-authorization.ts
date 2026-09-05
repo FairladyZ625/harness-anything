@@ -159,6 +159,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "relation-events-migrate":
       return authorizeRepoCellAction(input);
+    case "schedule-definitions-migrate":
+      return authorizeRepoCellAction(input);
     case "fact-type-register":
       return authorizeRepoCellAction(input);
     case "ledger-migrate":

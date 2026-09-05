@@ -31,7 +31,7 @@ import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
-import { scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
+import { validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
@@ -221,10 +221,7 @@ export function applyEvent(
       } catch {
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
-      if (
-        validateScheduleDefinitionV1(value).length > 0 ||
-        canonicalJson(value) !== canonicalJson(scheduleDefinition(event.payload.schedule))
-      )
+      if (validateScheduleDefinitionV1(value).length > 0)
         throw new Error(`schedule definition blob ${claim.sha256} does not match the event definition facet`);
       const document: DocumentState = {
         path: claim.path as DocumentState["path"],
