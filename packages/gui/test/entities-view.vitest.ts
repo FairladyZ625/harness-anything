@@ -23,7 +23,7 @@ const mounted: { root: Root; container: HTMLElement }[] = [];
 /** 与 e2e declared-entity-kinds 场景同一个声明 kind:名字里带斜杠,是排版压力最大的样本。 */
 const ADR_KIND = "software/coding/architecture-decision-record@1";
 
-function declaredAdrKindRow() {
+function declaredAdrKindRow(overrides: Record<string, unknown> = {}) {
   return {
     kind: ADR_KIND,
     origin: "vertical",
@@ -65,6 +65,7 @@ function declaredAdrKindRow() {
         ],
       },
     },
+    ...overrides,
   };
 }
 
@@ -179,6 +180,19 @@ function stubBridge(
       // 已注册 kind 读面:目录分组与详情落点都从这里派生。
       readEntityKinds: vi.fn(async () => ({ schema: "entity-kind-catalog/v1", kinds: extras.kinds ?? [] })),
       readEntityRows: vi.fn(async () => ({ schema: "entity-row-list/v1", ok: true, rows: extras.rows ?? [] })),
+      readVerticalDeclaration: vi.fn(async () => ({
+        schema: "repository-vertical-declaration-read/v1",
+        declarationRevision: 7,
+        declaration: {
+          entityKinds: [
+            {
+              ...declaredAdrKindRow().declaration,
+              entityType: "artifact",
+              store: { pathTemplate: declaredAdrKindRow().declaration.pathTemplate },
+            },
+          ],
+        },
+      })),
       readEntityLocator: vi.fn(async ({ locatorValue }: { readonly locatorValue: string }) => ({
         schema: "entity-locator-read/v1",
         outcome: "file",
@@ -382,6 +396,21 @@ describe("declared entity card overflow", () => {
     const template = card!.querySelector("code");
     expect(template?.getAttribute("title")).toBe(`${ADR_KIND}/{id}`);
     expect(template?.textContent).toBe(`${ADR_KIND}/{id}`);
+  });
+});
+
+describe("retired declared kind", () => {
+  it("grays the card and removes the instance creation entry", async () => {
+    stubBridge([], { kinds: [declaredAdrKindRow({ retired: true, importable: false })], rows: [] });
+    const catalog = await renderSurface(view(null));
+    await settle();
+    const card = catalog.querySelector<HTMLElement>(`[data-testid="entity-doc-card-${ADR_KIND}"]`);
+    expect(card?.className).toContain("grayscale");
+    expect(card?.textContent).toContain("已停用");
+    const detail = await renderSurface(view(`entitydoc/${ADR_KIND}`));
+    await settle();
+    expect(detail.querySelector('[data-testid="governed-entity-new"]')).toBeNull();
+    expect(detail.textContent).toContain("已停用");
   });
 });
 

@@ -45,7 +45,7 @@ export function GovernedEntityPanel({
       <header className="flex flex-wrap items-center gap-2">
         <h2 className="ui-body font-semibold">本仓实体</h2>
         <span className="ui-micro text-text-faint">{rows.length} 条</span>
-        {row.importable && <NewEntityControl repoId={repoId} row={row} />}
+        {row.importable && !row.retired && <NewEntityControl repoId={repoId} row={row} />}
         <label className="ml-auto ui-micro text-text-faint">
           <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} />
           显示已归档

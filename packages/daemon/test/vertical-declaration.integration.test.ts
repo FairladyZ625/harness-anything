@@ -136,3 +136,67 @@ test("declaration read round-trips every materialized kind field through unchang
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("declaration read revision drives create, catalog read, and retirement", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-kind-crud-")),
+    repoId = workspaceId("vertical-kind-crud"),
+    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "vertical-kind-crud-center" });
+    const read = await cell.read("repo.vertical.declaration.read", {}, binding),
+      source = read.declaration.entityKinds.find(({ entityType }) => entityType === "artifact");
+    assert.ok(source);
+    const declaration = {
+        ...source,
+        id: "e2e-runbook",
+        idPrefix: "E2ERUN",
+        display: { singular: "E2E Runbook", plural: "E2E Runbooks" },
+        store: { pathTemplate: "entities/e2e-runbooks/{id}.json" },
+        relations: [],
+      },
+      upsert = await cell.run(
+        {
+          kind: "vertical-kind-upsert",
+          kindId: declaration.id,
+          declaration,
+          expectedVersion: read.declarationRevision,
+        },
+        binding,
+      );
+    assert.equal(upsert.outcome, "applied", JSON.stringify(upsert));
+    const kinds = await cell.read("repo.entity.kinds.read", {}, binding),
+      row = kinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
+    assert.equal(row?.retired, false);
+    assert.equal(row?.importable, true);
+    const retire = await cell.run(
+      {
+        kind: "vertical-kind-retire",
+        kindId: declaration.id,
+        expectedVersion: kinds.declarationRevision,
+        reason: "E2E lifecycle complete",
+      },
+      binding,
+    );
+    assert.equal(retire.outcome, "applied", JSON.stringify(retire));
+    const retiredKinds = await cell.read("repo.entity.kinds.read", {}, binding),
+      retired = retiredKinds.kinds.find(({ declaration: candidate }) => candidate?.id === declaration.id);
+    assert.equal(retired?.retired, true);
+    assert.equal(retired?.importable, false);
+    console.log(
+      JSON.stringify({
+        schema: "vertical-kind-crud-receipt-summary/v1",
+        isolatedRoot: path.basename(rootDir),
+        readRevision: read.declarationRevision,
+        upsert: { outcome: upsert.outcome, revision: upsert.revision },
+        kindsRead: { declarationRevision: kinds.declarationRevision, kind: row?.kind, retired: row?.retired },
+        retire: { outcome: retire.outcome, revision: retire.revision },
+        retiredRead: { declarationRevision: retiredKinds.declarationRevision, retired: retired?.retired },
+      }),
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
