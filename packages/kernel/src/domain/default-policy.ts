@@ -44,6 +44,7 @@ const repositoryWriteActions = Object.freeze([
   "projection-rebuild",
   "relation-events-migrate",
   "schedule-definitions-migrate",
+  "settings-wal-flush-migrate",
   "runtime-batch",
   "runtime-cancel",
   "runtime-instance-login",

@@ -9,13 +9,16 @@ import test from "node:test";
 import {
   canonicalEventWritePlan,
   compileScheduleDefinitionEvent,
+  compileSettingsChangedEvent,
   contentObjectRelativePath,
   createScheduleV1,
   deriveRelationId,
+  eventShapeMigrations,
   eventObjectRelativePath,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
+  readSettingsFacet,
   relationEventWritePlan,
   runDispatchRecordMigration,
   runtimeArchiveText,
@@ -92,6 +95,35 @@ function sortedJson(value: unknown): string {
 function definitionOf(schedule: ReturnType<typeof createScheduleV1>) {
   const { status: _status, ...definition } = schedule;
   return definition;
+}
+
+async function seedHistoricalSettingsEvent(rootDir: string, repoId: string, walFlush?: unknown) {
+  const body = readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"),
+    store = makeTaskEventStore({ repoId, rootDir }),
+    compiled = compileSettingsChangedEvent({
+      settings: readSettingsFacet(body),
+      baseDocumentBody: body,
+      candidateDocumentBody: body,
+      eventId: "event-legacy-settings",
+      opId: "op-legacy-settings",
+      workspaceRevision: 1,
+      actor,
+      source,
+      occurredAt: "2026-09-01T00:00:00.000Z",
+    });
+  store.append(compiled);
+  await store.settlePendingMaterialization?.("fixture");
+  const eventPath = path.join(rootDir, "harness", eventObjectRelativePath(compiled.event.opId, store.layout())),
+    stored = JSON.parse(readFileSync(eventPath, "utf8")) as Record<string, unknown> & {
+      readonly payload: Record<string, unknown> & { readonly settings: Record<string, unknown> };
+    };
+  if (walFlush === undefined) delete stored.payload.settings.walFlush;
+  else stored.payload.settings.walFlush = walFlush;
+  writeFileSync(eventPath, `${sortedJson(stored)}\n`);
+  execFileSync("git", ["-C", rootDir, "commit", "-qam", "legacy settings shape"]);
+  execFileSync("git", ["-C", rootDir, "update-ref", "refs/ha/canonical", "HEAD"]);
+  await store.drain();
+  return { eventPath, stored };
 }
 
 test("relation_created history in the pre-derived-strength shape cold-rebuilds only after `migrate relation-events`", async () => {
@@ -187,6 +219,132 @@ test("relation_created history in the pre-derived-strength shape cold-rebuilds o
     const repeat = (await cell.run({ kind: "relation-events-migrate" }, binding)) as Record<string, unknown>;
     assert.equal(repeat.outcome, "pending");
     assert.equal((JSON.parse(String(repeat.evidence)) as { rewrittenEvents: number }).rewrittenEvents, 0);
+  } finally {
+    await cell?.close?.();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("historical Settings without walFlush cold-rebuild only after `migrate settings-wal-flush`", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-settings-wal-flush-")),
+    repoId = "settings-wal-flush-fixture";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(scratch);
+    const { stored: legacy } = await seedHistoricalSettingsEvent(scratch, repoId),
+      coldPath = path.join(scratch, ".harness/cache/cold-settings.sqlite"),
+      cold = () =>
+        makeTaskProjection({
+          rootDir: scratch,
+          eventStore: makeTaskEventReader({ repoId, rootDir: scratch }),
+          projectionPath: coldPath,
+        });
+    assert.throws(() => cold().rebuild(), /settings declaration is missing required field "walFlush"/u);
+
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "event-shape-test",
+      now: () => "2026-09-02T12:00:00.000Z",
+    });
+    assert.equal(cell.status().causeClass, "data-shape");
+    const binding = { actor, source },
+      beforeHead = makeTaskEventReader({ repoId, rootDir: scratch }).readHead(),
+      preview = (await cell.run({ kind: "settings-wal-flush-migrate", dryRun: true }, binding)) as Record<
+        string,
+        unknown
+      >,
+      previewReport = JSON.parse(String(preview.evidence)) as {
+        readonly rewrittenEvents: number;
+        readonly categories: Record<string, number>;
+        readonly samples: readonly {
+          readonly before: Record<string, unknown>;
+          readonly after: Record<string, unknown>;
+        }[];
+      };
+    assert.equal(preview.outcome, "pending", JSON.stringify(preview));
+    assert.equal(previewReport.rewrittenEvents, 1);
+    assert.deepEqual(previewReport.categories, { "walFlush filled from declared/default settings": 1 });
+    assert.equal(previewReport.samples[0]?.before.walFlushPresent, false);
+    assert.deepEqual(previewReport.samples[0]?.after.walFlush, {
+      adaptive: true,
+      events: 256,
+      bytes: 8_388_608,
+      milliseconds: 3_600_000,
+    });
+    assert.deepEqual(makeTaskEventReader({ repoId, rootDir: scratch }).readHead(), beforeHead);
+
+    const applied = (await cell.run({ kind: "settings-wal-flush-migrate" }, binding)) as Record<string, unknown>;
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(applied.revision, 2);
+    assert.equal(cell.status().state, "attached");
+    const projection = cold(),
+      rebuilt = projection.rebuild();
+    assert.equal(rebuilt.watermark, 2);
+    assert.deepEqual(projection.getEntity("settings", "repository")?.value.walFlush, {
+      adaptive: true,
+      events: 256,
+      bytes: 8_388_608,
+      milliseconds: 3_600_000,
+    });
+    projection.close();
+    assert.deepEqual(readSettingsFacet(readFileSync(path.join(scratch, "harness/harness.yaml"), "utf8")).walFlush, {
+      adaptive: true,
+      events: 256,
+      bytes: 8_388_608,
+      milliseconds: 3_600_000,
+    });
+    const migrated = makeTaskEventReader({ repoId, rootDir: scratch })
+        .read()
+        .events.find((event) => event.opId === "op-legacy-settings")! as unknown as typeof legacy,
+      { payload: legacyPayload, ...legacyEnvelope } = legacy,
+      { payload: migratedPayload, ...migratedEnvelope } = migrated,
+      { settings: legacySettings, ...legacyPayloadRest } = legacyPayload,
+      { settings: migratedSettings, ...migratedPayloadRest } = migratedPayload as typeof legacyPayload,
+      { walFlush: migratedWalFlush, ...migratedSettingsRest } = migratedSettings;
+    assert.deepEqual(migratedEnvelope, legacyEnvelope);
+    assert.deepEqual(migratedPayloadRest, legacyPayloadRest);
+    assert.deepEqual(migratedSettingsRest, legacySettings);
+    assert.deepEqual(migratedWalFlush, previewReport.samples[0]?.after.walFlush);
+
+    const repeat = (await cell.run({ kind: "settings-wal-flush-migrate" }, binding)) as Record<string, unknown>;
+    assert.equal(repeat.outcome, "pending");
+    assert.equal((JSON.parse(String(repeat.evidence)) as { rewrittenEvents: number }).rewrittenEvents, 0);
+    assert.equal(repeat.revision, 2);
+  } finally {
+    await cell?.close?.();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("settings WAL flush migration rejects a present malformed snapshot without overwriting it", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-settings-wal-flush-invalid-")),
+    repoId = "settings-wal-flush-invalid";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(scratch);
+    const { eventPath, stored: invalid } = await seedHistoricalSettingsEvent(scratch, repoId, { adaptive: true });
+    assert.throws(
+      () => eventShapeMigrations["settings-wal-flush-migrate"].rewrite(invalid as never, {} as never),
+      /walFlush is missing required field "events"/u,
+    );
+    cell = await openRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(scratch),
+      ownerId: "event-shape-test",
+      now: () => "2026-09-02T12:00:00.000Z",
+    });
+    assert.equal(cell.status().causeClass, "data-shape");
+    const rejected = await cell.run({ kind: "settings-wal-flush-migrate" }, { actor, source });
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.match(JSON.stringify(rejected), /settings event envelope or payload is invalid/u);
+    const persisted = JSON.parse(readFileSync(eventPath, "utf8")) as typeof invalid,
+      head = JSON.parse(readFileSync(path.join(scratch, "harness/events/head.json"), "utf8")) as {
+        readonly revision: number;
+      },
+      settings = persisted.payload.settings;
+    assert.equal(head.revision, 1);
+    assert.deepEqual(settings.walFlush, { adaptive: true });
   } finally {
     await cell?.close?.();
     rmSync(scratch, { recursive: true, force: true });

@@ -9,13 +9,19 @@ import {
 import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import { isSettingsEvent } from "../domain/settings-event.ts";
+import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
 import {
   isMigrationImportEvent,
   migrationImportWritePlan,
   type MigrationImportEventV1,
 } from "../domain/migration-import-event.ts";
 import { normalizeLegacyRelationState } from "../domain/entity-relation.ts";
-import { serializeEntityJsonSchema, type EntityJsonObjectSchema } from "../domain/entity-json-schema.ts";
+import {
+  serializeEntityJsonSchema,
+  validateEntityJsonSchema,
+  type EntityJsonObjectSchema,
+} from "../domain/entity-json-schema.ts";
 import {
   SCHEDULE_DEFINITION_V1_SCHEMA,
   scheduleDefinition,
@@ -42,11 +48,16 @@ import type { CanonicalContentBlob, CanonicalEventStore, PublicationFile } from 
 // shape `fact-rekey` uses, so the ledger head and commit are produced by the store. The live
 // projection is left alone: every rewrite is, by construction, what the projection already
 // derived, so it only has to catch up the marker. Cold rebuilds are proved separately.
-export type EventShapeMigrationName = "relation-events" | "decision-digests" | "schedule-definitions";
+export type EventShapeMigrationName =
+  | "relation-events"
+  | "decision-digests"
+  | "schedule-definitions"
+  | "settings-wal-flush";
 export type EventShapeMigrationKind =
   | "relation-events-migrate"
   | "decision-digests-migrate"
-  | "schedule-definitions-migrate";
+  | "schedule-definitions-migrate"
+  | "settings-wal-flush-migrate";
 export interface EventShapeRewrite {
   readonly event: CanonicalEventV1;
   readonly blobs?: readonly CanonicalContentBlob[];
@@ -167,6 +178,57 @@ const decisionDigestsMigration: EventShapeMigrationSpec = {
   },
 };
 
+const SETTINGS_WAL_FLUSH_MIGRATION_VALUE: WalFlushSettingsV1 = Object.freeze({
+  adaptive: true,
+  events: 256,
+  bytes: 8_388_608,
+  milliseconds: 3_600_000,
+});
+
+function validateHistoricalWalFlush(value: unknown, opId: string): void {
+  const schema = SETTINGS_REPOSITORY_V1_SCHEMA.properties.walFlush as EntityJsonObjectSchema,
+    errors = validateEntityJsonSchema(
+      {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        $id: "SettingsWalFlushMigration/v1",
+        ...schema,
+      },
+      value,
+      `settings event ${opId} walFlush`,
+    );
+  if (errors.length > 0) throw new Error(errors.join("; "));
+}
+
+export const settingsWalFlushMigration: EventShapeMigrationSpec = {
+  name: "settings-wal-flush",
+  // The rewrite never reads the cut, so every settings event stays in bulk rounds.
+  matches: () => false,
+  rewrite: (event) => {
+    if (!isSettingsEvent(event) || event.type !== "settings_changed") return null;
+    const settings = event.payload.settings as unknown;
+    if (settings === null || typeof settings !== "object" || Array.isArray(settings))
+      throw new Error(`settings event ${event.opId} settings must be a JSON object`);
+    const historical = settings as Readonly<Record<string, unknown>>;
+    if (Object.hasOwn(historical, "walFlush")) {
+      validateHistoricalWalFlush(historical.walFlush, event.opId);
+      return null;
+    }
+    const migrated = { ...historical, walFlush: SETTINGS_WAL_FLUSH_MIGRATION_VALUE };
+    return {
+      event: { ...event, payload: { ...event.payload, settings: migrated } } as CanonicalEventV1,
+      category: "walFlush filled from declared/default settings",
+      before: {
+        walFlushPresent: false,
+        harnessDocumentClaim: event.payload.harnessDocumentClaim,
+      },
+      after: {
+        walFlush: SETTINGS_WAL_FLUSH_MIGRATION_VALUE,
+        harnessDocumentClaim: event.payload.harnessDocumentClaim,
+      },
+    };
+  },
+};
+
 // This migration owns exactly one historical break: `spec.target.cwd` (removed in 272de6d16).
 // Any other field the current target schema does not declare is a new break that needs its own
 // migration, so it is reported instead of being silently absorbed here.
@@ -255,6 +317,7 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "relation-events-migrate": relationEventsMigration,
   "decision-digests-migrate": decisionDigestsMigration,
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
+  "settings-wal-flush-migrate": settingsWalFlushMigration,
 };
 
 export async function runEventShapeMigration(

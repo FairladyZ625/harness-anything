@@ -63,6 +63,7 @@ export function parseRouted(
     route.id === "relation-events-migrate" ||
     route.id === "decision-digests-migrate" ||
     route.id === "schedule-definitions-migrate" ||
+    route.id === "settings-wal-flush-migrate" ||
     route.id === "dispatch-records-migrate"
   ) {
     const f = readFlags(route.id, args.slice(2), inputs);

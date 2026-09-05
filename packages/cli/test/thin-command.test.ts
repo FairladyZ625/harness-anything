@@ -191,6 +191,14 @@ test("dispatch record migration projects its dry-run flag into the daemon Action
   assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
 });
 
+test("settings WAL flush migration projects its dry-run flag into the daemon Action", () => {
+  const parsed = parseThinCommand(["migrate", "settings-wal-flush", "--dry-run"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "repo.task.run");
+  assert.deepEqual(parsed.command.action, { kind: "settings-wal-flush-migrate", dryRun: true });
+});
+
 test("Squad migration projects legacy sources and dry-run into one center Action", () => {
   const parsed = parseThinCommand([
     "migrate",
@@ -276,6 +284,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "migrate-import",
       "relation-events-migrate",
       "schedule-definitions-migrate",
+      "settings-wal-flush-migrate",
       "vertical-declaration-migrate",
     ],
     preset: [
