@@ -567,31 +567,31 @@
         "value": "bypass-write-111",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-112",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-113",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-114",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-115",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-116",
@@ -603,37 +603,37 @@
         "value": "bypass-write-117",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-118",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-119",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-120",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-121",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-122",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-123",
@@ -657,7 +657,7 @@
         "value": "bypass-write-126",
         "api": "sqlite.prepare",
         "ref": "dec_B1F5FF7648436C985F38F14226",
-        "reason": "SQLite ledger statement run inside the coordinated command transaction or its bootstrap."
+        "reason": "SQLite ledger statement run inside the coordinated command transaction, or the explicit `ha migrate ledger --generation 1` command."
       },
       {
         "value": "bypass-write-127",
