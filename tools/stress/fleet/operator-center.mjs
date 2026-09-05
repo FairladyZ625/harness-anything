@@ -58,7 +58,7 @@ const statusPath = path.join(controlRoot, "status.json"),
       roster: path.join(controlRoot, "fleet-roster.json"),
       repoIds: fixture.repos.map(({ repoId }) => repoId),
       revisions: Object.fromEntries(
-        fixture.repos.map(({ repoId }) => [repoId, fixture.host.replica(repoId).revision()]),
+        fixture.repos.map(({ repoId }) => [repoId, fixture.host.replica(repoId).ledgerCut()?.revision ?? 0]),
       ),
       tick,
       updatedAt: new Date().toISOString(),
