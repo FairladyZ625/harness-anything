@@ -1,5 +1,6 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
-import type { EntityKindCatalogV1, TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type EntityKindCatalogV1, type TaskProjection } from "../../kernel/src/index.ts";
+import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 /**
  * 已声明实体的行读面(task_0df76ed3fb 设计页 §3)。
@@ -37,11 +38,28 @@ export interface EntityRowListV1 {
 export function readDeclaredEntityRows(input: {
   readonly catalog: EntityKindCatalogV1;
   readonly projection: Pick<TaskProjection, "listEntities">;
+  readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
 }): EntityRowListV1 {
   const rows: EntityRowV1[] = [];
   for (const { kind, origin } of input.catalog.kinds) {
     if (origin !== "vertical") continue;
     for (const row of input.projection.listEntities(kind)) rows.push(entityRow(kind, row));
+  }
+  let runtimeInstances: readonly RuntimeInstanceSummary[] = [];
+  try {
+    runtimeInstances = input.runtimeInstances?.() ?? [];
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  for (const instance of runtimeInstances) {
+    rows.push({
+      kind: "runtime-instance",
+      entityId: instance.instanceId,
+      ref: `runtime-instance/${instance.instanceId}`,
+      title: instance.name,
+      locator: { kind: "entity-ref", value: `provider/${instance.instanceId}` },
+      revision: 0,
+    });
   }
   return { schema: ENTITY_ROW_LIST_SCHEMA, ok: true, rows };
 }

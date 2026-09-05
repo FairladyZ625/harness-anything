@@ -7,6 +7,7 @@ import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
 import { EntityDocDetailView } from "./EntityDocDetailView.tsx";
 import { entityKindQueryKeys, governedEntityRowsQuery, useEntityKindCatalog } from "../entity-kind-data.ts";
 import { entityLocatorContentQuery } from "../entity-locator-client.ts";
+import { t } from "../i18n/index.tsx";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 
@@ -50,7 +51,7 @@ export function EntitiesView({
         selectedEntityRef={focus.entityRef}
         liveCounts={liveCounts}
         projectName={projectName}
-        fromViewLabel={NAV_SELF_LABEL}
+        fromViewLabel={t("shell.nav.entities")}
         onBack={onExitDetail}
         onOpenView={onOpenView}
       />
@@ -60,7 +61,7 @@ export function EntitiesView({
       <header className="border-b border-border px-4 py-3" data-testid="entities-header">
         <div className="flex flex-wrap items-center gap-2">
           <BookOpen className="text-text-faint" />
-          <h1 className="ui-title font-semibold">实体说明</h1>
+          <h1 className="ui-title font-semibold">{t("shell.nav.entities")}</h1>
           <span className="font-mono ui-micro text-text-faint">{repoId}</span>
         </div>
         <p className="mt-1 max-w-3xl ui-meta leading-relaxed text-text-faint">
@@ -77,14 +78,20 @@ export function EntitiesView({
               <span className="ui-micro text-text-faint">{group.summary}</span>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-2">
-              {group.docs.map((doc) => (
-                <EntityDocCard
-                  key={doc.kind}
-                  doc={doc}
-                  live={doc.liveCount === null ? null : liveCounts[doc.liveCount]}
-                  onOpen={() => onOpenEntityDoc(doc.kind)}
-                />
-              ))}
+              {group.docs.map((doc) => {
+                const catalogRow = catalog.kinds.find(({ kind }) => kind === doc.kind);
+                return (
+                  <EntityDocCard
+                    key={doc.kind}
+                    doc={doc}
+                    live={doc.liveCount === null ? null : liveCounts[doc.liveCount]}
+                    onOpen={() => onOpenEntityDoc(doc.kind)}
+                    origin={catalogRow?.origin ?? "builtin"}
+                    importable={catalogRow?.importable ?? false}
+                    onManage={doc.kind === "runtime-instance" ? () => onOpenView("providers") : null}
+                  />
+                );
+              })}
             </div>
           </section>
         ))}
@@ -92,8 +99,6 @@ export function EntitiesView({
     </div>
   );
 }
-
-const NAV_SELF_LABEL = "实体说明";
 
 /**
  * 目录卡片。长 kind 名(声明实体的 `software/coding/x@1`)与它的路径模板都是
@@ -104,56 +109,72 @@ function EntityDocCard({
   doc,
   live,
   onOpen,
+  origin,
+  importable,
+  onManage,
 }: {
   readonly doc: EntityKindDoc;
   readonly live: EntityLiveCount | null;
   readonly onOpen: () => void;
+  readonly origin: "builtin" | "vertical";
+  readonly importable: boolean;
+  readonly onManage: (() => void) | null;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
+    <div
       data-testid={`entity-doc-card-${doc.kind}`}
       className={[
         "w-full rounded-lg border border-border bg-surface p-3 text-left transition-colors",
         "hover:border-border-strong",
       ].join(" ")}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        <b title={doc.kind} className="min-w-0 flex-1 self-center break-all font-mono ui-body leading-snug text-text">
-          {doc.kind}
-        </b>
-        {live ? (
-          <span title="本仓活行数" className="ml-auto shrink-0 self-center font-mono ui-micro text-text-muted">
-            {liveLabel(live)}
+      <button type="button" onClick={onOpen} className="w-full text-left">
+        <div className="flex min-w-0 items-start gap-2">
+          <b title={doc.kind} className="min-w-0 flex-1 self-center break-all font-mono ui-body leading-snug text-text">
+            {doc.kind}
+          </b>
+          {live ? (
+            <span title="本仓活行数" className="ml-auto shrink-0 self-center font-mono ui-micro text-text-muted">
+              {liveLabel(live)}
+            </span>
+          ) : null}
+        </div>
+        {doc.refTemplate ? (
+          <code
+            title={doc.refTemplate}
+            className="mt-0.5 block break-all font-mono ui-micro leading-snug text-text-faint"
+          >
+            {doc.refTemplate}
+          </code>
+        ) : null}
+        <p className="mt-1 line-clamp-2 ui-meta leading-relaxed text-text-muted">{doc.definition}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          {doc.schemaId && (
+            <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
+              {doc.schemaId}
+            </span>
+          )}
+          <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
+            {doc.fields.length} 字段
           </span>
+          {doc.edges.length > 0 && (
+            <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
+              {doc.edges.length} 关系
+            </span>
+          )}
+        </div>
+      </button>
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <span className="ui-micro text-text-faint">
+          {origin === "builtin" ? "固定实体 · 只展示" : importable ? "声明实体 · 可新建" : "声明实体"}
+        </span>
+        {onManage ? (
+          <button type="button" className="ui-micro text-accent hover:underline" onClick={onManage}>
+            管理
+          </button>
         ) : null}
       </div>
-      {doc.refTemplate ? (
-        <code
-          title={doc.refTemplate}
-          className="mt-0.5 block break-all font-mono ui-micro leading-snug text-text-faint"
-        >
-          {doc.refTemplate}
-        </code>
-      ) : null}
-      <p className="mt-1 line-clamp-2 ui-meta leading-relaxed text-text-muted">{doc.definition}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        {doc.schemaId && (
-          <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
-            {doc.schemaId}
-          </span>
-        )}
-        <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
-          {doc.fields.length} 字段
-        </span>
-        {doc.edges.length > 0 && (
-          <span className="rounded border border-border px-1 py-px font-mono ui-micro text-text-faint">
-            {doc.edges.length} 关系
-          </span>
-        )}
-      </div>
-    </button>
+    </div>
   );
 }
 

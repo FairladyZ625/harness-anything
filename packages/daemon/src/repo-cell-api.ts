@@ -86,6 +86,7 @@ export interface RepoCellApiContext {
   readonly input: {
     readonly repoId: string;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
   };
   readonly rejected: RepoCellOperationalContext["rejected"];
   readonly operationId: RepoCellOperationalContext["operationId"];
@@ -453,6 +454,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       readDeclaredEntityRows({
         catalog: buildEntityKindCatalog(compiledArtifactKinds()),
         projection: context.projection,
+        runtimeInstances: context.input.runtimeInstances ?? (() => []),
       }),
     "repo.entity.locator.read": (payload: Readonly<Record<string, unknown>>) =>
       readEntityLocator({

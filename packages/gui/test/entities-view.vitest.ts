@@ -263,6 +263,26 @@ describe("entities catalog", () => {
     const agentCard = container.querySelector<HTMLElement>('[data-testid="entity-doc-card-agent"]');
     expect(agentCard?.textContent).toContain("1");
   });
+
+  it("labels fixed and declared cards and routes runtime instance management to Providers", async () => {
+    stubBridge([], { kinds: [declaredAdrKindRow()] });
+    const opened: ViewId[] = [];
+    const container = await renderSurface(view(null, (next) => opened.push(next)));
+    await settle();
+    expect(container.querySelector('[data-testid="entities-header"] h1')?.textContent).toBe("实体");
+    expect(container.querySelector('[data-testid="entity-doc-card-runtime-instance"]')?.textContent).toContain(
+      "固定实体 · 只展示",
+    );
+    expect(container.querySelector(`[data-testid="entity-doc-card-${ADR_KIND}"]`)?.textContent).toContain(
+      "声明实体 · 可新建",
+    );
+    const manage = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('[data-testid="entity-doc-card-runtime-instance"] button'),
+    ).find((button) => button.textContent === "管理");
+    expect(manage).toBeDefined();
+    await act(async () => manage!.click());
+    expect(opened).toEqual(["providers"]);
+  });
 });
 
 describe("entity doc detail", () => {

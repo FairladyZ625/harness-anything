@@ -86,6 +86,8 @@ export interface RuntimeKind {
   readonly protocolFamily: RuntimeProtocolFamily;
   readonly declaredCapabilities: readonly RuntimeCapability[];
 }
+export const runtimeKindIds = Object.freeze(["claude", "codex", "agy", "zcode"] as const);
+export type RuntimeKindId = (typeof runtimeKindIds)[number];
 export interface RuntimeResultClaim {
   readonly sha256: string;
   readonly size: number;

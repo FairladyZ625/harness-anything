@@ -44,6 +44,7 @@ import { PERSON_V1_SCHEMA } from "./people-roster.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
+import { createRuntimeInstanceActionCatalog, createRuntimeInstanceKindContract } from "./runtime-instance-contract.ts";
 import { createSettingsActionCatalog } from "./settings-action-contract.ts";
 import { createPersonActionCatalog } from "./person-action-contract.ts";
 import { createSquadActionCatalog } from "./squad-action-contract.ts";
@@ -494,10 +495,17 @@ const agentIdentity = requireEntityTypeContract("agent").id;
 const executionIdentity = requireEntityTypeContract("execution").id;
 const reviewIdentity = requireEntityTypeContract("review").id;
 const runtimeSessionIdentity = requireEntityTypeContract("runtime-session").id;
+const runtimeInstanceIdentity = requireEntityTypeContract("runtime-instance").id;
 const scheduleIdentity = requireEntityTypeContract("schedule").id;
 const settingsIdentity = requireEntityTypeContract("settings").id;
 const personIdentity = requireEntityTypeContract("person").id;
 const relationIdentity = requireEntityTypeContract("relation").id;
+const runtimeInstanceActionCatalog = createRuntimeInstanceActionCatalog({
+  identity: runtimeInstanceIdentity,
+  noSdkExposure,
+  entityAction,
+  executionContract: (ingress, read) => executionContract(ingress, null, read),
+});
 const decisionFramework = Object.freeze({
   schemaId: "decision-package",
   mutabilityContract: "entityFieldContracts" as const,
@@ -938,6 +946,11 @@ export const entityKindContracts = Object.freeze([
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
   },
+  createRuntimeInstanceKindContract({
+    typeFields: entityTypeContractFields("runtime-instance"),
+    actionCatalog: runtimeInstanceActionCatalog,
+    noSdkExposure,
+  }),
   {
     kind: "schedule",
     ...entityTypeContractFields("schedule"),
