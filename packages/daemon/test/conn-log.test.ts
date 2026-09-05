@@ -41,6 +41,16 @@ test("request failure detail records the structured diagnostic instead of prose 
   assert.equal(resultErrorDetail({ ok: true }), null);
 });
 
+test("request failure detail records native SQLite result details", () => {
+  assert.equal(
+    resultErrorDetail({
+      ok: false,
+      error: { code: "ERR_SQLITE_ERROR", errcode: 5, errstr: "database is locked" },
+    }),
+    '{"errcode":5,"errstr":"database is locked"}',
+  );
+});
+
 test("conn log records open/request/close with monotonic ids, active counts, and per-connection request totals", async () => {
   const userRoot = tempRoot(),
     log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-08-20T13:00:00Z") });
