@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { compileSettingsChangedEvent, validateSettingsEvent } from "../../src/domain/settings-event.ts";
+import { requireEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
+import { interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
 import {
   SETTINGS_FIELD_OWNERSHIP,
+  SETTINGS_REPOSITORY_V1_SCHEMA,
   SETTINGS_V1_SCHEMA,
+  validateRepositorySettings,
   readSettingsFacet,
   repositorySettings,
   writeRepositorySettingsFacet,
@@ -43,6 +47,27 @@ test("every Settings business field declares repository or local ownership", () 
       SETTINGS_FIELD_OWNERSHIP[field as keyof typeof SETTINGS_FIELD_OWNERSHIP],
       field,
     );
+});
+
+test("a repository Settings declaration recorded before reviewIndependence existed still projects", () => {
+  // Positive control: the exact shape `settings-initialize` wrote on 2026-08-31, before the field was added.
+  // Projection rebuilds (schema bumps) re-validate every stored declaration against the registry schema, so a
+  // field that has a read-side default must not be required here or every older repository latches on rebuild.
+  const legacy = {
+    schema: "settings/v1",
+    settingsId: "repository",
+    defaultVertical: "software/coding",
+    defaultPreset: "standard-task",
+    defaultProfile: "baseline",
+    scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+    walFlush: { adaptive: true, events: 256, bytes: 8388608, milliseconds: 2000 },
+  };
+  assert.deepEqual(validateRepositorySettings(legacy), []);
+  assert.equal(SETTINGS_REPOSITORY_V1_SCHEMA.required.includes("reviewIndependence"), false);
+  assert.equal(SETTINGS_V1_SCHEMA.required.includes("reviewIndependence"), false);
+  const interpreted = interpretEntityValue(requireEntityKindContract("settings"), legacy);
+  assert.equal(interpreted.id, "repository");
+  assert.equal(repositorySettings(legacy as never).reviewIndependence, "execution");
 });
 
 test("Settings defaults review independence to the execution axis when omitted", () => {
