@@ -91,7 +91,8 @@ export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_
 }
 
 const SQLITE_BUSY = 5,
-  OPEN_BUSY_BUDGET_MS = 5000;
+  OPEN_BUSY_BUDGET_MS = 5000,
+  OPEN_BUSY_BACKOFF_MS = 10;
 
 // busy_timeout goes first so every later lock wait is honoured. The WAL switch is the exception:
 // SQLite skips the busy handler when a connection holding SHARED asks for EXCLUSIVE while another
@@ -108,9 +109,10 @@ function configureLedgerConnection(db: DatabaseSync): void {
       );
       return;
     } catch (error) {
-      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      // Retry only while a further attempt can still start inside the budget.
+      if (!isSqliteBusy(error) || Date.now() + OPEN_BUSY_BACKOFF_MS >= deadline) throw error;
       consumeKnownError(error);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, OPEN_BUSY_BACKOFF_MS);
     }
   }
 }
