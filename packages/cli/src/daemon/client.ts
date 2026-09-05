@@ -23,6 +23,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
+import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 export { fleetScheduleRoute } from "./fleet-command-route.ts";
 export {
   daemonIdFromEnv,
@@ -97,6 +98,10 @@ export function daemonTargetFailureCode(error: unknown): "daemon_target_conflict
     ? "daemon_target_conflict"
     : null;
 }
+export function cliEntryFailureCode(error: unknown): typeof cliEntryNotCanonicalCode | null {
+  const code = typeof error === "object" && error !== null ? (error as { readonly code?: unknown }).code : null;
+  return code === cliEntryNotCanonicalCode ? cliEntryNotCanonicalCode : null;
+}
 // Repo bootstrap and runtime-instance commands must reach the daemon an isolated runtime injected
 // through HARNESS_DAEMON_ENDPOINT, not the implicit user socket: the resolver honours the injected
 // endpoint and the repo scope.
@@ -122,6 +127,8 @@ export async function runCommandThroughDaemon(
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
   command = materializeScheduleMission(command);
+  const env = options.env ?? process.env;
+  assertCanonicalCliEntry();
   const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
     // The CLI renders build drift alongside ordinary receipts. A schema-sensitive request is held
     // back until the resident daemon has drained, so a new field never reaches an older validator.
@@ -138,8 +145,7 @@ export async function runCommandThroughDaemon(
         },
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
-    autostart = options.autostart ?? command.action.kind !== "receipt-show",
-    env = options.env ?? process.env;
+    autostart = options.autostart ?? command.action.kind !== "receipt-show";
   if (command.action.kind === "repo-bootstrap") {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),

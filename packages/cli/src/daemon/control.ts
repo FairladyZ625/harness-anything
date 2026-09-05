@@ -27,6 +27,7 @@ import { runGuiLaunch } from "../cli/gui-launch.ts";
 import { runDaemonConnectionControl } from "./connection-control.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 import { runDaemonRepoControl } from "./repo-control.ts";
+import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -41,6 +42,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
+    if (!(command === "status" || command === undefined)) assertCanonicalCliEntry();
     if (command === "projection" && subcommand === "rebuild") {
       const suppliedRoot = daemonOption(argv, "--root");
       if (argv.includes("--root") && (!suppliedRoot || suppliedRoot.startsWith("-")))
