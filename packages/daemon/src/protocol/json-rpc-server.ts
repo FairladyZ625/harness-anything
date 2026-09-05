@@ -610,12 +610,9 @@ export function createJsonRpcProtocolServer(options: {
 }
 
 function protocolFailure(command: string, error: unknown) {
-  return daemonProtocolError(
-    command,
-    rpcServerErrorCode(error),
-    protocolErrorMessage(error),
-    diagnosticForError(error),
-  );
+  const code = rpcServerErrorCode(error),
+    message = protocolErrorMessage(error);
+  return daemonProtocolError(command, code, message, diagnosticForError(error), error);
 }
 
 function isContractedDaemonRpcMethod(method: string): method is DaemonRpcMethod {

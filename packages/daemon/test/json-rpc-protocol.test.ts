@@ -990,6 +990,50 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");
 });
 
+test("JSON-RPC read failures retain native SQLite result details", async (t) => {
+  const sqliteError = Object.assign(new Error("database is locked"), {
+      code: "ERR_SQLITE_ERROR",
+      errcode: 5,
+      errstr: "database is locked",
+    }),
+    host = {
+      read: async () => {
+        throw sqliteError;
+      },
+    } as never,
+    server = createJsonRpcProtocolServer({
+      host,
+      build: { commit: null },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "repo.tasks.list",
+      params: { repo: { repoId: "sqlite-error" }, payload: { limit: 1 } },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    if (response && !Array.isArray(response) && "result" in response) {
+      t.diagnostic(`SQLite rejection receipt: ${JSON.stringify(response.result)}`);
+      assert.deepEqual((response.result as { error: unknown }).error, {
+        code: "ERR_SQLITE_ERROR",
+        errcode: 5,
+        errstr: "database is locked",
+      });
+    }
+  } finally {
+    server.close();
+  }
+});
+
 // prettier-ignore
 
 test("local daemon stop acknowledges the control request and triggers shutdown", async () => {

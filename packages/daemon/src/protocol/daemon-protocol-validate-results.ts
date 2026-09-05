@@ -364,13 +364,17 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     ["evidence", value.evidence, nonEmpty(value.evidence), "must be a non-empty string"],
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
-  const errorShapeError = recordShapeError(entityId, value.error, ["code"], undefined, "error");
+  const errorShapeError = recordShapeError(entityId, value.error, ["code"], ["code", "errcode", "errstr"], "error");
   if (errorShapeError) return [errorShapeError];
   if (!isJsonObject(value.error)) return [];
   if (!nonEmpty(value.error.code))
     return [validationError(entityId, "error.code", value.error.code, "must be a non-empty string")];
   if (value.code !== value.error.code)
     return [validationError(entityId, "error.code", value.error.code, "must equal code")];
+  if (value.error.errcode !== undefined && (!integer(value.error.errcode) || Number(value.error.errcode) < 0))
+    return [validationError(entityId, "error.errcode", value.error.errcode, "must be a non-negative integer")];
+  if (value.error.errstr !== undefined && !nonEmpty(value.error.errstr))
+    return [validationError(entityId, "error.errstr", value.error.errstr, "must be a non-empty string")];
   if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   return [];
@@ -548,8 +552,10 @@ export function daemonProtocolError(
   code: string,
   hint: string,
   explicitDiagnostic?: DaemonProtocolErrorResult["diagnostic"],
+  sourceError?: unknown,
 ): DaemonProtocolErrorResult {
-  const diagnostic = explicitDiagnostic ?? validationDiagnostic(hint);
+  const diagnostic = explicitDiagnostic ?? validationDiagnostic(hint),
+    sqliteError = sqliteErrorDetails(sourceError);
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -559,9 +565,17 @@ export function daemonProtocolError(
     origin: "daemon",
     code,
     evidence: `rejection:${code}`,
-    error: { code },
+    error: { code, ...sqliteError },
 
     ...(diagnostic ? { diagnostic } : {}),
+  };
+}
+
+function sqliteErrorDetails(error: unknown): { readonly errcode?: number; readonly errstr?: string } {
+  if (!isJsonObject(error)) return {};
+  return {
+    ...(integer(error.errcode) && Number(error.errcode) >= 0 ? { errcode: Number(error.errcode) } : {}),
+    ...(nonEmpty(error.errstr) ? { errstr: error.errstr } : {}),
   };
 }
 

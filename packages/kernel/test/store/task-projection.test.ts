@@ -236,6 +236,7 @@ test("headless direct apply retains its ahead cache and refuses reopen or rebuil
       });
     const live = makeTaskProjection({ rootDir, eventStore: headlessStore() });
     live.apply(event, taskLifecycleWritePlan(event));
+    live.close();
     const retained = readFileSync(live.path);
     const rejectsAheadCache = (error: unknown): boolean => {
       assert.equal(error instanceof Error, true);

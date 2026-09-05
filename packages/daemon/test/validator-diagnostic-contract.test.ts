@@ -380,3 +380,18 @@ test("protocol validation failures preserve entity, field, and actual as structu
   });
   assert.deepEqual(validateDaemonProtocolError(receipt), []);
 });
+
+test("protocol SQLite failures preserve native result details in the error object", () => {
+  const sqliteError = Object.assign(new Error("database is locked"), {
+      code: "ERR_SQLITE_ERROR",
+      errcode: 5,
+      errstr: "database is locked",
+    }),
+    receipt = daemonProtocolError("repo.tasks.list", sqliteError.code, sqliteError.message, undefined, sqliteError);
+  assert.deepEqual(receipt.error, {
+    code: "ERR_SQLITE_ERROR",
+    errcode: 5,
+    errstr: "database is locked",
+  });
+  assert.deepEqual(validateDaemonProtocolError(receipt), []);
+});

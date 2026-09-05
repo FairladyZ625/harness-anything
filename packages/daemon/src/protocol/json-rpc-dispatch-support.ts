@@ -74,8 +74,16 @@ export function resultErrorCode(result: object): string | null {
 export function resultErrorDetail(result: object): string | null {
   if (resultOk(result)) return null;
   const diagnostic = "diagnostic" in result ? result.diagnostic : undefined,
+    error = "error" in result ? result.error : undefined,
+    sqliteError = isJsonObject(error)
+      ? {
+          ...(typeof error.errcode === "number" ? { errcode: error.errcode } : {}),
+          ...(typeof error.errstr === "string" ? { errstr: error.errstr } : {}),
+        }
+      : {},
     detail =
       (isJsonObject(diagnostic) ? JSON.stringify(diagnostic) : null) ??
+      (Object.keys(sqliteError).length > 0 ? JSON.stringify(sqliteError) : null) ??
       ("evidence" in result && typeof result.evidence === "string" ? result.evidence : null);
   return detail?.slice(0, 500) ?? "Unknown request failure.";
 }
