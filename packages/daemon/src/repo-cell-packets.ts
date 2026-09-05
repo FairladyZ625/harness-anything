@@ -21,6 +21,7 @@ export function packetJson(
   fields: readonly string[],
   entity = "JSON packet",
   defaults: Readonly<Record<string, unknown>> = {},
+  allowedFields = fields,
 ): { readonly value: Record<string, unknown>; readonly defaultedFields: readonly string[] } {
   let parsed: unknown;
   try {
@@ -38,16 +39,17 @@ export function packetJson(
     );
   const packet = parsed as Record<string, unknown>,
     present = Object.keys(packet),
-    missing = fields.filter((field) => !present.includes(field));
+    missing = fields.filter((field) => !present.includes(field)),
+    defaultedDescription = Object.keys(defaults).join(", ") || "none";
   if (missing.length)
     throw cellCodedError("missing_field", `JSON packet is missing required fields: ${missing.join(", ")}.`, {
       kind: "validation",
       entity,
       field: missing[0]!,
       actual: "missing",
-      expectation: `Required fields: ${fields.join(", ")}; defaulted when omitted: ${Object.keys(defaults).join(", ") || "none"}`,
+      expectation: `Required fields: ${fields.join(", ")}; defaulted when omitted: ${defaultedDescription}`,
     });
-  const allowed = [...fields, ...Object.keys(defaults)];
+  const allowed = [...allowedFields, ...Object.keys(defaults)];
   if (present.some((field) => !allowed.includes(field)))
     throw cellCodedError("invalid_command", `JSON packet accepts only: ${allowed.join(", ")}.`);
   const defaultedFields = Object.keys(defaults).filter((field) => !Object.hasOwn(packet, field));
@@ -77,13 +79,14 @@ export function packetRecord(
   fields: readonly string[],
   entity?: string,
   defaults?: Readonly<Record<string, unknown>>,
+  allowedFields?: readonly string[],
 ): {
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
   readonly defaultedFields: readonly string[];
 } {
   const body = readPacketSource(rootDir, action);
-  const parsed = packetJson(body, fields, entity, defaults);
+  const parsed = packetJson(body, fields, entity, defaults, allowedFields);
   return {
     value: parsed.value,
     digest: packetDigest(body),

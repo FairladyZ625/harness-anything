@@ -150,7 +150,11 @@ export function legacyTaskCreateAction(rootDir: string, action: RepoTaskAction):
   };
 }
 
-export function decisionProposalAction(rootDir: string, action: RepoTaskAction, settings: SettingsV1): RepoTaskAction {
+export function decisionProposalAction(
+  rootDir: string,
+  action: RepoTaskAction,
+  settings: () => SettingsV1,
+): RepoTaskAction {
   if (action.kind === "decision-amend") {
     if (typeof action.body === "string" && typeof action.bodyFile === "string")
       throw cellCodedError("invalid_command", "Use only one of --body or --body-file.");
@@ -190,13 +194,22 @@ export function decisionProposalAction(rootDir: string, action: RepoTaskAction, 
       "invalid_command",
       "Decision propose requires one structured packet and at most one body source.",
     );
-  const defaults = {
-      vertical: settings.defaultVertical,
+  const source = readPacketSource(rootDir, action),
+    parsed = tryParseJsonObject(source),
+    defaults = {
+      ...(parsed && !Object.hasOwn(parsed, "vertical") ? { vertical: settings().defaultVertical } : {}),
       preset: "decision-conformance",
       appliesTo: { modules: [], productLines: [] },
       fulfillments: [],
     },
-    packet = packetRecord(rootDir, action, decisionProposalRequiredJsonFields, "decision proposal", defaults),
+    packet = packetRecord(
+      rootDir,
+      { ...action, jsonInput: source, fromFile: undefined },
+      decisionProposalRequiredJsonFields,
+      "decision proposal",
+      defaults,
+      decisionProposalFields,
+    ),
     body =
       typeof action.body === "string"
         ? action.body
@@ -209,4 +222,13 @@ export function decisionProposalAction(rootDir: string, action: RepoTaskAction, 
     body,
     defaultedDecisionPacketFields: [...packet.defaultedFields, "relations"],
   };
+}
+
+function tryParseJsonObject(source: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(source);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
