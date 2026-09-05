@@ -3,6 +3,7 @@ import { cliErrorMessage } from "./cli-error.ts";
 import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
 import { cliDispatchError } from "./cli-render.ts";
 import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
+import { isVerticalKindFacadeCommand, runVerticalKindFacadeCommand } from "./cli-vertical-kind.ts";
 import {
   cliCommandDomains,
   firstCliCommand,
@@ -107,14 +108,16 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   const dispatchStartedAt = cliPhaseStart();
   let dispatchMeasured = false;
   try {
-    const receipt = isRuntimeFacadeCommand(typedCommand)
-      ? await runRuntimeFacadeCommand(typedCommand)
-      : await runCommandThroughDaemon(
-          typedCommand,
-          (phase) => emit(phase, typedCommand.json),
-          undefined,
-          daemonRequestTimer,
-        );
+    const receipt = isVerticalKindFacadeCommand(typedCommand)
+      ? await runVerticalKindFacadeCommand(typedCommand)
+      : isRuntimeFacadeCommand(typedCommand)
+        ? await runRuntimeFacadeCommand(typedCommand)
+        : await runCommandThroughDaemon(
+            typedCommand,
+            (phase) => emit(phase, typedCommand.json),
+            undefined,
+            daemonRequestTimer,
+          );
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowSquareOut, CaretRight } from "@phosphor-icons/react";
 import { entityDocIndex, type EntityFieldDoc, type EntityKindDoc } from "../entity-docs.ts";
-import { useEntityKindCatalog, useGovernedEntityRows } from "../entity-kind-data.ts";
+import { entityKindQueryKeys, useEntityKindCatalog, useGovernedEntityRows } from "../entity-kind-data.ts";
 import { findEntityKind, type EntityKindDeclaration, type EntityKindRow } from "../entity-kind-catalog-client.ts";
 import { GovernedEntityPanel } from "../components/entityDoc/GovernedEntityPanel.tsx";
 import { EntityLocatorPreview } from "../components/entityDoc/EntityLocatorPreview.tsx";
@@ -9,6 +9,14 @@ import { FactFacetLive, FactTypeVocabulary } from "../components/entityDoc/FactV
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
+import {
+  readVerticalDeclaration,
+  retireVerticalKind,
+  upsertVerticalKind,
+  type ArtifactKindDeclaration,
+} from "../vertical-kind-client.ts";
 
 /** 左列宽度:说明内容(字段表/词表/实体清单)的可读下限,右栏渲染器吃掉全部剩余。 */
 const LEFT_COLUMN_CLASS = "w-[400px] shrink-0 overflow-y-auto border-r border-border px-4 py-4";
@@ -57,6 +65,32 @@ export function EntityDocDetailView({
       ? allGovernedRows.filter((entity) => entity.kind === kind)
       : [];
   const selectedEntity = governedRows.find((entity) => entity.ref === selectedRef) ?? null;
+  const queryClient = useQueryClient();
+  const verticalQuery = useQuery({
+    queryKey: ["vertical-declaration", repoId],
+    queryFn: () => readVerticalDeclaration(repoId),
+    enabled: catalogRow?.origin === "vertical",
+  });
+  const [kindMode, setKindMode] = useState<"edit" | "retire" | null>(null);
+  const [kindBusy, setKindBusy] = useState(false);
+  const [kindError, setKindError] = useState<string | null>(null);
+  const [retireReason, setRetireReason] = useState("");
+  const fullDeclaration = verticalQuery.data?.declaration.entityKinds.find(
+    (candidate): candidate is ArtifactKindDeclaration =>
+      typeof candidate === "object" &&
+      candidate !== null &&
+      "id" in candidate &&
+      candidate.id === catalogRow?.declaration?.id,
+  );
+  const finishKindMutation = async (receipt: { readonly outcome: string; readonly code?: unknown }) => {
+    if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+      throw new Error(String(receipt.code ?? receipt.outcome));
+    setKindMode(null);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: entityKindQueryKeys.catalog(repoId) }),
+      queryClient.invalidateQueries({ queryKey: ["vertical-declaration", repoId] }),
+    ]);
+  };
   if (doc === null)
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="entity-doc-detail-unknown">
@@ -115,8 +149,19 @@ export function EntityDocDetailView({
               {doc.schemaId && <DocBadge value={doc.schemaId} />}
               {doc.refTemplate && <DocBadge value={doc.refTemplate} />}
               <LiveCountBadge doc={doc} liveCounts={liveCounts} />
+              {catalogRow?.origin === "vertical" && <DocBadge value={catalogRow.retired ? "已停用" : "启用中"} />}
             </div>
           </div>
+          {catalogRow?.origin === "vertical" && !catalogRow.retired && (
+            <div className="flex gap-1">
+              <button type="button" onClick={() => setKindMode("edit")}>
+                编辑种类
+              </button>
+              <button type="button" onClick={() => setKindMode("retire")}>
+                停用种类
+              </button>
+            </div>
+          )}
           {doc.guiEntry && (
             <button
               type="button"
@@ -240,6 +285,52 @@ export function EntityDocDetailView({
           {doc.kind === "fact" && <FactFacetLive stats={factStats} />}
           {catalogRow !== null && catalogRow.origin === "vertical" && (
             <DeclarationFacets declaration={catalogRow.declaration} />
+          )}
+          {kindMode === "edit" && fullDeclaration && (
+            <VerticalKindForm
+              initial={fullDeclaration}
+              busy={kindBusy}
+              error={kindError}
+              onCancel={() => setKindMode(null)}
+              onSubmit={(declaration) => {
+                if (!verticalQuery.data) return;
+                setKindBusy(true);
+                void upsertVerticalKind(repoId, verticalQuery.data, declaration)
+                  .then(finishKindMutation)
+                  .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
+                  .finally(() => setKindBusy(false));
+              }}
+            />
+          )}
+          {kindMode === "retire" && verticalQuery.data && (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                setKindBusy(true);
+                void retireVerticalKind(repoId, verticalQuery.data!, catalogRow!.declaration!.id, retireReason)
+                  .then(finishKindMutation)
+                  .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
+                  .finally(() => setKindBusy(false));
+              }}
+              className="mt-3 flex flex-col gap-2"
+              data-testid="retire-vertical-kind-form"
+            >
+              <input
+                aria-label="停用原因"
+                required
+                value={retireReason}
+                onChange={(event) => setRetireReason(event.target.value)}
+              />
+              {kindError && <span className="text-status-blocked">{kindError}</span>}
+              <div className="flex gap-2">
+                <button type="submit" disabled={kindBusy}>
+                  确认停用
+                </button>
+                <button type="button" onClick={() => setKindMode(null)}>
+                  取消
+                </button>
+              </div>
+            </form>
           )}
           {catalogRow !== null && catalogRow.origin === "vertical" && (
             <GovernedEntityPanel
@@ -396,8 +487,7 @@ function LiveCountBadge({ doc, liveCounts }: { readonly doc: EntityKindDoc; read
 }
 
 /**
- * 声明的可配置项(governed-entity-design §2 的九项,不多不少)。本波次是**只读呈现**:
- * 写路在 vertical 声明文件上,GUI 不做第二条编辑入口。
+ * 声明的可配置项(governed-entity-design §2 的九项,不多不少)。
  */
 function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDeclaration | null }) {
   if (declaration === null) return null;
@@ -417,7 +507,7 @@ function DeclarationFacets({ declaration }: { readonly declaration: EntityKindDe
       <h2 className="ui-body font-semibold">声明的可配置项</h2>
       <p className="mt-1 ui-micro leading-relaxed text-text-faint">
         这些值来自本仓 vertical 声明。id / version 一起构成身份——改它们是换一个类型,不是改一个字段; display
-        只影响呈现。此面只读,改声明请改 vertical 定义文件。
+        只影响呈现。编辑与停用都经 daemon 的仓级声明单写路。
       </p>
       <dl className="mt-2 grid grid-cols-[minmax(110px,auto)_1fr] gap-x-3 gap-y-1">
         {rows.map(([label, value]) => (

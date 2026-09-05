@@ -56,6 +56,7 @@ export interface EntityKindRow {
   readonly refTemplate: string;
   readonly relationEndpoint: boolean;
   readonly importable: boolean;
+  readonly retired?: boolean;
   readonly declaration: EntityKindDeclaration | null;
   readonly explanation: EntityKindExplanation;
 }

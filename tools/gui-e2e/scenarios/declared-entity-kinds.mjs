@@ -5,6 +5,7 @@ const ADR_KIND = "software/coding/architecture-decision-record@1";
 const LOCATOR = "docs/adr/ADR-0001-declared-entity-probe.md";
 /** W2-C(#2217)声明的第二种 kind:locatorKinds 是 url/external-key,正文不在仓里。 */
 const ISSUE_KIND = "software/coding/external-issue@1";
+const RUNBOOK_KIND = "software/coding/runbook@1";
 
 /**
  * 声明出来的实体种类在 GUI 上可见、可建、可打开、可筛选——而且**不靠 GUI 里的任何清单**。
@@ -50,6 +51,36 @@ export default {
 
       await page.getByRole("button", { name: /^实体$|Entities/u }).click();
       await page.getByTestId("entities-content").waitFor();
+
+      // 配置面闭环:新建 kind → 用新 kind 建实例 → 停用 kind → 卡片灰显且不再允许新建实例。
+      await page.getByTestId("new-vertical-kind").click();
+      const kindForm = page.getByTestId("vertical-kind-form");
+      await kindForm.waitFor();
+      await kindForm.getByLabel("id").fill("runbook");
+      await kindForm.getByLabel("idPrefix").fill("RUN");
+      await kindForm.getByLabel("display.singular").fill("Runbook");
+      await kindForm.getByLabel("display.plural").fill("Runbooks");
+      await kindForm.getByLabel("store.pathTemplate").fill("entities/runbooks/{id}.json");
+      await kindForm.getByRole("button", { name: "保存" }).click();
+      const runbookCard = page.getByTestId(`entity-doc-card-${RUNBOOK_KIND}`);
+      await runbookCard.waitFor();
+      await runbookCard.click();
+      await page.getByTestId("governed-entity-new").click();
+      await page.getByTestId("new-governed-entity-locator").fill(LOCATOR);
+      await page.getByTestId("new-governed-entity-title").fill("Runbook · GUI CRUD probe");
+      await page.getByTestId("new-governed-entity-submit").click();
+      await page.getByText("Runbook · GUI CRUD probe").waitFor();
+      await page.getByRole("button", { name: "停用种类" }).click();
+      await page.getByLabel("停用原因").fill("E2E lifecycle complete");
+      await page.getByRole("button", { name: "确认停用" }).click();
+      await page
+        .getByRole("button", { name: /返回上一级|Back to previous/u })
+        .first()
+        .click();
+      await page.getByTestId("entities-content").waitFor();
+      await runbookCard.waitFor();
+      assert.match(await runbookCard.innerText(), /已停用/u);
+      assert.ok((await runbookCard.getAttribute("class")).includes("grayscale"), "retired kind card must be gray");
 
       // 1. 说明面按声明长出「声明实体」一组——GUI 没有这份清单,它来自读面。
       await page.getByTestId("entity-doc-group-declared").waitFor();

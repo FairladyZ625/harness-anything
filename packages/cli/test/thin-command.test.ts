@@ -161,6 +161,21 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
+test("vertical entity-kind commands derive the revision later from declaration.read", () => {
+  const upsert = parseThinCommand(["vertical", "entity-kind", "upsert", "--from-file", "kind.json"]);
+  assert.equal(upsert.ok, true);
+  if (upsert.ok) assert.deepEqual(upsert.command.action, { kind: "vertical-kind-upsert-cli", fromFile: "kind.json" });
+  const retire = parseThinCommand(["vertical", "entity-kind", "retire", "runbook", "--reason", "Superseded"]);
+  assert.equal(retire.ok, true);
+  if (retire.ok)
+    assert.deepEqual(retire.command.action, {
+      kind: "vertical-kind-retire-cli",
+      kindId: "runbook",
+      reason: "Superseded",
+    });
+  assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
+});
+
 test("dispatch record migration projects its dry-run flag into the daemon Action", () => {
   const parsed = parseThinCommand(["migrate", "dispatch-records", "--dry-run"]);
   assert.equal(parsed.ok, true);
@@ -343,7 +358,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-unpin",
     ],
     template: ["template-list", "template-render"],
-    vertical: ["vertical-validate"],
+    vertical: ["vertical-kind-retire-cli", "vertical-kind-upsert-cli", "vertical-validate"],
   });
 });
 

@@ -8,6 +8,25 @@ import {
 } from "../../../preset/src/preset-command-contract.ts";
 
 export const agentProtocolCommands = Object.freeze([
+  defineCenterForwardWriteCommand({
+    id: "vertical-kind-upsert-cli",
+    actionKind: "vertical-kind-upsert-cli",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "entity-kind", "upsert"],
+    summary: "Create or replace one Artifact kind from a complete vertical declaration JSON object.",
+    method: "repo.vertical.kind.upsert",
+    inputs: [cliInput("--from-file", "single", true, { code: "missing_field" })],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "vertical-kind-retire-cli",
+    actionKind: "vertical-kind-retire-cli",
+    phase: "Governed-Entity-W2",
+    path: ["vertical", "entity-kind", "retire", "<kind>"],
+    summary: "Retire one Artifact kind with a required reason while preserving its declaration.",
+    method: "repo.vertical.kind.retire",
+    positional: "kindId",
+    inputs: [cliInput("--reason", "single", true, { code: "missing_field" })],
+  }),
   defineRepoReadCommand({
     id: "agenda",
     phase: "W3",

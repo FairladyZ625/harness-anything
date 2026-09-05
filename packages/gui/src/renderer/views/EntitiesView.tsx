@@ -1,6 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BookOpen } from "@phosphor-icons/react";
+import { BookOpen, Plus } from "@phosphor-icons/react";
 import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
@@ -10,6 +10,13 @@ import { entityLocatorContentQuery } from "../entity-locator-client.ts";
 import { t } from "../i18n/index.tsx";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
+import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
+import {
+  readVerticalDeclaration,
+  upsertVerticalKind,
+  type ArtifactKindDeclaration,
+  type VerticalDeclarationRead,
+} from "../vertical-kind-client.ts";
 
 /**
  * 实体目录面(dec_2935057783CD5D56E9F287AE4D CH4):三元语与扩展实体集中在一
@@ -42,6 +49,11 @@ export function EntitiesView({
   const { catalog } = useEntityKindCatalog(repoId);
   useDeepLinkedEntityContent(repoId, focusedRef);
   const groups = entityDocGroups(catalog);
+  const queryClient = useQueryClient();
+  const [creatingKind, setCreatingKind] = useState(false);
+  const [verticalRead, setVerticalRead] = useState<VerticalDeclarationRead | null>(null);
+  const [kindBusy, setKindBusy] = useState(false);
+  const [kindError, setKindError] = useState<string | null>(null);
   const focus = resolveEntityDocFocus(focusedRef, catalog);
   if (focus)
     return (
@@ -63,6 +75,21 @@ export function EntitiesView({
           <BookOpen className="text-text-faint" />
           <h1 className="ui-title font-semibold">{t("shell.nav.entities")}</h1>
           <span className="font-mono ui-micro text-text-faint">{repoId}</span>
+          <button
+            type="button"
+            data-testid="new-vertical-kind"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta"
+            onClick={() => {
+              setCreatingKind(true);
+              setKindError(null);
+              void readVerticalDeclaration(repoId)
+                .then(setVerticalRead)
+                .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)));
+            }}
+          >
+            <Plus weight="bold" />
+            新建种类
+          </button>
         </div>
         <p className="mt-1 max-w-3xl ui-meta leading-relaxed text-text-faint">
           这套内核由三元语构成:task 做什么、decision 为什么、fact 看到了什么,relation 把它们连成语义网。
@@ -70,6 +97,29 @@ export function EntitiesView({
           这一页既是防止乱写的限制面,也是这个产品对外的自我介绍。
         </p>
       </header>
+      {creatingKind && (
+        <div className="px-4">
+          <VerticalKindForm
+            busy={kindBusy || verticalRead === null}
+            error={kindError}
+            onCancel={() => setCreatingKind(false)}
+            onSubmit={(declaration: ArtifactKindDeclaration) => {
+              if (!verticalRead) return;
+              setKindBusy(true);
+              setKindError(null);
+              void upsertVerticalKind(repoId, verticalRead, declaration)
+                .then((receipt) => {
+                  if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+                    throw new Error(String(receipt.code ?? receipt.outcome));
+                  setCreatingKind(false);
+                  return queryClient.invalidateQueries({ queryKey: entityKindQueryKeys.catalog(repoId) });
+                })
+                .catch((cause: unknown) => setKindError(cause instanceof Error ? cause.message : String(cause)))
+                .finally(() => setKindBusy(false));
+            }}
+          />
+        </div>
+      )}
       <div data-testid="entities-content" className="w-full space-y-6 p-4">
         {groups.map((group) => (
           <section key={group.id} data-testid={`entity-doc-group-${group.id}`}>
@@ -88,6 +138,7 @@ export function EntitiesView({
                     onOpen={() => onOpenEntityDoc(doc.kind)}
                     origin={catalogRow?.origin ?? "builtin"}
                     importable={catalogRow?.importable ?? false}
+                    retired={catalogRow?.retired === true}
                     onManage={doc.kind === "runtime-instance" ? () => onOpenView("providers") : null}
                   />
                 );
@@ -111,6 +162,7 @@ function EntityDocCard({
   onOpen,
   origin,
   importable,
+  retired,
   onManage,
 }: {
   readonly doc: EntityKindDoc;
@@ -118,6 +170,7 @@ function EntityDocCard({
   readonly onOpen: () => void;
   readonly origin: "builtin" | "vertical";
   readonly importable: boolean;
+  readonly retired: boolean;
   readonly onManage: (() => void) | null;
 }) {
   return (
@@ -126,6 +179,7 @@ function EntityDocCard({
       className={[
         "w-full rounded-lg border border-border bg-surface p-3 text-left transition-colors",
         "hover:border-border-strong",
+        retired ? "opacity-55 grayscale" : "",
       ].join(" ")}
     >
       <button type="button" onClick={onOpen} className="w-full text-left">
@@ -166,7 +220,13 @@ function EntityDocCard({
       </button>
       <div className="mt-2 flex items-center justify-between gap-2">
         <span className="ui-micro text-text-faint">
-          {origin === "builtin" ? "固定实体 · 只展示" : importable ? "声明实体 · 可新建" : "声明实体"}
+          {origin === "builtin"
+            ? "固定实体 · 只展示"
+            : retired
+              ? "声明实体 · 已停用"
+              : importable
+                ? "声明实体 · 可新建"
+                : "声明实体"}
         </span>
         {onManage ? (
           <button type="button" className="ui-micro text-accent hover:underline" onClick={onManage}>
