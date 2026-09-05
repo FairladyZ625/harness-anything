@@ -137,27 +137,20 @@ function providerFaultFromDiagnostic(
   diagnostic: string | null,
   resetAt: string | undefined,
 ): RuntimeProviderFault | null {
-  const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" ");
-  if (quota.test(joined))
-    return fault("quota_exhausted", `Provider quota exhausted: ${joined}`, "quota_exhausted", resetAt);
+  const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" "),
+    reason = providerReason(responseCode, joined);
+  if (quota.test(joined)) return fault("quota_exhausted", reason, "quota_exhausted", resetAt);
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
-    return fault(
-      "rate_limited",
-      providerDiagnostic("Provider rate limited the attempt", responseCode ?? 429, joined),
-      "rate_limited",
-      resetAt,
-    );
-  if (responseCode !== null && responseCode >= 500 && responseCode <= 599)
-    return fault("server_error", providerDiagnostic("Provider server error", responseCode, joined));
-  if (model.test(joined)) return fault("unrecognized_model", `Provider rejected the model: ${joined}`);
-  if (responseCode === 401 || responseCode === 403 || auth.test(joined))
-    return fault("auth_failed", providerDiagnostic("Provider authentication failed", responseCode, joined));
+    return fault("rate_limited", reason, "rate_limited", resetAt);
+  if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);
+  if (model.test(joined)) return fault("unrecognized_model", reason);
+  if (responseCode === 401 || responseCode === 403 || auth.test(joined)) return fault("auth_failed", reason);
   return null;
 }
 
-function providerDiagnostic(label: string, responseCode: number | null, diagnostic: string): string {
-  const status = responseCode === null ? "" : ` (HTTP ${String(responseCode)})`;
-  return `${label}${status}${diagnostic ? `: ${diagnostic}` : "."}`;
+function providerReason(responseCode: number | null, diagnostic: string): string {
+  const status = responseCode === null ? "" : `HTTP ${String(responseCode)}`;
+  return [status, diagnostic].filter(Boolean).join(": ");
 }
 
 function fault(

@@ -51,6 +51,7 @@ test("claude api_error 429 preserves quota classification and reset header", () 
     headers: { "x-ratelimit-reset": "2026-09-06T01:02:03Z" },
   });
   assert.equal(fault?.faultClass, "quota_exhausted");
+  assert.equal(fault?.reason, "HTTP 429: insufficient_quota Your credit balance is exhausted");
   assert.equal(fault?.resetAt, "2026-09-06T01:02:03.000Z");
 });
 
@@ -65,6 +66,7 @@ test("codex rate_limit_exceeded preserves reset_at", () => {
     },
   });
   assert.equal(fault?.faultClass, "rate_limited");
+  assert.equal(fault?.reason, "HTTP 429: rate_limit_exceeded Too many requests");
   assert.equal(fault?.resetAt, "2026-09-06T02:03:04.000Z");
 });
 
@@ -81,6 +83,7 @@ test("agy RESOURCE_EXHAUSTED preserves epoch reset_time", () => {
     },
   });
   assert.equal(fault?.faultClass, "quota_exhausted");
+  assert.equal(fault?.reason, "HTTP 429: RESOURCE_EXHAUSTED quota exhausted");
   assert.equal(fault?.resetAt, "2026-09-06T01:43:05.000Z");
 });
 
@@ -96,6 +99,7 @@ test("zcode turn.failed attribution 429 preserves retry reset", () => {
     },
   });
   assert.equal(fault?.faultClass, "rate_limited");
+  assert.equal(fault?.reason, "HTTP 429: rate_limit_exceeded rate limit reached");
   assert.equal(fault?.resetAt, "2026-09-06T04:05:06.000Z");
 });
 
