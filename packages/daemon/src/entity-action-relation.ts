@@ -13,11 +13,15 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
+import { noChanges, reject } from "./entity-action-write-helpers.ts";
+export { reject } from "./entity-action-write-helpers.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 type ExecutableRelationAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 
 export function executeRelationAction(input: {
+  readonly rootDir: string;
+  readonly repositoryId: string;
   readonly contract: ExecutableRelationAction;
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
@@ -70,7 +74,7 @@ export function executeRelationAction(input: {
           workspaceRevision: headRevision + 1,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
-          relationDirections: relationDirectionRegistry(),
+          relationDirections: relationDirectionRegistry(input.rootDir, input.repositoryId),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))
@@ -90,7 +94,7 @@ export function executeRelationAction(input: {
         current.state === "active";
     if (!same) reject("revision_conflict", `Relation ${relationId} already exists with different projected facets.`);
     const revision = current.workspaceRevision ?? headRevision;
-    return noChanges({ relationId, revision, headRevision, opId, authorizationDecision });
+    return relationNoChanges({ relationId, revision, headRevision, opId, authorizationDecision });
   }
   const aggregateRevision = current?.workspaceRevision ?? 0;
   if (Number(expectedVersion) !== aggregateRevision)
@@ -107,7 +111,7 @@ export function executeRelationAction(input: {
     compiled.type === "relation_reconfirmed" &&
     current?.targetObservedVersion === compiled.payload.targetObservedVersion
   )
-    return noChanges({
+    return relationNoChanges({
       relationId,
       revision: aggregateRevision,
       headRevision,
@@ -159,7 +163,7 @@ export function executeRelationAction(input: {
   } as WriteReceipt;
 }
 
-function noChanges(input: {
+function relationNoChanges(input: {
   readonly relationId: string;
   readonly revision: number;
   readonly headRevision: number;
@@ -167,27 +171,19 @@ function noChanges(input: {
   readonly authorizationDecision: AuthorizationDecision;
   readonly sameResult?: true;
 }): WriteReceipt {
-  return {
-    outcome: "no_changes",
+  return noChanges({
     opId: `noop:${input.opId}`,
     revision: input.revision,
+    headRevision: input.headRevision,
     evidence: JSON.stringify({
       relationId: input.relationId,
       idempotent: true,
       ...(input.sameResult ? { sameResult: true } : {}),
       aggregateRevision: input.revision,
     }),
-    visibility: "center",
-    proof: {
-      committedRevision: input.revision,
-      appliedCut: input.headRevision,
-      durable: true,
-      canonicalVisible: true,
-      worktreeVisible: null,
-    },
     authorizationDecision: input.authorizationDecision,
     relationId: input.relationId,
-  } as WriteReceipt;
+  }) as WriteReceipt;
 }
 
 function requiredRelationText(value: unknown, field: string): string {
@@ -214,21 +210,6 @@ function hasRelationPath(
     queue.push(...(graph.get(current) ?? []));
   }
   return false;
-}
-
-export function reject(
-  code:
-    | "actor_unauthorized"
-    | "content_not_ready"
-    | "entity_not_found"
-    | "invalid_command"
-    | "op_conflict"
-    | "relation_cycle"
-    | "revision_conflict"
-    | "version_conflict",
-  message: string,
-): never {
-  throw Object.assign(new Error(message), { code });
 }
 
 export function publicationKillpoints(killpoint: ((point: EventPublicationKillpoint) => void) | undefined): void {

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,9 +10,22 @@ import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-row
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 
 const ADR_KIND = "software/coding/architecture-decision-record@1",
-  RESEARCH_KIND = "software/coding/research@1";
+  RESEARCH_KIND = "software/coding/research@1",
+  repositoryRoot = mkdtempSync(path.join(tmpdir(), "ha-vertical-catalog-"));
+mkdirSync(path.join(repositoryRoot, "harness"), { recursive: true });
+writeFileSync(
+  path.join(repositoryRoot, "harness", "vertical.json"),
+  JSON.stringify({
+    schema: "repository-vertical-declaration/v1",
+    revision: 1,
+    definition: JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")),
+  }),
+);
+test.after(() => rmSync(repositoryRoot, { recursive: true, force: true }));
+const repositoryKinds = () => compiledArtifactKinds(repositoryRoot, "catalog-contract");
 
 /**
  * 已注册 kind 读面的契约:GUI 的实体种类集合只能从这里来。
@@ -22,7 +35,8 @@ const ADR_KIND = "software/coding/architecture-decision-record@1",
  * 短名不是它的身份,拿短名去 import 会被拒。
  */
 test("entity kind catalog carries builtin and declared kinds through the same explanation", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
+  assert.equal(catalog.declarationRevision, 1);
   assert.deepEqual(validateEntityKindCatalog(catalog), []);
 
   const builtin = catalog.kinds.filter(({ origin }) => origin === "builtin");
@@ -46,7 +60,7 @@ test("entity kind catalog carries builtin and declared kinds through the same ex
 });
 
 test("the declared ADR kind is addressed by its full type identity and is importable", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
   const adr = catalog.kinds.find(({ kind }) => kind === ADR_KIND);
   assert.ok(adr, `catalog must carry ${ADR_KIND}`);
   assert.equal(adr.origin, "vertical");
@@ -62,7 +76,7 @@ test("the declared ADR kind is addressed by its full type identity and is import
 });
 
 test("the declared research kind is importable and carries both governed relation directions", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds()),
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1),
     research = catalog.kinds.find(({ kind }) => kind === RESEARCH_KIND);
   assert.ok(research, `catalog must carry ${RESEARCH_KIND}`);
   assert.equal(research.importable, true);
@@ -70,7 +84,7 @@ test("the declared research kind is importable and carries both governed relatio
   assert.equal(research.declaration?.pathTemplate, "entities/research/{id}.json");
   assert.deepEqual(research.declaration?.locatorKinds, ["repository-path"]);
   assert.deepEqual(
-    relationDirectionRegistry()
+    relationDirectionRegistry(repositoryRoot, "catalog-contract")
       .filter(({ sourceKind }) => sourceKind === RESEARCH_KIND)
       .map(({ type, sourceKind, targetKind }) => ({ type, sourceKind, targetKind })),
     [
@@ -81,14 +95,14 @@ test("the declared research kind is importable and carries both governed relatio
 });
 
 test("builtin rows carry no declaration and declared rows always do", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
   for (const row of catalog.kinds)
     assert.equal(row.declaration === null, row.origin === "builtin", `${row.kind} declaration presence`);
 });
 
 /** 阴性对照:vertical 不声明 artifact kind 时,目录里只剩内建 kind——清单确实来自声明。 */
 test("a vertical with no declared artifact kind yields a builtin-only catalog", () => {
-  const catalog = buildEntityKindCatalog([]);
+  const catalog = buildEntityKindCatalog([], 1);
   assert.deepEqual(validateEntityKindCatalog(catalog), []);
   assert.equal(
     catalog.kinds.every(({ origin }) => origin === "builtin"),
@@ -101,7 +115,7 @@ test("a vertical with no declared artifact kind yields a builtin-only catalog", 
 });
 
 test("entity rows only project declared kinds and keep canonical refs", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
   const listed: string[] = [];
   const rows = readDeclaredEntityRows({
     catalog,
@@ -148,7 +162,7 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
 
 test("entity rows include daemon-local runtime instances with Provider deep links", () => {
   const rows = readDeclaredEntityRows({
-    catalog: buildEntityKindCatalog([]),
+    catalog: buildEntityKindCatalog([], 1),
     projection: { listEntities: () => [] },
     runtimeInstances: () => [
       {
@@ -185,7 +199,7 @@ test("entity rows include daemon-local runtime instances with Provider deep link
 
 test("entity rows remain available when daemon-local runtime inventory is unreadable", () => {
   const rows = readDeclaredEntityRows({
-    catalog: buildEntityKindCatalog([]),
+    catalog: buildEntityKindCatalog([], 1),
     projection: { listEntities: () => [] },
     runtimeInstances: () => {
       throw new Error("unreadable runtime inventory fixture");
@@ -230,8 +244,9 @@ test("locator read serves repo files and directories and refuses to escape the r
   }
 });
 
-test("the three entity read methods are registered on the closed GUI read surface", () => {
+test("vertical declaration and entity reads are registered on the closed GUI read surface", () => {
   for (const [method, id, bridge] of [
+    ["repo.vertical.declaration.read", "vertical.declaration.read", "readVerticalDeclaration"],
     ["repo.entity.kinds.read", "entity.kinds.read", "readEntityKinds"],
     ["repo.entity.rows.read", "entity.rows.read", "readEntityRows"],
     ["repo.entity.locator.read", "entity.locator.read", "readEntityLocator"],
@@ -243,6 +258,7 @@ test("the three entity read methods are registered on the closed GUI read surfac
     assert.equal(entry.commandClass, "repo-read");
     assert.equal(entry.requiresRepo, true);
   }
+  validateDaemonRpcCall("repo.vertical.declaration.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.kinds.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.rows.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.locator.read", {
@@ -252,7 +268,7 @@ test("the three entity read methods are registered on the closed GUI read surfac
 });
 
 test("gui result validation rejects a catalog whose declared row lost its declaration", () => {
-  const catalog = buildEntityKindCatalog(compiledArtifactKinds());
+  const catalog = buildEntityKindCatalog(repositoryKinds(), 1);
   const broken = {
     ...catalog,
     kinds: catalog.kinds.map((row) => (row.origin === "vertical" ? { ...row, declaration: null } : row)),

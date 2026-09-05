@@ -30,6 +30,7 @@ import {
 import { assertTaskProgressWritePlan, isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { assertScheduleEventInputs, isScheduleEvent } from "../domain/schedule-event.ts";
 import { assertSettingsEventInputs, isSettingsEvent } from "../domain/settings-event.ts";
+import { assertVerticalDeclarationEventInputs, isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { assertPeopleEventInputs, isPeopleEvent } from "../domain/people-event.ts";
 import { assertSnapshotUpgradeInputs, isSnapshotUpgradeEvent } from "../domain/task-snapshot-upgrade-store-seam.ts";
 import {
@@ -91,6 +92,15 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       throw new TaskEventStoreError(
         "invalid_write_plan",
         "settings event must carry an exact harness.yaml claim and write plan",
+      );
+    }
+  if (isVerticalDeclarationEvent(event))
+    try {
+      assertVerticalDeclarationEventInputs(event, plan, blobs);
+    } catch {
+      throw new TaskEventStoreError(
+        "invalid_write_plan",
+        "vertical declaration event must carry an exact vertical.json claim and write plan",
       );
     }
   if (isPeopleEvent(event))

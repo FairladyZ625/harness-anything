@@ -231,6 +231,8 @@ export function makeEntityActionCatalogExecutor(input: {
         contract,
         rawAction,
         executeRelationAction({
+          rootDir: input.rootDir ?? "",
+          repositoryId: input.repositoryId ?? input.rootDir ?? "",
           contract,
           action: rawAction,
           binding,

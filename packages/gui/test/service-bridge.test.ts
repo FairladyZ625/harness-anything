@@ -194,6 +194,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         assert.equal(parsed.schema, "entity-action-explanation/v1", contract.method);
       else if (contract.id === "entity.kinds.read")
         assert.equal(parsed.schema, "entity-kind-catalog/v1", contract.method);
+      else if (contract.id === "vertical.declaration.read")
+        assert.equal(parsed.schema, "repository-vertical-declaration-read/v1", contract.method);
       else assert.equal(parsed.ok, true, `${contract.method}: ${JSON.stringify(parsed)}`);
       results.set(contract.method, result);
     }
@@ -204,6 +206,16 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     // The three declared-entity reads must answer with real content, not just a valid envelope:
     // the kind universe reaches the GUI from the registry, and a locator resolves to file bytes.
     const kinds = parseDaemonGuiReadResult("repo.entity.kinds.read", results.get("repo.entity.kinds.read"));
+    const vertical = parseDaemonGuiReadResult(
+      "repo.vertical.declaration.read",
+      results.get("repo.vertical.declaration.read"),
+    );
+    const materialized = JSON.parse(readFileSync(path.join(fixture.rootDir, "harness", "vertical.json"), "utf8")) as {
+      revision: number;
+      definition: unknown;
+    };
+    assert.equal(vertical.declarationRevision, materialized.revision);
+    assert.deepEqual(vertical.declaration, materialized.definition);
     const declared = kinds.kinds.find(({ kind }) => kind === "software/coding/architecture-decision-record@1");
     assert.ok(
       declared,

@@ -39,12 +39,14 @@ export interface EntityKindCatalogRowV1 {
   readonly relationEndpoint: boolean;
   /** Has an executable `import` action, so a caller can create one from a locator. */
   readonly importable: boolean;
+  readonly retired: boolean;
   readonly declaration: EntityKindDeclarationV1 | null;
   readonly explanation: EntityKindExplanation;
 }
 
 export interface EntityKindCatalogV1 {
   readonly schema: typeof ENTITY_KIND_CATALOG_SCHEMA.id;
+  readonly declarationRevision: number;
   readonly kinds: readonly EntityKindCatalogRowV1[];
 }
 
@@ -54,10 +56,12 @@ export interface EntityKindCatalogV1 {
  * kind universe read this instead of restating a list.
  */
 export function buildEntityKindCatalog(
-  artifactKinds: readonly CompiledArtifactKindContract[] = [],
+  artifactKinds: readonly CompiledArtifactKindContract[],
+  declarationRevision: number,
 ): EntityKindCatalogV1 {
   return Object.freeze({
     schema: ENTITY_KIND_CATALOG_SCHEMA.id,
+    declarationRevision,
     kinds: Object.freeze([
       ...entityKindContracts.map((contract) => catalogRow(contract, "builtin", null, null)),
       ...artifactKinds.map(({ declaration, entityKindContract, typeIdentity }) =>
@@ -86,6 +90,7 @@ function catalogRow(
     relationEndpoint: contract.relationEndpoint.eligible,
     importable:
       contract.actionCatalog?.actions.some(({ id, execution }) => id === "import" && execution !== null) === true,
+    retired: declaration?.retired === true,
     declaration:
       declaration === null
         ? null
@@ -104,10 +109,12 @@ function catalogRow(
 }
 
 export function validateEntityKindCatalog(value: unknown): readonly string[] {
-  if (!catalogRecord(value) || !catalogExact(value, ["schema", "kinds"]))
+  if (!catalogRecord(value) || !catalogExact(value, ["schema", "declarationRevision", "kinds"]))
     return ["Entity kind catalog fields are incomplete or unknown"];
   const errors: string[] = [];
   if (value.schema !== ENTITY_KIND_CATALOG_SCHEMA.id) errors.push("Entity kind catalog schema is invalid");
+  if (!Number.isSafeInteger(value.declarationRevision) || Number(value.declarationRevision) < 1)
+    errors.push("Entity kind catalog declarationRevision must be a positive integer");
   if (!Array.isArray(value.kinds) || value.kinds.length === 0)
     errors.push("Entity kind catalog kinds must be non-empty");
   else {
@@ -132,6 +139,7 @@ const rowFields = [
   "refTemplate",
   "relationEndpoint",
   "importable",
+  "retired",
   "declaration",
   "explanation",
 ];
@@ -146,6 +154,7 @@ function validateCatalogRow(value: unknown): readonly string[] {
     errors.push("refTemplate must end with /{id}");
   if (typeof value.relationEndpoint !== "boolean") errors.push("relationEndpoint must be a boolean");
   if (typeof value.importable !== "boolean") errors.push("importable must be a boolean");
+  if (typeof value.retired !== "boolean") errors.push("retired must be a boolean");
   if (value.origin === "vertical" && value.declaration === null) errors.push("vertical rows require a declaration");
   if (value.origin === "builtin" && value.declaration !== null) errors.push("builtin rows carry no declaration");
   if (value.declaration !== null) errors.push(...validateDeclaration(value.declaration));

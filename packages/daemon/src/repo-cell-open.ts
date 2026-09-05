@@ -1,5 +1,6 @@
 import {
   bindWriterGenerationToken,
+  compileVerticalDeclarationEvent,
   consumeKnownError,
   createEntityStore,
   isSameExecution,
@@ -16,6 +17,8 @@ import {
   type WriterGeneration,
 } from "../../kernel/src/index.ts";
 import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
+import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
+import { readFileSync } from "node:fs";
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { prepareAgentEntityInstall, readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
@@ -835,6 +838,20 @@ export async function openRepoWriterCell(
       ...baseBinding,
       authorizationDecision,
     });
+    const verticalRevision = (store.readHead()?.revision ?? 0) + 1,
+      verticalBundle = compileVerticalDeclarationEvent({
+        type: "vertical_declared",
+        definition: JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8")),
+        eventId: `event-vertical-declaration-${verticalRevision}`,
+        opId: `vertical-declaration-initialize-${verticalRevision}`,
+        workspaceRevision: verticalRevision,
+        actor: baseBinding.actor,
+        source: baseBinding.source,
+        occurredAt: now(),
+      });
+    store.append(verticalBundle);
+    projection.apply(verticalBundle.event, verticalBundle.plan);
+    await store.settlePendingMaterialization?.("repository vertical initialization");
     if (appended && bootstrapReceipt) {
       bootstrapReceipt = { ...bootstrapReceipt, outcome: "applied" };
       input.onBootstrap?.(bootstrapReceipt);

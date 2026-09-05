@@ -27,6 +27,7 @@ import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
+import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isPeopleEvent } from "../domain/people-event.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { parsePeopleRosterDocument } from "../domain/people-roster.ts";
@@ -274,6 +275,32 @@ export function applyEvent(
     );
     runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     projectEmbeddedCanonicalEntities(db, event);
+    return;
+  }
+  if (isVerticalDeclarationEvent(event)) {
+    const claim = event.payload.declarationDocumentClaim,
+      bytes = readBlob(claim.sha256);
+    if (!bytes || bytes.byteLength !== claim.size)
+      throw new Error(`vertical declaration blob ${claim.sha256} is unavailable`);
+    const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (sha256Text(body) !== claim.sha256) throw new Error(`vertical declaration blob ${claim.sha256} hash mismatch`);
+    const document: DocumentState = {
+      path: claim.path as DocumentState["path"],
+      blobSha256: claim.sha256,
+      body,
+      size: docByteLength(claim.size),
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: event.workspaceRevision,
+    };
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
     return;
   }
   if (isPeopleEvent(event)) {

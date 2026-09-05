@@ -89,6 +89,9 @@ const repositoryWriteActions = Object.freeze([
   "terminal-resize",
   "terminal-spawn",
   "terminal-terminate",
+  "vertical-declaration-migrate",
+  "vertical-kind-retire",
+  "vertical-kind-upsert",
 ] as const);
 
 const arbiterActions = Object.freeze([

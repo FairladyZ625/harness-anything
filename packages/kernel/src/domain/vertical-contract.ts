@@ -116,7 +116,16 @@ export function compileVerticalContract(
               ]),
             }
           : {}),
-        actionCatalog: artifactEntityActionCatalog(typeIdentity, identity),
+        actionCatalog: artifact.retired
+          ? Object.freeze({
+              ...artifactEntityActionCatalog(typeIdentity, identity),
+              actions: Object.freeze(
+                artifactEntityActionCatalog(typeIdentity, identity).actions.map((action) =>
+                  Object.freeze({ ...action, execution: null }),
+                ),
+              ),
+            })
+          : artifactEntityActionCatalog(typeIdentity, identity),
         entityStore: genericEntityStore(artifact.store.pathTemplate),
         authoring: genericAuthoring,
         sdkExposure: noSdkExposure,

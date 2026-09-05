@@ -13,6 +13,7 @@ import type { PresetSnapshotUpgradeEventV1 } from "./preset-snapshot-upgrade-eve
 import type { RelationEventV1 } from "./relation-event.ts";
 import type { ScheduleEventV1 } from "./schedule-event.ts";
 import type { SettingsEventV1 } from "./settings-event.ts";
+import type { VerticalDeclarationEventV1 } from "./vertical-declaration.ts";
 import type {
   DocSyncReceiptDetail,
   LedgerCommitIdentity,
@@ -182,6 +183,7 @@ export type CanonicalEventV1 =
   | AgentRuntimeEventV1
   | ScheduleEventV1
   | SettingsEventV1
+  | VerticalDeclarationEventV1
   | PeopleEventV1
   | EntityEventV1
   | TaskBootstrapEventV1

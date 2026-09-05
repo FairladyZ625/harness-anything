@@ -30,31 +30,63 @@ import {
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
-import { loadCanonicalAssets } from "../../preset/src/preset-assets.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-let cachedVertical: CompiledVerticalContract | null = null,
-  cachedRelationDirections: readonly CanonicalRelationDirection[] | null = null;
+const compiledVerticals = new Map<string, CompiledVerticalContract>(),
+  compiledDirections = new Map<string, readonly CanonicalRelationDirection[]>();
 type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string };
 
-function canonicalVertical(): CompiledVerticalContract {
-  if (cachedVertical === null) cachedVertical = loadCanonicalAssets(defaultAssets).compiledVertical;
-  return cachedVertical;
+export function canonicalVertical(
+  rootDir: string,
+  repositoryId: string,
+): {
+  readonly revision: number;
+  readonly contract: CompiledVerticalContract;
+} {
+  const source = JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")) as {
+      readonly schema?: unknown;
+      readonly revision?: unknown;
+      readonly definition?: unknown;
+    },
+    revision = Number(source.revision);
+  if (source.schema !== "repository-vertical-declaration/v1" || !Number.isSafeInteger(revision) || revision < 1)
+    throw Object.assign(
+      new Error("Repository has no valid harness/vertical.json; run ha migrate vertical-declaration."),
+      {
+        code: "vertical_declaration_required",
+      },
+    );
+  const key = `${repositoryId}\0${revision}`,
+    cached = compiledVerticals.get(key);
+  if (cached) return { revision, contract: cached };
+  const compiled = compileVerticalContract(source.definition);
+  compiledVerticals.set(key, compiled);
+  return { revision, contract: compiled };
 }
 
-export function compiledArtifactKinds(): readonly CompiledArtifactKindContract[] {
-  return canonicalVertical().artifactKinds;
+export function compiledArtifactKinds(rootDir: string, repositoryId: string): readonly CompiledArtifactKindContract[] {
+  return canonicalVertical(rootDir, repositoryId).contract.artifactKinds;
 }
 
 /**
  * The registry relation writes are admitted against: kernel rows plus the governed rows the canonical
  * vertical compiled, so a kind-declared triple is writable through the same authority as a code row.
  */
-export function relationDirectionRegistry(): readonly CanonicalRelationDirection[] {
-  if (cachedRelationDirections === null)
-    cachedRelationDirections = composeCanonicalRelationDirections(compiledRelationDirections(canonicalVertical()));
-  return cachedRelationDirections;
+export function relationDirectionRegistry(
+  rootDir: string,
+  repositoryId: string,
+): readonly CanonicalRelationDirection[] {
+  const source = JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")) as {
+      readonly revision?: unknown;
+    },
+    key = `${repositoryId}\0${String(source.revision)}`,
+    cached = compiledDirections.get(key);
+  if (cached) return cached;
+  const directions = composeCanonicalRelationDirections(
+    compiledRelationDirections(canonicalVertical(rootDir, repositoryId).contract),
+  );
+  compiledDirections.set(key, directions);
+  return directions;
 }
 
 /** Test seam for custom verticals: callers compile the same source value and pass its artifactKinds. */
@@ -85,7 +117,7 @@ export async function executeArtifactEntityImport(input: {
   readonly contract: EntityActionContract;
   readonly receipt: ArtifactImportReceipt;
 }> {
-  const contracts = compiledArtifactKinds(),
+  const contracts = compiledArtifactKinds(input.rootDir, input.repositoryId),
     contract = resolveArtifactImportAction(input.action.entityKind, contracts);
   if (!contract?.execution)
     throw Object.assign(
@@ -110,7 +142,7 @@ export function executeArtifactEntityMutation(input: {
   readonly contract: EntityActionContract;
   readonly receipt: ArtifactImportReceipt;
 } {
-  const contracts = compiledArtifactKinds(),
+  const contracts = compiledArtifactKinds(input.rootDir, input.repositoryId),
     kind = requiredArtifactText(input.action.entityKind, "entityKind"),
     entityId = requiredArtifactText(input.action.entityId, "entityId"),
     compiled = contracts.find(({ typeIdentity }) => typeIdentity === kind),

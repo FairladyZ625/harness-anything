@@ -25,6 +25,11 @@ export const DAEMON_ENTITY_KIND_CATALOG_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "kinds"]),
 });
 
+export const DAEMON_VERTICAL_DECLARATION_READ_SCHEMA = Object.freeze({
+  id: "repository-vertical-declaration-read/v1",
+  required: Object.freeze(["schema", "declarationRevision", "declaration"]),
+});
+
 export const DAEMON_ENTITY_ROW_LIST_SCHEMA = Object.freeze({
   id: "entity-row-list/v1",
   required: Object.freeze(["schema", "ok", "rows"]),

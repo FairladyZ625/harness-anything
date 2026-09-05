@@ -50,8 +50,9 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    assert.equal(stream.revision, 1);
+    assert.equal(stream.revision, 2);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
   } finally {
     stop(fixture.alpha, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
@@ -256,8 +257,9 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
-    assert.equal(stream.revision, 1);
+    assert.equal(stream.revision, 3);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
+    assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(
       stream.events[0]?.schema === "settings-event/v1" ? stream.events[0].payload.settings.scaffolds.repository : null,
       "governance-repository-scaffold.json",

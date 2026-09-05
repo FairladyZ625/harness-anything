@@ -62,6 +62,14 @@ export const agentProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "vertical-declaration-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "vertical-declaration"],
+    summary: "Materialize the repository vertical declaration once from the installed preset seed.",
+    method: "repo.task.run",
+    inputs: [],
+  }),
+  defineLedgerWriteCommand({
     id: "fact-rekey",
     phase: "Migration-A",
     path: ["migrate", "rekey-facts"],

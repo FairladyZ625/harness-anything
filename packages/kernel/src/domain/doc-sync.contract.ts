@@ -33,6 +33,7 @@ export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation
 export { isEntityEvent } from "./entity-event.ts";
 export { isScheduleEvent } from "./schedule-event.ts";
 export { isSettingsEvent } from "./settings-event.ts";
+export { isVerticalDeclarationEvent } from "./vertical-declaration.ts";
 export {
   isPeopleEvent,
   PEOPLE_EVENT_SCHEMA,

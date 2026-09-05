@@ -19,6 +19,7 @@ import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from ".
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
 import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-event.ts";
 import { validateCurrentSettingsEvent, validateSettingsEvent } from "./settings-event.ts";
+import { validateCurrentVerticalDeclarationEvent, validateVerticalDeclarationEvent } from "./vertical-declaration.ts";
 import { validateCurrentPeopleEvent, validatePeopleEvent } from "./people-event.ts";
 import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
@@ -60,6 +61,11 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "settings-event/v1",
     validate: validateSettingsEvent,
     validateCurrent: validateCurrentSettingsEvent,
+  },
+  {
+    schema: "vertical-declaration-event/v1",
+    validate: validateVerticalDeclarationEvent,
+    validateCurrent: validateCurrentVerticalDeclarationEvent,
   },
   {
     schema: "people-event/v1",
