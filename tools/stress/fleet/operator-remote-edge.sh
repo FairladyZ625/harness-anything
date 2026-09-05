@@ -23,8 +23,8 @@ seed=1
 while [ "$seed" -le 3 ]; do
   repo_id="stress-seed-$seed"
   workspace="$WORKSPACE_ROOT/$repo_id"
-  assignment="operator-seed-$seed"
-  node_id="operator-seed-$seed"
+  assignment="$repo_id-schedule-1"
+  node_id="edge-1"
   view="$VIEW_ROOT/$repo_id"
 
   (
@@ -32,13 +32,12 @@ while [ "$seed" -le 3 ]; do
     ha daemon repo register \
       --repo-id "$repo_id" \
       --root "$workspace" \
-      --mode remote-edge \
-      --connection "$CONNECTION_NAME" \
-      --endpoint "tls://$CENTER_HOST:$CENTER_PORT"
+      --mode remote-edge
     ha daemon fleet edge sync \
       --host "$CENTER_HOST" \
       --port "$CENTER_PORT" \
       --ca "$CA_FILE" \
+      --servername localhost \
       --node-id "$node_id" \
       --roster "$workspace/fleet-roster.json" \
       --assignment "$assignment" \

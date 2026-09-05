@@ -30,6 +30,7 @@ test(
 
       const f12 = await occurrenceArm(fixture, alpha, alphaAssignments),
         f13 = await replicaArm(fixture, alpha, alphaAssignments, f12.secondClaim),
+        takeover = await centerTakeoverArm(fixture, alpha, alphaAssignments, f13.latestRevision),
         f14 = await clockInjectionArm(fixture, alphaAssignments[0], f13.latestRevision),
         environment = inspectFleetCampaignEnvironment(),
         denominators = await generateCoverageDenominators({ repoRoot }),
@@ -76,6 +77,7 @@ test(
           cases: [
             f12.case,
             f13.case,
+            takeover.case,
             f14.case,
             {
               id: "S4/real-volume-enospc",
@@ -110,6 +112,7 @@ test(
         });
       assert.equal(f12.case.verdict, "PASS");
       assert.equal(f13.case.verdict, "INCOMPLETE");
+      assert.equal(takeover.case.verdict, "PASS");
       assert.equal(f14.case.verdict, "FAIL");
       assert.equal(report.verdict, "FAIL");
       emitStressReport(report);
@@ -346,6 +349,132 @@ async function clockInjectionArm(fixture, alphaAssignment, priorRevision) {
       boundaryHits: ["clock-plus-24h", "clock-minus-24h", "exact-replica-cut"],
       oracles: { O1: { verdict: injectedClockReachedCommit ? "PASS" : "FAIL" } },
       verdict: injectedClockReachedCommit ? "INCOMPLETE" : "FAIL",
+    },
+  };
+}
+
+async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
+  const warm = assignments[4],
+    fresh = assignments[5],
+    disconnected = assignments[6],
+    warmRoot = path.join(fixture.root, "takeover-warm"),
+    freshRoot = path.join(fixture.root, "takeover-fresh"),
+    disconnectedRoot = path.join(fixture.root, "takeover-disconnected");
+  await fixture.pull(warm, warmRoot);
+  const oldWrite = await fixture.schedule(assignments[0], "takeover-old-write", {
+    kind: "schedule-update",
+    scheduleId: "campaign",
+    name: "Old center accepted",
+  });
+  assert.equal(oldWrite.outcome, "applied");
+  await assert.rejects(
+    fixture.pull(disconnected, disconnectedRoot, {
+      beforeAck: () => {
+        throw new Error("edge disconnected during center takeover");
+      },
+    }),
+    /disconnected during center takeover/u,
+  );
+  await fixture.closeCenter();
+  await fixture.startCenter("new-center");
+  const stale = await fixture.schedule(
+    assignments[0],
+    "takeover-stale-old-epoch",
+    {
+      kind: "schedule-update",
+      scheduleId: "campaign",
+      name: "Stale center must not write",
+    },
+    { writerEpoch: 1 },
+  );
+  assert.equal(stale.outcome, "op_rejected");
+  assert.equal(stale.code, "writer_epoch_stale");
+  const newWrite = await fixture.schedule(assignments[1], "takeover-new-write", {
+    kind: "schedule-update",
+    scheduleId: "campaign",
+    name: "New center accepted",
+  });
+  assert.equal(newWrite.outcome, "applied");
+  assert.ok(oldWrite.revision > priorRevision);
+  assert.ok(newWrite.revision > oldWrite.revision);
+  const [warmResult, freshResult, disconnectedResult] = await Promise.all([
+    fixture.pull(warm, warmRoot),
+    fixture.pull(fresh, freshRoot),
+    fixture.pull(disconnected, disconnectedRoot),
+  ]);
+  assert.deepEqual(warmResult.current.cut, freshResult.current.cut);
+  assert.deepEqual(disconnectedResult.current.cut, freshResult.current.cut);
+  const replica = fixture.host.replica(repo.repoId);
+  replica.kick();
+  await replica.waitForCut(newWrite.revision);
+  assert.equal(typeof replica.eventAt(oldWrite.revision), "string");
+  assert.equal(typeof replica.eventAt(newWrite.revision), "string");
+  const identity = {
+      writes: [
+        {
+          repoId: repo.repoId,
+          opId: oldWrite.opId,
+          holder: "old-center",
+          epoch: 1,
+          sequence: 1,
+          status: "accepted_durable",
+        },
+        {
+          repoId: repo.repoId,
+          opId: newWrite.opId,
+          holder: "new-center",
+          epoch: 2,
+          sequence: 3,
+          status: "accepted_durable",
+        },
+      ],
+      writerClaims: [
+        { repoId: repo.repoId, holder: "old-center", epoch: 1, sequence: 0 },
+        { repoId: repo.repoId, holder: "new-center", epoch: 2, sequence: 2 },
+      ],
+      scheduleClaims: [],
+      replicas: [warmResult, freshResult, disconnectedResult].map((result) => ({
+        repoId: repo.repoId,
+        ackRevision: result.replica.ackCut,
+        availableRevision: result.current.cut.revision,
+      })),
+    },
+    oracle = oracleO6({ identity }),
+    red = oracleO6({
+      identity: {
+        ...identity,
+        writes: [
+          ...identity.writes,
+          {
+            repoId: repo.repoId,
+            opId: "takeover-red-stale-write",
+            holder: "old-center",
+            epoch: 1,
+            sequence: 4,
+            status: "accepted_durable",
+          },
+        ],
+      },
+    });
+  assert.equal(oracle.verdict, "PASS");
+  assert.equal(red.verdict, "FAIL");
+  return {
+    case: {
+      id: "F14/center-takeover-edge-disconnect",
+      boundaryHits: [
+        "old-center-accepted",
+        "disconnect-before-ack",
+        "new-center-epoch-acquire",
+        "stale-old-epoch-rejected",
+        "warm-fresh-disconnected-recovery",
+      ],
+      revisions: { old: oldWrite.revision, new: newWrite.revision },
+      negativeControl: { id: "F14/stale-center-accepted-write", oracleId: "O6", passed: red.verdict === "FAIL" },
+      oracles: {
+        O1: { verdict: "PASS", acceptedRevisions: [oldWrite.revision, newWrite.revision] },
+        O6: oracle,
+      },
+      verdict: "PASS",
     },
   };
 }

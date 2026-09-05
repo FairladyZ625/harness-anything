@@ -16,7 +16,7 @@ export async function openFleetCampaignFixture(options = {}) {
     writerStateRoot = path.join(root, "writer-state"),
     keyFile = path.join(root, "tls.key"),
     certFile = path.join(root, "tls.crt"),
-    repos = ["alpha", "beta"].map((name) => ({
+    repos = (options.repoNames ?? ["alpha", "beta"]).map((name) => ({
       repoId: `stress-${name}`,
       rootDir: path.join(root, `repo-${name}`),
     })),
@@ -81,6 +81,8 @@ export async function openFleetCampaignFixture(options = {}) {
         stateRoot,
         writerEpochStateRoot: writerStateRoot,
         writerId,
+        hostname: options.bind,
+        port: options.port,
         key: readFileSync(keyFile),
         cert: readFileSync(certFile),
         replicaDiskQuotaBytes: quotaBytes,
@@ -116,6 +118,7 @@ export async function openFleetCampaignFixture(options = {}) {
         clock = value;
       },
       startCenter,
+      closeCenter,
       assignment: (repoId, index) =>
         assignments.find((candidate) => candidate.repoId === repoId && candidate.nodeId === `edge-${index + 1}`),
       schedule: (assignment, opId, action, overrides = {}) =>
