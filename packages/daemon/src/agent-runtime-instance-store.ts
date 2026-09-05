@@ -292,8 +292,10 @@ export function openRuntimeInstanceStore(input: {
       throw runtimeInstanceError("runtime_credential_unavailable", credentialUnavailableHint);
     }
     if (config.kindId === "codex") {
-      const configPath = path.join(env.CODEX_HOME!, "config.toml");
-      if (!codexConfigHasBearer(configPath)) writeCodexConfig(configPath, config, secret);
+      const configPath = path.join(env.CODEX_HOME!, "config.toml"),
+        provider = runtimeProviderConfig(config);
+      if (!codexConfigHasBearer(configPath) || provider.credentialHeader !== undefined)
+        writeCodexConfig(configPath, config, secret);
     } else env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
     return {

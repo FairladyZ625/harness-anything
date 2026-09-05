@@ -34,9 +34,12 @@ export interface CodexRuntimeInstanceConfig {
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
   readonly baseUrl?: string;
+  readonly allowInsecureHttp?: boolean;
   readonly wireApi?: string;
   readonly requiresOpenAiAuth?: boolean;
   readonly httpHeaders?: Readonly<Record<string, string>>;
+  /** Header name receiving the resolved API-key credential at launch time. */
+  readonly credentialHeader?: string;
 }
 
 export interface AgyRuntimeInstanceConfig {
@@ -54,9 +57,11 @@ export interface RuntimeProviderInstanceConfig {
   readonly reasoningEffort?: string;
   readonly fast?: boolean;
   readonly baseUrl?: string;
+  readonly allowInsecureHttp?: boolean;
   readonly wireApi?: string;
   readonly requiresOpenAiAuth?: boolean;
   readonly httpHeaders?: Readonly<Record<string, string>>;
+  readonly credentialHeader?: string;
 }
 
 export function runtimeProviderConfig(config: RuntimeInstanceConfig): RuntimeProviderInstanceConfig {

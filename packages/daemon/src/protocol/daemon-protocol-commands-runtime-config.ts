@@ -256,6 +256,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--base-url", "single", false, {
         code: "invalid_field",
       }),
+      cliInput("--allow-insecure-http", "boolean", false, {
+        code: "invalid_field",
+      }),
       cliInput("--wire-api", "single", false, {
         code: "invalid_field",
       }),
@@ -263,6 +266,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         code: "invalid_field",
       }),
       cliInput("--http-header", "repeated", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--credential-header", "single", false, {
         code: "invalid_field",
       }),
       cliInput(

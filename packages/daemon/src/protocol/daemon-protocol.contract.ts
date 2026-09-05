@@ -48,7 +48,16 @@ export const builtInRuntimeProviderInputDeclaration = Object.freeze({
   }),
   codex: Object.freeze({
     authModes: ["subscription", "api-key"] as const,
-    fields: ["reasoningEffort", "fast", "baseUrl", "wireApi", "requiresOpenAiAuth", "httpHeaders"] as const,
+    fields: [
+      "reasoningEffort",
+      "fast",
+      "baseUrl",
+      "allowInsecureHttp",
+      "wireApi",
+      "requiresOpenAiAuth",
+      "httpHeaders",
+      "credentialHeader",
+    ] as const,
     effortField: "reasoningEffort",
     fast: true,
   }),

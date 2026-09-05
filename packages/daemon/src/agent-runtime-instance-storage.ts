@@ -244,6 +244,10 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
 
 export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, bearerToken?: string): void {
   const provider = runtimeProviderConfig(config),
+    headers =
+      bearerToken && provider.credentialHeader
+        ? { ...(provider.httpHeaders ?? {}), [provider.credentialHeader]: bearerToken }
+        : provider.httpHeaders,
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
       ...(provider.reasoningEffort ? [`model_reasoning_effort = ${tomlString(provider.reasoningEffort)}`] : []),
@@ -255,12 +259,16 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
       `name = ${tomlString(config.providerId)}`,
       ...(provider.baseUrl ? [`base_url = ${tomlString(provider.baseUrl)}`] : []),
       ...(provider.wireApi ? [`wire_api = ${tomlString(provider.wireApi)}`] : []),
-      ...(provider.requiresOpenAiAuth === undefined ? [] : [`requires_openai_auth = ${provider.requiresOpenAiAuth}`]),
-      ...(provider.httpHeaders
+      ...(provider.requiresOpenAiAuth === undefined && config.providerId !== "openai"
+        ? ["requires_openai_auth = false"]
+        : provider.requiresOpenAiAuth === undefined
+          ? []
+          : [`requires_openai_auth = ${provider.requiresOpenAiAuth}`]),
+      ...(headers
         ? [
             [
               "http_headers = { ",
-              `${Object.entries(provider.httpHeaders)
+              `${Object.entries(headers)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
                 .join(", ")}`,
@@ -268,7 +276,9 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
             ].join(""),
           ]
         : []),
-      ...(bearerToken ? [`experimental_bearer_token = ${tomlString(bearerToken)}`] : []),
+      ...(bearerToken && !provider.credentialHeader
+        ? [`experimental_bearer_token = ${tomlString(bearerToken)}`]
+        : []),
     );
   const temp = `${target}.${process.pid}.tmp`;
   // The leftover of a failed write here is a 0600 config carrying the broker bearer token,
