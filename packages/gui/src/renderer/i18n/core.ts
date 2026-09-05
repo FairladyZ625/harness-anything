@@ -73,7 +73,7 @@ export function setActiveLocale(locale: Locale): void {
 }
 
 export function messageFor(key: MessageKey): string {
-  return catalogs[activeLocale][key] ?? catalogs["en-US"][key];
+  return catalogs[activeLocale][key] ?? catalogs["en-US"][key] ?? key;
 }
 
 function interpolate(message: string, params: MessageParams = {}): string {
