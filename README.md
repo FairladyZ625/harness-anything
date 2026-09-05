@@ -9,7 +9,7 @@ It turns decisions, failures, facts, and reviews into durable project memory —
 then gates *"done"* so progress compounds instead of evaporating into chat.
 
 <p>
-  <a href="#quickstart"><b>Run the demo</b></a> |
+  <a href="#quickstart"><b>Get started</b></a> |
   <a href="#why-it-compounds">Why it compounds</a> |
   <a href="#how-it-works">How it works</a> |
   <a href="#documentation">Docs</a>
@@ -33,6 +33,72 @@ then gates *"done"* so progress compounds instead of evaporating into chat.
 </div>
 
 ---
+
+## Quickstart
+
+Open your project in your coding agent and paste this prompt to get started:
+
+```text
+Read skills/harness-download/SKILL.md from https://github.com/FairladyZ625/harness-
+anything and use it to guide me through first-time Harness Anything setup: check the
+environment, download the source to a persistent directory, symlink the full skill
+set into my selected agents’ user directories, then initialize this repository, set
+up the CEO knowledge locations, and complete one real task with harness-ceo. Read
+information available in the project and environment directly. When a choice or
+approval is needed, show me the concrete proposal first, and do not ask again about
+something I have already confirmed.
+```
+
+<details>
+<summary>Skills installation options and setup details</summary>
+
+Install the onboarding skill for the agents you use. This example selects Codex
+and Claude Code; omit an agent you do not use, or choose other supported agents
+interactively:
+
+```bash
+bunx skills add FairladyZ625/harness-anything --skill harness-download -g -a codex claude-code
+```
+
+Without Bun, replace `bunx` with `npx`. Bun runs the Skills installer; Harness
+itself currently runs on Node 24+ from a persistent source checkout.
+
+The agent continues through each stage:
+
+| Skill | Responsibility |
+| --- | --- |
+| [harness-download](./skills/harness-download/SKILL.md) | Prepare the environment and persistent source checkout, link the skills, and coordinate the remaining setup |
+| [harness-install](./skills/harness-install/SKILL.md) | Adopt the available Harness installation in a target repository, preserving existing instructions and identity approvals |
+| [harness-ceo](./skills/harness-ceo/SKILL.md) | Initialize user-owned knowledge locations, select models, carry out real work, and verify delivery |
+
+Download the tools once. Use `harness-install` for another repository and
+`harness-ceo` for daily work. User model matrices, issue records, and feedback
+stay in the workspace; public skill updates do not overwrite them.
+
+You can also inspect or install the complete skill set:
+
+```bash
+bunx skills add FairladyZ625/harness-anything --list
+bunx skills add FairladyZ625/harness-anything --skill '*' -g -a codex claude-code
+```
+
+The Skills CLI's installed copy is separate from the source installation. The
+onboarding flow then links the selected agents to the persistent source checkout.
+Existing customized skills with the same name are checked for conflicts, not
+automatically overwritten. Moving the source directory breaks those links, so do
+not keep it in a temporary location.
+
+An existing, usable current-generation ledger is reused. Only an identified older
+generation is routed to [harness-migration](./skills/harness-migration/SKILL.md);
+an existing directory alone does not authorize overwriting or migration.
+
+See the [official Skills CLI documentation](https://github.com/vercel-labs/skills)
+for installation syntax and agent directory selection. Skills can be discovered
+directly from GitHub. Listing and indexing on [skills.sh](https://skills.sh/docs)
+are controlled by that service; adding repository documentation does not prove
+that the service has indexed it.
+
+</details>
 
 ## Your agent can write code. Can your project learn?
 
@@ -92,7 +158,7 @@ That is what *self-evolving* means here: not magic, and not autonomous churn.
 Each completed loop leaves the system better equipped for the next one. Your
 repository gets the same compounding mechanism.
 
-## Quickstart
+## Run the demo
 
 Harness Anything currently runs from a source checkout and requires Node.js
 24+. Run the 30-second smoke demo:
@@ -123,70 +189,6 @@ contributor hot-reload tool.
 
 Ready to use it on a project? Continue with the
 [Start guide](./docs-release/start/en/00-what-is-this.md).
-
-### Install through the Skills ecosystem
-
-Install the onboarding skill for the agents you use. This example selects Codex
-and Claude Code; omit an agent you do not use, or choose other supported agents
-interactively:
-
-```bash
-bunx skills add FairladyZ625/harness-anything --skill harness-download -g -a codex claude-code
-```
-
-Without Bun, replace `bunx` with `npx`. Bun runs the Skills installer; Harness
-itself currently runs on Node 24+ from a persistent source checkout.
-
-Then give your agent this prompt from the target project:
-
-> Use harness-download to guide me through first-time Harness Anything setup:
-> check the environment, download the source to a persistent directory, symlink
-> the full skill set into my selected agents' user directories, then initialize
-> this repository, set up the CEO knowledge locations, and complete one real
-> task with harness-ceo. Read information available in the project and environment
-> directly. When a choice or approval is needed, show me the concrete proposal
-> first, and do not ask again about something I have already confirmed.
-
-The agent continues through each stage:
-
-| Skill | Responsibility |
-| --- | --- |
-| [harness-download](./skills/harness-download/SKILL.md) | Prepare the environment and persistent source checkout, link the skills, and coordinate the remaining setup |
-| [harness-install](./skills/harness-install/SKILL.md) | Adopt the available Harness installation in a target repository, preserving existing instructions and identity approvals |
-| [harness-ceo](./skills/harness-ceo/SKILL.md) | Initialize user-owned knowledge locations, select models, carry out real work, and verify delivery |
-
-Download the tools once. Use `harness-install` for another repository and
-`harness-ceo` for daily work. User model matrices, issue records, and feedback
-stay in the workspace; public skill updates do not overwrite them.
-
-You can also inspect or install the complete skill set:
-
-```bash
-bunx skills add FairladyZ625/harness-anything --list
-bunx skills add FairladyZ625/harness-anything --skill '*' -g -a codex claude-code
-```
-
-The Skills CLI's installed copy is separate from the source installation. The
-onboarding flow then links the selected agents to the persistent source checkout.
-Existing customized skills with the same name are checked for conflicts, not
-automatically overwritten. Moving the source directory breaks those links, so do
-not keep it in a temporary location.
-
-You can also start without installing the Skills CLI by sending this prompt:
-
-> Read `skills/harness-download/SKILL.md` from
-> https://github.com/FairladyZ625/harness-anything and follow it through the
-> first-time setup described above, continuing from one stage to the next.
-
-An existing, usable current-generation ledger is reused. Only an identified older
-generation is routed to [harness-migration](./skills/harness-migration/SKILL.md);
-an existing directory alone does not authorize overwriting or migration.
-
-See the [official Skills CLI documentation](https://github.com/vercel-labs/skills)
-for installation syntax and agent directory selection. Skills can be discovered
-directly from GitHub. Listing and indexing on [skills.sh](https://skills.sh/docs)
-are controlled by that service; adding repository documentation does not prove
-that the service has indexed it.
 
 ## Breaking change: existing repositories must migrate
 

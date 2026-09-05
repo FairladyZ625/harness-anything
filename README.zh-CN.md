@@ -9,7 +9,7 @@ Harness Anything 是一个会自我进化的 harness，也让你的仓库持续�
 让每一次进展产生复利，而不是随着聊天窗口一起蒸发。
 
 <p>
-  <a href="#快速开始"><b>运行 Demo</b></a> ·
+  <a href="#快速开始"><b>快速开始</b></a> ·
   <a href="#为什么会产生复利">为什么会产生复利</a> ·
   <a href="#它如何工作">它如何工作</a> ·
   <a href="#文档">文档</a>
@@ -33,6 +33,55 @@ Harness Anything 是一个会自我进化的 harness，也让你的仓库持续�
 </div>
 
 ---
+
+## 快速开始
+
+在编程 Agent 中打开你的项目，复制下面这段话即可开始：
+
+```text
+读取 https://github.com/FairladyZ625/harness-anything 中的 skills/harness-download/SKILL.md，
+使用它带我完成 Harness Anything 首次接入：检查环境，
+把源码放到持久目录，将整套技能软链接到我选定的 Agent 用户目录，
+然后继续初始化当前仓库、建立主控知识入口，并用 harness-ceo 带完一个真实任务。
+能从项目和环境查到的信息请直接读取；
+需要我选择或批准时，给出具体方案后再问，已确认内容不要重复确认。
+```
+
+<details>
+<summary>Skills 安装选项与流程说明</summary>
+
+先把引导技能装到你使用的 Agent。下面以 Codex 和 Claude Code 为例；可以删掉不用的 Agent 参数，或交互选择其他受支持的 Agent：
+
+```bash
+bunx skills add FairladyZ625/harness-anything --skill harness-download -g -a codex claude-code
+```
+
+没有 Bun 时，把 `bunx` 换成 `npx` 即可。Bun 运行的是 Skills 安装器；Harness 当前仍使用 Node 24+ 和持久源码运行。
+
+整个流程连续完成：
+
+| 技能 | 负责什么 |
+| --- | --- |
+| [harness-download](./skills/harness-download/SKILL.md) | 准备环境、下载持久源码、链接整套技能，并协调后续引导 |
+| [harness-install](./skills/harness-install/SKILL.md) | 把可用的 Harness 接入指定仓库，保留既有指令与身份审批 |
+| [harness-ceo](./skills/harness-ceo/SKILL.md) | 初始化用户知识位置、选择模型、开展真实工作并验证交付 |
+
+下载工具只做一次；接入另一个仓库时直接使用 `harness-install`，日常工作使用 `harness-ceo`。用户矩阵、问题记录和反馈保留在工作区，升级公共技能不覆盖。
+
+也可以查看或直接安装仓库里的整组技能：
+
+```bash
+bunx skills add FairladyZ625/harness-anything --list
+bunx skills add FairladyZ625/harness-anything --skill '*' -g -a codex claude-code
+```
+
+Skills CLI 的安装副本与源码安装不是同一回事。下载引导随后会把所选 Agent 的技能接到持久源码；已有同名定制内容先检查冲突，不自动覆盖。源码目录移走会使链接失效，因此不放临时目录。
+
+已有当前可用台账会直接复用；明确属于旧代时才走 [harness-migration](./skills/harness-migration/SKILL.md)，不会因目录已存在就覆盖或自动迁移。
+
+安装语法与目录选择见 [Skills CLI 官方说明](https://github.com/vercel-labs/skills)。技能可以直接从 GitHub 发现；[skills.sh](https://skills.sh/docs) 的展示与收录由其服务处理，不以仓库内新增文档作为已收录证明。
+
+</details>
 
 ## 你的 agent 会写代码，但你的项目会学习吗？
 
@@ -83,7 +132,7 @@ Harness 会观察自己的失败，把教训变成更强的约束，再把这些
 这就是这里所说的“自我进化”：不是魔法，也不是不受控制的自动修改；
 而是每完成一次循环，系统都比上一次更有能力做好下一次。你的仓库也会获得同样的复利机制。
 
-## 快速开始
+## 本地演示
 
 Harness Anything 目前从源码 checkout 运行，需要 Node.js 24+。先运行 30 秒 smoke demo：
 
@@ -110,47 +159,6 @@ ha gui
 只用于贡献者 hot reload。
 
 准备在自己的项目里使用？继续阅读[上手指南](./docs-release/start/zh/00-what-is-this.md)。
-
-### 通过 Skills 生态一段话完成安装
-
-先把引导技能装到你使用的 Agent。下面以 Codex 和 Claude Code 为例；可以删掉不用的 Agent 参数，或交互选择其他受支持的 Agent：
-
-```bash
-bunx skills add FairladyZ625/harness-anything --skill harness-download -g -a codex claude-code
-```
-
-没有 Bun 时，把 `bunx` 换成 `npx` 即可。Bun 运行的是 Skills 安装器；Harness 当前仍使用 Node 24+ 和持久源码运行。
-
-然后在目标项目里给 Agent 这一段话：
-
-> 使用 harness-download 带我完成 Harness Anything 首次接入：检查环境，把源码放到持久目录，将整套技能软链接到我选定的 Agent 用户目录，然后继续初始化当前仓库、建立主控知识入口，并用 harness-ceo 带完一个真实任务。能从项目和环境查到的信息请直接读取；需要我选择或批准时，给出具体方案后再问，已确认内容不要重复确认。
-
-整个流程连续完成：
-
-| 技能 | 负责什么 |
-| --- | --- |
-| [harness-download](./skills/harness-download/SKILL.md) | 准备环境、下载持久源码、链接整套技能，并协调后续引导 |
-| [harness-install](./skills/harness-install/SKILL.md) | 把可用的 Harness 接入指定仓库，保留既有指令与身份审批 |
-| [harness-ceo](./skills/harness-ceo/SKILL.md) | 初始化用户知识位置、选择模型、开展真实工作并验证交付 |
-
-下载工具只做一次；接入另一个仓库时直接使用 `harness-install`，日常工作使用 `harness-ceo`。用户矩阵、问题记录和反馈保留在工作区，升级公共技能不覆盖。
-
-也可以查看或直接安装仓库里的整组技能：
-
-```bash
-bunx skills add FairladyZ625/harness-anything --list
-bunx skills add FairladyZ625/harness-anything --skill '*' -g -a codex claude-code
-```
-
-Skills CLI 的安装副本与源码安装不是同一回事。下载引导随后会把所选 Agent 的技能接到持久源码；已有同名定制内容先检查冲突，不自动覆盖。源码目录移走会使链接失效，因此不放临时目录。
-
-如果没有安装 Skills CLI，也可直接把这句话发给 Agent：
-
-> 读取 https://github.com/FairladyZ625/harness-anything 中的 `skills/harness-download/SKILL.md`，按它完成上述首次引导，并在各阶段继续执行。
-
-已有当前可用台账会直接复用；明确属于旧代时才走 [harness-migration](./skills/harness-migration/SKILL.md)，不会因目录已存在就覆盖或自动迁移。
-
-安装语法与目录选择见 [Skills CLI 官方说明](https://github.com/vercel-labs/skills)。技能可以直接从 GitHub 发现；[skills.sh](https://skills.sh/docs) 的展示与收录由其服务处理，不以仓库内新增文档作为已收录证明。
 
 ## 破坏性变更：已有仓库需要迁移
 
