@@ -112,6 +112,12 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
   const models = legacy ? [requiredRuntimeInstanceText(value.model, "model")] : normalizeModels(value.models),
     defaultModel = legacy ? models[0]! : requiredRuntimeInstanceText(value.defaultModel, "defaultModel"),
     enabled = legacy ? true : requireBoolean(value.enabled, "enabled");
+  if (value.kindId === "zcode" && models.length !== 1)
+    throw runtimeInstanceError(
+      "invalid_command",
+      "ZCode runtime instances require exactly one model because ZCode selects model.main from its " +
+        "per-instance config; create a separate instance for each model.",
+    );
   if (!models.includes(defaultModel))
     throw runtimeInstanceError(
       "invalid_runtime_model",
@@ -120,13 +126,17 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
   const kindId = String(value.kindId) as RuntimeInstanceKind,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
     isolationState = runtimeIsolationState(value.isolationState, kindId);
-  if (kindId === "codex" && auth.mode === "api-key" && isolationState === "operator-environment")
+  if (
+    (kindId === "codex" || kindId === "zcode") &&
+    auth.mode === "api-key" &&
+    isolationState === "operator-environment"
+  )
     throw runtimeInstanceError(
       "invalid_runtime_isolation",
       [
-        "API-key codex instances require enforced isolation; the bearer token is ",
-        "injected through the per-instance CODEX_HOME config, and the operator ",
-        "environment would have to rewrite the operator's own config.toml.",
+        `API-key ${kindId} instances require enforced isolation; the credential is `,
+        "injected through per-instance provider configuration, and the operator ",
+        "environment would have to rewrite the operator's own config.",
       ].join(""),
     );
   const common = {

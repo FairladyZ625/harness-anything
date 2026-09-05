@@ -41,6 +41,17 @@ const observed: RuntimeInstallationWitness = {
   observedAt: "2026-08-15T00:00:00.000Z",
 };
 
+test("ZCode inventory declares API-key configuration isolation", () => {
+  const zcode = runtimeKinds.find(({ kindId }) => kindId === "zcode");
+  assert.ok(zcode);
+  assert.equal(zcode.auth.shape, "separate");
+  assert.deepEqual(zcode.auth.modes, ["subscription", "api-key"]);
+  assert.equal(zcode.isolation.defaultState, "enforced");
+  assert.deepEqual(zcode.isolation.states, ["enforced", "operator-environment"]);
+  assert.equal(zcode.capabilities.configurationIsolation, "supported");
+  assert.equal(zcode.configuration.fields.baseUrl, "url");
+});
+
 test("runtime instance create RPC leaves provider configuration wrappers open to the inventory", () => {
   const create = runtimeInstanceMethods.find((method) => method.method === "daemon.runtimeInstance.create"),
     payload = create?.params.fields.payload;

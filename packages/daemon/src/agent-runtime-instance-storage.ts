@@ -276,9 +276,7 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
             ].join(""),
           ]
         : []),
-      ...(bearerToken && !provider.credentialHeader
-        ? [`experimental_bearer_token = ${tomlString(bearerToken)}`]
-        : []),
+      ...(bearerToken && !provider.credentialHeader ? [`experimental_bearer_token = ${tomlString(bearerToken)}`] : []),
     );
   const temp = `${target}.${process.pid}.tmp`;
   // The leftover of a failed write here is a 0600 config carrying the broker bearer token,
@@ -288,6 +286,32 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
       encoding: "utf8",
       mode: 0o600,
     });
+    renameSync(temp, target);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+  chmodSync(target, 0o600);
+}
+
+export function writeZcodeConfig(target: string, config: RuntimeInstanceConfig, apiKey: string): void {
+  const provider = runtimeProviderConfig(config),
+    model = config.models[0]!,
+    value = {
+      provider: {
+        [config.providerId]: {
+          name: config.providerId,
+          kind: "anthropic",
+          options: { apiKey, baseURL: provider.baseUrl },
+          enabled: true,
+          models: { [model]: {} },
+        },
+      },
+      model: { main: `${config.providerId}/${model}` },
+    },
+    temp = `${target}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     renameSync(temp, target);
   } catch (error) {
     rmSync(temp, { force: true });

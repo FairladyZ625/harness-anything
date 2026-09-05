@@ -39,6 +39,7 @@ test("a temporary named after its writer exists only where it was judged", () =>
     .sort();
   assert.deepEqual(offenders, [
     "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
+    "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/agent-runtime-instance-store.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/dispatch-stream.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
