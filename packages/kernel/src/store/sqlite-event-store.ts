@@ -113,6 +113,8 @@ function configureLedgerConnection(db: DatabaseSync): void {
       if (!isSqliteBusy(error) || Date.now() + OPEN_BUSY_BACKOFF_MS >= deadline) throw error;
       consumeKnownError(error);
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, OPEN_BUSY_BACKOFF_MS);
+      // The wait can oversleep; never start an attempt at or after the deadline.
+      if (Date.now() >= deadline) throw error;
     }
   }
 }
