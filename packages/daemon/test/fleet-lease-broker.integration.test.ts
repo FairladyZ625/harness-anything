@@ -344,11 +344,11 @@ test(
     const created = await fixture.command("node-one", { kind: "task-create", title: "Epoch fence" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
     assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
-    const oldEpoch = (
-      JSON.parse(readFileSync(path.join(fixture.stateRoot, "writer-epochs.json"), "utf8")) as {
-        repos: Record<string, { epoch: number }>;
-      }
-    ).repos["lease-repo"]!.epoch;
+    const epochObserver = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "epoch-observer" }),
+      oldLease = epochObserver.current("lease-repo");
+    epochObserver.close();
+    assert.ok(oldLease);
+    const oldEpoch = oldLease.epoch;
     const replacement = await fixture.openCenter(fixture.host);
     const before = fixture.commitCount();
     // The stale endpoint must not adopt the replacement's epoch merely because
@@ -405,12 +405,10 @@ test("stale task rejection disposes carried document claims", { timeout: 30_000 
     ...peer,
     changes: [{ path: pathValue, body: "stale candidate\n" }],
   });
-  const oldEpoch = (
-    JSON.parse(readFileSync(path.join(fixture.stateRoot, "writer-epochs.json"), "utf8")) as {
-      repos: Record<string, { epoch: number }>;
-    }
-  ).repos["lease-repo"]!.epoch;
-  const authority = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "claim-successor" });
+  const authority = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "claim-successor" }),
+    oldLease = authority.current("lease-repo");
+  assert.ok(oldLease);
+  const oldEpoch = oldLease.epoch;
   authority.acquire("lease-repo");
   const result = await runFleetTaskCommandClient({
     ...peer,

@@ -1,17 +1,8 @@
 import { randomUUID } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { DatabaseSync } from "node:sqlite";
+import type { WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease {
   readonly repoId: string;
@@ -37,8 +28,14 @@ export class WriterEpochError extends Error {
     this.code = code;
   }
 }
-type EpochState = { readonly schema: "fleet-writer-epoch/v1"; readonly repos: Record<string, WriterEpochLease> };
-const schema = "fleet-writer-epoch/v1" as const;
+
+type EpochRow = {
+  readonly repo_id: string;
+  readonly holder_id: string;
+  readonly epoch: number;
+  readonly version: number;
+  readonly issued_at: string;
+};
 
 export function openPersistentWriterEpoch(options: {
   readonly stateRoot: string;
@@ -46,59 +43,110 @@ export function openPersistentWriterEpoch(options: {
   readonly now?: () => string;
 }): PersistentWriterEpoch {
   mkdirSync(options.stateRoot, { recursive: true });
-  const stateFile = path.join(options.stateRoot, "writer-epochs.json"),
-    historyFile = path.join(options.stateRoot, "writer-epochs.history"),
-    lockFile = path.join(options.stateRoot, "writer-epochs.lock"),
+  const database = new DatabaseSync(path.join(options.stateRoot, "writer-epochs.sqlite")),
     holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString());
+  database.exec("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON");
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS writer_epoch_history (
+      repo_id TEXT NOT NULL,
+      epoch INTEGER NOT NULL CHECK(epoch > 0),
+      PRIMARY KEY(repo_id, epoch)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS writer_epochs (
+      repo_id TEXT PRIMARY KEY,
+      holder_id TEXT NOT NULL CHECK(length(holder_id) > 0),
+      epoch INTEGER NOT NULL CHECK(epoch > 0),
+      version INTEGER NOT NULL CHECK(version > 0),
+      issued_at TEXT NOT NULL
+    ) STRICT;
+  `);
+  const selectCurrent = database.prepare(
+      "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs WHERE repo_id=?",
+    ),
+    selectStatus = database.prepare(
+      "SELECT repo_id, holder_id, epoch, version, issued_at FROM writer_epochs ORDER BY repo_id",
+    ),
+    selectFloor = database.prepare("SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id=?"),
+    insertHistory = database.prepare("INSERT INTO writer_epoch_history(repo_id, epoch) VALUES (?, ?)"),
+    upsertCurrent = database.prepare(
+      "INSERT INTO writer_epochs(repo_id, holder_id, epoch, version, issued_at) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(repo_id) DO UPDATE SET holder_id=excluded.holder_id, epoch=excluded.epoch, " +
+        "version=excluded.version, issued_at=excluded.issued_at",
+    );
   let closed = false;
-  const read = (): EpochState => readState(stateFile);
-  const write = (state: EpochState): void => writeWriterEpochState(stateFile, state);
-  const acquire = (repoId: string): WriterEpochLease => {
+  const ensureOpen = (): void => {
     if (closed) throw new WriterEpochError("writer_epoch_invalid", "writer epoch authority is closed");
-    if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
-    return withLock(lockFile, () => {
-      const state = read(),
-        previous = state.repos[repoId],
-        floor = historyFloor(historyFile, repoId),
-        lease: WriterEpochLease = {
-          repoId,
-          holderId,
-          epoch: Math.max(previous?.epoch ?? 0, floor) + 1,
-          version: Math.max(previous?.version ?? 0, floor) + 1,
-          issuedAt: now(),
-        };
-      appendHistory(historyFile, lease);
-      write({ schema, repos: { ...state.repos, [repoId]: lease } });
-      return lease;
-    });
   };
-  const current = (repoId: string): WriterEpochLease | null => read().repos[repoId] ?? null;
-  const assertState = (state: EpochState, repoId: string, epoch: number, expectedHolderId: string): void => {
-    const observed = state.repos[repoId];
+  const readCurrent = (repoId: string): WriterEpochLease | null => {
+    const row = selectCurrent.get(repoId) as EpochRow | undefined;
+    return row ? leaseFromRow(row) : null;
+  };
+  const withImmediateTransaction = <T>(operation: () => T): T => {
+    ensureOpen();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const result = operation();
+      database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+  };
+  const assertState = (repoId: string, epoch: number, expectedHolderId: string): void => {
+    const observed = readCurrent(repoId);
     if (!observed || observed.epoch !== epoch || observed.holderId !== expectedHolderId)
       throw new WriterEpochError(
         "writer_epoch_stale",
-        `writer epoch ${epoch} for ${repoId} is stale; current epoch is ${observed?.epoch ?? "missing"}. Query the receipt or reacquire the writer epoch before retrying.`,
+        `writer epoch ${epoch} for ${repoId} is stale; current epoch is ${observed?.epoch ?? "missing"}. ` +
+          "Query the receipt or reacquire the writer epoch before retrying.",
       );
   };
-  const assert = (repoId: string, epoch: number, expectedHolderId = holderId): void =>
-    assertState(read(), repoId, epoch, expectedHolderId);
-  const withAppendFence = <T>(repoId: string, epoch: number, expectedHolderId: string, operation: () => T): T =>
-    withLock(lockFile, () => {
-      assertState(read(), repoId, epoch, expectedHolderId);
-      return operation();
+  const acquire = (repoId: string): WriterEpochLease => {
+    ensureOpen();
+    if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
+    return withImmediateTransaction(() => {
+      const previous = readCurrent(repoId),
+        floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
+        epoch = Math.max(previous?.epoch ?? 0, floor) + 1,
+        lease: WriterEpochLease = {
+          repoId,
+          holderId,
+          epoch,
+          version: Math.max(previous?.version ?? 0, floor) + 1,
+          issuedAt: now(),
+        };
+      if (!Number.isSafeInteger(epoch))
+        throw new WriterEpochError("writer_epoch_invalid", `writer epoch for ${repoId} exceeds the safe integer range`);
+      insertHistory.run(repoId, lease.epoch);
+      upsertCurrent.run(repoId, lease.holderId, lease.epoch, lease.version, lease.issuedAt);
+      return lease;
     });
-  const status = (): readonly WriterEpochLease[] =>
-    Object.values(read().repos).sort((left, right) => left.repoId.localeCompare(right.repoId));
+  };
   return {
     acquire,
-    current,
-    assert,
-    withAppendFence,
-    status,
+    current: (repoId) => {
+      ensureOpen();
+      return readCurrent(repoId);
+    },
+    assert: (repoId, epoch, expectedHolderId = holderId) => {
+      ensureOpen();
+      assertState(repoId, epoch, expectedHolderId);
+    },
+    withAppendFence: (repoId, epoch, expectedHolderId, operation) =>
+      withImmediateTransaction(() => {
+        assertState(repoId, epoch, expectedHolderId);
+        return operation();
+      }),
+    status: () => {
+      ensureOpen();
+      return (selectStatus.all() as unknown as readonly EpochRow[]).map(leaseFromRow);
+    },
     close: () => {
+      if (closed) return;
       closed = true;
+      database.close();
     },
   };
 }
@@ -123,6 +171,16 @@ export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDes
   }
 }
 
+function leaseFromRow(row: EpochRow): WriterEpochLease {
+  return {
+    repoId: row.repo_id,
+    holderId: row.holder_id,
+    epoch: row.epoch,
+    version: row.version,
+    issuedAt: row.issued_at,
+  };
+}
+
 function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescriptor): void {
   if (
     descriptor.schema !== "harness-writer-epoch-fence/v1" ||
@@ -133,130 +191,4 @@ function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescript
     descriptor.epoch < 1
   )
     throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
-}
-
-function readState(file: string): EpochState {
-  if (!existsSync(file)) return { schema, repos: {} };
-  let value: unknown;
-  try {
-    value = JSON.parse(readFileSync(file, "utf8"));
-  } catch (error) {
-    throw new WriterEpochError(
-      "writer_epoch_invalid",
-      `writer epoch state is unreadable: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  if (
-    !value ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    (value as { schema?: unknown }).schema !== schema ||
-    !isEpochRecord((value as { repos?: unknown }).repos)
-  )
-    throw new WriterEpochError("writer_epoch_invalid", "writer epoch state has an invalid durable shape");
-  const repos: Record<string, WriterEpochLease> = {};
-  for (const [repoId, raw] of Object.entries((value as { repos: Record<string, unknown> }).repos)) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw))
-      throw new WriterEpochError("writer_epoch_invalid", `writer epoch row ${repoId} is invalid`);
-    const row = raw as Record<string, unknown>;
-    if (
-      row.repoId !== repoId ||
-      typeof row.holderId !== "string" ||
-      !row.holderId ||
-      !Number.isSafeInteger(row.epoch) ||
-      Number(row.epoch) <= 0 ||
-      !Number.isSafeInteger(row.version) ||
-      Number(row.version) <= 0 ||
-      typeof row.issuedAt !== "string"
-    )
-      throw new WriterEpochError("writer_epoch_invalid", `writer epoch row ${repoId} is invalid`);
-    repos[repoId] = row as unknown as WriterEpochLease;
-  }
-  return { schema, repos };
-}
-function isEpochRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-function withLock<T>(file: string, operation: () => T): T {
-  mkdirSync(path.dirname(file), { recursive: true });
-  let fd: number;
-  for (;;) {
-    try {
-      fd = openSync(file, "wx", 0o600);
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      let ownerText: string;
-      try {
-        ownerText = readFileSync(file, "utf8").trim();
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-        throw error;
-      }
-      if (!ownerText) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
-        continue;
-      }
-      const owner = Number.parseInt(ownerText, 10);
-      let alive = false;
-      if (Number.isSafeInteger(owner) && owner > 0) {
-        try {
-          process.kill(owner, 0);
-          alive = true;
-        } catch (error) {
-          consumeKnownError(error);
-          alive = false;
-        }
-      }
-      if (!alive) {
-        try {
-          unlinkSync(file);
-        } catch (retryError) {
-          consumeKnownError(retryError);
-          if ((retryError as NodeJS.ErrnoException).code !== "ENOENT") throw retryError;
-        }
-        continue;
-      }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2);
-    }
-  }
-  try {
-    writeFileSync(fd, `${process.pid}\n`);
-    fsyncSync(fd);
-    return operation();
-  } finally {
-    closeSync(fd);
-    try {
-      unlinkSync(file);
-    } catch (error) {
-      consumeKnownError(error);
-    }
-  }
-}
-function appendHistory(file: string, lease: WriterEpochLease): void {
-  const fd = openSync(file, "a", 0o600);
-  try {
-    writeFileSync(fd, `${JSON.stringify(lease)}\n`);
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-}
-function historyFloor(file: string, repoId: string): number {
-  if (!existsSync(file)) return 0;
-  const rows = readFileSync(file, "utf8").split(/\r?\n/u).filter(Boolean);
-  let floor = 0;
-  for (const line of rows) {
-    try {
-      const row = JSON.parse(line) as Partial<WriterEpochLease>;
-      if (row.repoId === repoId && typeof row.epoch === "number" && Number.isSafeInteger(row.epoch))
-        floor = Math.max(floor, row.epoch);
-    } catch (error) {
-      consumeKnownError(error);
-    }
-  }
-  return floor;
-}
-function writeWriterEpochState(file: string, value: unknown): void {
-  writeFileDurably(file, `${JSON.stringify(value)}\n`, 0o600);
 }
