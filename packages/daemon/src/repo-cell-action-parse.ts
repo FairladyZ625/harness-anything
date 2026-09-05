@@ -5,7 +5,7 @@ import {
   decisionProposalRequiredJsonFields,
   taskCreateJsonFields,
 } from "../../preset/src/index.ts";
-import type { SettingsV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError, type SettingsV1 } from "../../kernel/src/index.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { packetRecord, readPacketSource, workspaceText } from "./repo-cell-packets.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
@@ -228,7 +228,8 @@ function tryParseJsonObject(source: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(source);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return null;
   }
 }
