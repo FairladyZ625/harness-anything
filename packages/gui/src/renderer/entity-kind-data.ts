@@ -10,7 +10,7 @@ import type { GovernedEntityRow } from "./graph/governedEntities.ts";
 import type { EntityTypeOption } from "./components/GraphFilterPanel.tsx";
 
 /**
- * 已注册 kind 清单的读 hook。GUI 的四个消费面(实体说明分组、领地节点类型、
+ * 已注册 kind 清单的读 hook。GUI 的四个消费面(实体页分组、领地节点类型、
  * 筛选面板、命令面板)都从这一个 query 派生,不各留一份清单。
  */
 export const entityKindQueryKeys = {

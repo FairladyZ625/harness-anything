@@ -9,7 +9,7 @@ import { triadicQueryKeys } from "./triadic-data.ts";
 import type { RelationFactSummaryRow } from "./api-client.ts";
 
 /**
- * 实体说明面的活行数读面:全部复用既有读与既有 queryKey(共享缓存、共享
+ * 实体页的活行数读面:全部复用既有读与既有 queryKey(共享缓存、共享
  * ledger 失效),本模块不新造任何读方法。hook 只在说明面挂载时被调用——
  * 没人看这个面就不请求(与 triadic 读面同一纪律)。
  */

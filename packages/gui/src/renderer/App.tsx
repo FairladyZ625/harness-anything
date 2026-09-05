@@ -94,7 +94,7 @@ function AppShell() {
     if (next !== activeRepoId) setActiveRepoId(next);
   }, [activeRepoId, systemQuery.data?.repos]);
   const projectId = activeRepoId ?? "unselected";
-  // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体说明面同源于此。
+  // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体页同源于此。
   const entityKinds = useEntityKindOptions(projectId);
   const governedEntities = useGovernedEntityRows(projectId);
   const declaredKinds = useMemo(() => entityKinds.map(({ kind }) => kind), [entityKinds]);
@@ -614,7 +614,7 @@ function AppShell() {
               ) : view === "entities" ? (
                 <EntitiesView
                   repoId={projectId}
-                  // 实体说明深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
+                  // 实体页深链接 entitydoc/<kind>:落目录页内详情(与 preset/<id> 同构,
                   // 推栈回撤原路返回)。声明实体的 <kind>/<id> 也落这里(见 entityRoutes)。
                   focusedRef={focusedEntityRef}
                   onOpenEntityDoc={(kind) =>
