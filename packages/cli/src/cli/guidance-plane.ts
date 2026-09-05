@@ -102,6 +102,11 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["cli:daemon-connection-failure", (args) => `Local daemon request failed. Cause: ${textArg(args, "message")}`],
   ["cli:daemon-build-stale", () => "Restart the local daemon so its build matches this CLI, then retry the command."],
   [
+    "cli:daemon-restarting",
+    (args) =>
+      `daemon is restarting (old build -> new build); waited ${numberArg(args, "waitedSeconds")}s but it is not ready`,
+  ],
+  [
     "cli:daemon-target-conflict",
     (args) =>
       `Daemon target conflict: injected target endpoint=${JSON.stringify(textArg(args, "endpoint"))} ` +

@@ -1,5 +1,6 @@
 import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import { renderCliGuidance } from "../cli/guidance-plane.ts";
 
 // The autostart seam is imported lazily so the thin dist static import graph stays
 // entry/parser/transport-only; it is only reachable on a connection-level failure.
@@ -92,7 +93,7 @@ function isDaemonStopping(result: JsonObject): boolean {
 
 function daemonRestartingReceipt(waitedMs: number, retries: number): JsonObject {
   const waitedSeconds = Math.ceil(waitedMs / 1_000),
-    hint = `daemon is restarting (old build -> new build); waited ${waitedSeconds}s but it is not ready`;
+    hint = renderCliGuidance("daemon-restarting", { waitedSeconds });
   return {
     ok: false,
     code: "daemon_restarting",

@@ -2,6 +2,7 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "daemon_start_runtime_forbidden",
   "daemon_disconnect",
   "daemon_gone",
+  "daemon_restarting",
   "daemon_target_conflict",
   "duplicate_field",
   "invalid_field",
