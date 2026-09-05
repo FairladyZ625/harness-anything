@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -60,6 +60,40 @@ test("a stale holder rolls back before SQLite records an event or outcome", () =
   } finally {
     successor.close();
     stale.close();
+  }
+});
+
+test("opening waits for a concurrent writer lock instead of failing with database is locked", async () => {
+  const databasePath = scratch("open-under-lock"),
+    holdMs = 400,
+    holder = spawn(process.execPath, [
+      "--input-type=module",
+      "-e",
+      [
+        'import { DatabaseSync } from "node:sqlite";',
+        `const db = new DatabaseSync(${JSON.stringify(databasePath)});`,
+        'db.exec("BEGIN IMMEDIATE; CREATE TABLE lock_holder(x INTEGER)");',
+        'process.stdout.write("locked\\n");',
+        `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${holdMs});`,
+        'db.exec("COMMIT");',
+        "db.close();",
+      ].join("\n"),
+    ]);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      holder.stdout.once("data", () => resolve());
+      holder.once("exit", (code) => reject(new Error(`lock holder exited early with ${code}`)));
+    });
+    const startedAt = Date.now(),
+      store = openSqliteEventStore({ repoId, databasePath });
+    try {
+      assert.ok(Date.now() - startedAt >= holdMs / 4, "open must have waited on the busy handler");
+      assert.equal(store.revision(), 0);
+    } finally {
+      store.close();
+    }
+  } finally {
+    holder.kill("SIGKILL");
   }
 });
 

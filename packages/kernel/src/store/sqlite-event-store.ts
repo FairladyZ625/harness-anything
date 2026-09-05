@@ -90,6 +90,37 @@ export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
 }
 
+const SQLITE_BUSY = 5,
+  OPEN_BUSY_BUDGET_MS = 5000;
+
+// busy_timeout goes first so every later lock wait is honoured. The WAL switch is the exception:
+// SQLite skips the busy handler when a connection holding SHARED asks for EXCLUSIVE while another
+// connection holds RESERVED (deadlock avoidance), so with several openers on one fresh ledger a
+// concurrent opener gets SQLITE_BUSY at once no matter the timeout. A bounded retry within the same
+// budget is the only remedy the engine leaves; every pragma here is idempotent.
+function configureLedgerConnection(db: DatabaseSync): void {
+  const deadline = Date.now() + OPEN_BUSY_BUDGET_MS;
+  for (;;) {
+    try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
+        `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
+          "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
+      );
+      return;
+    } catch (error) {
+      if (!isSqliteBusy(error) || Date.now() >= deadline) throw error;
+      consumeKnownError(error);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+    }
+  }
+}
+
+function isSqliteBusy(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && (error as { readonly errcode?: unknown }).errcode === SQLITE_BUSY
+  );
+}
+
 export function openSqliteEventStore(options: {
   readonly repoId: string;
   readonly rootInput?: HarnessLayoutInput;
@@ -100,9 +131,7 @@ export function openSqliteEventStore(options: {
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation);
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath);
-  /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
-    "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; " + "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000",
-  );
+  configureLedgerConnection(db);
   createSchema(db, options.repoId, generation);
   const sqliteVersion = String(
     /* @gate-identity check-bypass-write-boundary/bypass-write-126 */ db
