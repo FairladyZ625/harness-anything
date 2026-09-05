@@ -131,11 +131,12 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsEffort("codex")).toBe(true);
     expect(planeAllowsPermissions("codex")).toBe(true);
   });
-  it("gives zcode a login-only plane whose model is pinned by its own config, not by an API override", () => {
-    expect(planeAuthModes("zcode")).toEqual(["subscription"]);
+  it("keeps zcode's login and API-key paths separate, with one pinned model per instance", () => {
     expect(planeUsesApiOverride("zcode")).toBe(false);
+    expect(planeAuthModes("zcode")).toEqual(["subscription", "api-key"]);
     expect(planeAllowsBaseUrl("zcode", "subscription")).toBe(false);
-    expect(planeAllowsApiKey("zcode", "api-key")).toBe(false);
+    expect(planeAllowsBaseUrl("zcode", "api-key")).toBe(true);
+    expect(planeAllowsApiKey("zcode", "api-key")).toBe(true);
     expect(planeAllowsEffort("zcode")).toBe(false);
     expect(planeAllowsPermissions("zcode")).toBe(true);
   });
