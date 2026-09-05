@@ -48,7 +48,7 @@ export default {
     try {
       const issueUrl = `http://127.0.0.1:${served.address().port}/issues/2224`;
 
-      await page.getByRole("button", { name: /实体说明|Entities/u }).click();
+      await page.getByRole("button", { name: /^实体$|Entities/u }).click();
       await page.getByTestId("entities-content").waitFor();
 
       // 1. 说明面按声明长出「声明实体」一组——GUI 没有这份清单,它来自读面。
