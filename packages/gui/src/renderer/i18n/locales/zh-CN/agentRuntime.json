@@ -208,6 +208,7 @@
   "agentRuntime.plane_claude": "登录态 + API 双模式:同一实例覆盖 base URL 与模型即可适配第三方(如 GLM)。",
   "agentRuntime.plane_codex": "只有 Codex 系模型;登录态与 API 是两条独立的调用方式,各建各的实例。",
   "agentRuntime.plane_agy": "只有登录态,没有 API 模式。",
+  "agentRuntime.plane_zcode": "登录态与 API 是两条独立的调用方式,各建各的实例;默认接 zai。",
   "agentRuntime.witnessedInstallations": "这台机器上探测到的安装",
   "agentRuntime.witnessed": "探测到 {kind} {version}",
   "agentRuntime.noWitnessedInstallation": "没有探测到 {kind} 的安装 —— 先在这台机器上装好并确保它在 PATH 里。",

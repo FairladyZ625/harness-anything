@@ -208,6 +208,7 @@
   "agentRuntime.plane_claude": "Subscription plus API on one instance: override the base URL and model to adapt a third party such as GLM.",
   "agentRuntime.plane_codex": "Codex-family models only; subscription and API are two separate call paths, each its own instance.",
   "agentRuntime.plane_agy": "Subscription login only; there is no API mode.",
+  "agentRuntime.plane_zcode": "Subscription and API are two separate call paths, each its own instance; defaults to zai.",
   "agentRuntime.witnessedInstallations": "Installations witnessed on this machine",
   "agentRuntime.witnessed": "Witnessed {kind} {version}",
   "agentRuntime.noWitnessedInstallation": "No {kind} installation witnessed — install it on this machine and put it on PATH.",
