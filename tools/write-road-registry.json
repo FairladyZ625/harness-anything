@@ -66,8 +66,8 @@
     "packages/daemon/src/repo-cell-errors.ts",
     "packages/daemon/src/repo-cell-lock.ts",
     "packages/daemon/src/request-log.ts",
-    "packages/daemon/src/runtime.ts",
     "packages/daemon/src/runtime-callback-relay.ts",
+    "packages/daemon/src/runtime.ts",
     "packages/daemon/src/schedule-occurrence-workspace.ts",
     "packages/daemon/src/transport/unix-socket.ts",
     "packages/daemon/src/writer-epoch.ts",
@@ -76,6 +76,7 @@
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
     "packages/kernel/src/store/local-version-control-system.ts",
+    "packages/kernel/src/store/sqlite-event-store.ts",
     "packages/preset/src/preset-installation.ts",
     "packages/preset/src/preset-process-service.ts"
   ]

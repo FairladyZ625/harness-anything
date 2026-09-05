@@ -65,19 +65,25 @@ export function openSqliteEventStore(options: {
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation);
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
-  const db = new DatabaseSync(databasePath);
-  db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; " + "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000");
+  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath);
+  /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
+    "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; " + "PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000",
+  );
   createSchema(db, options.repoId, generation);
-  const sqliteVersion = String(db.prepare("SELECT sqlite_version() AS version").get()!.version);
+  const sqliteVersion = String(
+    /* @gate-identity check-bypass-write-boundary/bypass-write-126 */ db
+      .prepare("SELECT sqlite_version() AS version")
+      .get()!.version,
+  );
 
   const transaction = <A>(run: () => A): A => {
-    db.exec("BEGIN IMMEDIATE");
+    /* @gate-identity check-bypass-write-boundary/bypass-write-125 */ db.exec("BEGIN IMMEDIATE");
     try {
       const result = run();
-      db.exec("COMMIT");
+      /* @gate-identity check-bypass-write-boundary/bypass-write-124 */ db.exec("COMMIT");
       return result;
     } catch (error) {
-      db.exec("ROLLBACK");
+      /* @gate-identity check-bypass-write-boundary/bypass-write-123 */ db.exec("ROLLBACK");
       throw error;
     }
   };
@@ -92,7 +98,7 @@ export function openSqliteEventStore(options: {
         );
       if (current && fence.epoch === current.epoch && fence.holder !== current.holder)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${fence.epoch} belongs to another holder`);
-      db.prepare(
+      /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
         "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
           "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
       ).run(fence.repoId, fence.holder, fence.epoch);
@@ -119,7 +125,7 @@ export function openSqliteEventStore(options: {
           "revision_conflict",
           `writer epoch ${input.fence.epoch} belongs to another holder`,
         );
-      db.prepare(
+      /* @gate-identity check-bypass-write-boundary/bypass-write-121 */ db.prepare(
         "INSERT INTO writer_lease(repo_id, holder, epoch) VALUES (?, ?, ?) " +
           "ON CONFLICT(repo_id) DO UPDATE SET holder=excluded.holder, epoch=excluded.epoch",
       ).run(input.fence.repoId, input.fence.holder, input.fence.epoch);
@@ -135,7 +141,7 @@ export function openSqliteEventStore(options: {
           );
         const eventJson = serializePersistedCanonicalEvent(event),
           digest = `sha256:${sha256Text(eventJson)}`;
-        db.prepare(
+        /* @gate-identity check-bypass-write-boundary/bypass-write-120 */ db.prepare(
           "INSERT INTO event(revision, op_id, event_json, digest, occurred_at) " + "VALUES (?, ?, ?, ?, ?)",
         ).run(revision, event.opId, eventJson, digest, event.occurredAt);
         applyDerivedGuards(db, event);
@@ -143,9 +149,12 @@ export function openSqliteEventStore(options: {
       const firstRevision = input.events.length ? head + 1 : null,
         lastRevision = input.events.length ? head + input.events.length : null,
         status = input.rejectionCode ? "rejected" : "accepted_durable";
-      if (lastRevision !== null) db.prepare("UPDATE ledger_meta SET revision=? WHERE singleton=1").run(lastRevision);
+      if (lastRevision !== null)
+        /* @gate-identity check-bypass-write-boundary/bypass-write-119 */ db.prepare(
+          "UPDATE ledger_meta SET revision=? WHERE singleton=1",
+        ).run(lastRevision);
       input.beforeOutcome?.();
-      db.prepare(
+      /* @gate-identity check-bypass-write-boundary/bypass-write-118 */ db.prepare(
         "INSERT INTO command_outcome(" +
           "op_id, status, first_revision, last_revision, intent_digest, " +
           "intent_summary, rejection_code" +
@@ -169,7 +178,7 @@ export function openSqliteEventStore(options: {
     outcome,
     revision: () => readRevision(db),
     events: () =>
-      db
+      /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db
         .prepare("SELECT event_json FROM event ORDER BY revision")
         .all()
         .map((row) => parseCanonicalEvent(String(row.event_json))),
@@ -218,7 +227,7 @@ export function migrateEventsToSqlite(input: {
 }
 
 function createSchema(db: DatabaseSync, repoId: string, generation: number): void {
-  db.exec(`
+  /* @gate-identity check-bypass-write-boundary/bypass-write-116 */ db.exec(`
     CREATE TABLE IF NOT EXISTS ledger_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), repo_id TEXT NOT NULL UNIQUE,
       generation INTEGER NOT NULL, revision INTEGER NOT NULL CHECK(revision>=0)
@@ -251,10 +260,12 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     ) STRICT;
   `);
-  db.prepare(
+  /* @gate-identity check-bypass-write-boundary/bypass-write-115 */ db.prepare(
     "INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) " + "VALUES (1, ?, ?, 0)",
   ).run(repoId, generation);
-  const meta = db.prepare("SELECT repo_id, generation FROM ledger_meta WHERE singleton=1").get()!;
+  const meta = /* @gate-identity check-bypass-write-boundary/bypass-write-114 */ db
+    .prepare("SELECT repo_id, generation FROM ledger_meta WHERE singleton=1")
+    .get()!;
   if (meta.repo_id !== repoId || Number(meta.generation) !== generation)
     throw new TaskEventStoreError(
       "repo_mismatch",
@@ -279,12 +290,14 @@ function assertFenceShape(fence: SqliteWriterFence, repoId: string): void {
 }
 
 function readWriter(db: DatabaseSync, repoId: string): { readonly holder: string; readonly epoch: number } | null {
-  const row = db.prepare("SELECT holder, epoch FROM writer_lease WHERE repo_id=?").get(repoId);
+  const row = /* @gate-identity check-bypass-write-boundary/bypass-write-113 */ db
+    .prepare("SELECT holder, epoch FROM writer_lease WHERE repo_id=?")
+    .get(repoId);
   return row ? { holder: String(row.holder), epoch: Number(row.epoch) } : null;
 }
 
 function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
-  const row = db
+  const row = /* @gate-identity check-bypass-write-boundary/bypass-write-112 */ db
     .prepare(
       "SELECT op_id, status, first_revision, last_revision, intent_digest, " +
         "intent_summary, rejection_code " +
@@ -304,5 +317,9 @@ function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | nul
 }
 
 function readRevision(db: DatabaseSync): number {
-  return Number(db.prepare("SELECT revision FROM ledger_meta WHERE singleton=1").get()!.revision);
+  return Number(
+    /* @gate-identity check-bypass-write-boundary/bypass-write-111 */ db
+      .prepare("SELECT revision FROM ledger_meta WHERE singleton=1")
+      .get()!.revision,
+  );
 }
