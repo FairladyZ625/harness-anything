@@ -31,6 +31,7 @@ import {
   runtimeBaseUrl,
   sharedProviderDirectory,
   writeCodexConfig,
+  writeZcodeConfig,
 } from "./agent-runtime-instance-storage.ts";
 import type {
   PreparedRuntimeAuthCommand,
@@ -296,6 +297,8 @@ export function openRuntimeInstanceStore(input: {
         provider = runtimeProviderConfig(config);
       if (!codexConfigHasBearer(configPath) || provider.credentialHeader !== undefined)
         writeCodexConfig(configPath, config, secret);
+    } else if (config.kindId === "zcode") {
+      writeZcodeConfig(path.join(env.HOME!, ".zcode", "cli", "config.json"), config, secret);
     } else env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
     return {
@@ -645,6 +648,11 @@ export function openRuntimeInstanceStore(input: {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       chmodSync(directory, 0o700);
     }
+    if (config.kindId === "zcode") {
+      const cli = path.join(provider, "cli");
+      mkdirSync(cli, { recursive: true, mode: 0o700 });
+      chmodSync(cli, 0o700);
+    }
     // Materialize the non-secret config at instance creation. API-key launches add
     // the bearer once after credential resolution and preserve it for same-instance
     // workers; rewriting it here would expose an unauthenticated window.
@@ -706,7 +714,7 @@ function runtimeInstanceKindConfig(
   current: RuntimeInstanceConfig,
   baseUrl: string | undefined,
   fast: boolean | undefined,
-): { readonly claude?: unknown } | { readonly codex?: unknown } {
+): { readonly claude?: unknown } | { readonly codex?: unknown } | { readonly zcode?: unknown } {
   const provider = runtimeProviderConfig(current);
   if (current.kindId === "codex") {
     const { baseUrl: _droppedBaseUrl, fast: _droppedFast, ...rest } = provider,
@@ -720,10 +728,10 @@ function runtimeInstanceKindConfig(
       },
     };
   }
-  if (current.kindId === "claude") {
+  if (current.kindId === "claude" || current.kindId === "zcode") {
     const { baseUrl: _dropped, ...rest } = provider,
       next = baseUrl === undefined ? provider.baseUrl : baseUrl || undefined;
-    return { claude: { ...rest, ...(next ? { baseUrl: next } : {}) } };
+    return { [current.kindId]: { ...rest, ...(next ? { baseUrl: next } : {}) } };
   }
   return {};
 }
