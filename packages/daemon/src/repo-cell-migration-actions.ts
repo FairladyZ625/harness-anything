@@ -2,6 +2,7 @@ import {
   isLedgerLayoutMigrationEvent,
   migrateEventsToSqlite,
   openSqliteEventStore,
+  reconcileSqliteEvents,
   runDispatchRecordMigration,
   runEventShapeMigration,
   type WriteReceiptDraft as WriteReceipt,
@@ -120,4 +121,26 @@ export async function runLedgerMigrateAction(
         outcome: "pending",
         ...receipt,
       } as WriteReceipt);
+}
+
+export function runLedgerReconcileAction(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+) {
+  if (action.generation !== 1)
+    throw cell.cellCodedError("invalid_command", "SQLite ledger reconciliation currently requires generation 1.");
+  const canonical = cell.store.read(),
+    report = reconcileSqliteEvents({
+      repoId: cell.input.repoId,
+      rootInput: cell.rootDir,
+      generation: action.generation,
+      events: canonical.events,
+    });
+  return cell.readResult(
+    cell.operationId(action, binding, cell.input.repoId, canonical.revision),
+    report,
+    canonical.revision,
+    null,
+  );
 }

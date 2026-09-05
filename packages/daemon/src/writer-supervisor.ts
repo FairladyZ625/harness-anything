@@ -8,6 +8,7 @@ import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
+  serializableRepoCellBinding,
   serializeWriterError,
   type RepoWriterBootstrapV1,
   type RepoWriterCancelV1,
@@ -18,7 +19,6 @@ import {
   type RepoWriterRequestV1,
   type RepoWriterStatusV1,
   type RuntimeProcessEventV1,
-  type SerializableRepoCellBindingV1,
 } from "./repo-writer-protocol.ts";
 import { launchNative } from "./runtime-spawn-process.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
@@ -96,7 +96,7 @@ export async function openWriterSupervisor(
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
       if (signal?.aborted) throw abortError(signal);
       const requestId = randomUUID(),
-        serializedBinding = binding ? serializableBinding(binding) : undefined,
+        serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
           schema: "harness-repo-writer-request/v1",
           protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -428,6 +428,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
       ...(input.bootstrap ? { bootstrap: input.bootstrap } : {}),
+      ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
       ...(input.walMaterializationTestFault ? { walMaterializationTestFault: input.walMaterializationTestFault } : {}),
     },
     capabilities: {
@@ -445,11 +446,6 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       storeOpened: input.onStoreOpened !== undefined,
     },
   };
-}
-
-function serializableBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
-  const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
-  return serializable;
 }
 
 function abortError(signal: AbortSignal): Error {

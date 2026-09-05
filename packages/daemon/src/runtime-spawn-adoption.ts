@@ -130,7 +130,7 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
             exitCode: active.lossExitCode,
             signal: active.lossSignal,
           });
-          context.input.schedule(() => context.publishExit(active, active.lossExitCode));
+          context.input.schedule(() => context.publishExit(active, active.lossExitCode), active.binding);
         }
       }, 50);
       timer.unref();

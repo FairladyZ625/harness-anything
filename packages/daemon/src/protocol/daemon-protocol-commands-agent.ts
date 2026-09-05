@@ -297,6 +297,14 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [cliInput("--generation", "single", false, { code: "missing_field" })],
   }),
   defineRepoReadCommand({
+    id: "ledger-reconcile",
+    phase: "Migration-A",
+    path: ["ledger", "reconcile"],
+    summary: "Compare the canonical event stream with one SQLite ledger generation.",
+    method: "repo.task.read",
+    inputs: [cliInput("--generation", "single", true, { code: "missing_field" })],
+  }),
+  defineRepoReadCommand({
     id: "explain",
     actionKind: "entity-action-explain",
     phase: "Ontology-Explain-A",

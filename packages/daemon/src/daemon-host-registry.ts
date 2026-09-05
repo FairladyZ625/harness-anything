@@ -138,6 +138,7 @@ export async function performOpenRegistered(
       rootDir: canonicalRoot(repo.canonicalRoot),
       mode: repo.mode,
       ownerId: context.input.daemonId,
+      defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),

@@ -84,6 +84,7 @@ import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
+import { assertWriterEpochFenceDescriptor, withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -178,6 +179,8 @@ export interface RepoCellOpenInput {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   readonly fleetRoster?: () => FleetRoster | null;
+  /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
+  readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
 }
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
@@ -231,6 +234,13 @@ export async function openRepoWriterCell(
     };
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
+  const cellWriterEpochFence = input.defaultWriterEpochFence,
+    defaultWriterEpochGuard = cellWriterEpochFence
+      ? () => assertWriterEpochFenceDescriptor(cellWriterEpochFence)
+      : null,
+    defaultWriterEpochFence = cellWriterEpochFence
+      ? <T>(operation: () => T) => withWriterEpochFenceDescriptor(cellWriterEpochFence, operation)
+      : null;
   let activeWriterEpochGuard: (() => void) | null = null,
     activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
     activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
@@ -242,13 +252,13 @@ export async function openRepoWriterCell(
       rootDir,
       authoredBranch,
       get activeWriterEpochGuard() {
-        return activeWriterEpochGuard;
+        return activeWriterEpochGuard ?? defaultWriterEpochGuard;
       },
       get activeWriterEpochFence() {
-        return activeWriterEpochFence;
+        return activeWriterEpochFence ?? defaultWriterEpochFence;
       },
       get activeWriterEpochFenceDescriptor() {
-        return activeWriterEpochFenceDescriptor;
+        return activeWriterEpochFenceDescriptor ?? cellWriterEpochFence ?? null;
       },
       mode,
       now,
@@ -402,11 +412,31 @@ export async function openRepoWriterCell(
     });
     return recoveryReplacement;
   };
-  const schedule = (work: () => void | Promise<void>): void => {
+  const withWriterEpochBinding = async <T>(binding: RuntimeAttemptTerminal["binding"], work: () => T | Promise<T>) => {
+    const fenced = binding as RuntimeAttemptTerminal["binding"] & RepoCellBinding,
+      previousGuard = activeWriterEpochGuard,
+      previousFence = activeWriterEpochFence,
+      previousDescriptor = activeWriterEpochFenceDescriptor,
+      descriptor = fenced.writerEpochFence;
+    activeWriterEpochGuard =
+      fenced.assertWriterEpoch ?? (descriptor ? () => assertWriterEpochFenceDescriptor(descriptor) : null);
+    activeWriterEpochFence =
+      fenced.withWriterEpochFence ??
+      (descriptor ? <Value>(operation: () => Value) => withWriterEpochFenceDescriptor(descriptor, operation) : null);
+    activeWriterEpochFenceDescriptor = descriptor ?? null;
+    try {
+      return await work();
+    } finally {
+      activeWriterEpochGuard = previousGuard;
+      activeWriterEpochFence = previousFence;
+      activeWriterEpochFenceDescriptor = previousDescriptor;
+    }
+  };
+  const schedule = (work: () => void | Promise<void>, binding?: RuntimeAttemptTerminal["binding"]): void => {
     queueDepth += 1;
     const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
-      if (state === "attached") await work();
+      if (state === "attached") await (binding ? withWriterEpochBinding(binding, work) : work());
     });
     tail = pending.catch(() => undefined);
     void pending.then(
@@ -499,7 +529,7 @@ export async function openRepoWriterCell(
     },
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) await settleExecutionLease(terminal);
-      if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal));
+      if (terminal.schedule) schedule(() => settleScheduledOutcome(terminal), terminal.binding);
       input.onAttemptTerminal?.(terminal);
     },
     handoffTaskLease: (handoff) => handoffTaskLease(handoff),
@@ -975,19 +1005,19 @@ export async function openRepoWriterCell(
     activeWriter,
     writerToken,
     get activeWriterEpochGuard() {
-      return activeWriterEpochGuard;
+      return activeWriterEpochGuard ?? defaultWriterEpochGuard;
     },
     set activeWriterEpochGuard(value) {
       activeWriterEpochGuard = value;
     },
     get activeWriterEpochFence() {
-      return activeWriterEpochFence;
+      return activeWriterEpochFence ?? defaultWriterEpochFence;
     },
     set activeWriterEpochFence(value) {
       activeWriterEpochFence = value;
     },
     get activeWriterEpochFenceDescriptor() {
-      return activeWriterEpochFenceDescriptor;
+      return activeWriterEpochFenceDescriptor ?? cellWriterEpochFence ?? null;
     },
     set activeWriterEpochFenceDescriptor(value) {
       activeWriterEpochFenceDescriptor = value;

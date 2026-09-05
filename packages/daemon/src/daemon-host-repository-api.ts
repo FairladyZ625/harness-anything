@@ -59,6 +59,7 @@ export function createDaemonHostRepositoryApi(
           rootDir: prepared.rootDir,
           mode: "local",
           ownerId: context.input.daemonId,
+          defaultWriterEpochFence: context.writerEpochFence(prepared.repoId),
           runtimeDaemonRoute: context.runtimeDaemonRoute,
           bootstrap: prepared,
           onBootstrap: (receipt) => {
@@ -379,7 +380,12 @@ export function createDaemonHostRepositoryApi(
           `Payload cannot report ${spoof}; daemon binds principal authority, root, revision, and time.`,
         );
       try {
-        const serverBinding = await context.binding(cell.status().rootDir, auth);
+        const serverBinding = await context.binding(
+          cell.status().rootDir,
+          auth,
+          undefined,
+          command.commandClass === "repo-read" ? undefined : repoId,
+        );
         const receipt = await cell.run(action as RepoTaskAction, serverBinding, auth.connectionSignal);
         if (getExecutableEntityAction(action.kind)?.target.kind === "schedule")
           await context.scheduleScheduler.refresh();
@@ -431,7 +437,16 @@ export function createDaemonHostRepositoryApi(
             warmingUp ? context.warmingMessage(repoId) : (missing?.lastError ?? `Unknown repo namespace: ${repoId}.`),
           );
         }
-        return await cell.presetRun(routed, await context.binding(cell.status().rootDir, auth));
+        const command = commandDescriptorForAction(routed.kind);
+        return await cell.presetRun(
+          routed,
+          await context.binding(
+            cell.status().rootDir,
+            auth,
+            undefined,
+            command.commandClass === "repo-read" ? undefined : repoId,
+          ),
+        );
       } catch (error) {
         return context.rejectPresetRun(
           typeof action.runId === "string" ? action.runId : "run_invalid",

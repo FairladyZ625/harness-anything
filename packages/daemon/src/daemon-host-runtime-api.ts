@@ -42,19 +42,19 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.spawnRuntime(payload, await context.binding(cell.status().rootDir, auth));
+      return cell.spawnRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
     cancelRuntime: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-cancel"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth));
+      return cell.cancelRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
     runtimeIngress: async (repoId, action, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.runtimeIngress(action, await context.binding(cell.status().rootDir, auth));
+      return cell.runtimeIngress(action, await context.binding(cell.status().rootDir, auth, undefined, repoId));
     },
     terminalAttach: async (repoId, sessionId, afterSeq, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
@@ -71,7 +71,12 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, commandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
-        serverBinding = await context.binding(cell.status().rootDir, auth);
+        serverBinding = await context.binding(
+          cell.status().rootDir,
+          auth,
+          undefined,
+          commandTopology.commandClass === "repo-read" ? undefined : repoId,
+        );
       if (method === "repo.gui.catalog.reread") return cell.catalog.reread(payload) as Promise<JsonObject>;
       const kind =
           method === "repo.terminal.spawn"
@@ -136,6 +141,7 @@ export function createDaemonHostRuntimeApi(
         const started = await startFleetCenterAdmission({
           host: context.host,
           userRoot: context.input.userRoot,
+          writerEpochLease: context.writerEpochLease,
           payload: request,
         });
         context.fleetCenter = started.center;

@@ -9,6 +9,7 @@ import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/s
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
 const actor = {
   actor: { principal: { personId: "schedule-settlement-operator" }, executor: null },
@@ -38,10 +39,22 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
     git(root, "config", "user.name", "Schedule Settlement Test");
     git(root, "config", "user.email", "schedule-settlement@example.invalid");
     git(root, "commit", "--allow-empty", "-qm", "base");
+    const writerStateRoot = path.join(root, ".daemon", "fleet"),
+      holderId = "schedule-settlement-test",
+      writerEpoch = openPersistentWriterEpoch({ stateRoot: writerStateRoot, holderId }),
+      lease = writerEpoch.acquire(repoId);
+    writerEpoch.close();
     const cell = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(root),
-      ownerId: "schedule-settlement-test",
+      ownerId: holderId,
+      defaultWriterEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: writerStateRoot,
+        repoId,
+        epoch: lease.epoch,
+        holderId,
+      },
       runtimeDaemonRoute: {
         userRoot: path.join(root, ".daemon"),
         daemonId: "schedule-settlement-test",

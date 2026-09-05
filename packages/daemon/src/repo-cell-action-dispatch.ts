@@ -21,6 +21,7 @@ import {
   runDispatchRecordMigrationAction,
   runEventShapeMigrationAction,
   runLedgerMigrateAction,
+  runLedgerReconcileAction,
 } from "./repo-cell-migration-actions.ts";
 import { runSquadEntityMigration } from "./squad-entity-migration.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
@@ -113,6 +114,7 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") return runLedgerMigrateAction(cell, action, binding);
+  if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     // A provably absent operation can be answered from the durable read model.

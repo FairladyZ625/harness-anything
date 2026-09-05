@@ -35,6 +35,39 @@ export interface SqliteCommandOutcome {
   readonly rejectionCode: string | null;
 }
 
+export type SqliteLedgerRevisionDifference = {
+  readonly revision: number;
+  readonly kind: "missing_in_sqlite" | "unexpected_in_sqlite" | "event_mismatch";
+  readonly canonicalOpId: string | null;
+  readonly sqliteOpId: string | null;
+  readonly canonicalDigest: `sha256:${string}` | null;
+  readonly sqliteDigest: `sha256:${string}` | null;
+  readonly sqliteStoredDigest: string | null;
+};
+
+export interface SqliteLedgerReconciliation {
+  readonly schema: "sqlite-ledger-reconciliation/v1";
+  readonly repoId: string;
+  readonly generation: number;
+  readonly matches: boolean;
+  readonly canonical: {
+    readonly eventCount: number;
+    readonly maxRevision: number;
+    readonly distinctOpIds: number;
+  };
+  readonly sqlite: {
+    readonly eventCount: number;
+    readonly maxRevision: number;
+    readonly distinctOpIds: number;
+  };
+  readonly firstDivergentRevision: number | null;
+  readonly revisionDifferences: readonly SqliteLedgerRevisionDifference[];
+  readonly opIdDifferences: {
+    readonly missingInSqlite: readonly string[];
+    readonly unexpectedInSqlite: readonly string[];
+  };
+}
+
 export interface SqliteEventStore {
   readonly databasePath: string;
   readonly sqliteVersion: string;

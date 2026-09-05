@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -16,6 +17,7 @@ import {
   type SqliteEventStore,
   type SqliteWriterFence,
 } from "../../src/store/sqlite-event-store.ts";
+import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
 import { eventAt } from "./task-event-store.fixtures.ts";
 
 const repoId = "sqlite-generation-test";
@@ -37,6 +39,27 @@ test("single writer serializes revision allocation and rejects a competing revis
   } finally {
     first.close();
     second.close();
+  }
+});
+
+test("a stale holder rolls back before SQLite records an event or outcome", () => {
+  const databasePath = scratch("stale-holder"),
+    stale = openSqliteEventStore({ repoId, databasePath }),
+    successor = openSqliteEventStore({ repoId, databasePath });
+  try {
+    stale.claimWriter(fence);
+    successor.claimWriter({ repoId, holder: "writer-b", epoch: 2 });
+    assert.throws(
+      () => stale.appendCommand(command(stale, 1)),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "revision_conflict" && /stale/u.test(error.message),
+    );
+    assert.equal(stale.revision(), 0);
+    assert.deepEqual(stale.events(), []);
+    assert.equal(stale.outcome(eventAt(1).opId), null);
+  } finally {
+    successor.close();
+    stale.close();
   }
 });
 
@@ -154,6 +177,44 @@ test("generation paths coexist beneath the local store root", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-path-"));
   assert.equal(sqliteLedgerPath(rootDir, 1), path.join(rootDir, ".harness/store/generations/1/ledger.sqlite"));
   assert.equal(sqliteLedgerPath(rootDir, 2), path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
+});
+
+test("reconciliation reports exact equality and the first tampered revision", () => {
+  const databasePath = scratch("reconcile"),
+    events = [eventAt(1), eventAt(2), eventAt(3)],
+    store = openSqliteEventStore({ repoId, databasePath });
+  try {
+    migrateEventsToSqlite({ store, repoId, events, holder: fence.holder, epoch: fence.epoch });
+  } finally {
+    store.close();
+  }
+  const exact = reconcileSqliteEvents({ repoId, databasePath, events });
+  assert.deepEqual(exact, {
+    schema: "sqlite-ledger-reconciliation/v1",
+    repoId,
+    generation: 1,
+    matches: true,
+    canonical: { eventCount: 3, maxRevision: 3, distinctOpIds: 3 },
+    sqlite: { eventCount: 3, maxRevision: 3, distinctOpIds: 3 },
+    firstDivergentRevision: null,
+    revisionDifferences: [],
+    opIdDifferences: { missingInSqlite: [], unexpectedInSqlite: [] },
+  });
+
+  const db = new DatabaseSync(databasePath);
+  try {
+    db.prepare("UPDATE event SET event_json=event_json || ? WHERE revision=2").run(" ");
+  } finally {
+    db.close();
+  }
+  const divergent = reconcileSqliteEvents({ repoId, databasePath, events });
+  assert.equal(divergent.matches, false);
+  assert.equal(divergent.firstDivergentRevision, 2);
+  assert.deepEqual(
+    divergent.revisionDifferences.map(({ revision, kind }) => ({ revision, kind })),
+    [{ revision: 2, kind: "event_mismatch" }],
+  );
+  assert.notEqual(divergent.revisionDifferences[0]!.canonicalDigest, divergent.revisionDifferences[0]!.sqliteDigest);
 });
 
 test("50k bootstrap is incremental and subsequent shadow bundles append one command each", (context) => {

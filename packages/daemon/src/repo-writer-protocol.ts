@@ -21,6 +21,7 @@ export interface RepoWriterBootstrapV1 {
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly bootstrap?: RepoBootstrapInput;
+    readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
     readonly walMaterializationTestFault?: {
       readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
       readonly failures: number;
@@ -97,6 +98,11 @@ export type RepoWriterMessageV1 =
   | RepoWriterControlV1;
 
 export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "assertWriterEpoch" | "withWriterEpochFence">;
+
+export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
+  const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
+  return serializable;
+}
 
 export interface SerializedWriterErrorV1 {
   readonly name: string;

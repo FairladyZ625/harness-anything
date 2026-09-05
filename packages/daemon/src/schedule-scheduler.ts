@@ -38,7 +38,11 @@ type MissedOccurrences = {
 
 export function makeScheduleScheduler(input: {
   readonly cells: ReadonlyMap<string, RepoCell>;
-  readonly localBinding: (rootDir: string, required: DaemonCommandClass) => RepoCellBinding | Promise<RepoCellBinding>;
+  readonly localBinding: (
+    repoId: string,
+    rootDir: string,
+    required: DaemonCommandClass,
+  ) => RepoCellBinding | Promise<RepoCellBinding>;
   readonly remoteEdgeAction?: (
     repoId: string,
     rootDir: string,
@@ -219,7 +223,7 @@ export function makeScheduleScheduler(input: {
         execute: async (action) =>
           cell.run(
             action,
-            await input.localBinding(rootDir, action.kind === "schedule-list" ? "repo-read" : "repo-write"),
+            await input.localBinding(repoId, rootDir, action.kind === "schedule-list" ? "repo-read" : "repo-write"),
           ) as unknown as Promise<Readonly<Record<string, unknown>>>,
       };
     if (mode !== "remote-edge" || !input.remoteEdgeAction) return null;

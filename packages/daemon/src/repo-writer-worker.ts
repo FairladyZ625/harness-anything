@@ -7,6 +7,7 @@ import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./
 import {
   REPO_WRITER_PROTOCOL_VERSION,
   deserializeWriterError,
+  serializableRepoCellBinding,
   serializeWriterError,
   type RepoWriterBootstrapV1,
   type RepoWriterCancelV1,
@@ -132,7 +133,11 @@ async function startRepoWriterWorker(): Promise<void> {
           postStatus({ kind: "attach-progress", status: openingStatus });
         },
         onRuntimeOutcome: (event) => notify("runtimeOutcome", event),
-        onAttemptTerminal: (terminal) => notify("attemptTerminal", terminal),
+        onAttemptTerminal: (terminal) =>
+          notify("attemptTerminal", {
+            ...terminal,
+            binding: serializableRepoCellBinding(terminal.binding as RepoCellBinding),
+          }),
         recordLifecycle: (record) => notify("lifecycle", record),
       };
     cell = await openRepoWriterCell(input, { close: async () => undefined } as never);
