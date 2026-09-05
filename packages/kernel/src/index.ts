@@ -21,6 +21,7 @@ export type {
   RuntimeInstallation,
   RuntimeInstallationState,
   RuntimeKind,
+  RuntimeKindId,
   RuntimeProtocolFamily,
   RuntimeResultClaim,
   RuntimeSession,
@@ -29,6 +30,7 @@ export type {
   SessionIdentityResolver,
   SessionIdentityResolverInput,
 } from "./domain/agent-runtime.ts";
+export { runtimeKindIds } from "./domain/agent-runtime.ts";
 export {
   allowsTaskStatusMove,
   applyTransition,

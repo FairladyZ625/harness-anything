@@ -1,4 +1,9 @@
-import type { RuntimeInstallation, RuntimeKind } from "../../kernel/src/index.ts";
+import {
+  runtimeKindIds,
+  type RuntimeInstallation,
+  type RuntimeKind,
+  type RuntimeKindId,
+} from "../../kernel/src/index.ts";
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";
@@ -394,10 +399,9 @@ export const runtimeKinds = [
   },
 ] as const satisfies readonly RuntimeProviderDeclaration[];
 
-export type RuntimeKindId = (typeof runtimeKinds)[number]["kindId"];
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
 export type RuntimeKindInventory = (typeof runtimeKinds)[number] & RuntimeKind;
-export const runtimeKindIds: readonly RuntimeKindId[] = runtimeKinds.map(({ kindId }) => kindId);
+export { runtimeKindIds, type RuntimeKindId };
 export const runtimeProtocolFamilies: readonly RuntimeProtocolFamily[] = runtimeKinds.map(
   ({ protocolFamily }) => protocolFamily,
 );

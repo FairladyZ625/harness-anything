@@ -124,6 +124,11 @@ const runtimeSessionIdentity = Object.freeze({
   pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
   refTemplate: "runtime-session/{id}" as const,
 });
+const runtimeInstanceIdentity = Object.freeze({
+  field: "instanceId",
+  pattern: ENTITY_ID_PATTERN,
+  refTemplate: "runtime-instance/{id}" as const,
+});
 const scheduleIdentity = Object.freeze({
   field: "scheduleId",
   pattern: ENTITY_ID_PATTERN,
@@ -155,6 +160,10 @@ export const entityTypeContracts = Object.freeze([
   { kind: "execution", ...baseEntityTypeContract(executionIdentity, authoredLiveResidency) },
   { kind: "review", ...baseEntityTypeContract(reviewIdentity, authoredResidency) },
   { kind: "runtime-session", ...baseEntityTypeContract(runtimeSessionIdentity, authoredLiveResidency) },
+  {
+    kind: "runtime-instance",
+    ...baseEntityTypeContract(runtimeInstanceIdentity, Object.freeze({ configuration: "runtime-local" as const })),
+  },
   { kind: "schedule", ...baseEntityTypeContract(scheduleIdentity, scheduleResidency) },
   {
     kind: "settings",

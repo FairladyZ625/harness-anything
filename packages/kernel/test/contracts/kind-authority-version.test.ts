@@ -18,6 +18,7 @@ const expectedKinds = [
   "policy",
   "relation",
   "review",
+  "runtime-instance",
   "runtime-session",
   "schedule",
   "settings",
@@ -33,6 +34,7 @@ const expectedResidency = {
   policy: { authored: "ledger" },
   relation: { history: "ledger", graph: "projection" },
   review: { authored: "ledger" },
+  "runtime-instance": { configuration: "runtime-local" },
   "runtime-session": { authored: "ledger", live: "runtime-local" },
   schedule: { definition: "ledger", execution: "runtime-local", runView: "projection" },
   settings: { authored: "ledger", current: "projection" },
@@ -40,7 +42,7 @@ const expectedResidency = {
   task: { authored: "ledger" },
 } as const;
 
-test("one named kind-contract authority explains all thirteen entity kinds with one shape", () => {
+test("one named kind-contract authority explains all fourteen entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);
@@ -142,7 +144,16 @@ test("generic entity-store boundaries stay aligned with the kind authority", () 
   assert.equal(getEntityKindContract("session"), undefined);
   assert.equal(requireEntityStoreKindContract("agent").kind, "agent");
   assert.equal(requireEntityStoreKindContract("squad").kind, "squad");
-  for (const kind of ["execution", "review", "runtime-session", "schedule", "settings", "person", "policy"])
+  for (const kind of [
+    "execution",
+    "review",
+    "runtime-instance",
+    "runtime-session",
+    "schedule",
+    "settings",
+    "person",
+    "policy",
+  ])
     assert.throws(() => requireEntityStoreKindContract(kind), /no generic entity-store surface/u);
   assert.equal(explainEntityKind("policy").authoring, null);
 });

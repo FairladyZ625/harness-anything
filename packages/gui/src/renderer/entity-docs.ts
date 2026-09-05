@@ -176,6 +176,21 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     ],
     actions: [],
   },
+  "runtime-instance": {
+    schemaId: "runtime-instance/v1",
+    refTemplate: "runtime-instance/{id}",
+    statuses: [
+      {
+        field: "status",
+        words: ["enabled", "disabled"],
+      },
+      {
+        field: "kindId",
+        words: ["claude", "codex", "agy", "zcode"],
+      },
+    ],
+    actions: ["create", "update", "delete", "probe"],
+  },
   "runtime-session": {
     schemaId: "runtime-session/v1",
     refTemplate: "runtime-session/{id}",
@@ -564,6 +579,25 @@ const runtimeSessionDoc: EntityKindDoc = {
   liveCount: null,
 };
 
+const runtimeInstanceDoc: EntityKindDoc = {
+  kind: "runtime-instance",
+  ...kernelContract("runtime-instance"),
+  storage: "本机 daemon user-root(runtime-instances.json);不随仓库同步",
+  definition:
+    "可创建、停用和删除的 provider 配置实例。kind 是实例属性而不是独立实体:claude / codex / agy / zcode " +
+    "选择内置适配器;认证面为 subscription 或 api-key,隔离面为 enforced 或 operator-environment。",
+  fields: [
+    field("instanceId", true, "string", "本机 daemon 内稳定的实例 ID。"),
+    field("name", true, "string", "实例显示名。"),
+    field("kindId", true, "enum", "内置适配器词表:claude / codex / agy / zcode。"),
+    field("enabled", true, "boolean", "是否允许该实例参与派工。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: { view: "providers", note: "Provider 页;实例配置、认证、探测与删除" },
+  liveCount: null,
+};
+
 const agentDoc: EntityKindDoc = {
   kind: "agent",
   ...kernelContract("agent"),
@@ -799,7 +833,7 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "runtime",
     title: "执行与运行时",
     summary: "工作怎么被执行、复核、会话化与编排。",
-    docs: [executionDoc, reviewDoc, runtimeSessionDoc, agentDoc, squadDoc, scheduleDoc],
+    docs: [executionDoc, reviewDoc, runtimeSessionDoc, runtimeInstanceDoc, agentDoc, squadDoc, scheduleDoc],
   },
   {
     id: "catalog",

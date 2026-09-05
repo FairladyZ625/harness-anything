@@ -453,6 +453,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       readDeclaredEntityRows({
         catalog: buildEntityKindCatalog(compiledArtifactKinds()),
         projection: context.projection,
+        runtimeInstances: context.extracted.input.runtimeInstances ?? (() => []),
       }),
     "repo.entity.locator.read": (payload: Readonly<Record<string, unknown>>) =>
       readEntityLocator({

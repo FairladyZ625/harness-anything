@@ -125,6 +125,42 @@ test("entity rows only project declared kinds and keep canonical refs", () => {
   ]);
 });
 
+test("entity rows include daemon-local runtime instances with Provider deep links", () => {
+  const rows = readDeclaredEntityRows({
+    catalog: buildEntityKindCatalog([]),
+    projection: { listEntities: () => [] },
+    runtimeInstances: () => [
+      {
+        schemaVersion: 2,
+        instanceId: "codex-sol",
+        name: "Codex Sol",
+        kindId: "codex",
+        installationId: "codex-installation",
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        defaultModel: "gpt-5.6-sol",
+        enabled: true,
+        permissionMode: "workspace-write",
+        authMode: "subscription",
+        authState: "authenticated",
+        authReadiness: { status: "ready", code: null, hint: null },
+        isolationState: "enforced",
+        configuration: {},
+      },
+    ],
+  });
+  assert.deepEqual(rows.rows, [
+    {
+      kind: "runtime-instance",
+      entityId: "codex-sol",
+      ref: "runtime-instance/codex-sol",
+      title: "Codex Sol",
+      locator: { kind: "entity-ref", value: "provider/codex-sol" },
+      revision: 0,
+    },
+  ]);
+});
+
 test("locator read serves repo files and directories and refuses to escape the root", () => {
   const root = mkdtempSync(path.join(tmpdir(), "entity-locator-"));
   try {
