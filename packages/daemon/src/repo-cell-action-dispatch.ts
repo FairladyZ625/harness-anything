@@ -66,12 +66,8 @@ export async function executeAction(
       now: cell.now,
     });
   }
-  if (
-    action.kind === "relation-events-migrate" ||
-    action.kind === "decision-digests-migrate" ||
-    action.kind === "schedule-definitions-migrate"
-  )
-    return runEventShapeMigrationAction(cell, eventShapeMigrations[action.kind], action, binding);
+  const eventShapeMigration = eventShapeMigrations[action.kind as keyof typeof eventShapeMigrations];
+  if (eventShapeMigration) return runEventShapeMigrationAction(cell, eventShapeMigration, action, binding);
   if (action.kind === "dispatch-records-migrate") return runDispatchRecordMigrationAction(cell, action, binding);
   if (action.kind === "entity-migrate-squads") return runSquadEntityMigration(cell, action, binding);
   if (action.kind === "projection-rebuild") {
