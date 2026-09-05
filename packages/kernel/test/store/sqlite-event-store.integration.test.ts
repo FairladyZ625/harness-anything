@@ -12,12 +12,12 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import {
   migrateEventsToSqlite,
   openSqliteEventStore,
-  reconcileSqliteEvents,
   sqliteLedgerPath,
   type SqliteCommandIntent,
   type SqliteEventStore,
   type SqliteWriterFence,
 } from "../../src/store/sqlite-event-store.ts";
+import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
 import { eventAt } from "./task-event-store.fixtures.ts";
 
 const repoId = "sqlite-generation-test";
