@@ -1,5 +1,13 @@
 export { consumeKnownError } from "./error-consumption.ts";
-export * from "./store/sqlite-event-store.ts";
+export {
+  SQLITE_LEDGER_GENERATION,
+  migrateEventsToSqlite,
+  openSqliteEventStore,
+  sqliteLedgerPath,
+  type SqliteCommandIntent,
+  type SqliteCommandOutcome,
+  type SqliteEventStore,
+} from "./store/sqlite-event-store.ts";
 export * from "./domain/index.ts";
 export {
   compareRuntimeActivity,

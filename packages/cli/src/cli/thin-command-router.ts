@@ -72,17 +72,7 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
-  if (route.id === "ledger-migrate") {
-    const f = readFlags(route.id, args.slice(2), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    const generation = f.one.get("--generation");
-    if (generation !== undefined && generation !== "1")
-      return rejected("invalid_field", "--generation currently requires 1.", json);
-    return accepted(rootDir, repoId, json, {
-      kind: "ledger-migrate",
-      ...(generation ? { generation: Number(generation) } : {}),
-    });
-  }
+  if (route.id === "ledger-migrate") return parseLedgerMigrateRouted(route, args, rootDir, repoId, json, inputs);
   if (route.id === "explain") return parseExplain(args, rootDir, repoId, json, route.method);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
@@ -117,6 +107,25 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseLedgerMigrateRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags(route.id, args.slice(2), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const generation = f.one.get("--generation");
+  if (generation !== undefined && generation !== "1")
+    return rejected("invalid_field", "--generation currently requires 1.", json);
+  return accepted(rootDir, repoId, json, {
+    kind: "ledger-migrate",
+    ...(generation ? { generation: Number(generation) } : {}),
+  });
 }
 
 function parseVerticalKindRouted(
