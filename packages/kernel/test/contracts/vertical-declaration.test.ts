@@ -41,6 +41,7 @@ test("vertical declaration rejects a snapshot revision different from its event 
     type: "vertical_kind_retired",
     definition,
     kindId: "example",
+    reason: "No longer supported.",
     eventId: "event-vertical-declaration-2",
     opId: "vertical-declaration-retire-2",
     workspaceRevision: 2,
@@ -55,4 +56,5 @@ test("vertical declaration rejects a snapshot revision different from its event 
     }),
     [],
   );
+  assert.equal(bundle.event.payload.reason, "No longer supported.");
 });

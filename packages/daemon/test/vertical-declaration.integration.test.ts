@@ -4,8 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
-import { compiledArtifactKinds } from "../src/artifact-entity-action.ts";
+import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
 import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 
@@ -54,18 +54,46 @@ test("repository vertical migration, upsert conflict, and retirement share one r
       "Updated kind",
     );
     await assert.rejects(
-      () => run({ kind: "vertical-kind-retire", kindId: declaration.id, expectedVersion: initial.revision }),
+      () =>
+        run({
+          kind: "vertical-kind-retire",
+          kindId: declaration.id,
+          expectedVersion: initial.revision,
+          reason: "No longer supported.",
+        }),
       (error: unknown) => (error as { readonly code?: string }).code === "revision_conflict",
     );
     const current = JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8"));
     assert.equal(
-      (await run({ kind: "vertical-kind-retire", kindId: declaration.id, expectedVersion: current.revision })).outcome,
+      (
+        await run({
+          kind: "vertical-kind-retire",
+          kindId: declaration.id,
+          expectedVersion: current.revision,
+          reason: "No longer supported.",
+        })
+      ).outcome,
       "applied",
     );
     assert.equal(
       compiledArtifactKinds(rootDir, repoId).some(({ declaration: row }) => row.id === declaration.id),
-      false,
+      true,
     );
+    const retired = compiledArtifactKinds(rootDir, repoId).find(({ declaration: row }) => row.id === declaration.id);
+    assert.equal(retired?.declaration.retired, true);
+    assert.equal(retired?.declaration.reason, "No longer supported.");
+    assert.equal(retired?.declaration.retiredAt, "2026-09-05T00:00:00.000Z");
+    assert.equal(
+      retired?.entityKindContract.actionCatalog?.actions.every(({ execution }) => execution === null),
+      true,
+    );
+    const vertical = canonicalVertical(rootDir, repoId),
+      catalog = buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision),
+      retiredRow = catalog.kinds.find(({ declaration: row }) => row?.id === declaration.id);
+    assert.equal(catalog.declarationRevision, current.revision + 1);
+    assert.equal(retiredRow?.retired, true);
+    assert.equal(retiredRow?.importable, false);
+    assert.equal(retiredRow?.origin, "vertical");
   } finally {
     projection.close();
     rmSync(rootDir, { recursive: true, force: true });

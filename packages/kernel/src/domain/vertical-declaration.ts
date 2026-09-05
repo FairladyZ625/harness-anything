@@ -33,6 +33,7 @@ export type VerticalDeclarationEventV1 = EventEnvelope<
   {
     readonly declaration: VerticalDeclarationDocumentV1;
     readonly kindId: string | null;
+    readonly reason: string | null;
     readonly declarationDocumentClaim: {
       readonly path: typeof VERTICAL_DECLARATION_PATH;
       readonly sha256: string;
@@ -58,6 +59,8 @@ export function applyVerticalKindCommand(input: {
   readonly kind: "upsert" | "retire";
   readonly kindId: string;
   readonly declaration?: unknown;
+  readonly retiredAt?: string;
+  readonly reason?: string;
 }): VerticalDefinition {
   const kindId = input.kindId.trim(),
     index = input.definition.entityKinds.findIndex(({ id }) => id === kindId);
@@ -71,9 +74,15 @@ export function applyVerticalKindCommand(input: {
     );
   if (input.kind === "retire") {
     if (index < 0) verticalError("entity_not_found", `Vertical kind ${kindId} does not exist.`);
+    const reason = input.reason?.trim() ?? "";
+    if (reason.length < 1 || reason.length > 199)
+      verticalError("invalid_field", "Vertical kind retirement reason must contain 1..199 characters.");
+    if (!input.retiredAt) verticalError("missing_field", "Vertical kind retirement requires retiredAt.");
     return decodeVerticalDefinition({
       ...input.definition,
-      entityKinds: input.definition.entityKinds.filter(({ id }) => id !== kindId),
+      entityKinds: input.definition.entityKinds.map((declaration) =>
+        declaration.id === kindId ? { ...declaration, retired: true, retiredAt: input.retiredAt, reason } : declaration,
+      ),
     });
   }
   if (!isRecord(input.declaration)) verticalError("invalid_field", "Vertical kind declaration must be an object.");
@@ -91,6 +100,7 @@ export function compileVerticalDeclarationEvent(input: {
   readonly type: VerticalDeclarationEventType;
   readonly definition: unknown;
   readonly kindId?: string;
+  readonly reason?: string;
   readonly eventId: string;
   readonly opId: string;
   readonly workspaceRevision: number;
@@ -122,7 +132,12 @@ export function compileVerticalDeclarationEvent(input: {
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
-      payload: { declaration, kindId: input.kindId ?? null, declarationDocumentClaim: claim },
+      payload: {
+        declaration,
+        kindId: input.kindId ?? null,
+        reason: input.type === "vertical_kind_retired" ? (input.reason ?? null) : null,
+        declarationDocumentClaim: claim,
+      },
     };
   const errors = validateCurrentVerticalDeclarationEvent(event);
   if (errors.length) throw new Error(errors.join("; "));
@@ -181,6 +196,15 @@ function validateVerticalDeclarationEventFields(value: unknown, allowUnknownFiel
       !Number.isSafeInteger(claim.size)
     )
       return ["vertical declaration claim is invalid"];
+    if (
+      value.type === "vertical_kind_retired" &&
+      (typeof value.payload.reason !== "string" ||
+        value.payload.reason.trim().length < 1 ||
+        value.payload.reason.length > 199)
+    )
+      return ["vertical kind retirement reason must contain 1..199 characters"];
+    if (value.type !== "vertical_kind_retired" && value.payload.reason !== null)
+      return ["non-retirement vertical events must carry a null reason"];
   } catch {
     return ["vertical declaration snapshot is invalid"];
   }

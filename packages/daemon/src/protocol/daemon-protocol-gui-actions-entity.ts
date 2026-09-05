@@ -25,7 +25,7 @@ export const entityImportGuiActions = Object.freeze([
     "vertical.kind.retire",
     "repo.vertical.kind.retire",
     "vertical-kind-retire",
-    shape({ kindId: "string", expectedVersion: "number" }),
+    shape({ kindId: "string", expectedVersion: "number", reason: "string" }),
     "retireVerticalKind",
     "/api/vertical/kinds/retire",
     "repo-write",

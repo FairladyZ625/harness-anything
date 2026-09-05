@@ -4,6 +4,11 @@ import { RelationTypeSchema } from "./entity-relations.ts";
 const LocaleSchema = Schema.Literal("zh-CN", "en-US");
 const StringArray = Schema.Array(Schema.String);
 const NonBlankStringSchema = Schema.String.pipe(Schema.pattern(/\S/u));
+const RetirementFields = {
+  retired: Schema.optional(Schema.Boolean),
+  retiredAt: Schema.optional(NonBlankStringSchema),
+  reason: Schema.optional(NonBlankStringSchema.pipe(Schema.maxLength(199))),
+};
 
 const TemplateSelectionSchema = Schema.Struct({
   slot: Schema.String,
@@ -123,6 +128,7 @@ const ArtifactRelationSchema = Schema.Struct({
 });
 
 const ArtifactEntityKindSchema = Schema.Struct({
+  ...RetirementFields,
   id: Schema.String.pipe(Schema.pattern(/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u)),
   entityType: Schema.Literal("artifact"),
   version: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
@@ -149,12 +155,14 @@ export const VerticalDefinitionSchema = Schema.Struct({
   entityKinds: Schema.Array(
     Schema.Union(
       Schema.Struct({
+        ...RetirementFields,
         id: Schema.String,
         entityType: Schema.Literal("lifecycle"),
         packageKind: Schema.String,
         contractEntity: Schema.Boolean,
       }),
       Schema.Struct({
+        ...RetirementFields,
         id: Schema.String,
         entityType: Schema.Literal("schema"),
         schemaRef: Schema.String,

@@ -36,7 +36,13 @@ const compiledVerticals = new Map<string, CompiledVerticalContract>(),
   compiledDirections = new Map<string, readonly CanonicalRelationDirection[]>();
 type ArtifactImportReceipt = WriteReceipt & { readonly entityId: string };
 
-function canonicalVertical(rootDir: string, repositoryId: string): CompiledVerticalContract {
+export function canonicalVertical(
+  rootDir: string,
+  repositoryId: string,
+): {
+  readonly revision: number;
+  readonly contract: CompiledVerticalContract;
+} {
   const source = JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")) as {
       readonly schema?: unknown;
       readonly revision?: unknown;
@@ -52,14 +58,14 @@ function canonicalVertical(rootDir: string, repositoryId: string): CompiledVerti
     );
   const key = `${repositoryId}\0${revision}`,
     cached = compiledVerticals.get(key);
-  if (cached) return cached;
+  if (cached) return { revision, contract: cached };
   const compiled = compileVerticalContract(source.definition);
   compiledVerticals.set(key, compiled);
-  return compiled;
+  return { revision, contract: compiled };
 }
 
 export function compiledArtifactKinds(rootDir: string, repositoryId: string): readonly CompiledArtifactKindContract[] {
-  return canonicalVertical(rootDir, repositoryId).artifactKinds;
+  return canonicalVertical(rootDir, repositoryId).contract.artifactKinds;
 }
 
 /**
@@ -77,7 +83,7 @@ export function relationDirectionRegistry(
     cached = compiledDirections.get(key);
   if (cached) return cached;
   const directions = composeCanonicalRelationDirections(
-    compiledRelationDirections(canonicalVertical(rootDir, repositoryId)),
+    compiledRelationDirections(canonicalVertical(rootDir, repositoryId).contract),
   );
   compiledDirections.set(key, directions);
   return directions;

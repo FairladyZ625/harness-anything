@@ -23,7 +23,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
-import { compiledArtifactKinds } from "./artifact-entity-action.ts";
+import { canonicalVertical, compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { discoverAgentSkills } from "./agent-skills.ts";
@@ -449,11 +449,16 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
-    "repo.entity.kinds.read": () =>
-      buildEntityKindCatalog(compiledArtifactKinds(context.rootDir, context.input.repoId)),
+    "repo.entity.kinds.read": () => {
+      const vertical = canonicalVertical(context.rootDir, context.input.repoId);
+      return buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision);
+    },
     "repo.entity.rows.read": () =>
       readDeclaredEntityRows({
-        catalog: buildEntityKindCatalog(compiledArtifactKinds(context.rootDir, context.input.repoId)),
+        catalog: buildEntityKindCatalog(
+          compiledArtifactKinds(context.rootDir, context.input.repoId),
+          canonicalVertical(context.rootDir, context.input.repoId).revision,
+        ),
         projection: context.projection,
         runtimeInstances: context.input.runtimeInstances ?? (() => []),
       }),

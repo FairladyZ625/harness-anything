@@ -24,17 +24,19 @@ export async function runVerticalDeclarationAction(input: {
     current = existsSync(target) ? parseVerticalDeclarationDocument(JSON.parse(readFileSync(target, "utf8"))) : null;
   if (input.action.kind === "vertical-declaration-migrate" && current) return noChanges(current.revision);
   const nextRevision = (input.store.readHead()?.revision ?? 0) + 1,
-    result = candidate(input.action, current),
+    occurredAt = input.now(),
+    result = candidate(input.action, current, occurredAt),
     bundle = compileVerticalDeclarationEvent({
       type: result.type,
       definition: result.definition,
       ...(result.kindId ? { kindId: result.kindId } : {}),
+      ...(result.reason ? { reason: result.reason } : {}),
       eventId: `event-vertical-declaration-${nextRevision}`,
       opId: `vertical-declaration-${result.type}-${nextRevision}`,
       workspaceRevision: nextRevision,
       actor: input.binding.actor,
       source: input.binding.source,
-      occurredAt: input.now(),
+      occurredAt,
     }),
     appended = input.store.append(bundle);
   input.projection.apply(bundle.event, bundle.plan);
@@ -65,27 +67,36 @@ export async function runVerticalDeclarationAction(input: {
 function candidate(
   action: RepoTaskAction,
   current: ReturnType<typeof parseVerticalDeclarationDocument> | null,
+  occurredAt: string,
 ): {
   readonly type: "vertical_declared" | "vertical_kind_upserted" | "vertical_kind_retired";
   readonly definition: ReturnType<typeof decodeVerticalDefinition>;
   readonly kindId: string | null;
+  readonly reason: string | null;
 } {
   if (action.kind === "vertical-declaration-migrate") {
     const seed = JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8"));
-    return { type: "vertical_declared", definition: decodeVerticalDefinition(seed), kindId: null };
+    return { type: "vertical_declared", definition: decodeVerticalDefinition(seed), kindId: null, reason: null };
   }
   if (!current) reject("vertical_declaration_required", "Run ha migrate vertical-declaration before changing kinds.");
   const kindId = typeof action.kindId === "string" ? action.kindId.trim() : "";
   const retire = action.kind === "vertical-kind-retire",
+    reason = retire && typeof action.reason === "string" ? action.reason.trim() : "",
     definition = applyVerticalKindCommand({
       definition: current.definition,
       revision: current.revision,
       expectedVersion: Number(action.expectedVersion),
       kind: retire ? "retire" : "upsert",
       kindId,
+      ...(retire ? { retiredAt: occurredAt, reason } : {}),
       ...(retire ? {} : { declaration: action.declaration }),
     });
-  return { type: retire ? "vertical_kind_retired" : "vertical_kind_upserted", definition, kindId };
+  return {
+    type: retire ? "vertical_kind_retired" : "vertical_kind_upserted",
+    definition,
+    kindId,
+    reason: retire ? reason : null,
+  };
 }
 
 function noChanges(revision: number): WriteReceiptDraft {
