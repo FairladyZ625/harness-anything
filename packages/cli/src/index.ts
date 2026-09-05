@@ -17,6 +17,7 @@ import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-comma
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import {
   daemonAutostartFailureCode,
+  cliEntryFailureCode,
   daemonResponseTimeoutCode,
   daemonTargetFailureCode,
   consumeKnownError,
@@ -133,7 +134,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     const autostartCode = daemonAutostartFailureCode(error),
       timeoutCode = daemonResponseTimeoutCode(error),
       targetCode = daemonTargetFailureCode(error),
-      direct = autostartCode ?? targetCode;
+      entryCode = cliEntryFailureCode(error),
+      direct = autostartCode ?? targetCode ?? entryCode;
     const failure = cliDispatchError({ error, directCode: direct, timeoutCode });
     emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;
