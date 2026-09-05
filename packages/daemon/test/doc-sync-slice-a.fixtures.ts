@@ -71,11 +71,13 @@ export function standardMigration(revision: number, target: string, body: string
     ],
   };
 }
-export function rows(evidence: string | undefined): readonly { readonly path: string; readonly state: string }[] {
+export function rows(
+  evidence: string | undefined,
+): readonly { readonly path: string; readonly state: string; readonly mediaType: string | null }[] {
   assert.match(evidence ?? "", /^doc-scan:/u);
   return (
     JSON.parse((evidence ?? "").slice("doc-scan:".length)) as {
-      rows: readonly { path: string; state: string }[];
+      rows: readonly { path: string; state: string; mediaType: string | null }[];
     }
   ).rows;
 }
