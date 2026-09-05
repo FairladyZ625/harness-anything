@@ -42,6 +42,67 @@ test("structured provider errors classify rate limits, server faults, quota, mod
   );
 });
 
+test("claude api_error 429 preserves quota classification and reset header", () => {
+  const fault = providerFaultFromFrame("claude", {
+    type: "result",
+    api_error_status: 429,
+    error: "insufficient_quota",
+    result: "Your credit balance is exhausted",
+    headers: { "x-ratelimit-reset": "2026-09-06T01:02:03Z" },
+  });
+  assert.equal(fault?.faultClass, "quota_exhausted");
+  assert.equal(fault?.reason, "HTTP 429: insufficient_quota Your credit balance is exhausted");
+  assert.equal(fault?.resetAt, "2026-09-06T01:02:03.000Z");
+});
+
+test("codex rate_limit_exceeded preserves reset_at", () => {
+  const fault = providerFaultFromFrame("codex", {
+    type: "turn.failed",
+    error: {
+      http_status: 429,
+      code: "rate_limit_exceeded",
+      message: "Too many requests",
+      reset_at: "2026-09-06T02:03:04Z",
+    },
+  });
+  assert.equal(fault?.faultClass, "rate_limited");
+  assert.equal(fault?.reason, "HTTP 429: rate_limit_exceeded Too many requests");
+  assert.equal(fault?.resetAt, "2026-09-06T02:03:04.000Z");
+});
+
+test("agy RESOURCE_EXHAUSTED preserves epoch reset_time", () => {
+  const fault = providerFaultFromFrame("agy", {
+    event: "result",
+    result: {
+      status: "ERROR",
+      response: "",
+      status_code: 429,
+      code: "RESOURCE_EXHAUSTED",
+      error: "quota exhausted",
+      reset_time: 1_788_658_985,
+    },
+  });
+  assert.equal(fault?.faultClass, "quota_exhausted");
+  assert.equal(fault?.reason, "HTTP 429: RESOURCE_EXHAUSTED quota exhausted");
+  assert.equal(fault?.resetAt, "2026-09-06T01:43:05.000Z");
+});
+
+test("zcode turn.failed attribution 429 preserves retry reset", () => {
+  const fault = providerFaultFromFrame("zcode", {
+    type: "turn.failed",
+    payload: {
+      error: {
+        code: "rate_limit_exceeded",
+        message: "rate limit reached",
+        attribution: { statusCode: 429, resetAt: "2026-09-06T04:05:06Z" },
+      },
+    },
+  });
+  assert.equal(fault?.faultClass, "rate_limited");
+  assert.equal(fault?.reason, "HTTP 429: rate_limit_exceeded rate limit reached");
+  assert.equal(fault?.resetAt, "2026-09-06T04:05:06.000Z");
+});
+
 test("attempt-bound classification falls back only before tools or for recognized provider faults", () => {
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false }), 1)), {
     outcome: "failed",

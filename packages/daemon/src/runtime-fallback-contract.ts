@@ -12,6 +12,8 @@ export type RuntimeProviderFault = {
     | "provider_disconnected"
     | "pre_tool_exit";
   readonly reason: string;
+  readonly faultClass?: "quota_exhausted" | "rate_limited";
+  readonly resetAt?: string;
 };
 
 export type RuntimeFallbackCandidate = { readonly instance: string; readonly model?: string };
@@ -31,4 +33,6 @@ export type RuntimeAttemptOutcome = {
   readonly provider: { readonly instance: string; readonly model: string; readonly kind: RuntimeInstanceKind };
   readonly attemptGroupId: string;
   readonly attemptIndex: number;
+  readonly faultClass?: RuntimeProviderFault["faultClass"];
+  readonly resetAt?: string;
 };
