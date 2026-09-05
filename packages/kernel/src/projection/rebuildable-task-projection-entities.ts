@@ -17,20 +17,20 @@ import type { EntityFreshness, EntityVersion } from "../domain/entity-freshness.
 const UPSERT_ENTITY_SQL = [
   "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision,",
   "freshness, current_version, value_json)",
-  "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(entity_kind, entity_id) DO UPDATE SET",
-  "task_id=excluded.task_id, workspace_revision=excluded.workspace_revision, freshness=excluded.freshness,",
+  "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(entity_kind, task_id, entity_id) DO UPDATE SET",
+  "workspace_revision=excluded.workspace_revision, freshness=excluded.freshness,",
   "current_version=excluded.current_version, value_json=excluded.value_json",
   "WHERE entity_projection.workspace_revision <= excluded.workspace_revision",
 ].join(" ");
 const LIST_ENTITY_SQL = [
   "SELECT entity_kind, entity_id, task_id, workspace_revision, freshness, current_version, value_json",
   "FROM entity_projection",
-  "WHERE entity_kind = ? ORDER BY entity_id",
+  "WHERE entity_kind = ? ORDER BY entity_id, task_id",
 ].join(" ");
 const GET_ENTITY_SQL = [
   "SELECT entity_kind, entity_id, task_id, workspace_revision, freshness, current_version, value_json",
   "FROM entity_projection",
-  "WHERE entity_kind = ? AND entity_id = ? LIMIT 1",
+  "WHERE entity_kind = ? AND entity_id = ? ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 
 export function projectEmbeddedCanonicalEntities(db: DatabaseSync, event: CanonicalEventV1): void {
@@ -81,7 +81,7 @@ function writeEntityProjection(
     UPSERT_ENTITY_SQL,
     projection.kind,
     projection.id,
-    projection.ownerId,
+    projection.ownerId ?? "",
     projection.workspaceRevision,
     freshness,
     currentVersion,
@@ -103,7 +103,12 @@ export function getEntityProjectionRow(
 }
 
 export function deleteEntityProjectionRow(db: DatabaseSync, entityKind: string, entityId: string): void {
-  runSql(db, "DELETE FROM entity_projection WHERE entity_kind = ? AND entity_id = ?", entityKind, entityId);
+  runSql(
+    db,
+    "DELETE FROM entity_projection WHERE entity_kind = ? AND entity_id = ? AND task_id = ''",
+    entityKind,
+    entityId,
+  );
 }
 
 export function markEntityProjectionMissing(
@@ -115,7 +120,7 @@ export function markEntityProjectionMissing(
   runSql(
     db,
     "UPDATE entity_projection SET workspace_revision = ?, freshness = 'orphaned', current_version = NULL " +
-      "WHERE entity_kind = ? AND entity_id = ? AND workspace_revision <= ?",
+      "WHERE entity_kind = ? AND entity_id = ? AND task_id = '' AND workspace_revision <= ?",
     workspaceRevision,
     entityKind,
     entityId,
@@ -130,7 +135,7 @@ function entityProjectionRow(row: Readonly<Record<string, unknown>>): EntityProj
   return {
     kind: String(row.entity_kind),
     id: String(row.entity_id),
-    ownerId: row.task_id === null ? null : String(row.task_id),
+    ownerId: row.task_id === null || row.task_id === "" ? null : String(row.task_id),
     workspaceRevision: Number(row.workspace_revision),
     freshness: String(row.freshness) as EntityFreshness,
     currentVersion:
