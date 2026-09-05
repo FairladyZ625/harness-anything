@@ -138,6 +138,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       defaultVertical: value.defaultVertical,
       defaultPreset: value.defaultPreset,
       defaultProfile: value.defaultProfile,
+      reviewIndependence: value.reviewIndependence ?? "execution",
       scaffolds: {
         task: value.scaffolds.task,
         repository: value.scaffolds.repository,
@@ -164,6 +165,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "defaultVertical",
           "defaultPreset",
           "defaultProfile",
+          "reviewIndependence",
           "scaffolds",
           "walFlush",
         ].includes(field),

@@ -233,6 +233,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getEntityActionExecutor: () => ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly getEntityActionRuntimes: () => EntityActionCatalogRuntimes;
   readonly getService: () => ReturnType<typeof makeTaskLifecycleService>;
+  readonly getSettings: () => SettingsV1;
   readonly getRecovery: () => ReturnType<CanonicalEventStore["recover"]>;
   readonly getRecoveryUncertain: () => boolean;
   readonly setRecoveryUncertain: (value: boolean) => void;
@@ -317,7 +318,7 @@ export function createRepoCellActionContext(bindings: {
       snapshot: Parameters<typeof proofFor>[1],
       binding: Parameters<typeof proofFor>[2],
       projection: Parameters<typeof proofFor>[3],
-    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir),
+    ) => proofFor(command, snapshot, binding, projection, bindings.rootDir, bindings.getSettings),
     lifecycleReceipt,
     publicPublication: bindings.publicPublication,
     explicitExecutionId,

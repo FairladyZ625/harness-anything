@@ -250,6 +250,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
       defaultProfile: "baseline",
+      reviewIndependence: "execution",
       locale: "en-US",
       scaffolds: {
         task: "governance/task-scaffold.json",

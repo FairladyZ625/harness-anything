@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -32,6 +32,7 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    writeSettingsFixture(rootDir);
     cell = await openRepoCell({
       repoId: workspaceId("review-independence"),
       rootDir: canonicalRoot(rootDir),
@@ -115,6 +116,104 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("principal review independence rejects a different executor owned by the submitting principal", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-principal-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    writeSettingsFixture(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("review-principal"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "daemon-test",
+    });
+    const principal = { personId: "person-review-principal" } as const,
+      agent = withRoleBinding(
+        { actor: { principal, executor: { kind: "agent" as const, id: "worker" } }, source: "local" as const },
+        "arbiter",
+      ),
+      reviewer = withRoleBinding(
+        { actor: { principal, executor: { kind: "agent" as const, id: "reviewer" } }, source: "local" as const },
+        "arbiter",
+      );
+    const updated = await cell.run(
+      { kind: "settings-update", reviewIndependence: "principal", idempotencyKey: "strict-review-independence" },
+      agent,
+    );
+    assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+    const settingsRead = (await cell.read("repo.settings.read")) as {
+      readonly settings: { readonly reviewIndependence?: string };
+    };
+    assert.equal(settingsRead.settings.reviewIndependence, "principal");
+
+    const taskId = "task-principal-review",
+      executionId = "exec-principal-review";
+    const created = await cell.run({ kind: "task-create", taskId, title: "Principal review" }, agent);
+    assert.equal(created.outcome, "applied");
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, agent)).outcome, "applied");
+    const commitSha = git(rootDir, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(rootDir, "submission.json"),
+      JSON.stringify({
+        completionClaim: "Ready.",
+        deliverables: ["d"],
+        outputs: ["o"],
+        verificationNotes: ["v"],
+        knownGaps: [],
+        residualRisks: [],
+        commitSha,
+      }),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, agent)).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+    );
+
+    const refused = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "strict-review", fromFile: "review.json" },
+      reviewer,
+    );
+    assert.equal(refused.code, "actor_unauthorized", JSON.stringify(refused));
+    assert.match(
+      JSON.stringify(refused),
+      /reviewIndependence.*principal.*ha settings update --review-independence execution/u,
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function writeSettingsFixture(rootDir: string): void {
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "harness/harness.yaml"),
+    [
+      "schema: harness-anything/v1",
+      "layout:",
+      "  authoredRoot: harness",
+      "  localRoot: .harness",
+      "settings:",
+      "  defaultVertical: software/coding",
+      "  defaultPreset: standard-task",
+      "  defaultProfile: baseline",
+      "  scaffolds:",
+      "    task: governance/task-scaffold.json",
+      "    repository: governance/repository-scaffold.json",
+      "",
+    ].join("\n"),
+  );
+  git(rootDir, "add", "harness/harness.yaml");
+  git(rootDir, "commit", "--quiet", "-m", "settings fixture");
+}
 
 // The complementary half: when the execution declared no executor, the same principal genuinely cannot
 // review it until an agent executor accepts that attribution through its own audited lifecycle event.

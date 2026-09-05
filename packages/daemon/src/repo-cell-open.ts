@@ -681,6 +681,7 @@ export async function openRepoWriterCell(
     getEntityActionExecutor: () => entityActionExecutor,
     getEntityActionRuntimes: () => entityActionRuntimes,
     getService: () => service,
+    getSettings: () => readSettings(),
     getRecovery: () => recovery,
     getRecoveryUncertain: () => recoveryUncertain,
     setRecoveryUncertain: (value) => {

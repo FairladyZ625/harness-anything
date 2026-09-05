@@ -188,6 +188,7 @@ export const daemonGuiActionMethods = Object.freeze([
       defaultVertical: "string?",
       defaultPreset: "string?",
       defaultProfile: "string?",
+      reviewIndependence: "string?",
       locale: "string?",
       taskScaffold: "string?",
       repositoryScaffold: "string?",

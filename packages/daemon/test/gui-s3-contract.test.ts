@@ -25,6 +25,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     defaultVertical: "software/coding",
     defaultPreset: "standard-task",
     defaultProfile: "baseline",
+    reviewIndependence: "execution",
     locale: "en-US",
     scaffolds: {
       task: "governance/task-scaffold.json",
