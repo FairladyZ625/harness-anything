@@ -475,7 +475,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         isSealedRuntimeDaemonRoute(daemonRoute) &&
         runtimeInstance?.kindId === "codex" &&
         runtimeInstance.isolationState === "enforced" &&
-        effectivePermissionMode === "workspace-write"
+        (effectivePermissionMode === "workspace-write" || effectivePermissionMode === "read-only")
           ? runtimeCallbackRelaySpec(input.rootDir, newDispatchId, daemonRoute)
           : undefined,
       missionDaemonRoute =
