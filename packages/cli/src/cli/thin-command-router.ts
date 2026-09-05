@@ -62,6 +62,7 @@ export function parseRouted(
     route.id === "fact-rekey" ||
     route.id === "relation-events-migrate" ||
     route.id === "decision-digests-migrate" ||
+    route.id === "schedule-definitions-migrate" ||
     route.id === "dispatch-records-migrate"
   ) {
     const f = readFlags(route.id, args.slice(2), inputs);

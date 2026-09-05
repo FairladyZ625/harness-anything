@@ -353,7 +353,8 @@ export async function openRepoWriterCell(
         candidate = await initialize();
         // Adopt the candidate's store as soon as it opens: the quiesce above already closed
         // the prior store, so this is the only live store left, and a store-only recovery
-        // command (relation-events-migrate, decision-digests-migrate, projection-rebuild's own
+        // command (relation-events-migrate, decision-digests-migrate, schedule-definitions-migrate,
+        // projection-rebuild's own
         // store.readHead(), ...) must be able to run against it even while the probes below
         // stay indeterminate -- repairing that indeterminate state is what those commands exist
         // to do. Only `state` gates on the probes; the store is live regardless.

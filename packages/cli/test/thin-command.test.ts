@@ -275,6 +275,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "ledger-migrate",
       "migrate-import",
       "relation-events-migrate",
+      "schedule-definitions-migrate",
       "vertical-declaration-migrate",
     ],
     preset: [

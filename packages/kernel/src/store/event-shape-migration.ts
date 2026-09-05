@@ -15,15 +15,24 @@ import {
   type MigrationImportEventV1,
 } from "../domain/migration-import-event.ts";
 import { normalizeLegacyRelationState } from "../domain/entity-relation.ts";
+import { serializeEntityJsonSchema, type EntityJsonObjectSchema } from "../domain/entity-json-schema.ts";
+import {
+  SCHEDULE_DEFINITION_V1_SCHEMA,
+  scheduleDefinition,
+  validateScheduleDefinitionV1,
+  type ScheduleV1,
+} from "../domain/schedule.ts";
 import type { WriteReceiptDraft } from "../domain/receipt-domain-registry.ts";
 import { isRelationEvent } from "../domain/relation-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { eventObjectRelativePath } from "../layout/ledger-object-layout.ts";
+import { contentObjectRelativePath, eventObjectRelativePath } from "../layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
+import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
-import type { CanonicalEventStore, PublicationFile } from "./task-event-store-types.ts";
+import { contentClaims } from "./task-event-store-claims-layout.ts";
+import type { CanonicalContentBlob, CanonicalEventStore, PublicationFile } from "./task-event-store-types.ts";
 
 // One-shot history upcasts. A migrating replay walks the ledger into a scratch projection:
 // candidates (`matches`) are replayed alone so each is rewritten against the projection state at
@@ -33,10 +42,14 @@ import type { CanonicalEventStore, PublicationFile } from "./task-event-store-ty
 // shape `fact-rekey` uses, so the ledger head and commit are produced by the store. The live
 // projection is left alone: every rewrite is, by construction, what the projection already
 // derived, so it only has to catch up the marker. Cold rebuilds are proved separately.
-export type EventShapeMigrationName = "relation-events" | "decision-digests";
-export type EventShapeMigrationKind = "relation-events-migrate" | "decision-digests-migrate";
+export type EventShapeMigrationName = "relation-events" | "decision-digests" | "schedule-definitions";
+export type EventShapeMigrationKind =
+  | "relation-events-migrate"
+  | "decision-digests-migrate"
+  | "schedule-definitions-migrate";
 export interface EventShapeRewrite {
   readonly event: CanonicalEventV1;
+  readonly blobs?: readonly CanonicalContentBlob[];
   readonly category: string;
   readonly before: unknown;
   readonly after: unknown;
@@ -154,9 +167,94 @@ const decisionDigestsMigration: EventShapeMigrationSpec = {
   },
 };
 
+// This migration owns exactly one historical break: `spec.target.cwd` (removed in 272de6d16).
+// Any other field the current target schema does not declare is a new break that needs its own
+// migration, so it is reported instead of being silently absorbed here.
+const RETIRED_SCHEDULE_TARGET_FIELDS: ReadonlySet<string> = new Set(["cwd"]);
+const scheduleTargetFields = new Set(
+  Object.keys(
+    (
+      (SCHEDULE_DEFINITION_V1_SCHEMA.properties.spec as EntityJsonObjectSchema).properties
+        .target as EntityJsonObjectSchema
+    ).properties,
+  ),
+);
+
+function legacyScheduleDefinition(event: CanonicalEventV1): {
+  readonly schedule: ScheduleV1 & { readonly spec: { readonly target: Readonly<Record<string, unknown>> } };
+  readonly claim: { readonly sha256: string; readonly size: number } | null;
+} | null {
+  if (event.schema !== "schedule-event/v1") return null;
+  const payload = event.payload as unknown as Readonly<Record<string, unknown>>,
+    schedule = payload.schedule as ScheduleV1 & {
+      readonly spec?: { readonly target?: Readonly<Record<string, unknown>> };
+    },
+    candidateClaim = payload.declarationDocumentClaim as
+      | { readonly sha256?: unknown; readonly size?: unknown }
+      | undefined,
+    target = schedule?.spec?.target;
+  if (!target) return null;
+  const claim =
+    candidateClaim && typeof candidateClaim.sha256 === "string" && typeof candidateClaim.size === "number"
+      ? (candidateClaim as { readonly sha256: string; readonly size: number })
+      : null;
+  const unknown = Object.keys(target).filter((field) => !scheduleTargetFields.has(field)),
+    foreign = unknown.filter((field) => !RETIRED_SCHEDULE_TARGET_FIELDS.has(field));
+  if (foreign.length > 0)
+    throw new Error(
+      `schedule ${schedule.scheduleId} target carries fields this migration does not own: ${foreign.join(", ")}`,
+    );
+  return unknown.length > 0 ? { schedule: schedule as never, claim } : null;
+}
+
+const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
+  name: "schedule-definitions",
+  // The rewrite never reads the cut, so every schedule event stays in bulk rounds.
+  matches: () => false,
+  rewrite: (event) => {
+    const legacy = legacyScheduleDefinition(event);
+    if (legacy === null) return null;
+    const target = legacy.schedule.spec.target,
+      removed = Object.keys(target).filter((field) => RETIRED_SCHEDULE_TARGET_FIELDS.has(field)),
+      nextTarget = Object.fromEntries(
+        Object.entries(target).filter(([field]) => !RETIRED_SCHEDULE_TARGET_FIELDS.has(field)),
+      ),
+      schedule = { ...legacy.schedule, spec: { ...legacy.schedule.spec, target: nextTarget } } as unknown as ScheduleV1,
+      definition = scheduleDefinition(schedule),
+      body = serializeEntityJsonSchema(SCHEDULE_DEFINITION_V1_SCHEMA, definition, "schedule definition");
+    if (
+      validateScheduleDefinitionV1(JSON.parse(body)).length > 0 ||
+      canonicalJson(JSON.parse(body)) !== canonicalJson(definition)
+    )
+      throw new Error(`schedule ${schedule.scheduleId} migration did not produce its exact definition facet`);
+    const sha256 = sha256Text(body),
+      claim = legacy.claim
+        ? {
+            ...(event.payload as { readonly declarationDocumentClaim: Readonly<Record<string, unknown>> })
+              .declarationDocumentClaim,
+            sha256,
+            size: Buffer.byteLength(body),
+          }
+        : null,
+      payload = {
+        ...event.payload,
+        schedule,
+        ...(claim ? { declarationDocumentClaim: claim } : {}),
+      };
+    return {
+      event: { ...event, payload } as CanonicalEventV1,
+      blobs: claim ? [{ sha256, size: claim.size, mediaType: "application/json", body }] : [],
+      category: `schedule target fields dropped: ${removed.join(", ")}`,
+      before: { target, declarationDocumentClaim: legacy.claim },
+      after: { target: nextTarget, declarationDocumentClaim: claim },
+    };
+  },
+};
+
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "relation-events-migrate": relationEventsMigration,
   "decision-digests-migrate": decisionDigestsMigration,
+  "schedule-definitions-migrate": scheduleDefinitionsMigration,
 };
 
 export async function runEventShapeMigration(
@@ -199,6 +297,10 @@ export async function runEventShapeMigration(
   for (const rewrite of rewrites) {
     const target = ledgerGitPath(ledger, eventObjectRelativePath(rewrite.event.opId, eventLayout));
     additional.set(target, { target, body: serializePersistedCanonicalEvent(rewrite.event), mode: "100644" });
+    for (const blob of rewrite.blobs ?? []) {
+      const blobTarget = ledgerGitPath(ledger, contentObjectRelativePath(blob.sha256, eventLayout));
+      additional.set(blobTarget, { target: blobTarget, body: blob.body, mode: "100644" });
+    }
   }
   const marker: MigrationImportEventV1 = {
     schema: "migration-import-event/v1",
@@ -262,7 +364,8 @@ function replayRewrites(
 ): readonly EventShapeRewrite[] {
   const rewrites: EventShapeRewrite[] = [],
     scratchPath = path.join(tmpdir(), `ha-${spec.name}-${process.pid}-${Date.now()}.sqlite`),
-    pending: CanonicalEventV1[] = [];
+    pending: CanonicalEventV1[] = [],
+    syntheticBlobs = new Map<string, Uint8Array>();
   let cap = 0,
     cursor: string | null = null,
     exhausted = false,
@@ -306,6 +409,7 @@ function replayRewrites(
             const rewrite = migration.rewrite(current, projection!);
             if (rewrite === null) continue;
             if (migration === spec) rewrites.push(rewrite);
+            for (const blob of rewrite.blobs ?? []) syntheticBlobs.set(blob.sha256, Buffer.from(blob.body));
             current = rewrite.event;
           }
           return current;
@@ -316,10 +420,16 @@ function replayRewrites(
         cursor: null,
         done: true,
         accessedItems: events.length,
-        ...(prefetchContent ? { prefetchContent } : {}),
+        prefetchContent: (replay: readonly CanonicalEventV1[]) => {
+          const persisted = replay.filter((event) =>
+              contentClaims(event).every((claim) => !syntheticBlobs.has(claim.sha256)),
+            ),
+            content = new Map([...(prefetchContent?.(persisted) ?? []), ...syntheticBlobs]);
+          return content;
+        },
       };
     },
-    readContentBlob: (sha256: string) => input.store.readContentBlob(sha256),
+    readContentBlob: (sha256: string) => syntheticBlobs.get(sha256) ?? input.store.readContentBlob(sha256),
   };
   projection = makeTaskProjection({
     rootDir: input.rootDir,

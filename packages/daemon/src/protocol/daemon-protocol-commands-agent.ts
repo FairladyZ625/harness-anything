@@ -152,6 +152,16 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
   defineLedgerWriteCommand({
+    id: "schedule-definitions-migrate",
+    phase: "Migration-A",
+    path: ["migrate", "schedule-definitions"],
+    summary:
+      "Upcast historical schedule declarations to the current target shape and restamp their content claims. " +
+      "Stop daemon writers first; --dry-run reports the rewrites.",
+    method: "repo.task.run",
+    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
+  }),
+  defineLedgerWriteCommand({
     id: "dispatch-records-migrate",
     phase: "Migration-A",
     path: ["migrate", "dispatch-records"],

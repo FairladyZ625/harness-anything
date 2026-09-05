@@ -43,6 +43,7 @@ const repositoryWriteActions = Object.freeze([
   "preset-upgrade",
   "projection-rebuild",
   "relation-events-migrate",
+  "schedule-definitions-migrate",
   "runtime-batch",
   "runtime-cancel",
   "runtime-instance-login",
