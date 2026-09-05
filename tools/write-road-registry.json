@@ -67,6 +67,7 @@
     "packages/daemon/src/repo-cell-lock.ts",
     "packages/daemon/src/request-log.ts",
     "packages/daemon/src/runtime.ts",
+    "packages/daemon/src/runtime-callback-relay.ts",
     "packages/daemon/src/schedule-occurrence-workspace.ts",
     "packages/daemon/src/transport/unix-socket.ts",
     "packages/daemon/src/writer-epoch.ts",
