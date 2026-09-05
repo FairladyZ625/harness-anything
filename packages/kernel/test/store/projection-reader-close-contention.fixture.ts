@@ -1,9 +1,16 @@
+import { renameSync } from "node:fs";
+import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
-import { makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
+import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { closeDatabase, withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
+import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
+import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
 
 interface WorkerInput {
-  readonly role: "reader" | "writer";
+  readonly role: "reader" | "rebuilder" | "writer";
   readonly rootDir: string;
   readonly projectionPath: string;
   readonly start: SharedArrayBuffer;
@@ -25,7 +32,8 @@ const input = workerData as WorkerInput,
 
 try {
   if (input.role === "writer") runWriter();
-  else runReader();
+  else if (input.role === "reader") runReader();
+  else runRebuilder();
 } catch (error) {
   parentPort!.postMessage({ ok: false, role: input.role, error: sqliteFailure(error) });
 }
@@ -72,6 +80,90 @@ function runReader(): void {
     parentPort!.postMessage({ ok: false, role: "reader", samples, error: sqliteFailure(error) });
   } finally {
     reader.close();
+  }
+}
+
+function runRebuilder(): void {
+  const ownerAStore = fixtureEventStore(),
+    ownerA = makeTaskProjection({
+      rootDir: input.rootDir,
+      projectionPath: input.projectionPath,
+      eventStore: ownerAStore,
+    });
+  ownerA.catchUp();
+  let warmHandle: DatabaseSync | null = null;
+  withDatabase(input.projectionPath, ownerAStore.readHead, (db) => {
+    warmHandle = db;
+    db.exec("CREATE TABLE warm_owner_marker(value TEXT NOT NULL)");
+  });
+
+  const ownerB = makeTaskProjection({
+      rootDir: input.rootDir,
+      projectionPath: input.projectionPath,
+      eventStore: fixtureEventStore(),
+    }),
+    rebuilt = ownerB.rebuild(),
+    staleHandleClosed = databaseIsClosed(warmHandle!),
+    cold = makeTaskProjection({
+      rootDir: input.rootDir,
+      projectionPath: path.join(input.rootDir, ".harness/cache/cold-task.sqlite"),
+      eventStore: fixtureEventStore(),
+    }),
+    coldRebuilt = cold.rebuild();
+  cold.close();
+  ownerB.close();
+
+  let replacedHandle: typeof warmHandle = null;
+  withDatabase(input.projectionPath, ownerAStore.readHead, (db) => {
+    replacedHandle = db;
+    db.exec("CREATE TABLE warm_owner_marker(value TEXT NOT NULL); PRAGMA wal_checkpoint(TRUNCATE)");
+  });
+  renameSync(cold.path, input.projectionPath);
+  const reopened = withDatabase(input.projectionPath, ownerAStore.readHead, (db) => {
+    const marker = db
+        .prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'warm_owner_marker'")
+        .get() as { readonly count: number },
+      digest = db.prepare("SELECT state_digest FROM projection_meta WHERE singleton = 1").get() as {
+        readonly state_digest: string | null;
+      };
+    return { sameHandle: db === replacedHandle, markerPresent: marker.count > 0, stateDigest: digest.state_digest };
+  });
+  ownerA.close();
+  parentPort!.postMessage({
+    ok: true,
+    role: "rebuilder",
+    staleHandleClosed,
+    rebuiltDigest: rebuilt.stateDigest,
+    coldDigest: coldRebuilt.stateDigest,
+    reopenedSameHandle: reopened.sameHandle,
+    markerPresent: reopened.markerPresent,
+    reopenedDigest: reopened.stateDigest,
+  });
+}
+
+function fixtureEventStore(): EventStreamPort {
+  const event = lifecycleFixture().events[0]!,
+    eventDigest = `sha256:${sha256Text(serializeCanonicalEvent(event))}` as const;
+  return {
+    readHead: () => ({ revision: event.workspaceRevision, eventDigest }),
+    readBatch: () => ({
+      sourceRevision: event.workspaceRevision,
+      events: [event],
+      cursor: null,
+      done: true,
+      accessedItems: 1,
+      prefetchContent: () => new Map(),
+    }),
+    readContentBlob: () => null,
+  };
+}
+
+function databaseIsClosed(db: DatabaseSync): boolean {
+  try {
+    db.exec("SELECT 1");
+    return false;
+  } catch {
+    return true;
   }
 }
 

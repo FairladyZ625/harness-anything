@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import path from "node:path";
 import { Worker } from "node:worker_threads";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -7,8 +8,14 @@ import { withTempStoreAsync } from "./helpers.ts";
 
 interface WorkerResult {
   readonly ok: boolean;
-  readonly role: "reader" | "writer";
+  readonly role: "reader" | "rebuilder" | "writer";
   readonly samples?: number;
+  readonly staleHandleClosed?: boolean;
+  readonly rebuiltDigest?: string;
+  readonly coldDigest?: string;
+  readonly reopenedSameHandle?: boolean;
+  readonly markerPresent?: boolean;
+  readonly reopenedDigest?: string | null;
   readonly error?: {
     readonly code: string | null;
     readonly errcode: number | null;
@@ -65,6 +72,26 @@ test("a persistent writer owner keeps query-only readers on the completed cut af
       [],
       `query-only reader failures: ${JSON.stringify(readerResults)}`,
     );
+  });
+});
+
+test("a warm writer owner cannot starve rebuild and reopens after the database identity changes", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const result = await startWorker({
+      role: "rebuilder",
+      rootDir,
+      projectionPath: path.join(rootDir, ".harness/cache/task.sqlite"),
+      start: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      stop: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+      rows: 0,
+      payloadBytes: 0,
+    }).result;
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.staleHandleClosed, true, "rebuild must close every warm owner before discard");
+    assert.equal(result.rebuiltDigest, result.coldDigest, "warm-owner rebuild must match a cold rebuild");
+    assert.equal(result.reopenedSameHandle, false, "file replacement must initialize a new DatabaseSync handle");
+    assert.equal(result.markerPresent, false, "the reopened owner must not read the unlinked database");
+    assert.equal(result.reopenedDigest, result.rebuiltDigest);
   });
 });
 
