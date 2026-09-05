@@ -81,6 +81,7 @@ export function cliInputHelp(input: CliInputFacet): string {
   if (input.enum) facts.push(`values: ${input.enum.join(", ")}`);
   if (input.jsonFields) facts.push(`JSON required fields: ${input.jsonFields.join(", ") || "none"}`);
   if (input.jsonAllowedFields) facts.push(`JSON accepted fields: ${input.jsonAllowedFields.join(", ")}`);
+  if (input.jsonDefaultFields) facts.push(`JSON defaulted fields: ${input.jsonDefaultFields.join(", ")}`);
   if (input.jsonEnums)
     facts.push(
       `JSON values: ${Object.entries(input.jsonEnums)
@@ -158,18 +159,28 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),
   defineHostAdminCommand = defineTopologyCommand(hostAdminCommandTopology);
 
-export const decisionProposalJsonFields = Object.freeze([
+export const decisionProposalRequiredJsonFields = Object.freeze([
   "title",
   "question",
   "riskTier",
   "urgency",
-  "vertical",
-  "preset",
   "decisionClass",
-  "appliesTo",
   "chosen",
   "rejected",
   "claims",
+] as const);
+export const decisionProposalDefaultJsonFields = Object.freeze([
+  "vertical (repository defaultVertical)",
+  "preset (decision-conformance)",
+  "appliesTo (empty scope)",
+  "fulfillments (empty array)",
+  "relations (empty array)",
+] as const);
+export const decisionProposalJsonFields = Object.freeze([
+  ...decisionProposalRequiredJsonFields,
+  "vertical",
+  "preset",
+  "appliesTo",
   "fulfillments",
 ] as const);
 

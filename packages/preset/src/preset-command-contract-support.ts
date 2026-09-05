@@ -20,6 +20,7 @@ export interface CliInputFacet {
   readonly error: CliInputError;
   readonly jsonFields?: readonly string[];
   readonly jsonAllowedFields?: readonly string[];
+  readonly jsonDefaultFields?: readonly string[];
   readonly jsonEnums?: Readonly<Record<string, readonly string[]>>;
   readonly format?: string;
   readonly minLength?: number;

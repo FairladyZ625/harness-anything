@@ -16,32 +16,44 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
 
-export function packetJson(value: unknown, fields: readonly string[], entity = "JSON packet"): Record<string, unknown> {
+export function packetJson(
+  value: unknown,
+  fields: readonly string[],
+  entity = "JSON packet",
+  defaults: Readonly<Record<string, unknown>> = {},
+  allowedFields = fields,
+): { readonly value: Record<string, unknown>; readonly defaultedFields: readonly string[] } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(requiredCellText(value, "jsonInput"));
   } catch {
     throw cellCodedError(
       "invalid_command",
-      `Structured input must be one UTF-8 JSON object with exactly these required fields: ${fields.join(", ")}.`,
+      `Structured input must be one UTF-8 JSON object with required fields: ${fields.join(", ")}.`,
     );
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
+    throw cellCodedError(
+      "invalid_command",
+      `JSON packet requires an object with required fields: ${fields.join(", ")}.`,
+    );
   const packet = parsed as Record<string, unknown>,
     present = Object.keys(packet),
-    missing = fields.filter((field) => !present.includes(field));
+    missing = fields.filter((field) => !present.includes(field)),
+    defaultedDescription = Object.keys(defaults).join(", ") || "none";
   if (missing.length)
     throw cellCodedError("missing_field", `JSON packet is missing required fields: ${missing.join(", ")}.`, {
       kind: "validation",
       entity,
       field: missing[0]!,
       actual: "missing",
-      expectation: `Required fields: ${fields.join(", ")}`,
+      expectation: `Required fields: ${fields.join(", ")}; defaulted when omitted: ${defaultedDescription}`,
     });
-  if (present.sort().join("\0") !== [...fields].sort().join("\0"))
-    throw cellCodedError("invalid_command", `JSON packet requires exactly: ${fields.join(", ")}.`);
-  return packet;
+  const allowed = [...allowedFields, ...Object.keys(defaults)];
+  if (present.some((field) => !allowed.includes(field)))
+    throw cellCodedError("invalid_command", `JSON packet accepts only: ${allowed.join(", ")}.`);
+  const defaultedFields = Object.keys(defaults).filter((field) => !Object.hasOwn(packet, field));
+  return { value: { ...defaults, ...packet }, defaultedFields };
 }
 
 export function workspaceText(rootDir: string, requestedValue: unknown, field: string): string {
@@ -66,14 +78,19 @@ export function packetRecord(
   action: Readonly<Record<string, unknown>>,
   fields: readonly string[],
   entity?: string,
+  defaults?: Readonly<Record<string, unknown>>,
+  allowedFields?: readonly string[],
 ): {
   readonly value: Record<string, unknown>;
   readonly digest: `sha256:${string}`;
+  readonly defaultedFields: readonly string[];
 } {
   const body = readPacketSource(rootDir, action);
+  const parsed = packetJson(body, fields, entity, defaults, allowedFields);
   return {
-    value: packetJson(body, fields, entity),
+    value: parsed.value,
     digest: packetDigest(body),
+    defaultedFields: parsed.defaultedFields,
   };
 }
 

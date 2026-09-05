@@ -1,6 +1,8 @@
 import {
   cliInput,
+  decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
+  decisionProposalRequiredJsonFields,
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
   defineRepoReadCommand,
@@ -69,7 +71,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
-          jsonFields: decisionProposalJsonFields,
+          jsonFields: decisionProposalRequiredJsonFields,
+          jsonAllowedFields: decisionProposalJsonFields,
+          jsonDefaultFields: decisionProposalDefaultJsonFields,
           conflictsWith: ["--json-input"],
         },
       ),
@@ -81,7 +85,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
-          jsonFields: decisionProposalJsonFields,
+          jsonFields: decisionProposalRequiredJsonFields,
+          jsonAllowedFields: decisionProposalJsonFields,
+          jsonDefaultFields: decisionProposalDefaultJsonFields,
           format: "<json|@->",
           conflictsWith: ["--from-file"],
         },
