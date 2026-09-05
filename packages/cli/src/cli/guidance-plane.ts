@@ -164,6 +164,7 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
   if (code === "squad_leader_failed" && leader && leader.code !== "unknown")
     return { code, hint: renderTemplate("failure", "squad-leader", leader) };
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
+  if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,
     declaredGuidance = renderReceiptGuidance(receipt),

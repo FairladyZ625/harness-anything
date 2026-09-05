@@ -160,7 +160,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   if (command.method.startsWith("daemon.runtimeInstance.")) {
@@ -178,7 +178,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   const fleetSchedule = await fleetScheduleRoute(command, env);
@@ -196,7 +196,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   const fleetRuntime = await fleetRuntimeRoute(command, env);
@@ -214,7 +214,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   const fleetTask = await fleetTaskRoute(command, env);
@@ -232,7 +232,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   const fleetDoc = await fleetDocRoute(command, env);
@@ -250,7 +250,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir },
+      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId },
     );
   }
   const target = {
@@ -273,7 +273,13 @@ export async function runCommandThroughDaemon(
     request,
     () => cliDaemonServeLaunch(target.userRoot, target.daemonId),
     target.socketPath,
-    { autostart, env, invokingRoot: command.rootDir },
+    {
+      autostart,
+      env,
+      invokingRoot: command.rootDir,
+      userRoot: target.userRoot,
+      daemonId: target.daemonId,
+    },
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
   if (command.action.kind !== "preset-run-start") return result;

@@ -35,6 +35,10 @@ export interface DaemonStartProgress {
   readonly fingerprint: string;
   readonly message: string;
 }
+export interface DaemonGenerationWaitResult {
+  readonly ok: boolean;
+  readonly waitedMs: number;
+}
 export class DaemonAutostartError extends Error {
   readonly code: DaemonAutostartFailureCode;
   readonly attempts: number;
@@ -95,6 +99,7 @@ export async function ensureLocalDaemonRunning(input: {
   readonly probe?: (socketPath: string) => Promise<boolean>;
   readonly spawnDetached?: (launch: DaemonLaunchSpec) => Promise<void>;
   readonly onProgress?: (progress: DaemonStartProgress) => void;
+  readonly extendTimeoutWhileProgressing?: boolean;
 }): Promise<DaemonAutostartResult> {
   const readyTimeoutMs = input.readyTimeoutMs ?? 10_000,
     probeIntervalMs = input.probeIntervalMs ?? 50;
@@ -142,7 +147,7 @@ export async function ensureLocalDaemonRunning(input: {
     }
     const startedAt = Date.now(),
       quietDeadline = startedAt + readyTimeoutMs,
-      progressDeadline = startedAt + readyTimeoutMs * 6;
+      progressDeadline = startedAt + readyTimeoutMs * (input.extendTimeoutWhileProgressing === false ? 1 : 6);
     for (;;) {
       if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: spawned ? 1 : 0 };
       const progress = readDaemonStartProgress(launched, Date.now() - startedAt);
@@ -182,6 +187,21 @@ export async function ensureLocalDaemonRunning(input: {
       launched ? daemonLaunchOutputPath(launched) : "the daemon lifecycle log"
     }.`,
   };
+}
+export async function waitForDaemonGenerationChange(input: {
+  readonly previousPid: number | null;
+  readonly readPid: () => number | null;
+  readonly timeoutMs: number;
+  readonly pollIntervalMs?: number;
+}): Promise<DaemonGenerationWaitResult> {
+  const startedAt = Date.now(),
+    deadline = startedAt + input.timeoutMs,
+    pollIntervalMs = input.pollIntervalMs ?? 50;
+  for (;;) {
+    if (input.readPid() !== input.previousPid) return { ok: true, waitedMs: Date.now() - startedAt };
+    if (Date.now() >= deadline) return { ok: false, waitedMs: Date.now() - startedAt };
+    await delay(pollIntervalMs);
+  }
 }
 /** Where a launched daemon's fatal stdout/stderr lands; the hint the user is told to inspect. */
 export function daemonLaunchOutputPath(launch: DaemonLaunchSpec): string | undefined {
