@@ -28,6 +28,19 @@ export interface VerticalDeclarationDocumentV1 {
   readonly definition: VerticalDefinition;
 }
 
+export interface VerticalDeclarationReadV1 {
+  readonly schema: "repository-vertical-declaration-read/v1";
+  readonly declarationRevision: number;
+  readonly declaration: VerticalDefinition;
+}
+
+export const VERTICAL_DECLARATION_READ_SCHEMA = Object.freeze({
+  id: "repository-vertical-declaration-read/v1",
+  required: Object.freeze(["schema", "declarationRevision", "declaration"]),
+});
+
+export class VerticalDeclarationReadContractError extends Error {}
+
 export type VerticalDeclarationEventType = "vertical_declared" | "vertical_kind_upserted" | "vertical_kind_retired";
 
 export type VerticalDeclarationEventV1 = EventEnvelope<
@@ -161,6 +174,32 @@ export function parseVerticalDeclarationDocument(value: unknown): VerticalDeclar
     revision: Number(value.revision),
     definition: decodeVerticalDefinition(value.definition),
   };
+}
+
+export function buildVerticalDeclarationRead(document: VerticalDeclarationDocumentV1): VerticalDeclarationReadV1 {
+  return {
+    schema: "repository-vertical-declaration-read/v1",
+    declarationRevision: document.revision,
+    declaration: document.definition,
+  };
+}
+
+export function validateVerticalDeclarationRead(value: unknown): readonly string[] {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).length !== 3 ||
+    value.schema !== "repository-vertical-declaration-read/v1" ||
+    !Number.isSafeInteger(value.declarationRevision) ||
+    Number(value.declarationRevision) < 1
+  )
+    return ["repository vertical declaration read envelope is invalid"];
+  try {
+    decodeVerticalDefinition(value.declaration);
+    return [];
+  } catch (error) {
+    void error;
+    return ["repository vertical declaration read declaration is invalid"];
+  }
 }
 
 export function validateVerticalDeclarationEvent(value: unknown): readonly string[] {

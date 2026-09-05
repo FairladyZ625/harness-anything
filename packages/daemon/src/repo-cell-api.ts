@@ -1,10 +1,14 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   assertCurrentWriter,
+  buildVerticalDeclarationRead,
   buildEntityKindCatalog,
   deriveUseCaseProjectionInputs,
   durablePolicyActions,
   getExecutableEntityAction,
   projectDecisionReadiness,
+  parseVerticalDeclarationDocument,
   relationDirections,
   relationStates,
   relationTypes,
@@ -449,6 +453,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
+    "repo.vertical.declaration.read": () =>
+      buildVerticalDeclarationRead(
+        parseVerticalDeclarationDocument(
+          JSON.parse(readFileSync(path.join(context.rootDir, "harness", "vertical.json"), "utf8")),
+        ),
+      ),
     "repo.entity.kinds.read": () => {
       const vertical = canonicalVertical(context.rootDir, context.input.repoId);
       return buildEntityKindCatalog(vertical.contract.artifactKinds, vertical.revision);

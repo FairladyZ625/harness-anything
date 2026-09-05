@@ -8,6 +8,9 @@ import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "
 import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
 import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 test("repository vertical migration, upsert conflict, and retirement share one revisioned declaration", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-declaration-")),
@@ -96,6 +99,40 @@ test("repository vertical migration, upsert conflict, and retirement share one r
     assert.equal(retiredRow?.origin, "vertical");
   } finally {
     projection.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("declaration read round-trips every materialized kind field through unchanged upsert", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-declaration-read-")),
+    repoId = workspaceId("vertical-declaration-read"),
+    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "vertical-read-center" });
+    const read = await cell.read("repo.vertical.declaration.read", {}, binding),
+      materialized = JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")) as {
+        revision: number;
+        definition: typeof read.declaration;
+      };
+    assert.equal(read.declarationRevision, materialized.revision);
+    assert.deepEqual(read.declaration, materialized.definition);
+    const declaration = read.declaration.entityKinds.find(({ entityType }) => entityType === "artifact");
+    assert.ok(declaration);
+    const receipt = await cell.run(
+      {
+        kind: "vertical-kind-upsert",
+        kindId: declaration.id,
+        declaration,
+        expectedVersion: read.declarationRevision,
+      },
+      binding,
+    );
+    assert.equal(receipt.outcome, "no_changes", JSON.stringify(receipt));
+    assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")), materialized);
+  } finally {
+    await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

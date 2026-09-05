@@ -31,8 +31,14 @@ export async function runVerticalDeclarationAction(input: {
     });
   const nextRevision = (input.store.readHead()?.revision ?? 0) + 1,
     occurredAt = input.now(),
-    result = candidate(input.action, current, occurredAt),
-    bundle = compileVerticalDeclarationEvent({
+    result = candidate(input.action, current, occurredAt);
+  if (current && JSON.stringify(result.definition) === JSON.stringify(current.definition))
+    return noChanges({
+      opId: `vertical-declaration-unchanged-${current.revision}`,
+      revision: current.revision,
+      evidence: JSON.stringify({ schema: "vertical-declaration-result/v1", idempotent: true }),
+    });
+  const bundle = compileVerticalDeclarationEvent({
       type: result.type,
       definition: result.definition,
       ...(result.kindId ? { kindId: result.kindId } : {}),

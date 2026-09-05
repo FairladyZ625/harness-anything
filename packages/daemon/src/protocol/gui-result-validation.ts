@@ -12,6 +12,7 @@ import {
   validateEntityActionExplanationSet,
   validateEntityKindCatalog,
   validateSettingsV1,
+  validateVerticalDeclarationRead,
 } from "../../../kernel/src/index.ts";
 import {
   validateAgentEntityCatalog,
@@ -97,6 +98,7 @@ const resultValidators = {
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.entity.kinds.read": validateEntityKindCatalog,
+  "repo.vertical.declaration.read": validateVerticalDeclarationRead,
   "repo.entity.rows.read": validateEntityRowList,
   "repo.entity.locator.read": validateEntityLocatorRead,
   "repo.settings.read": validateDaemonSettingsRead,

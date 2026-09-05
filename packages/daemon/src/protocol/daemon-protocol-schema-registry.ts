@@ -17,6 +17,7 @@ import {
   DAEMON_DOCUMENT_READ_SCHEMA,
   DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA,
   DAEMON_ENTITY_KIND_CATALOG_SCHEMA,
+  DAEMON_VERTICAL_DECLARATION_READ_SCHEMA,
   DAEMON_ENTITY_ROW_LIST_SCHEMA,
   DAEMON_ENTITY_LOCATOR_READ_SCHEMA,
   DAEMON_OBSERVE_TAIL_SCHEMA,
@@ -46,6 +47,16 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: DAEMON_VERTICAL_DECLARATION_READ_SCHEMA.id,
+    schema: "packages/kernel/src/domain/vertical-declaration.ts#VERTICAL_DECLARATION_READ_SCHEMA",
+    parser: "packages/kernel/src/domain/vertical-declaration.ts#validateVerticalDeclarationRead",
+    writer: "packages/kernel/src/domain/vertical-declaration.ts#buildVerticalDeclarationRead",
+    error: "packages/kernel/src/domain/vertical-declaration.ts#VerticalDeclarationReadContractError",
+    negativeFixtures: Object.freeze([
+      "packages/daemon/fixtures/contracts/repository-vertical-declaration-read-invalid.json",
+    ]),
+  },
   {
     id: DAEMON_ENTITY_ACTION_EXPLANATION_SCHEMA.id,
     schema: "packages/kernel/src/domain/entity-action-explanation.ts#ENTITY_ACTION_EXPLANATION_SCHEMA",

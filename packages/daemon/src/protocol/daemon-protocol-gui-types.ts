@@ -13,6 +13,7 @@ import type {
   SettingsV1,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
+  VerticalDefinition,
 } from "../../../kernel/src/index.ts";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
 import type {
@@ -331,6 +332,11 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.projection.read": DaemonUseCaseProjectionResult;
   readonly "repo.entity.actions.explain": EntityActionExplanationSetV1;
   readonly "repo.entity.kinds.read": EntityKindCatalogV1;
+  readonly "repo.vertical.declaration.read": {
+    readonly schema: "repository-vertical-declaration-read/v1";
+    readonly declarationRevision: number;
+    readonly declaration: VerticalDefinition;
+  };
   readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.settings.read": {
@@ -395,6 +401,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly refs: readonly string[];
   };
   readonly "repo.entity.kinds.read": Readonly<Record<string, never>>;
+  readonly "repo.vertical.declaration.read": Readonly<Record<string, never>>;
   readonly "repo.entity.rows.read": Readonly<Record<string, never>>;
   readonly "repo.entity.locator.read": { readonly locatorKind: string; readonly locatorValue: string };
   readonly "repo.settings.read": Readonly<Record<string, never>>;

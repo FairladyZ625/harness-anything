@@ -244,8 +244,9 @@ test("locator read serves repo files and directories and refuses to escape the r
   }
 });
 
-test("the three entity read methods are registered on the closed GUI read surface", () => {
+test("vertical declaration and entity reads are registered on the closed GUI read surface", () => {
   for (const [method, id, bridge] of [
+    ["repo.vertical.declaration.read", "vertical.declaration.read", "readVerticalDeclaration"],
     ["repo.entity.kinds.read", "entity.kinds.read", "readEntityKinds"],
     ["repo.entity.rows.read", "entity.rows.read", "readEntityRows"],
     ["repo.entity.locator.read", "entity.locator.read", "readEntityLocator"],
@@ -257,6 +258,7 @@ test("the three entity read methods are registered on the closed GUI read surfac
     assert.equal(entry.commandClass, "repo-read");
     assert.equal(entry.requiresRepo, true);
   }
+  validateDaemonRpcCall("repo.vertical.declaration.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.kinds.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.rows.read", { repo: { repoId: "canonical" } });
   validateDaemonRpcCall("repo.entity.locator.read", {
