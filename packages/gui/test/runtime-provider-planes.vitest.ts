@@ -131,8 +131,16 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsEffort("codex")).toBe(true);
     expect(planeAllowsPermissions("codex")).toBe(true);
   });
+  it("gives zcode a login-only plane whose model is pinned by its own config, not by an API override", () => {
+    expect(planeAuthModes("zcode")).toEqual(["subscription"]);
+    expect(planeUsesApiOverride("zcode")).toBe(false);
+    expect(planeAllowsBaseUrl("zcode", "subscription")).toBe(false);
+    expect(planeAllowsApiKey("zcode", "api-key")).toBe(false);
+    expect(planeAllowsEffort("zcode")).toBe(false);
+    expect(planeAllowsPermissions("zcode")).toBe(true);
+  });
   it("covers every runtime kind the contract accepts", () => {
-    expect([...RUNTIME_KIND_IDS].sort()).toEqual(["agy", "claude", "codex"]);
+    expect([...RUNTIME_KIND_IDS].sort()).toEqual(["agy", "claude", "codex", "zcode"]);
   });
   it("clears every field the new plane cannot express when the provider changes", () => {
     const configured = applyRuntimeAuthMode(
