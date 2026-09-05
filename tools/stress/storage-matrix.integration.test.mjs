@@ -102,7 +102,16 @@ async function runWholeCommandIdentity(root) {
       spawnCapture(process.execPath, [boundaryFixture, "sqlite-command", databasePath, repoId]),
     ),
   );
-  assert.ok(clients.every(({ code, signal }) => code === 0 && signal === null));
+  const failedClients = clients
+    .map((client, index) => ({ index, ...client }))
+    .filter(({ code, signal }) => code !== 0 || signal !== null);
+  assert.equal(
+    failedClients.length,
+    0,
+    `F03 clients exited abnormally: ${JSON.stringify(
+      failedClients.map(({ index, code, signal, stderr }) => ({ index, code, signal, stderr: stderr.slice(-2000) })),
+    )}`,
+  );
   const frames = clients.map(({ stdout }) => JSON.parse(stdout.trim()));
   assert.ok(
     frames.every(({ status }) => status === "ok"),
