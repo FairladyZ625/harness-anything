@@ -13,6 +13,24 @@ import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, guiAction, guiS3Action } from "./dae
  */
 export const entityImportGuiActions = Object.freeze([
   guiAction(
+    "vertical.kind.upsert",
+    "repo.vertical.kind.upsert",
+    "vertical-kind-upsert",
+    shape({ kindId: "string", declaration: "json", expectedVersion: "number" }),
+    "upsertVerticalKind",
+    "/api/vertical/kinds/upsert",
+    "repo-write",
+  ),
+  guiAction(
+    "vertical.kind.retire",
+    "repo.vertical.kind.retire",
+    "vertical-kind-retire",
+    shape({ kindId: "string", expectedVersion: "number" }),
+    "retireVerticalKind",
+    "/api/vertical/kinds/retire",
+    "repo-write",
+  ),
+  guiAction(
     "entity.import",
     "repo.entity.import",
     "entity-import",

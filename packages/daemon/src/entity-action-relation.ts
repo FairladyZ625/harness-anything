@@ -18,6 +18,8 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 type ExecutableRelationAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 
 export function executeRelationAction(input: {
+  readonly rootDir: string;
+  readonly repositoryId: string;
   readonly contract: ExecutableRelationAction;
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
@@ -70,7 +72,7 @@ export function executeRelationAction(input: {
           workspaceRevision: headRevision + 1,
           priorTargetVersion: current?.targetObservedVersion ?? null,
           currentTargetVersion: target?.currentVersion ?? null,
-          relationDirections: relationDirectionRegistry(),
+          relationDirections: relationDirectionRegistry(input.rootDir, input.repositoryId),
         }),
     compiled = replay ?? (draft?.kind === "relation" ? draft.event : null);
   if (!compiled || !isRelationEvent(compiled))

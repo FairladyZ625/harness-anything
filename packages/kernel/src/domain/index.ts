@@ -263,6 +263,13 @@ export {
 } from "./settings.ts";
 export type { RepositorySettingsV1, SettingsLocale, SettingsV1 } from "./settings.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
+export {
+  applyVerticalKindCommand,
+  compileVerticalDeclarationEvent,
+  parseVerticalDeclarationDocument,
+} from "./vertical-declaration.ts";
+export { decodeVerticalDefinition } from "../schemas/vertical-definition.ts";
+export type { VerticalDefinition } from "../schemas/vertical-definition.ts";
 export { settingsActionLocale } from "./settings-action-contract.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
 export {

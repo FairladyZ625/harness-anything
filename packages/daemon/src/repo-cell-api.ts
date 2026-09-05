@@ -449,10 +449,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
-    "repo.entity.kinds.read": () => buildEntityKindCatalog(compiledArtifactKinds()),
+    "repo.entity.kinds.read": () =>
+      buildEntityKindCatalog(compiledArtifactKinds(context.rootDir, context.input.repoId)),
     "repo.entity.rows.read": () =>
       readDeclaredEntityRows({
-        catalog: buildEntityKindCatalog(compiledArtifactKinds()),
+        catalog: buildEntityKindCatalog(compiledArtifactKinds(context.rootDir, context.input.repoId)),
         projection: context.projection,
         runtimeInstances: context.input.runtimeInstances ?? (() => []),
       }),

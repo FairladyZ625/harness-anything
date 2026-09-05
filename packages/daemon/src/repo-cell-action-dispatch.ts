@@ -25,12 +25,22 @@ import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
+import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
+  if (["vertical-declaration-migrate", "vertical-kind-upsert", "vertical-kind-retire"].includes(action.kind))
+    return runVerticalDeclarationAction({
+      action,
+      binding,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
+    });
   if (action.kind === "ci-observe-pull") return pullAndIngestCiObservations(cell, action, binding);
   if (action.kind === "migrate-import")
     return runMigrationImport({

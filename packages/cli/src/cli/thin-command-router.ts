@@ -52,6 +52,10 @@ export function parseRouted(
         })
       : rejected(f.code, f.nextAction, json);
   }
+  if (route.id === "vertical-declaration-migrate")
+    return args.length === 2
+      ? accepted(rootDir, repoId, json, { kind: "vertical-declaration-migrate" })
+      : rejected("unknown_field", "ha migrate vertical-declaration takes no options.", json);
   if (route.id === "entity-migrate-squads")
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (
