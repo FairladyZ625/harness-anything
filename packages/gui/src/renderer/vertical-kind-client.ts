@@ -60,7 +60,7 @@ export async function upsertVerticalKind(
     throw new Error("store.pathTemplate 不可修改：既有实体文档依赖这个路径。");
   const channel = bridge().upsertVerticalKind;
   if (!channel) throw new Error("Vertical kind upsert bridge is unavailable.");
-  return mutationResult(
+  return verticalKindMutationResult(
     channel({
       repoId,
       kindId: declaration.id,
@@ -78,10 +78,10 @@ export async function retireVerticalKind(
 ): Promise<GuiActionResult> {
   const channel = bridge().retireVerticalKind;
   if (!channel) throw new Error("Vertical kind retire bridge is unavailable.");
-  return mutationResult(channel({ repoId, kindId, reason, expectedVersion: read.declarationRevision }));
+  return verticalKindMutationResult(channel({ repoId, kindId, reason, expectedVersion: read.declarationRevision }));
 }
 
-async function mutationResult(request: Promise<unknown>): Promise<GuiActionResult> {
+async function verticalKindMutationResult(request: Promise<unknown>): Promise<GuiActionResult> {
   const value = await request;
   if (!isRendererRecord(value) || value.schema !== "command-receipt/v2" || typeof value.outcome !== "string")
     throw new Error(rendererErrorHint(value, "Vertical kind mutation returned an invalid result."));

@@ -38,26 +38,30 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
   try {
     declaration = JSON.parse(readFileSync(file, "utf8"));
   } catch (error) {
-    return rejected(command, "invalid_field", `--from-file could not be read as JSON: ${errorText(error)}`);
+    return rejectedReceipt(command, "invalid_field", `--from-file could not be read as JSON: ${errorText(error)}`);
   }
-  if (!isRecord(declaration) || declaration.entityType !== "artifact" || typeof declaration.id !== "string")
-    return rejected(command, "invalid_field", "--from-file must contain one complete Artifact kind declaration.");
+  if (!isJsonRecord(declaration) || declaration.entityType !== "artifact" || typeof declaration.id !== "string")
+    return rejectedReceipt(
+      command,
+      "invalid_field",
+      "--from-file must contain one complete Artifact kind declaration.",
+    );
   const existing = current.declaration.entityKinds.find(
-    (candidate) => isRecord(candidate) && candidate.id === declaration.id,
+    (candidate) => isJsonRecord(candidate) && candidate.id === declaration.id,
   );
-  if (isRecord(existing)) {
+  if (isJsonRecord(existing)) {
     if (existing.idPrefix !== declaration.idPrefix)
-      return rejected(
+      return rejectedReceipt(
         command,
         "destructive_kind_change",
         "idPrefix is immutable because existing entity ids depend on it.",
       );
     if (
-      isRecord(existing.store) &&
-      isRecord(declaration.store) &&
+      isJsonRecord(existing.store) &&
+      isJsonRecord(declaration.store) &&
       existing.store.pathTemplate !== declaration.store.pathTemplate
     )
-      return rejected(
+      return rejectedReceipt(
         command,
         "destructive_kind_change",
         "store.pathTemplate is immutable because existing entity documents depend on it.",
@@ -76,15 +80,15 @@ export async function runVerticalKindFacadeCommand(command: ThinCommand): Promis
 
 function isDeclarationRead(value: unknown): value is DeclarationRead {
   return (
-    isRecord(value) &&
+    isJsonRecord(value) &&
     value.schema === "repository-vertical-declaration-read/v1" &&
     Number.isSafeInteger(value.declarationRevision) &&
-    isRecord(value.declaration) &&
+    isJsonRecord(value.declaration) &&
     Array.isArray(value.declaration.entityKinds)
   );
 }
 
-function rejected(command: ThinCommand, code: string, nextAction: string): JsonObject {
+function rejectedReceipt(command: ThinCommand, code: string, nextAction: string): JsonObject {
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -96,7 +100,7 @@ function rejected(command: ThinCommand, code: string, nextAction: string): JsonO
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
