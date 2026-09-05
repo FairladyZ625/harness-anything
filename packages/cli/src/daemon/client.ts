@@ -160,7 +160,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory: "operation" },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
     );
   }
   if (command.method.startsWith("daemon.runtimeInstance.")) {
@@ -178,14 +178,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      {
-        autostart,
-        env,
-        invokingRoot: command.rootDir,
-        userRoot,
-        daemonId,
-        commandCategory: daemonCommandCategory(command.method),
-      },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId),
     );
   }
   const fleetSchedule = await fleetScheduleRoute(command, env);
@@ -203,7 +196,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory: "operation" },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
     );
   }
   const fleetRuntime = await fleetRuntimeRoute(command, env);
@@ -221,7 +214,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory: "operation" },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
     );
   }
   const fleetTask = await fleetTaskRoute(command, env);
@@ -239,7 +232,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory: "operation" },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
     );
   }
   const fleetDoc = await fleetDocRoute(command, env);
@@ -257,14 +250,7 @@ export async function runCommandThroughDaemon(
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
-      {
-        autostart,
-        env,
-        invokingRoot: command.rootDir,
-        userRoot,
-        daemonId,
-        commandCategory: daemonCommandCategory(fleetDoc.method),
-      },
+      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, daemonCommandCategory(fleetDoc.method)),
     );
   }
   const target = {
@@ -287,14 +273,7 @@ export async function runCommandThroughDaemon(
     request,
     () => cliDaemonServeLaunch(target.userRoot, target.daemonId),
     target.socketPath,
-    {
-      autostart,
-      env,
-      invokingRoot: command.rootDir,
-      userRoot: target.userRoot,
-      daemonId: target.daemonId,
-      commandCategory: daemonCommandCategory(command.method),
-    },
+    daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId),
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
   if (command.action.kind !== "preset-run-start") return result;
@@ -351,6 +330,17 @@ export async function runCommandThroughDaemon(
 
 function daemonCommandCategory(method: string): "operation" | "daemon-lifecycle" {
   return method === "daemon.stop" || method === "daemon.status" ? "daemon-lifecycle" : "operation";
+}
+
+function daemonAutostartOptions(
+  command: ThinCommand,
+  autostart: boolean,
+  env: NodeJS.ProcessEnv,
+  userRoot: string,
+  daemonId: string,
+  commandCategory = daemonCommandCategory(command.method),
+): Parameters<typeof withAutostart>[3] {
+  return { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory };
 }
 
 function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {
