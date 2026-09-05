@@ -483,25 +483,7 @@ export function launchNative(
     }),
   );
   child.unref();
-  if (!persistence.callbackRelay) return observed;
-  const cleanupRelay = (): void => removeRuntimeCallbackRelay(persistence.rootDir, persistence.dispatchId);
-  return {
-    ...observed,
-    terminate: () => {
-      observed.terminate();
-      cleanupRelay();
-    },
-    terminateTree: async () => {
-      try {
-        await observed.terminateTree?.();
-      } finally {
-        cleanupRelay();
-      }
-    },
-    release: () => {
-      observed.release?.();
-    },
-  };
+  return observed;
 }
 
 export function adoptNativeProcess(
@@ -588,8 +570,17 @@ function observeDispatchProcess(
       exitListener = listener;
       if (exited) queueMicrotask(() => listener(exitCode));
     },
-    terminate: () => terminateRuntimePid(pid),
-    terminateTree: () => terminateRuntimeTree(rootDir, dispatchId, pid),
+    terminate: () => {
+      terminateRuntimePid(pid);
+      removeRuntimeCallbackRelay(rootDir, dispatchId);
+    },
+    terminateTree: async () => {
+      try {
+        await terminateRuntimeTree(rootDir, dispatchId, pid);
+      } finally {
+        removeRuntimeCallbackRelay(rootDir, dispatchId);
+      }
+    },
     release: () => {
       released = true;
       clearInterval(timer);
