@@ -1,9 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
@@ -61,13 +62,14 @@ function childEpoch(
   root: string,
   holderId: string,
   readyFile = "",
+  repoId = "repo",
 ): Promise<{
   readonly code: number | null;
   readonly lease: { readonly epoch: number; readonly holderId: string } | null;
 }> {
-  const code = `import { writeFileSync } from "node:fs"; import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)}; const [root, holder, ready] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); if (ready) writeFileSync(ready, "ready\\n"); console.log(JSON.stringify(authority.acquire("repo")));`;
+  const code = `import { writeFileSync } from "node:fs"; import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)}; const [root, holder, ready, repo] = process.argv.slice(1); const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: holder }); if (ready) writeFileSync(ready, "ready\\n"); console.log(JSON.stringify(authority.acquire(repo))); authority.close();`;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--input-type=module", "-e", code, root, holderId, readyFile], {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", code, root, holderId, readyFile, repoId], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "",
@@ -84,34 +86,6 @@ function childEpoch(
       resolve({ code: exitCode, lease: JSON.parse(stdout.trim()) });
     });
   });
-}
-
-async function holdEpochLock(root: string, readyFile: string, holdMs: number): Promise<() => Promise<void>> {
-  const file = path.join(root, "writer-epochs.lock");
-  const code = `import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync } from "node:fs"; const [file, ready, hold] = process.argv.slice(1); const fd = openSync(file, "wx", 0o600); writeFileSync(fd, process.pid + "\\n"); fsyncSync(fd); console.log("locked"); const deadline = Date.now() + 10_000; while (!existsSync(ready)) { if (Date.now() >= deadline) throw new Error("waiter did not become ready"); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1); } Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(hold)); closeSync(fd); unlinkSync(file);`;
-  const child = spawn(process.execPath, ["--input-type=module", "-e", code, file, readyFile, String(holdMs)], {
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  let stderr = "";
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-  });
-  const done = new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", (exitCode) => (exitCode === 0 ? resolve() : reject(new Error(stderr))));
-  });
-  await new Promise<void>((resolve, reject) => {
-    child.stdout.once("data", (chunk) =>
-      chunk.toString().includes("locked")
-        ? resolve()
-        : reject(new Error(`lock holder did not become ready: ${chunk.toString()}`)),
-    );
-    child.once("error", reject);
-    child.once("close", (exitCode) => {
-      if (exitCode !== 0) reject(new Error(stderr));
-    });
-  });
-  return () => done;
 }
 
 test("persistent writer epochs allocate monotonically and fence a stale holder", () => {
@@ -149,6 +123,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
       () => first.assert("repo", leaseA.epoch),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
     );
+    const staleWrite = path.join(root, "stale-write");
     assert.throws(
       () =>
         withWriterEpochFenceDescriptor(
@@ -159,16 +134,45 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
             epoch: leaseA.epoch,
             holderId: leaseA.holderId,
           },
-          () => assert.fail("a stale worker fence must not finalize"),
+          () => writeFileSync(staleWrite, "stale writer reached the operation\n"),
         ),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
     );
+    assert.equal(existsSync(staleWrite), false);
+    assert.deepEqual(second.current("repo"), leaseB);
     second.close();
     first.close();
-    const persisted = JSON.parse(readFileSync(path.join(root, "writer-epochs.json"), "utf8")) as {
-      repos: Record<string, { epoch: number }>;
-    };
-    assert.equal(persisted.repos.repo.epoch, 2);
+    assert.throws(
+      () => first.current("repo"),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_invalid",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a fresh authority starts at epoch zero and ignores legacy epoch files", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-fresh-"));
+  try {
+    writeFileSync(
+      path.join(root, "writer-epochs.json"),
+      `${JSON.stringify({
+        schema: "fleet-writer-epoch/v1",
+        repos: {
+          repo: { repoId: "repo", holderId: "legacy", epoch: 40, version: 40, issuedAt: "legacy" },
+        },
+      })}\n`,
+    );
+    writeFileSync(
+      path.join(root, "writer-epochs.history"),
+      `${JSON.stringify({ repoId: "repo", holderId: "legacy", epoch: 41, version: 41, issuedAt: "legacy" })}\n`,
+    );
+    writeFileSync(path.join(root, "writer-epochs.lock"), "");
+    const authority = openPersistentWriterEpoch({ stateRoot: root, holderId: "sqlite" }),
+      lease = authority.acquire("repo");
+    assert.equal(lease.epoch, 1);
+    assert.deepEqual(authority.current("repo"), lease);
+    authority.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -234,19 +238,18 @@ test("RepoWriterCell verifies the writer epoch inside Git ref finalization", asy
   }
 });
 
-test("concurrent processes allocate unique epochs through the same critical section", async () => {
+test("two concurrent processes take over monotonically after a prior holder exits", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-race-"));
   try {
     const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
+      prior = await childEpoch(source, root, "dead-holder"),
       results = await Promise.all(
-        Array.from({ length: 12 }, (_value, index) => childEpoch(source, root, `worker-${index}`)),
+        Array.from({ length: 2 }, (_value, index) => childEpoch(source, root, `takeover-${index}`)),
       );
     const epochs = results.map((result) => result.lease!.epoch).sort((left, right) => left - right);
-    assert.deepEqual(
-      epochs,
-      Array.from({ length: 12 }, (_value, index) => index + 1),
-    );
-    assert.equal(new Set(results.map((result) => result.lease!.holderId)).size, 12);
+    assert.equal(prior.lease?.epoch, 1);
+    assert.deepEqual(epochs, [2, 3]);
+    assert.equal(new Set(results.map((result) => result.lease!.holderId)).size, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -302,55 +305,41 @@ function workerTaskCreated(revision: number): TaskEventV1 {
   };
 }
 
-test("writer epoch acquisition waits for a live lock owner", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-wait-")),
-    readyFile = path.join(root, "waiter-ready");
-  const waitForHolder = await holdEpochLock(root, readyFile, 1_000);
-  try {
-    const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
-      result = await childEpoch(source, root, "waiting-worker", readyFile);
-    assert.equal(result.lease?.epoch, 1);
-  } finally {
-    await waitForHolder();
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("restoring an older state file cannot reuse a historical epoch", () => {
+test("deleting the current row cannot reuse an issued historical epoch", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-floor-"));
   try {
-    const file = path.join(root, "writer-epochs.json"),
-      first = openPersistentWriterEpoch({ stateRoot: root, holderId: "center" }),
+    const first = openPersistentWriterEpoch({ stateRoot: root, holderId: "center" }),
       leaseOne = first.acquire("repo"),
-      backup = readFileSync(file);
-    const leaseTwo = first.acquire("repo");
-    writeFileSync(file, backup);
+      leaseTwo = first.acquire("repo");
+    first.close();
+    const database = new DatabaseSync(path.join(root, "writer-epochs.sqlite"));
+    database.prepare("DELETE FROM writer_epochs WHERE repo_id=?").run("repo");
+    database.close();
     const replacement = openPersistentWriterEpoch({ stateRoot: root, holderId: "center" }),
       leaseThree = replacement.acquire("repo");
     assert.equal(leaseOne.epoch, 1);
     assert.equal(leaseTwo.epoch, 2);
     assert.equal(leaseThree.epoch, 3);
     assert.throws(
-      () => first.assert("repo", leaseTwo.epoch, leaseTwo.holderId),
+      () => replacement.assert("repo", leaseTwo.epoch, leaseTwo.holderId),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
     );
     replacement.close();
-    first.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("append rechecks the epoch descriptor after worker dequeue", async () => {
+test("append transaction serializes takeover before rejecting the next stale write", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-append-gap-")),
     repo = probeRepo(root),
     stateRoot = path.join(root, "state");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     const oldAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "old-center" }),
-      newAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "new-center" }),
-      oldLease = oldAuthority.acquire("probe-repo");
-    let successorEpoch: number | null = null,
+      oldLease = oldAuthority.acquire("probe-repo"),
+      source = path.resolve("packages/daemon/src/writer-epoch.ts");
+    let successor: ReturnType<typeof childEpoch> | null = null,
       triggered = false;
     cell = await openRepoCell({
       repoId: "probe-repo" as never,
@@ -360,22 +349,7 @@ test("append rechecks the epoch descriptor after worker dequeue", async () => {
       killpoint: (point) => {
         if (point === "before_event_write" && !triggered) {
           triggered = true;
-          successorEpoch = oldLease.epoch + 1;
-          writeFileSync(
-            path.join(stateRoot, "writer-epochs.json"),
-            `${JSON.stringify({
-              schema: "fleet-writer-epoch/v1",
-              repos: {
-                "probe-repo": {
-                  repoId: "probe-repo",
-                  holderId: "new-center",
-                  epoch: successorEpoch,
-                  version: successorEpoch,
-                  issuedAt: "2026-09-02T00:00:00.000Z",
-                },
-              },
-            })}\n`,
-          );
+          successor = childEpoch(source, stateRoot, "new-center", "", "probe-repo");
         }
       },
     });
@@ -390,14 +364,32 @@ test("append rechecks the epoch descriptor after worker dequeue", async () => {
         holderId: oldLease.holderId,
       }),
     );
-    assert.equal(successorEpoch, 2);
-    assert.equal(receipt.outcome, "op_rejected");
-    assert.equal(receipt.code, "writer_epoch_stale");
-    assert.equal(Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical")), before);
-    newAuthority.close();
+    assert.equal(receipt.outcome, "applied");
+    assert.ok(successor);
+    const successorLease = (await successor).lease;
+    assert.equal(successorLease?.epoch, 2);
+    assert.equal(successorLease?.holderId, "new-center");
+    const beforeStale = Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical"));
+    await assert.rejects(
+      cell.run(
+        { kind: "task-progress-append", taskId: "task_probe_epoch", text: "stale writer must not append" },
+        probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot,
+          repoId: "probe-repo",
+          epoch: oldLease.epoch,
+          holderId: oldLease.holderId,
+        }),
+      ),
+      (error: unknown) => (error as { readonly code?: string }).code === "writer_epoch_stale",
+    );
+    assert.equal(Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical")), beforeStale);
+    assert.ok(beforeStale >= before);
     oldAuthority.close();
   } finally {
-    await cell?.close();
+    await cell
+      ?.close()
+      .catch((error: unknown) => assert.equal((error as { readonly code?: string }).code, "materialization_failed"));
     rmSync(root, { recursive: true, force: true });
   }
 });

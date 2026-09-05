@@ -916,16 +916,18 @@ test("fleet runtime waits over five seconds for every configured overview page",
       };
     },
   };
-  const center = await listenFleetTls({
-    host: slowHost,
-    stateRoot: path.join(fixture.root, "slow-runtime-center"),
-    key: fixture.key,
-    cert: fixture.cert,
-    replicaDiskQuotaBytes: replicaQuota,
-    authenticate: (nodeId, credential) => nodeId === fixture.assignment.nodeId && credential === "machine-secret",
-    resolveAssignment: (assignmentId) => (assignmentId === fixture.assignment.assignmentId ? fixture.assignment : null),
-  });
-  t.after(() => center.close());
+  const center = await fixture.hold(
+    listenFleetTls({
+      host: slowHost,
+      stateRoot: path.join(fixture.root, "slow-runtime-center"),
+      key: fixture.key,
+      cert: fixture.cert,
+      replicaDiskQuotaBytes: replicaQuota,
+      authenticate: (nodeId, credential) => nodeId === fixture.assignment.nodeId && credential === "machine-secret",
+      resolveAssignment: (assignmentId) =>
+        assignmentId === fixture.assignment.assignmentId ? fixture.assignment : null,
+    }),
+  );
   const workspaceRoot = path.join(fixture.root, "slow-runtime-edge"),
     viewRoot = path.join(fixture.root, "slow-runtime-view");
   mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
@@ -978,7 +980,7 @@ test("fleet runtime waits over five seconds for every configured overview page",
       },
     },
   });
-  t.after(() => runtime.close());
+  fixture.track(() => void runtime.close());
   const overview = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
   assert.equal((overview.sessions as readonly unknown[]).length, 1);
   assert.deepEqual(pagePayloads.slice(0, 2), [{ limit: 16 }, { limit: 16, cursor: "slow-page:16" }]);
@@ -1338,6 +1340,7 @@ async function fleetFixture(paths: readonly string[] = ["tasks/task-fleet-fleet/
     certFile,
     emptyPath,
     track: owned.track,
+    hold: owned.hold,
     setActive: (value: boolean) => {
       nodeActive = value;
     },
@@ -1515,6 +1518,7 @@ async function crossRepoFixture() {
     assignments,
     path: pathValue,
     track: owned.track,
+    hold: owned.hold,
     center: () =>
       owned.hold(
         listenFleetTls({

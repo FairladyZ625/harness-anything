@@ -21,14 +21,16 @@ const state = JSON.parse(readFileSync("/data/shared/testbed-state.json", "utf8")
 const roster = readFleetRosterFile(state.fleet.rosterPath);
 const assignment = roster.assignments.find((entry) => entry.nodeId === "edge-1");
 const taskId = process.env.TESTBED_EPOCH_TASK_ID;
-if (!assignment || typeof taskId !== "string" || taskId.length === 0) throw new Error("epoch smoke needs the edge-1 assignment and TESTBED_EPOCH_TASK_ID");
+if (!assignment || typeof taskId !== "string" || taskId.length === 0)
+  throw new Error("epoch smoke needs the edge-1 assignment and TESTBED_EPOCH_TASK_ID");
 
 const credentials = new Map(roster.nodes.map((node) => [node.nodeId, node.credential]));
 const cert = readFileSync(state.fleet.certPath);
 const epochAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "testbed-fencing-candidate" });
 const successor = epochAuthority.acquire(state.repoId);
 
-const git = (...args) => execFileSync("git", ["-C", path.join(workspace, "harness"), ...args], { encoding: "utf8" }).trim();
+const git = (...args) =>
+  execFileSync("git", ["-C", path.join(workspace, "harness"), ...args], { encoding: "utf8" }).trim();
 const commitsBefore = Number(git("rev-list", "--count", "refs/ha/canonical"));
 const peer = {
   ca: cert.toString("utf8"),
@@ -38,22 +40,26 @@ const peer = {
   assignmentId: assignment.assignmentId,
   repoId: state.repoId,
   taskId,
-  waitMs: 5_000
+  waitMs: 5_000,
 };
 const stale = await runFleetTaskCommandClient({
   ...peer,
   hostname: "127.0.0.1",
   port: state.fleet.port,
   opId: `epoch-fence-stale-${Date.now()}`,
-  action: { kind: "task-progress-append", taskId, text: "stale center must produce zero writes" }
+  action: { kind: "task-progress-append", taskId, text: "stale center must produce zero writes" },
 });
-if (stale.outcome !== "op_rejected" || stale.code !== "writer_epoch_stale") throw new Error(`stale center was not fenced: ${JSON.stringify(stale)}`);
+if (stale.outcome !== "op_rejected" || stale.code !== "writer_epoch_stale")
+  throw new Error(`stale center was not fenced: ${JSON.stringify(stale)}`);
 const commitsAfterStale = Number(git("rev-list", "--count", "refs/ha/canonical"));
-if (commitsAfterStale !== commitsBefore) throw new Error(`stale center appended ${commitsAfterStale - commitsBefore} canonical commits`);
+if (commitsAfterStale !== commitsBefore)
+  throw new Error(`stale center appended ${commitsAfterStale - commitsBefore} canonical commits`);
 
-const durable = JSON.parse(readFileSync(path.join(stateRoot, "writer-epochs.json"), "utf8"));
-const row = durable.repos[state.repoId];
-if (!row || row.epoch !== successor.epoch || row.holderId !== successor.holderId) throw new Error(`writer epoch did not persist the successor allocation: ${JSON.stringify(durable)}`);
+const row = epochAuthority.current(state.repoId);
+if (!row || row.epoch !== successor.epoch || row.holderId !== successor.holderId)
+  throw new Error(`writer epoch did not persist the successor allocation: ${JSON.stringify(row)}`);
 
 epochAuthority.close();
-console.log(`TESTBED EPOCH FENCING PASS: candidate epoch ${row.epoch} fenced the stale center with zero canonical writes`);
+console.log(
+  `TESTBED EPOCH FENCING PASS: candidate epoch ${row.epoch} fenced the stale center with zero canonical writes`,
+);
