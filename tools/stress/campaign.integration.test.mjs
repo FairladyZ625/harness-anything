@@ -325,8 +325,10 @@ async function runCoreFixture(targetRoot, controllerRoot) {
   });
   otherRepo.close();
   const input = {
+    authority: "sqlite",
     receiptLog: receiptLogValue,
-    cut,
+    canonicalCut: cut,
+    sqliteCut: cut,
     content: {
       claims: [{ acceptedOpId: eventOne.opId, sha256: blobHash, size: Buffer.byteLength(blobBody) }],
       objects: { [blobHash]: { bytesBase64: Buffer.from(blobBytes).toString("base64") } },
@@ -343,7 +345,14 @@ async function runCoreFixture(targetRoot, controllerRoot) {
       ],
       streams: { "wal/seg-000000.log": { bytesBase64: segmentBytes.toString("base64") } },
     },
-    projection: {
+    canonicalProjection: {
+      hotRows,
+      rebuildRows,
+      apiRows,
+      hotLeaseGuards: hotGuards,
+      rebuildLeaseGuards: rebuildGuards,
+    },
+    sqliteProjection: {
       hotRows,
       rebuildRows,
       apiRows,

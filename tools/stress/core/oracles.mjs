@@ -3,9 +3,9 @@
  *
  * Exports oracleO1..oracleO8, runOracles(input), and
  * runOracleNegativeControls(input). Every oracle is pure: callers freeze the
- * receipt log and target cut before invoking it. PASS is impossible when the
- * controller log is incomplete, a watchdog fired, or required evidence is
- * absent.
+ * receipt log and both authority cuts before invoking it. PASS is impossible
+ * when the controller log is incomplete, a watchdog fired, or required
+ * evidence is absent.
  */
 import { createHash } from "node:crypto";
 import { classifyReceiptLog } from "./receipt-log.mjs";
@@ -15,26 +15,27 @@ const fail = (id, violations) => result(id, "FAIL", violations);
 
 export function oracleO1(input) {
   const id = "O1";
+  const cut = authorityCut(input);
   const classified = classifyReceiptLog(input.receiptLog);
   if (!classified.complete) return result(id, "INCOMPLETE", classified.errors);
   const violations = [];
   for (const pair of classified.accepted) {
-    const outcome = outcomeFor(input.cut, pair.request.opId);
-    if (outcome?.status !== "accepted_durable")
+    const outcome = outcomeFor(cut, pair.request.opId);
+    if (input.authority === "sqlite" && outcome?.status !== "accepted_durable")
       violations.push(`accepted request ${pair.request.requestId} is absent from the frozen cut`);
-    checkExpectedCommand(input.cut, pair.request, true, violations);
+    checkExpectedCommand(cut, pair.request, true, violations);
   }
   for (const pair of classified.rejected) {
-    const outcome = outcomeFor(input.cut, pair.request.opId);
+    const outcome = outcomeFor(cut, pair.request.opId);
     if (outcome && outcome.intentDigest === pair.request.intentDigest && outcome.status !== "rejected")
       violations.push(`rejected request ${pair.request.requestId} has an accepted outcome`);
-    checkExpectedCommand(input.cut, pair.request, false, violations);
+    checkExpectedCommand(cut, pair.request, false, violations);
   }
   for (const pair of classified.unacknowledged) {
-    const matching = expectedEvents(input.cut, pair.request);
+    const matching = expectedEvents(cut, pair.request);
     if (matching.length !== 0 && matching.length !== pair.request.expectedEvents.length)
       violations.push(`unacknowledged request ${pair.request.requestId} is only partly present`);
-    const outcome = outcomeFor(input.cut, pair.request.opId);
+    const outcome = outcomeFor(cut, pair.request.opId);
     if (outcome && outcome.status !== "accepted_durable")
       violations.push(`unacknowledged request ${pair.request.requestId} has events without a durable outcome`);
   }
@@ -43,22 +44,25 @@ export function oracleO1(input) {
 
 export function oracleO2(input) {
   const id = "O2";
+  const cut = authorityCut(input);
   const violations = [];
-  const revisions = input.cut.events.map((event) => event.workspaceRevision);
+  const revisions = cut.events.map((event) => event.workspaceRevision);
   if (new Set(revisions).size !== revisions.length) violations.push("event revisions are not unique");
   for (const [index, revision] of [...revisions].sort((left, right) => left - right).entries())
     if (revision !== index + 1) violations.push(`event revision ${revision} does not equal ${index + 1}`);
-  if (input.cut.revision !== revisions.length)
-    violations.push(`ledger head ${input.cut.revision} does not equal event count ${revisions.length}`);
-  const eventOpIds = input.cut.events.map((event) => event.opId);
-  if (new Set(eventOpIds).size !== eventOpIds.length) violations.push("event opIds are not unique");
-  const outcomeOpIds = input.cut.outcomes.map((outcome) => outcome.opId);
+  if (cut.revision !== revisions.length)
+    violations.push(`ledger head ${cut.revision} does not equal event count ${revisions.length}`);
+  const outcomeOpIds = cut.outcomes.map((outcome) => outcome.opId);
   if (new Set(outcomeOpIds).size !== outcomeOpIds.length) violations.push("command outcomes are not unique");
 
   const classified = classifyReceiptLog(input.receiptLog);
   if (!classified.complete) return result(id, "INCOMPLETE", classified.errors);
   for (const pair of [...classified.accepted, ...classified.rejected]) {
-    const outcome = outcomeFor(input.cut, pair.request.opId);
+    if (input.authority === "canonical") {
+      checkExpectedCommand(cut, pair.request, pair.receipt.status === "accepted_durable", violations);
+      continue;
+    }
+    const outcome = outcomeFor(cut, pair.request.opId);
     if (!outcome) {
       violations.push(`terminal request ${pair.request.requestId} has no command outcome`);
       continue;
@@ -66,7 +70,7 @@ export function oracleO2(input) {
     if (pair.receipt.status === "accepted_durable") {
       if (outcome.intentDigest !== pair.request.intentDigest)
         violations.push(`outcome intent differs for ${pair.request.requestId}`);
-      validateAcceptedRange(input.cut, outcome, pair.request, violations);
+      validateAcceptedRange(cut, outcome, pair.request, violations);
     } else if (outcome.intentDigest === pair.request.intentDigest) {
       if (outcome.status !== "rejected") violations.push(`rejected command ${pair.request.requestId} was accepted`);
       if (outcome.firstRevision !== null || outcome.lastRevision !== null)
@@ -125,11 +129,11 @@ export function oracleO4(input) {
 
 export function oracleO5(input) {
   const id = "O5";
-  if (!input.projection) return result(id, "INCOMPLETE", ["projection evidence is missing"]);
+  const projection = authorityProjection(input);
   const violations = [];
-  compareRows("hot projection", input.projection.hotRows, "strict rebuild", input.projection.rebuildRows, violations);
-  compareRows("hot projection", input.projection.hotRows, "API rows", input.projection.apiRows, violations);
-  if (stable(input.projection.hotLeaseGuards) !== stable(input.projection.rebuildLeaseGuards))
+  compareRows("hot projection", projection.hotRows, "strict rebuild", projection.rebuildRows, violations);
+  compareRows("hot projection", projection.hotRows, "API rows", projection.apiRows, violations);
+  if (stable(projection.hotLeaseGuards) !== stable(projection.rebuildLeaseGuards))
     violations.push("derived lease guards differ after strict rebuild");
   return violations.length ? fail(id, violations) : pass(id);
 }
@@ -162,10 +166,12 @@ export function oracleO6(input) {
 export function oracleO7(input) {
   const id = "O7";
   if (!input.recovery) return result(id, "INCOMPLETE", ["cold recovery evidence is missing"]);
+  const cut = authorityCut(input);
   const violations = [];
-  if (input.recovery.reconciliation?.matches !== true) violations.push("ledger reconciliation differs");
+  checkReconciliation(input, violations);
   if (input.recovery.sql?.integrity !== "ok") violations.push("SQLite integrity_check is not ok");
-  if (input.recovery.sql?.head !== input.cut.revision) violations.push("independent SQL head differs from the cut");
+  const expectedSqlHead = input.authority === "canonical" ? input.sqliteCut.revision : cut.revision;
+  if (input.recovery.sql?.head !== expectedSqlHead) violations.push("independent SQL head differs from the SQLite cut");
   if (input.recovery.objectsComplete !== true) violations.push("object closure is incomplete during recovery");
   if (stable(input.recovery.firstRebuild) !== stable(input.recovery.secondRebuild))
     violations.push("second cold rebuild differs from the first");
@@ -221,6 +227,44 @@ export function runOracleNegativeControls(input) {
 
 function result(id, verdict, violations) {
   return { id, verdict, violations };
+}
+
+function authorityCut(input) {
+  if (input.authority === "canonical") return requiredCut(input.canonicalCut, "canonical");
+  if (input.authority === "sqlite") return requiredCut(input.sqliteCut, "sqlite");
+  throw new Error('oracle authority must be "canonical" or "sqlite"');
+}
+
+function requiredCut(cut, authority) {
+  if (!cut || !Array.isArray(cut.events) || !Array.isArray(cut.outcomes))
+    throw new Error(`${authority} oracle cut is missing`);
+  return cut;
+}
+
+function authorityProjection(input) {
+  const projection = input.authority === "canonical" ? input.canonicalProjection : input.sqliteProjection;
+  if (!projection) throw new Error(`${input.authority} oracle projection is missing`);
+  return projection;
+}
+
+function checkReconciliation(input, violations) {
+  const reconciliation = input.recovery.reconciliation;
+  if (input.authority === "sqlite") {
+    if (reconciliation?.matches !== true) violations.push("ledger reconciliation differs");
+    return;
+  }
+  const lag = input.shadowLag;
+  if (!lag) {
+    if (reconciliation?.matches !== true) violations.push("unexpected SQLite shadow divergence");
+    return;
+  }
+  if (input.shadowFailureCause === "fence-unavailable")
+    violations.push("SQLite shadow append failed because its writer epoch fence was unavailable");
+  else if (input.shadowFailureCause !== "physical-io")
+    violations.push("SQLite shadow lag has an unknown failure cause");
+  if (reconciliation?.matches !== false) violations.push("SQLite shadow divergence was not detected");
+  if (reconciliation?.firstDivergentRevision !== lag.firstDivergentRevision)
+    violations.push("SQLite shadow divergence was detected at the wrong revision");
 }
 
 function expectedEvents(cut, request) {
@@ -295,7 +339,7 @@ function control(id, oracleId, oracle, mutate) {
 }
 
 function mutateMissingEvent(input) {
-  input.cut.events.splice(0, 1);
+  authorityCut(input).events.splice(0, 1);
   return input;
 }
 
@@ -307,12 +351,13 @@ function mutateIncompleteLog(input) {
 }
 
 function mutateDuplicateRevision(input) {
-  input.cut.events[1].workspaceRevision = input.cut.events[0].workspaceRevision;
+  const cut = authorityCut(input);
+  cut.events[1].workspaceRevision = cut.events[0].workspaceRevision;
   return input;
 }
 
 function mutateDroppedOutcome(input) {
-  input.cut.outcomes.splice(0, 1);
+  authorityCut(input).outcomes.splice(0, 1);
   return input;
 }
 
@@ -327,7 +372,7 @@ function mutateMissingLog(input) {
 }
 
 function mutateWrongOwner(input) {
-  input.projection.rebuildRows[0].ownerId = "wrong-owner";
+  authorityProjection(input).rebuildRows[0].ownerId = "wrong-owner";
   return input;
 }
 
