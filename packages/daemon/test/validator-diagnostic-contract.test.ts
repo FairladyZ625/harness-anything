@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
 import {
+  makeDaemonCommandReceipt,
   daemonProtocolError,
   validateDaemonAgenda,
   validateDaemonDecisionList,
@@ -80,6 +81,20 @@ test("Squad migration wire input is limited to legacy source paths and dry-run",
     } as JsonObject).join("\n"),
     /action\.declaration.*not declared/u,
   );
+});
+
+test("an undeclared inner write outcome becomes a diagnostic rejection with its summary intact", () => {
+  const receipt = makeDaemonCommandReceipt("squad-run", {
+    outcome: "running",
+    opId: "op-squad-run",
+    summary: "squad-run debug-squad: squad_0123456789abcdef01234567",
+  });
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "write_rejected");
+  assert.equal(receipt.origin, "daemon");
+  assert.match(String(receipt.rejectionExplanation), /not a declared write outcome.*instead of retrying/iu);
+  assert.equal(receipt.summary, "squad-run debug-squad: squad_0123456789abcdef01234567");
 });
 
 const relationGraph = {

@@ -95,7 +95,27 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
       ...declared
     } = receipt as Readonly<Record<string, unknown>>,
     fields = Object.fromEntries(Object.entries(declared).filter(([, value]) => value !== undefined)),
+    knownOutcome = statusWord(receiptOutcomeWords, fields.outcome),
     ok = fields.outcome === "applied" || fields.outcome === "pending" || fields.outcome === "no_changes";
+  if (!knownOutcome) {
+    const wrappedSummary = nonEmpty(fields.summary)
+      ? String(fields.summary)
+      : `outcome=${String(fields.outcome ?? "missing")} code=${String(fields.code ?? "missing")}`;
+    return {
+      schema: "command-receipt/v2",
+      ok: false,
+      command,
+      ...fields,
+      outcome: "op_rejected",
+      code: "write_rejected",
+      origin: "daemon",
+      rejectionExplanation:
+        `The inner receipt outcome ${JSON.stringify(fields.outcome)} is not a declared write outcome; ` +
+        "inspect the producing action instead of retrying it.",
+      summary: wrappedSummary,
+      error: { code: "write_rejected" },
+    } as JsonObject;
+  }
   return {
     schema: "command-receipt/v2",
     ok,

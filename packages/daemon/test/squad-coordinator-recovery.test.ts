@@ -346,6 +346,57 @@ test("a malformed leader result re-asks the same leader session instead of faili
   });
 });
 
+test("a second Squad run for the same Task points to the active run without dispatching", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: null, leaderTurnBudget: 3 });
+    await assert.rejects(
+      fixture.coordinator.start(
+        {
+          squadId: "core-squad",
+          runtimeInstanceId: INSTANCE_ID,
+          taskId: TASK_ID,
+          cwd: { scope: "repo-root" },
+        },
+        { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "squad_run_active" &&
+        error.message.includes(SQUAD_RUN_ID),
+    );
+    assert.equal(fixture.spawns.length, 0);
+    assert.equal(fixture.reacquired(), 0);
+  });
+});
+
+test("a cancelled leader is immediately visible and settles cancellation for the whole Squad run", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "cancelled",
+      leaderTurnBudget: 3,
+      workers: [
+        {
+          workerId: "sol",
+          dispatchId: "dispatch_000000000000000000000002",
+          runtimeSessionId: "runtime-worker-sol",
+          outcome: null,
+        },
+      ],
+    });
+    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).status, "cancelled");
+
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    assert.equal(fixture.state().phase, "cancelled");
+    assert.deepEqual(
+      fixture.cancellations.map((payload) => payload.runtimeSessionId),
+      [LEADER_SESSION_ID, "runtime-worker-sol"],
+    );
+    assert.equal(fixture.spawns.length, 0, "leader cancellation must not enter the retry loop");
+  });
+});
+
 test("a failed leader runtime turn is recorded and re-asked instead of terminating the run", async () => {
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "failed", leaderTurnBudget: 3 });
@@ -546,7 +597,6 @@ test("squad cancel persists a terminal phase before stopping every member and re
       source: "local",
     });
 
-    assert.equal(receipt.ok, true);
     assert.equal(receipt.status, "cancelled");
     assert.equal(fixture.state().phase, "cancelled");
     assert.deepEqual(

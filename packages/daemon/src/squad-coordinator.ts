@@ -102,9 +102,18 @@ export function makeSquadCoordinator(input: {
   };
 }) {
   const start = async (action: JsonObject, binding: RuntimeBinding): Promise<JsonObject> => {
+    const taskId = requiredSquadText(action.taskId, "taskId"),
+      activeRun = readStates().find((state) => state.taskId === taskId && !terminal(state));
+    if (activeRun)
+      throw cellCriterionError(
+        "squad_run_active",
+        `Task ${taskId} already has active Squad run ${activeRun.squadRunId}.`,
+        "run",
+        "squad/task-run-available",
+        [`Run ha squad status ${activeRun.squadRunId}; cancel it before starting another Squad run for this Task.`],
+      );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      taskId = requiredSquadText(action.taskId, "taskId"),
       cwd = resolveCwd(input.rootDir, action.cwd),
       squad = squadForRun(squadId);
     let mission: string;
@@ -157,15 +166,10 @@ export function makeSquadCoordinator(input: {
     try {
       const running = await spawnLeader(state, { kind: "initial" });
       return {
-        schema: "command-receipt/v2",
-        ok: true,
-        command: "squad-run",
-        outcome: "running",
         squadRunId,
         leaderRuntimeSessionId: running.currentLeaderRuntimeSessionId,
-
+        status: "leader_running",
         summary: `squad-run ${squadId}: ${squadRunId}`,
-        exitCode: 0,
       };
     } catch (error) {
       const failed = revise(state, {
@@ -197,26 +201,17 @@ export function makeSquadCoordinator(input: {
       );
     if ("projectionState" in state)
       return {
-        schema: "command-receipt/v2",
-        ok: true,
-        command: "squad-status",
-        outcome: "applied",
         ...state,
         status: "invalid",
         summary: state.projectionError.hint,
         nextAction: state.projectionError.hint,
-        exitCode: 0,
       };
-    const detail = statusDto(state);
+    const detail = statusDto(state),
+      phase = visiblePhase(state);
     return {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "squad-status",
-      outcome: "applied",
       ...detail,
-      status: state.phase,
-      summary: `squad-run ${state.squadId}: ${state.phase}`,
-      exitCode: 0,
+      status: phase,
+      summary: `squad-run ${state.squadId}: ${phase}`,
     };
   };
 
@@ -274,15 +269,9 @@ export function makeSquadCoordinator(input: {
         [`Retry ha squad cancel ${squadRunId}; already-cancelled runtimes are idempotent.`],
       );
     return {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "squad-cancel",
-      outcome: "applied",
       squadRunId,
       status: "cancelled",
       summary: `squad-run ${state.squadId}: cancelled`,
-
-      exitCode: 0,
     };
   };
 
@@ -423,6 +412,10 @@ export function makeSquadCoordinator(input: {
     const row = dispatchRows(state).find((dispatch) => dispatch.runtimeSessionId === runtimeSessionId),
       turn = state.leaderTurns.find((candidate) => candidate.runtimeSessionId === runtimeSessionId);
     if (!turn) return;
+    if (row?.outcome === "cancelled") {
+      await cancel(state.squadRunId, state.binding);
+      return;
+    }
     if (!row || row.outcome !== "succeeded") {
       await retryLeader(
         state,
@@ -897,7 +890,7 @@ export function makeSquadCoordinator(input: {
         squadId: state.squadId,
         taskId: state.taskId,
         mission: state.mission,
-        phase: state.phase,
+        phase: visiblePhase(state),
         error: state.error,
         currentLeaderRuntimeSessionId: state.currentLeaderRuntimeSessionId,
         leaderTurns: state.leaderTurns.map((turn) => {
@@ -958,7 +951,7 @@ export function makeSquadCoordinator(input: {
       squadId: state.squadId,
       taskId: state.taskId,
       mission: state.mission,
-      phase: state.phase,
+      phase: visiblePhase(state),
       leaderTurnCount: state.leaderTurns.length,
       workerAttemptCount: state.workerAttempts.length,
       runningCount: sessions.filter((session) => runtimeSessionSemanticState(session) === "running").length,
@@ -969,6 +962,12 @@ export function makeSquadCoordinator(input: {
         ...sessions.map((session) => session.lastObservedAt),
       ]),
     };
+  }
+
+  function visiblePhase(state: SquadState): SquadRunPhase {
+    if (terminal(state) || state.currentLeaderRuntimeSessionId === null) return state.phase;
+    const leader = input.projection().readRuntimeSession(state.currentLeaderRuntimeSessionId);
+    return leader && runtimeSessionSemanticState(leader) === "cancelled" ? "cancelled" : state.phase;
   }
 
   return { start, status, cancel, list, read, observeOutcome, reconcile };
