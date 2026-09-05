@@ -57,11 +57,10 @@ export interface EventShapeRewrite {
 export type EventShapeCut = Pick<TaskProjection, "readEntityVersionWitness" | "readDecisionDocumentState">;
 export interface EventShapeMigrationSpec {
   readonly name: EventShapeMigrationName;
-  // Pure on the event: true for every event this migration may rewrite.
+  // Pure on the event: true for every event whose `rewrite` reads the cut. Only these are replayed
+  // one revision at a time; every other event is rewritten inside bulk rounds, so a rewrite may
+  // touch `cut` only when `matches` is true for that event.
   readonly matches: (event: CanonicalEventV1) => boolean;
-  // Override when matching rewrites do not read the projection cut and can stay in bulk rounds.
-  // Existing migrations default to `matches` so their cut semantics remain unchanged.
-  readonly requiresCut?: (event: CanonicalEventV1) => boolean;
   readonly rewrite: (event: CanonicalEventV1, cut: EventShapeCut) => EventShapeRewrite | null;
 }
 export interface EventShapeMigrationInput {
@@ -168,6 +167,10 @@ const decisionDigestsMigration: EventShapeMigrationSpec = {
   },
 };
 
+// This migration owns exactly one historical break: `spec.target.cwd` (removed in 272de6d16).
+// Any other field the current target schema does not declare is a new break that needs its own
+// migration, so it is reported instead of being silently absorbed here.
+const RETIRED_SCHEDULE_TARGET_FIELDS: ReadonlySet<string> = new Set(["cwd"]);
 const scheduleTargetFields = new Set(
   Object.keys(
     (
@@ -195,21 +198,27 @@ function legacyScheduleDefinition(event: CanonicalEventV1): {
     candidateClaim && typeof candidateClaim.sha256 === "string" && typeof candidateClaim.size === "number"
       ? (candidateClaim as { readonly sha256: string; readonly size: number })
       : null;
-  return Object.keys(target).some((field) => !scheduleTargetFields.has(field))
-    ? { schedule: schedule as never, claim }
-    : null;
+  const unknown = Object.keys(target).filter((field) => !scheduleTargetFields.has(field)),
+    foreign = unknown.filter((field) => !RETIRED_SCHEDULE_TARGET_FIELDS.has(field));
+  if (foreign.length > 0)
+    throw new Error(
+      `schedule ${schedule.scheduleId} target carries fields this migration does not own: ${foreign.join(", ")}`,
+    );
+  return unknown.length > 0 ? { schedule: schedule as never, claim } : null;
 }
 
 const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
   name: "schedule-definitions",
-  matches: (event) => legacyScheduleDefinition(event) !== null,
-  requiresCut: () => false,
+  // The rewrite never reads the cut, so every schedule event stays in bulk rounds.
+  matches: () => false,
   rewrite: (event) => {
     const legacy = legacyScheduleDefinition(event);
     if (legacy === null) return null;
     const target = legacy.schedule.spec.target,
-      removed = Object.keys(target).filter((field) => !scheduleTargetFields.has(field)),
-      nextTarget = Object.fromEntries(Object.entries(target).filter(([field]) => scheduleTargetFields.has(field))),
+      removed = Object.keys(target).filter((field) => RETIRED_SCHEDULE_TARGET_FIELDS.has(field)),
+      nextTarget = Object.fromEntries(
+        Object.entries(target).filter(([field]) => !RETIRED_SCHEDULE_TARGET_FIELDS.has(field)),
+      ),
       schedule = { ...legacy.schedule, spec: { ...legacy.schedule.spec, target: nextTarget } } as unknown as ScheduleV1,
       definition = scheduleDefinition(schedule),
       body = serializeEntityJsonSchema(SCHEDULE_DEFINITION_V1_SCHEMA, definition, "schedule definition");
@@ -383,9 +392,7 @@ function replayRewrites(
   const nextCap = (): number => {
     fill();
     if (pending.length === 0) return headRevision;
-    const candidate = pending.findIndex((event) =>
-        migrations.some((migration) => (migration.requiresCut ?? migration.matches)(event)),
-      ),
+    const candidate = pending.findIndex((event) => migrations.some((migration) => migration.matches(event))),
       count = candidate === 0 ? 1 : Math.min(candidate === -1 ? pending.length : candidate, BULK_ROUND_LIMIT);
     return pending[count - 1]!.workspaceRevision;
   };
