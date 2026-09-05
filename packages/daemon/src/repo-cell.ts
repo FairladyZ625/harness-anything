@@ -9,11 +9,14 @@ import {
   makeTaskEventStore,
   makeGitEventStore,
   makeTaskProjection,
+  openSqliteEventStore,
   localGitWorktreeSettlement,
   readSettingsFacet,
   resolveLedgerGitLayout,
   resolveHarnessLayout,
   runWalMaterializationRequest,
+  serializePersistedCanonicalEvent,
+  sha256Text,
   type ActorIdentity,
   type DaemonRepoMode,
   type DocSyncReceiptDetail,
@@ -145,7 +148,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   };
   const configPath = path.join(resolveHarnessLayout(context.rootDir).authoredRoot, "harness.yaml");
   configureLedgerMaintenance(context.rootDir);
-  const store = makeTaskEventStore({
+  const sqliteShadow = openSqliteEventStore({ repoId: context.input.repoId, rootInput: context.rootDir });
+  let store: ReturnType<typeof makeTaskEventStore>,
+    sqliteShadowGapWarned = false;
+  store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,
     authoredBranch: context.authoredBranch,
@@ -200,6 +206,56 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     rejectPreparedRecovery: context.mode === "remote-center",
     walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
   });
+  const appendWalStore = store.append,
+    shadowAccepted = (bundle: Parameters<typeof appendWalStore>[0]): void => {
+      const events = [...(bundle.preceding ?? []).map((preceding) => preceding.event), bundle.event],
+        nextRevision = sqliteShadow.revision() + 1;
+      if (nextRevision !== events[0]!.workspaceRevision) {
+        // Not seeded (or behind): skip this bundle only. Seeding is the explicit
+        // `ha migrate ledger --generation 1`; the next write after it follows again.
+        if (!sqliteShadowGapWarned)
+          console.warn(
+            `[sqlite-shadow] append skipped: generation 1 is unseeded at revision ${nextRevision - 1}; ` +
+              `next WAL bundle begins at revision ${events[0]!.workspaceRevision}`,
+          );
+        sqliteShadowGapWarned = true;
+        return;
+      }
+      const fence = context.activeWriterEpochFenceDescriptor;
+      if (!fence) throw new Error("writer epoch fence is unavailable for SQLite shadow append");
+      const sqliteFence = { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
+        eventBytes = events.map(serializePersistedCanonicalEvent);
+      sqliteShadow.appendCommand({
+        fence: sqliteFence,
+        intent: {
+          opId: bundle.event.opId,
+          intentDigest: `sha256:${sha256Text(JSON.stringify(eventBytes))}`,
+          summary: bundle.event.type,
+        },
+        events,
+      });
+    };
+  const drainWalStore = store.drain;
+  store = {
+    ...store,
+    append: (bundle, additionalFiles) => {
+      const receipt = appendWalStore(bundle, additionalFiles);
+      try {
+        shadowAccepted(bundle);
+      } catch (error) {
+        console.warn(`[sqlite-shadow] append failed: ${error instanceof Error ? error.message : String(error)}`);
+        consumeKnownError(error);
+      }
+      return receipt;
+    },
+    drain: async () => {
+      try {
+        await drainWalStore();
+      } finally {
+        sqliteShadow.close();
+      }
+    },
+  };
   try {
     context.input.onStoreOpened?.(store);
     context.input.onOpenProgress?.({

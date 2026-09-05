@@ -6,7 +6,6 @@ import {
   eventShapeMigrations,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
-  isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
@@ -17,7 +16,11 @@ import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts
 import { runMigrationImport } from "./migration-import.ts";
 import { runFactRekey } from "./fact-rekey.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
-import { runDispatchRecordMigrationAction, runEventShapeMigrationAction } from "./repo-cell-migration-actions.ts";
+import {
+  runDispatchRecordMigrationAction,
+  runEventShapeMigrationAction,
+  runLedgerMigrateAction,
+} from "./repo-cell-migration-actions.ts";
 import { runSquadEntityMigration } from "./squad-entity-migration.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
@@ -108,50 +111,7 @@ export async function executeAction(
           proof,
         };
   }
-  if (action.kind === "ledger-migrate") {
-    await cell.store.settlePendingMaterialization?.("layout migration");
-    const appended = cell.store.migrateLayout({
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: cell.now(),
-    });
-    if (!isLedgerLayoutMigrationEvent(appended.event))
-      throw cell.cellCodedError("invalid_store", "Ledger migration returned the wrong event type.");
-    cell.projection.catchUp?.();
-    const projected = cell.projection.list(),
-      visible = projected.watermark === appended.revision && projected.sourceRevision === appended.revision,
-      proof = {
-        committedRevision: appended.revision,
-        appliedCut: projected.watermark,
-        durable: true,
-        canonicalVisible: visible,
-        worktreeVisible: true,
-      },
-      receipt = {
-        opId: appended.event.opId,
-        revision: appended.revision,
-        evidence: JSON.stringify({
-          ...appended.event.payload,
-          commitSha: appended.commitSha?.sha ?? null,
-          projection: {
-            status: projected.status,
-            watermark: projected.watermark,
-            sourceRevision: projected.sourceRevision,
-          },
-        }),
-        visibility: "center" as const,
-        proof,
-        commitSha: appended.commitSha?.sha ?? null,
-        cut: appended.cut,
-        worktreeVisible: true,
-      };
-    return visible
-      ? ({ outcome: "applied", ...receipt } as WriteReceipt)
-      : ({
-          outcome: "pending",
-          ...receipt,
-        } as WriteReceipt);
-  }
+  if (action.kind === "ledger-migrate") return runLedgerMigrateAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     // A provably absent operation can be answered from the durable read model.

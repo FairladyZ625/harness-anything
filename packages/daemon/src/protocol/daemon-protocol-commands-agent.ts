@@ -272,9 +272,9 @@ export const agentProtocolCommands = Object.freeze([
     id: "ledger-migrate",
     phase: "Migration-A",
     path: ["migrate", "ledger"],
-    summary: "Migrate the canonical ledger from flat/v1 to sharded-sha256-2/v1.",
+    summary: "Migrate the ledger layout or seed a declared SQLite generation.",
     method: "repo.task.run",
-    inputs: [],
+    inputs: [cliInput("--generation", "single", false, { code: "missing_field" })],
   }),
   defineRepoReadCommand({
     id: "explain",

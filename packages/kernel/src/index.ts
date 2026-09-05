@@ -296,6 +296,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   runEventShapeMigration,
+  migrateEventsToSqlite,
+  openSqliteEventStore,
   makeTaskProjectionReader,
   runWalMaterializationRequest,
 } from "./composition/index.ts";
