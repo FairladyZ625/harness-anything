@@ -1,3 +1,3 @@
-// Version 18 adds event-derived entity freshness/version witnesses and the Relation
-// target-observation witness. A mismatch discards and replays the rebuildable cache.
-export const taskProjectionSchemaVersion = 18;
+// Version 19 scopes task-owned Entity rows by owner so equal local Execution/Review ids
+// replay independently. A mismatch discards and replays the rebuildable cache.
+export const taskProjectionSchemaVersion = 19;

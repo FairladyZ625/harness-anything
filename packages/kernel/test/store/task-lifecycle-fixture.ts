@@ -43,10 +43,19 @@ function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
   };
 }
 
-export function lifecycleFixture(): {
+export function lifecycleFixture(
+  options: {
+    readonly taskId?: string;
+    readonly executionId?: string;
+    readonly reviewId?: string;
+  } = {},
+): {
   readonly events: readonly TaskEventV1[];
   readonly snapshot: TaskLifecycleSnapshot;
 } {
+  const taskId = options.taskId ?? "task-1",
+    executionId = options.executionId ?? "execution-1",
+    reviewId = options.reviewId ?? "review-execution";
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
@@ -60,7 +69,7 @@ export function lifecycleFixture(): {
   run(
     command(implementer, 1, {
       type: "CreateReplayTask",
-      taskId: "task-1",
+      taskId,
       title: "Fixture",
       taskClass: "standard",
       graph: REPLAY_TASK_GRAPH,
@@ -72,14 +81,14 @@ export function lifecycleFixture(): {
   run(
     command(implementer, 2, {
       type: "StartExecution",
-      taskId: "task-1",
-      executionId: "execution-1",
+      taskId,
+      executionId,
     }),
     {
       actorBinding: implementer,
       reservation: {
-        taskId: "task-1",
-        executionId: "execution-1",
+        taskId,
+        executionId,
         expiresAt: "2026-08-11T01:00:00.000Z",
         ttlMs: 1_800_000,
         previousHolder: null,
@@ -91,8 +100,8 @@ export function lifecycleFixture(): {
   run(
     command(implementer, 3, {
       type: "SubmitExecution",
-      taskId: "task-1",
-      executionId: "execution-1",
+      taskId,
+      executionId,
       submission: {
         completionClaim: "implemented",
         deliverables: [],
@@ -105,7 +114,7 @@ export function lifecycleFixture(): {
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
-  run(reviewCommand(4, "approved", "review-execution"), {
+  run(reviewCommand(4, taskId, executionId, "approved", reviewId), {
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
@@ -114,8 +123,8 @@ export function lifecycleFixture(): {
   run(
     command(implementer, 5, {
       type: "RecordReviewConsent",
-      taskId: "task-1",
-      executionId: "execution-1",
+      taskId,
+      executionId,
       reviewId: review.reviewId,
       consentId: "consent-1",
       reviewDigest: reviewDigest(review),
@@ -123,7 +132,7 @@ export function lifecycleFixture(): {
     }),
     { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-consent" } as never,
   );
-  run(command(implementer, 6, { type: "CompleteTask", taskId: "task-1", executionId: "execution-1" }), {
+  run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
     capability: "task-complete@v1",
     capabilityRef: "cap-complete",
     actorRole: "owner",
@@ -133,7 +142,13 @@ export function lifecycleFixture(): {
   return { events, snapshot };
 }
 
-function reviewCommand(revision: number, verdict: "approved", reviewId: string): RecordReviewCommand {
+function reviewCommand(
+  revision: number,
+  taskId: string,
+  executionId: string,
+  verdict: "approved",
+  reviewId: string,
+): RecordReviewCommand {
   const submission = {
     completionClaim: "implemented",
     deliverables: [],
@@ -145,8 +160,8 @@ function reviewCommand(revision: number, verdict: "approved", reviewId: string):
   };
   return command(reviewer, revision, {
     type: "RecordReview",
-    taskId: "task-1",
-    executionId: "execution-1",
+    taskId,
+    executionId,
     reviewId,
     verdict,
     reason: "execution approved",

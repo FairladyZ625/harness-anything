@@ -347,11 +347,11 @@ test("an entity_target_missing projection makes every inbound Relation orphaned 
   const db = new DatabaseSync(":memory:");
   createRelationGraphProjectionTables(db);
   db.exec(
-    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT, " +
+    "CREATE TABLE entity_projection (entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, task_id TEXT NOT NULL, " +
       "workspace_revision INTEGER NOT NULL, freshness TEXT NOT NULL, current_version, value_json TEXT NOT NULL, " +
-      "PRIMARY KEY(entity_kind, entity_id))",
+      "PRIMARY KEY(entity_kind, task_id, entity_id))",
   );
-  db.prepare("INSERT INTO entity_projection VALUES ('runtime-session', 'target', NULL, 4, 'current', 4, '{}')").run();
+  db.prepare("INSERT INTO entity_projection VALUES ('runtime-session', 'target', '', 4, 'current', 4, '{}')").run();
   const created = ["source-a", "source-b"].map((sourceId, index) => {
     const identity = {
       source: `agent/${sourceId}`,

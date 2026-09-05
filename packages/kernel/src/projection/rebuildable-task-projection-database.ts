@@ -440,12 +440,12 @@ function createTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
-      task_id TEXT,
+      task_id TEXT NOT NULL,
       workspace_revision INTEGER NOT NULL,
       freshness TEXT NOT NULL,
       current_version,
       value_json TEXT NOT NULL,
-      PRIMARY KEY(entity_kind, entity_id)
+      PRIMARY KEY(entity_kind, task_id, entity_id)
     );
     CREATE INDEX IF NOT EXISTS entity_projection_task
       ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
