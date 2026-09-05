@@ -104,20 +104,30 @@ export function parseRouted(
       route.id === "distill-promote" ? { confidence: "medium", memoryClass: "semantic" } : {},
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "vertical") {
-    const offset = route.id === "vertical-kind-retire-cli" ? 4 : 3,
-      projected = parseProjected(route.id, args.slice(offset), rootDir, repoId, json, inputs, {}, {}, route.method);
-    if (!projected.ok) return projected;
-    if (route.id !== "vertical-kind-retire-cli") return projected;
-    const kindId = args[3];
-    return nonEmpty(kindId)
-      ? accepted(rootDir, repoId, json, { ...projected.command.action, kindId })
-      : rejected("missing_field", "Use ha vertical entity-kind retire <kind> --reason <reason>.", json);
-  }
+  if (rootCommand === "vertical" && args[1] === "entity-kind")
+    return parseVerticalKindRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") return parseEntityRouted(route, args, rootDir, repoId, json, inputs);
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseVerticalKindRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const offset = route.id === "vertical-kind-retire-cli" ? 4 : 3,
+    projected = parseProjected(route.id, args.slice(offset), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (!projected.ok) return projected;
+  if (route.id !== "vertical-kind-retire-cli") return projected;
+  const kindId = args[3];
+  return nonEmpty(kindId)
+    ? accepted(rootDir, repoId, json, { ...projected.command.action, kindId })
+    : rejected("missing_field", "Use ha vertical entity-kind retire <kind> --reason <reason>.", json);
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({

@@ -161,8 +161,15 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
-test("vertical entity-kind commands derive the revision later from declaration.read", () => {
-  const upsert = parseThinCommand(["vertical", "entity-kind", "upsert", "--from-file", "kind.json"]);
+test("vertical entity-kind commands coexist with the existing vertical command surface", () => {
+  const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
+    upsert = parseThinCommand(["vertical", "entity-kind", "upsert", "--from-file", "kind.json"]);
+  assert.equal(validate.ok, true);
+  if (validate.ok)
+    assert.deepEqual(validate.command.action, {
+      kind: "vertical-validate",
+      verticalSource: "software/coding",
+    });
   assert.equal(upsert.ok, true);
   if (upsert.ok) assert.deepEqual(upsert.command.action, { kind: "vertical-kind-upsert-cli", fromFile: "kind.json" });
   const retire = parseThinCommand(["vertical", "entity-kind", "retire", "runbook", "--reason", "Superseded"]);
