@@ -141,6 +141,7 @@ export function createDaemonHostRuntimeApi(
         const started = await startFleetCenterAdmission({
           host: context.host,
           userRoot: context.input.userRoot,
+          writerEpochLease: context.writerEpochLease,
           payload: request,
         });
         context.fleetCenter = started.center;

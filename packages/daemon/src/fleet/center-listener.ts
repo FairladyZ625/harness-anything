@@ -54,16 +54,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       holderId: options.writerId,
       now,
     }),
-    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>();
+    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
+    acquireWriterEpoch = options.writerEpochLease ?? writerEpoch.acquire;
   for (const repo of options.host.status().repos)
-    if (repo.state === "attached") ownedEpochs.set(repo.repoId, writerEpoch.acquire(repo.repoId));
+    if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   // A center must keep using the epoch it acquired, even after another center
   // advances the shared state. Reading the latest row here would let a stale
   // process silently adopt its successor's epoch and defeat fencing.
   const ownedEpochFor = (repoId: string) => {
       const owned = ownedEpochs.get(repoId);
       if (owned) return owned;
-      const lease = writerEpoch.acquire(repoId);
+      const lease = acquireWriterEpoch(repoId);
       ownedEpochs.set(repoId, lease);
       return lease;
     },

@@ -87,7 +87,7 @@ export function createDaemonHostLifecycleApi(
           try {
             if (context.fleetCenter) await context.fleetCenter.close();
           } finally {
-            context.closeLocalWriterEpoch();
+            context.closeDaemonWriterEpoch();
           }
           for (const runtime of context.fleetEdgeRuntimes.values()) runtime.close();
           context.fleetEdgeRuntimes.clear();

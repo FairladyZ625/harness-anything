@@ -5,6 +5,7 @@ import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
+import type { WriterEpochLease } from "./writer-epoch.ts";
 export interface FleetRoster {
   readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[];
   readonly assignments: readonly FleetAssignmentRecord[];
@@ -193,6 +194,7 @@ export function fleetCredentialFromRoster(nodeId: string, rosterPath: string): s
 export interface FleetCenterAdmissionRequest {
   readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
   readonly userRoot: string;
+  readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
     readonly port: number;
     readonly bind?: string;
@@ -225,6 +227,7 @@ export async function startFleetCenterAdmission(
       host: input.host,
       stateRoot,
       writerEpochStateRoot: path.join(input.userRoot, "fleet"),
+      ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
       key: material(input.payload.keyPath, "--key"),
       cert: material(input.payload.certPath, "--cert"),
       hostname: input.payload.bind,

@@ -98,6 +98,11 @@ export type RepoWriterMessageV1 =
 
 export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "assertWriterEpoch" | "withWriterEpochFence">;
 
+export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
+  const { assertWriterEpoch: _assert, withWriterEpochFence: _fence, ...serializable } = binding;
+  return serializable;
+}
+
 export interface SerializedWriterErrorV1 {
   readonly name: string;
   readonly message: string;

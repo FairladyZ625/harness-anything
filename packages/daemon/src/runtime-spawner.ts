@@ -157,7 +157,7 @@ export interface RuntimeSpawnerInput {
     workerId?: string,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
-  readonly schedule: (work: () => void | Promise<void>) => void;
+  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
     schedule: TrustedScheduleRuntime | null,
@@ -827,7 +827,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         `${dispatchOpId}-live`,
         binding,
       );
-    });
+    }, activeBinding);
     attachActiveRuntime(extracted, active, resumeObservation);
     return requested.receipt
       ? {
@@ -1072,7 +1072,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             binding,
           });
         }
-      });
+      }, stream.header.binding);
     }, remainingMs);
     timer.unref();
   }

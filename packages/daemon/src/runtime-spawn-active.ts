@@ -73,11 +73,11 @@ export function attachActiveRuntime(
               active.stdoutObserved ||= chunk.length > 0;
               await context.consumeChunk(active, chunk, false, persisted);
             }
-          });
+          }, active.binding);
       },
       error: (chunk: string) => {
         if (context.processes.get(runtimeSessionId) === active) {
-          context.input.schedule(() => context.captureErrorOutput(active, chunk));
+          context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
         }
       },
       exit: (code: number | null) => {
@@ -86,7 +86,7 @@ export function attachActiveRuntime(
             if (context.processes.get(runtimeSessionId) !== active) return;
             await context.consumeChunk(active, "", true);
             await context.publishExit(active, code);
-          });
+          }, active.binding);
       },
     };
   if (resumeObservation) resumeObservation.activate(handlers);

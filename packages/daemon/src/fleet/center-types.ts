@@ -1,6 +1,7 @@
 import { type WriteReceiptDraft as WriteReceipt } from "../../../kernel/src/index.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import { type FleetLeaseBroker } from "../lease-broker.ts";
+import type { WriterEpochLease } from "../writer-epoch.ts";
 import { type FleetAssignmentBinding, type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 
@@ -13,6 +14,7 @@ export interface FleetCenterOptions {
   readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;
+  readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
   readonly replicaDiskQuotaBytes?: number;

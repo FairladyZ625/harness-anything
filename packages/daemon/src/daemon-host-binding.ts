@@ -39,11 +39,11 @@ export function localSystemBinding(
   return deriveLocalBinding(rootDir, actor);
 }
 
-export function withLocalWriterEpochFence(
+export function withDaemonWriterEpochFence(
   binding: RepoCellBinding,
   descriptor: WriterEpochFenceDescriptor,
 ): RepoCellBinding {
-  if (binding.source !== "local" || binding.writerEpochFence) return binding;
+  if (binding.writerEpochFence) return binding;
   return {
     ...binding,
     writerEpoch: descriptor.epoch,
