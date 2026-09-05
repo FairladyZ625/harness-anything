@@ -117,7 +117,7 @@ function runtimeResultReceipt(
                 ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
                 : `${commandName}: ${outcome}`);
   return {
-    ...result,
+    ...(result as unknown as JsonObject),
     command: commandName,
     outcome,
     runtimeSessionId,
