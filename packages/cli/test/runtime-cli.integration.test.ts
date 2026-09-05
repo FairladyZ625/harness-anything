@@ -1177,6 +1177,20 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(structuredFailure.status, 1);
     assert.match(String(structuredFailure.receipt.reason), /structured provider failure/u);
     assert.doesNotMatch(JSON.stringify(structuredFailure.receipt), new RegExp(secret, "u"));
+    const quotaFailure = runMaybe(root, env, [
+      "runtime",
+      "run",
+      "cli-worker",
+      "--prompt",
+      "failure:429",
+      "--no-stream",
+    ]);
+    assert.equal(quotaFailure.status, 1);
+    assert.equal(quotaFailure.receipt.code, "quota_exhausted");
+    assert.match(
+      String(quotaFailure.receipt.reason),
+      /faultClass=quota_exhausted; resetAt=2026-09-06T05:06:07\.000Z;.*credit balance exhausted/u,
+    );
     writeFileSync(
       path.join(root, "failure-batch.json"),
       JSON.stringify({
@@ -1627,13 +1641,19 @@ function writeProgressProvider(target: string, version: string): void {
     batchMarker =
       'const batch = mission.includes("batch hold"), mark = (event) => { if (batch) fs.appendFileSync(".batch-tracker", event + "\\n"); };\n',
     threadMarker = 'console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (readOnly)',
+    quotaMarker = "else { const resumed",
+    quotaFailure =
+      'else if (mission === "failure:429") process.stdout.write([JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }), JSON.stringify({ type: "turn.failed", error: { http_status: 429, code: "insufficient_quota", message: "credit balance exhausted", reset_at: "2026-09-06T05:06:07Z" } })].join("\\n") + "\\n", () => process.exit(1));\nelse { const resumed',
     progressSetup =
       `${batchMarker}const progressTask = mission.startsWith("progress-middle:") ? mission.slice("progress-middle:".length) : null;\n` +
       'const submitTask = mission.startsWith("submit-before-exit:") ? mission.slice("submit-before-exit:".length) : null;\n',
     progressWrite =
       `console.log(JSON.stringify({ type: "thread.started", thread_id: session })); if (progressTask) { for (const text of ["Provider checkpoint one.", "Provider checkpoint two."]) { let result; for (let attempt = 0; attempt < 20; attempt += 1) { result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "progress", "append", progressTask, "--text", text, "--evidence", "test:reports/runtime-progress.txt:provider checkpoint"], { encoding: "utf8", env: process.env }); if (result.status === 0) break; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50); } if (result.status !== 0) { process.stderr.write("progress append failed: " + result.stdout + result.stderr); process.exit(8); } } } ` +
       `if (submitTask) { const submission = JSON.stringify({ completionClaim: "Runtime worker submitted before exit.", deliverables: ["runtime archive"], outputs: ["runtime archive"], verificationNotes: ["integration"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }); const result = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "submit", submitTask, "--json-input", submission], { encoding: "utf8", env: process.env }); if (result.status !== 0) { process.stderr.write("task submit failed: " + result.stdout + result.stderr); process.exit(8); } } if (readOnly)`,
-    next = source.replace(batchMarker, progressSetup).replace(threadMarker, progressWrite);
+    next = source
+      .replace(batchMarker, progressSetup)
+      .replace(threadMarker, progressWrite)
+      .replace(quotaMarker, quotaFailure);
   if (next === source) throw new Error("runtime progress provider marker changed");
   writeFileSync(target, next);
 }

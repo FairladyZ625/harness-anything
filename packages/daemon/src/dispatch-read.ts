@@ -224,6 +224,8 @@ export function readRuntimeAttemptChain(
         },
         classification: stream.attemptOutcome?.classification ?? null,
         reason: stream.attemptOutcome?.reason ?? null,
+        ...(stream.attemptOutcome?.faultClass ? { faultClass: stream.attemptOutcome.faultClass } : {}),
+        ...(stream.attemptOutcome?.resetAt ? { resetAt: stream.attemptOutcome.resetAt } : {}),
         fallbackState: stream.fallbackState,
         nextDispatchId: stream.nextDispatchId,
       }))

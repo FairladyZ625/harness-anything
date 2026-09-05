@@ -52,6 +52,8 @@ export interface AgentRuntimeAttemptChainDto {
     readonly provider: { readonly instance: string; readonly model: string | null };
     readonly classification: "provider_fault" | "worker_stop" | "gate_red" | null;
     readonly reason: string | null;
+    readonly faultClass?: "quota_exhausted" | "rate_limited";
+    readonly resetAt?: string;
     readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
     readonly nextDispatchId: string | null;
   }[];
@@ -465,16 +467,20 @@ function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto
     value.attempts.every(
       (attempt) =>
         isAgentRuntimeContractRecord(attempt) &&
-        hasExactAgentRuntimeContractFields(attempt, [
-          "dispatchId",
-          "runtimeSessionId",
-          "attemptIndex",
-          "provider",
-          "classification",
-          "reason",
-          "fallbackState",
-          "nextDispatchId",
-        ]) &&
+        hasAgentRuntimeContractFields(
+          attempt,
+          [
+            "dispatchId",
+            "runtimeSessionId",
+            "attemptIndex",
+            "provider",
+            "classification",
+            "reason",
+            "fallbackState",
+            "nextDispatchId",
+          ],
+          ["faultClass", "resetAt"],
+        ) &&
         typeof attempt.dispatchId === "string" &&
         typeof attempt.runtimeSessionId === "string" &&
         Number.isInteger(attempt.attemptIndex) &&
@@ -486,6 +492,10 @@ function validAttemptChain(value: unknown): value is AgentRuntimeAttemptChainDto
         (attempt.classification === null ||
           ["provider_fault", "worker_stop", "gate_red"].includes(String(attempt.classification))) &&
         (attempt.reason === null || typeof attempt.reason === "string") &&
+        (attempt.faultClass === undefined ||
+          ["quota_exhausted", "rate_limited"].includes(String(attempt.faultClass))) &&
+        (attempt.resetAt === undefined ||
+          (!Number.isNaN(Date.parse(String(attempt.resetAt))) && typeof attempt.resetAt === "string")) &&
         (attempt.fallbackState === null ||
           ["scheduled", "dispatched", "exhausted"].includes(String(attempt.fallbackState))) &&
         (attempt.nextDispatchId === null || typeof attempt.nextDispatchId === "string"),

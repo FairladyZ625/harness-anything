@@ -87,16 +87,28 @@ export async function waitForRuntime(
       (outcome === "unknown" && result.session.activity.reasonCode !== undefined),
     commandName = spawned ? "runtime-run" : "runtime-status",
     providerExit = Number.isInteger(result.session.activity.exitCode),
-    failureCode = settlementFailed ? "runtime_settlement_failed" : providerExit ? "provider_exit" : "runtime_failed",
+    attempt = result.session.attemptChain?.attempts.find(
+      (candidate) => candidate.runtimeSessionId === runtimeSessionId,
+    ),
+    providerFaultClass = attempt?.classification === "provider_fault" ? attempt.faultClass : undefined,
+    failureCode = settlementFailed
+      ? "runtime_settlement_failed"
+      : providerFaultClass
+        ? providerFaultClass
+        : providerExit
+          ? "provider_exit"
+          : "runtime_failed",
     reason =
       outcome === "succeeded"
         ? null
-        : text ||
-          (settlementFailed
-            ? "runtime_settlement_failed: daemon reported the runtime exited but no terminal outcome became visible."
-            : providerExit
-              ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
-              : `${commandName}: ${outcome}`);
+        : providerFaultClass
+          ? providerFaultReason(providerFaultClass, attempt?.resetAt, attempt?.reason ?? text)
+          : text ||
+            (settlementFailed
+              ? "runtime_settlement_failed: daemon reported the runtime exited but no terminal outcome became visible."
+              : providerExit
+                ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
+                : `${commandName}: ${outcome}`);
   return {
     ...current,
     command: commandName,
@@ -107,6 +119,12 @@ export async function waitForRuntime(
     summary: text || reason || `${commandName}: ${outcome}`,
     exitCode: outcome === "succeeded" ? 0 : 1,
   };
+}
+
+function providerFaultReason(faultClass: string, resetAt: string | undefined, diagnostic: string): string {
+  return [`faultClass=${faultClass}`, resetAt ? `resetAt=${resetAt}` : null, diagnostic]
+    .filter((value): value is string => Boolean(value))
+    .join("; ");
 }
 
 async function waitForStreamedRuntime(
