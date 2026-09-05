@@ -124,6 +124,26 @@ test("G29 matches governed WAL declarations by exact path", () => {
   );
 });
 
+test("G29 treats a declared SQLite database as its main file plus -wal and -shm, nothing wider", () => {
+  const plan = Object.freeze({
+    commandType: "LeaseTest",
+    targets: Object.freeze([Object.freeze({ kind: "lease_sqlite" })]),
+  });
+  const sidecars = new Map([
+    [".harness/cache/task.sqlite", "main"],
+    [".harness/cache/task.sqlite-wal", "wal"],
+    [".harness/cache/task.sqlite-shm", "shm"],
+  ]);
+  assert.doesNotThrow(() => assertChangedPathsDeclared(new Map(), sidecars, plan));
+  const widened = new Map([...sidecars, [".harness/cache/task.sqlite.backup", "copy"]]);
+  assert.throws(
+    () => assertChangedPathsDeclared(new Map(), widened, plan),
+    (error) =>
+      /G29 undeclared byte mutation: \.harness\/cache\/task\.sqlite\.backup$/u.test(error.message) &&
+      !/sqlite-wal|sqlite-shm/u.test(error.message),
+  );
+});
+
 test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g29-doc-"));
   try {
@@ -229,13 +249,18 @@ function assertChangedPathsDeclared(before, after, plan) {
   if (undeclared.length > 0) throw new Error(`G29 undeclared byte mutation: ${undeclared.join(", ")}`);
 }
 
+/** WAL-mode SQLite keeps one logical database in three files; exact suffixes, never a glob. */
+function SQLITE_DATABASE_FOOTPRINT(mainFile) {
+  return [mainFile, `${mainFile}-wal`, `${mainFile}-shm`];
+}
+
 function declaredMatchers(plan) {
   return plan.targets.flatMap((target) => {
     if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
     if (target.kind === "local_wal_file") return [exact(target.path)];
     if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
     if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite")
-      return [exact(".harness/cache/task.sqlite")];
+      return SQLITE_DATABASE_FOOTPRINT(".harness/cache/task.sqlite").map(exact);
     return target.kind === "content_blob" ? [exact(`harness/${contentObjectRelativePath(target.sha256)}`)] : [];
   });
 }
