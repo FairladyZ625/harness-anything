@@ -6,7 +6,6 @@ import {
   closeoutReadiness,
   configureLedgerMaintenance,
   consumeKnownError,
-  migrateEventsToSqlite,
   makeTaskEventStore,
   makeGitEventStore,
   makeTaskProjection,
@@ -151,7 +150,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
   configureLedgerMaintenance(context.rootDir);
   const sqliteShadow = openSqliteEventStore({ repoId: context.input.repoId, rootInput: context.rootDir });
   let store: ReturnType<typeof makeTaskEventStore>,
-    sqliteShadowBootstrapped = false;
+    sqliteShadowUnseeded = false;
   store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,
@@ -208,25 +207,21 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     walFlushPolicy: () => readSettingsFacet(existsSync(configPath) ? readFileSync(configPath, "utf8") : "").walFlush,
   });
   const appendWalStore = store.append,
-    bootstrapSqliteShadow = (): void => {
-      const fence = context.activeWriterEpochFenceDescriptor;
-      if (!fence) throw new Error("writer epoch fence is unavailable for SQLite shadow bootstrap");
-      migrateEventsToSqlite({
-        store: sqliteShadow,
-        repoId: fence.repoId,
-        events: store.read().events,
-        holder: fence.holderId,
-        epoch: fence.epoch,
-        verifyExact: false,
-      });
-      sqliteShadowBootstrapped = true;
-    },
     shadowAccepted = (bundle: Parameters<typeof appendWalStore>[0]): void => {
+      if (sqliteShadowUnseeded) return;
+      const events = [...(bundle.preceding ?? []).map((preceding) => preceding.event), bundle.event],
+        nextRevision = sqliteShadow.revision() + 1;
+      if (nextRevision !== events[0]!.workspaceRevision) {
+        sqliteShadowUnseeded = true;
+        console.warn(
+          `[sqlite-shadow] append skipped: generation 1 is unseeded at revision ${nextRevision - 1}; ` +
+            `next WAL bundle begins at revision ${events[0]!.workspaceRevision}`,
+        );
+        return;
+      }
       const fence = context.activeWriterEpochFenceDescriptor;
       if (!fence) throw new Error("writer epoch fence is unavailable for SQLite shadow append");
-      if (!sqliteShadowBootstrapped) bootstrapSqliteShadow();
       const sqliteFence = { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
-        events = [...(bundle.preceding ?? []).map((preceding) => preceding.event), bundle.event],
         eventBytes = events.map(serializePersistedCanonicalEvent);
       sqliteShadow.appendCommand({
         fence: sqliteFence,
@@ -268,12 +263,6 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       watermark: null,
     });
     let recovery = store.recover();
-    try {
-      bootstrapSqliteShadow();
-    } catch (error) {
-      console.warn(`[sqlite-shadow] bootstrap failed: ${error instanceof Error ? error.message : String(error)}`);
-      consumeKnownError(error);
-    }
     projection = makeTaskProjection({
       rootDir: context.rootDir,
       eventStore: store,
