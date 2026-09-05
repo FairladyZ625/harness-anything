@@ -310,6 +310,16 @@ export function artifactImportOperationId(input: {
   return `entity-import-${sha256(identity).slice(0, 32)}`;
 }
 
+/** `entity_updated` carries its own operation identity: the same entity at the same revision fence is one
+ * operation (retries replay), while an update that leaves contentVersion untouched must never collide with the
+ * `entity-import-*` event that first observed that content. */
+export function artifactUpdateOperationId(input: {
+  readonly entityId: string;
+  readonly workspaceRevision: number;
+}): string {
+  return `entity-update-${input.entityId}-${input.workspaceRevision}`;
+}
+
 function isArtifactDescriptor(value: unknown): value is ArtifactDescriptor {
   return (
     isRecord(value) &&

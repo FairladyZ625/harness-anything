@@ -170,12 +170,27 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       secondaryNodeBinding,
     );
     assert.equal(descriptorUpdate.outcome, "applied", JSON.stringify(descriptorUpdate));
+    // Regression (task_d7058b77): an update that leaves contentVersion untouched must not collide with the
+    // entity-import-* operation that first observed that content.
+    const titleOnlyUpdate = await cell.run(
+      {
+        kind: "entity-update",
+        entityKind: kind,
+        entityId: preview.entityId,
+        expectedVersion: descriptorUpdate.revision,
+        title: "Revised title again",
+      },
+      binding,
+    );
+    assert.equal(titleOnlyUpdate.outcome, "applied", JSON.stringify(titleOnlyUpdate));
+    assert.notEqual(titleOnlyUpdate.opId, descriptorUpdate.opId);
+    assert.match(String(titleOnlyUpdate.opId), /^entity-update-/u);
     const archived = await cell.run(
       {
         kind: "entity-archive",
         entityKind: kind,
         entityId: preview.entityId,
-        expectedVersion: descriptorUpdate.revision,
+        expectedVersion: titleOnlyUpdate.revision,
         reason: "Superseded by ADR-0002",
       },
       binding,
@@ -190,6 +205,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
         "entity_content_observed",
         "entity_content_observed",
         "entity_target_missing",
+        "entity_updated",
         "entity_updated",
         "entity_archived",
       ],
@@ -219,7 +235,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       assert.equal(row?.id, preview.entityId);
       assert.equal(row?.workspaceRevision, archived.revision);
       assert.equal(row?.value.contentVersion, "revision:manual-2");
-      assert.equal(row?.value.title, "Revised title");
+      assert.equal(row?.value.title, "Revised title again");
       assert.equal(row?.freshness, "orphaned");
       assert.equal(row?.currentVersion, null);
     } finally {
