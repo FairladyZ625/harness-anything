@@ -79,8 +79,15 @@ export async function waitForRuntime(
     statusReader?.close();
     detach?.();
   }
-  const result = current as unknown as AgentRuntimeSessionResult,
-    text = result.result?.text ?? "",
+  return runtimeResultReceipt(current as unknown as AgentRuntimeSessionResult, runtimeSessionId, spawned);
+}
+
+function runtimeResultReceipt(
+  result: AgentRuntimeSessionResult,
+  runtimeSessionId: string,
+  spawned: JsonObject | undefined,
+): JsonObject {
+  const text = result.result?.text ?? "",
     outcome = result.session.activity.outcome ?? "unknown",
     settlementFailed =
       result.session.activity.outcome === null ||
@@ -110,7 +117,7 @@ export async function waitForRuntime(
                 ? `Provider exited with code ${String(result.session.activity.exitCode)} without a diagnostic.`
                 : `${commandName}: ${outcome}`);
   return {
-    ...current,
+    ...result,
     command: commandName,
     outcome,
     runtimeSessionId,
