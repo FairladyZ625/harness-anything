@@ -150,16 +150,36 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     flatConfiguration = {
       ...(value.reasoningEffort === undefined ? {} : { [effortField]: value.reasoningEffort }),
       ...(value.baseUrl === undefined ? {} : { baseUrl: value.baseUrl }),
+      ...(value.allowInsecureHttp === undefined ? {} : { allowInsecureHttp: value.allowInsecureHttp }),
     },
     configuration = runtimeKindConfig(
       flat ? flatConfiguration : normalizeRuntimeInputAliases(value[value.kindId], declaration.configuration.fields),
       declaration.configuration.fields,
     );
+  const credentialHeader = configuration.credentialHeader;
+  if (credentialHeader !== undefined && auth.mode !== "api-key")
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader is available only for API-key runtime instances.",
+    );
+  if (
+    typeof credentialHeader === "string" &&
+    configuration.httpHeaders !== undefined &&
+    Object.keys(configuration.httpHeaders as Readonly<Record<string, string>>).some(
+      (header) => header.toLowerCase() === credentialHeader.toLowerCase(),
+    )
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must not overlap a static HTTP header.",
+    );
   if (
     common.providerId === "openai" &&
-    (configuration.wireApi !== undefined ||
+    (configuration.allowInsecureHttp !== undefined ||
+      configuration.wireApi !== undefined ||
       configuration.requiresOpenAiAuth !== undefined ||
-      configuration.httpHeaders !== undefined)
+      configuration.httpHeaders !== undefined ||
+      configuration.credentialHeader !== undefined)
   )
     throw runtimeInstanceError(
       "invalid_runtime_kind_config",
@@ -182,7 +202,7 @@ function normalizeRuntimeInputAliases(
 
 function runtimeKindConfig(
   value: unknown,
-  fields: Readonly<Record<string, "identifier" | "url" | "effort" | "boolean" | "headers" | "agy-effort">>,
+  fields: RuntimeProviderDeclaration["configuration"]["fields"],
 ): Readonly<Record<string, unknown>> {
   if (value === undefined) return {};
   if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !Object.hasOwn(fields, key)))
@@ -197,8 +217,10 @@ function runtimeKindConfig(
         const shape = fields[key]!;
         if (shape === "boolean") return [key, requireBoolean(item, key)];
         if (shape === "headers") return [key, runtimeHttpHeaders(item)];
+        if (shape === "header-name") return [key, runtimeCredentialHeader(item)];
         if (shape === "agy-effort") return [key, agyEffort(item)];
-        if (shape === "url") return [key, secureRuntimeBaseUrl(item)];
+        if (shape === "url")
+          return [key, secureRuntimeBaseUrl(item, { allowInsecureHttp: value.allowInsecureHttp === true })];
         if (shape === "identifier") return [key, identifier(item, key)];
         return [key, runtimeEffort(item)];
       }),
@@ -261,22 +283,36 @@ export function runtimeHttpHeaders(value: unknown): Readonly<Record<string, stri
       "invalid_runtime_http_headers",
       "httpHeaders must be a non-empty object of non-secret HTTP headers.",
     );
-  const result: Record<string, string> = {};
+  const result: Record<string, string> = {},
+    normalizedNames = new Set<string>();
   for (const [name, item] of Object.entries(value)) {
+    const normalizedName = name.toLowerCase();
     if (
       !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name) ||
       /(?:authorization|api[-_]?key|cookie|credential|password|secret|token)/iu.test(name) ||
       typeof item !== "string" ||
       !item ||
-      /[\r\n]/u.test(item)
+      /[\r\n]/u.test(item) ||
+      normalizedNames.has(normalizedName)
     )
       throw runtimeInstanceError(
         "invalid_runtime_http_headers",
         "httpHeaders must contain valid non-secret header names and single-line values.",
       );
+    normalizedNames.add(normalizedName);
     result[name] = item;
   }
   return result;
+}
+
+export function runtimeCredentialHeader(value: unknown): string {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u.test(name))
+    throw runtimeInstanceError(
+      "invalid_runtime_credential_header",
+      "credentialHeader must be a valid HTTP header name.",
+    );
+  return name;
 }
 
 export function needsRuntimeInstanceNormalization(value: unknown): boolean {

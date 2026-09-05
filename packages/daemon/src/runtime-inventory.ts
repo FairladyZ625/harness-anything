@@ -18,7 +18,9 @@ export interface RuntimeProviderDeclaration {
   };
   readonly declaredCapabilities: RuntimeInstallation["effectiveCapabilities"];
   readonly configuration: {
-    readonly fields: Readonly<Record<string, "identifier" | "url" | "effort" | "boolean" | "headers" | "agy-effort">>;
+    readonly fields: Readonly<
+      Record<string, "identifier" | "url" | "effort" | "boolean" | "headers" | "header-name" | "agy-effort">
+    >;
     readonly publicFields: Readonly<Record<string, string>>;
     readonly publicDefaults: Readonly<Record<string, unknown>>;
   };
@@ -159,18 +161,22 @@ export const runtimeKinds = [
         reasoningEffort: "effort",
         fast: "boolean",
         baseUrl: "url",
+        allowInsecureHttp: "boolean",
         wireApi: "identifier",
         requiresOpenAiAuth: "boolean",
         httpHeaders: "headers",
+        credentialHeader: "header-name",
       },
       publicFields: {
         reasoningEffort: "reasoningEffort",
         fast: "fast",
         baseUrl: "baseUrl",
         baseUrlConfigured: "baseUrlConfigured",
+        allowInsecureHttp: "allow_insecure_http",
         wireApi: "wire_api",
         requiresOpenAiAuth: "requires_openai_auth",
         httpHeaders: "http_headers",
+        credentialHeader: "credential_header",
       },
       publicDefaults: {
         reasoningEffort: null,
