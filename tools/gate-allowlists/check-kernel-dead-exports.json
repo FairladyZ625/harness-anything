@@ -124,12 +124,6 @@
         "until": "2026-09-30"
       },
       {
-        "value": "createScheduleV1",
-        "ref": "task_8c0e974b7c612ace414f92ab56",
-        "reason": "Schedule tier-2 entity-ization: daemon/CLI schedule tests construct canonical ScheduleV1 rows through this factory while production schedule ingress derives rows from entity actions.",
-        "until": "2026-09-30"
-      },
-      {
         "value": "createTaskIdentity",
         "ref": "task_01KWWCBRSV0V3AWTCM3ZZ1J998",
         "reason": "F8a first enforcement pass preserves the existing kernel public barrel zero-consumption export baseline; future additions must show a consumer or carry new governance evidence.",
