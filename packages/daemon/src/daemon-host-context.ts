@@ -18,7 +18,7 @@ import type { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
-import type { WriterEpochLease } from "./writer-epoch.ts";
+import type { WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
 
 export interface DaemonPoint extends JsonObject {
   readonly daemonId: string;
@@ -76,6 +76,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly attachTimeoutMs: number;
   readonly attachBudgetError: (repoId: string, timeoutMs: number) => Error;
   readonly openCell: NonNullable<DaemonHostOpenInput["openCell"]>;
+  readonly writerEpochFence: (repoId: string) => WriterEpochFenceDescriptor;
   readonly runtimePorts: DaemonRuntimePorts;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
@@ -120,6 +121,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     executor?: import("./repo-cell-types.ts").RepoCellBinding["actor"]["executor"],
     writerRepoId?: string,
   ) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
+  readonly writerEpochFence: (repoId: string) => WriterEpochFenceDescriptor;
   readonly writerEpochLease: (repoId: string) => WriterEpochLease;
   readonly closeDaemonWriterEpoch: () => void;
   readonly attach: (

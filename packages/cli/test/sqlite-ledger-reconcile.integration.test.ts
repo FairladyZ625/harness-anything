@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -9,6 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "../../daemon/src/daemon-host.ts";
 import { listenFleetTls } from "../../daemon/src/fleet/center.ts";
+import { daemonStdioLogPath } from "../../daemon/src/lifecycle-log.ts";
 import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
@@ -44,12 +45,23 @@ test("local CLI seeds, follows, and reconciles the generation-1 SQLite shadow", 
     assert.equal(run(root, userRoot, ["task", "create", "--title", "After seed one"]).outcome, "applied");
     assert.equal(run(root, userRoot, ["task", "create", "--title", "After seed two"]).outcome, "applied");
 
+    const authoredPath = "context/auto-settled.md",
+      authoredBody = "# Auto settled\n\nThe daemon materializer authored this event.\n";
+    mkdirSync(path.join(root, "harness", "context"), { recursive: true });
+    writeFileSync(path.join(root, "harness", authoredPath), authoredBody);
+    assert.equal(run(root, userRoot, ["task", "create", "--title", "Trigger authored settlement"]).outcome, "applied");
+    await waitForDocEvent(root, repoId, authoredPath, daemonStdioLogPath(userRoot, "default"));
+
     const exact = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"])),
       canonical = makeTaskEventReader({ repoId, rootDir: root }).read();
     assert.equal(exact.schema, "sqlite-ledger-reconciliation/v1");
     assert.equal(exact.matches, true, JSON.stringify(exact));
     assert.equal((exact.canonical as Record<string, unknown>).eventCount, canonical.events.length);
     assert.deepEqual(exact.revisionDifferences, []);
+    assert.doesNotMatch(
+      readFileSync(daemonStdioLogPath(userRoot, "default"), "utf8"),
+      /writer epoch fence is unavailable/u,
+    );
     context.diagnostic(JSON.stringify(exact));
 
     generateCertificate(keyFile, certFile);
@@ -211,6 +223,23 @@ function generateCertificate(keyFile: string, certFile: string): void {
   );
 }
 
+async function waitForDocEvent(root: string, repoId: string, target: string, daemonLog: string): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const event = makeTaskEventReader({ repoId, rootDir: root })
+      .read()
+      .events.find(
+        (candidate) =>
+          candidate.schema === "doc-event/v1" && candidate.payload.changes.some((change) => change.path === target),
+      );
+    if (event) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.fail(
+    `${target} did not produce an authored DocEvent\n${existsSync(daemonLog) ? readFileSync(daemonLog, "utf8") : "daemon log absent"}`,
+  );
+}
+
 function stop(root: string, userRoot: string): void {
   spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], {
     encoding: "utf8",
@@ -224,6 +253,8 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
     ...base,
     HOME: path.join(root, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
+    HARNESS_WAL_FLUSH_EVENTS: "1",
+    HARNESS_WAL_FLUSH_MS: "250",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ENDPOINT:
       process.platform === "win32"

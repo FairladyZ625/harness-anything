@@ -21,6 +21,7 @@ export interface RepoWriterBootstrapV1 {
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly bootstrap?: RepoBootstrapInput;
+    readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
     readonly walMaterializationTestFault?: {
       readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
       readonly failures: number;

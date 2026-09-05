@@ -164,16 +164,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },
-    daemonWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
-      if (base.writerEpochFence) return base;
+    writerEpochFence = (repoId: string) => {
       const lease = writerEpochLease(repoId);
-      return withDaemonWriterEpochFence(base, {
-        schema: "harness-writer-epoch-fence/v1",
+      return {
+        schema: "harness-writer-epoch-fence/v1" as const,
         stateRoot: path.join(input.userRoot, "fleet"),
         repoId,
         epoch: lease.epoch,
         holderId: lease.holderId,
-      });
+      };
+    },
+    daemonWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
+      if (base.writerEpochFence) return base;
+      return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
     },
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
       const base = await deriveBinding(rootDir, auth, executor);
@@ -319,6 +322,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     attachTimeoutMs,
     attachBudgetError,
     openCell,
+    writerEpochFence,
     runtimePorts,
     runtimeDaemonRoute,
     scheduleScheduler,
@@ -479,6 +483,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     failedConfigureVerify,
     hostCodedError,
     binding: hostBinding,
+    writerEpochFence,
     writerEpochLease,
     closeDaemonWriterEpoch,
     attach,

@@ -428,6 +428,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
       ...(input.bootstrap ? { bootstrap: input.bootstrap } : {}),
+      ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
       ...(input.walMaterializationTestFault ? { walMaterializationTestFault: input.walMaterializationTestFault } : {}),
     },
     capabilities: {

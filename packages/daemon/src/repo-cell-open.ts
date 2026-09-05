@@ -179,6 +179,8 @@ export interface RepoCellOpenInput {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   readonly fleetRoster?: () => FleetRoster | null;
+  /** Daemon-owned fallback for writes produced inside the cell rather than a request. */
+  readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
 }
 
 export async function openRepoCell(input: RepoCellOpenInput): Promise<RepoCell> {
@@ -232,6 +234,13 @@ export async function openRepoWriterCell(
     };
   // The ledger core is rebuildable in place: the variables below are rebound wholesale by
   // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
+  const cellWriterEpochFence = input.defaultWriterEpochFence,
+    defaultWriterEpochGuard = cellWriterEpochFence
+      ? () => assertWriterEpochFenceDescriptor(cellWriterEpochFence)
+      : null,
+    defaultWriterEpochFence = cellWriterEpochFence
+      ? <T>(operation: () => T) => withWriterEpochFenceDescriptor(cellWriterEpochFence, operation)
+      : null;
   let activeWriterEpochGuard: (() => void) | null = null,
     activeWriterEpochFence: (<T>(operation: () => T) => T) | null = null,
     activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null = null,
@@ -243,13 +252,13 @@ export async function openRepoWriterCell(
       rootDir,
       authoredBranch,
       get activeWriterEpochGuard() {
-        return activeWriterEpochGuard;
+        return activeWriterEpochGuard ?? defaultWriterEpochGuard;
       },
       get activeWriterEpochFence() {
-        return activeWriterEpochFence;
+        return activeWriterEpochFence ?? defaultWriterEpochFence;
       },
       get activeWriterEpochFenceDescriptor() {
-        return activeWriterEpochFenceDescriptor;
+        return activeWriterEpochFenceDescriptor ?? cellWriterEpochFence ?? null;
       },
       mode,
       now,
@@ -996,19 +1005,19 @@ export async function openRepoWriterCell(
     activeWriter,
     writerToken,
     get activeWriterEpochGuard() {
-      return activeWriterEpochGuard;
+      return activeWriterEpochGuard ?? defaultWriterEpochGuard;
     },
     set activeWriterEpochGuard(value) {
       activeWriterEpochGuard = value;
     },
     get activeWriterEpochFence() {
-      return activeWriterEpochFence;
+      return activeWriterEpochFence ?? defaultWriterEpochFence;
     },
     set activeWriterEpochFence(value) {
       activeWriterEpochFence = value;
     },
     get activeWriterEpochFenceDescriptor() {
-      return activeWriterEpochFenceDescriptor;
+      return activeWriterEpochFenceDescriptor ?? cellWriterEpochFence ?? null;
     },
     set activeWriterEpochFenceDescriptor(value) {
       activeWriterEpochFenceDescriptor = value;

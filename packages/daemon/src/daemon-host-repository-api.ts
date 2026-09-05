@@ -59,6 +59,7 @@ export function createDaemonHostRepositoryApi(
           rootDir: prepared.rootDir,
           mode: "local",
           ownerId: context.input.daemonId,
+          defaultWriterEpochFence: context.writerEpochFence(prepared.repoId),
           runtimeDaemonRoute: context.runtimeDaemonRoute,
           bootstrap: prepared,
           onBootstrap: (receipt) => {
