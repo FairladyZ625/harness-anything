@@ -15,6 +15,11 @@
       "test": "attached task runtime settlement releases its execution lease before publishing the terminal outcome",
       "ownerTask": "task_f9443002d6d995489ebf082911",
       "quarantinedAt": "2026-09-05"
+    },
+    {
+      "test": "class A: a task command carries local task documents, and the effect lands in both mirrors",
+      "ownerTask": "task_f9443002d6d995489ebf082911",
+      "quarantinedAt": "2026-09-05"
     }
   ]
 }
