@@ -8,6 +8,8 @@ import {
   getExecutableEntityAction,
   isLedgerLayoutMigrationEvent,
   lifecycleDocumentPaths,
+  migrateEventsToSqlite,
+  openSqliteEventStore,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { runPresetAction } from "../../preset/src/index.ts";
@@ -109,6 +111,28 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-migrate") {
+    if (action.generation !== undefined) {
+      const fence = binding.writerEpochFence;
+      if (!fence) throw cell.cellCodedError("invalid_command", "SQLite generation migration requires a writer fence.");
+      const sqlite = openSqliteEventStore({ repoId: cell.input.repoId, rootInput: cell.rootDir });
+      try {
+        const migration = migrateEventsToSqlite({
+          store: sqlite,
+          repoId: cell.input.repoId,
+          events: cell.store.read().events,
+          holder: fence.holderId,
+          epoch: fence.epoch,
+        });
+        return cell.readResult(
+          cell.operationId(action, binding, cell.input.repoId, migration.revision),
+          migration,
+          migration.revision,
+          null,
+        );
+      } finally {
+        sqlite.close();
+      }
+    }
     await cell.store.settlePendingMaterialization?.("layout migration");
     const appended = cell.store.migrateLayout({
       actor: binding.actor,
