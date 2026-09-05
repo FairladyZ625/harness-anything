@@ -112,8 +112,12 @@ export function transaction<A>(db: DatabaseSync, run: () => A): A {
     db.exec("COMMIT");
     return value;
   } catch (error) {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-030 */
-    db.exec("ROLLBACK");
+    try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-030 */
+      db.exec("ROLLBACK");
+    } catch (rollbackError) {
+      consumeKnownError(rollbackError);
+    }
     throw error;
   }
 }
