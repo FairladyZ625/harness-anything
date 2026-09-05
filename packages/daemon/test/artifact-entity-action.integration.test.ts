@@ -238,11 +238,30 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     );
 
     const listed = await cell.run({ kind: "entity-list", entityKind: kind }, binding),
+      shortListed = await cell.run({ kind: "entity-list", entityKind: "architecture-decision-record" }, binding),
+      shortGet = await cell.run(
+        { kind: "entity-get", entityKind: "architecture-decision-record", entityId: preview.entityId },
+        binding,
+      ),
       listedEntities = (
         JSON.parse(String(listed.evidence)) as {
           entities: readonly { id: string; freshness: string; currentVersion: string | number | null }[];
         }
-      ).entities;
+      ).entities,
+      shortListEvidence = JSON.parse(String(shortListed.evidence)) as {
+        kind: string;
+        entities: readonly { id: string; freshness: string; currentVersion: string | number | null }[];
+      },
+      shortGetEvidence = JSON.parse(String(shortGet.evidence)) as {
+        kind: string;
+        entity: { id: string };
+      };
+    assert.equal(shortListed.outcome, "applied", JSON.stringify(shortListed));
+    assert.equal(shortGet.outcome, "applied", JSON.stringify(shortGet));
+    assert.equal(shortListEvidence.kind, kind);
+    assert.equal(shortGetEvidence.kind, kind);
+    assert.deepEqual(shortListEvidence.entities, listedEntities);
+    assert.equal(shortGetEvidence.entity.id, preview.entityId);
     assert.deepEqual(
       listedEntities.map(({ id }) => id),
       [preview.entityId],
@@ -320,15 +339,31 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
       deriveArtifactContentVersion({ kind: "content", content: manifest }),
     );
     const listed = await cell.run({ kind: "entity-list", entityKind: researchKind }, binding),
-      entity = (
-        JSON.parse(String(listed.evidence)) as {
-          entities: readonly {
-            id: string;
-            value: { title: string };
-            currentVersion: string | number | null;
-          }[];
-        }
-      ).entities[0];
+      shortListed = await cell.run({ kind: "entity-list", entityKind: "research" }, binding),
+      shortGet = await cell.run(
+        { kind: "entity-get", entityKind: "research", entityId: firstPreview.entityId },
+        binding,
+      ),
+      listedEvidence = JSON.parse(String(listed.evidence)) as {
+        kind: string;
+        entities: readonly {
+          id: string;
+          value: { title: string };
+          currentVersion: string | number | null;
+        }[];
+      },
+      shortListEvidence = JSON.parse(String(shortListed.evidence)) as typeof listedEvidence,
+      shortGetEvidence = JSON.parse(String(shortGet.evidence)) as {
+        kind: string;
+        entity: { id: string };
+      },
+      entity = listedEvidence.entities[0];
+    assert.equal(shortListed.outcome, "applied", JSON.stringify(shortListed));
+    assert.equal(shortGet.outcome, "applied", JSON.stringify(shortGet));
+    assert.equal(shortListEvidence.kind, researchKind);
+    assert.equal(shortGetEvidence.kind, researchKind);
+    assert.deepEqual(shortListEvidence.entities, listedEvidence.entities);
+    assert.equal(shortGetEvidence.entity.id, firstPreview.entityId);
     assert.equal(entity?.value.title, "Directory artifacts");
     assert.equal(entity?.currentVersion, firstPreview.candidateContentVersion);
 
