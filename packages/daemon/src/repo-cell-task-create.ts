@@ -5,7 +5,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../../preset/src/index.ts";
-import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
+import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { taskCreateGuidance } from "./receipt-guidance.ts";
@@ -76,21 +76,8 @@ export function previewResult(
   };
 }
 
-export function withLayoutAdvisory(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
-  if (receipt.outcome !== "applied" || cell.store.layout() !== "flat/v1") return receipt;
-  const advisory = [
-    "This ledger still uses the legacy flat/v1 object layout; run ha migrate ",
-    "ledger to migrate it to sharded-sha256-2/v1.",
-  ].join("");
-  const summary = (
-    receipt as {
-      readonly summary?: unknown;
-    }
-  ).summary;
-  return {
-    ...receipt,
-    summary: typeof summary === "string" && summary.length > 0 ? `${summary}\n${advisory}` : advisory,
-  } as WriteReceipt;
+export function withLayoutAdvisory(_cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
+  return receipt;
 }
 
 export function withHumanSummary(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
@@ -117,6 +104,46 @@ export function createTask(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
+  const prepared = prepareTaskCreateAt(cell, action, binding);
+  if (!("compiled" in prepared)) return prepared;
+  const appended = cell.store.append(prepared.compiled),
+    publication = cell.publicPublication(appended);
+  applyPreparedTaskCreate(cell, prepared);
+  cell.input.killpoint?.("after_sqlite_commit");
+  const receipt = preparedTaskCreateReceipt(cell, prepared, publication);
+  cell.input.killpoint?.("before_response_write");
+  cell.input.killpoint?.("after_response_write");
+  return receipt;
+}
+
+type PreparedTaskCreateFields = Pick<
+  TaskCreateReceipt,
+  | "taskId"
+  | "taskStatus"
+  | "packagePath"
+  | "generatedPaths"
+  | "presetDigest"
+  | "scaffoldDigest"
+  | "presetId"
+  | "profileId"
+  | "outputShape"
+  | "completionGates"
+  | "dryRun"
+>;
+
+export interface PreparedTaskCreate {
+  readonly compiled: ReturnType<typeof compileRepoTaskBootstrap> & {
+    readonly plan: ReturnType<typeof taskBootstrapWritePlan>;
+  };
+  readonly fields: PreparedTaskCreateFields;
+}
+
+export function prepareTaskCreateAt(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  assigned?: { readonly workspaceRevision: number },
+): WriteReceipt | PreparedTaskCreate {
   const dryRun = action.dryRun === true,
     canonicalAction = cell.withoutDryRun(action),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, 0),
@@ -157,7 +184,7 @@ export function createTask(
   if (typeof canonicalAction.parentTaskId === "string" && !taskIds.has(canonicalAction.parentTaskId))
     return cell.rejected(opId, "parent_not_found");
   const currentRevision = cell.store.readHead()?.revision ?? 0,
-    workspaceRevision = currentRevision + 1,
+    workspaceRevision = assigned?.workspaceRevision ?? currentRevision + 1,
     eventId = `event-${createHash("sha256").update(opId).digest("hex")}`,
     occurredAt = cell.now(),
     baseCompiled = compileRepoTaskBootstrap({
@@ -229,40 +256,43 @@ export function createTask(
     };
     return preview;
   }
-  const appended = cell.store.append({
-      event: compiled.event,
-      plan: compiled.plan,
-      blobs: compiled.blobs,
-    }),
-    publication = cell.publicPublication(appended),
-    proof = cell.receiptProof(compiled.event, publication);
-  cell.projection.apply(compiled.event, compiled.plan);
-  taskIds.add(taskId);
-  cell.input.killpoint?.("after_sqlite_commit");
+  return { compiled, fields: common };
+}
+
+export function applyPreparedTaskCreate(cell: RepoCellOperationalContext, prepared: PreparedTaskCreate): void {
+  cell.projection.apply(prepared.compiled.event, prepared.compiled.plan);
+  cell.projectedTaskIds().add(prepared.fields.taskId);
+}
+
+export function preparedTaskCreateReceipt(
+  cell: RepoCellOperationalContext,
+  prepared: PreparedTaskCreate,
+  publication: PublicPublication,
+): TaskCreateReceipt {
+  const proof = cell.receiptProof(prepared.compiled.event, publication),
+    { fields, compiled } = prepared;
   const receipt: TaskCreateReceipt = {
     outcome: proof.canonicalVisible ? "applied" : "pending",
-    opId,
-    revision: appended.revision,
-    evidence: `event-object:${opId}`,
+    opId: compiled.event.opId,
+    revision: compiled.event.workspaceRevision,
+    evidence: `event-object:${compiled.event.opId}`,
     visibility: "center",
     proof,
-    ...common,
+    ...fields,
     guidance: taskCreateGuidance({
-      taskId,
+      taskId: fields.taskId,
       packagePath: compiled.packagePath,
       outputShape: compiled.snapshot.profile.outputShape,
-      dryRun,
-      opId,
+      dryRun: fields.dryRun,
+      opId: compiled.event.opId,
       canonicalVisible: proof.canonicalVisible,
     }),
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible
-      ? `created task ${taskId} at ${compiled.packagePath}`
-      : `task ${taskId} is awaiting exact canonical settlement`,
+      ? `created task ${fields.taskId} at ${compiled.packagePath}`
+      : `task ${fields.taskId} is awaiting exact canonical settlement`,
   };
-  cell.input.killpoint?.("before_response_write");
-  cell.input.killpoint?.("after_response_write");
   return receipt;
 }
 

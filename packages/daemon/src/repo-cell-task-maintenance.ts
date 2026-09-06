@@ -10,8 +10,15 @@ import {
   restateTaskContractBody,
   type RestatedTaskContract,
 } from "./migration-import-task-restatement.ts";
-import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { taskMutation } from "./repo-cell-task-mutation.ts";
+import {
+  applyPreparedTaskCreate,
+  prepareTaskCreateAt,
+  preparedTaskCreateReceipt,
+  type PreparedTaskCreate,
+} from "./repo-cell-task-create.ts";
 import {
   acceptPreparedTaskSurfaceWrites,
   prepareTaskSurfaceWriteAt,
@@ -95,45 +102,100 @@ export function supersedeWithNewTask(
       "invalid_disposition",
       `Use ha task show ${oldTaskId}; only active, non-superseded tasks can be superseded.`,
     );
+  const headRevision = cell.store.readHead()?.revision ?? 0,
+    outerOpId = cell.operationId(action, binding, cell.input.repoId, old.snapshot.revision),
+    existing = cell.store.readEvent(outerOpId);
+  if (existing) {
+    const replay = cell.receiptForOperation(outerOpId, binding),
+      replacementTaskId =
+        existing.schema === "task-event/v1" && existing.type === "task_superseded"
+          ? existing.payload.task.supersededBy
+          : null;
+    return { ...replay, replacementTaskId } as WriteReceipt;
+  }
   const metadata = old.snapshot.task.metadata,
-    created = cell.createTask(
-      {
-        kind: "task-create",
-        title: action.title,
-        ...(typeof action.slug === "string" ? { slug: action.slug } : {}),
-        ...(metadata
-          ? {
-              parentTaskId: metadata.parentTaskId ?? undefined,
-              workKind: metadata.workKind,
-              riskTier: metadata.riskTier,
-              urgency: metadata.urgency,
-              verticalId: metadata.verticalId,
-              presetId: metadata.presetId,
-              profileId: metadata.profileId,
-              moduleKey: metadata.moduleKey,
-              surfaces: metadata.surfaces,
-            }
-          : {}),
-      },
-      binding,
-    ) as TaskCreateReceipt;
-  if (created.outcome !== "applied") return created;
-  const replaced = cell.taskSurfaceWrite(
-    {
-      kind: "task-supersede",
-      oldTaskId,
-      byTaskId: created.taskId,
-      confirm: oldTaskId,
-      reason: action.reason,
-      allowOpenFindings: action.allowOpenFindings,
-    },
-    binding,
-  );
+    createAction = {
+      kind: "task-create",
+      title: action.title,
+      ...(typeof action.slug === "string" ? { slug: action.slug } : {}),
+      ...(metadata
+        ? {
+            parentTaskId: metadata.parentTaskId ?? undefined,
+            workKind: metadata.workKind,
+            riskTier: metadata.riskTier,
+            urgency: metadata.urgency,
+            verticalId: metadata.verticalId,
+            presetId: metadata.presetId,
+            profileId: metadata.profileId,
+            moduleKey: metadata.moduleKey,
+            surfaces: metadata.surfaces,
+          }
+        : {}),
+    } satisfies RepoTaskAction,
+    preparedCreate = requirePreparedCreate(
+      prepareTaskCreateAt(cell, createAction, binding, { workspaceRevision: headRevision + 1 }),
+    ),
+    projectedTaskIds = new Set(cell.projectedTaskIds());
+  projectedTaskIds.add(preparedCreate.fields.taskId);
+  const validationCell = taskValidationContext(cell, projectedTaskIds),
+    preparedSupersede = requirePrepared(
+      prepareTaskSurfaceWriteAt(
+        validationCell,
+        {
+          kind: "task-supersede",
+          oldTaskId,
+          byTaskId: preparedCreate.fields.taskId,
+          confirm: oldTaskId,
+          reason: action.reason,
+          allowOpenFindings: action.allowOpenFindings,
+        },
+        binding,
+        cell.now(),
+        { workspaceRevision: headRevision + 2, opId: outerOpId },
+      ),
+    ),
+    appended = cell.store.append({ ...preparedSupersede.compiled, preceding: [preparedCreate.compiled] }),
+    publication = cell.publicPublication(appended);
+  applyPreparedTaskCreate(cell, preparedCreate);
+  cell.projection.apply(preparedSupersede.compiled.event, preparedSupersede.compiled.plan);
+  cell.input.killpoint?.("after_sqlite_commit");
+  const created = preparedTaskCreateReceipt(cell, preparedCreate, publication),
+    replaced = {
+      ...cell.lifecycleReceipt(
+        preparedSupersede.compiled.event,
+        cell.projection.read(oldTaskId).snapshot,
+        publication,
+        cell.receiptProof(preparedSupersede.compiled.event, publication),
+        preparedSupersede.authorizationDecision,
+      ),
+      report: preparedSupersede.report,
+    } as WriteReceipt;
+  cell.input.killpoint?.("before_response_write");
+  cell.input.killpoint?.("after_response_write");
   return {
     ...replaced,
-    replacementTaskId: created.taskId,
+    replacementTaskId: preparedCreate.fields.taskId,
     steps: [created, replaced],
   } as WriteReceipt;
+}
+
+function taskValidationContext(
+  cell: RepoCellOperationalContext,
+  projectedTaskIds: ReadonlySet<string>,
+): RepoCellOperationalContext {
+  const context = Object.create(cell) as RepoCellOperationalContext;
+  Object.defineProperties(context, {
+    projectedTaskIds: { value: () => new Set(projectedTaskIds) },
+    taskMutation: {
+      value: (...args: Parameters<RepoCellOperationalContext["taskMutation"]>) => taskMutation(context, ...args),
+    },
+  });
+  return context;
+}
+
+function requirePreparedCreate(value: WriteReceipt | PreparedTaskCreate): PreparedTaskCreate {
+  if (!("compiled" in value)) throw new Error("replacement task unexpectedly completed during preparation");
+  return value;
 }
 
 export function migrateTaskContracts(
