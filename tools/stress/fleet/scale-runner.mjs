@@ -11,7 +11,6 @@ import { writeFileDurably } from "../../../packages/daemon/src/durable-file.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
-import { reconcileSqliteEvents } from "../../../packages/kernel/src/store/sqlite-ledger-reconcile.ts";
 import { createProcessTree, createSeededScenario, runScenario } from "../core/controller.mjs";
 import { generateCoverageDenominators } from "../core/denominators.mjs";
 import { buildStressReport, emitStressReport } from "../core/report.mjs";
@@ -308,11 +307,18 @@ function runColdRebuilds({ targetRoot, repoId, events, blobClaims }) {
     runs.push({ label, receipt, stateDigest, cut, blobManifestDigest });
   }
   const elapsedMs = performance.now() - started;
-  const reconciliation = reconcileSqliteEvents({
-    repoId,
-    databasePath: path.join(targetRoot, "ledger.sqlite"),
-    events,
-  });
+  const ledger = openSqliteEventStore({ repoId, databasePath: path.join(targetRoot, "ledger.sqlite") }),
+    rows = ledger.eventRows(),
+    reconciliation = {
+      matches:
+        rows.length === events.length &&
+        rows.every((row, index) => row.eventJson === serializePersistedCanonicalEvent(events[index])),
+      fixedExpectedEvents: events.length,
+      acceptedRows: rows.length,
+      acceptedOutcomes: ledger.outcomes().length,
+      contentObjects: ledger.contentObjectDigests().length,
+    };
+  ledger.close();
   return { first: runs[0], second: runs[1], elapsedMs, reconciliation };
 }
 

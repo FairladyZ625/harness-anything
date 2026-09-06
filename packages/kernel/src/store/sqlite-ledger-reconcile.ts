@@ -1,14 +1,21 @@
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import type { LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
+import { canonicalLedgerCut } from "./task-event-store-reads.ts";
 import { planLegacyGenerationSnapshotConversion } from "./legacy-generation-conversion.ts";
 import { openSqliteEventStore, sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-event-store.ts";
 
 export interface GitFollowerReadback {
-  readonly status: "pending" | "verified";
-  readonly revision: number;
-  readonly eventDigests: readonly string[];
-  readonly objectDigests: readonly string[];
+  readonly commitSha: string;
+  readonly cut: LedgerCutIdentity;
+  readonly documents: readonly {
+    readonly path: string;
+    readonly mode: string;
+    readonly sha256: string;
+    readonly size: number;
+  }[];
+  readonly retirements: readonly string[];
 }
 
 export interface SqliteLedgerReconciliation {
@@ -95,11 +102,20 @@ export function reconcileSqliteEvents(input: {
           );
         }),
       objectMatches = expectedObjects.every((sha256) => actualObjects.includes(sha256)),
+      current = rows.at(-1),
+      expectedCut = canonicalLedgerCut(
+        input.repoId,
+        current
+          ? {
+              revision: current.revision,
+              opId: current.opId,
+              eventDigest: `sha256:${sha256Text(current.eventJson)}`,
+            }
+          : null,
+      ),
       gitReadbackMatches =
-        input.gitReadback.status === "verified" &&
-        input.gitReadback.revision === rows.length &&
-        stableStringify([...input.gitReadback.eventDigests]) === stableStringify(rows.map((row) => row.digest)) &&
-        stableStringify([...input.gitReadback.objectDigests].sort()) === stableStringify(actualObjects),
+        input.gitReadback.commitSha.length > 0 &&
+        stableStringify(input.gitReadback.cut) === stableStringify(expectedCut),
       differences = [
         metadataMatches ? null : "ledger metadata differs from immutable source",
         rowDigestMatches ? null : "event rows or stored row digests differ from immutable source",

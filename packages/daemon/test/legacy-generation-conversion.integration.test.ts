@@ -13,8 +13,10 @@ import {
   openSqliteEventStore,
   preflightConvertedGenerationActivation,
   reconcileSqliteEvents,
-  sqliteContentObjectPath,
   readSettingsFacet,
+  serializeEventHead,
+  sha256Text,
+  sqliteContentObjectPath,
   type CanonicalEventV1,
   type CanonicalEventStore,
 } from "../../kernel/src/index.ts";
@@ -52,11 +54,12 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     assert.equal(first.rewrittenEvents, 1);
     assert.equal(first.migratedEvents, 1);
     assert.equal(first.active, false);
+    const second = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+    assert.equal(second.migratedEvents, 0);
     assert.doesNotThrow(() =>
       preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
     );
-    const second = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
-    assert.equal(second.migratedEvents, 0);
+    assert.throws(() => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }), /active generation/u);
     assert.equal(seeded.eventBytes, originalBytes);
 
     const sqlite = openSqliteEventStore({ repoId, databasePath }),
@@ -64,11 +67,18 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       convertedSource = arrayStore(converted, (sha256) => sqlite.readContentObject(sha256));
     assert.equal(Object.hasOwn(converted[0]!.payload.settings, "walFlush"), true);
     const rows = sqlite.eventRows(),
+      last = rows.at(-1)!,
       gitReadback = {
-        status: "verified" as const,
-        revision: rows.length,
-        eventDigests: rows.map(({ digest }) => digest),
-        objectDigests: sqlite.contentObjectDigests(),
+        commitSha: "a".repeat(40),
+        cut: {
+          repoId,
+          revision: rows.length,
+          headDigest: `sha256:${sha256Text(
+            serializeEventHead({ revision: last.revision, opId: last.opId, eventDigest: last.digest }),
+          )}`,
+        },
+        documents: [],
+        retirements: [],
       },
       reconciliation = reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback });
     assert.equal(reconciliation.matches, true, JSON.stringify(reconciliation));
@@ -78,7 +88,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         rootDir: root,
         snapshotPath,
         databasePath,
-        gitReadback: { ...gitReadback, status: "pending" },
+        gitReadback: { ...gitReadback, commitSha: "" },
       }).matches,
       false,
     );
@@ -98,8 +108,9 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     const secondRebuild = secondProjection.rebuild();
     secondProjection.close();
     assert.equal(firstRebuild.stateDigest, secondRebuild.stateDigest);
+    const objectDigest = sqlite.contentObjectDigests()[0]!;
     sqlite.close();
-    rmSync(sqliteContentObjectPath(root, gitReadback.objectDigests[0]!), { force: true });
+    rmSync(sqliteContentObjectPath(root, objectDigest), { force: true });
     assert.throws(
       () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
       /missing object/u,

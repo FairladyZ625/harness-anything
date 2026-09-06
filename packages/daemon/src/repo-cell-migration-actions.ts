@@ -1,146 +1,72 @@
-import {
-  isLedgerLayoutMigrationEvent,
-  migrateEventsToSqlite,
-  openSqliteEventStore,
-  reconcileSqliteEvents,
-  runDispatchRecordMigration,
-  runEventShapeMigration,
-  type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import {
+  legacyGenerationSnapshotPath,
+  openSqliteEventStore,
+  reconcileSqliteEvents,
+  sqliteLedgerPath,
+} from "../../kernel/src/index.ts";
 
-type EventShapeMigrationSpec = Parameters<typeof runEventShapeMigration>[0];
+function retired(cell: RepoCellOperationalContext): never {
+  throw cell.cellCodedError(
+    "invalid_command",
+    "in-place historical migration is retired; convert an immutable generation snapshot before activation",
+  );
+}
 
-export function runEventShapeMigrationAction(
-  cell: RepoCellOperationalContext,
-  migration: EventShapeMigrationSpec,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-) {
-  return runEventShapeMigration(migration, {
-    dryRun: action.dryRun === true,
-    actor: binding.actor,
-    rootDir: cell.rootDir,
-    store: cell.store,
-    now: cell.now,
-  });
+export function runEventShapeMigrationAction(cell: RepoCellOperationalContext, ..._ignored: readonly unknown[]): never {
+  return retired(cell);
 }
 
 export function runDispatchRecordMigrationAction(
   cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-) {
-  return runDispatchRecordMigration({
-    dryRun: action.dryRun === true,
-    actor: binding.actor,
-    source: binding.source,
-    rootDir: cell.rootDir,
-    store: cell.store,
-    projection: cell.projection,
-    now: cell.now,
-    settleLease: (settlement) => cell.settleRuntimeExecutionLease(settlement, binding),
-  });
+  ..._ignored: readonly unknown[]
+): never {
+  return retired(cell);
 }
 
-function runSqliteGenerationMigrationAction(
+export function runLedgerMigrateAction(cell: RepoCellOperationalContext, ..._ignored: readonly unknown[]): never {
+  return retired(cell);
+}
+
+export async function runLedgerReconcileAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  generation: number,
 ) {
-  const fence = binding.writerEpochFence;
-  if (!fence) throw cell.cellCodedError("invalid_command", "SQLite generation migration requires a writer fence.");
-  const sqlite = openSqliteEventStore({ repoId: cell.input.repoId, rootInput: cell.rootDir, generation });
-  try {
-    const migration = migrateEventsToSqlite({
-      store: sqlite,
+  const revision = cell.store.readHead()?.revision ?? 0,
+    sqlite = openSqliteEventStore({
       repoId: cell.input.repoId,
-      events: cell.store.read().events,
-      holder: fence.holderId,
-      epoch: fence.epoch,
+      databasePath: sqliteLedgerPath(cell.rootDir, 1),
+      generation: 1,
+      readOnly: true,
     });
+  try {
+    const kernel = (await import("../../kernel/src/index.ts")) as typeof import("../../kernel/src/index.ts") & {
+        readCertifiedGitFollower: (input: {
+          readonly rootInput: string;
+          readonly repoId: string;
+          readonly store: typeof sqlite;
+        }) => Parameters<typeof reconcileSqliteEvents>[0]["gitReadback"];
+      },
+      gitReadback = kernel.readCertifiedGitFollower({
+        rootInput: cell.rootDir,
+        repoId: cell.input.repoId,
+        store: sqlite,
+      }),
+      report = reconcileSqliteEvents({
+        repoId: cell.input.repoId,
+        rootDir: cell.rootDir,
+        snapshotPath: legacyGenerationSnapshotPath(cell.rootDir),
+        gitReadback,
+      });
     return cell.readResult(
-      cell.operationId(action, binding, cell.input.repoId, migration.revision),
-      migration,
-      migration.revision,
-      null,
+      cell.operationId(action, binding, cell.input.repoId, revision),
+      report,
+      revision,
+      report.gitReadbackMatches,
     );
   } finally {
     sqlite.close();
   }
-}
-
-export async function runLedgerMigrateAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-) {
-  if (typeof action.generation === "number")
-    return runSqliteGenerationMigrationAction(cell, action, binding, action.generation);
-  await cell.store.settlePendingMaterialization?.("layout migration");
-  const appended = cell.store.migrateLayout({
-    actor: binding.actor,
-    source: binding.source,
-    occurredAt: cell.now(),
-  });
-  if (!isLedgerLayoutMigrationEvent(appended.event))
-    throw cell.cellCodedError("invalid_store", "Ledger migration returned the wrong event type.");
-  cell.projection.catchUp?.();
-  const projected = cell.projection.list(),
-    visible = projected.watermark === appended.revision && projected.sourceRevision === appended.revision,
-    proof = {
-      committedRevision: appended.revision,
-      appliedCut: projected.watermark,
-      durable: true,
-      canonicalVisible: visible,
-      worktreeVisible: true,
-    },
-    receipt = {
-      opId: appended.event.opId,
-      revision: appended.revision,
-      evidence: JSON.stringify({
-        ...appended.event.payload,
-        commitSha: appended.commitSha?.sha ?? null,
-        projection: {
-          status: projected.status,
-          watermark: projected.watermark,
-          sourceRevision: projected.sourceRevision,
-        },
-      }),
-      visibility: "center" as const,
-      proof,
-      commitSha: appended.commitSha?.sha ?? null,
-      cut: appended.cut,
-      worktreeVisible: true,
-    };
-  return visible
-    ? ({ outcome: "applied", ...receipt } as WriteReceipt)
-    : ({
-        outcome: "pending",
-        ...receipt,
-      } as WriteReceipt);
-}
-
-export function runLedgerReconcileAction(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-) {
-  if (action.generation !== 1)
-    throw cell.cellCodedError("invalid_command", "SQLite ledger reconciliation currently requires generation 1.");
-  const canonical = cell.store.read(),
-    report = reconcileSqliteEvents({
-      repoId: cell.input.repoId,
-      rootInput: cell.rootDir,
-      generation: action.generation,
-      events: canonical.events,
-    });
-  return cell.readResult(
-    cell.operationId(action, binding, cell.input.repoId, canonical.revision),
-    report,
-    canonical.revision,
-    null,
-  );
 }

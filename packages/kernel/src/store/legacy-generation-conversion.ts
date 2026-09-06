@@ -1,6 +1,8 @@
 import path from "node:path";
 import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
@@ -29,6 +31,40 @@ export interface LegacyGenerationConversionReport {
   readonly migratedEvents: number;
   readonly destinationRevision: number;
   readonly active: false;
+}
+
+export function legacyGenerationSnapshotPath(rootDir: string): string {
+  return path.join(rootDir, ".harness", "store", "imports", "generation-0.snapshot.json");
+}
+
+export function generationActivationCertificatePath(rootDir: string): string {
+  return `${sqliteLedgerPath(rootDir, 1)}.activation.json`;
+}
+
+export function preflightCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput),
+    databasePath = sqliteLedgerPath(input.rootInput, 1),
+    snapshotPath = legacyGenerationSnapshotPath(layout.rootDir);
+  if (!localRuntimeStateFileSystem.exists(databasePath)) {
+    if (localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")))
+      throw new TaskEventStoreError("invalid_store", "legacy history requires generation conversion before activation");
+    return;
+  }
+  const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
+  const revision = store.revision();
+  store.close();
+  if (revision === 0 && !localRuntimeStateFileSystem.exists(snapshotPath)) return;
+  if (!localRuntimeStateFileSystem.exists(snapshotPath))
+    throw new TaskEventStoreError("invalid_store", "nonempty generation requires its immutable source snapshot");
+  preflightConvertedGenerationActivation({
+    repoId: input.repoId,
+    rootDir: layout.rootDir,
+    snapshotPath,
+    databasePath,
+  });
 }
 
 export function createImmutableLegacyGenerationSnapshot(input: {
@@ -74,15 +110,21 @@ export function convertLegacyGeneration(input: {
     databasePath = input.databasePath ?? sqliteLedgerPath(input.rootDir, 1),
     markerPath = `${databasePath}.import-source.json`,
     marker = `${JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: snapshot.sourceDigest })}\n`;
+  if (localRuntimeStateFileSystem.exists(`${databasePath}.activation.json`))
+    throw new TaskEventStoreError("invalid_store", "active generation cannot be converted");
+  const source = snapshotStore(snapshot),
+    plan = planLegacyGenerationConversion({ rootDir: input.rootDir, store: source });
+  assertNoPendingHistoricalRewrites({
+    rootDir: input.rootDir,
+    store: convertedPlanStore(snapshot, plan.events, plan.blobs),
+  });
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   if (!localRuntimeStateFileSystem.createExclusiveText(markerPath, marker)) {
     const prior = JSON.parse(localRuntimeStateFileSystem.readText(markerPath));
     if (prior.sourceDigest !== snapshot.sourceDigest)
       throw new TaskEventStoreError("invalid_store", "inactive generation was seeded from another immutable source");
   }
-  const source = snapshotStore(snapshot),
-    plan = planLegacyGenerationConversion({ rootDir: input.rootDir, store: source }),
-    sourceObjects = new Map(
+  const sourceObjects = new Map(
       snapshot.objects.map((object) => [object.sha256, Buffer.from(object.bytesBase64, "base64")]),
     ),
     generated = new Map(plan.blobs.map((blob) => [blob.sha256, blob])),
@@ -174,8 +216,10 @@ export function preflightConvertedGenerationActivation(input: {
   try {
     const rows = store.eventRows();
     if (
-      rows.length !== plan.events.length ||
-      rows.some((row, index) => row.eventJson !== serializePersistedCanonicalEvent(plan.events[index]!))
+      rows.length < plan.events.length ||
+      rows
+        .slice(0, plan.events.length)
+        .some((row, index) => row.eventJson !== serializePersistedCanonicalEvent(plan.events[index]!))
     )
       throw new TaskEventStoreError("invalid_store", "generation conversion is incomplete");
     const required = new Set(plan.events.flatMap((event) => contentClaims(event).map((claim) => claim.sha256)));
@@ -183,6 +227,22 @@ export function preflightConvertedGenerationActivation(input: {
       if (!store.readContentObject(sha256))
         throw new TaskEventStoreError("invalid_store", `generation conversion is missing object ${sha256}`);
     assertNoPendingHistoricalRewrites({ rootDir: input.rootDir, store: sqliteSnapshotStore(store) });
+    const certificatePath = `${databasePath}.activation.json`,
+      certificate = `${JSON.stringify({
+        schema: "generation-activation/v1",
+        repoId: input.repoId,
+        sourceDigest: snapshot.sourceDigest,
+        importedPrefixRevision: plan.events.length,
+      })}\n`;
+    if (!localRuntimeStateFileSystem.createExclusiveText(certificatePath, certificate)) {
+      const existing = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath));
+      if (
+        existing.repoId !== input.repoId ||
+        existing.sourceDigest !== snapshot.sourceDigest ||
+        existing.importedPrefixRevision !== plan.events.length
+      )
+        throw new TaskEventStoreError("invalid_store", "generation activation certificate differs");
+    }
   } finally {
     store.close();
   }
@@ -228,6 +288,41 @@ function snapshotStore(snapshot: ImmutableLegacySnapshotV1): CanonicalEventStore
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {
   const events = store.events(),
     objects = new Map(store.contentObjectDigests().map((sha256) => [sha256, store.readContentObject(sha256)!]));
+  return {
+    read: () => ({ revision: events.length, events }),
+    readHead: () =>
+      events.length === 0
+        ? null
+        : {
+            revision: events.length,
+            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(events.at(-1)!))}`,
+          },
+    readBatch: () => ({
+      sourceRevision: events.length,
+      events,
+      cursor: null,
+      done: true,
+      accessedItems: events.length,
+      prefetchContent: () => objects,
+    }),
+    readContentBlob: (sha256: string) => objects.get(sha256) ?? null,
+  } as unknown as CanonicalEventStore;
+}
+
+function convertedPlanStore(
+  snapshot: ImmutableLegacySnapshotV1,
+  events: readonly CanonicalEventV1[],
+  generatedBlobs: readonly CanonicalContentBlob[],
+): CanonicalEventStore {
+  const objects = new Map(snapshot.objects.map((object) => [object.sha256, Buffer.from(object.bytesBase64, "base64")]));
+  for (const blob of generatedBlobs) objects.set(blob.sha256, Buffer.from(blob.body));
+  return arraySnapshotStore(events, objects);
+}
+
+function arraySnapshotStore(
+  events: readonly CanonicalEventV1[],
+  objects: ReadonlyMap<string, Uint8Array>,
+): CanonicalEventStore {
   return {
     read: () => ({ revision: events.length, events }),
     readHead: () =>

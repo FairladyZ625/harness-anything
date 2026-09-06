@@ -3,8 +3,10 @@ export * from "./domain/index.ts";
 export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
+  legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
   preflightConvertedGenerationActivation,
+  preflightCanonicalGeneration,
   readImmutableLegacyGenerationSnapshot,
 } from "./store/legacy-generation-conversion.ts";
 export { sqliteContentObjectPath } from "./store/sqlite-event-store.ts";
@@ -305,10 +307,10 @@ export {
   runDispatchRecordMigration,
   makeTaskEventStore,
   makeTaskProjection,
-  runEventShapeMigration,
   migrateEventsToSqlite,
   openSqliteEventStore,
   readCertifiedGitFollower,
+  sqliteLedgerPath,
   reconcileSqliteEvents,
   makeTaskProjectionReader,
 } from "./composition/index.ts";
