@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,10 +25,22 @@ test("migration import commits its prepared members and terminal outcome atomica
     coverageCompleteFixture(source);
     coverageCompleteFixture(secondSource);
     coverageCompleteFixture(thirdSource);
+    writeFileSync(path.join(source, "harness/source-alpha.txt"), "alpha source identity\n");
+    writeFileSync(path.join(secondSource, "harness/source-beta.txt"), "beta source identity\n");
+    writeFileSync(path.join(thirdSource, "harness/source-gamma.txt"), "gamma source identity\n");
+    const firstSources = sources(source),
+      secondSources = sources(secondSource),
+      firstRoot = execFileSync("git", ["-C", source, "rev-list", "--max-parents=0", "HEAD"], {
+        encoding: "utf8",
+      }).trim(),
+      secondRoot = execFileSync("git", ["-C", secondSource, "rev-list", "--max-parents=0", "HEAD"], {
+        encoding: "utf8",
+      }).trim();
+    assert.notEqual(firstRoot, secondRoot);
     const thirdSources = sources(thirdSource);
     execFileSync("git", ["-C", thirdSource, "commit", "--allow-empty", "-m", "distinct third source"]);
     initRepo(rootDir);
-    const action = { kind: "migrate-import" as const, sourceRoots: [...sources(source), ...sources(secondSource)] };
+    const action = { kind: "migrate-import" as const, sourceRoots: [...firstSources, ...secondSources] };
     first = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
@@ -73,6 +85,17 @@ test("migration import commits its prepared members and terminal outcome atomica
     assert.equal(
       committed.read().events.filter(({ opId }) => outcome.memberOpIds.includes(opId)).length,
       outcome.memberOpIds.length,
+    );
+    assert.equal(
+      committed
+        .read()
+        .events.filter(
+          (event) =>
+            outcome.memberOpIds.includes(event.opId) &&
+            event.schema === "migration-import-event/v1" &&
+            event.payload.entity.kind === "task",
+        ).length,
+      2,
     );
     await committed.drain();
     const priorRevision = outcome.lastRevision!,

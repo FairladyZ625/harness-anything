@@ -120,7 +120,12 @@ function stagedImportView(input: MigrationImportRunInput): {
     sourceAuthoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
   mkdirSync(path.dirname(authoredRoot), { recursive: true });
-  if (existsSync(sourceAuthoredRoot)) cpSync(sourceAuthoredRoot, authoredRoot, { recursive: true, dereference: false });
+  if (existsSync(sourceAuthoredRoot))
+    cpSync(sourceAuthoredRoot, authoredRoot, {
+      recursive: true,
+      dereference: false,
+      filter: (source) => path.basename(source) !== ".git",
+    });
   else mkdirSync(authoredRoot, { recursive: true });
   const accepted: CanonicalWriteBundle[] = [],
     events = new Map<string, CanonicalWriteBundle>(),
@@ -232,10 +237,17 @@ function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void
 }
 
 function authoredPath(root: string, relative: string): string {
-  const target = path.resolve(root, relative),
-    prefix = `${path.resolve(root)}${path.sep}`;
+  const resolvedRoot = path.resolve(root),
+    target = path.resolve(resolvedRoot, relative),
+    prefix = `${resolvedRoot}${path.sep}`;
   if (!target.startsWith(prefix))
     throw migrationImportError("invalid_store", `staged document escapes authored root: ${relative}`);
+  let parent = path.dirname(target);
+  while (parent !== resolvedRoot) {
+    if (lstatExists(parent) && lstatSync(parent).isSymbolicLink())
+      throw migrationImportError("invalid_store", `staged document has a symbolic-link parent: ${relative}`);
+    parent = path.dirname(parent);
+  }
   return target;
 }
 
