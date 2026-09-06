@@ -59,11 +59,18 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     follower.git.cut !== null &&
     follower.git.cut.repoId === acceptedCut.repoId &&
     follower.git.cut.revision >= acceptedCut.revision;
+  const worktreeCoversAcceptance =
+    follower.worktree.status === "verified" &&
+    follower.worktree.cut !== null &&
+    follower.worktree.cut.repoId === acceptedCut.repoId &&
+    follower.worktree.cut.revision >= acceptedCut.revision;
   const projected = projection.readCut();
   const visible = projected.watermark >= outcome.lastRevision;
   const { rejectionExplanation: _rejectionExplanation, ...acceptedReceipt } = receipt;
   return {
     ...acceptedReceipt,
+    ...("worktreeVisible" in receipt ? { worktreeVisible: worktreeCoversAcceptance } : {}),
+    ...("canonicalVisible" in receipt ? { canonicalVisible: visible } : {}),
     status: "accepted_durable",
     acceptance: {
       storage: "sqlite",
@@ -87,11 +94,7 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
       appliedCut: visible ? outcome.lastRevision : projected.watermark,
       durable: true,
       canonicalVisible: visible,
-      worktreeVisible:
-        follower.worktree.status === "verified" &&
-        follower.worktree.cut !== null &&
-        follower.worktree.cut.repoId === acceptedCut.repoId &&
-        follower.worktree.cut.revision >= acceptedCut.revision,
+      worktreeVisible: worktreeCoversAcceptance,
     },
     cut: {
       repoId: acceptedCut.repoId,

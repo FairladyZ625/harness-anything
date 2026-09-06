@@ -94,6 +94,14 @@ test("supersede with a new task accepts both events atomically and retries after
     assert.equal(oldAfterRetry.task.supersededBy, accepted.replacementTaskId);
     const replacement = await cell.run({ kind: "task-show", taskId: String(accepted.replacementTaskId) }, binding);
     assert.equal(replacement.outcome, "applied", JSON.stringify(replacement));
+    const replay = await cell.run(action, binding);
+    assert.equal(replay.status, "accepted_durable", JSON.stringify(replay));
+    assert.equal(replay.opId, accepted.opId);
+    assert.equal(replay.replacementTaskId, accepted.replacementTaskId);
+    assert.deepEqual(replay.acceptance, accepted.acceptance);
+    const afterReplay = makeTaskEventReader({ repoId, rootDir });
+    assert.equal(afterReplay.read().revision, before + 2);
+    await afterReplay.drain();
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

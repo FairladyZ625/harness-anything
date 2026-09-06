@@ -289,6 +289,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
           const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
@@ -306,6 +307,19 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           }
           context.replica.kick();
           return receipt;
+        } catch (error) {
+          // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
+          const head = context.store.readHead(),
+            accepted = head ? context.store.readCommandOutcome(head.opId) : null;
+          if (accepted?.status === "accepted_durable" && accepted.firstRevision! > revisionBeforeExecution)
+            throw Object.assign(
+              context.cellCodedError(
+                "publication_indeterminate",
+                error instanceof Error ? error.message : String(error),
+              ),
+              { opId: accepted.opId, cause: error },
+            );
+          throw error;
         } finally {
           context.activeWriterEpochGuard = null;
           context.activeWriterEpochFence = null;

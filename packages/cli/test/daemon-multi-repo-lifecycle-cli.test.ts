@@ -9,7 +9,21 @@ import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import { cli, git, register, run, runMaybe, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
-test("real CLI reaches one resident multi-workspace daemon and publishes Git event -> SQLite -> receipt", async () => {
+function settleFollower(root: string, userRoot: string, receipt: Record<string, unknown>): void {
+  const settled = run(root, userRoot, [
+    "receipt",
+    "show",
+    String(receipt.opId),
+    "--wait",
+    "git_verified,worktree_visible",
+    "--timeout-ms",
+    "5000",
+  ]);
+  assert.equal((settled.wait as { state: string }).state, "satisfied", JSON.stringify(settled));
+  assert.equal((settled.git as { state: string }).state, "verified");
+  assert.equal((settled.worktree as { state: string }).state, "verified");
+}
+test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async () => {
   const fixture = setup();
   try {
     const noDaemon = runMaybe(fixture.alpha, fixture.userRoot, [
@@ -103,6 +117,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
+    settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
     writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
     assert.equal(
@@ -161,10 +176,11 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       decisionPath = `decisions/decision-${decision.decisionId}/decision.md`;
     assert.equal(decision.state, "proposed");
     assert.equal(decisionPropose.path, decisionPath);
-    assert.equal(decisionPropose.worktreeVisible, true);
+    assert.equal(decisionPropose.worktreeVisible, false);
     assert.equal(decisionPropose.commitSha, null);
     assert.ok(decisionPropose.cut);
     assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
+    settleFollower(fixture.alpha, fixture.userRoot, decisionPropose);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness", decisionPath), "utf8"),
       /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n\n# Canonical Decision from CLI\n$/u,
@@ -264,7 +280,8 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
     assert.equal(progress.commitSha, null);
     assert.ok(progress.cut);
-    assert.equal(progress.worktreeVisible, true);
+    assert.equal(progress.worktreeVisible, false);
+    settleFollower(fixture.alpha, fixture.userRoot, progress);
     assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
       readFileSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha/progress.md"), "utf8"),
@@ -373,23 +390,27 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
       [fixture.alpha, makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" }).read().revision],
       [fixture.beta, makeTaskEventReader({ rootDir: fixture.beta, repoId: "beta" }).read().revision],
     ]);
-    stop(fixture.alpha, fixture.userRoot); // explicit drain: Git/fresh readers catch up after acknowledged visibility
+    stop(fixture.alpha, fixture.userRoot); // Drain the event-derived follower before independent Git read-back.
     for (const root of [fixture.alpha, fixture.beta]) {
-      const gitHead = JSON.parse(git(root, "show", "refs/ha/canonical:harness/events/head.json")) as {
-        revision: number;
+      const manifest = JSON.parse(git(root, "show", "HEAD:harness/events/segments/manifest.json")) as {
+        schema: string;
+        generation: number;
+        cut: { revision: number };
       };
-      assert.equal(gitHead.revision, logicalRevisions.get(root));
+      assert.equal(manifest.schema, "sqlite-ledger-segment-manifest/v1");
+      assert.equal(manifest.generation, 1);
+      assert.equal(manifest.cut.revision, logicalRevisions.get(root));
       assert.equal(
-        git(root, "ls-tree", "--name-only", "refs/ha/canonical", "harness/events").includes("harness/events"),
-        true,
+        git(root, "ls-tree", "-r", "--name-only", "HEAD", "harness/events").trim(),
+        "harness/events/segments/manifest.json",
       );
       assert.equal(existsSync(path.join(root, ".harness/cache/task.sqlite")), true);
       assert.equal(existsSync(path.join(root, ".harness/write-journal")), false);
     }
     assert.equal(
-      git(fixture.alpha, "grep", "-l", "fact-event/v1", "refs/ha/canonical", "--", "harness/events").includes(
-        "harness/events",
-      ),
+      makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" })
+        .read()
+        .events.some((event) => event.schema === "fact-event/v1"),
       true,
     );
   } finally {
@@ -443,6 +464,7 @@ test("real CLI creates module and subtask-expansion packages through their decla
       "packages/kernel/**",
     ]);
     assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask));
+    settleFollower(fixture.alpha, fixture.userRoot, moduleTask);
     assert.deepEqual(
       (moduleTask.generatedPaths as string[])
         .filter((target) => /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(target))

@@ -91,3 +91,46 @@ test("task archive accepts two members atomically and retries after pre-outcome 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("queued command retains acceptance when receipt assembly fails after the store returns", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-post-accept-receipt-")),
+    repoId = workspaceId("post-accept-receipt"),
+    binding = { actor, source: "local" as const };
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    armed = false,
+    commitCallbacks = 0;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "post-accept-receipt",
+      killpoint: (point) => {
+        if (armed && point === "after_sqlite_commit" && ++commitCallbacks === 2)
+          throw new Error("receipt assembly failed after store acceptance");
+      },
+    });
+    const beforeReader = makeTaskEventReader({ repoId, rootDir }),
+      beforeRevision = beforeReader.read().revision;
+    await beforeReader.drain();
+    armed = true;
+    const receipt = await cell.run(
+      { kind: "task-create", taskId: "task_after_accept", title: "Accepted before receipt failure" },
+      binding,
+    );
+    armed = false;
+    assert.equal(commitCallbacks, 2, "failure must occur after the adapter returned");
+    assert.equal(receipt.status, "accepted_durable", JSON.stringify(receipt));
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(receipt.acceptance?.revisionFrom, beforeRevision + 1);
+    assert.equal(receipt.acceptance?.revisionTo, beforeRevision + 1);
+    const reader = makeTaskEventReader({ repoId, rootDir });
+    assert.equal(reader.read().revision, beforeRevision + 1);
+    assert.equal(reader.readCommandOutcome(receipt.opId)?.status, "accepted_durable");
+    assert.equal(reader.readEvent(receipt.opId)?.schema, "task-bootstrap-event/v1");
+    await reader.drain();
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

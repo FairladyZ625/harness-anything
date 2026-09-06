@@ -95,15 +95,8 @@ export function supersedeWithNewTask(
       "task_not_found",
       `Run ha task list, choose an existing old task id, then retry task supersede.`,
     );
-  if (old.snapshot.lease)
-    throw cell.cellCodedError("active_lease", `Run ha task release ${oldTaskId} before task-supersede.`);
-  if ((old.snapshot.task.packageDisposition ?? "active") !== "active" || old.snapshot.task.supersededBy)
-    throw cell.cellCodedError(
-      "invalid_disposition",
-      `Use ha task show ${oldTaskId}; only active, non-superseded tasks can be superseded.`,
-    );
   const headRevision = cell.store.readHead()?.revision ?? 0,
-    outerOpId = cell.operationId(action, binding, cell.input.repoId, old.snapshot.revision),
+    outerOpId = cell.operationId(action, binding, cell.input.repoId, 0),
     existing = cell.store.readEvent(outerOpId);
   if (existing) {
     const replay = cell.receiptForOperation(outerOpId, binding),
@@ -113,6 +106,13 @@ export function supersedeWithNewTask(
           : null;
     return { ...replay, replacementTaskId } as WriteReceipt;
   }
+  if (old.snapshot.lease)
+    throw cell.cellCodedError("active_lease", `Run ha task release ${oldTaskId} before task-supersede.`);
+  if ((old.snapshot.task.packageDisposition ?? "active") !== "active" || old.snapshot.task.supersededBy)
+    throw cell.cellCodedError(
+      "invalid_disposition",
+      `Use ha task show ${oldTaskId}; only active, non-superseded tasks can be superseded.`,
+    );
   const metadata = old.snapshot.task.metadata,
     createAction = {
       kind: "task-create",
