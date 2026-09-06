@@ -87,9 +87,9 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return finish(assessed.receipt, assessed.exitCode);
     }
     if (command === "stop") {
-      writeDaemonStoppedMarker(userRoot, daemonId);
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
+      writeDaemonStoppedMarker(userRoot, daemonId);
       if (argv.includes("--force")) {
         const forced = await forceStopDaemon(userRoot, daemonId, pid);
         return finish(forced, forced.ok === true ? 0 : 1);

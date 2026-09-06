@@ -123,17 +123,6 @@ export async function ensureLocalDaemonRunning(input: {
 }): Promise<DaemonAutostartResult> {
   const readyTimeoutMs = input.readyTimeoutMs ?? 10_000,
     probeIntervalMs = input.probeIntervalMs ?? 50;
-  const launched = input.launch(),
-    target = daemonLaunchTarget(launched);
-  if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
-  const stoppedAt = readDaemonStoppedAt(target.userRoot, target.daemonId);
-  if (stoppedAt)
-    return {
-      ok: false,
-      code: "daemon_stopped_by_operator",
-      hint: `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it.`,
-      attempts: 0,
-    };
   const probe = input.probe ?? daemonSocketProbe,
     spawnDetached =
       input.spawnDetached ??
@@ -153,13 +142,25 @@ export async function ensureLocalDaemonRunning(input: {
     return probe(input.socketPath);
   };
   if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: 0 };
-  let flight: Awaited<ReturnType<typeof acquireDaemonAutostartFlight>> | null = null,
+  let launched: DaemonLaunchSpec | null = null,
+    flight: Awaited<ReturnType<typeof acquireDaemonAutostartFlight>> | null = null,
     spawned = false,
     latestProgress: DaemonStartProgress | null = null,
     reported = "";
   try {
+    launched = input.launch();
+    const target = daemonLaunchTarget(launched);
+    if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
     const refusal = await daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
     if (refusal) return { ok: false, ...refusal, attempts: 0 };
+    const stoppedAt = readDaemonStoppedAt(target.userRoot, target.daemonId);
+    if (stoppedAt)
+      return {
+        ok: false,
+        code: "daemon_stopped_by_operator",
+        hint: `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it.`,
+        attempts: 0,
+      };
     flight = await acquireDaemonAutostartFlight(target);
     // The probe belongs inside the claim: another caller may have bound the
     // socket between this process's initial probe and atomic lock creation.

@@ -53,6 +53,22 @@ test("resident daemon autostart strips the worker callback relay marker", () => 
   }
 });
 
+test("stopping a cold daemon leaves the user root untouched", () => {
+  const fixture = setup();
+  try {
+    const stopped = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "stop"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    assert.notEqual(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
+    const receipt = JSON.parse(stopped.stdout) as { error?: { code?: string } };
+    assert.equal(receipt.error?.code, "daemon_unavailable");
+    assert.equal(existsSync(fixture.userRoot), false, "a cold stop must not create daemon state");
+  } finally {
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
 test("operator stop blocks autostart until explicit start while process death remains recoverable", async (context) => {
   const fixture = setup();
   try {
