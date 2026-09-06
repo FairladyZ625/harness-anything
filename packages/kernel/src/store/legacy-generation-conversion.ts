@@ -49,14 +49,21 @@ export function preflightCanonicalGeneration(input: {
     databasePath = sqliteLedgerPath(input.rootInput, 1),
     snapshotPath = legacyGenerationSnapshotPath(layout.rootDir);
   if (!localRuntimeStateFileSystem.exists(databasePath)) {
-    if (localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")))
+    if (
+      localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
+      localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
+    )
       throw new TaskEventStoreError("invalid_store", "legacy history requires generation conversion before activation");
+    initializeEmptyCanonicalGeneration(layout.rootDir, input.repoId, snapshotPath, databasePath);
     return;
   }
   const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
   const revision = store.revision();
   store.close();
-  if (revision === 0 && !localRuntimeStateFileSystem.exists(snapshotPath)) return;
+  if (revision === 0 && !localRuntimeStateFileSystem.exists(snapshotPath)) {
+    initializeEmptyCanonicalGeneration(layout.rootDir, input.repoId, snapshotPath, databasePath);
+    return;
+  }
   if (!localRuntimeStateFileSystem.exists(snapshotPath))
     throw new TaskEventStoreError("invalid_store", "nonempty generation requires its immutable source snapshot");
   preflightConvertedGenerationActivation({
@@ -65,6 +72,17 @@ export function preflightCanonicalGeneration(input: {
     snapshotPath,
     databasePath,
   });
+}
+
+function initializeEmptyCanonicalGeneration(
+  rootDir: string,
+  repoId: string,
+  snapshotPath: string,
+  databasePath: string,
+): void {
+  createImmutableLegacyGenerationSnapshot({ repoId, source: arraySnapshotStore([], new Map()), snapshotPath });
+  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
 }
 
 export function createImmutableLegacyGenerationSnapshot(input: {

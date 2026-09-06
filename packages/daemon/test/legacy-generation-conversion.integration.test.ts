@@ -11,6 +11,7 @@ import {
   createImmutableLegacyGenerationSnapshot,
   makeTaskProjection,
   openSqliteEventStore,
+  preflightCanonicalGeneration,
   preflightConvertedGenerationActivation,
   reconcileSqliteEvents,
   readSettingsFacet,
@@ -21,6 +22,29 @@ import {
   type CanonicalEventStore,
 } from "../../kernel/src/index.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
+
+test("empty generation activation remains valid after its first accepted command", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-empty-generation-")),
+    repoId = "empty-generation";
+  try {
+    initRepo(root);
+    preflightCanonicalGeneration({ rootInput: root, repoId });
+    const store = openSqliteEventStore({ repoId, rootInput: root }),
+      seeded = seedLegacySettings(root),
+      event = seeded.source.read().events[0]!,
+      fence = { repoId, holder: "empty-generation-test", epoch: 1 };
+    store.appendCommand({
+      fence,
+      intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`, summary: event.type },
+      events: [event],
+      blobs: seeded.blobs,
+    });
+    store.close();
+    assert.doesNotThrow(() => preflightCanonicalGeneration({ rootInput: root, repoId }));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("immutable generation-0 conversion retries into inactive generation-1 without rewriting source", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-generation-conversion-")),
@@ -138,6 +162,7 @@ function seedLegacySettings(root: string) {
   const blobs = new Map(compiled.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
   return {
     eventBytes: JSON.stringify(event),
+    blobs: compiled.blobs,
     source: arrayStore([event], (sha256) => blobs.get(sha256) ?? null),
   };
 }

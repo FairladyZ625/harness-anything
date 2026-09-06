@@ -12,13 +12,12 @@ export type {
   SqliteCanonicalEventStore,
   SqliteTaskEventStoreOptions,
 } from "../store/task-event-store-factory.ts";
+export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-lease.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export { preflightCanonicalGeneration } from "../store/legacy-generation-conversion.ts";
-export { runDispatchRecordMigration } from "../store/dispatch-record-migration.ts";
-export type { DispatchRecordLeaseSettlement } from "../store/dispatch-record-migration.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";
 export type {
   CanonicalContentBlob,

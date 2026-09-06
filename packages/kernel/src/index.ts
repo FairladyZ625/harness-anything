@@ -304,7 +304,6 @@ export {
   resolveLedgerGitLayout,
   resolveRetirableDocument,
   eventShapeMigrations,
-  runDispatchRecordMigration,
   makeTaskEventStore,
   makeTaskProjection,
   migrateEventsToSqlite,
