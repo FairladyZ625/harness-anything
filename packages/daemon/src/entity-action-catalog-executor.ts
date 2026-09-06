@@ -167,20 +167,13 @@ export function makeEntityActionCatalogExecutor(input: {
 
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
-      receipts = ids.map((decisionId) =>
-        runCompiled(
-          { ...action, all: false, decisionId },
-          binding,
-          `${opId}-${createHash("sha256").update(decisionId).digest("hex").slice(0, 12)}`,
-        ),
-      ),
-      revision = receipts.at(-1)?.revision ?? input.store.readHead()?.revision ?? 0,
-      canonicalVisible =
-        receipts.length > 0 &&
-        receipts.every((receipt) => receipt.outcome === "applied" && receipt.proof?.canonicalVisible === true),
+      initialRevision = input.store.readHead()?.revision ?? 0,
+      existingOutcome = input.store.readCommandOutcome(opId),
+      authorizationDecision = decisionAuthorization(action, binding, opId, input),
+      occurredAt = input.store.readEvent(opId)?.occurredAt ?? input.now(),
       base = {
         opId,
-        revision,
+        revision: existingOutcome?.lastRevision ?? initialRevision,
         evidence: JSON.stringify({
           schema: "decision-repin-batch-report/v1",
           decisionIds: ids,
@@ -188,19 +181,52 @@ export function makeEntityActionCatalogExecutor(input: {
         }),
         visibility: "center" as const,
         proof: {
-          committedRevision: revision,
-          appliedCut: revision,
-          durable: canonicalVisible,
-          canonicalVisible,
-          worktreeVisible: canonicalVisible,
+          committedRevision: existingOutcome?.lastRevision ?? initialRevision,
+          appliedCut: input.projection.list().watermark,
+          durable: existingOutcome?.status === "accepted_durable",
+          canonicalVisible:
+            existingOutcome?.lastRevision != null && input.projection.list().watermark >= existingOutcome.lastRevision,
+          worktreeVisible: false,
         },
+        authorizationDecision,
       };
-    return canonicalVisible
-      ? { outcome: "applied", ...base }
-      : {
-          outcome: "pending",
-          ...base,
-        };
+    if (existingOutcome?.status === "accepted_durable") return { outcome: "applied", ...base };
+    if (ids.length === 0) return { outcome: "no_changes", ...base };
+    if (action.dryRun === true) return { outcome: "pending", ...base };
+    const contract = executableAction(action.kind),
+      bundles = ids.map((decisionId, index) => {
+        const memberOpId =
+          index === ids.length - 1
+            ? opId
+            : `${opId}-${createHash("sha256").update(decisionId).digest("hex").slice(0, 12)}`;
+        return compileAction(
+          contract,
+          { ...action, all: false, decisionId },
+          binding,
+          memberOpId,
+          occurredAt,
+          initialRevision + index + 1,
+        ) as DecisionBundle;
+      }),
+      terminal = bundles.at(-1)!;
+    input.store.append({ ...terminal, preceding: bundles.slice(0, -1) });
+    for (const bundle of bundles) input.projection.apply(bundle.event, bundle.plan);
+    publicationKillpoints(input.killpoint);
+    const outcome = input.store.readCommandOutcome(opId),
+      revision = outcome?.lastRevision ?? terminal.event.workspaceRevision,
+      canonicalVisible = input.projection.list().watermark >= revision;
+    return {
+      outcome: canonicalVisible ? "applied" : "pending",
+      ...base,
+      revision,
+      proof: {
+        committedRevision: revision,
+        appliedCut: input.projection.list().watermark,
+        durable: outcome?.status === "accepted_durable",
+        canonicalVisible,
+        worktreeVisible: false,
+      },
+    };
   };
 
   const runWrite = (
@@ -358,10 +384,12 @@ export function makeEntityActionCatalogExecutor(input: {
     binding: RepoCellBinding,
     opId: string,
     occurredAt: string,
+    allocatedRevision?: number,
   ): CatalogBundle => {
     const compile = contract.execution.compile;
     if (!compile) reject("invalid_command", `${contract.execution.ingress} has no write compiler.`);
     const headRevision = input.store.readHead()?.revision ?? 0,
+      workspaceRevision = allocatedRevision ?? headRevision + 1,
       coverage = contract.id === "reckon" ? decisionCoverage(action, decisions) : undefined,
       currentEntity =
         contract.target.kind === "runtime-session"
@@ -374,14 +402,14 @@ export function makeEntityActionCatalogExecutor(input: {
         session: input.sessionIdentity(binding),
         opId,
         occurredAt,
-        workspaceRevision: headRevision + 1,
+        workspaceRevision,
         ...(currentEntity === undefined ? {} : { currentEntity }),
         ...(coverage ? { coverage } : {}),
       });
     return compileDraft(input.projection, draft, {
       eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
       opId,
-      workspaceRevision: headRevision + 1,
+      workspaceRevision,
       actor: binding.actor,
       source: binding.source,
       occurredAt,
