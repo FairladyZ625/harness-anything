@@ -43,7 +43,7 @@ test("a canonical Schedule row missing a newly required field stays readable and
     await cell.close();
     cell = undefined;
 
-    removeProjectedAndAuthoredMode(root, "legacy-probe");
+    removeProjectedMode(root, "legacy-probe");
     cell = await open(root, "repair");
 
     const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
@@ -149,11 +149,7 @@ function open(root: string, ownerId: string): Promise<RepoCell> {
   });
 }
 
-function removeProjectedAndAuthoredMode(root: string, scheduleId: string): void {
-  const document = authoredSchedule(root, scheduleId);
-  delete document.mode;
-  writeFileSync(path.join(root, `harness/schedules/${scheduleId}.json`), `${JSON.stringify(document, null, 2)}\n`);
-
+function removeProjectedMode(root: string, scheduleId: string): void {
   const database = new DatabaseSync(path.join(root, ".harness/cache/task.sqlite")),
     row = database
       .prepare("SELECT value_json FROM entity_projection WHERE entity_kind = 'schedule' AND entity_id = ?")

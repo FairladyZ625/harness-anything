@@ -8,7 +8,7 @@ import test from "node:test";
 import { hostname } from "node:os";
 import { registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";

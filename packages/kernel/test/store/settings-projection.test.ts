@@ -45,6 +45,7 @@ test(rebuildTitle, async () => {
 
     eventStore.append(bundle);
     projection.apply(bundle.event, bundle.plan);
+    await eventStore.settlePendingMaterialization();
     assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), candidate);
     assert.deepEqual(projection.getEntity("settings", "repository")?.value, repositorySettings(settings));
     assert.equal(projection.readDocument("harness.yaml").document?.body, candidate);
@@ -86,7 +87,56 @@ test("Settings publication rejects a candidate that also mutates layout, WIP, or
       });
 
     assert.throws(() => eventStore.append(bundle), /only their owned harness\.yaml facet fields/u);
+    assert.equal(eventStore.read().revision, 0);
+    assert.equal(eventStore.readCommandOutcome(bundle.event.opId), null);
     assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), original);
+  });
+});
+
+test("Settings replacement uses accepted canonical bytes before the follower and rejects an authored stale base", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const original = initRepo(rootDir),
+      store = makeTaskEventStore({ repoId: "settings-canonical-base", rootDir }),
+      settings = { ...readSettingsFacet(original), locale: "zh-CN" } as SettingsV1,
+      candidate = writeRepositorySettingsFacet(original, settings),
+      first = compileSettingsChangedEvent({
+        settings,
+        baseDocumentBody: original,
+        candidateDocumentBody: candidate,
+        eventId: "settings-first",
+        opId: "settings-first",
+        workspaceRevision: 1,
+        actor,
+        source: "local",
+        occurredAt: "2026-08-27T01:00:00.000Z",
+      });
+    try {
+      store.append(first);
+      assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), original);
+      assert.equal(store.append(first).revision, 1, "an exact accepted replay bypasses obsolete base checks");
+      const edited = original.replace("wipLimit: 60", "wipLimit: 1"),
+        stale = compileSettingsChangedEvent({
+          settings,
+          baseDocumentBody: edited,
+          candidateDocumentBody: writeRepositorySettingsFacet(edited, settings),
+          eventId: "settings-stale",
+          opId: "settings-stale",
+          workspaceRevision: 2,
+          actor,
+          source: "local",
+          occurredAt: "2026-08-27T01:01:00.000Z",
+        });
+      writeFileSync(path.join(rootDir, "harness/harness.yaml"), edited);
+      assert.throws(
+        () => store.append(stale),
+        (error: unknown) => (error as { code?: string }).code === "revision_conflict",
+      );
+      assert.equal(store.read().revision, 1);
+      assert.equal(store.readCommandOutcome(stale.event.opId), null);
+      assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), edited);
+    } finally {
+      await store.drain();
+    }
   });
 });
 

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -152,12 +152,16 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     rmSync(absoluteSource);
     const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding);
     assert.equal(missing.outcome, "applied", JSON.stringify(missing));
-    const missingReplay = await cell.run({ kind: "receipt-show", opId: missing.opId }, binding);
+    const missingReplay = await cell.run(
+      { kind: "receipt-show", opId: missing.opId, waitFor: ["worktree_visible"], timeoutMs: 5_000 },
+      binding,
+    );
     assert.equal(
       (JSON.parse(String(missingReplay.evidence)) as { eventType: string }).eventType,
       "entity_target_missing",
     );
-    assert.equal(missingReplay.proof?.worktreeVisible, false);
+    assert.equal(missingReplay.proof?.worktreeVisible, true);
+    assert.equal(existsSync(absoluteSource), false, "publishing the descriptor must not recreate the missing source");
     const descriptorUpdate = await cell.run(
       {
         kind: "entity-update",

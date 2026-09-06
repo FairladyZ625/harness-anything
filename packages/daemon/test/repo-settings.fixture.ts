@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
@@ -10,6 +10,7 @@ import {
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
+  writeRepositorySettingsFacet,
 } from "../../kernel/src/index.ts";
 import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
@@ -22,6 +23,18 @@ import {
 } from "../src/writer-epoch.ts";
 
 const seededSettings = new Set<string>();
+
+function settingsBase(rootDir: string): string {
+  const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
+  if (!existsSync(settingsPath)) {
+    mkdirSync(path.dirname(settingsPath), { recursive: true });
+    writeFileSync(
+      settingsPath,
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+  }
+  return readFileSync(settingsPath, "utf8");
+}
 
 function fixtureFence(repoId: string, rootDir: string, stateRoot: string): WriterEpochFenceDescriptor {
   const authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" });
@@ -55,16 +68,13 @@ export function seedSettingsEvent(input: {
     seededSettings.add(fixtureKey);
     return;
   }
-  const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml"),
-    documentBody = existsSync(settingsPath)
-      ? readFileSync(settingsPath, "utf8")
-      : "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  const documentBody = settingsBase(rootDir),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
   store.append(
     compileSettingsChangedEvent({
       settings: readSettingsFacet(documentBody),
       baseDocumentBody: documentBody,
-      candidateDocumentBody: documentBody,
+      candidateDocumentBody: writeRepositorySettingsFacet(documentBody, readSettingsFacet(documentBody)),
       eventId: `event-settings-fixture-${digest}`,
       opId: `settings-fixture-${digest}`,
       workspaceRevision: stream.revision + 1,
@@ -139,16 +149,13 @@ async function settleSettingsEvent(input: {
     }),
     stream = store.read();
   if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
-    const settingsPath = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, "harness.yaml"),
-      documentBody = existsSync(settingsPath)
-        ? readFileSync(settingsPath, "utf8")
-        : "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    const documentBody = settingsBase(rootDir),
       digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({
         settings: readSettingsFacet(documentBody),
         baseDocumentBody: documentBody,
-        candidateDocumentBody: documentBody,
+        candidateDocumentBody: writeRepositorySettingsFacet(documentBody, readSettingsFacet(documentBody)),
         eventId: `event-settings-fixture-${digest}`,
         opId: `settings-fixture-${digest}`,
         workspaceRevision: stream.revision + 1,

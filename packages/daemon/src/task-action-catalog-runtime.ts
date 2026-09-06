@@ -56,7 +56,9 @@ export async function runTaskActionCatalogRuntime(
     if (heldLeaseForExecutionActor(current.snapshot, activeLease.executionId, binding.actor)) {
       const revision = current.snapshot.revision;
       return {
-        outcome: "applied",
+        outcome: "no_changes",
+        code: "no_changes",
+        origin: "daemon",
         opId: `noop:${cell.operationId(action, binding, cell.input.repoId, revision)}`,
         revision,
         evidence: JSON.stringify({ noOp: true, taskId, executionId: activeLease.executionId }),

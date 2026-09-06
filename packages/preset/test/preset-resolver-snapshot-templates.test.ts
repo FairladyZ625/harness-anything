@@ -5,15 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  eventObjectTarget,
   INITIAL_SETTINGS_V1,
+  openSqliteEventStore,
   makeTaskEventStore,
   makeTaskProjection,
-  serializeCanonicalEvent,
-  serializeEventHead,
-  sha256Text,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
+import { migrateEventsToSqlite } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   compilePresetSnapshotUpgrade,
   compileTaskBootstrap,
@@ -25,7 +23,7 @@ import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts"
 import { git, makeFixture, templateCatalog, write, writePackage } from "./preset-resolver.fixtures.ts";
 const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
   runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
-test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", () => {
+test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-")),
     sourceRoot = path.join(rootDir, "source"),
     userRoot = path.join(rootDir, ".harness/presets"),
@@ -75,20 +73,20 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
           documentClaims: [],
         },
       },
-      eventBody = serializeCanonicalEvent(historical),
-      eventPath = path.join(rootDir, eventObjectTarget(historical.opId));
-    mkdirSync(path.dirname(eventPath), { recursive: true });
-    writeFileSync(eventPath, eventBody);
-    writeFileSync(
-      path.join(rootDir, "harness/events/head.json"),
-      serializeEventHead({
-        revision: 1,
-        opId: historical.opId,
-        eventDigest: `sha256:${sha256Text(eventBody)}`,
-      }),
-    );
-    git(rootDir, "add", "harness/events");
-    git(rootDir, "commit", "-qm", "historical task");
+      ledger = openSqliteEventStore({ repoId: "preset-upgrade", rootInput: rootDir });
+    try {
+      assert.deepEqual(
+        migrateEventsToSqlite({
+          store: ledger,
+          repoId: "preset-upgrade",
+          events: [historical],
+          holder: "direct-store",
+        }),
+        { migrated: 1, revision: 1 },
+      );
+    } finally {
+      ledger.close();
+    }
     const store = makeTaskEventStore({ repoId: "preset-upgrade", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore: store });
     projection.rebuild();
@@ -132,6 +130,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     );
     store.append(upgraded);
     projection.apply(upgraded.event, upgraded.plan);
+    await store.settlePendingMaterialization();
     assert.equal(projection.read(taskId).snapshot.task?.presetSnapshotDigest, upgraded.snapshot.digest);
     assert.deepEqual(projection.readPresetSnapshot(upgraded.snapshot.digest).snapshot, upgraded.snapshot);
     assert.equal(

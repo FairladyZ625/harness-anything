@@ -7,6 +7,9 @@ import {
   taskIsDescendantOf,
   type AuthorizationContext,
   type AuthorizationDecision,
+  type EntityActionUnmetCriterionV1,
+  type WriteReceipt,
+  type WriteReceiptDraft,
   type EntityRef,
   type ReceiptJsonValue,
   type ReceiptDiagnostic,
@@ -500,4 +503,28 @@ function executorRetryCommand(action: RepoTaskAction, taskId: string | null, exe
 
 function isExecutorDescriptorRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function withAuthorizationDecision(
+  receipt: WriteReceiptDraft,
+  authorizationDecision: AuthorizationDecision,
+  unmetCriteria: readonly EntityActionUnmetCriterionV1[] = receipt.unmetCriteria ?? [],
+  rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
+): WriteReceipt {
+  return {
+    acceptance: null,
+    projection: { state: "pending", cut: null },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
+    ...receipt,
+    status: "unknown",
+    authorizationDecision,
+    unmetCriteria,
+    rejectionExplanation:
+      receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
+        ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
+        : null,
+    nextActions: Object.freeze([...new Set([...(receipt.nextActions ?? []), ...authorizationDecision.nextActions])]),
+  };
 }

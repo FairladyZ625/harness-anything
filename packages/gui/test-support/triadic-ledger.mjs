@@ -39,8 +39,8 @@ export function writeTriadicLedger(rootDir) {
   );
 }
 
-export async function seedTriadicEvents(rootDir, repoId) {
-  const store = makeTaskEventStore({ rootDir, repoId }),
+export async function seedTriadicEvents(rootDir, repoId, writerFence) {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     factService = makeFactService({ eventStore: store, projection }),
     decisionService = makeDecisionService({ eventStore: store, projection }),

@@ -222,6 +222,8 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     .filter((key) => ![...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].includes(key))
     .map((key) => `unexpected field: ${key}`);
   errors.push(...validateReceiptAcceptance(value));
+  const unaccepted = value.acceptance === null && (value.status === "unknown" || value.status === "rejected");
+  if (unaccepted && "proof" in value) errors.push("unaccepted receipt must not carry committed proof");
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome))
     errors.push("receipt outcome is invalid");
   if (!isNonEmptyString(value.opId)) errors.push("opId is required");
@@ -318,7 +320,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("materialized commitSha and cut must be reported together");
   if (
     (value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes") &&
-    (visibility === undefined || !validProof)
+    (visibility === undefined || (!unaccepted && !validProof))
   )
     errors.push(`${String(value.outcome)} requires visibility and proof`);
   if (
@@ -336,7 +338,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("replica applied requires worktree visibility and ackCut at the same cut");
   if (
     (value.outcome === "applied" || value.outcome === "no_changes") &&
-    (!cut(value.revision) || !isNonEmptyString(value.evidence))
+    ((!unaccepted && !cut(value.revision)) || !isNonEmptyString(value.evidence))
   )
     errors.push(`${String(value.outcome)} requires revision and evidence`);
   if (value.outcome === "no_changes" && (value.code !== "no_changes" || !isNonEmptyString(value.origin)))
@@ -346,7 +348,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     hasLegacyRemediation = isNonEmptyString(value.nextAction);
   if (
     value.outcome === "pending" &&
-    (!cut(value.revision) || !isNonEmptyString(value.evidence) || (!hasStructuredRemediation && !hasLegacyRemediation))
+    ((!unaccepted && !cut(value.revision)) ||
+      !isNonEmptyString(value.evidence) ||
+      (!hasStructuredRemediation && !hasLegacyRemediation))
   )
     errors.push("pending requires committed evidence, revision, and remediation guidance");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")

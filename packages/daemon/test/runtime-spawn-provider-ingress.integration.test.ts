@@ -662,7 +662,9 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         payload: { runtimeSessionId: "runtime_missing" },
       });
       assert.equal(missing.outcome, "pending");
-      assert.equal((missing.proof as Record<string, unknown>).canonicalVisible, false);
+      assert.equal(missing.status, "unknown");
+      assert.equal(missing.acceptance, null);
+      assert.equal(missing.proof, undefined);
     } finally {
       attached.close();
     }

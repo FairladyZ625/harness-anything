@@ -29,6 +29,7 @@ import type {
   PublicationFile,
 } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
+import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
 
 export interface DaemonWriterFence {
@@ -152,6 +153,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       revisionBeforeAcceptance = sqlite.revision(),
       authoredRoot = resolveHarnessLayout(input).authoredRoot,
       acceptedBaseline = new Map<string, { fingerprint: string; preserve: boolean }>();
+    assertAuthorizedReplacements(sqlite, input, members);
     for (const event of appended) {
       for (const claim of canonicalDocumentClaims(event)) {
         const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);

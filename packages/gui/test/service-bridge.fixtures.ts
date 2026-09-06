@@ -5,6 +5,7 @@ import {
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
 } from "../../kernel/src/index.ts";
+import type { WriterEpochFenceDescriptor } from "../../daemon/src/writer-epoch.ts";
 import { seedTriadicEvents } from "../test-support/triadic-ledger.mjs";
 
 export function restoreEnv(name: string, value: string | undefined): void {
@@ -15,8 +16,12 @@ export interface Failure {
   readonly ok: boolean;
   readonly error?: { readonly code: string; readonly hint?: string };
 }
-export async function seedRuntime(rootDir: string, repoId: string): Promise<void> {
-  const store = makeTaskEventStore({ rootDir, repoId }),
+export async function seedRuntime(
+  rootDir: string,
+  repoId: string,
+  writerFence: WriterEpochFenceDescriptor,
+): Promise<void> {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     base = store.read().revision,
     values = [
       [
@@ -94,7 +99,7 @@ export async function seedRuntime(rootDir: string, repoId: string): Promise<void
     store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
   }
   await store.drain();
-  await seedTriadicEvents(rootDir, repoId);
+  await seedTriadicEvents(rootDir, repoId, writerFence);
 }
 export function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
   return Object.freeze({

@@ -5,8 +5,15 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import {
+  canonicalEventWritePlan,
   compileSettingsChangedEvent,
+  compileScheduleDefinitionEvent,
+  createScheduleV1,
+  validateScheduleV1,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
   deriveRelationId,
@@ -303,6 +310,231 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
   }
 });
 
+test("inactive generation conversion repairs schedule definition bytes without rewriting its source", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-schedule-")),
+    repoId = "generation-schedule",
+    snapshotPath = path.join(root, "generation-0.snapshot.json"),
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite");
+  try {
+    initRepo(root);
+    const schedule = createScheduleV1({
+        scheduleId: "legacy-schedule",
+        name: "Legacy schedule",
+        mode: "detect",
+        spec: {
+          mission: "Exercise the historical target shape.",
+          trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-01T00:00:00.000Z" },
+          target: { kind: "agent", agentId: "worker", runtimeInstanceId: "codex" },
+        },
+        actor,
+        occurredAt: "2026-09-01T00:00:00.000Z",
+      }),
+      compiled = compileScheduleDefinitionEvent({
+        type: "schedule_created",
+        schedule,
+        eventId: "event-legacy-schedule",
+        opId: "op-legacy-schedule",
+        workspaceRevision: 1,
+        actor,
+        source: "local",
+        occurredAt: "2026-09-01T00:00:00.000Z",
+      }),
+      legacyTarget = { ...schedule.spec.target, cwd: ".worktrees/legacy" },
+      legacySchedule = { ...schedule, spec: { ...schedule.spec, target: legacyTarget } },
+      legacyDefinition = { ...JSON.parse(compiled.blobs[0]!.body), spec: { ...schedule.spec, target: legacyTarget } },
+      legacyBody = `${JSON.stringify(legacyDefinition, null, 2)}\n`,
+      legacyClaim = {
+        ...compiled.event.payload.declarationDocumentClaim,
+        sha256: sha256Text(legacyBody),
+        size: Buffer.byteLength(legacyBody),
+      },
+      legacy = {
+        ...compiled.event,
+        payload: { schedule: legacySchedule, declarationDocumentClaim: legacyClaim },
+      },
+      source = arrayStore([legacy], (digest) => (digest === legacyClaim.sha256 ? Buffer.from(legacyBody) : null)),
+      rejectedProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: source,
+        projectionPath: path.join(root, "legacy.sqlite"),
+      });
+    try {
+      assert.throws(() => rejectedProjection.rebuild(), /does not match the event definition facet/u);
+    } finally {
+      rejectedProjection.close();
+    }
+    createImmutableLegacyGenerationSnapshot({ repoId, source, snapshotPath });
+    const immutableBytes = readFileSync(snapshotPath, "utf8"),
+      converted = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+    assert.equal(converted.rewrittenEvents, 1);
+    assert.equal(converted.active, false);
+    assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
+    assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
+    const sqlite = openSqliteEventStore({ repoId, databasePath });
+    try {
+      const migrated = sqlite.events()[0]! as typeof compiled.event,
+        claim = migrated.payload.declarationDocumentClaim,
+        bytes = sqlite.readContentObject(claim.sha256);
+      assert.ok(bytes);
+      assert.equal(bytes.byteLength, claim.size);
+      assert.equal(sha256Text(Buffer.from(bytes).toString("utf8")), claim.sha256);
+      const value = JSON.parse(Buffer.from(bytes).toString("utf8"));
+      assert.deepEqual(validateScheduleV1({ ...value, status: migrated.payload.schedule.status }), []);
+      assert.equal(Object.hasOwn(migrated.payload.schedule.spec.target, "cwd"), false);
+      assert.deepEqual(value, JSON.parse(compiled.blobs[0]!.body));
+      const projection = makeTaskProjection({
+        rootDir: root,
+        eventStore: arrayStore(sqlite.events(), (digest) => sqlite.readContentObject(digest)),
+        projectionPath: path.join(root, "converted.sqlite"),
+      });
+      try {
+        assert.equal(projection.rebuild().watermark, 1);
+      } finally {
+        projection.close();
+      }
+    } finally {
+      sqlite.close();
+    }
+    preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath });
+    assert.throws(() => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }), /active generation/u);
+    assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("inactive generation conversion witnesses separated legacy relations at their own historical cuts", async () => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-generation-witness-")),
+    sourceRoot = path.join(scratch, "source"),
+    root = path.join(scratch, "destination"),
+    repoId = "generation-witness",
+    snapshotPath = path.join(root, "generation-0.snapshot.json"),
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+    binding = { actor, source: "local" as const };
+  let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
+  try {
+    initRepo(sourceRoot);
+    initRepo(root);
+    cell = await openBootstrappedRepoCell({
+      repoId: workspaceId(repoId),
+      rootDir: canonicalRoot(sourceRoot),
+      ownerId: "generation-witness",
+      now: () => "2026-09-02T12:00:00.000Z",
+    });
+    const run = async (action: Record<string, unknown>) => {
+        const receipt = await cell!.run(action as never, binding);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        return receipt;
+      },
+      bump = async (times: number) => {
+        for (let index = 0; index < times; index += 1)
+          await run({
+            kind: "task-amend",
+            taskId: "task_target",
+            patches: [{ field: "pinned", value: index % 2 === 0 ? "true" : "false" }],
+          });
+      },
+      relate = (sourceRef: string) =>
+        run({
+          kind: "relation-relate",
+          sourceRef,
+          targetRef: "task/task_target",
+          relationType: "depends-on",
+          rationale: "Batched replay witness sample.",
+          expectedVersion: 0,
+        });
+    await run({ kind: "task-create", taskId: "task_first", title: "First source" });
+    await run({ kind: "task-create", taskId: "task_target", title: "Target" });
+    await bump(3);
+    const first = await relate("task/task_first");
+    await run({ kind: "task-create", taskId: "task_second", title: "Second source" });
+    await bump(3);
+    const second = await relate("task/task_second");
+    await bump(2);
+    await cell.close();
+    cell = undefined;
+    const sourceSqlite = openSqliteEventStore({ repoId, rootInput: sourceRoot, readOnly: true });
+    let expected: readonly (readonly [string, number])[];
+    try {
+      const original = sourceSqlite.events(),
+        witness = (opId: string) => {
+          const event = original.find((candidate) => candidate.opId === opId)!;
+          assert.equal(event.schema, "relation-event/v1");
+          return Number(event.payload.relation.targetObservedVersion);
+        },
+        firstWitness = witness(first.opId),
+        secondWitness = witness(second.opId);
+      assert.ok(firstWitness > 0);
+      assert.ok(secondWitness > firstWitness);
+      expected = [
+        ["task/task_first", firstWitness],
+        ["task/task_second", secondWitness],
+      ];
+      const legacy = original.map((event) => {
+        if (event.opId !== first.opId && event.opId !== second.opId) return event;
+        const { targetObservedVersion: _witness, ...relation } = event.payload.relation;
+        return { ...event, payload: { ...event.payload, relation: { ...relation, strength: "strong" } } };
+      });
+      createImmutableLegacyGenerationSnapshot({
+        repoId,
+        snapshotPath,
+        source: arrayStore(legacy, (digest) => sourceSqlite.readContentObject(digest)),
+      });
+      assert.deepEqual(sourceSqlite.events(), original);
+    } finally {
+      sourceSqlite.close();
+    }
+    const immutableBytes = readFileSync(snapshotPath, "utf8"),
+      report = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+    assert.equal(report.active, false);
+    assert.equal(report.rewrittenEvents, 2);
+    assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
+    const sqlite = openSqliteEventStore({ repoId, databasePath });
+    try {
+      const events = sqlite.events(),
+        relations = events.filter((event) => event.opId === first.opId || event.opId === second.opId);
+      assert.deepEqual(
+        relations.map((event) => [event.payload.relation.source, event.payload.relation.targetObservedVersion]),
+        expected,
+      );
+      assert.ok(relations.every((event) => !Object.hasOwn(event.payload.relation, "strength")));
+      const coldPath = path.join(root, "cold.sqlite"),
+        cold = makeTaskProjection({
+          rootDir: root,
+          eventStore: arrayStore(events, (digest) => sqlite.readContentObject(digest)),
+          projectionPath: coldPath,
+        });
+      try {
+        assert.equal(cold.rebuild().watermark, report.destinationRevision);
+      } finally {
+        cold.close();
+      }
+      const db = new DatabaseSync(coldPath, { readOnly: true });
+      try {
+        const rows = db
+          .prepare(
+            "SELECT source_ref, target_observed_version FROM relation_edge " +
+              "WHERE source_ref IN ('task/task_first', 'task/task_second') ORDER BY workspace_revision",
+          )
+          .all();
+        assert.deepEqual(
+          rows.map((row) => [row.source_ref, row.target_observed_version]),
+          expected,
+        );
+      } finally {
+        db.close();
+      }
+    } finally {
+      sqlite.close();
+    }
+    preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath });
+    assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
+  } finally {
+    await cell?.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
 function seedLegacySettings(root: string, legacy = true) {
   const body = readFileSync(path.join(root, "harness/harness.yaml"), "utf8"),
     compiled = compileSettingsChangedEvent({
@@ -417,14 +649,9 @@ function arrayStore(
       prefetchContent: () =>
         new Map(
           events.flatMap((event) =>
-            "harnessDocumentClaim" in event.payload
-              ? [
-                  [
-                    event.payload.harnessDocumentClaim.sha256,
-                    readContent(event.payload.harnessDocumentClaim.sha256)!,
-                  ] as const,
-                ]
-              : [],
+            canonicalEventWritePlan(event, "fixture", "fixture")
+              .targets.filter((target) => target.kind === "content_blob")
+              .map((claim) => [claim.sha256, readContent(claim.sha256)!] as const),
           ),
         ),
     }),

@@ -61,6 +61,8 @@ export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliR
 }
 
 function renderCliReceiptBase(receipt: Record<string, unknown>): RenderedCliReceipt {
+  if (receipt.schema === "squad-control-result/v1")
+    return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt) };
   const preOutcomeRenderer =

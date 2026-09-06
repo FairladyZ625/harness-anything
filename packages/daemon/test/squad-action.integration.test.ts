@@ -6,7 +6,12 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { getEntityKindContract, makeTaskEventStore } from "../../kernel/src/index.ts";
-import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import {
+  makeDaemonCommandReceipt,
+  validateDaemonGuiCommandReceipt,
+  canonicalRoot,
+  workspaceId,
+} from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -221,6 +226,8 @@ test("two actors contending for one Task fence reject the non-holder before Squa
       afterEvents = makeTaskEventStore({ repoId, rootDir, mutable: false }).read().events.length;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "lease_conflict");
+    for (const field of ["opId", "proof", "acceptance", "status"])
+      assert.equal(Object.hasOwn(rejected, field), false, field);
     assert.deepEqual(rejected.unmetCriteria, [
       {
         ref: "squad/execution-lease-holder",
@@ -236,6 +243,63 @@ test("two actors contending for one Task fence reject the non-holder before Squa
       "the losing actor must not create Squad run state",
     );
   } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("Squad control failure after a committed child never borrows that child's acceptance", async () => {
+  const rootDir = workspace("control-child-failure"),
+    repoId = workspaceId("squad-control-child-failure"),
+    taskId = "task-squad-control-failure";
+  let armed = false,
+    injected = false,
+    cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "squad-control-failure",
+      killpoint: (point) => {
+        if (armed && point === "after_sqlite_commit") {
+          armed = false;
+          injected = true;
+          throw new Error("injected failure after the Squad child committed");
+        }
+      },
+    });
+    await installFixture(cell);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Squad control child failure" }, owner);
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId!, owner);
+    await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    const beforeReader = makeTaskEventStore({ repoId, rootDir, mutable: false }),
+      before = beforeReader.read().revision;
+    await beforeReader.drain();
+    armed = true;
+    const result = await cell.run(
+      { kind: "squad-run", squadId: squad.id, taskId, runtimeInstanceId: "not-launched" },
+      owner,
+    );
+    assert.equal(injected, true, "the negative control must fail only after a real accepting commit");
+    const reader = makeTaskEventStore({ repoId, rootDir, mutable: false });
+    try {
+      const head = reader.readHead()!;
+      assert.ok(head.revision > before, "Squad lease acquisition must have committed its own child event");
+      assert.equal(reader.readCommandOutcome(head.opId)?.status, "accepted_durable");
+    } finally {
+      await reader.drain();
+    }
+    assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
+    for (const field of ["opId", "proof", "acceptance", "status", "revision", "git", "projection"])
+      assert.equal(Object.hasOwn(result, field), false, field);
+    const wire = makeDaemonCommandReceipt("squad-run", result);
+    assert.equal(wire.ok, false);
+    assert.deepEqual(validateDaemonGuiCommandReceipt(wire), []);
+  } finally {
+    armed = false;
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }

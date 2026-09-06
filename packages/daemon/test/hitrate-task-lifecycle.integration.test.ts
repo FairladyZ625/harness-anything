@@ -96,7 +96,8 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
         { kind: "task-start", taskId, executionId: "ignored-new-execution" },
         holder,
       )) as Record<string, unknown>;
-    assert.equal(repeated.outcome, "applied", JSON.stringify(repeated));
+    assert.equal(repeated.outcome, "no_changes", JSON.stringify(repeated));
+    assert.equal(repeated.acceptance, null);
     assert.equal(repeated.executionId, executionId);
     assert.match(String(repeated.opId), /^noop:/u);
     assert.deepEqual(JSON.parse(String(repeated.evidence)), { noOp: true, taskId, executionId });

@@ -1,3 +1,4 @@
+import type { SquadControlResult } from "./squad-control-result.ts";
 import { type DaemonRepoMode, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
 import type {
   AgentRuntimeAttachEvent,
@@ -17,7 +18,11 @@ import type { RemoteProxyManager } from "./remote-proxy.ts";
 
 export interface DaemonHost {
   readonly remoteProxy: RemoteProxyManager;
-  readonly run: (repoId: string, action: RepoTaskAction, auth: DaemonAuthenticationContext) => Promise<WriteReceipt>;
+  readonly run: (
+    repoId: string,
+    action: RepoTaskAction,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     repoId: string,
     action: RepoTaskAction,

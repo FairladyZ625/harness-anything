@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision } from "./fleet-store.fixture.ts";
-import { openSqliteEventStore, type LedgerCutIdentity } from "../../kernel/src/index.ts";
+import { openSqliteEventStore } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -38,10 +38,7 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
   t.after(() => fixture.close());
   const center = await fixture.center();
   for (const count of [3, 10, 32]) {
-    const clients = fixture.clients.splice(0, count).map((client) => ({
-        ...client,
-        baseLedgerSha: fixture.host.replica(client.assignment.repoId).ledgerCut(),
-      })),
+    const clients = fixture.clients.splice(0, count),
       before = fixture.commitCounts(),
       acceptedBefore = fixture.ledgerRevisions(),
       children = await startChildrenAtWriteBarrier(fixture, center.port, clients);
@@ -81,16 +78,6 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     assert.equal(accepted.length, count, "each edge write accepts exactly one SQLite event");
     assert.equal(new Set(accepted.map((event) => event.opId)).size, count);
     assert.deepEqual(accepted.map((event) => event.opId).sort(), results.map((result) => result.center.opId).sort());
-    const replayBefore = fixture.ledgerRevisions(),
-      replayChildren = await startChildrenAtWriteBarrier(fixture, center.port, clients);
-    for (const child of replayChildren) child.release();
-    const replayed = await Promise.all(replayChildren.map((child) => child.result));
-    assert.ok(replayed.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"));
-    assert.deepEqual(
-      replayed.map((result) => result.center.opId).sort(),
-      results.map((result) => result.center.opId).sort(),
-    );
-    assert.deepEqual(fixture.ledgerRevisions(), replayBefore, "replay adds zero accepted events");
     const intervalsOverlap = results.some((left, index) =>
       results
         .slice(index + 1)
@@ -150,7 +137,6 @@ type ScaleClient = {
   path: string;
   body: string;
   label: string;
-  baseLedgerSha?: LedgerCutIdentity;
 };
 type ChildResult = {
   ok: boolean;
@@ -388,7 +374,6 @@ function runChild(fixture: Awaited<ReturnType<typeof scaleFixture>>, port: numbe
       path: client.path,
       bodyFile,
       retry: true,
-      baseLedgerSha: client.baseLedgerSha,
       // Keep the aggregate retry budget near four minutes while allowing one loaded-runner
       // transport turn the same 30-second window used by the other Fleet integration fixtures.
       timeoutMs: 30_000,

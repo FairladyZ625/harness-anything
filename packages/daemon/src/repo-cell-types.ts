@@ -1,3 +1,4 @@
+import type { SquadControlResult } from "./squad-control-result.ts";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
   type ActorIdentity,
@@ -123,7 +124,11 @@ export type RepoCellTerminal = Omit<TerminalHost, "spawn" | "spawnTrusted" | "in
 
 export interface RepoCell {
   readonly bootstrapReceipt?: RepoBootstrapReceipt;
-  readonly run: (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => Promise<WriteReceipt>;
+  readonly run: (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>;
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;

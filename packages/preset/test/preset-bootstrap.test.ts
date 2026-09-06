@@ -113,15 +113,14 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
     assert.deepEqual(projection.readPresetSnapshot(standard.snapshot.digest).snapshot, standard.snapshot);
     for (const document of standard.documents)
       assert.equal(projection.readDocument(document.path).document?.body, document.body);
+    await store.settlePendingMaterialization();
     rmSync(path.join(rootDir, "harness", standard.packagePath), {
       recursive: true,
       force: true,
     });
     const restored = store.materialize();
-    assert.deepEqual(
-      restored.changed,
-      [...standard.documents.map(({ path: target }) => target)].sort((left, right) => left.localeCompare(right)),
-    );
+    assert.deepEqual(restored.changed, []);
+    assert.equal(store.read().revision, 1);
     for (const document of standard.documents)
       assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
     const repeated = compileTaskBootstrap({
@@ -149,7 +148,15 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
     for (const document of standard.documents)
       assert.equal(projection.readDocument(document.path).document?.body, document.body);
     await store.drain();
-    assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), "2");
+    const reader = makeTaskEventStore({ repoId: "preset-bootstrap", rootDir, mutable: false });
+    try {
+      assert.deepEqual(
+        reader.read().events.map((event) => event.opId),
+        [standard.event.opId, repeated.event.opId],
+      );
+    } finally {
+      await reader.drain();
+    }
     projection.close();
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

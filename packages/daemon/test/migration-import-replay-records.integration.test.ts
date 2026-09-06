@@ -16,7 +16,7 @@ import {
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blob, claim, prepare } from "../src/migration-import-events.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import {
@@ -801,6 +801,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     });
     const applied = await cell.run({ kind: "task-contract-migrate", mode: "apply", taskId }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    await waitForFixturePublication(cell, applied.opId, binding);
     const settled = await cell.run({ kind: "receipt-show", opId: applied.opId }, binding);
     assert.equal(settled.git.state, "verified", JSON.stringify(settled));
     assert.equal(settled.worktree.state, "verified", JSON.stringify(settled));
@@ -838,10 +839,12 @@ test("contract migration repairs old migrated rows through one canonical event a
       packagePathAfter: missingPackagePath,
       digestSource: "compiled",
     });
-    assert.equal(
-      (await cell.run({ kind: "task-contract-migrate", mode: "apply", taskId: missingTaskId }, binding)).outcome,
-      "applied",
+    const missingApplied = await cell.run(
+      { kind: "task-contract-migrate", mode: "apply", taskId: missingTaskId },
+      binding,
     );
+    assert.equal(missingApplied.outcome, "applied", JSON.stringify(missingApplied));
+    await waitForFixturePublication(cell, missingApplied.opId, binding);
     const synthesizedContract = JSON.parse(
       readFileSync(path.join(rootDir, "harness", missingPackagePath, "task-contract.json"), "utf8"),
     ) as Record<string, unknown>;

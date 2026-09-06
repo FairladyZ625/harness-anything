@@ -461,6 +461,15 @@ test("runtime stream attach stays live before, during, and after a blocked verti
       0,
       `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`,
     );
+    // Host readiness precedes repository attachment; establish the seeded read before measuring idle attach.
+    const ready = await requestDaemonJsonRpcAt(
+      endpoint,
+      "repo.agentRuntime.sessions.read",
+      { repo: { repoId }, payload: { runtimeSessionId } },
+      2_000,
+      30_000,
+    );
+    assert.equal((ready.session as Record<string, unknown>).runtimeSessionId, runtimeSessionId, JSON.stringify(ready));
     const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
 
     const socket = await connectSocket(endpoint, 2_000);

@@ -24,6 +24,42 @@ import {
 import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
+test("unaccepted pending and no-op receipts carry no fabricated committed proof", () => {
+  const pending: JsonObject = {
+    outcome: "pending",
+    opId: "cancel-missing-session",
+    status: "unknown",
+    acceptance: null,
+    projection: { state: "pending", cut: null },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
+    visibility: "center",
+    evidence: "runtime-cancel:missing-session",
+    guidance: [{ kind: "retry-receipt", args: { opId: "cancel-missing-session" } }],
+  };
+  assert.deepEqual(writeReceipt(pending), []);
+  assert.deepEqual(writeReceipt({ ...pending, outcome: "no_changes", code: "no_changes", origin: "daemon" }), []);
+  assert.match(writeReceipt({ ...pending, outcome: "applied" }).join("\n"), /applied requires accepted_durable/u);
+  assert.match(
+    writeReceipt({
+      ...pending,
+      proof: {
+        committedRevision: 1,
+        appliedCut: 1,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: true,
+      },
+    }).join("\n"),
+    /must be absent without a committed acceptance/u,
+  );
+  assert.match(writeReceipt({ ...pending, acceptance: {} }).join("\n"), /acceptance:null/u);
+  const legacy = { ...pending };
+  for (const key of ["status", "acceptance", "projection", "git", "worktree", "replica"]) delete legacy[key];
+  assert.match(writeReceipt(legacy).join("\n"), /must be a valid committed proof/u);
+});
+
 interface ValidatorCase {
   readonly name: string;
   readonly entityId: string;

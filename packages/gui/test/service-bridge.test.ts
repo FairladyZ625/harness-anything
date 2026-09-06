@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import type { WriterEpochFenceDescriptor } from "../../daemon/src/writer-epoch.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -62,9 +63,9 @@ test("GUI main reports every isolated task snapshot row with field-level context
 test("GUI client reaches every shipped read through a real resident daemon", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-gui-smoke", title: "Resident GUI task" },
-    beforeRestart: async (rootDir: string, repoId: string) => {
-      await seedRuntime(rootDir, repoId);
-      await seedSchedule(rootDir, repoId);
+    beforeRestart: async (rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor) => {
+      await seedRuntime(rootDir, repoId, writerFence);
+      await seedSchedule(rootDir, repoId, writerFence);
       seedSquadRunState(rootDir, repoId);
     },
   });
@@ -240,6 +241,13 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       { outcome: locator.outcome, content: locator.content },
       { outcome: "file", content: "# Uncommitted filesystem edit\n" },
     );
+    // The read sweep captured both authored and canonical views while they differed.
+    // Restore the submitted bytes before testing a later Settings worktree publication.
+    assert.equal(
+      parseDaemonGuiReadResult("repo.tasks.document.read", results.get("repo.tasks.document.read")).body,
+      documentBody,
+    );
+    writeFileSync(authored, documentBody);
     // Every catalog projection must answer through the one bridge method, not just the first one
     // the sweep above happens to pick; a name in the catalog with no live read is a dead entry.
     for (const [name, selector] of [
@@ -281,6 +289,24 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.equal(settingsUpdated.ok, true, JSON.stringify(settingsUpdated));
     assert.equal(settingsUpdated.outcome, "applied");
+    const settingsVisible = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.read",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: {
+          action: {
+            kind: "receipt-show",
+            opId: settingsUpdated.opId,
+            waitFor: ["git_verified", "worktree_visible"],
+            timeoutMs: 5000,
+          },
+        },
+      },
+      1000,
+      10000,
+    );
+    assert.equal(settingsVisible.wait?.state, "satisfied", JSON.stringify(settingsVisible));
     let settingsCommit = "";
     for (let attempt = 0; attempt < 50 && !settingsCommit; attempt += 1) {
       settingsCommit = execFileSync(
@@ -490,7 +516,8 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.equal(proposed.ok, true, JSON.stringify(proposed));
     assert.equal(proposed.outcome, "applied");
-    assert.equal(proposed.worktreeVisible, true);
+    assert.equal(proposed.worktreeVisible, false);
+    assert.equal((proposed.worktree as { state: string }).state, "pending");
     assert.equal(proposed.consentId, null);
     assert.match(String(proposed.path), /^decisions\/decision-dec_/u);
     assert.equal(proposed.commitSha, null);
@@ -511,14 +538,29 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     );
     assert.equal(accepted.ok, true, JSON.stringify(accepted));
     assert.equal(accepted.outcome, "applied");
-    assert.equal(accepted.worktreeVisible, true);
+    assert.equal(accepted.worktreeVisible, false);
+    assert.equal((accepted.worktree as { state: string }).state, "pending");
     assert.match(String(accepted.consentId), /^djc_[0-9a-f]{26}$/u);
+    const settled = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.read",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: {
+          action: { kind: "receipt-show", opId: accepted.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+        },
+      },
+      1000,
+      10000,
+    );
+    assert.equal((settled.wait as { state: string }).state, "satisfied", JSON.stringify(settled));
     const acceptedReceipt = parseDaemonGuiActionResponse(
       "repo.receipt.show",
       await bridge.invoke("showReceipt", { ...scope, opId: accepted.opId }),
     );
     assert.equal(acceptedReceipt.outcome, "applied");
     assert.equal(acceptedReceipt.consentId, accepted.consentId);
+    assert.equal(acceptedReceipt.worktreeVisible, true);
     const shown = parseDaemonGuiActionResponse(
       "repo.decision.show",
       await bridge.invoke("showDecision", {
@@ -699,8 +741,8 @@ function seedSquadRunState(rootDir: string, repoId: string): string {
   return squadRunId;
 }
 
-async function seedSchedule(rootDir: string, repoId: string): Promise<void> {
-  const store = makeTaskEventStore({ rootDir, repoId }),
+async function seedSchedule(rootDir: string, repoId: string, writerFence: WriterEpochFenceDescriptor): Promise<void> {
+  const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     workspaceRevision = store.read().revision + 1,
     occurredAt = "2026-08-13T00:04:00.000Z",
     actor = { principal: { personId: "person-gui" }, executor: null } as const,

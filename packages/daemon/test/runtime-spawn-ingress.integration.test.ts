@@ -1225,11 +1225,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             `ha task submit ${taskId} --execution-id ${executionId} --from-file <submission.json>`,
         });
         t.diagnostic(`executor_binding_invalid receipt=${JSON.stringify(nonHolder)}`);
-        assert.equal(
-          (await host.run(repoId, { kind: "task-start", taskId, executionId, executor: worker }, auth)).outcome,
-          "applied",
-          "the dispatched worker reuses its own active lease",
-        );
+        const reused = await host.run(repoId, { kind: "task-start", taskId, executionId, executor: worker }, auth);
+        assert.equal(reused.outcome, "no_changes", JSON.stringify(reused));
+        assert.equal(reused.acceptance, null);
+        assert.equal(reused.executionId, executionId, "the dispatched worker reuses its own active lease");
         const lifecycle = await host.run(
           repoId,
           { kind: "task-submit", taskId, executionId, submission, executor: worker },

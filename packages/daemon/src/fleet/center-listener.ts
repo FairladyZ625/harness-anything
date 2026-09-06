@@ -1,3 +1,4 @@
+import { isSquadControlResult } from "../squad-control-result.ts";
 import {
   appendFileSync,
   existsSync,
@@ -373,6 +374,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         },
         auth(a),
       );
+      if (isSquadControlResult(receipt))
+        throw new FleetFault(
+          "assignment_scope_mismatch",
+          "Fleet document writes cannot return runtime control results.",
+        );
       if (receipt.outcome === "applied") {
         for (const uploadId of completed) delete state.uploads[uploadId];
         persist();
@@ -479,6 +485,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const ingressAuth = auth(a),
         baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
         receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
+      if (isSquadControlResult(receipt))
+        throw new FleetFault(
+          "assignment_scope_mismatch",
+          "Fleet schedule writes cannot return runtime control results.",
+        );
       return immediate({
         schema: "fleet.schedule.result/v1",
         messageId: mid(frame.messageId, "schedule"),

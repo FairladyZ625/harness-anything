@@ -494,10 +494,14 @@ test("attached task runtime settlement releases its execution lease before publi
         terminate: () => undefined,
       }),
       killpoint: (point) => {
-        if (failSettlement && point === "after_sqlite_commit")
+        if (!failSettlement || point !== "after_sqlite_commit") return;
+        const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
+        if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
+          failSettlement = false;
           throw Object.assign(new Error("injected terminal lease settlement failure"), {
             code: "runtime_lease_release_failed",
           });
+        }
       },
     });
     try {
@@ -687,6 +691,8 @@ test("attached task runtime settlement releases its execution lease before publi
         exitCode: 0,
         signal: null,
       });
+      const beforeFailedExitCount = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read()
+        .events.length;
       failSettlement = true;
       assert.ok(exit, "failed-settlement runtime must attach its exit listener");
       exit(0);
@@ -700,6 +706,7 @@ test("attached task runtime settlement releases its execution lease before publi
           );
         return terminal?.type === "runtime_session_outcome_observed" && terminal.payload.outcome === "failed";
       });
+      assert.equal(failSettlement, false, "the failed task lease release must trigger the post-commit fault");
       const failedEvents = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events,
         failedExitIndex = failedEvents.findIndex(
           (event) =>
@@ -722,6 +729,17 @@ test("attached task runtime settlement releases its execution lease before publi
           });
           return status.session.activity.outcome === "failed" ? status : null;
         });
+      const failedReleaseIndexes = failedEvents.flatMap((event, index) =>
+        index >= beforeFailedExitCount && event.type === "lease_released" && event.taskId === failedTaskId
+          ? [index]
+          : [],
+      );
+      assert.equal(
+        failedReleaseIndexes.length,
+        1,
+        "the post-commit fault does not roll back the accepted lease release",
+      );
+      assert.ok(failedReleaseIndexes[0]! < failedOutcomeIndex);
       assert.ok(failedExitIndex < failedOutcomeIndex, "the failed settlement still publishes one terminal outcome");
       assert.equal(
         failedEvents.filter(
@@ -734,10 +752,10 @@ test("attached task runtime settlement releases its execution lease before publi
       assert.equal(failedStatus.session.activity.outcome, "failed");
       assert.equal(
         failedOutcome?.type === "runtime_session_outcome_observed" && failedOutcome.payload.reasonCode,
-        "runtime_lease_release_failed",
+        "publication_indeterminate",
       );
-      assert.equal(failedStatus.session.activity.reasonCode, "runtime_lease_release_failed");
-      assert.match(failedStatus.result?.text ?? "", /runtime_lease_release_failed/u);
+      assert.equal(failedStatus.session.activity.reasonCode, "publication_indeterminate");
+      assert.match(failedStatus.result?.text ?? "", /publication_indeterminate/u);
       failSettlement = false;
       assert.equal(
         (await cell.run({ kind: "task-create", taskId: "task-after-settlement-failure", title: "Tail live" }, binding))

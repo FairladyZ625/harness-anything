@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -12,7 +14,7 @@ import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
   cli = path.join(repositoryRoot, "packages/cli/src/index.ts");
 
-export async function reproduceRegistryWalRestart(arm, options = {}) {
+export async function reproduceRegistrySqliteRestart(arm, options = {}) {
   if (arm !== "graceful-stop" && arm !== "sigkill") throw new Error(`unknown reproduction arm: ${arm}`);
   const fixtureRoot = options.fixtureRoot ?? mkdtempSync(path.join(tmpdir(), `ha-daemon-wal-${arm}-`)),
     rootDir = path.join(fixtureRoot, "repository"),
@@ -25,9 +27,10 @@ export async function reproduceRegistryWalRestart(arm, options = {}) {
   downgradeRegistryToV1(userRoot);
   startDaemon(fixture);
   await waitForAttached(fixture);
-  const taskReceipt = runCli(fixture, ["task", "create", "--title", `Daemon WAL ${arm}`]),
+  const taskReceipt = runCli(fixture, ["--no-wait", "task", "create", "--title", `Daemon SQLite ${arm}`]),
     taskId = String(taskReceipt.taskId),
     factReceipt = runCli(fixture, [
+      "--no-wait",
       "fact",
       "record",
       taskId,
@@ -39,9 +42,9 @@ export async function reproduceRegistryWalRestart(arm, options = {}) {
       "high",
     ]),
     before = observeBefore(fixture, taskReceipt, factReceipt);
-  assert.equal(taskReceipt.commitSha, null, JSON.stringify(taskReceipt));
-  assert.equal(factReceipt.commitSha, null, JSON.stringify(factReceipt));
-  assert.ok(before.walLines >= 2, JSON.stringify(before));
+  assert.equal(taskReceipt.status, "accepted_durable", JSON.stringify(taskReceipt));
+  assert.equal(factReceipt.status, "accepted_durable", JSON.stringify(factReceipt));
+  assert.ok(before.canonicalEventHead >= 2, JSON.stringify(before));
   if (arm === "graceful-stop") runCli(fixture, ["daemon", "stop"]);
   else killDaemon(fixture);
   await waitForStopped(fixture);
@@ -50,6 +53,8 @@ export async function reproduceRegistryWalRestart(arm, options = {}) {
   const task = runCli(fixture, ["task", "show", taskId]),
     fact = runCli(fixture, ["fact", "show", "--id", String(factReceipt.factId)]),
     after = observeAfter(fixture, taskId, String(factReceipt.factId), String(taskReceipt.packagePath), task, fact);
+  await waitForPublication(fixture, factReceipt.opId);
+  after.taskPackageExists = packageExists(fixture.rootDir, String(taskReceipt.packagePath));
   runCli(fixture, ["daemon", "stop"]);
   await waitForStopped(fixture);
   return { arm, fixtureRoot, before, after };
@@ -58,8 +63,7 @@ export async function reproduceRegistryWalRestart(arm, options = {}) {
 function observeBefore(fixture, taskReceipt, factReceipt) {
   return {
     registrySchema: registrySchema(fixture),
-    canonicalEventHead: canonicalHead(fixture.rootDir),
-    walLines: walLines(fixture.rootDir),
+    ...canonicalState(fixture),
     taskPackageExists: packageExists(fixture.rootDir, String(taskReceipt.packagePath)),
     receipts: { taskReceipt, factReceipt },
   };
@@ -69,8 +73,7 @@ function observeAfter(fixture, taskId, factId, packagePath, task, fact) {
     factEvidence = JSON.parse(String(fact.evidence));
   return {
     registrySchema: registrySchema(fixture),
-    canonicalEventHead: canonicalHead(fixture.rootDir),
-    walLines: walLines(fixture.rootDir),
+    ...canonicalState(fixture),
     taskPackageExists: packageExists(fixture.rootDir, packagePath),
     taskId: taskEvidence.task.taskId,
     factId: factEvidence.fact.factId,
@@ -155,16 +158,16 @@ function registrySchema(fixture) {
 function packageExists(rootDir, packagePath) {
   return existsSync(path.join(rootDir, packagePath)) || existsSync(path.join(rootDir, "harness", packagePath));
 }
-function walLines(rootDir) {
-  const segment = path.join(rootDir, ".harness/wal/seg-000000.log");
-  return existsSync(segment) ? readFileSync(segment, "utf8").trim().split("\n").filter(Boolean).length : 0;
+function canonicalState(fixture) {
+  const read = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.rootDir }).read();
+  return {
+    canonicalEventHead: read.revision,
+    eventDigest: createHash("sha256").update(JSON.stringify(read.events)).digest("hex"),
+  };
 }
-function canonicalHead(rootDir) {
-  try {
-    return JSON.parse(git(rootDir, "show", "refs/ha/canonical:harness/events/head.json")).revision;
-  } catch {
-    return 0;
-  }
+async function waitForPublication(fixture, opId) {
+  const receipt = runCli(fixture, ["receipt", "show", opId, "--wait", "worktree_visible", "--timeout-ms", "30000"]);
+  assert.equal(receipt.worktree.state, "verified", JSON.stringify(receipt));
 }
 function rosterRepo(rootDir, repoId) {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
@@ -180,12 +183,6 @@ function rosterRepo(rootDir, repoId) {
       "layout:",
       "  authoredRoot: harness",
       "  localRoot: .harness",
-      "settings:",
-      "  walFlush:",
-      "    adaptive: false",
-      "    events: 256",
-      "    bytes: 8388608",
-      "    milliseconds: 3600000",
       "",
     ].join("\n"),
   );
@@ -225,5 +222,6 @@ function delay(milliseconds) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const requestedArm = process.argv[2],
     arms = requestedArm ? [requestedArm] : ["graceful-stop", "sigkill"];
-  for (const arm of arms) process.stdout.write(`${JSON.stringify(await reproduceRegistryWalRestart(arm), null, 2)}\n`);
+  for (const arm of arms)
+    process.stdout.write(`${JSON.stringify(await reproduceRegistrySqliteRestart(arm), null, 2)}\n`);
 }

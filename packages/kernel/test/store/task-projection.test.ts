@@ -218,9 +218,13 @@ test("document retirement rejects a base derived from worktree drift instead of 
           retirementReason: "legacy records were migrated",
         },
       };
-    retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] });
+    assert.throws(() => retirementStore.append({ event: retirement, plan: docSyncWritePlan(retirement), blobs: [] }), {
+      code: "revision_conflict",
+    });
+    assert.equal(retirementStore.read().revision, 1);
+    assert.equal(retirementStore.readEvent(retirement.opId), null);
     const projection = makeTaskProjection({ rootDir, eventStore: retirementStore });
-    assert.throws(() => projection.rebuild(), /document retirement mismatch/u);
+    assert.equal(projection.rebuild().watermark, 1);
     projection.close();
   });
 });
