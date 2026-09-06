@@ -551,10 +551,7 @@ test("repository modes close local, center-assignment, and edge command families
       (await host.run("center", { kind: "projection-rebuild" }, mismatchedLocalAuth)).code,
       "credential_unknown",
     );
-    const rebuilt = await host.run("center", { kind: "projection-rebuild" }, auth);
-    assert.equal(rebuilt.outcome, "indeterminate", JSON.stringify(rebuilt));
-    assert.equal(rebuilt.status, "unknown");
-    assert.equal(rebuilt.code, "acceptance_unknown");
+    assert.equal((await host.run("center", { kind: "projection-rebuild" }, auth)).outcome, "applied");
     assert.equal(
       (await host.run("center", { kind: "task-create", taskId: "task-center", title: "Center" }, assignment("center")))
         .outcome,

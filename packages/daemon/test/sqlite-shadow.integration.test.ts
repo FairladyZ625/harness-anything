@@ -26,10 +26,18 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
     rootDir = path.join(parent, "repo"),
     repoId = workspaceId("sqlite-accept-repo-cell");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let failWorktree = true;
   mkdirSync(rootDir);
   initRepo(rootDir);
   try {
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-accept-writer" });
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "sqlite-accept-writer",
+      killpoint: (point) => {
+        if (failWorktree && point === "before_worktree_rename") throw new Error("simulated worktree follower failure");
+      },
+    });
     const before = makeTaskEventReader({ repoId, rootDir }).read().revision,
       accepted = await cell.run(
         { kind: "task-create", taskId: "task-sqlite-accept", title: "SQLite accept" },
@@ -73,6 +81,7 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
     assert.equal(settled.git.state, "verified");
     assert.equal(settled.worktree.state, "pending");
     assert.equal(settled.replica.state, "not_configured");
+    failWorktree = false;
     const manifest = JSON.parse(
       execFileSync("git", ["-C", rootDir, "show", "HEAD:harness/events/segments/manifest.json"], {
         encoding: "utf8",

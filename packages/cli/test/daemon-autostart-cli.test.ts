@@ -31,6 +31,7 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   canonicalEventWritePlan,
   makeTaskEventStore,
+  preflightCanonicalGeneration,
   registerDaemonRepo,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -330,7 +331,11 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
       repo: { repoId },
       payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true },
     }) as Promise<Record<string, unknown>>;
-    await waitForFileContent(started);
+    const launch = await Promise.race([
+      waitForFileContent(started).then(() => ({ state: "started" as const })),
+      scriptRequest.then((receipt) => ({ state: "settled" as const, receipt })),
+    ]);
+    assert.equal(launch.state, "started", JSON.stringify(launch));
 
     const probeStarted = performance.now();
     let handshake: Record<string, unknown>;
@@ -405,7 +410,8 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
       { scriptOutcome: scriptReceipt.outcome, writeOutcome: writeReceipt.outcome },
       { scriptOutcome: "pending", writeOutcome: "applied" },
     );
-    assert.equal((scriptReceipt.proof as { readonly canonicalVisible?: unknown }).canonicalVisible, false);
+    assert.equal(writeReceipt.status, "accepted_durable");
+    assertValidWriteReceipt(writeReceipt);
   } finally {
     rmSync(blocker, { force: true });
     await Promise.all([scriptRequest?.catch(() => undefined), queuedWrite?.catch(() => undefined)]);
@@ -427,6 +433,20 @@ test("runtime stream attach stays live before, during, and after a blocked verti
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let client: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined;
   try {
+    register(fixture.root, fixture.userRoot, repoId);
+    assert.equal(
+      run(fixture.root, fixture.userRoot, [
+        "task",
+        "create",
+        "--id",
+        taskId,
+        "--admin",
+        "--title",
+        "Runtime Attach Live",
+      ]).outcome,
+      "applied",
+    );
+    stop(fixture.root, fixture.userRoot);
     await seedAttachableRuntime(fixture.root, fixture.userRoot, repoId, runtimeSessionId);
     writeFileSync(blocker, "blocked\n", "utf8");
     const launched = spawnSync(
@@ -442,20 +462,6 @@ test("runtime stream attach stays live before, during, and after a blocked verti
       0,
       `${launched.stderr}\n${launched.stdout}\n${existsSync(path.join(fixture.userRoot, "logs", "daemon-default.log")) ? readFileSync(path.join(fixture.userRoot, "logs", "daemon-default.log"), "utf8") : "daemon log missing"}`,
     );
-    register(fixture.root, fixture.userRoot, repoId);
-    assert.equal(
-      run(fixture.root, fixture.userRoot, [
-        "task",
-        "create",
-        "--id",
-        taskId,
-        "--admin",
-        "--title",
-        "Runtime Attach Live",
-      ]).outcome,
-      "applied",
-    );
-
     const idle = await probeRuntimeAttach(endpoint, repoId, runtimeSessionId);
 
     const socket = await connectSocket(endpoint, 2_000);
@@ -465,7 +471,11 @@ test("runtime stream attach stays live before, during, and after a blocked verti
       repo: { repoId },
       payload: { scriptId: "vertical:software-coding:repository-audit", taskId, inputs: {}, dryRun: true },
     }) as Promise<Record<string, unknown>>;
-    await waitForFileContent(started);
+    const launch = await Promise.race([
+      waitForFileContent(started).then(() => ({ state: "started" as const })),
+      scriptRequest.then((receipt) => ({ state: "settled" as const, receipt })),
+    ]);
+    assert.equal(launch.state, "started", JSON.stringify(launch));
 
     const readStarted = performance.now(),
       read = await requestDaemonJsonRpcAt(
@@ -666,9 +676,9 @@ test("receipt show waits for independent SQLite, projection, Git, and worktree f
       "5000",
     ]);
     assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
-    assert.deepEqual(settled.wait, { state: "timed_out", unsatisfied: ["worktree_visible"] });
+    assert.deepEqual(settled.wait, { state: "satisfied", unsatisfied: [] });
     assert.equal((settled.git as { readonly state?: unknown }).state, "verified");
-    assert.equal((settled.worktree as { readonly state?: unknown }).state, "pending");
+    assert.equal((settled.worktree as { readonly state?: unknown }).state, "verified");
 
     for (const args of [
       ["receipt", "show", String(accepted.opId), "--wait", "git_visible"],
@@ -1016,7 +1026,7 @@ test("dry-run contract migration prints each manual task once", async () => {
   try {
     await seedLegacyTask(fixture.root, fixture.userRoot, repoId, taskId);
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    register(fixture.root, fixture.userRoot, repoId);
+    registerSeeded(fixture.root, fixture.userRoot, repoId);
     const result = spawnSync(
       process.execPath,
       [cli, "--root", fixture.root, "task", "contract", "migrate", "--dry-run", "--task", taskId],
@@ -1112,7 +1122,12 @@ function setupRepository(parent: string, name: string): string {
   return root;
 }
 function register(root: string, userRoot: string, repoId: string): void {
-  seedSettingsEvent({ rootDir: root, repoId });
+  assert.equal(
+    run(root, userRoot, ["init", "--repo-id", repoId, "--person-id", "owner", "--display-name", "Owner"]).ok,
+    true,
+  );
+}
+function registerSeeded(root: string, userRoot: string, repoId: string): void {
   assert.equal(
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).ok,
     true,
@@ -1217,6 +1232,7 @@ async function seedLegacyTask(root: string, userRoot: string, repoId: string, ta
     store = makeTaskEventStore({
       repoId,
       rootDir: root,
+      activationPreflight: preflightCanonicalGeneration,
       writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
     });
   try {
@@ -1245,12 +1261,21 @@ async function seedAttachableRuntime(
       baseUrl: null,
       authMode: "subscription",
     },
-    at = (revision: number) => `2026-08-23T00:00:0${revision}.000Z`;
+    at = (revision: number) => `2026-08-23T00:00:0${revision}.000Z`,
+    authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "direct-store" }),
+    lease = authority.acquire(repoId),
+    store = makeTaskEventStore({
+      repoId,
+      rootDir: root,
+      activationPreflight: preflightCanonicalGeneration,
+      writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
+    }),
+    firstRevision = store.read().revision + 1;
   const events: AgentRuntimeEventV1[] = [
     {
       schema: "agent-runtime-event/v1",
       eventId: "event-runtime-installation-attach-live",
-      workspaceRevision: 1,
+      workspaceRevision: firstRevision,
       opId: "op-runtime-installation-attach-live",
       type: "runtime_installation_observed",
       actor,
@@ -1269,7 +1294,7 @@ async function seedAttachableRuntime(
     {
       schema: "agent-runtime-event/v1",
       eventId: "event-runtime-dispatch-attach-live",
-      workspaceRevision: 2,
+      workspaceRevision: firstRevision + 1,
       opId: "op-runtime-dispatch-attach-live",
       type: "runtime_dispatch_requested",
       actor,
@@ -1289,7 +1314,7 @@ async function seedAttachableRuntime(
     {
       schema: "agent-runtime-event/v1",
       eventId: "event-runtime-started-attach-live",
-      workspaceRevision: 3,
+      workspaceRevision: firstRevision + 2,
       opId: "op-runtime-started-attach-live",
       type: "runtime_session_started",
       actor,
@@ -1306,13 +1331,6 @@ async function seedAttachableRuntime(
       },
     },
   ];
-  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "direct-store" }),
-    lease = authority.acquire(repoId),
-    store = makeTaskEventStore({
-      repoId,
-      rootDir: root,
-      writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
-    });
   try {
     for (const event of events)
       store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
