@@ -85,7 +85,8 @@ export function VerticalKindForm({
     >
       <section data-testid="vertical-kind-identity" className="flex flex-col gap-2">
         <h3 className="ui-meta font-semibold uppercase tracking-wide text-text-muted">
-          身份与存储{editing ? "(只读——改它们是换一个类型,不是改一个字段)" : "(按模板预填,创建后不可改)"}
+          身份与存储
+          {editing ? "(只读——改它们是换一个类型,不是改一个字段)" : "(按模板预填,创建后不可改)"}
         </h3>
         {editing ? (
           <dl className="grid grid-cols-[minmax(120px,auto)_1fr] gap-x-3 gap-y-1">
@@ -189,9 +190,8 @@ export function VerticalKindForm({
           <>
             <p className="ui-micro leading-relaxed text-text-faint">
               每条:
-              {
-                "{ type, sourceKind, targetKind, reads, strength(weak|strong), decisionClaimRef, decisionContentPin(sha256:…), rationale? }"
-              }
+              {"{ type, sourceKind, targetKind, reads, strength(weak|strong), " +
+                "decisionClaimRef, decisionContentPin(sha256:…), rationale? }"}
               。留空数组表示不声明关系。
             </p>
             <textarea

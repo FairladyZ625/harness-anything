@@ -51,7 +51,10 @@ export function EntityDetailActions({
           type="button"
           data-testid="entity-detail-edit"
           onClick={() => setMode(mode === "edit" ? null : "edit")}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-micro text-text-muted hover:border-border-strong hover:text-text"
+          className={[
+            "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1",
+            "ui-micro text-text-muted hover:border-border-strong hover:text-text",
+          ].join(" ")}
         >
           <PencilSimple weight="bold" className="ui-micro" />
           编辑
@@ -60,7 +63,10 @@ export function EntityDetailActions({
           type="button"
           data-testid="entity-detail-archive"
           onClick={() => setMode(mode === "archive" ? null : "archive")}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-micro text-text-muted hover:border-border-strong hover:text-text"
+          className={[
+            "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1",
+            "ui-micro text-text-muted hover:border-border-strong hover:text-text",
+          ].join(" ")}
         >
           <Archive weight="bold" className="ui-micro" />
           归档

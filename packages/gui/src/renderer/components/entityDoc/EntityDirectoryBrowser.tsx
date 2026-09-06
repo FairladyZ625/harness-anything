@@ -31,7 +31,12 @@ export function EntityDirectoryBrowser({
   return (
     <div className="flex min-h-0 min-w-0 flex-1" data-testid="entity-locator-directory">
       <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-r border-border">
-        <p className="sticky top-0 border-b border-border bg-surface px-2 py-1.5 break-all font-mono ui-micro text-text-faint">
+        <p
+          className={[
+            "sticky top-0 border-b border-border bg-surface px-2 py-1.5",
+            "break-all font-mono ui-micro text-text-faint",
+          ].join(" ")}
+        >
           {locator.value}/
         </p>
         <DirectoryChildren
@@ -107,7 +112,10 @@ function DirectoryChildren({
                   return next;
                 })
               }
-              className="flex w-full items-center gap-1 py-0.5 pr-2 text-left font-mono ui-micro text-text-muted hover:text-text"
+              className={[
+                "flex w-full items-center gap-1 py-0.5 pr-2 text-left font-mono",
+                "ui-micro text-text-muted hover:text-text",
+              ].join(" ")}
               style={{ paddingLeft: depth * 12 + 4 }}
             >
               {expanded.has(path) ? (

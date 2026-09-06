@@ -55,7 +55,10 @@ export function RepoPathBrowser({
           type="button"
           data-testid="repo-path-browser-pick-directory"
           onClick={pickCurrent}
-          className="inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1 ui-micro text-text-muted hover:border-border-strong hover:text-text"
+          className={[
+            "inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-1",
+            "ui-micro text-text-muted hover:border-border-strong hover:text-text",
+          ].join(" ")}
         >
           <FolderOpen weight="bold" className="ui-micro" />
           选定当前目录
@@ -83,7 +86,10 @@ export function RepoPathBrowser({
                   type="button"
                   data-testid={`repo-path-entry-${path}`}
                   onClick={() => setDirectory(path)}
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono ui-micro text-text-muted hover:bg-surface-raised hover:text-text"
+                  className={[
+                    "flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono ui-micro",
+                    "text-text-muted hover:bg-surface-raised hover:text-text",
+                  ].join(" ")}
                 >
                   <Folder weight="bold" className="shrink-0 text-text-faint" />
                   <span className="min-w-0 truncate">{segmentName(path)}/</span>
@@ -94,7 +100,10 @@ export function RepoPathBrowser({
                   type="button"
                   data-testid={`repo-path-entry-${path}`}
                   onClick={() => onPickFile(path)}
-                  className="flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono ui-micro text-text-muted hover:bg-surface-raised hover:text-text"
+                  className={[
+                    "flex w-full items-center gap-1.5 px-2 py-1 text-left font-mono ui-micro",
+                    "text-text-muted hover:bg-surface-raised hover:text-text",
+                  ].join(" ")}
                 >
                   <File className="shrink-0 text-text-faint" />
                   <span className="min-w-0 truncate">{segmentName(path)}</span>
@@ -131,7 +140,9 @@ export function parentDirectory(directory: string): string | null {
   return segments.length <= 1 ? null : segments.slice(0, -1).join("/");
 }
 
-/** seed 推导:取一组 locator 路径最深公共父目录;没有可用行时返回 null(调用方降级到输入)。 */
+/**
+ * seed 推导:取一组 locator 路径最深公共父目录;没有可用行时返回 null(调用方降级到输入)。
+ */
 export function commonParentDirectory(paths: readonly string[]): string | null {
   const splits = paths
     .filter((path) => path.trim().length > 0)

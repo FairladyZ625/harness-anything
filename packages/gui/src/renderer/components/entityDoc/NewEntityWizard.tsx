@@ -127,7 +127,9 @@ export function NewEntityWizard({
             className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
           >
             <p className="ui-meta text-text-faint">
-              没有既有实体可以推断浏览起点;先给一个仓内目录(如 <code>harness/context</code>),再从那里浏览。
+              {"没有既有实体可以推断浏览起点;先给一个仓内目录(如 "}
+              <code>harness/context</code>
+              {"),再从那里浏览。"}
             </p>
             <div className="flex gap-2">
               <input
@@ -164,7 +166,12 @@ export function NewEntityWizard({
           <p className="ui-meta text-text-faint">正在推导预览…</p>
         ) : (
           <>
-            <dl className="grid grid-cols-[minmax(110px,auto)_1fr] gap-x-3 gap-y-1 rounded-md border border-border bg-surface p-3">
+            <dl
+              className={[
+                "grid grid-cols-[minmax(110px,auto)_1fr] gap-x-3 gap-y-1",
+                "rounded-md border border-border bg-surface p-3",
+              ].join(" ")}
+            >
               <dt className="font-mono ui-micro text-text-faint">locator</dt>
               <dd className="break-all font-mono ui-meta text-text">{target.path}</dd>
               <dt className="font-mono ui-micro text-text-faint">title(推导)</dt>
@@ -177,7 +184,7 @@ export function NewEntityWizard({
               </dd>
             </dl>
             <p className="ui-micro leading-relaxed text-text-faint">
-              预览按导入的派生规则在本地推导;导入走 center 单写路,落库的 id/title 以台账回执为准。
+              {"预览按导入的派生规则在本地推导;导入走 center 单写路,落库的 id/title 以台账回执为准。"}
             </p>
             <label className="flex flex-col gap-1 ui-meta text-text-muted">
               title 覆写(留空用推导值)
@@ -200,14 +207,20 @@ export function NewEntityWizard({
                 data-testid="new-entity-wizard-submit"
                 disabled={!importable || busy}
                 onClick={submit}
-                className="rounded-md border border-border px-3 py-1.5 ui-meta text-text hover:border-border-strong disabled:cursor-not-allowed disabled:text-text-faint"
+                className={[
+                  "rounded-md border border-border px-3 py-1.5 ui-meta text-text",
+                  "hover:border-border-strong disabled:cursor-not-allowed disabled:text-text-faint",
+                ].join(" ")}
               >
                 {busy ? "导入中…" : "导入"}
               </button>
               <button
                 type="button"
                 onClick={onCancel}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta text-text-muted hover:text-text"
+                className={[
+                  "inline-flex items-center gap-1 rounded-md border border-border px-2 py-1",
+                  "ui-meta text-text-muted hover:text-text",
+                ].join(" ")}
               >
                 <ArrowLeft weight="bold" className="ui-micro" />
                 取消
