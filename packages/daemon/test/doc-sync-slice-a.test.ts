@@ -5,8 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, makeTaskEventStore, parseDocWriteIntent, sha256Text } from "../../kernel/src/index.ts";
-// eslint-disable-next-line no-restricted-imports
-import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/src/domain/artifact-text-classification.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
 import { scanAuthoredCandidateInventory } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

@@ -14,8 +14,7 @@ import {
   serializePersistedCanonicalEvent,
   sha256Text,
 } from "../../kernel/src/index.ts";
-// eslint-disable-next-line no-restricted-imports
-import { eventObjectRelativePath } from "../../kernel/src/layout/ledger-object-layout.ts";
+import { eventObjectRelativePath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { compileRepoTaskPackage } from "../../preset/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blob, claim, prepare } from "../src/migration-import-events.ts";

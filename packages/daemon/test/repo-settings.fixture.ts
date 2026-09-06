@@ -10,8 +10,7 @@ import {
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
 } from "../../kernel/src/index.ts";
-// eslint-disable-next-line no-restricted-imports
-import { daemonRegistryPaths } from "../../kernel/src/daemon/registry.ts";
+import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";

@@ -16,8 +16,7 @@ import {
   sha256Text,
   type PersistedCanonicalEventV1,
 } from "../../kernel/src/index.ts";
-// eslint-disable-next-line no-restricted-imports
-import { eventObjectRelativePath } from "../../kernel/src/layout/ledger-object-layout.ts";
+import { eventObjectRelativePath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { actor, git, initRepo, legacyFixture } from "./migration-import.fixtures.ts";

@@ -22,15 +22,12 @@ import {
   type CanonicalEventV1,
   type CanonicalEventStore,
 } from "../../kernel/src/index.ts";
-// eslint-disable-next-line no-restricted-imports
-import { assertNoPendingHistoricalRewrites } from "../../kernel/src/store/event-shape-migration.ts";
-// eslint-disable-next-line no-restricted-imports
+import { assertNoPendingHistoricalRewrites } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   preflightConvertedGenerationActivation,
-} from "../../kernel/src/store/legacy-generation-conversion.ts";
-// eslint-disable-next-line no-restricted-imports
-import { sqliteContentObjectPath } from "../../kernel/src/store/sqlite-event-store.ts";
+} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { sqliteContentObjectPath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 
 test("stopped legacy Git plus accepted WAL suffix converts without a strict reader", () => {
