@@ -253,8 +253,10 @@ describe("current repository mode badge and endpoint (PLT-EdgeGUI-W3)", () => {
       ),
     );
     const aside = div.querySelector('[data-testid="app-sidebar"]') as HTMLElement;
+    // connections.status 是异步读:等一拍宏任务让 react-query 的通知链落定,
+    // 单个微任务在满载并行的 runner 上会早于端点渲染。
     await act(async () => {
-      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(aside.querySelector('[data-testid="repo-mode-badge-remote-proxy"]')?.textContent).toContain("纯展示");
     expect(aside.textContent).toContain("tcp://127.0.0.1:9911");
