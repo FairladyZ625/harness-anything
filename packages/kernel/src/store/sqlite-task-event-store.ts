@@ -163,20 +163,28 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         });
     if (options.withAppendFence) options.withAppendFence(accept);
     else accept();
-    options.killpoint?.("after_sqlite_commit");
-    follower = pendingFollower("Git follower has not verified the accepted ledger cut");
-    scheduleFollower();
-    options.killpoint?.("before_response_write");
-    const receipt: CanonicalEventAppendReceipt = {
-      status: "applied",
-      event: bundle.event,
-      revision: bundle.event.workspaceRevision,
-      commitSha: follower.git.commitSha ? ledgerCommitSha(options.repoId, follower.git.commitSha) : null,
-      cut: canonicalEventCut(options.repoId, bundle.event),
-      metrics: { gitProcesses: 0, nodeSyncs: 0, changedPaths: [] },
-    };
-    options.killpoint?.("after_response_write");
-    return receipt;
+    try {
+      options.killpoint?.("after_sqlite_commit");
+      follower = pendingFollower("Git follower has not verified the accepted ledger cut");
+      scheduleFollower();
+      options.killpoint?.("before_response_write");
+      const receipt: CanonicalEventAppendReceipt = {
+        status: "applied",
+        event: bundle.event,
+        revision: bundle.event.workspaceRevision,
+        commitSha: follower.git.commitSha ? ledgerCommitSha(options.repoId, follower.git.commitSha) : null,
+        cut: canonicalEventCut(options.repoId, bundle.event),
+        metrics: { gitProcesses: 0, nodeSyncs: 0, changedPaths: [] },
+      };
+      options.killpoint?.("after_response_write");
+      return receipt;
+    } catch (error) {
+      // Only this invocation's committed transaction can turn response loss into indeterminate publication.
+      throw Object.assign(
+        new TaskEventStoreError("publication_indeterminate", error instanceof Error ? error.message : String(error)),
+        { opId: bundle.event.opId, cause: error },
+      );
+    }
   };
 
   const publishFollower = () => {
