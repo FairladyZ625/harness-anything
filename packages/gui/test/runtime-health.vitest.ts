@@ -7,7 +7,13 @@ import {
 } from "../src/renderer/model/runtime-health.ts";
 
 const NOW = "2026-08-21T12:00:00.000Z";
-const repo = { cellState: "attached" as const, queueDepth: 0, lastError: null, unavailableReason: null };
+const repo = {
+  mode: "local" as const,
+  cellState: "attached" as const,
+  queueDepth: 0,
+  lastError: null,
+  unavailableReason: null,
+};
 
 describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => {
   it("reads responsive daemon, attached cell and zero lag as healthy", () => {
@@ -69,13 +75,38 @@ describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => 
   it("surfaces the repo cell problem text for unavailable cells", () => {
     const health = deriveRuntimeHealth({
       daemon: { ok: true, observedAt: NOW, uptimeMs: 0 },
-      repo: { cellState: "unavailable", queueDepth: 3, lastError: null, unavailableReason: "cell crashed during scan" },
+      repo: {
+        mode: "local",
+        cellState: "unavailable",
+        queueDepth: 3,
+        lastError: null,
+        unavailableReason: "cell crashed during scan",
+      },
       projection: null,
       lastSnapshotAt: null,
       now: NOW,
     });
     expect(health.cell.problem).toBe("cell crashed during scan");
     expect(runtimeHealthWorst(health)).toBe("down");
+  });
+
+  it("treats a remote-proxy not_loaded cell as an attached remote service", () => {
+    const health = deriveRuntimeHealth({
+      daemon: { ok: true, observedAt: NOW, uptimeMs: 1 },
+      repo: {
+        mode: "remote-proxy",
+        cellState: "not_loaded",
+        queueDepth: null,
+        lastError: null,
+        unavailableReason: null,
+      },
+      projection: { watermark: 10, sourceRevision: 10, status: "ready" },
+      lastSnapshotAt: NOW,
+      now: NOW,
+    });
+    expect(health.cell.state).toBe("attached");
+    expect(health.cell.problem).toBeNull();
+    expect(runtimeHealthWorst(health)).toBe("ok");
   });
 
   it("never invents times: missing snapshot and never-settled query stay null", () => {
