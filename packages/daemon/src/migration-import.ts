@@ -12,7 +12,17 @@ import {
   type MigrationImportEventV1,
   type RelationFactRow,
 } from "../../kernel/src/index.ts";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -117,16 +127,27 @@ function stagedImportView(input: MigrationImportRunInput): {
   readonly bundles: () => readonly CanonicalWriteBundle[];
 } {
   const rootDir = mkdtempSync(path.join(tmpdir(), "harness-migration-stage-")),
-    sourceAuthoredRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
+    sourceLayout = resolveHarnessLayout(input.rootDir),
+    sourceAuthoredRoot = sourceLayout.authoredRoot,
+    sourceLocalRoot = existsSync(sourceLayout.localRoot)
+      ? realpathSync.native(sourceLayout.localRoot)
+      : sourceLayout.localRoot,
     authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
   mkdirSync(path.dirname(authoredRoot), { recursive: true });
   if (existsSync(sourceAuthoredRoot))
-    cpSync(sourceAuthoredRoot, authoredRoot, {
+    cpSync(realpathSync.native(sourceAuthoredRoot), authoredRoot, {
       recursive: true,
       dereference: false,
-      filter: (source) => path.basename(source) !== ".git",
+      filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
     });
   else mkdirSync(authoredRoot, { recursive: true });
+  // Layout discovery must remain confined to this fresh scratch workspace.
+  const scratchConfig = path.join(authoredRoot, "harness.yaml");
+  removeAuthored(scratchConfig);
+  writeFileSync(
+    scratchConfig,
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
   const accepted: CanonicalWriteBundle[] = [],
     events = new Map<string, CanonicalWriteBundle>(),
     outcomes = new Map<string, ReturnType<CanonicalEventStore["readCommandOutcome"]>>(),
