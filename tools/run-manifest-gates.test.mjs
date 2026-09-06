@@ -267,6 +267,9 @@ function fixtureCiEnv(root) {
   const observationRoot = path.join(root, "tmp/ci-observation");
   return {
     GITHUB_ACTIONS: "true",
+    // The fixture manifest only declares pullRequestJobs; pin the event so the ambient
+    // GITHUB_EVENT_NAME of a push or schedule run cannot empty the selected gate set.
+    GITHUB_EVENT_NAME: "pull_request",
     GITHUB_JOB: "fast-contract",
     HARNESS_CI_NODE_TEST_RESULTS: path.join(observationRoot, "node-tests.json"),
     HARNESS_CI_VITEST_RESULTS: path.join(observationRoot, "vitest.json"),
