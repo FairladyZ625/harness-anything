@@ -43,6 +43,7 @@ export interface LegacyGenerationConversionReport {
   readonly sourceEvents: number;
   readonly convertedEvents: number;
   readonly rewrittenEvents: number;
+  readonly migrationFamilies: ReturnType<typeof planLegacyGenerationConversion>["migrationFamilies"];
   readonly copiedObjects: number;
   readonly migratedEvents: number;
   readonly destinationRevision: number;
@@ -240,6 +241,7 @@ export function convertLegacyGeneration(input: {
       sourceEvents: snapshot.eventBytes.length,
       convertedEvents: plan.events.length,
       rewrittenEvents: plan.rewrites.length,
+      migrationFamilies: plan.migrationFamilies,
       copiedObjects: store.contentObjectDigests().length,
       migratedEvents: plan.events.length - existingRevision,
       destinationRevision: store.revision(),
@@ -335,10 +337,6 @@ function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV2, rootDir: s
         `converted event ${event.opId} is not current: ${issues.join("; ")}`,
       );
   }
-  assertNoPendingHistoricalRewrites({
-    rootDir,
-    store: convertedPlanStore(snapshot, snapshotPath, plan.events, plan.blobs),
-  });
   return plan;
 }
 
@@ -413,22 +411,6 @@ function writeRawSnapshot(input: {
 
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {
   return arraySnapshotStore(store.events(), (sha256) => store.readContentObject(sha256));
-}
-
-function convertedPlanStore(
-  snapshot: ImmutableLegacySnapshotV2,
-  snapshotPath: string,
-  events: readonly CanonicalEventV1[],
-  generatedBlobs: readonly CanonicalContentBlob[],
-): CanonicalEventStore {
-  const generated = new Map(generatedBlobs.map((blob) => [blob.sha256, Buffer.from(blob.body)])),
-    objects = new Map(snapshot.objects.map((object) => [object.sha256, object]));
-  return arraySnapshotStore(events, (sha256) => {
-    const blob = generated.get(sha256);
-    if (blob) return blob;
-    const object = objects.get(sha256);
-    return object ? readSnapshotObject(snapshotPath, sha256, object.size) : null;
-  });
 }
 
 function snapshotSourceDigest(
