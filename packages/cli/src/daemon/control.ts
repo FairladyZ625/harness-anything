@@ -318,6 +318,7 @@ async function status(
   } catch (error) {
     const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
     if (!stoppedAt) throw error;
+    consumeKnownError(error);
     const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
     result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
   }
