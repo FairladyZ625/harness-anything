@@ -36,12 +36,16 @@ export function parseGateWorkflow(text) {
     if (nodeVersionMatch) current.nodeVersions.push(...extractNumbers(unquoteYamlScalar(nodeVersionMatch[1])));
   }
   for (const job of jobs.values()) {
-    job.isPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name == 'pull_request'"),
-    );
-    job.isNonPullRequestJob = job.ifExpressions.some((expression) =>
-      expression.includes("github.event_name != 'pull_request'"),
-    );
+    // A job whose conditions never mention the event runs on every event the workflow declares
+    // (step-level `if: always()` does not gate the job), so it is both a pull-request job and a
+    // non-pull-request job; the manifest runner picks the gate set per event.
+    const unconditional = !job.ifExpressions.some((expression) => expression.includes("github.event_name"));
+    job.isPullRequestJob =
+      unconditional ||
+      job.ifExpressions.some((expression) => expression.includes("github.event_name == 'pull_request'"));
+    job.isNonPullRequestJob =
+      unconditional ||
+      job.ifExpressions.some((expression) => expression.includes("github.event_name != 'pull_request'"));
   }
   return jobs;
 }
