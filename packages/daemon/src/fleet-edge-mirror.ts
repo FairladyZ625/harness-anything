@@ -23,6 +23,7 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   consumeKnownError,
+  DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   resolveDocRoute,
   resolveHarnessLayout,
@@ -53,7 +54,14 @@ export interface FleetMirrorDirtyFile {
 export interface FleetMirrorScan {
   readonly changes: readonly FleetMirrorDirtyFile[];
   readonly cleanCount: number;
-  readonly blocked: readonly { readonly path: string; readonly reason: string }[];
+  readonly blocked: readonly {
+    readonly path: string;
+    readonly reason: string;
+    readonly size?: number;
+    readonly maxInlineBytes?: number;
+    readonly code?: "doc_candidate_too_large";
+    readonly requiredRoute?: "blob-content";
+  }[];
 }
 export type FleetConflictTrigger = "pull" | "push-rejected" | "command-rejected";
 export interface FleetConflictPathRow {
@@ -258,7 +266,7 @@ export function scanFleetMirrorWorktree(
   if (!existsSync(materializedRoot)) return { changes: [], cleanCount: 0, blocked: [] };
   const wanted = selection === undefined ? null : new Set(selection),
     changes: FleetMirrorDirtyFile[] = [],
-    blocked: { readonly path: string; readonly reason: string }[] = [];
+    blocked: FleetMirrorScan["blocked"][number][] = [];
   let cleanCount = 0;
   for (const logical of fleetMirrorMaterializedPaths(materializedRoot)) {
     if (!fleetMirrorProsePath(logical) || (wanted !== null && !wanted.has(logical))) continue;
@@ -274,7 +282,22 @@ export function scanFleetMirrorWorktree(
       });
       continue;
     }
-    const bytes = readFileSync(path.join(materializedRoot, ...logical.split("/"))),
+    const target = path.join(materializedRoot, ...logical.split("/")),
+      size = statSync(target).size;
+    if (size > DOC_SYNC_INLINE_MAX_BYTES) {
+      blocked.push({
+        path: logical,
+        size,
+        maxInlineBytes: DOC_SYNC_INLINE_MAX_BYTES,
+        code: "doc_candidate_too_large",
+        requiredRoute: "blob-content",
+        reason:
+          `${logical} is ${size} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes; ` +
+          "send raw content through the blob content contract",
+      });
+      continue;
+    }
+    const bytes = readFileSync(target),
       base = view.entries.get(logical) ?? null;
     if (base !== null && base.sha256 === sha256Bytes(bytes)) {
       cleanCount += 1;

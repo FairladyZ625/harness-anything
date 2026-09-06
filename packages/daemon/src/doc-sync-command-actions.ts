@@ -3,6 +3,7 @@ import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import {
   classifyTextualArtifactPath,
+  DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   isDocEvent,
   ledgerGitPath,
@@ -40,7 +41,7 @@ import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { noOp, scanDetail, scannerSettlement } from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
-export const DOC_COMMAND_FRAME_MAX_BYTES = 256 * 1024;
+export const DOC_COMMAND_FRAME_MAX_BYTES = DOC_SYNC_INLINE_MAX_BYTES;
 
 export type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
 
@@ -111,10 +112,39 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
+  if (
+    scan &&
+    !input.authoredCandidateInventory &&
+    !Object.hasOwn(input.action, "taskId") &&
+    Array.isArray(input.action.paths) &&
+    input.action.paths.length === 0 &&
+    input.action.all !== true &&
+    scan.rows.some((row) => row.state === "eligible")
+  ) {
+    const candidates = scan.rows.filter((row) => row.state === "eligible"),
+      rejection = rejectDocSyncAction(
+        `scan:${scan.baseLedgerSha.headDigest}`,
+        "doc_submit_confirmation_required",
+        scanDetail(input, scan, "doc_submit_confirmation_required"),
+      );
+    return Object.assign(rejection, {
+      summary: [
+        "doc-submit: op_rejected",
+        "full authored-tree submission requires explicit confirmation for:",
+        ...candidates.map((row) => `${row.path}\t${row.size ?? 0} bytes`),
+        "rerun with --path for an explicit selection or --all for every eligible candidate",
+      ].join("\n"),
+    });
+  }
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scan.rows
         .map((row) => row.rejectionCode)
-        .find((candidate) => candidate === "lease_conflict" || candidate === "deletion_forbidden"),
+        .find(
+          (candidate) =>
+            candidate === "lease_conflict" ||
+            candidate === "deletion_forbidden" ||
+            candidate === "doc_candidate_too_large",
+        ),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
       ? rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked)
@@ -165,23 +195,25 @@ async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
         ? "local conflict scratch is not a direct regular file"
         : "merge the conflict into its canonical document before resolving it",
     );
-  const submitted = await runDocAction({
-    ...input,
-    action: { kind: "doc-submit", paths: [conflict.logical] },
-    authoredCandidateInventory: {
-      schema: "harness-authored-candidate-inventory/v1",
-      baseLedgerSha: input.store.currentCut(),
-      rows: [
-        {
-          path: conflict.logical,
-          safe: true,
-          bytes: readFileSync(source),
-          conflicts: [],
-          legacyDocument: null,
-        },
-      ],
-    },
-  });
+  const sourceBytes = readFileSync(source),
+    submitted = await runDocAction({
+      ...input,
+      action: { kind: "doc-submit", paths: [conflict.logical] },
+      authoredCandidateInventory: {
+        schema: "harness-authored-candidate-inventory/v1",
+        baseLedgerSha: input.store.currentCut(),
+        rows: [
+          {
+            path: conflict.logical,
+            safe: true,
+            size: sourceBytes.byteLength,
+            bytes: sourceBytes,
+            conflicts: [],
+            legacyDocument: null,
+          },
+        ],
+      },
+    });
   if (["applied", "pending", "no_changes"].includes(submitted.outcome)) settleConflictScratch(conflict.scratch);
   return submitted;
 }

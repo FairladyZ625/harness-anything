@@ -16,9 +16,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
+import { DOC_SYNC_INLINE_MAX_BYTES } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { applyFleetMirrorCut, readFleetUnresolvedConflicts, withFleetMirrorLock } from "../src/fleet-edge-mirror.ts";
+import {
+  applyFleetMirrorCut,
+  readFleetUnresolvedConflicts,
+  scanFleetMirrorWorktree,
+  withFleetMirrorLock,
+} from "../src/fleet-edge-mirror.ts";
 import { fleetDocPathInTaskPackage } from "../src/fleet-edge-task.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -72,6 +78,41 @@ const mirrorCut = (value: unknown): { revision: number; headDigest: string } => 
   const cut = ledgerCut(value);
   return { revision: cut.revision, headDigest: cut.headDigest };
 };
+
+test("fleet mirror candidate scan names oversized prose without reading it into a change", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "w3c-h-large-doc-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  initRepo(root);
+  const logical = "context/oversized.md",
+    body = `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`,
+    size = Buffer.byteLength(body);
+  writeBytes(path.join(root, "harness", logical), body);
+  const scan = scanFleetMirrorWorktree(
+    {
+      repoId: "large-doc",
+      viewId: "view-one",
+      viewDir: path.join(root, "view"),
+      revision: 1,
+      headDigest: "head",
+      manifestDigest: "manifest",
+      entries: new Map(),
+    },
+    root,
+  );
+  assert.deepEqual(scan.changes, []);
+  assert.deepEqual(scan.blocked, [
+    {
+      path: logical,
+      size,
+      maxInlineBytes: DOC_SYNC_INLINE_MAX_BYTES,
+      code: "doc_candidate_too_large",
+      requiredRoute: "blob-content",
+      reason:
+        `${logical} is ${size} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes; ` +
+        "send raw content through the blob content contract",
+    },
+  ]);
+});
 
 test("F1: the fleet doc-submit channel cannot write task documents without the held execution", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "w3c-h-f1-"));

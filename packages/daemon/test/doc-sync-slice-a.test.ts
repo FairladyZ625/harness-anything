@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
   makeTaskEventStore,
   OPAQUE_TEXTUAL_POLICY_ID,
@@ -12,11 +13,12 @@ import {
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
+import { scanAuthoredCandidateInventory } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blockedAuthoredCandidateReason } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-import { actor, git, initRepo, opaqueTextualMediaType, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 
 test("HTML research documents are eligible, submit as opaque text, and become clean", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-html-research-"));
@@ -86,25 +88,18 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
-        ["tasks/task-one/artifacts/data.json", "blocked"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
-    // tasks/task-one is not a projected package path: the repo prose channel
-    // must refuse its artifacts directory instead of admitting the ghost.
-    assert.match(
-      statusRows.find((row) => row.path === "tasks/task-one/artifacts/data.json")?.reason ?? "",
-      /tasks\/task-one is not the package path of any projected task/u,
-    );
-    assert.equal(statusRows.find((row) => row.path.endsWith("artifacts/data.json"))?.mediaType, opaqueTextualMediaType);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
     const dry = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] }, binding);
     assert.equal(dry.outcome, "pending");
     assert.equal(dry.proof?.canonicalVisible, false);
     assert.deepEqual(rows(dry.evidence), statusRows.slice(0, 2));
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
-    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/a.md", "context/b.md"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.match(String((submitted as Record<string, unknown>).summary), /applied count: 2/u);
     assert.equal(submitted.commitSha, null);
     const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
@@ -120,7 +115,7 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       assert.equal(event.payload.executionId, null);
       assert.deepEqual(
         event.payload.changes.map((change) => change.path),
-        ["context/a.md"],
+        ["context/a.md", "context/b.md"],
       );
     }
     assert.deepEqual(
@@ -141,6 +136,92 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.equal(rows(renamed.evidence)[0]?.state, "eligible");
     const accepted = await cell.run({ kind: "doc-submit", paths: ["context/a.md"] }, binding);
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("scanner refuses multi-megabyte JSONL without reading it and names oversized prose", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-size-type-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("size-type"),
+    line = '{"event":"load"}\n',
+    jsonl = line.repeat(Math.ceil((2 * 1024 * 1024) / Buffer.byteLength(line))),
+    prose = "context/notes.md",
+    oversized = "context/oversized.md";
+  const seed = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "size-type-seed" });
+  const packagePath = await (async () => {
+    try {
+      const created = await seed.run(
+        { kind: "task-create", taskId: "task-size-type", title: "Size Type" },
+        {
+          actor,
+          source: "local",
+        },
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      return String((created as Record<string, unknown>).packagePath);
+    } finally {
+      await seed.close();
+    }
+  })();
+  const firstLog = `${packagePath}/artifacts/evidence/controller.jsonl`,
+    secondLog = `${packagePath}/artifacts/evidence/commands-client-1.jsonl`;
+  write(rootDir, firstLog, jsonl);
+  write(rootDir, secondLog, jsonl);
+  write(rootDir, prose, "# Notes\n");
+  write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
+  const store = makeTaskEventStore({ repoId, rootDir }),
+    inventory = scanAuthoredCandidateInventory({ rootDir, store }),
+    inventoryByPath = new Map(inventory.rows.map((row) => [row.path, row]));
+  await store.drain();
+  for (const logical of [firstLog, secondLog]) {
+    assert.equal(inventoryByPath.get(logical)?.size, Buffer.byteLength(jsonl));
+    assert.equal(inventoryByPath.get(logical)?.bytes, null, `${logical} must not enter inventory bytes`);
+  }
+  assert.equal(inventoryByPath.get(oversized)?.bytes, null, "oversized prose must not enter inventory bytes");
+  assert.equal(inventoryByPath.get(prose)?.bytes?.byteLength, Buffer.byteLength("# Notes\n"));
+
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "size-type-daemon" }),
+    binding = { actor, source: "local" as const };
+  try {
+    const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
+    assert.deepEqual(
+      rows(status.evidence)
+        .filter((row) => row.state !== "clean")
+        .map((row) => row.path),
+      [prose, oversized],
+      "non-prose JSONL must not enter the authored candidate set",
+    );
+    const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
+    assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
+    assert.equal(unconfirmed.code, "doc_submit_confirmation_required");
+    assert.match(String((unconfirmed as Record<string, unknown>).summary), new RegExp(prose, "u"));
+    assert.match(String((unconfirmed as Record<string, unknown>).summary), /--path.*--all/u);
+
+    const confirmed = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
+    assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
+    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(confirmed.opId);
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema === "doc-event/v1")
+      assert.deepEqual(
+        event.payload.changes.map((change) => change.path),
+        [prose],
+      );
+
+    for (const logical of [firstLog, secondLog]) {
+      const selected = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
+        row = rows(selected.evidence)[0];
+      assert.deepEqual([row?.path, row?.state, row?.size], [logical, "blocked", Buffer.byteLength(jsonl)]);
+      assert.match(row?.reason ?? "", /not a supported textual document/u);
+    }
+    const rejected = await cell.run({ kind: "doc-submit", paths: [oversized] }, binding);
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "doc_candidate_too_large");
+    const oversizedRow = rows((await cell.run({ kind: "doc-status", paths: [oversized] }, binding)).evidence)[0];
+    assert.equal(oversizedRow?.size, Buffer.byteLength(`# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`));
+    assert.match(oversizedRow?.reason ?? "", new RegExp(`${oversized}.*${DOC_SYNC_INLINE_MAX_BYTES}.*blob`, "u"));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

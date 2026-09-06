@@ -54,6 +54,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
     retire = parseThinCommand(["doc", "retire", "--path", "context/old.md", "--reason", "superseded scratch"]),
     submit = parseThinCommand(["doc", "sync", "--submit", "--path", "context/a.md", "--path", "context/b.md"]),
+    allSubmit = parseThinCommand(["doc", "sync", "--submit", "--all"]),
     taskSubmit = parseThinCommand(["doc", "sync", "--submit", "--task", "task-1"]);
   assert.equal(status.ok, true);
   assert.equal(selectedStatus.ok, true);
@@ -62,6 +63,7 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   assert.equal(show.ok, true);
   assert.equal(retire.ok, true);
   assert.equal(submit.ok, true);
+  assert.equal(allSubmit.ok, true);
   assert.equal(taskSubmit.ok, true);
   if (status.ok) assert.deepEqual(status.command.action, { kind: "doc-status", paths: [] });
   if (selectedStatus.ok)
@@ -93,6 +95,12 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     });
     assert.deepEqual(Object.keys(submit.command.action).sort(), ["kind", "paths"]);
   }
+  if (allSubmit.ok)
+    assert.deepEqual(allSubmit.command.action, {
+      kind: "doc-submit",
+      paths: [],
+      all: true,
+    });
   if (taskSubmit.ok)
     assert.deepEqual(taskSubmit.command.action, {
       kind: "doc-submit",
@@ -102,6 +110,8 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     parseThinCommand(["doc", "sync", "--submit", "--task", "task-1", "--path", "tasks/task-1/task_plan.md"]).ok,
     false,
   );
+  assert.equal(parseThinCommand(["doc", "sync", "--submit", "--all", "--path", "context/a.md"]).ok, false);
+  assert.equal(parseThinCommand(["doc", "sync", "--submit", "--all", "--task", "task-1"]).ok, false);
   assert.equal(parseThinCommand(["doc", "sync", "--submit", "--execution-id", "exec-1"]).ok, false);
   assert.equal(parseThinCommand(["doc", "show", "--path", "INDEX.md", "--body", "inline"]).ok, false);
   assert.equal(parseThinCommand(["doc", "retire", "--path", "context/old.md"]).ok, false);

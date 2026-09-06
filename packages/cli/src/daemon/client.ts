@@ -663,6 +663,7 @@ export async function fleetDocRoute(
     payload.paths = Array.isArray(command.action.paths)
       ? command.action.paths.filter((value): value is string => typeof value === "string")
       : [];
+    if (command.action.all === true) payload.all = true;
   } else {
     payload.action = route.action;
     payload.conflictId = command.action.conflictId;

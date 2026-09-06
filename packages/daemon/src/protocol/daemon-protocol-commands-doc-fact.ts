@@ -52,6 +52,15 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--path", "repeated", false, {
         code: "invalid_field",
       }),
+      cliInput(
+        "--all",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { conflictsWith: ["--task", "--path"] },
+      ),
     ],
   }),
   defineLedgerWriteCommand({

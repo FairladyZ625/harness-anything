@@ -6,8 +6,10 @@ import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canonicalDocumentClaims,
+  classifyDocSyncCandidatePath,
   classifyTextualArtifactPath,
   decideDocWriteCriteria,
+  DOC_SYNC_INLINE_MAX_BYTES,
   DOC_POLICY_ID,
   documentPath,
   parseDocWriteIntent,
@@ -34,7 +36,7 @@ import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
-type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
+type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyDocSyncCandidatePath>>["mediaType"];
 export interface DocCandidateRow {
   readonly path: string;
   readonly state: DocCandidateState;
@@ -65,6 +67,7 @@ export interface AuthoredCandidateInventoryV1 {
   readonly rows: readonly {
     readonly path: string;
     readonly safe: boolean;
+    readonly size: number | null;
     readonly bytes: Uint8Array | null;
     readonly conflicts: readonly string[];
     readonly legacyDocument: DocumentState | null;
@@ -120,7 +123,7 @@ export function scanDocCandidates(input: {
       .filter(
         (value) =>
           selected?.length ||
-          classifyTextualArtifactPath(value) !== null ||
+          classifyDocSyncCandidatePath(value) !== null ||
           !resolveDocRoute(documentPath(value)).allowed,
       )
       .sort(),
@@ -165,8 +168,18 @@ export function scanDocCandidates(input: {
       projected = input.projection.readDocument(document),
       conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
-      classification = classifyTextualArtifactPath(logical),
-      rawBytes = inventoried ? inventoried.bytes : safe && existsSync(target) ? readFileSync(target) : null,
+      classification = classifyDocSyncCandidatePath(logical),
+      existingMediaType = classifyTextualArtifactPath(logical)?.mediaType ?? null,
+      fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
+      rawBytes = inventoried
+        ? inventoried.bytes
+        : (classification !== null || !route.allowed || projected.document !== null) &&
+            fileSize !== null &&
+            fileSize <= DOC_SYNC_INLINE_MAX_BYTES &&
+            safe &&
+            existsSync(target)
+          ? readFileSync(target)
+          : null,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId),
       retirementBase =
         bytes === null
@@ -213,6 +226,8 @@ export function scanDocCandidates(input: {
         "task_package_unregistered",
         "ha task artifact add",
       );
+    if (classification === null && candidate !== null && candidate === base)
+      return scannedCandidateRow("clean", null, bytes, base, candidate, existingMediaType);
     if (classification === null)
       return scannedCandidateRow(
         "blocked",
@@ -220,6 +235,11 @@ export function scanDocCandidates(input: {
         null,
         projected.document?.blobSha256 ?? null,
         null,
+        null,
+        null,
+        null,
+        null,
+        fileSize,
       );
     if (projected.watermark !== projected.sourceRevision)
       return scannedCandidateRow(
@@ -236,6 +256,20 @@ export function scanDocCandidates(input: {
         null,
         projected.document?.blobSha256 ?? null,
         null,
+      );
+    if (fileSize !== null && fileSize > DOC_SYNC_INLINE_MAX_BYTES)
+      return scannedCandidateRow(
+        "blocked",
+        `${logical} is ${fileSize} bytes; doc sync accepts at most ${DOC_SYNC_INLINE_MAX_BYTES} bytes; ` +
+          "send raw content through the blob content contract",
+        null,
+        projected.document?.blobSha256 ?? null,
+        null,
+        classification.mediaType,
+        "doc_candidate_too_large",
+        "blob-content",
+        null,
+        fileSize,
       );
     if (bytes === null)
       return scannedCandidateRow(
@@ -329,6 +363,7 @@ export function scanDocCandidates(input: {
       rejectionCode: string | null = null,
       requiredRoute: string | null = null,
       regionId: string | null = null,
+      reportedSize: number | null = null,
     ): ScannedDocCandidate {
       return {
         path: logical,
@@ -336,7 +371,7 @@ export function scanDocCandidates(input: {
         reason,
         baseBlobSha256: baseHash,
         candidateBlobSha256: candidateHash,
-        size: body?.byteLength ?? null,
+        size: reportedSize ?? body?.byteLength ?? null,
         mediaType: media,
         conflicts,
         bytes: body,
@@ -361,13 +396,19 @@ export function scanAuthoredCandidateInventory(input: {
     baseLedgerSha: input.store.currentCut(),
     rows: paths.map((logical) => {
       const safe = directFile(layout.authoredRoot, logical),
-        classification = classifyTextualArtifactPath(logical),
+        classification = classifyDocSyncCandidatePath(logical),
+        route = resolveDocRoute(documentPath(logical)),
         target = path.join(layout.authoredRoot, ...logical.split("/")),
-        rawBytes = safe && existsSync(target) ? readFileSync(target) : null,
+        size = safe && existsSync(target) ? lstatSync(target).size : null,
+        rawBytes =
+          (classification !== null || !route.allowed) && size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES
+            ? readFileSync(target)
+            : null,
         bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
       return {
         path: logical,
         safe,
+        size,
         bytes,
         conflicts: candidateConflicts(input.rootDir, layout.authoredRoot, logical),
         legacyDocument:
@@ -404,7 +445,7 @@ export function intentFromScan(
         executionId: scan.executionId,
         baseLedgerSha: scan.baseLedgerSha,
         changes: eligible.map((row) => {
-          const classification = classifyTextualArtifactPath(row.path);
+          const classification = classifyDocSyncCandidatePath(row.path);
           if (classification === null || row.candidateBlobSha256 === null || row.size === null)
             throw new Error(`eligible scan row is not a textual artifact: ${row.path}`);
           return {

@@ -49,6 +49,7 @@ export interface FleetEdgeChannelPayload {
 }
 export interface FleetEdgeDocSyncRequest {
   readonly payload: FleetEdgeChannelPayload & {
+    readonly all?: true;
     readonly dryRun?: boolean;
     readonly paths?: readonly string[];
     readonly timeoutMs?: number;
@@ -178,6 +179,18 @@ export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promi
         blocked: scan.blocked,
         rideAlongTaskPaths: rideAlong,
         outOfScopePaths: outOfScope,
+      });
+    if (selection === undefined && payload.all !== true)
+      return fleetDocSyncReceipt(false, "doc_submit_confirmation_required", {
+        syncState: "LOCAL_DIRTY",
+        canonicalOutcome: "applied",
+        mirrorOutcome: settle.outcome,
+        ...cutOf(pulled.current.cut.revision),
+        rows,
+        blocked: scan.blocked,
+        rideAlongTaskPaths: rideAlong,
+        outOfScopePaths: outOfScope,
+        guidance: "Submit named paths or rerun with --all to confirm the full eligible candidate set.",
       });
     // PUSHING
     const pushed = await runFleetWriteClient({
