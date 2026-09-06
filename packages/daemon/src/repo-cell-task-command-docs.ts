@@ -250,6 +250,26 @@ export function taskSurfaceWriteAt(
   binding: RepoCellBinding,
   occurredAt: string,
 ): WriteReceipt {
+  const prepared = prepareTaskSurfaceWriteAt(cell, action, binding, occurredAt);
+  if (!("compiled" in prepared)) return prepared;
+  return acceptPreparedTaskSurfaceWrites(cell, [prepared])[0]!;
+}
+
+export interface PreparedTaskSurfaceWrite {
+  readonly compiled: ReturnType<typeof compileTaskLifecycleWrite>;
+  readonly taskId: string;
+  readonly action: RepoTaskAction;
+  readonly authorizationDecision: ReturnType<RepoCellActionContext["taskMutation"]>["authorizationDecision"];
+  readonly report: { readonly command: string; readonly reason: string; readonly fields: readonly string[] };
+}
+
+export function prepareTaskSurfaceWriteAt(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  occurredAt: string,
+  assigned?: { readonly workspaceRevision: number; readonly opId?: string },
+): WriteReceipt | PreparedTaskSurfaceWrite {
   const taskId = cell.requiredCellText(
       action.kind === "task-supersede" ? action.oldTaskId : action.taskId,
       action.kind === "task-supersede" ? "oldTaskId" : "taskId",
@@ -323,13 +343,13 @@ export function taskSurfaceWriteAt(
       },
     } as WriteReceipt;
   }
-  const opId = canonicalOpId,
+  const opId = assigned?.opId ?? canonicalOpId,
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
   const event = {
       schema: "task-event/v1",
       eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-      workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
+      workspaceRevision: assigned?.workspaceRevision ?? (cell.store.readHead()?.revision ?? 0) + 1,
       opId,
       taskId,
       type: mutation.type,
@@ -386,27 +406,45 @@ export function taskSurfaceWriteAt(
       snapshot: next,
       packagePath: current.packagePath,
       currentDocuments: documents,
+    });
+  return {
+    compiled,
+    taskId,
+    action,
+    authorizationDecision: mutation.authorizationDecision,
+    report: { command: action.kind, reason: mutation.audit.reason, fields: mutation.audit.fields },
+  };
+}
+
+export function acceptPreparedTaskSurfaceWrites(
+  cell: RepoCellActionContext,
+  prepared: readonly PreparedTaskSurfaceWrite[],
+): readonly WriteReceipt[] {
+  if (prepared.length === 0) return [];
+  const terminal = prepared.at(-1)!,
+    appended = cell.store.append({
+      ...terminal.compiled,
+      preceding: prepared.slice(0, -1).map(({ compiled }) => compiled),
     }),
-    appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
-  cell.projection.apply(compiled.event, compiled.plan);
+  for (const member of prepared) cell.projection.apply(member.compiled.event, member.compiled.plan);
+  cell.store.materialize();
   cell.input.killpoint?.("after_sqlite_commit");
-  const receipt = cell.lifecycleReceipt(
-    compiled.event,
-    cell.projection.read(taskId).snapshot,
-    publication,
-    cell.receiptProof(compiled.event, publication),
-    mutation.authorizationDecision,
-  );
+  const receipts = prepared.map((member) => {
+    const receipt = cell.lifecycleReceipt(
+      member.compiled.event,
+      cell.projection.read(member.taskId).snapshot,
+      publication,
+      cell.receiptProof(member.compiled.event, publication),
+      member.authorizationDecision,
+    );
+    return {
+      ...receipt,
+      mode: member.action.kind === "task-delete" ? "soft" : undefined,
+      report: member.report,
+    } as WriteReceipt;
+  });
   cell.input.killpoint?.("before_response_write");
   cell.input.killpoint?.("after_response_write");
-  return {
-    ...receipt,
-    mode: action.kind === "task-delete" ? "soft" : undefined,
-    report: {
-      command: action.kind,
-      reason: mutation.audit.reason,
-      fields: mutation.audit.fields,
-    },
-  } as WriteReceipt;
+  return receipts;
 }

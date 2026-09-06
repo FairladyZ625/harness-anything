@@ -12,6 +12,11 @@ import {
 } from "./migration-import-task-restatement.ts";
 import type { RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import {
+  acceptPreparedTaskSurfaceWrites,
+  prepareTaskSurfaceWriteAt,
+  type PreparedTaskSurfaceWrite,
+} from "./repo-cell-task-command-docs.ts";
 
 export function archiveTasks(
   cell: RepoCellOperationalContext,
@@ -53,10 +58,19 @@ export function archiveTasks(
       throw cell.cellCodedError("task_not_found", `Create or import task ${taskId} before running task-archive.`);
     cell.taskMutation({ ...single, taskId }, current.snapshot.task, current.snapshot, binding);
   }
-  const steps = selected.map((taskId) => cell.taskSurfaceWrite({ ...single, taskId }, binding));
+  const headRevision = cell.store.readHead()?.revision ?? 0,
+    outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
+    prepared = selected.map((taskId, index) =>
+      requirePrepared(
+        prepareTaskSurfaceWriteAt(cell, { ...single, taskId }, binding, cell.now(), {
+          workspaceRevision: headRevision + index + 1,
+          ...(index === selected.length - 1 ? { opId: outerOpId } : {}),
+        }),
+      ),
+    ),
+    steps = acceptPreparedTaskSurfaceWrites(cell, prepared);
   return {
     ...steps.at(-1)!,
-    opId: cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
     evidence: JSON.stringify({ archived: selected }),
     steps,
   } as WriteReceipt;
@@ -234,26 +248,58 @@ export function migrateTaskContracts(
       cell.store.readHead()?.revision ?? 0,
       "task-contract-migrate",
     );
-  const backfills = report.filter((row) => row.status === "backfill" || row.status === "repair"),
-    steps = backfills.map(({ taskId }) =>
-      cell.taskSurfaceWrite(
-        {
-          kind: "task-contract-migrate",
-          taskId,
-          ...(repairs.has(taskId) ? { repairPresetSnapshotDigest: repairs.get(taskId)!.presetSnapshotDigest } : {}),
-          ...(repairs.has(taskId) ? { repairTaskContractBody: repairs.get(taskId)!.body } : {}),
-          ...(repairs.get(taskId)?.repair
-            ? {
-                repairPresetId: repairs.get(taskId)!.repair!.presetId,
-                repairTaskClass: repairs.get(taskId)!.repair!.taskClass,
-              }
-            : {}),
-        },
-        binding,
+  const backfills = report.filter((row) => row.status === "backfill" || row.status === "repair");
+  if (backfills.length === 0)
+    return {
+      outcome: "no_changes",
+      opId: cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      revision: cell.store.readHead()?.revision ?? 0,
+      code: "no_changes",
+      origin: "task-contract-migrate",
+      evidence: JSON.stringify({ report, applied: false, migrated: [], steps: [] }),
+      visibility: "center",
+      proof: {
+        committedRevision: cell.store.readHead()?.revision ?? 0,
+        appliedCut: cell.store.readHead()?.revision ?? 0,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: true,
+      },
+      report,
+      applied: false,
+      migrated: [],
+      steps: [],
+    } as WriteReceipt;
+  const headRevision = cell.store.readHead()?.revision ?? 0,
+    outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
+    prepared = backfills.map(({ taskId }, index) =>
+      requirePrepared(
+        prepareTaskSurfaceWriteAt(
+          cell,
+          {
+            kind: "task-contract-migrate",
+            taskId,
+            ...(repairs.has(taskId) ? { repairPresetSnapshotDigest: repairs.get(taskId)!.presetSnapshotDigest } : {}),
+            ...(repairs.has(taskId) ? { repairTaskContractBody: repairs.get(taskId)!.body } : {}),
+            ...(repairs.get(taskId)?.repair
+              ? {
+                  repairPresetId: repairs.get(taskId)!.repair!.presetId,
+                  repairTaskClass: repairs.get(taskId)!.repair!.taskClass,
+                }
+              : {}),
+          },
+          binding,
+          cell.now(),
+          {
+            workspaceRevision: headRevision + index + 1,
+            ...(index === backfills.length - 1 ? { opId: outerOpId } : {}),
+          },
+        ),
       ),
-    );
+    ),
+    steps = acceptPreparedTaskSurfaceWrites(cell, prepared);
   return cell.readResult(
-    cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+    outerOpId,
     {
       report,
       applied: true,
@@ -263,6 +309,11 @@ export function migrateTaskContracts(
     cell.store.readHead()?.revision ?? 0,
     steps.length > 0,
   );
+}
+
+function requirePrepared(value: WriteReceipt | PreparedTaskSurfaceWrite): PreparedTaskSurfaceWrite {
+  if (!("compiled" in value)) throw new Error("bulk task mutation unexpectedly completed during preparation");
+  return value;
 }
 
 export function upsertEntity(
