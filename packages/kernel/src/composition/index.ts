@@ -6,11 +6,9 @@ export {
   makeTaskEventStore as makeGitEventStore,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
-export {
-  makeWalShadowEventReader as makeTaskEventReader,
-  makeWalShadowEventStore as makeTaskEventStore,
-} from "../store/wal-shadow-event-store.ts";
-export type { WalRecoveryProgress } from "../store/wal-shadow-event-store.ts";
+export { makeTaskEventReader, makeTaskEventStore } from "../store/task-event-store-factory.ts";
+export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
+export type WalRecoveryProgress = { readonly applied: number; readonly total?: number; readonly watermark: number };
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore } from "../store/sqlite-event-store.ts";

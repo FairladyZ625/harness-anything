@@ -19,9 +19,33 @@ import {
 } from "../../src/store/sqlite-event-store.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
 import { eventAt } from "./task-event-store.fixtures.ts";
+import { initRepo } from "./task-event-store.fixtures.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
+import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 
 const repoId = "sqlite-generation-test";
 const fence: SqliteWriterFence = { repoId, holder: "writer-a", epoch: 1 };
+
+test("canonical adapter accepts in SQLite before independently verifying the Git follower", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
+  initRepo(rootDir);
+  const event = eventAt(1),
+    store = makeTaskEventStore({
+      repoId,
+      rootDir,
+      writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
+    });
+  try {
+    const receipt = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    assert.equal(receipt.status, "applied");
+    assert.equal(store.ledgerMetadata().revision, 1);
+    assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().worktree.status, "verified");
+  } finally {
+    await store.drain();
+  }
+});
 
 test("single writer serializes revision allocation and rejects a competing revision", () => {
   const databasePath = scratch("concurrent"),

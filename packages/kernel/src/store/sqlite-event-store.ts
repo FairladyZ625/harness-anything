@@ -8,8 +8,11 @@ import {
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localWalFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
+import type { CanonicalContentBlob } from "./task-event-store-types.ts";
+import { contentClaims } from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
@@ -18,6 +21,19 @@ export interface SqliteWriterFence {
   readonly repoId: string;
   readonly holder: string;
   readonly epoch: number;
+}
+
+export interface SqliteLedgerMetadata {
+  readonly repoId: string;
+  readonly generation: number;
+  readonly revision: number;
+}
+
+export interface SqliteEventRow {
+  readonly revision: number;
+  readonly opId: string;
+  readonly eventJson: string;
+  readonly digest: `sha256:${string}`;
 }
 
 export interface SqliteCommandIntent {
@@ -34,6 +50,8 @@ export interface SqliteCommandOutcome {
   readonly intentDigest: `sha256:${string}`;
   readonly summary: string;
   readonly rejectionCode: string | null;
+  readonly recordedAt: string;
+  readonly memberOpIds: readonly string[];
 }
 
 export type SqliteLedgerRevisionDifference = {
@@ -77,10 +95,17 @@ export interface SqliteEventStore {
     readonly fence: SqliteWriterFence;
     readonly intent: SqliteCommandIntent;
     readonly events: readonly CanonicalEventV1[];
+    readonly blobs?: readonly CanonicalContentBlob[];
     readonly rejectionCode?: string;
     readonly beforeOutcome?: () => void;
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly outcomes: () => readonly SqliteCommandOutcome[];
+  readonly metadata: () => SqliteLedgerMetadata;
+  readonly eventRows: () => readonly SqliteEventRow[];
+  readonly readContentObject: (sha256: string) => Uint8Array | null;
+  readonly contentObjectDigests: () => readonly string[];
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
   readonly close: () => void;
@@ -88,6 +113,21 @@ export interface SqliteEventStore {
 
 export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
+}
+
+export function sqliteContentObjectPath(
+  input: HarnessLayoutInput,
+  sha256: string,
+  generation = SQLITE_LEDGER_GENERATION,
+): string {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
+  return path.join(
+    path.dirname(sqliteLedgerPath(input, generation)),
+    "objects",
+    "sha256",
+    sha256.slice(0, 2),
+    sha256.slice(2),
+  );
 }
 
 const SQLITE_BUSY = 5,
@@ -132,7 +172,8 @@ export function openSqliteEventStore(options: {
   readonly generation?: number;
 }): SqliteEventStore {
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
-    databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation);
+    databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
+    objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath);
   configureLedgerConnection(db);
@@ -178,8 +219,9 @@ export function openSqliteEventStore(options: {
     });
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, opId);
-  const appendCommand: SqliteEventStore["appendCommand"] = (input) =>
-    transaction(() => {
+  const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
+    prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
+    return transaction(() => {
       assertFenceShape(input.fence, options.repoId);
       const prior = readOutcome(db, input.intent.opId);
       if (prior) {
@@ -243,12 +285,19 @@ export function openSqliteEventStore(options: {
       );
       return readOutcome(db, input.intent.opId)!;
     });
+  };
   return {
     databasePath,
     sqliteVersion,
     claimWriter,
     appendCommand,
     outcome,
+    readCommandOutcome: (opId) => readCommandOutcome(db, opId),
+    outcomes: () => readOutcomes(db),
+    metadata: () => readMetadata(db),
+    eventRows: () => readEventRows(db),
+    readContentObject: (sha256) => readContentObject(objectRoot, sha256),
+    contentObjectDigests: () => listContentObjectDigests(objectRoot),
     revision: () => readRevision(db),
     events: () =>
       /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db
@@ -369,11 +418,82 @@ function readWriter(db: DatabaseSync, repoId: string): { readonly holder: string
   return row ? { holder: String(row.holder), epoch: Number(row.epoch) } : null;
 }
 
+function readMetadata(db: DatabaseSync): SqliteLedgerMetadata {
+  const row = db.prepare("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").get()!;
+  return { repoId: String(row.repo_id), generation: Number(row.generation), revision: Number(row.revision) };
+}
+
+function readEventRows(db: DatabaseSync): readonly SqliteEventRow[] {
+  return db
+    .prepare("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision")
+    .all()
+    .map((row) => ({
+      revision: Number(row.revision),
+      opId: String(row.op_id),
+      eventJson: String(row.event_json),
+      digest: String(row.digest) as `sha256:${string}`,
+    }));
+}
+
+function readOutcomes(db: DatabaseSync): readonly SqliteCommandOutcome[] {
+  return db
+    .prepare("SELECT op_id FROM command_outcome ORDER BY rowid")
+    .all()
+    .map((row) => readOutcome(db, String(row.op_id))!);
+}
+
+function prepareContentObjects(
+  objectRoot: string,
+  events: readonly CanonicalEventV1[],
+  blobs: readonly CanonicalContentBlob[],
+): void {
+  const supplied = new Map(blobs.map((blob) => [blob.sha256, blob]));
+  for (const event of events) {
+    for (const claim of contentClaims(event)) {
+      const existing = readContentObject(objectRoot, claim.sha256);
+      if (existing !== null) {
+        if (existing.byteLength !== claim.size || sha256Text(Buffer.from(existing).toString("utf8")) !== claim.sha256)
+          throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is corrupt`);
+        continue;
+      }
+      const blob = supplied.get(claim.sha256);
+      if (!blob || blob.size !== claim.size || sha256Text(blob.body) !== claim.sha256)
+        throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
+      const target = objectPath(objectRoot, claim.sha256);
+      localWalFileSystem.replace(target, blob.body);
+    }
+  }
+}
+
+function objectPath(objectRoot: string, sha256: string): string {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
+  return path.join(objectRoot, sha256.slice(0, 2), sha256.slice(2));
+}
+
+function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
+  const target = objectPath(objectRoot, sha256);
+  return localWalFileSystem.exists(target) ? Buffer.from(localWalFileSystem.readText(target)) : null;
+}
+
+function listContentObjectDigests(objectRoot: string): readonly string[] {
+  if (!localWalFileSystem.exists(objectRoot)) return [];
+  return localWalFileSystem
+    .readNames(objectRoot)
+    .filter((prefix) => /^[0-9a-f]{2}$/u.test(prefix))
+    .flatMap((prefix) =>
+      localWalFileSystem
+        .readNames(path.join(objectRoot, prefix))
+        .filter((name) => /^[0-9a-f]{62}$/u.test(name))
+        .map((name) => `${prefix}${name}`),
+    )
+    .sort();
+}
+
 function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
   const row = /* @gate-identity check-bypass-write-boundary/bypass-write-112 */ db
     .prepare(
       "SELECT op_id, status, first_revision, last_revision, intent_digest, " +
-        "intent_summary, rejection_code " +
+        "intent_summary, rejection_code, recorded_at " +
         "FROM command_outcome WHERE op_id=?",
     )
     .get(opId);
@@ -386,7 +506,33 @@ function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | nul
     intentDigest: String(row.intent_digest) as `sha256:${string}`,
     summary: String(row.intent_summary),
     rejectionCode: row.rejection_code === null ? null : String(row.rejection_code),
+    recordedAt: String(row.recorded_at),
+    memberOpIds: outcomeMemberOpIds(db, row),
   };
+}
+
+function readCommandOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
+  const direct = readOutcome(db, opId);
+  if (direct !== null) return direct;
+  const event = db.prepare("SELECT revision FROM event WHERE op_id=?").get(opId);
+  if (!event) return null;
+  const parent = db
+    .prepare(
+      "SELECT op_id FROM command_outcome " +
+        "WHERE first_revision<=? AND last_revision>=? ORDER BY last_revision LIMIT 1",
+    )
+    .get(event.revision, event.revision);
+  return parent ? readOutcome(db, String(parent.op_id)) : null;
+}
+
+function outcomeMemberOpIds(db: DatabaseSync, row: Record<string, unknown>): readonly string[] {
+  if (row.first_revision === null || row.last_revision === null) return [];
+  const firstRevision = Number(row.first_revision),
+    lastRevision = Number(row.last_revision);
+  return db
+    .prepare("SELECT op_id FROM event WHERE revision BETWEEN ? AND ? ORDER BY revision")
+    .all(firstRevision, lastRevision)
+    .map((event) => String(event.op_id));
 }
 
 function readRevision(db: DatabaseSync): number {
