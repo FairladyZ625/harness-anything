@@ -30,15 +30,15 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
     eventsRoot = ledgerGitPath(ledger, "events"),
     gitHeadBytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, `${eventsRoot}/head.json`),
     gitHead = gitHeadBytes === null ? null : parseLegacyHead(gitHeadBytes.toString("utf8"), "Git"),
-    gitEvents = localGitObjectRefStore
+    eventTree = localGitObjectRefStore
       .listTree(ledger.rootDir, commit, eventsRoot)
-      .filter(({ target }) => target !== `${eventsRoot}/head.json` && target.endsWith(".json"))
+      .filter(({ target }) => target !== `${eventsRoot}/head.json` && target.endsWith(".json")),
+    eventBytes = localGitObjectRefStore.readPaths(ledger.rootDir, commit, eventTree),
+    gitEvents = eventTree
       .map(({ mode, target }) => {
         if (mode !== "100644")
           throw new TaskEventStoreError("invalid_store", `legacy Git event ${target} has invalid mode ${mode}`);
-        const bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
-        if (bytes === null) throw new TaskEventStoreError("invalid_store", `legacy Git event ${target} disappeared`);
-        const entry = decodeLegacyEventBytes(bytes.toString("utf8"), target),
+        const entry = decodeLegacyEventBytes(eventBytes.get(target)!.toString("utf8"), target),
           fileOpId = path.posix.basename(target).slice(0, -5);
         if (entry.event.opId !== fileOpId)
           throw new TaskEventStoreError("invalid_store", `legacy Git event ${target} does not match its opId`);
@@ -235,11 +235,13 @@ function readStoppedObjects(
   rootDir: string,
 ): readonly { readonly sha256: string; readonly size: number; readonly bytesBase64: string }[] {
   const objects = new Map<string, Buffer>(),
-    prefix = ledgerGitPath(ledger, "objects/sha256");
-  for (const { mode, target } of localGitObjectRefStore.listTree(ledger.rootDir, commit, prefix)) {
+    prefix = ledgerGitPath(ledger, "objects/sha256"),
+    objectTree = localGitObjectRefStore.listTree(ledger.rootDir, commit, prefix),
+    objectBytes = localGitObjectRefStore.readPaths(ledger.rootDir, commit, objectTree);
+  for (const { mode, target } of objectTree) {
     const sha256 = target.slice(prefix.length + 1).replace("/", ""),
-      bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
-    if (mode !== "100644" || !/^[0-9a-f]{64}$/u.test(sha256) || bytes === null || sha256Bytes(bytes) !== sha256)
+      bytes = objectBytes.get(target)!;
+    if (mode !== "100644" || !/^[0-9a-f]{64}$/u.test(sha256) || sha256Bytes(bytes) !== sha256)
       throw new TaskEventStoreError("invalid_store", `legacy Git content object ${target} is invalid`);
     objects.set(sha256, bytes);
   }

@@ -28,7 +28,9 @@ import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-con
 import { VcsCommandError } from "../ports/version-control-system.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
 
-const gitMaxBuffer = 256 * 1024 * 1024;
+const gitMaxBuffer = 256 * 1024 * 1024,
+  gitBatchChunkBytes = 64 * 1024 * 1024,
+  gitBatchChunkEntries = 4_096;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return makeLocalVersionControlCommands({
@@ -272,7 +274,48 @@ export const localGitObjectRefStore = Object.freeze({
       return false;
     }
   },
-  batch: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["cat-file", "--batch"], Buffer.from(input)),
+  readPaths: (
+    repoRoot: string,
+    commit: string,
+    entries: readonly { readonly target: string; readonly size: number }[],
+  ): ReadonlyMap<string, Buffer> => {
+    // One `cat-file --batch` per bounded chunk instead of one `git show` per path: the
+    // canonical ledger holds ~10^5 event and content blobs, and per-path processes turned
+    // a stopped-generation read into hours.
+    const bytesByTarget = new Map<string, Buffer>();
+    let chunk: { readonly target: string; readonly size: number }[] = [],
+      chunkBytes = 0;
+    const flush = () => {
+      if (chunk.length === 0) return;
+      const output = localGitBytes(
+        repoRoot,
+        ["cat-file", "--batch"],
+        Buffer.from(chunk.map(({ target }) => `${commit}:${target}\n`).join("")),
+      );
+      let offset = 0;
+      for (const { target } of chunk) {
+        const newline = output.indexOf(0x0a, offset);
+        if (newline < 0) throw new Error(`Git cat-file --batch output ended before ${target}`);
+        const header = output.subarray(offset, newline).toString("utf8"),
+          size = /^[0-9a-f]{40} blob ([0-9]+)$/u.exec(header)?.[1];
+        if (size === undefined) throw new Error(`Git cat-file --batch could not read ${commit}:${target}: ${header}`);
+        const start = newline + 1,
+          end = start + Number(size);
+        bytesByTarget.set(target, Buffer.from(output.subarray(start, end)));
+        offset = end + 1;
+      }
+      chunk = [];
+      chunkBytes = 0;
+    };
+    for (const entry of entries) {
+      if (chunk.length > 0 && (chunkBytes + entry.size > gitBatchChunkBytes || chunk.length >= gitBatchChunkEntries))
+        flush();
+      chunk.push(entry);
+      chunkBytes += entry.size;
+    }
+    flush();
+    return bytesByTarget;
+  },
   writeBlob: (repoRoot: string, body: string) => {
     const oid = localGitBytes(repoRoot, ["hash-object", "-w", "--stdin"], Buffer.from(body)).toString("utf8").trim();
     if (!/^[0-9a-f]{40}$/u.test(oid)) throw new Error("Git hash-object returned no blob object id");
@@ -282,8 +325,13 @@ export const localGitObjectRefStore = Object.freeze({
     repoRoot: string,
     commit: string,
     target?: string,
-  ): readonly { readonly mode: "100644" | "120000"; readonly oid: string; readonly target: string }[] => {
-    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-z", commit, ...(target ? ["--", target] : [])]);
+  ): readonly {
+    readonly mode: "100644" | "120000";
+    readonly oid: string;
+    readonly size: number;
+    readonly target: string;
+  }[] => {
+    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit, ...(target ? ["--", target] : [])]);
     return output
       .toString("utf8")
       .split("\0")
@@ -292,12 +340,13 @@ export const localGitObjectRefStore = Object.freeze({
         const tab = record.indexOf("\t"),
           header = tab < 0 ? "" : record.slice(0, tab),
           logical = tab < 0 ? "" : record.slice(tab + 1);
-        const [mode, type, oid] = header.split(" ");
+        const [mode, type, oid, size] = header.trim().split(/\s+/u);
         return (mode === "100644" || mode === "120000") &&
           type === "blob" &&
           /^[0-9a-f]{40}$/u.test(oid ?? "") &&
+          /^[0-9]+$/u.test(size ?? "") &&
           logical
-          ? [{ mode, oid: oid!, target: logical }]
+          ? [{ mode, oid: oid!, size: Number(size), target: logical }]
           : [];
       });
   },
