@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader, reviewDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -56,6 +56,7 @@ test("review-consent derives the recorded Review digests without a packet and st
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "consent-derived" });
     const store = () => makeTaskEventReader({ repoId, rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Derived consent" }, binding);
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -149,6 +150,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       { kind: "task-create", taskId: mismatchTaskId, title: "Mismatch consent" },
       binding,
     );
+    await waitForFixturePublication(cell, mismatchCreated.opId, binding);
     await realizeTaskPlanFixture(
       rootDir,
       String((mismatchCreated as Record<string, unknown>).packagePath),
@@ -207,6 +209,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       { kind: "task-create", taskId: reviewlessTaskId, title: "Reviewless consent" },
       binding,
     );
+    await waitForFixturePublication(cell, reviewlessCreated.opId, binding);
     await realizeTaskPlanFixture(
       rootDir,
       String((reviewlessCreated as Record<string, unknown>).packagePath),
@@ -237,6 +240,7 @@ test("review-consent derives the recorded Review digests without a packet and st
       { kind: "task-create", taskId: ambiguousTaskId, title: "Ambiguous consent" },
       binding,
     );
+    await waitForFixturePublication(cell, ambiguousCreated.opId, binding);
     await realizeTaskPlanFixture(
       rootDir,
       String((ambiguousCreated as Record<string, unknown>).packagePath),

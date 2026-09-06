@@ -257,7 +257,7 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
-    assert.equal(stream.revision, 3);
+    assert.equal(stream.revision, 2);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(
@@ -331,7 +331,6 @@ test("a changed overlay path leaves the prior authored document and reports it a
     writeFileSync(overlayPath, overlay("harness/context/new-project.md"));
     git(ledgerRoot, "add", "governance/repository-scaffold.json");
     git(ledgerRoot, "commit", "--quiet", "-m", "change project document path");
-    git(ledgerRoot, "update-ref", "refs/ha/canonical", "HEAD");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     const changed = run(fixture.alpha, fixture.userRoot, [
       "init",

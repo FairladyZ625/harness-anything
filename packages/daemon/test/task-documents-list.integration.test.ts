@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -25,6 +25,7 @@ test("repo.tasks.documents.list returns package-relative projected documents inc
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -102,10 +103,12 @@ test("task documents expose the live worktree copy and mark it uncommitted", asy
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding)) as {
         readonly outcome: string;
+        readonly opId: string;
         readonly packagePath?: string;
       },
       packagePath = String(created.packagePath);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );

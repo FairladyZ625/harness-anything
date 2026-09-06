@@ -55,6 +55,25 @@ export async function startGuiResidentDaemonFixture({
         1_000,
       );
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
+      const visible = await requestDaemonJsonRpcAt(
+        daemon.endpoint,
+        "repo.task.read",
+        {
+          repo: { repoId },
+          payload: {
+            action: {
+              kind: "receipt-show",
+              opId: created.opId,
+              waitFor: ["git_verified", "worktree_visible"],
+              timeoutMs: 5000,
+            },
+          },
+        },
+        1000,
+        10000,
+      );
+      if (visible.wait?.state !== "satisfied")
+        throw new Error(`GUI task publication pending: ${JSON.stringify(visible)}`);
       packagePath = String(created.packagePath);
       await realizeTaskPlanFixture(
         rootDir,

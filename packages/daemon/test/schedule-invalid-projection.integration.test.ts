@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 const actor = { actor: { principal: { personId: "schedule-repair-test" }, executor: null }, source: "local" as const };
 
@@ -119,6 +119,7 @@ test("a canonical Schedule row missing a newly required field stays readable and
       after.schedules.every(({ state }) => state !== "invalid"),
       true,
     );
+    await waitForFixturePublication(cell, repaired.opId, actor);
     assert.equal(authoredSchedule(root, "legacy-probe").mode, "detect");
   } finally {
     await cell?.close();

@@ -10,15 +10,15 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("CLI merges two independently initialized Git Harness repositories into a third center", (context) => {
+test("CLI imports two immutable legacy Git Harness repositories into a SQLite center", (context) => {
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-cli-multi-source-")),
     first = path.join(parent, "first"),
     second = path.join(parent, "second"),
     center = path.join(parent, "center"),
     userRoot = path.join(parent, "user");
   try {
-    initialize(first, userRoot, "source-first");
-    initialize(second, userRoot, "source-second");
+    initialize(first, userRoot, "source-first", true);
+    initialize(second, userRoot, "source-second", true);
     initialize(center, userRoot, "center");
     addSourceData(first, "alpha", "person_alpha");
     addSourceData(second, "beta", "person_beta");
@@ -101,12 +101,20 @@ test("CLI merges two independently initialized Git Harness repositories into a t
   }
 });
 
-function initialize(root: string, userRoot: string, repoId: string): void {
+function initialize(root: string, userRoot: string, repoId: string, legacy = false): void {
   mkdirSync(root, { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "CLI Migration Test");
   git(root, "config", "user.email", "cli-migration@example.invalid");
-  git(root, "commit", "--allow-empty", "-qm", "project root");
+  git(root, "commit", "--allow-empty", "-qm", `project root ${repoId}`);
+  if (legacy) {
+    mkdirSync(path.join(root, "harness"));
+    writeFileSync(
+      path.join(root, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n",
+    );
+    return;
+  }
   const receipt = run(root, userRoot, [
     "init",
     "--repo-id",

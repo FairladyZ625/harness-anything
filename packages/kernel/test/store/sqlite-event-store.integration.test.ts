@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,6 +13,7 @@ import {
   migrateEventsToSqlite,
   openSqliteEventStore,
   sqliteLedgerPath,
+  sqliteContentObjectPath,
   type SqliteCommandIntent,
   type SqliteEventStore,
   type SqliteWriterFence,
@@ -41,6 +42,14 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
       writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
     });
   try {
+    const unportable = { ...event, opId: "runtime-spawn-abcdef:installation" };
+    assert.throws(
+      () => store.append({ event: unportable, plan: taskLifecycleWritePlan(unportable), blobs: [] }),
+      /cannot be a filename/u,
+    );
+    assert.equal(store.readEvent(unportable.opId), null);
+    assert.equal(store.readCommandOutcome(unportable.opId), null);
+    assert.equal(store.currentCut().revision, 0);
     const receipt = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     await store.settlePendingMaterialization?.("test");
     assert.equal(receipt.status, "applied");
@@ -96,6 +105,55 @@ test("Git can verify an accepted document while a concurrently edited worktree r
     assert.equal(store.followerStatus().worktree.status, "verified");
   } finally {
     await store.drain();
+  }
+});
+
+test("SQLite content admission reuses exact objects after reopen and rejects corrupt or missing objects atomically", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-admission-")),
+    body = "# Shared content\n",
+    hash = sha256Text(body),
+    options = { repoId, rootDir, writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }) };
+  initRepo(rootDir);
+  const first = makeTaskEventStore(options);
+  try {
+    first.append(docBundle(first, body, 1, "content-first", "context/first.md"));
+  } finally {
+    await first.drain();
+  }
+  const reopened = makeTaskEventStore(options),
+    objectPath = sqliteContentObjectPath(rootDir, hash);
+  try {
+    const beforeReuse = statSync(objectPath),
+      reused = docBundle(reopened, body, 2, "content-reused", "context/reused.md");
+    reopened.append(reused);
+    await reopened.settlePendingMaterialization?.("content reuse");
+    const afterReuse = statSync(objectPath);
+    assert.equal(afterReuse.ino, beforeReuse.ino);
+    assert.equal(afterReuse.mtimeMs, beforeReuse.mtimeMs);
+    assert.deepEqual(reopened.readContentBlob(hash), Buffer.from(body));
+    assert.ok(reopened.readCommandOutcome(reused.event.opId));
+
+    writeFileSync(objectPath, "corrupt object\n");
+    const corrupt = docBundle(reopened, body, 3, "content-corrupt", "context/corrupt.md");
+    assert.throws(() => reopened.append(corrupt), /content object .* is corrupt/u);
+    assert.equal(reopened.readEvent(corrupt.event.opId), null);
+    assert.equal(reopened.readCommandOutcome(corrupt.event.opId), null);
+    assert.equal(reopened.currentCut().revision, 2);
+    writeFileSync(objectPath, body);
+
+    const missingBody = "# Missing input\n",
+      missing = docBundle(reopened, missingBody, 3, "content-missing", "context/missing.md");
+    assert.throws(
+      () => reopened.append({ ...missing, blobs: [] }),
+      /doc content inputs must exactly match the frozen write plan/u,
+    );
+    assert.equal(reopened.readEvent(missing.event.opId), null);
+    assert.equal(reopened.readCommandOutcome(missing.event.opId), null);
+    assert.equal(reopened.readContentBlob(sha256Text(missingBody)), null);
+    assert.equal(reopened.currentCut().revision, 2);
+  } finally {
+    writeFileSync(objectPath, body);
+    await reopened.drain();
   }
 });
 
@@ -202,19 +260,23 @@ test("opening waits for a concurrent writer lock instead of failing with databas
   }
 });
 
-test("kill-reopen returns the durable command outcome for the same op_id", () => {
-  const databasePath = scratch("reopen");
-  let store = openSqliteEventStore({ repoId, databasePath });
-  store.claimWriter(fence);
-  const accepted = store.appendCommand(command(store, 1));
-  store.close();
-  store = openSqliteEventStore({ repoId, databasePath });
+test("SIGKILL after acceptance preserves exact event bytes and the same op_id outcome", () => {
+  const databasePath = scratch("reopen"),
+    fixture = fileURLToPath(new URL("./sqlite-event-store-kill.fixture.mjs", import.meta.url)),
+    killed = spawnSync(process.execPath, [fixture, databasePath, repoId, "after-commit"], { encoding: "utf8" });
+  assert.equal(killed.signal, "SIGKILL", killed.stderr);
+  const accepted = JSON.parse(killed.stdout),
+    store = openSqliteEventStore({ repoId, databasePath }),
+    retry = { ...command(store, 1), fence: { repoId, holder: "replacement-writer", epoch: 2 } };
   try {
-    assert.deepEqual(store.appendCommand(command(store, 1)), accepted);
+    assert.equal(accepted.status, "accepted_durable");
+    assert.deepEqual(store.events(), [eventAt(1)]);
+    assert.deepEqual(store.readCommandOutcome(eventAt(1).opId), accepted);
+    assert.deepEqual(store.appendCommand(retry), accepted);
     assert.throws(
       () =>
         store.appendCommand({
-          ...command(store, 1),
+          ...retry,
           intent: { ...intent(1), intentDigest: `sha256:${"f".repeat(64)}` },
         }),
       /another command intent/u,

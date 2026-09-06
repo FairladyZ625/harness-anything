@@ -15,6 +15,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetEdgeConflictExit, runFleetEdgeDocSync, settlePushRejection } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView, readFleetUnresolvedConflicts } from "../src/fleet-edge-mirror.ts";
@@ -98,6 +99,12 @@ async function dualSyncFixture() {
     cert = readFileSync(certFile),
     host = await openDaemonHost({ daemonId: "dual-center", userRoot });
   await host.attachmentsSettled();
+  // Match daemon-fleet-center-start: local and edge ingress share the host lease.
+  const writerEpochStateRoot = path.join(userRoot, "fleet"),
+    writerAuthority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot });
+  const hostLease = writerAuthority.current("dual-repo");
+  writerAuthority.close();
+  assert.ok(hostLease);
   // Scope covers every task package plus one shared-surface document: tasks/
   // paths are lease-arbitrated (class A), context/ is the class-B surface.
   const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({
@@ -115,6 +122,11 @@ async function dualSyncFixture() {
   const center: FleetTlsCenter = await listenFleetTls({
     host,
     stateRoot,
+    writerEpochStateRoot,
+    writerEpochLease: (repoId) => {
+      assert.equal(repoId, hostLease.repoId);
+      return hostLease;
+    },
     key,
     cert,
     replicaDiskQuotaBytes: replicaQuota,
@@ -187,6 +199,17 @@ async function dualSyncFixture() {
   ): Promise<{ readonly taskId: string; readonly packagePath: string }> => {
     const receipt = await edgeTask(nodeId, { kind: "task-create", taskId, title });
     assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`);
+    const publication = await host.run(
+      "dual-repo",
+      {
+        kind: "receipt-show",
+        opId: String(receipt.opId),
+        waitFor: ["git_verified", "worktree_visible"],
+        timeoutMs: 5000,
+      },
+      localAuth,
+    );
+    assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
     const packagePath = String(receipt.packagePath),
       planPath = `${packagePath}/task_plan.md`;
     writeFileSync(path.join(repo, "harness", planPath), realizedTaskPlan(title));

@@ -9,7 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import type { RepoCellBinding } from "../src/repo-cell.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ArtifactsListResult } from "../src/protocol/artifacts-gui-contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -27,10 +27,12 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-artifact", title: "Artifacts" }, binding)) as {
       readonly outcome: string;
+      readonly opId: string;
       readonly packagePath?: string;
     };
     assert.equal(created.outcome, "applied");
     const packagePath = String(created.packagePath);
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -44,10 +46,12 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     writeFileSync(path.join(rootDir, "report.md"), "# Report\n\nMission report.\n");
     for (const destination of ["reports/weathering-escalation-decisions.html", "reports/report.md"]) {
       const source = destination.endsWith(".html") ? "weathering.html" : "report.md";
-      assert.equal(
-        (await cell.run({ kind: "task-artifact-add", taskId: "task-artifact", source, destination }, binding)).outcome,
-        "applied",
+      const added = await cell.run(
+        { kind: "task-artifact-add", taskId: "task-artifact", source, destination },
+        binding,
       );
+      assert.equal(added.outcome, "applied", JSON.stringify(added));
+      await waitForFixturePublication(cell, added.opId, binding);
     }
     // 工作树侧:从未 doc-sync 的产物(mtime 来源)+ 非 artifacts/ 目录的 html(阴性)。
     const packageDir = path.join(rootDir, "harness", packagePath);

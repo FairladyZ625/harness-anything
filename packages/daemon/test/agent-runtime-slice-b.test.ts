@@ -31,7 +31,7 @@ import {
   parseDaemonStreamResult,
 } from "../src/protocol/gui-result-validation.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -456,6 +456,7 @@ test("task writes keep aggregate CAS after runtime events advance the shared wor
     const binding = { actor, source: "local" as const },
       created = await cell.run({ kind: "task-create", taskId: "task-runtime", title: "Runtime CAS" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );

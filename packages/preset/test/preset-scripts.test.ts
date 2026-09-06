@@ -21,7 +21,7 @@ import { compileTaskBootstrap } from "../src/index.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: null } as const;
 
-test("task create materializes preset scripts into artifacts/scripts as byte-identical regular files", () => {
+test("task create materializes preset scripts into artifacts/scripts as byte-identical regular files", async () => {
   const fixture = makeFixture({
       "check-env.mjs": '// 预置脚本：输出环境标记（非 ASCII 注释验证字节保真）\nconsole.log("preset-script-ok");\n',
       "sum.mjs": "const sum = (a, b) => a + b;\nconsole.log(sum(2, 3));\n",
@@ -51,6 +51,7 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
     });
     const store = makeTaskEventStore({ repoId: "preset-scripts-e2e", rootDir });
     store.append({ event: bootstrap.event, plan: bootstrap.plan, blobs: bootstrap.blobs });
+    await store.settlePendingMaterialization();
     const packageDir = path.join(rootDir, "harness", bootstrap.packagePath),
       scriptsDir = path.join(packageDir, "artifacts", "scripts");
     assert.deepEqual(readdirSync(scriptsDir).sort(), ["check-env.mjs", "sum.mjs"]);
@@ -92,7 +93,7 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
   }
 });
 
-test("a preset without scripts leaves the task package unchanged and creates no artifacts/scripts directory", () => {
+test("a preset without scripts leaves the task package unchanged and creates no artifacts/scripts directory", async () => {
   const fixture = makeFixture(),
     rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-scripts-none-"));
   try {
@@ -124,6 +125,7 @@ test("a preset without scripts leaves the task package unchanged and creates no 
     assert.equal(bootstrap.documents.length, 5);
     const store = makeTaskEventStore({ repoId: "preset-scripts-none", rootDir });
     store.append({ event: bootstrap.event, plan: bootstrap.plan, blobs: bootstrap.blobs });
+    await store.settlePendingMaterialization();
     assert.equal(existsSync(path.join(rootDir, "harness", bootstrap.packagePath, "artifacts", "scripts")), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

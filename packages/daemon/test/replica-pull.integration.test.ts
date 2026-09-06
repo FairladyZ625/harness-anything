@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { fleetHostWriterOptions, waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { sha256Bytes } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
@@ -15,11 +16,12 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 test(
   "independent pull atomically switches a quota-bounded view and exact ACK derives durable replica receipts",
   { timeout: 30_000 },
-  async () => {
-    const fixture = await replicaFixture(),
+  async (t) => {
+    const fixture = await replicaFixture(t),
       edgeRoot = path.join(fixture.root, "edge"),
       quota = 16 * 1024 * 1024;
     let center = await fixture.center(quota);
+    t.after(() => center.close());
     try {
       const bootstrap = await runFleetReplicaPullClient({
         ...fixture.peer(center.port, fixture.assignment),
@@ -196,7 +198,7 @@ test(
   },
 );
 
-async function replicaFixture() {
+async function replicaFixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-pull-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -242,6 +244,13 @@ async function replicaFixture() {
     { stdio: "ignore" },
   );
   const host = await openDaemonHost({ daemonId: "replica-r2", userRoot });
+  t.after(async () => {
+    try {
+      await host.close();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   await host.attachmentsSettled();
   const assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
@@ -272,6 +281,7 @@ async function replicaFixture() {
       auth,
     );
   assert.equal(created.outcome, "applied");
+  await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
     String((created as Record<string, unknown>).packagePath),
@@ -308,6 +318,7 @@ async function replicaFixture() {
       listenFleetTls({
         host,
         stateRoot,
+        ...fleetHostWriterOptions(userRoot, [assignment.repoId]),
         key,
         cert,
         replicaDiskQuotaBytes,

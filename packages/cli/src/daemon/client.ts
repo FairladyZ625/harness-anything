@@ -23,7 +23,9 @@ import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetEdgeRegistration, fleetScheduleRoute } from "./fleet-command-route.ts";
 import { withAutostart } from "./with-autostart.ts";
+import { settleCommandVisibility } from "./command-visibility.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
+export { settleCommandVisibility } from "./command-visibility.ts";
 export { fleetScheduleRoute } from "./fleet-command-route.ts";
 export {
   daemonIdFromEnv,
@@ -188,43 +190,10 @@ export async function runCommandThroughDaemon(
       daemonAutostartOptions(command, autostart, env, userRoot, daemonId),
     );
   }
-  const fleetSchedule = await fleetScheduleRoute(command, env);
-  if (fleetSchedule) {
-    const userRoot = daemonUserRoot(env),
-      daemonId = daemonIdFromEnv(env),
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
-    return withAutostart(
-      () =>
-        requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath },
-          "daemon.fleet.task.run",
-          { payload: fleetSchedule as JsonObject },
-          75,
-        ),
-      () => cliDaemonServeLaunch(userRoot, daemonId),
-      socketPath,
-      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
-    );
-  }
-  const fleetRuntime = await fleetRuntimeRoute(command, env);
-  if (fleetRuntime) {
-    const userRoot = daemonUserRoot(env),
-      daemonId = daemonIdFromEnv(env),
-      socketPath = localUserDaemonEndpoint(userRoot, daemonId);
-    return withAutostart(
-      () =>
-        requestLocalDaemonJsonRpcForTarget(
-          { userRoot, daemonId, socketPath },
-          "daemon.fleet.task.run",
-          { payload: fleetRuntime as JsonObject },
-          75,
-        ),
-      () => cliDaemonServeLaunch(userRoot, daemonId),
-      socketPath,
-      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
-    );
-  }
-  const fleetTask = await fleetTaskRoute(command, env);
+  const fleetTask =
+    (await fleetScheduleRoute(command, env)) ??
+    (await fleetRuntimeRoute(command, env)) ??
+    (await fleetTaskRoute(command, env));
   if (fleetTask) {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
@@ -351,47 +320,6 @@ export async function runCommandThroughDaemon(
         nextAction: "Reconnect and inspect status; do not automatically retry.",
       };
     }
-  }
-}
-
-// This is a follower wait, never a retry of the accepted write. A disconnect must retain its durable receipt.
-export async function settleCommandVisibility(
-  command: ThinCommand,
-  receipt: JsonObject,
-  read: (opId: string) => Promise<JsonObject>,
-): Promise<JsonObject> {
-  if (
-    command.noWait ||
-    command.action.kind === "receipt-show" ||
-    receipt.status !== "accepted_durable" ||
-    typeof receipt.opId !== "string"
-  )
-    return receipt;
-  try {
-    const observed = await read(receipt.opId);
-    if (observed.status !== "accepted_durable" || observed.opId !== receipt.opId)
-      return { ...receipt, visibilityWaitError: "Receipt visibility could not be observed; inspect receipt show." };
-    const fields = [
-      "status",
-      "acceptance",
-      "projection",
-      "git",
-      "worktree",
-      "replica",
-      "wait",
-      "proof",
-      "cut",
-      "commitSha",
-      "canonicalVisible",
-      "worktreeVisible",
-      "revision",
-    ];
-    return {
-      ...receipt,
-      ...Object.fromEntries(fields.filter((key) => key in observed).map((key) => [key, observed[key]])),
-    };
-  } catch (error) {
-    return { ...receipt, visibilityWaitError: cliErrorMessage(error) };
   }
 }
 

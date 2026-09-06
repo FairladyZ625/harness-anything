@@ -15,7 +15,7 @@ import {
   type ArchivedExecutionV0,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
   resolveTaskRootThreshold,
   resolveTaskWipLimit,
@@ -543,7 +543,11 @@ async function createReadyTask(
   const binding = { actor, source: "local" as const };
   await createRealizedTaskPlanFixture(
     rootDir,
-    () => cell.run({ kind: "task-create", taskId, title, ...options }, binding),
+    async () => {
+      const created = await cell.run({ kind: "task-create", taskId, title, ...options }, binding);
+      await waitForFixturePublication(cell, created.opId, binding);
+      return created;
+    },
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     title,
   );

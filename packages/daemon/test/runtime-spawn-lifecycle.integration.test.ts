@@ -15,7 +15,7 @@ import {
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -509,6 +509,7 @@ test("attached task runtime settlement releases its execution lease before publi
         };
       const created = await cell.run({ kind: "task-create", taskId, title: "Attached tail lease" }, binding);
       assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
       await realizeTaskPlanFixture(
         root,
         String((created as Record<string, unknown>).packagePath),
@@ -642,6 +643,7 @@ test("attached task runtime settlement releases its execution lease before publi
         binding,
       );
       assert.equal(failedCreated.outcome, "applied");
+      await waitForFixturePublication(cell, failedCreated.opId, binding);
       await realizeTaskPlanFixture(
         root,
         String((failedCreated as Record<string, unknown>).packagePath),
@@ -827,6 +829,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
           ).outcome;
       const created = await cell.run({ kind: "task-create", taskId, title: "Lease generation" }, binding);
       assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
       await realizeTaskPlanFixture(
         root,
         String((created as Record<string, unknown>).packagePath),
@@ -1134,6 +1137,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       };
     const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
     assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
+    await waitForFixturePublication(cell, taskCreateReceipt.opId, binding);
     await realizeTaskPlanFixture(
       root,
       String((taskCreateReceipt as Record<string, unknown>).packagePath),

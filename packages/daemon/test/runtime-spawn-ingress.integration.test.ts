@@ -88,7 +88,16 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
   const createReadyTask = async (taskId: string, title: string, appendix = ""): Promise<void> => {
     await createRealizedTaskPlanFixture(
       root,
-      () => host.run(repoId, { kind: "task-create", taskId, title }, auth),
+      async () => {
+        const created = await host.run(repoId, { kind: "task-create", taskId, title }, auth);
+        const publication = await host.run(
+          repoId,
+          { kind: "receipt-show", opId: created.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+          auth,
+        );
+        assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
+        return created;
+      },
       (planPath) => host.run(repoId, { kind: "doc-submit", paths: [planPath] }, auth),
       title,
       appendix,
@@ -997,6 +1006,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         assert.equal(child.outcome, "applied", JSON.stringify(child));
         assert.equal(typeof child.taskId, "string", JSON.stringify(child));
         assert.equal(typeof child.packagePath, "string", JSON.stringify(child));
+        const publication = await host.run(
+          repoId,
+          { kind: "receipt-show", opId: child.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+          auth,
+        );
+        assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
         const childTaskId = String(child.taskId);
         await realizeTaskPlanFixture(
           root,

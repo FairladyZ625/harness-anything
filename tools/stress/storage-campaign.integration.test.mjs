@@ -36,7 +36,26 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
     assert.equal(baseline.code, 0, baseline.stderr);
     assert.equal(baselineFrame.outcome.status, "accepted_durable");
     assert.ok(writes.length > 0, "accepting SQLite WAL emitted no injectable pwrite64 boundary");
-    const cases = [];
+    const traceLines = baseline.trace.split(/\r?\n/u),
+      receiptLine = traceLines.findIndex((line) => /write\(1[,<]/u.test(line) && line.includes("accepted_durable")),
+      finalWalWrite = traceLines.indexOf(writes.at(-1).line),
+      durableSyncs = traceLines
+        .slice(finalWalWrite + 1, receiptLine)
+        .filter(
+          (line) => /(?:fsync|fdatasync)\(/u.test(line) && line.includes("ledger.sqlite-wal") && / = 0\s*$/u.test(line),
+        );
+    assert.ok(receiptLine > finalWalWrite, "accepted receipt must follow the accepting WAL writes");
+    assert.ok(durableSyncs.length > 0, "accepting WAL must successfully sync before the accepted receipt");
+    const cases = [
+      {
+        id: "F01/sqlite-accept-sync-before-receipt",
+        boundaryHits: durableSyncs.map((line) => line.trim()),
+        faults: [],
+        observations: { syncCalls: durableSyncs.length, finalWalWrite, receiptLine },
+        oracles: { nativeSyncBeforeAcceptedReceipt: "PASS" },
+        verdict: "PASS",
+      },
+    ];
     for (const [index, write] of writes.entries()) {
       const root = path.join(scratch, `fault-${index + 1}`),
         tracePath = path.join(scratch, `fault-${index + 1}.strace`);
@@ -103,7 +122,7 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
         unmapped: denominators.missing,
         negativeControls,
       },
-      calibration: { pwrite64Occurrences: writes.length },
+      calibration: { pwrite64Occurrences: writes.length, acceptingWalSyncCalls: durableSyncs.length },
       cases,
       replayCommand: "node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs",
       residualRisks: [],

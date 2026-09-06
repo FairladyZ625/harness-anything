@@ -4,7 +4,8 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -20,7 +21,7 @@ const replicaQuota = 64 * 1024 * 1024;
 // Same fixture discipline as fleet-transport.integration: every OS resource is
 // owned by the fixture and reclaimed through t.after, because a `node --test`
 // timeout suspends the body and never runs try/finally teardown.
-async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"]) {
+async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -111,6 +112,7 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
       const center = await listenFleetTls({
         host,
         stateRoot,
+        ...fleetHostWriterOptions(userRoot, ["lease-repo"]),
         key,
         cert,
         ...(port === undefined ? {} : { port }),
@@ -127,9 +129,9 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
   };
   const openHost = async (): Promise<DaemonHost> => {
     const host = await openDaemonHost({ daemonId: "lease-center", userRoot });
-    await host.attachmentsSettled();
     const wrapped = wrapRun ? { ...host, run: wrapRun(host.run) } : host;
     hosts.push(wrapped);
+    await host.attachmentsSettled();
     return wrapped;
   };
   const closeHost = async (host: DaemonHost): Promise<void> => {
@@ -137,6 +139,18 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
     if (at >= 0) hosts.splice(at, 1);
     await host.close();
   };
+  const closeFixtures = async () => {
+    const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
+      hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
+      results = [...centerResults, ...hostResults];
+    rmSync(root, { recursive: true, force: true });
+    const unexpected = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map(({ reason }) => reason)
+      .filter((reason) => !isExpectedStaleWriterClose(reason));
+    if (unexpected.length > 0) throw new AggregateError(unexpected, "fleet lease fixture cleanup failed");
+  };
+  t.after(closeFixtures);
   const host = await openHost(),
     center = await openCenter(host);
   const command = async (
@@ -158,13 +172,15 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
       action: action as never,
       waitMs,
     });
-    if (action.kind === "task-create" && result.outcome === "applied")
+    if (action.kind === "task-create" && result.outcome === "applied") {
+      await waitForFleetPublication(host, "lease-repo", String(result.receipt?.opId), localAuthFixture());
       await realizeTaskPlanFixture(
         repo,
         String((result.receipt as Record<string, unknown>).packagePath),
         (planPath) => host.run("lease-repo", { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
         typeof action.title === "string" ? action.title : undefined,
       );
+    }
     return result;
   };
   const commandOn = (target: FleetTlsCenter, nodeId: string, action: Record<string, unknown>, waitMs = 5_000) =>
@@ -181,11 +197,12 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
       action: action as never,
       waitMs,
     });
-  const commitCount = (): number => Number(git("rev-list", "--count", "refs/ha/canonical"));
+  const eventCount = (): number => fleetLedgerRevision(repo, "lease-repo");
   return {
     root,
     repo,
     stateRoot,
+    writerEpochStateRoot: path.join(userRoot, "fleet"),
     host,
     center,
     command,
@@ -193,19 +210,9 @@ async function leaseFixture(wrapRun?: (run: DaemonHost["run"]) => DaemonHost["ru
     openHost,
     openCenter,
     closeHost,
-    commitCount,
+    eventCount,
     assignmentFor: (nodeId: string): FleetAssignmentRecord => byId.get(`assignment-${nodeId}`)!,
-    close: async () => {
-      const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
-        hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
-        results = [...centerResults, ...hostResults];
-      rmSync(root, { recursive: true, force: true });
-      const unexpected = results
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map(({ reason }) => reason)
-        .filter((reason) => !isExpectedStaleWriterClose(reason));
-      if (unexpected.length > 0) throw new AggregateError(unexpected, "fleet lease fixture cleanup failed");
-    },
+    close: closeFixtures,
   };
 }
 
@@ -221,7 +228,7 @@ test(
   "auto lease: create/start/progress over fleet TLS, second node queues and is woken by release",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Lease loop" });
     assert.equal(created.outcome, "applied");
@@ -266,7 +273,7 @@ test(
   "orphan reaper releases an expired fleet lease so another node can claim the task",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Orphan reap" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -286,7 +293,7 @@ test(
 );
 
 test("a parked command settles as wait_expired at its deadline and frees the queue", { timeout: 30_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Wait expiry" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -300,14 +307,14 @@ test("a parked command settles as wait_expired at its deadline and frees the que
 });
 
 test("center restart preserves the grant mirror, the domain lease, and FIFO order", { timeout: 60_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Restart survival" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
   assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
   await fixture.center.close();
   await fixture.closeHost(fixture.host);
-  // A full warm restart: the daemon host re-attaches from the Git ledger and
+  // A full warm restart: the daemon host re-attaches from the SQLite ledger and
   // the broker reloads its persisted coordination state from the same root.
   const host = await fixture.openHost(),
     reopened = await fixture.openCenter(host);
@@ -339,18 +346,23 @@ test(
   "a stale center writer epoch is rejected at append and produces no canonical write",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Epoch fence" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
     assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
-    const epochObserver = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "epoch-observer" }),
+    const epochObserver = openPersistentWriterEpoch({
+        stateRoot: fixture.writerEpochStateRoot,
+        holderId: "epoch-observer",
+      }),
       oldLease = epochObserver.current("lease-repo");
     epochObserver.close();
     assert.ok(oldLease);
     const oldEpoch = oldLease.epoch;
-    const replacement = await fixture.openCenter(fixture.host);
-    const before = fixture.commitCount();
+    await fixture.closeHost(fixture.host);
+    const successor = await fixture.openHost(),
+      replacement = await fixture.openCenter(successor);
+    const before = fixture.eventCount();
     // The stale endpoint must not adopt the replacement's epoch merely because
     // assignment admission can read the shared state row. Its own append guard
     // remains bound to the epoch it acquired at startup.
@@ -361,8 +373,14 @@ test(
     });
     assert.equal(staleAuto.outcome, "op_rejected");
     assert.equal(staleAuto.code, "writer_epoch_stale");
-    assert.equal((staleAuto.receipt as Record<string, unknown>)?.code, "operation_not_published");
-    assert.equal(fixture.commitCount(), before, "automatic assignment admission must not let a stale endpoint append");
+    assert.equal((staleAuto.receipt as Record<string, unknown>)?.code, "repo_unavailable");
+    const recovered = await successor.run(
+      "lease-repo",
+      { kind: "receipt-show", opId: staleAuto.opId },
+      localAuthFixture(),
+    );
+    assert.equal(recovered.code, "operation_not_published");
+    assert.equal(fixture.eventCount(), before, "automatic assignment admission must not let a stale endpoint append");
     const stale = await runFleetTaskCommandClient({
       port: fixture.center.port,
       ca: readFileSync(path.join(fixture.root, "tls.crt")),
@@ -379,7 +397,7 @@ test(
     });
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "writer_epoch_stale");
-    assert.equal(fixture.commitCount(), before, "the stale center must produce zero canonical commits");
+    assert.equal(fixture.eventCount(), before, "the stale center must produce zero canonical events");
     const fresh = await fixture.commandOn(replacement, "node-one", {
       kind: "task-progress-append",
       taskId,
@@ -390,7 +408,7 @@ test(
 );
 
 test("stale task rejection disposes carried document claims", { timeout: 30_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const peer = {
       port: fixture.center.port,
@@ -405,7 +423,7 @@ test("stale task rejection disposes carried document claims", { timeout: 30_000 
     ...peer,
     changes: [{ path: pathValue, body: "stale candidate\n" }],
   });
-  const authority = openPersistentWriterEpoch({ stateRoot: fixture.stateRoot, holderId: "claim-successor" }),
+  const authority = openPersistentWriterEpoch({ stateRoot: fixture.writerEpochStateRoot, holderId: "claim-successor" }),
     oldLease = authority.current("lease-repo");
   assert.ok(oldLease);
   const oldEpoch = oldLease.epoch;
@@ -437,7 +455,7 @@ test(
   "opId replay returns the stored receipt; a different action under the same opId conflicts",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Replay" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -469,11 +487,11 @@ test(
 );
 
 test("frame hygiene: cross-repo and missing taskId are rejected before any write", { timeout: 30_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Hygiene" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
-  const before = fixture.commitCount();
+  const before = fixture.eventCount();
   const wrongRepo = await runFleetTaskCommandClient({
     port: fixture.center.port,
     ca: readFileSync(path.join(fixture.root, "tls.crt")),
@@ -504,14 +522,14 @@ test("frame hygiene: cross-repo and missing taskId are rejected before any write
   });
   assert.equal(noTask.outcome, "op_rejected");
   assert.equal(noTask.code, "task_command_rejected");
-  assert.equal(fixture.commitCount(), before);
+  assert.equal(fixture.eventCount(), before);
 });
 
 test(
   "crash window restart: a domain lease whose mirror row was lost is rebuilt, not dropped",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(() => fixture.close());
     const created = await fixture.command("node-one", { kind: "task-create", title: "Crash window" });
     const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -557,7 +575,7 @@ test(
 test("a failed orphan release keeps the mirror row and the reaper retries it", { timeout: 30_000 }, async (t) => {
   let releaseFails = true,
     releaseAttempts = 0;
-  const fixture = await leaseFixture((run) => (repoId, action, auth) => {
+  const fixture = await leaseFixture(t, (run) => (repoId, action, auth) => {
     if (action.kind === "task-release") releaseAttempts += 1;
     return action.kind === "task-release" && releaseFails
       ? Promise.reject(new Error("simulated release infrastructure failure"))
@@ -583,7 +601,7 @@ test("a failed orphan release keeps the mirror row and the reaper retries it", {
 test("a rejected domain probe cannot erase the mirror or wake a waiter", { timeout: 30_000 }, async (t) => {
   let rejectProbe = false,
     rejectedProbes = 0;
-  const fixture = await leaseFixture((run) => async (repoId, action, auth) => {
+  const fixture = await leaseFixture(t, (run) => async (repoId, action, auth) => {
     if (action.kind === "task-show" && rejectProbe) {
       rejectedProbes += 1;
       return {
@@ -623,6 +641,7 @@ test(
     // would overwrite the winner's mirror row and drop it when the domain
     // rejects the second grab.
     const fixture = await leaseFixture(
+      t,
       (run) => (repoId, action, auth) =>
         run(repoId, action, auth).then((receipt) =>
           action.kind === "task-show" && auth.assignmentBinding?.nodeId === "node-one"
@@ -666,7 +685,7 @@ test(
 );
 
 test("a failed queue head drains and latecomers cannot jump the FIFO", { timeout: 30_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Failed head FIFO" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -720,7 +739,7 @@ test(
   "mid-wait disconnect automatically reconnects with the same opId and queue slot",
   { timeout: 30_000 },
   async (t) => {
-    const fixture = await leaseFixture();
+    const fixture = await leaseFixture(t);
     t.after(async () => {
       closeProxy();
       await fixture.close();
@@ -800,7 +819,7 @@ test(
 );
 
 test("a queued product command re-attaches after a center restart on the same port", { timeout: 30_000 }, async (t) => {
-  const fixture = await leaseFixture();
+  const fixture = await leaseFixture(t);
   t.after(() => fixture.close());
   const created = await fixture.command("node-one", { kind: "task-create", title: "Queued restart" });
   const taskId = String((created.receipt as Record<string, unknown>).taskId);
@@ -843,7 +862,7 @@ test("a queued product command re-attaches after a center restart on the same po
 
 test("an in-flight opId is deduplicated and the wait default is thirty minutes", { timeout: 30_000 }, async (t) => {
   assert.equal(fleetLeaseTimers({}).maxWaitMs, 30 * 60 * 1_000);
-  const fixture = await leaseFixture((run) => async (repoId, action, auth) => {
+  const fixture = await leaseFixture(t, (run) => async (repoId, action, auth) => {
     if (action.kind === "task-create") await new Promise((resolve) => setTimeout(resolve, 400));
     return run(repoId, action, auth);
   });

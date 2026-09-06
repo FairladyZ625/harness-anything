@@ -135,7 +135,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "integration",
     ]);
     assert.equal(factRecord.outcome, "applied", JSON.stringify(factRecord));
-    assert.equal(factRecord.commitSha, null);
+    assert.match(String(factRecord.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(factRecord.cut);
     const fact = JSON.parse(String(factRecord.evidence)) as {
       factId: string;
@@ -176,8 +176,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       decisionPath = `decisions/decision-${decision.decisionId}/decision.md`;
     assert.equal(decision.state, "proposed");
     assert.equal(decisionPropose.path, decisionPath);
-    assert.equal(decisionPropose.worktreeVisible, false);
-    assert.equal(decisionPropose.commitSha, null);
+    assert.equal(decisionPropose.worktreeVisible, true);
+    assert.match(String(decisionPropose.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(decisionPropose.cut);
     assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
     settleFollower(fixture.alpha, fixture.userRoot, decisionPropose);
@@ -278,9 +278,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       "test:reports/cli.txt:passed",
     ]);
     assert.equal(progress.progressPath, "tasks/task-alpha-alpha/progress.md");
-    assert.equal(progress.commitSha, null);
+    assert.match(String(progress.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(progress.cut);
-    assert.equal(progress.worktreeVisible, false);
+    assert.equal(progress.worktreeVisible, true);
     settleFollower(fixture.alpha, fixture.userRoot, progress);
     assert.match(String(progress.evidence), /file:tasks\/task-alpha-alpha\/progress\.md/u);
     assert.match(
@@ -293,16 +293,25 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     mkdirSync(path.dirname(authored), { recursive: true });
     writeFileSync(authored, docBody);
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]).outcome, "applied");
-    // The daemon's background local-repair reconciliation (repo-cell settleAuthoredCandidates, fired on
-    // every WAL flush) is the same idempotent doc-sync as this explicit submit; it may incorporate the
-    // freshly authored doc into canonical first. So this submit either applies it ("applied") or finds it
-    // already reconciled ("no_changes") — both mean the doc reached canonical, which the doc show below is
-    // the real proof of. Asserting a single outcome raced the background reconciliation (flake).
-    const notesSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--task", "task-alpha"]);
-    assert.ok(
-      notesSubmit.outcome === "applied" || notesSubmit.outcome === "no_changes",
-      `submit must reconcile the authored doc (applied or no_changes), saw ${JSON.stringify(notesSubmit)}`,
+    const reader = makeTaskEventReader({ rootDir: fixture.alpha, repoId: "alpha" });
+    const beforeFlush = reader.read().events.filter((event) => event.type === "documents_written");
+    const flushTrigger = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "progress",
+      "append",
+      "task-alpha",
+      "--text",
+      "Flush with unsubmitted prose present.",
+    ]);
+    settleFollower(fixture.alpha, fixture.userRoot, flushTrigger);
+    const afterFlushStatus = run(fixture.alpha, fixture.userRoot, ["doc", "status", "--path", docPath]);
+    assert.match(String(afterFlushStatus.evidence), /"state":"eligible"/u);
+    assert.deepEqual(
+      reader.read().events.filter((event) => event.type === "documents_written"),
+      beforeFlush,
     );
+    const notesSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", docPath]);
+    assert.equal(notesSubmit.outcome, "applied", JSON.stringify(notesSubmit));
     assert.equal(run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", docPath]).evidence, docBody);
     const cleanSubmit = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", docPath]);
     assert.equal(cleanSubmit.status, 0, cleanSubmit.stderr);
@@ -326,42 +335,17 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     mkdirSync(path.dirname(blockedFile), { recursive: true });
     const stableMachineDocument = "---\nschema: stable\n---\n# Stable\n";
     writeFileSync(blockedFile, stableMachineDocument);
-    // Same background local-repair reconciliation as the notes submit above (repo-cell
-    // settleAuthoredCandidates): it may incorporate this freshly authored doc first, which leaves this
-    // explicit submit nothing to apply. Both outcomes mean the doc reached canonical.
     const stableSubmit = run(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--path", blockedPath]);
-    assert.ok(
-      stableSubmit.outcome === "applied" || stableSubmit.outcome === "no_changes",
-      `submit must reconcile the authored doc (applied or no_changes), saw ${JSON.stringify(stableSubmit)}`,
-    );
+    assert.equal(stableSubmit.outcome, "applied", JSON.stringify(stableSubmit));
     writeFileSync(blockedFile, "---\nschema: changed\n---\n# Stable\n");
     writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
-    // The background reconciliation issues this exact command — doc-submit over an empty selection.
-    // Whichever sweep runs first applies context/this-session.md and skips the blocked
-    // context/other-session.md; the sweep that runs second has no eligible row left and rejects on the
-    // blocked row alone, which is the decided contract (doc-sync-slice-a-implicit-lease: "a blocked-only
-    // implicit submit must reject without publishing an event"). Asserting one outcome raced that sweep
-    // (flake). What holds either way: the blocked path is reported against its changed machine region, the
-    // eligible doc reaches canonical, and the blocked edit does not.
-    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--all"]),
-      blockedTouch = "context/other-session.md\tmachine region changed";
-    if (partial.status === 0) {
-      assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
-      assert.match(
-        String(partial.receipt.summary),
-        /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tmachine region changed/u,
-      );
-    } else {
-      assert.equal(partial.receipt.outcome, "op_rejected", JSON.stringify(partial.receipt));
-      assert.equal(partial.receipt.code, "preview_blocked", JSON.stringify(partial.receipt));
-      assert.deepEqual(
-        (
-          partial.receipt.detail as { unresolvedTouches?: readonly { path: string; reason: string }[] }
-        ).unresolvedTouches?.map((touch) => `${touch.path}\t${touch.reason}`),
-        [blockedTouch],
-        JSON.stringify(partial.receipt),
-      );
-    }
+    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--all"]);
+    assert.equal(partial.status, 0, partial.stderr);
+    assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
+    assert.match(
+      String(partial.receipt.summary),
+      /doc-submit: applied[\s\S]*skipped:[\s\S]*context\/other-session\.md\tblocked\tmachine region changed/u,
+    );
     assert.equal(
       run(fixture.alpha, fixture.userRoot, ["doc", "show", "--path", eligiblePath]).evidence,
       "# Eligible\n",

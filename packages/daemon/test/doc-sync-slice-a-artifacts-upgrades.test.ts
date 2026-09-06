@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,10 +9,11 @@ import {
   MIGRATION_DOCUMENT_POLICY_ID,
   makeTaskEventReader,
   makeTaskEventStore,
+  preflightCanonicalGeneration,
   serializeCanonicalEvent,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import { git, initRepo, ownerBinding, rows, standardMigration, write } from "./doc-sync-slice-a.fixtures.ts";
 test("artifact add is the untracked UTF-8 canonical subset of doc submit", async () => {
@@ -89,16 +90,15 @@ test("artifact add is the untracked UTF-8 canonical subset of doc submit", async
         docEvent = docStore.readEvent(String(doc.opId));
       assert.ok(artifactEvent && docEvent);
       assert.equal(serializeCanonicalEvent(artifactEvent), serializeCanonicalEvent(docEvent));
-      assert.equal(
-        readFileSync(path.join(left, "harness/events/head.json"), "utf8"),
-        readFileSync(path.join(right, "harness/events/head.json"), "utf8"),
-      );
+      assert.deepEqual(artifactStore.readHead(), docStore.readHead());
+      await waitForFixturePublication(artifactCell, String(artifact.opId), binding);
+      await waitForFixturePublication(docCell, String(doc.opId), binding);
       const shown = (await artifactCell.run(
         { kind: "receipt-show", opId: String(artifact.receiptId) },
         binding,
       )) as Record<string, unknown>;
       assert.equal(shown.receiptId, artifact.receiptId);
-      assert.equal(shown.commitSha, artifact.commitSha);
+      assert.match(String(shown.commitSha), /^[0-9a-f]{40}$/u);
       const replay = (await artifactCell.run(
         {
           kind: "task-artifact-add",
@@ -230,7 +230,9 @@ test("artifact unknown settlement returns the canonical DocEvent receipt id with
       },
       binding,
     );
-    assert.equal(unknown.outcome, "indeterminate");
+    assert.equal(unknown.outcome, "pending");
+    assert.equal(unknown.status, "accepted_durable");
+    assert.ok(unknown.acceptance);
     assert.equal(unknown.code, "publication_indeterminate");
     assert.match(unknown.opId, /^op_/u);
     assert.deepEqual(unknown.guidance, [{ kind: "retry-receipt", args: { opId: unknown.opId } }]);
@@ -261,7 +263,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     legacy = "# Docs Library\n\nfact 用 invalidate。\n",
     repoId = workspaceId("upgrade"),
     binding = ownerBinding;
-  const seed = makeTaskEventStore({ repoId, rootDir });
+  const seed = makeTaskEventStore({ repoId, rootDir, activationPreflight: preflightCanonicalGeneration });
   seed.append(standardMigration(1, standard, legacy));
   await seed.drain();
   const cell = await openRepoCell({

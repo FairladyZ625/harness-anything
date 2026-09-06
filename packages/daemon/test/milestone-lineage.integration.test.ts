@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -45,8 +45,14 @@ async function reachGreenInReview(
   const binding = { actor, source: "local" as const };
   await createRealizedTaskPlanFixture(
     rootDir,
-    () =>
-      cell.run({ kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) }, binding),
+    async () => {
+      const created = await cell.run(
+        { kind: "task-create", taskId, title, ...(taskClass === "milestone" ? { taskClass } : {}) },
+        binding,
+      );
+      await waitForFixturePublication(cell, created.opId, binding);
+      return created;
+    },
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     title,
   );

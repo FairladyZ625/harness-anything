@@ -105,6 +105,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
         .outcome,
       "applied",
     );
+    const candidateCut = observer.read().revision;
     const entityRef = `${kind}/${preview.entityId}`,
       firstCandidateReceipt = await cell.run({ kind: "distill-candidate", taskId: "task-distill", entityRef }, binding),
       firstCandidateReport = JSON.parse(String(firstCandidateReceipt.evidence)) as { candidatePath: string },
@@ -124,8 +125,8 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
       source: `repo:${repoId}:${sourcePath}`,
       edges: [],
       projectionCut: {
-        watermark: firstCandidateReceipt.revision,
-        sourceRevision: firstCandidateReceipt.revision,
+        watermark: candidateCut,
+        sourceRevision: candidateCut,
       },
     });
 

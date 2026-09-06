@@ -4,7 +4,9 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
+import { fleetHostWriterOptions, fleetLedgerRevision } from "./fleet-store.fixture.ts";
+import { openSqliteEventStore, type LedgerCutIdentity } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -32,20 +34,23 @@ function reclaimer() {
 }
 
 test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across eight repos without duplicate writes", async (t) => {
-  const fixture = await scaleFixture();
+  const fixture = await scaleFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center();
   for (const count of [3, 10, 32]) {
-    const clients = fixture.clients.splice(0, count),
+    const clients = fixture.clients.splice(0, count).map((client) => ({
+        ...client,
+        baseLedgerSha: fixture.host.replica(client.assignment.repoId).ledgerCut(),
+      })),
       before = fixture.commitCounts(),
-      children = await startChildrenAtWriteBarrier(fixture, center.port, clients),
-      batch = fixture.beginBatch(clients.map((client) => client.assignment.repoId));
+      acceptedBefore = fixture.ledgerRevisions(),
+      children = await startChildrenAtWriteBarrier(fixture, center.port, clients);
     for (const child of children) child.release();
     let results: ChildResult[];
     try {
       results = await Promise.all(children.map((child) => child.result));
     } finally {
-      await batch.finish();
+      await fixture.settleFollowers(clients.map((client) => client.assignment.repoId));
     }
     assert.equal(results.length, count);
     assert.equal(
@@ -69,9 +74,23 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
         startedAt: result.startedAt,
         endedAt: result.endedAt,
       })),
-      evidence = `Fleet coalescing evidence: ${JSON.stringify({ count, materializedCommits, touchedRepos, repoCuts, childWindows })}`;
+      evidence = `Fleet follower publication evidence: ${JSON.stringify({ count, materializedCommits, touchedRepos, repoCuts, childWindows })}`;
     t.diagnostic(evidence);
-    assert.equal(materializedCommits, touchedRepos, evidence);
+    assert.ok(materializedCommits >= touchedRepos && materializedCommits <= count, evidence);
+    const accepted = fixture.eventsAfter(acceptedBefore);
+    assert.equal(accepted.length, count, "each edge write accepts exactly one SQLite event");
+    assert.equal(new Set(accepted.map((event) => event.opId)).size, count);
+    assert.deepEqual(accepted.map((event) => event.opId).sort(), results.map((result) => result.center.opId).sort());
+    const replayBefore = fixture.ledgerRevisions(),
+      replayChildren = await startChildrenAtWriteBarrier(fixture, center.port, clients);
+    for (const child of replayChildren) child.release();
+    const replayed = await Promise.all(replayChildren.map((child) => child.result));
+    assert.ok(replayed.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"));
+    assert.deepEqual(
+      replayed.map((result) => result.center.opId).sort(),
+      results.map((result) => result.center.opId).sort(),
+    );
+    assert.deepEqual(fixture.ledgerRevisions(), replayBefore, "replay adds zero accepted events");
     const intervalsOverlap = results.some((left, index) =>
       results
         .slice(index + 1)
@@ -126,7 +145,13 @@ function localAuthFixture() {
   };
 }
 
-type ScaleClient = { assignment: FleetAssignmentRecord; path: string; body: string; label: string };
+type ScaleClient = {
+  assignment: FleetAssignmentRecord;
+  path: string;
+  body: string;
+  label: string;
+  baseLedgerSha?: LedgerCutIdentity;
+};
 type ChildResult = {
   ok: boolean;
   gitAbsent: boolean;
@@ -153,7 +178,7 @@ async function startChildrenAtWriteBarrier(
   }
   return children;
 }
-async function scaleFixture() {
+async function scaleFixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-scale-")),
     userRoot = path.join(root, "user"),
     stateRoot = path.join(root, "state"),
@@ -202,6 +227,17 @@ async function scaleFixture() {
   const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
     clients: ScaleClient[] = [],
     assignments = new Map<string, FleetAssignmentRecord>();
+  t.after(async () => {
+    try {
+      await owned.reclaim();
+    } finally {
+      try {
+        await host.close();
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  });
   await host.attachmentsSettled();
   const drafts = Array.from({ length: 45 }, (_, index) => {
       const repo = repos[index % repos.length]!,
@@ -219,8 +255,7 @@ async function scaleFixture() {
         };
       return { index, repo, taskId, assignment };
     }),
-    repoIds = repos.map((repo) => repo.repoId),
-    creationBatch = beginStoreBatch(host, repoIds);
+    repoIds = repos.map((repo) => repo.repoId);
   let created: Array<(typeof drafts)[number] & { packagePath: string }>;
   try {
     created = await Promise.all(
@@ -236,9 +271,8 @@ async function scaleFixture() {
       }),
     );
   } finally {
-    await creationBatch.finish();
+    await settleFollowers(host, repoIds);
   }
-  const preparationBatch = beginStoreBatch(host, repoIds);
   let prepared: Array<{ assignment: FleetAssignmentRecord; opId: string; client: ScaleClient }>;
   try {
     prepared = await Promise.all(
@@ -269,7 +303,7 @@ async function scaleFixture() {
       }),
     );
   } finally {
-    await preparationBatch.finish();
+    await settleFollowers(host, repoIds);
   }
   for (const value of prepared) {
     assignments.set(value.assignment.assignmentId, value.assignment);
@@ -292,6 +326,7 @@ async function scaleFixture() {
         listenFleetTls({
           host,
           stateRoot,
+          ...fleetHostWriterOptions(userRoot, repoIds),
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
@@ -299,14 +334,22 @@ async function scaleFixture() {
           resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null,
         }),
       ),
+    ledgerRevisions: () => new Map(repos.map((repo) => [repo.repoId, fleetLedgerRevision(repo.rootDir, repo.repoId)])),
+    eventsAfter: (cuts: ReadonlyMap<string, number>) =>
+      repos.flatMap((repo) => {
+        const reader = openSqliteEventStore({ rootInput: repo.rootDir, repoId: repo.repoId, readOnly: true });
+        try {
+          return reader.events().filter((event) => event.workspaceRevision > cuts.get(repo.repoId)!);
+        } finally {
+          reader.close();
+        }
+      }),
     commitCounts: () =>
       repos.map((repo) => ({
         repoId: repo.repoId,
-        commits: Number(git(repo.rootDir, "rev-list", "--count", "refs/ha/canonical")),
+        commits: Number(git(repo.rootDir, "rev-list", "--count", "HEAD")),
       })),
-    beginBatch: (repoIds: readonly string[]) => {
-      return beginStoreBatch(host, repoIds);
-    },
+    settleFollowers: (repoIds: readonly string[]) => settleFollowers(host, repoIds),
     close: async () => {
       await owned.reclaim();
       await host.close();
@@ -315,15 +358,12 @@ async function scaleFixture() {
   };
 }
 
-function beginStoreBatch(host: Awaited<ReturnType<typeof openDaemonHost>>, repoIds: readonly string[]) {
-  return {
-    finish: () =>
-      Promise.all(
-        [...new Set(repoIds)].map((repoId) =>
-          host.settleMaterialization(repoId, "verify event-derived Git follower after scale writes"),
-        ),
-      ),
-  };
+function settleFollowers(host: Awaited<ReturnType<typeof openDaemonHost>>, repoIds: readonly string[]) {
+  return Promise.all(
+    [...new Set(repoIds)].map((repoId) =>
+      host.settleMaterialization(repoId, "verify event-derived Git follower after scale writes"),
+    ),
+  );
 }
 // Edge children report their result on stdout, so both runners settle on `close`, not `exit`:
 // `exit` fires when the process ends and can precede the last stdout chunk, which under a
@@ -348,6 +388,7 @@ function runChild(fixture: Awaited<ReturnType<typeof scaleFixture>>, port: numbe
       path: client.path,
       bodyFile,
       retry: true,
+      baseLedgerSha: client.baseLedgerSha,
       // Keep the aggregate retry budget near four minutes while allowing one loaded-runner
       // transport turn the same 30-second window used by the other Fleet integration fixtures.
       timeoutMs: 30_000,

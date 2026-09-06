@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const git = (rootDir: string, ...args: readonly string[]): string =>
@@ -48,6 +48,7 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       executionId = "exec-1";
     const created = await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, agent);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
     );
@@ -151,6 +152,7 @@ test("principal review independence rejects a different executor owned by the su
       executionId = "exec-principal-review";
     const created = await cell.run({ kind: "task-create", taskId, title: "Principal review" }, agent);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, agent);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, agent),
     );
@@ -279,6 +281,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       executionId = "exec-bare-recovery";
     const parentCreated = await cell.run({ kind: "task-create", taskId: parentTaskId, title: "Bare parent" }, bare);
     assert.equal(parentCreated.outcome, "applied");
+    await waitForFixturePublication(cell, parentCreated.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((parentCreated as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
@@ -288,6 +291,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
     );
     const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis", parentTaskId }, bare);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
@@ -553,11 +557,13 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       bare,
     );
     assert.equal(parentCreated.outcome, "applied");
+    await waitForFixturePublication(cell, parentCreated.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((parentCreated as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
     const created = await cell.run({ kind: "task-create", taskId, title: "Bare reviewed", parentTaskId }, bare);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
@@ -794,6 +800,7 @@ test("review binding permits independent runtimes but still rejects the executio
       executionId = "execution-runtime-bound";
     const created = await cell.run({ kind: "task-create", taskId, title: "Runtime-bound review" }, implementer);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, implementer);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );
@@ -923,6 +930,7 @@ test("review binding permits independent runtimes but still rejects the executio
       implementer,
     );
     assert.equal(directCreated.outcome, "applied");
+    await waitForFixturePublication(cell, directCreated.opId, implementer);
     await realizeTaskPlanFixture(rootDir, String((directCreated as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, implementer),
     );

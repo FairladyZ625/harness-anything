@@ -17,7 +17,7 @@ import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const actor = withRoleBinding(
@@ -387,6 +387,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       );
       const deleted = await cell.run({ kind: "schedule-delete", fromFile: "schedule-delete.json" }, actor);
       assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+      await waitForFixturePublication(cell, deleted.opId, actor);
       assert.equal(existsSync(authoredSchedulePath), false);
       const afterDelete = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
         readonly schedules: readonly { readonly scheduleId: string }[];

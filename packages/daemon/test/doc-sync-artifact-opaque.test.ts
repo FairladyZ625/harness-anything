@@ -122,23 +122,23 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       const row = rows(status.evidence).find((candidate) => candidate.path === logical);
       assert.deepEqual([row?.state, row?.mediaType], ["clean", mediaType], `${destination}: doc status`);
     }
+    const reader = makeTaskEventReader({ repoId, rootDir }),
+      beforeMaterialize = reader.readHead();
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
     const materialized = await cell.run({ kind: "doc-materialize" }, binding);
-    assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
-    for (const { destination, body } of cases)
-      assert.equal(
-        readFileSync(
-          path.join(
-            rootDir,
-            "harness",
-            packagePath,
-            "artifacts",
-            ...destination.replace(/^artifacts\//u, "").split("/"),
-          ),
-        ).equals(Buffer.from(body, "utf8")),
-        true,
-        `${destination}: materialize must restore source bytes`,
+    assert.equal(materialized.outcome, "indeterminate", JSON.stringify(materialized));
+    assert.equal(materialized.code, "acceptance_unknown");
+    assert.equal(materialized.acceptance, null);
+    assert.deepEqual(reader.readHead(), beforeMaterialize, "materialization must not admit a new command");
+    for (const { destination, body } of cases) {
+      const logical = `${packagePath}/artifacts/${destination.replace(/^artifacts\//u, "")}`;
+      assert.equal(existsSync(path.join(rootDir, "harness", logical)), false, "follower preserves local deletion");
+      assert.deepEqual(
+        reader.readContentBlob(sha256Bytes(Buffer.from(body))),
+        Buffer.from(body),
+        "accepted bytes remain canonical",
       );
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -532,9 +532,9 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     await cell.close();
     cell = null;
     assert.equal(
-      git(rootDir, "status", "--porcelain", "-uall").includes("manual.html"),
-      false,
-      "close must drain the pending cut into Git",
+      git(rootDir, "show", `HEAD:harness/${manual}`),
+      "<!doctype html>\n<title>Manual report</title>",
+      "close must drain the pending cut into Git independently of the caller index",
     );
   } finally {
     await cell?.close();

@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { getEntityKindContract, makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -200,6 +200,7 @@ test("two actors contending for one Task fence reject the non-holder before Squa
     await installFixture(cell);
     const created = await cell.run({ kind: "task-create", taskId, title: "Squad fence contention" }, owner);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
