@@ -75,7 +75,6 @@ test("Explicit submission keeps forbidden and unresolved candidates out of an el
       binding,
     );
     assert.equal(transition.outcome, "applied", JSON.stringify(transition));
-    await waitForFixturePublication(cell, transition.opId, binding);
     const submitted = await cell.run({ kind: "doc-submit", paths: ["context/eligible.md"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForHeadBody(rootDir, "context/eligible.md", "# Eligible\n\nsettled in the same WAL cut\n");
