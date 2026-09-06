@@ -57,6 +57,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly rootDir?: string;
   readonly authoredBranch?: string;
   readonly writerFence?: () => DaemonWriterFence;
+  readonly activationPreflight?: (input: { readonly rootInput: HarnessLayoutInput; readonly repoId: string }) => void;
   readonly beforeAppend?: () => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
@@ -67,6 +68,7 @@ export interface SqliteTaskEventStoreOptions {
 export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore {
   const input = options.rootInput ?? options.rootDir;
   if (input === undefined) throw new Error("canonical event store requires rootInput or rootDir");
+  if (options.mutable !== false) options.activationPreflight?.({ rootInput: input, repoId: options.repoId });
   const sqlite = openSqliteEventStore({
     repoId: options.repoId,
     rootInput: input,
