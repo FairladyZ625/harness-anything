@@ -70,7 +70,7 @@ test("an unknown command domain reports unknown with the available set instead o
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
-  assert.match(logs[0] ?? "", /ha migrate rekey-facts(?: --dry-run)?/u);
+  assert.doesNotMatch(logs[0] ?? "", /rekey-facts|dispatch-records|settings-wal-flush|migrate ledger/u);
 });
 
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
@@ -183,41 +183,18 @@ test("vertical entity-kind commands coexist with the existing vertical command s
   assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
 });
 
-test("dispatch record migration projects its dry-run flag into the daemon Action", () => {
-  const parsed = parseThinCommand(["migrate", "dispatch-records", "--dry-run"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
-});
-
-test("settings WAL flush migration projects its dry-run flag into the daemon Action", () => {
-  const parsed = parseThinCommand(["migrate", "settings-wal-flush", "--dry-run"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, { kind: "settings-wal-flush-migrate", dryRun: true });
-});
-
-test("Squad migration projects legacy sources and dry-run into one center Action", () => {
-  const parsed = parseThinCommand([
-    "migrate",
-    "squads",
-    "--source",
-    "harness/squads/ledger-squad.json",
-    "--source",
-    "harness/squads/debug-squad.json",
-    "--dry-run",
-  ]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, {
-    kind: "entity-migrate-squads",
-    sourcePaths: ["harness/squads/ledger-squad.json", "harness/squads/debug-squad.json"],
-    dryRun: true,
-  });
-  assert.equal(parseThinCommand(["migrate", "squads", "--dry-run"]).ok, false);
+test("retired mutation migrations are explicitly absent from the thin router", () => {
+  for (const argv of [
+    ["migrate", "rekey-facts"],
+    ["migrate", "relation-events"],
+    ["migrate", "decision-digests"],
+    ["migrate", "schedule-definitions"],
+    ["migrate", "settings-wal-flush"],
+    ["migrate", "dispatch-records"],
+    ["migrate", "squads"],
+    ["migrate", "ledger"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {
@@ -276,18 +253,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: [
-      "decision-digests-migrate",
-      "dispatch-records-migrate",
-      "entity-migrate-squads",
-      "fact-rekey",
-      "ledger-migrate",
-      "migrate-import",
-      "relation-events-migrate",
-      "schedule-definitions-migrate",
-      "settings-wal-flush-migrate",
-      "vertical-declaration-migrate",
-    ],
+    migrate: ["migrate-import", "vertical-declaration-migrate"],
     preset: [
       "preset-audit",
       "preset-check",

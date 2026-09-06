@@ -308,16 +308,13 @@ test("migration import parser accepts ordered sources and repeated explicit conf
   assert.equal(parseThinCommand(["migrate", "import", "--source", "a", "--force"]).ok, false);
 });
 
-test("migrate ledger accepts only the declared SQLite generation option", () => {
-  const parsed = parseThinCommand(["migrate", "ledger"]);
-  assert.equal(parsed.ok, true);
-  if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "ledger-migrate" });
-
-  const generation = parseThinCommand(["migrate", "ledger", "--generation", "1"]);
-  assert.equal(generation.ok, true);
-  if (generation.ok) assert.deepEqual(generation.command.action, { kind: "ledger-migrate", generation: 1 });
-  assert.equal(parseThinCommand(["migrate", "ledger", "--generation", "2"]).ok, false);
-  assert.equal(parseThinCommand(["migrate", "ledger", "--dry-run"]).ok, false);
+test("retired in-place ledger migration is rejected while generation reconciliation remains readable", () => {
+  for (const argv of [
+    ["migrate", "ledger"],
+    ["migrate", "ledger", "--generation", "1"],
+    ["migrate", "ledger", "--dry-run"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
 
 test("ledger reconcile requires the declared SQLite generation", () => {
