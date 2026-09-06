@@ -154,7 +154,16 @@ async function reachGreenInReview(
   const title = "Fact Retirement Contract";
   await createRealizedTaskPlanFixture(
     rootDir,
-    () => cell.run({ kind: "task-create", taskId, title }, binding),
+    async () => {
+      const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+      // The authored task package reaches the worktree through the Git follower; wait for it before editing the plan.
+      const shown = await cell.run(
+        { kind: "receipt-show", opId: created.opId, waitFor: ["worktree_visible"], timeoutMs: 5_000 },
+        binding,
+      );
+      assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+      return created;
+    },
     (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     title,
   );

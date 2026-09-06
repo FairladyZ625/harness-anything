@@ -178,9 +178,7 @@ test("accepted canonical-event sample changes require an Event-Migration declara
 });
 
 test("an existing ha migrate command satisfies an accepted-sample refresh", () => {
-  const english = [validEnglish.replace("\n\n---", ""), "Event-Migration: ha migrate relation-events", "", "---"].join(
-      "\n",
-    ),
+  const english = [validEnglish.replace("\n\n---", ""), "Event-Migration: ha migrate import", "", "---"].join("\n"),
     result = checkPrBodyBilingual(twoBlockBody({ english }), undefined, {
       eventMigration: {
         files: ["packages/kernel/fixtures/canonical-events/relation-event-v1/accepted.json"],
@@ -188,13 +186,13 @@ test("an existing ha migrate command satisfies an accepted-sample refresh", () =
     });
 
   assert.equal(result.ok, true, result.issues.join("\n"));
-  assert.equal(result.eventMigration.migrationName, "relation-events");
+  assert.equal(result.eventMigration.migrationName, "import");
 });
 
 test("Event-Migration command names come from the ha migrate protocol catalog", () => {
   const commands = eventMigrationCommandNames();
-  assert.ok(commands.includes("relation-events"));
-  assert.ok(commands.includes("decision-digests"));
+  assert.ok(commands.includes("import"));
+  assert.ok(commands.includes("vertical-declaration"));
   assert.equal(commands.includes("invented-migration"), false);
 
   const result = checkEventMigrationDeclaration("Event-Migration: ha migrate invented-migration", {

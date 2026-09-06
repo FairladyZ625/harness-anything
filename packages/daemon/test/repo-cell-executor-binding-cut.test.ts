@@ -230,8 +230,31 @@ function contextFor(
       recoveryProbe: { clear: () => undefined },
       replica: { kick: () => undefined },
       rootDir: "/repository",
-      store: { readHead: () => ({ revision: 2 }) },
-      projection: { readRuntimeSession, currentLease },
+      store: {
+        readHead: () => ({ revision: 2 }),
+        readCommandOutcome: () => ({
+          opId: "op-runtime-first-write",
+          status: "accepted_durable",
+          firstRevision: 3,
+          lastRevision: 3,
+          recordedAt: now,
+          memberOpIds: ["op-runtime-first-write"],
+        }),
+        readEvent: () => ({ opId: "op-runtime-first-write" }),
+        publication: () => ({
+          commitSha: null,
+          cut: { repoId: "repository", revision: 3, headDigest: "sha256:fixture" },
+        }),
+        followerStatus: () => ({
+          git: { status: "pending", cut: null, commitSha: null },
+          worktree: { status: "pending", cut: null, commitSha: null },
+        }),
+      },
+      projection: {
+        readRuntimeSession,
+        currentLease,
+        readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
+      },
       now: () => now,
       executeAction: (_action: unknown, verified: RepoCellBinding) => {
         fixture.observedActor = verified.actor;
