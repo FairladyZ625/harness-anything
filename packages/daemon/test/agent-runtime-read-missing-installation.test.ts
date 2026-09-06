@@ -16,6 +16,7 @@ import {
 import { validateAgentRuntimeOverview, validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
+import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 
@@ -71,9 +72,68 @@ test("an installation-backed session DTO remains byte-for-byte unchanged", () =>
     assert.equal(Object.hasOwn(session, "installationError"), false);
   }));
 
+test("live dispatch evidence repairs an unknown session and advances its observed time", () =>
+  withRuntime(true, ({ store, projection, stream }) => {
+    const unknownProjection = new Proxy(projection, {
+        get: (target, property, receiver) => {
+          if (property === "readRuntimeSessions")
+            return () =>
+              target.readRuntimeSessions().map((session) => ({
+                ...session,
+                liveness: "unknown" as const,
+                attachable: false,
+              }));
+          if (property === "readRuntimeSession")
+            return (runtimeSessionId: string) => {
+              const session = target.readRuntimeSession(runtimeSessionId);
+              return session ? { ...session, liveness: "unknown" as const, attachable: false } : null;
+            };
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      reads = makeAgentRuntimeReadModel({
+        readActivityEvidence: () => ({
+          lastObservedAt: "2026-09-06T01:45:42.460Z",
+          workerHostAlive: true,
+        }),
+        store,
+        projection: unknownProjection,
+        stream,
+      });
+    for (const session of [
+      reads.overview({}).sessions[0]!,
+      reads.session({ runtimeSessionId: "runtime-historical" }).session,
+    ]) {
+      assert.equal(session.liveness, "live");
+      assert.equal(session.semanticState, "running");
+      assert.equal(session.attachCapability, "supported");
+      assert.equal(session.activity.lastObservedAt, "2026-09-06T01:45:42.460Z");
+    }
+  }));
+
+test("runtime overview remains available without a local dispatch stream", () =>
+  withRuntime(true, ({ rootDir, store, projection, stream }) => {
+    const reads = makeAgentRuntimeReadModel({
+      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
+      store,
+      projection,
+      stream,
+    });
+    const overview = reads.overview({});
+    assert.equal(overview.ok, true);
+    assert.equal(overview.sessions[0]?.runtimeSessionId, "runtime-historical");
+  }));
+
 function withRuntime(
   installationPresent: boolean,
-  use: (fixture: { readonly reads: ReturnType<typeof makeAgentRuntimeReadModel> }) => void,
+  use: (fixture: {
+    readonly reads: ReturnType<typeof makeAgentRuntimeReadModel>;
+    readonly store: ReturnType<typeof makeTaskEventStore>;
+    readonly projection: ReturnType<typeof makeTaskProjection>;
+    readonly stream: ReturnType<typeof makeAgentRuntimeStreamHub>;
+    readonly rootDir: string;
+  }) => void,
 ): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-missing-installation-"));
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
@@ -93,7 +153,7 @@ function withRuntime(
       readSession: (runtimeSessionId) => projection!.readRuntimeSession(runtimeSessionId),
       canAttach: () => true,
     });
-    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }) });
+    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }), store, projection, stream, rootDir });
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -1,5 +1,6 @@
 import {
   runtimeDefinitionSnapshotArtifact,
+  latestRuntimeActivityAt,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
@@ -30,6 +31,7 @@ import { runtimeKindForInstallation } from "./runtime-inventory.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
+import type { RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 
 export function makeAgentRuntimeReadModel(input: {
   readonly readDispatch?: (taskId: string, dispatchId: string) => { readonly runtimeSessionId: string } | null;
@@ -38,12 +40,18 @@ export function makeAgentRuntimeReadModel(input: {
     readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   }) => readonly TaskDispatchRow[];
   readonly readAttemptChain?: (runtimeSessionId: string) => AgentRuntimeAttemptChainDto | undefined;
+  readonly readActivityEvidence?: (dispatchId: string) => RuntimeSessionActivityEvidence | undefined;
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
   readonly stream: AgentRuntimeStreamHub;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly now?: () => string;
 }) {
+  const activityEvidenceFor = (session: RuntimeSession): RuntimeSessionActivityEvidence | undefined => {
+    if (!input.readActivityEvidence) return undefined;
+    const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+    return dispatch ? input.readActivityEvidence(dispatch.payload.dispatchId) : undefined;
+  };
   const installationDto = (installation: RuntimeInstallation): AgentRuntimeInstallationDto => ({
     installationId: installation.installationId,
     kindId: runtimeKindForInstallation(installation).kindId,
@@ -56,9 +64,11 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
+    evidence: RuntimeSessionActivityEvidence | undefined,
     includeAttemptChain = false,
   ): AgentRuntimeSessionDto => {
-    const attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
+    const observedSession = sessionWithActivityEvidence(session, evidence),
+      attemptChain = includeAttemptChain ? input.readAttemptChain?.(session.runtimeSessionId) : undefined,
       installationError = installation
         ? null
         : {
@@ -77,10 +87,12 @@ export function makeAgentRuntimeReadModel(input: {
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
       definitionSnapshotPersisted: definition.persisted,
-      liveness: session.liveness,
-      semanticState: runtimeSessionSemanticState(session),
+      liveness: observedSession.liveness,
+      semanticState: runtimeSessionSemanticState(observedSession),
       attachCapability:
-        session.attachable && installation?.effectiveCapabilities.includes("attach") ? "supported" : "unsupported",
+        observedSession.attachable && installation?.effectiveCapabilities.includes("attach")
+          ? "supported"
+          : "unsupported",
       streamCursor: input.stream.latestCursor(session.runtimeSessionId),
       associations: session.taskBindings.map((binding) => {
         const lease = input.projection.currentLease(binding.taskId),
@@ -94,12 +106,12 @@ export function makeAgentRuntimeReadModel(input: {
       }),
       ...(attemptChain ? { attemptChain } : {}),
       activity: {
-        lastObservedAt: session.lastObservedAt,
-        outcome: runtimeSessionOutcomeFromEvidence(session),
-        exitCode: session.exitCode,
-        resultRef: session.resultRef,
-        missingEvidence: runtimeSessionMissingOutcomeEvidence(session),
-        ...(session.reasonCode ? { reasonCode: session.reasonCode } : {}),
+        lastObservedAt: observedSession.lastObservedAt,
+        outcome: runtimeSessionOutcomeFromEvidence(observedSession),
+        exitCode: observedSession.exitCode,
+        resultRef: observedSession.resultRef,
+        missingEvidence: runtimeSessionMissingOutcomeEvidence(observedSession),
+        ...(observedSession.reasonCode ? { reasonCode: observedSession.reasonCode } : {}),
       },
     };
   };
@@ -174,6 +186,7 @@ export function makeAgentRuntimeReadModel(input: {
             session,
             installations.find(({ installationId }) => installationId === session.installationId),
             definitionFor(session),
+            activityEvidenceFor(session),
           ),
         ),
         ...(paged === null
@@ -196,6 +209,7 @@ export function makeAgentRuntimeReadModel(input: {
         cut = input.projection.readCut(),
         sessions = input.projection
           .readRuntimeSessions()
+          .map((session) => sessionWithActivityEvidence(session, activityEvidenceFor(session)))
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
         sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
         dispatchEvents = input.projection
@@ -246,6 +260,7 @@ export function makeAgentRuntimeReadModel(input: {
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(session),
+          activityEvidenceFor(session),
           true,
         ),
         result: resultFor(session),
@@ -292,6 +307,23 @@ export function makeAgentRuntimeReadModel(input: {
     }
     return { ref: session.resultRef, text };
   }
+}
+
+function sessionWithActivityEvidence(
+  session: RuntimeSession,
+  evidence: RuntimeSessionActivityEvidence | undefined,
+): RuntimeSession {
+  if (!evidence) return session;
+  const lastObservedAt = latestRuntimeActivityAt([session.lastObservedAt, evidence.lastObservedAt]);
+  if (session.liveness === "exited" || session.liveness === "live" || session.outcome !== null)
+    return { ...session, lastObservedAt };
+  if (!evidence.workerHostAlive) return { ...session, lastObservedAt };
+  return {
+    ...session,
+    liveness: "live",
+    attachable: true,
+    lastObservedAt,
+  };
 }
 
 function historicalRuntimeKindId(

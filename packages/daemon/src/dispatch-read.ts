@@ -23,6 +23,7 @@ import type {
   TaskDispatchRow,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { AgentRuntimeAttemptChainDto } from "./agent-runtime-contract.ts";
+import { runtimePidIsAlive } from "./runtime-spawn-process.ts";
 
 type DispatchLiveIndexRow = ReturnType<typeof readDispatchLiveIndex>["entries"][number];
 
@@ -31,6 +32,24 @@ type DispatchCandidate = {
   readonly taskPackages: readonly { readonly taskId: string; readonly packagePath: string }[];
   readonly indexed: boolean;
 };
+
+export interface RuntimeSessionActivityEvidence {
+  readonly lastObservedAt: string;
+  readonly workerHostAlive: boolean;
+}
+
+export function readRuntimeSessionActivityEvidence(
+  rootDir: string,
+  dispatchId: string,
+): RuntimeSessionActivityEvidence | undefined {
+  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return undefined;
+  const stream = readDispatchStreamSummary(rootDir, dispatchId);
+  if (!stream) return undefined;
+  return {
+    lastObservedAt: stream.lastObservedAt,
+    workerHostAlive: stream.process?.exited === false && runtimePidIsAlive(stream.process.pid),
+  };
+}
 
 export function readTaskDispatches(
   input: { readonly rootDir: string; readonly projection: TaskProjection } & DaemonTaskDispatchesPayload,

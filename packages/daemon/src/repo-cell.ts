@@ -23,7 +23,12 @@ import {
   type WalRecoveryProgress,
 } from "../../kernel/src/index.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
+import {
+  readRuntimeAttemptChain,
+  readRuntimeSessionActivityEvidence,
+  readSessionGroupDispatches,
+  readTaskDispatches,
+} from "./dispatch-read.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { blockedCandidateNextAction } from "./doc-sync-details.ts";
 import { scanAuthoredCandidateInventory, type AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
@@ -315,6 +320,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       killpoint: context.input.killpoint,
     });
     const runtimeReads = makeAgentRuntimeReadModel({
+        readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(context.rootDir, dispatchId),
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId),
         readDispatch: (taskId, dispatchId) =>
           readTaskDispatches({ rootDir: context.rootDir, projection: projection!, taskId }).dispatches.find(
