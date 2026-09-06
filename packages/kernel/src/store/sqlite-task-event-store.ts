@@ -154,7 +154,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           fence: { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
           intent: {
             opId: bundle.event.opId,
-            intentDigest: `sha256:${sha256Text(JSON.stringify(appended))}`,
+            intentDigest: `sha256:${sha256Text(JSON.stringify(appended.map(serializePersistedCanonicalEvent)))}`,
             summary: bundle.event.type,
           },
           events: appended,
@@ -219,16 +219,20 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
       };
       if (!dirty) {
-        settleWorktree(currentLedger.rootDir, closureFiles, options.killpoint);
-        verifyWorktreeFiles(currentLedger.rootDir, closureFiles);
-        pendingWorktreeBaseline = null;
-        settledWorktreeRevision = accepted.revision;
+        pendingWorktreeBaseline = baseline;
+        if (settleWorktree(currentLedger.rootDir, closureFiles, baseline, options.killpoint)) {
+          verifyWorktreeFiles(currentLedger.rootDir, closureFiles);
+          pendingWorktreeBaseline = null;
+          settledWorktreeRevision = accepted.revision;
+        }
       }
+      verifyAuthoredRef(currentLedger.rootDir, currentRef, parent);
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
-        worktree: dirty
-          ? pendingFollower("authored worktree has concurrent edits").worktree
-          : { status: "verified", cut: accepted, commitSha: parent, conflicts: [] },
+        worktree:
+          settledWorktreeRevision < accepted.revision
+            ? pendingFollower("authored worktree has concurrent edits").worktree
+            : { status: "verified", cut: accepted, commitSha: parent, conflicts: [] },
       };
       return {
         status: "visible" as const,
@@ -256,16 +260,19 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     finalizeRefs(currentLedger.rootDir, currentRef, commit, parent, tempRef);
     options.killpoint?.("after_git_ref_update");
     verifyGitFiles(currentLedger.rootDir, commit, files);
+    verifyAuthoredRef(currentLedger.rootDir, currentRef, commit);
     certified = { commit, revision: accepted.revision };
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
     if (!dirty) {
-      settleWorktree(currentLedger.rootDir, files, options.killpoint);
-      verifyWorktreeFiles(currentLedger.rootDir, files);
-      pendingWorktreeBaseline = null;
-      settledWorktreeRevision = accepted.revision;
+      pendingWorktreeBaseline = baseline;
+      if (settleWorktree(currentLedger.rootDir, files, baseline, options.killpoint)) {
+        verifyWorktreeFiles(currentLedger.rootDir, files);
+        pendingWorktreeBaseline = null;
+        settledWorktreeRevision = accepted.revision;
+      }
     }
     const manifest = files.find((file) => "target" in file && file.target.endsWith("events/segments/manifest.json"));
     if (!manifest || !("target" in manifest)) throw new Error("outbox manifest is absent");
@@ -274,10 +281,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     const worktreeReadback =
       localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${manifest.target}`)?.body ?? null;
     if (gitReadback !== manifest.body) throw new Error("Git follower manifest read-back did not match");
+    verifyAuthoredRef(currentLedger.rootDir, currentRef, commit);
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree:
-        !dirty && worktreeReadback === manifest.body
+        settledWorktreeRevision >= accepted.revision && worktreeReadback === manifest.body
           ? { status: "verified", cut: accepted, commitSha: commit, conflicts: [] }
           : { status: "pending", cut: null, commitSha: commit, reason: "authored worktree has concurrent edits" },
     };
@@ -577,6 +585,11 @@ function verifyGitFiles(repoRoot: string, commit: string, files: readonly Public
   }
 }
 
+function verifyAuthoredRef(repoRoot: string, authoredRef: string, commit: string): void {
+  if (localGitObjectRefStore.resolveCommit(repoRoot, authoredRef) !== commit)
+    throw new TaskEventStoreError("publication_indeterminate", "authored ref moved before Git follower read-back");
+}
+
 function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]): void {
   for (const file of files) {
     if ("target" in file) {
@@ -592,16 +605,61 @@ function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]
 function settleWorktree(
   repoRoot: string,
   files: readonly PublicationFile[],
+  baseline: ReadonlyMap<string, string>,
   killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void,
-): void {
+): boolean {
   const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
     writes = files.flatMap((file) => ("target" in file ? [file] : []));
-  const hooks = {
-    beforeRename: () => killpoint?.("before_worktree_rename"),
-    afterRename: () => killpoint?.("after_worktree_rename"),
-  };
-  if (deletes.length) localGitWorktreeSettlement.deleteVisible(repoRoot, deletes, hooks);
-  if (writes.length) localGitWorktreeSettlement.visible(repoRoot, writes, hooks);
+  for (const target of deletes)
+    if (
+      !settleVisibleChange(repoRoot, target, "missing", baseline, killpoint, (hooks) =>
+        localGitWorktreeSettlement.deleteVisible(repoRoot, [target], hooks),
+      )
+    )
+      return false;
+  for (const file of writes)
+    if (
+      !settleVisibleChange(
+        repoRoot,
+        file.target,
+        `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`,
+        baseline,
+        killpoint,
+        (hooks) => localGitWorktreeSettlement.visible(repoRoot, [file], hooks),
+      )
+    )
+      return false;
+  return true;
+}
+
+function settleVisibleChange(
+  repoRoot: string,
+  target: string,
+  settled: string,
+  baseline: ReadonlyMap<string, string>,
+  killpoint: ((point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void) | undefined,
+  apply: (hooks: { readonly beforeRename: () => void; readonly afterRename: () => void }) => void,
+): boolean {
+  let changed = false;
+  const conflict = new Error("authored worktree changed during settlement");
+  try {
+    const hooks = {
+      beforeRename: () => {
+        killpoint?.("before_worktree_rename");
+        const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`));
+        if (current !== baseline.get(target) && current !== settled) {
+          changed = true;
+          throw conflict;
+        }
+      },
+      afterRename: () => killpoint?.("after_worktree_rename"),
+    };
+    apply(hooks);
+  } catch (error) {
+    if (changed && error === conflict) return false;
+    throw error;
+  }
+  return true;
 }
 
 function captureGitBaseline(

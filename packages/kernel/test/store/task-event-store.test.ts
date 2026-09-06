@@ -29,6 +29,34 @@ test("before_event_write and after_event_write bound one atomic SQLite acceptanc
   }
 });
 
+test("same canonical event values replay despite a different object key order", async () => {
+  const rootDir = fixture("canonical-replay");
+  initRepo(rootDir);
+  const event = eventAt(1),
+    store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    const first = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }),
+      reordered = {
+        payload: event.payload,
+        occurredAt: event.occurredAt,
+        source: event.source,
+        actor: event.actor,
+        type: event.type,
+        taskId: event.taskId,
+        opId: event.opId,
+        workspaceRevision: event.workspaceRevision,
+        eventId: event.eventId,
+        schema: event.schema,
+      } as typeof event,
+      replay = store.append({ event: reordered, plan: taskLifecycleWritePlan(reordered), blobs: [] });
+    assert.deepEqual(replay.cut, first.cut);
+    assert.equal(store.currentCut().revision, 1);
+    assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
+  } finally {
+    await store.drain();
+  }
+});
+
 test("after_head_write and after_git_commit are absent from the SQLite accept transaction", async () => {
   const rootDir = fixture("retired-killpoints");
   initRepo(rootDir);
@@ -138,6 +166,68 @@ test("repeated settlement preserves concurrent edits to a claimed document and r
   assert.equal(store.followerStatus().worktree.status, "verified");
   assert.equal(readFileSync(target, "utf8"), "accepted content\n");
   await store.drain();
+});
+
+test("a caller edit at the rename boundary is preserved as a pending worktree conflict", async () => {
+  const rootDir = fixture("rename-boundary-edit"),
+    target = path.join(rootDir, "harness/context/boundary.md");
+  initRepo(rootDir);
+  let injectEdit = true;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence,
+    killpoint: (point) => {
+      if (injectEdit && point === "before_worktree_rename") {
+        injectEdit = false;
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, "caller edit at settlement boundary\n");
+      }
+    },
+  });
+  try {
+    store.append(docBundle(store, "accepted content\n", 1, "boundary-edit", "context/boundary.md"));
+    await store.settlePendingMaterialization!("inject boundary edit");
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().worktree.status, "pending");
+    assert.equal(readFileSync(target, "utf8"), "caller edit at settlement boundary\n");
+    rmSync(target);
+    await store.settlePendingMaterialization!("caller resolved boundary edit");
+    assert.equal(store.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(target, "utf8"), "accepted content\n");
+  } finally {
+    await store.drain();
+  }
+});
+
+test("Git verification fails when the authored ref moves after its atomic update", async () => {
+  const rootDir = fixture("authored-ref-readback");
+  initRepo(rootDir);
+  const branch = git(rootDir, "symbolic-ref", "--short", "HEAD"),
+    parent = git(rootDir, "rev-parse", "HEAD");
+  let resetRef = true;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence,
+    killpoint: (point) => {
+      if (resetRef && point === "after_git_ref_update") {
+        resetRef = false;
+        git(rootDir, "update-ref", `refs/heads/${branch}`, parent);
+      }
+    },
+  });
+  try {
+    store.append(docBundle(store, "accepted content\n", 1, "ref-moved", "context/ref-moved.md"));
+    await store.settlePendingMaterialization!("move authored ref after update");
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), parent);
+    assert.equal(store.followerStatus().git.status, "pending");
+    assert.match(store.followerStatus().git.reason!, /authored ref moved/u);
+    await store.settlePendingMaterialization!("publish after ref stabilizes");
+    assert.equal(store.followerStatus().git.status, "verified");
+  } finally {
+    await store.drain();
+  }
 });
 
 test("worktree failure preserves an independently verified Git facet", async () => {
