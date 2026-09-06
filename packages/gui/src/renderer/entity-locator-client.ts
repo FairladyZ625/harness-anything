@@ -76,6 +76,21 @@ export async function readEntityLocatorContent(repoId: string, locator: EntityLo
   return value as unknown as EntityLocatorContent;
 }
 
+/**
+ * 目录列举的 query 声明。路径选择器与目录树的懒展开共用这一份 key / 读函数 / 新鲜度
+ * ——两处各拼一份就会出现「同目录双读」或「展开态与缓存态错位」。
+ *
+ * 注意读面边界:仓根本身列举不了(空路径/`.` 被读面拒绝),浏览器的起点必须是一个
+ * 真实子目录;`entries` 只有一层,子目录的条目靠对子路径再发同一条读。
+ */
+export function repoDirectoryQuery(repoId: string, directoryPath: string) {
+  return {
+    queryKey: ["entity-locator", repoId, "repository-path", directoryPath] as const,
+    queryFn: () => readEntityLocatorContent(repoId, { kind: "repository-path", value: directoryPath }),
+    staleTime: 4_000,
+  };
+}
+
 export interface EntityImportInput {
   readonly repoId: string;
   readonly entityKind: string;
@@ -131,4 +146,13 @@ export function archiveEntity(input: {
   readonly reason: string;
 }): Promise<GuiActionResult> {
   return mutationResult(bridge().archiveEntity as ((payload: never) => Promise<unknown>) | undefined, input);
+}
+
+/** 回执不是 applied/no_changes 时的人话:优先中心给的 rejectionExplanation,否则报 outcome+code。 */
+export function receiptFailureText(receipt: { readonly outcome: string; readonly [key: string]: unknown }): string {
+  const explanation = receipt.rejectionExplanation;
+  const code = (receipt.error as { readonly code?: string } | undefined)?.code;
+  return typeof explanation === "string" && explanation.length > 0
+    ? explanation
+    : `命令返回 ${receipt.outcome}${code ? `(${code})` : ""}。`;
 }

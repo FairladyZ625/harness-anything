@@ -4,7 +4,9 @@ import { entityDocIndex, type EntityFieldDoc, type EntityKindDoc } from "../enti
 import { entityKindQueryKeys, useEntityKindCatalog, useGovernedEntityRows } from "../entity-kind-data.ts";
 import { findEntityKind, type EntityKindDeclaration, type EntityKindRow } from "../entity-kind-catalog-client.ts";
 import { GovernedEntityPanel } from "../components/entityDoc/GovernedEntityPanel.tsx";
+import { EntityDetailActions } from "../components/entityDoc/EntityDetailActions.tsx";
 import { EntityLocatorPreview } from "../components/entityDoc/EntityLocatorPreview.tsx";
+import { NewEntityWizard } from "../components/entityDoc/NewEntityWizard.tsx";
 import { FactFacetLive, FactTypeVocabulary } from "../components/entityDoc/FactVocabularySections.tsx";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useFactFacetStats, type EntityLiveCounts } from "../entities-data.ts";
@@ -59,6 +61,8 @@ export function EntityDocDetailView({
   useEffect(() => {
     setSelectedRef(selectedEntityRef);
   }, [selectedEntityRef]);
+  // 右栏的工作态:新建向导与实体详情互斥——进入向导清选择,选中实体退向导。
+  const [creating, setCreating] = useState(false);
   const allGovernedRows = useGovernedEntityRows(repoId);
   const governedRows =
     catalogRow !== null && catalogRow.origin === "vertical"
@@ -334,11 +338,17 @@ export function EntityDocDetailView({
           )}
           {catalogRow !== null && catalogRow.origin === "vertical" && (
             <GovernedEntityPanel
-              repoId={repoId}
               row={catalogRow}
               rows={governedRows}
               selectedRef={selectedRef}
-              onSelect={setSelectedRef}
+              onSelect={(ref) => {
+                setCreating(false);
+                setSelectedRef(ref);
+              }}
+              onCreate={() => {
+                setSelectedRef(null);
+                setCreating(true);
+              }}
             />
           )}
         </aside>
@@ -354,6 +364,19 @@ export function EntityDocDetailView({
             catalogRow={catalogRow}
             governedRowCount={governedRows.length}
             selectedEntity={selectedEntity}
+            creating={
+              creating &&
+              catalogRow !== null &&
+              catalogRow.origin === "vertical" &&
+              !!catalogRow.importable &&
+              !catalogRow.retired
+            }
+            governedRowsForSeed={governedRows}
+            onCancelCreate={() => setCreating(false)}
+            onImported={(ref) => {
+              setCreating(false);
+              setSelectedRef(ref);
+            }}
           />
         </section>
       </div>
@@ -362,8 +385,8 @@ export function EntityDocDetailView({
 }
 
 /**
- * 右栏:声明实体选中后按 locator 渲染正文;未选中呈真实空态。内核实体的正文不在
- * 账本里,右栏保持空态并指向它的实况入口,不编造内容。
+ * 右栏:声明实体选中后按 locator 渲染正文,「新建」时切到导入向导,两者都不满足时
+ * 呈真实空态。内核实体的正文不在账本里,右栏保持空态并指向它的实况入口,不编造内容。
  */
 function DetailRendererPane({
   repoId,
@@ -371,12 +394,20 @@ function DetailRendererPane({
   catalogRow,
   governedRowCount,
   selectedEntity,
+  creating,
+  governedRowsForSeed,
+  onCancelCreate,
+  onImported,
 }: {
   readonly repoId: string;
   readonly doc: EntityKindDoc;
   readonly catalogRow: EntityKindRow | null;
   readonly governedRowCount: number;
   readonly selectedEntity: GovernedEntityRow | null;
+  readonly creating: boolean;
+  readonly governedRowsForSeed: readonly GovernedEntityRow[];
+  readonly onCancelCreate: () => void;
+  readonly onImported: (ref: string) => void;
 }) {
   const declared = catalogRow !== null && catalogRow.origin === "vertical";
   if (!declared)
@@ -387,6 +418,16 @@ function DetailRendererPane({
             ? "这个 kind 的实况在专属页面;从右上「看实况」进入,说明看左列。"
             : "这个 kind 没有仓内正文;这一页只做说明。"
         }
+      />
+    );
+  if (creating && catalogRow !== null)
+    return (
+      <NewEntityWizard
+        repoId={repoId}
+        row={catalogRow}
+        seedRows={governedRowsForSeed}
+        onCancel={onCancelCreate}
+        onImported={onImported}
       />
     );
   if (selectedEntity === null)
@@ -409,6 +450,7 @@ function DetailRendererPane({
     );
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="entity-doc-renderer">
+      <EntityDetailActions repoId={repoId} entity={selectedEntity} />
       <EntityLocatorPreview repoId={repoId} locator={selectedEntity.locator} />
     </div>
   );

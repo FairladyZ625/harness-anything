@@ -5,10 +5,16 @@ import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
 import { EntityDocDetailView } from "./EntityDocDetailView.tsx";
-import { entityKindQueryKeys, governedEntityRowsQuery, useEntityKindCatalog } from "../entity-kind-data.ts";
+import {
+  entityKindQueryKeys,
+  governedEntityRowsQuery,
+  useEntityKindCatalog,
+  useGovernedEntityRows,
+} from "../entity-kind-data.ts";
 import { entityLocatorContentQuery } from "../entity-locator-client.ts";
 import { t } from "../i18n/index.tsx";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
+import { GovernedEntityCatalogList } from "../components/entityDoc/GovernedEntityCatalogList.tsx";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
 import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
 import {
@@ -29,6 +35,7 @@ export function EntitiesView({
   repoId,
   focusedRef,
   onOpenEntityDoc,
+  onOpenEntityRef,
   onExitDetail,
   onOpenView,
   projectName,
@@ -40,14 +47,17 @@ export function EntitiesView({
    */
   readonly focusedRef: string | null;
   readonly onOpenEntityDoc: (kind: string) => void;
+  /** 目录页「本仓实体」清单的深链入口:整条 `<kind>/<entityId>` ref。 */
+  readonly onOpenEntityRef: (ref: string) => void;
   readonly onExitDetail: () => void;
-  readonly onOpenView: (view: ViewId) => void;
+  readonly onOpenView: (viewId: ViewId) => void;
   readonly projectName: string;
 }) {
   const liveCounts = useEntityLiveCounts(repoId);
   // 分组来自已注册 kind 读面:声明一个新 kind,这一页不改代码就多一条目录项。
   const { catalog } = useEntityKindCatalog(repoId);
   useDeepLinkedEntityContent(repoId, focusedRef);
+  const governedRows = useGovernedEntityRows(repoId);
   const groups = entityDocGroups(catalog);
   const queryClient = useQueryClient();
   const [creatingKind, setCreatingKind] = useState(false);
@@ -146,6 +156,7 @@ export function EntitiesView({
             </div>
           </section>
         ))}
+        <GovernedEntityCatalogList catalog={catalog} rows={governedRows} onOpenEntityRef={onOpenEntityRef} />
       </div>
     </div>
   );
