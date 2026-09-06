@@ -27,6 +27,7 @@ import {
   type AgentRuntimeNativeSignal,
   type AgentRuntimeStreamHub,
 } from "./agent-runtime-stream.ts";
+import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
@@ -220,7 +221,13 @@ export async function openRepoWriterCell(
   const workerRuntimeStream = makeAgentRuntimeStreamHub({
       readSession: (runtimeSessionId) => projection.readRuntimeSession(runtimeSessionId),
       canAttach: (session) =>
-        session.attachable &&
+        (session.attachable ||
+          (() => {
+            const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+            return dispatch
+              ? readRuntimeSessionActivityEvidence(rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
+              : false;
+          })()) &&
         Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
       now: () => new Date(now()),
     }),

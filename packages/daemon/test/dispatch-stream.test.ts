@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, statSync, truncateSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, statSync, truncateSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
 } from "../src/dispatch-stream.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
+import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-live-index-"));
@@ -104,6 +105,52 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       exited?.records.map((record) => record.kind),
       ["process_started", "process_exit"],
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("ZCode provider writes and its live worker host form current session activity evidence", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-zcode-activity-"));
+  try {
+    const dispatchId = "dispatch_555555555555555555555555",
+      runtimeSessionId = "runtime_555555555555555555555555",
+      target = dispatchStreamPath(rootDir, dispatchId);
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-zcode",
+      executionId: "execution-zcode",
+      runtimeSessionId,
+      instanceId: "zcode-glm",
+      startedAt: "2026-09-06T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_started",
+      occurredAt: "2026-09-06T00:00:01.000Z",
+      pid: process.pid,
+    });
+    const frames = [
+      { type: "session.updated", payload: { type: "model_request_started" } },
+      { type: "model.streaming", payload: { kind: "text_delta", delta: "working" } },
+      { type: "tool.updated", payload: { kind: "result", result: { success: true } } },
+      { type: "result", response: "done", usage: { modelRequestCount: 1 } },
+    ];
+    for (const [index, event] of frames.entries())
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "provider_event",
+        occurredAt: `2026-09-06T00:00:0${String(index + 2)}.000Z`,
+        event,
+      });
+    utimesSync(target, new Date("2026-09-06T00:00:05.000Z"), new Date("2026-09-06T00:00:05.000Z"));
+
+    const summary = readDispatchStreamSummary(rootDir, dispatchId),
+      evidence = readRuntimeSessionActivityEvidence(rootDir, dispatchId);
+    assert.equal(summary?.lastObservedAt, "2026-09-06T00:00:05.000Z");
+    assert.deepEqual(
+      summary?.records.map((record) => record.kind),
+      ["process_started"],
+    );
+    assert.deepEqual(evidence, { lastObservedAt: "2026-09-06T00:00:05.000Z", workerHostAlive: true });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

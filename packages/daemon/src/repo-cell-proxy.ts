@@ -11,7 +11,12 @@ import {
 import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatches } from "./dispatch-read.ts";
+import {
+  readRuntimeAttemptChain,
+  readRuntimeSessionActivityEvidence,
+  readSessionGroupDispatches,
+  readTaskDispatches,
+} from "./dispatch-read.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
@@ -93,7 +98,13 @@ export async function openRepoCellProxy(
       readSession: (runtimeSessionId) =>
         reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId)),
       canAttach: (session) =>
-        session.attachable &&
+        (session.attachable ||
+          reader.withSession((projection) => {
+            const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
+            return dispatch
+              ? readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
+              : false;
+          })) &&
         reader.withSession((projection) =>
           Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
         ),
@@ -171,6 +182,7 @@ export async function openRepoCellProxy(
         runtimeSpawner: () => ({ spawn: unsupportedWrite, cancel: unsupportedWrite }),
       }),
       runtimeReads = makeAgentRuntimeReadModel({
+        readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(input.rootDir, dispatchId),
         readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(input.rootDir, runtimeSessionId),
         readDispatch: (taskId, dispatchId) =>
           readTaskDispatches({ rootDir: input.rootDir, projection: writableProjection, taskId }).dispatches.find(

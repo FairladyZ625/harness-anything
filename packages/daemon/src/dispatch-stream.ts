@@ -126,6 +126,7 @@ export interface DispatchLiveIndex {
 
 /** Metadata needed by daemon hot paths without retaining provider event bodies. */
 export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispatchStream>>, "records"> & {
+  readonly lastObservedAt: string;
   readonly records: readonly DispatchStreamRecord[];
 };
 
@@ -316,7 +317,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       if (record) records.push(record);
     }
   }
-  const value = summarizeDispatch(header, records);
+  const value = summarizeDispatch(header, records, stat.mtimeMs);
   summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value });
   return value;
 }
@@ -341,6 +342,7 @@ export function readDispatchStream(
   dispatchId: string,
 ): {
   readonly header: DispatchStreamHeader;
+  readonly lastObservedAt: string;
   readonly providerSessionId: string | null;
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
@@ -367,7 +369,7 @@ export function readDispatchStream(
     .slice(1)
     .map(parseRecord)
     .filter((record): record is DispatchStreamRecord => record !== null);
-  const summary = summarizeDispatch(first, records);
+  const summary = summarizeDispatch(first, records, stat.mtimeMs);
   return {
     ...summary,
     records,
@@ -526,6 +528,7 @@ function warnOnce(warnings: Set<string>, target: string, detail: string): void {
 function summarizeDispatch(
   header: DispatchStreamHeader,
   records: readonly DispatchStreamRecord[],
+  modifiedAtMs: number,
 ): DispatchStreamSummary {
   let providerSessionId: string | null = null,
     processState: DispatchProcessState | null = null,
@@ -559,6 +562,7 @@ function summarizeDispatch(
   }
   return {
     header,
+    lastObservedAt: dispatchLastObservedAt(header, records, modifiedAtMs),
     providerSessionId,
     process: processState,
     attemptOutcome,
@@ -567,6 +571,18 @@ function summarizeDispatch(
     nextDispatchId,
     records,
   };
+}
+
+function dispatchLastObservedAt(
+  header: DispatchStreamHeader,
+  records: readonly DispatchStreamRecord[],
+  modifiedAtMs: number,
+): string {
+  const observed = [header.startedAt, new Date(modifiedAtMs).toISOString()];
+  for (const record of records) if (typeof record.occurredAt === "string") observed.push(record.occurredAt);
+  return observed.reduce((latest, candidate) =>
+    Number.isFinite(Date.parse(candidate)) && Date.parse(candidate) > Date.parse(latest) ? candidate : latest,
+  );
 }
 
 function readBoundedStreamWindows(
