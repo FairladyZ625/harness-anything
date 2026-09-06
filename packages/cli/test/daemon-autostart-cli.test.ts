@@ -129,7 +129,13 @@ test("operator stop blocks autostart until explicit start while process death re
       lifecycle.some((record) => record.event === "process_exit" && record.outcome === "stop_requested"),
       true,
     );
-    const stoppedStatus = run(fixture.root, fixture.userRoot, ["daemon", "status"]);
+    const stoppedStatusRun = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "status"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    // Unavailable answers exit non-zero: the first-run lane polls this exit code to see the daemon gone.
+    assert.notEqual(stoppedStatusRun.status, 0, `${stoppedStatusRun.stderr}\n${stoppedStatusRun.stdout}`);
+    const stoppedStatus = JSON.parse(stoppedStatusRun.stdout) as Record<string, unknown>;
     assert.match(String(stoppedStatus.summary), /not running \(stopped by operator at \d{4}-\d{2}-\d{2}T/u);
     const worktree = path.join(fixture.root, ".worktrees", "task-list-feature");
     git(fixture.root, "worktree", "add", "--quiet", "--detach", worktree);

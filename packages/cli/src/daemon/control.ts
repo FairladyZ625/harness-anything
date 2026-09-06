@@ -337,6 +337,9 @@ function assessDaemonStatus(result: Record<string, unknown>): {
   readonly receipt: Record<string, unknown>;
   readonly exitCode: 0 | 1;
 } {
+  // A status that could not reach a daemon (including the operator-stop report) exits non-zero like every
+  // other unavailable answer; callers such as the first-run lane poll on that exit code.
+  if (result.ok === false) return { receipt: result, exitCode: 1 };
   const rows = Array.isArray(result.repos) ? result.repos : [],
     retryingRows = rows.flatMap((value) => {
       if (!statusRecord(value) || !statusRecord(value.materialization)) return [];
