@@ -507,14 +507,12 @@
       "command": "node tools/gates/production-delta.mjs --base origin/main --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
       "category": "meta-governance",
       "tier": "pr-advisory",
-      "tierReason": "The live pull request body declaration is checked on every PR-body workflow run but is not a required context.",
+      "tierReason": "The computed production delta is reported on every PR-body workflow run but is not a required context.",
       "authoritySource": [
         "tools/gates/production-delta.mjs",
         ".github/pull_request_template.md"
       ],
-      "consumerScope": [
-        "GitHub pull request Production-Delta declaration"
-      ],
+      "consumerScope": ["GitHub job summary and structured CI observation"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["production-delta"],

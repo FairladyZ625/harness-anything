@@ -8,7 +8,7 @@
 
 ## Architectural Justification
 
-<!-- Required when Production-Delta churn is greater than 200 lines or production net is greater than +300 lines. Explain why the existing module cannot carry the capability, what obsolete code was removed, and why the scope cannot be narrowed. -->
+<!-- Required when computed production churn is greater than 200 lines or production net is greater than +300 lines. Explain why the existing module cannot carry the capability, what obsolete code was removed, and why the scope cannot be narrowed. -->
 -
 
 
@@ -22,15 +22,12 @@
 Deleted-Production-Paths: none
 <!-- List every gate or fixture removed in the same commit as those paths. Use `none` only when no old path is removed. -->
 Deleted-Gates-Fixtures: none
-<!-- The production-delta job computes the authoritative +/- lines. Keep the single `Production-Delta` declaration below; do not hand-enter a second metric. -->
-- Production net lines: use the single CI-backed `Production-Delta` declaration below; do not enter a second metric.
+- Production net lines: see the computed production-delta job summary.
 
 ## Machine-Readable Declarations
 
 <!-- These declarations are checked by jobs in `.github/workflows/pr-body.yml`; `tools/gate-manifest.json` is the authority for their workflow mapping. -->
 <!-- Keep every uncommented keyword and its value on the same line. Keep each applicable declaration exactly once in the entire bilingual body, only in this English block, flush left without a Markdown list marker. -->
-<!-- Replace N and M with the actual added and deleted production line counts, including zero when appropriate. -->
-Production-Delta: +N/-M
 <!-- If any package.json or package-lock.json changes, replace the rejected `none` sentinel with a complete deterministic description; otherwise delete the entire next line. -->
 Dependency-Change: none
 <!-- Required only when packages/kernel/fixtures/canonical-events/**/accepted*.json changes. Name one command from `ha migrate --help`, or explain in one sentence why the refresh does not require a migration. -->
@@ -137,7 +134,7 @@ Dependency-Change: none
 
 ## 架构辩护
 
-<!-- 当 Production-Delta churn 超过 200 行或生产净增超过 +300 行时必须填写。说明现有模块为何无法承载、删除了哪些废弃代码，以及为何不能收窄范围。 -->
+<!-- 当机器计算的生产 churn 超过 200 行或生产净增超过 +300 行时必须填写。说明现有模块为何无法承载、删除了哪些废弃代码，以及为何不能收窄范围。 -->
 -
 
 
@@ -149,13 +146,12 @@ Dependency-Change: none
 
 - 删除的生产路径：用逗号分隔填写本 PR 删除的旧生产路径；没有删除旧路径时保留 `none`。
 - 同 commit 删除的门 / fixture：填写与这些路径同一 commit 删除的全部门与 fixture；删除路径时不得留空。
-- 生产净行数：引用英文块中的 `Production-Delta`；该值由 production-delta job 计算，不要手填第二份数字。
+- 生产净行数：查看 production-delta job summary 的机器计算结果。
 
 ## 机读声明说明
 
 - 这些声明由 `.github/workflows/pr-body.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。
 - 未注释的机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；下方治理字段仍是列表项，两类格式不要混用。
-- 生产增删：在英文块把 N 和 M 替换为实际新增、删除行数，适用时可填零。
 - 依赖变化：修改任意 `package.json` 或 `package-lock.json` 时，把英文行中的拒绝 sentinel `none` 换成完整的确定性变化描述；否则删除整行。
 - 保留旧路径：仅在适用时把英文样例移出 HTML 注释，填写路径、到期日和 `dec_` id；否则保持注释。
 - Evidence claim 完全可选；只有确实声明 CI 归因或性能证据时，才把一个完整英文样例块移出 HTML 注释并填满全部字段。

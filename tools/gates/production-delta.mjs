@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { git, pathExistsAt, repoRoot } from "./git.mjs";
@@ -6,12 +6,10 @@ import { classifyModule, isProductionPath, normalizeRepoPath } from "./module-po
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
 
-const DELTA_LINE = /^Production-Delta:[ \t]*\+(\d+)\s*\/\s*-(\d+)\s*$/gmu;
 const RETAINED_LINE = /^Retained-Path:[ \t]*(\S+)\s+until\s+(\d{4}-\d{2}-\d{2})\s+per\s+(dec_[0-9A-Za-z]+)\s*$/gmu;
 
-// The declared delta describes the branch, so it is measured from the merge-base with the
-// target ref rather than from the target's tip: main advancing under an open PR must not
-// change a number the author already verified (2026-08-27: six body edits on one PR).
+// The delta describes the branch, so it is measured from the merge-base with the target ref.
+// Advancing main under an open pull request must not add unrelated target-branch changes.
 export function resolveDeltaBase(rootDir, base) {
   return git(rootDir, ["merge-base", base, "HEAD"]).trim() || base;
 }
@@ -45,20 +43,6 @@ export function computeProductionDelta({ rootDir, base }) {
   }
 
   return { added, deleted, changed, unclassified };
-}
-
-export function parseProductionDeclaration(prBody) {
-  const matches = [...prBody.matchAll(DELTA_LINE)];
-  if (matches.length !== 1) {
-    return {
-      declaration: null,
-      errors: [`PR body must contain exactly one Production-Delta: +N/-M line; found ${matches.length}`],
-    };
-  }
-  return {
-    declaration: { added: Number.parseInt(matches[0][1], 10), deleted: Number.parseInt(matches[0][2], 10) },
-    errors: [],
-  };
 }
 
 export function parseRetainedPaths(prBody) {
@@ -116,21 +100,12 @@ export function evaluateProductionDelta({
   now = new Date(),
 }) {
   const computed = computeProductionDelta({ rootDir, base });
-  const parsedDelta = parseProductionDeclaration(prBody);
   const parsedRetained = parseRetainedPaths(prBody);
   const receipts = loadReceipts(receiptsDir);
-  const errors = [...parsedDelta.errors, ...parsedRetained.errors];
+  const errors = [...parsedRetained.errors];
 
   for (const filePath of computed.unclassified)
     errors.push(`production source is not classified by module-policy: ${filePath}`);
-  if (
-    parsedDelta.declaration !== null &&
-    (parsedDelta.declaration.added !== computed.added || parsedDelta.declaration.deleted !== computed.deleted)
-  ) {
-    errors.push(
-      `declared Production-Delta +${parsedDelta.declaration.added}/-${parsedDelta.declaration.deleted} does not match computed +${computed.added}/-${computed.deleted}`,
-    );
-  }
   for (const declaration of parsedRetained.declarations) {
     errors.push(...validateRetainedPath({ declaration, rootDir, base, receipts, now }));
   }
@@ -139,9 +114,18 @@ export function evaluateProductionDelta({
     ok: errors.length === 0,
     errors,
     computed,
-    declaration: parsedDelta.declaration,
     retainedPaths: parsedRetained.declarations,
   };
+}
+
+export function reportComputedDelta(computed) {
+  const churn = computed.added + computed.deleted;
+  const net = computed.added - computed.deleted;
+  const report = `Production delta (computed): +${computed.added}/-${computed.deleted}; churn ${churn}; net ${net >= 0 ? "+" : ""}${net}; unclassified ${computed.unclassified.length}`;
+  console.log(report);
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) appendFileSync(summaryPath, `${report}\n`, "utf8");
+  return { churn, net };
 }
 
 function parseArgs(argv) {
@@ -161,16 +145,18 @@ export function main(argv = process.argv.slice(2)) {
   try {
     const { base, prBodyFile } = parseArgs(argv);
     const rootDir = repoRoot();
-    const prBody = prBodyFile === null ? process.env.PR_BODY : readFileSync(prBodyFile, "utf8");
-    if (prBody === undefined) throw new Error("PR body is required through PR_BODY or --pr-body-file");
+    const prBody = prBodyFile === null ? (process.env.PR_BODY ?? "") : readFileSync(prBodyFile, "utf8");
     const result = evaluateProductionDelta({ rootDir, base, prBody });
+    const { churn, net } = reportComputedDelta(result.computed);
     writeCiGateResult("G33", result.ok, {
       addedLines: result.computed.added,
       deletedLines: result.computed.deleted,
+      churn,
+      net,
+      unclassifiedPaths: result.computed.unclassified.length,
       changedFiles: result.computed.changed.length,
       retainedPaths: result.retainedPaths.length,
     });
-    console.log(`production +${result.computed.added}/-${result.computed.deleted}`);
     if (!result.ok) {
       for (const error of result.errors) console.error(`G33 production-delta: ${error}`);
       return 1;

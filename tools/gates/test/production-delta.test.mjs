@@ -1,21 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
   computeProductionDelta,
   evaluateProductionDelta,
-  parseProductionDeclaration,
   parseRetainedPaths,
+  reportComputedDelta,
 } from "../production-delta.mjs";
 import { git } from "../git.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import { makeRepo, writeRepoFile } from "./helpers.mjs";
 
-test("G33 matches the declared production addition and deletion", () => {
+test("G33 computes production addition and deletion without a body declaration", () => {
   const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\ntwo\n" });
   writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\nthree\nfour\n");
-  const result = evaluateProductionDelta({ rootDir, base, prBody: "Production-Delta: +2/-1" });
+  const result = evaluateProductionDelta({ rootDir, base, prBody: "" });
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.deepEqual({ added: result.computed.added, deleted: result.computed.deleted }, { added: 2, deleted: 1 });
 });
@@ -48,22 +49,33 @@ test("G33 ignores tool tests and fixtures in both delta directions", () => {
   assert.deepEqual(result.changed, []);
 });
 
-test("G33 rejects a missing or inaccurate declaration", () => {
+test("G33 ignores the retired Production-Delta body field", () => {
   const { rootDir, base } = makeRepo({ "packages/kernel/src/index.ts": "one\n" });
   writeRepoFile(rootDir, "packages/kernel/src/index.ts", "one\ntwo\n");
-  const missing = evaluateProductionDelta({ rootDir, base, prBody: "No delta here" });
-  const inaccurate = evaluateProductionDelta({ rootDir, base, prBody: "Production-Delta: +0/-0" });
-  assert.equal(missing.ok, false);
-  assert.match(missing.errors.join("\n"), /exactly one Production-Delta/u);
-  assert.equal(inaccurate.ok, false);
-  assert.match(inaccurate.errors.join("\n"), /does not match computed \+1\/-0/u);
+  const absent = evaluateProductionDelta({ rootDir, base, prBody: "" });
+  const retired = evaluateProductionDelta({ rootDir, base, prBody: "Production-Delta: +0/-0" });
+  assert.equal(absent.ok, true, absent.errors.join("\n"));
+  assert.equal(retired.ok, true, retired.errors.join("\n"));
+  assert.deepEqual(retired.computed, absent.computed);
 });
 
-test("G33 does not read a Production-Delta value from the next line", () => {
-  const result = parseProductionDeclaration("Production-Delta:\n+2/-1");
-
-  assert.equal(result.declaration, null);
-  assert.match(result.errors.join("\n"), /exactly one Production-Delta/u);
+test("G33 reports computed delta, churn, net, and unclassified count", () => {
+  const { rootDir } = makeRepo({ "README.md": "fixture\n" });
+  const summaryPath = path.join(rootDir, "summary.md");
+  const messages = [];
+  const originalLog = console.log;
+  const originalSummary = process.env.GITHUB_STEP_SUMMARY;
+  process.env.GITHUB_STEP_SUMMARY = summaryPath;
+  console.log = (message) => messages.push(message);
+  try {
+    assert.deepEqual(reportComputedDelta({ added: 7, deleted: 2, unclassified: [] }), { churn: 9, net: 5 });
+  } finally {
+    console.log = originalLog;
+    if (originalSummary === undefined) delete process.env.GITHUB_STEP_SUMMARY;
+    else process.env.GITHUB_STEP_SUMMARY = originalSummary;
+  }
+  assert.deepEqual(messages, ["Production delta (computed): +7/-2; churn 9; net +5; unclassified 0"]);
+  assert.equal(readFileSync(summaryPath, "utf8"), `${messages[0]}\n`);
 });
 
 test("G33 does not read a Retained-Path value from the next line", () => {
@@ -89,10 +101,7 @@ test("G33 verifies retained production paths against an expiring decision receip
     "tools/gates/receipts/retained.json",
     `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) }, null, 2)}\n`,
   );
-  const prBody = [
-    "Production-Delta: +0/-0",
-    "Retained-Path: packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q",
-  ].join("\n");
+  const prBody = "Retained-Path: packages/kernel/src/legacy.ts until 2099-12-30 per dec_01KZQ92VEPTDRS2HS8CKDBKW2Q";
   const result = evaluateProductionDelta({
     rootDir,
     base,
@@ -101,6 +110,18 @@ test("G33 verifies retained production paths against an expiring decision receip
     now: new Date("2026-08-11T00:00:00Z"),
   });
   assert.equal(result.ok, true, result.errors.join("\n"));
+});
+
+test("G33 still rejects a retained production path without a valid receipt", () => {
+  const { rootDir, base } = makeRepo({ "packages/kernel/src/legacy.ts": "legacy\n" });
+  const result = evaluateProductionDelta({
+    rootDir,
+    base,
+    prBody: "Retained-Path: packages/kernel/src/legacy.ts until 2099-12-30 per dec_MISSING",
+    now: new Date("2026-08-11T00:00:00Z"),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /lacks a valid receipt/u);
 });
 
 test("G33 measures the branch from its merge-base, so the target advancing does not move the number", () => {

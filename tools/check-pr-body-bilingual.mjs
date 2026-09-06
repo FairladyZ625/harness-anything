@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import { agentProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol-commands-agent.ts";
-import { parseProductionDeclaration } from "./gates/production-delta.mjs";
+import { computeProductionDelta } from "./gates/production-delta.mjs";
 import { changedFiles, repoRoot } from "./gates/git.mjs";
 
 export const defaultThresholds = Object.freeze({
@@ -34,7 +34,6 @@ function isEmptyListDeclaration(value) {
 export function checkGateHarvestDeclarations(body) {
   const pathDeclarations = [...body.matchAll(DELETED_PRODUCTION_PATHS)].map((match) => match[1]);
   const gateDeclarations = [...body.matchAll(DELETED_GATES_FIXTURES)].map((match) => match[1]);
-  const productionDelta = parseProductionDeclaration(body);
   const hasDeletedProductionPaths = pathDeclarations.some((value) => !isEmptyListDeclaration(value));
   const issues = [];
 
@@ -44,7 +43,6 @@ export function checkGateHarvestDeclarations(body) {
       hasDeletedProductionPaths: false,
       pathDeclarations,
       gateDeclarations,
-      productionDeltaCount: productionDelta.declaration === null ? 0 : 1,
       issues,
     };
   }
@@ -54,19 +52,11 @@ export function checkGateHarvestDeclarations(body) {
     issues.push("Gate Harvest with deleted production paths requires at least one Deleted-Gates-Fixtures entry.");
     issues.push("删除生产路径时，Gate Harvest 必须列出至少一个 Deleted-Gates-Fixtures 门或 fixture。");
   }
-  if (productionDelta.declaration === null) {
-    issues.push(
-      "Gate Harvest with deleted production paths requires exactly one CI-backed Production-Delta: +N/-M line.",
-    );
-    issues.push("删除生产路径时，Gate Harvest 必须包含且仅包含一行由 CI 提供依据的 Production-Delta: +N/-M。");
-  }
-
   return {
     ok: issues.length === 0,
     hasDeletedProductionPaths: true,
     pathDeclarations,
     gateDeclarations,
-    productionDeltaCount: productionDelta.declaration === null ? 0 : 1,
     issues,
   };
 }
@@ -194,10 +184,10 @@ function sectionContent(block, headingPattern) {
 export function checkArchitectureJustification({
   englishBlock,
   chineseBlock,
+  productionDelta,
   thresholds = architectureJustificationThresholds,
 }) {
-  const parsedDelta = parseProductionDeclaration(englishBlock);
-  if (parsedDelta.declaration === null) {
+  if (productionDelta === undefined) {
     return {
       ok: true,
       required: false,
@@ -210,7 +200,7 @@ export function checkArchitectureJustification({
     };
   }
 
-  const { added, deleted } = parsedDelta.declaration;
+  const { added, deleted } = productionDelta;
   const churn = added + deleted;
   const net = added - deleted;
   const required = churn > thresholds.maxChurn || net > thresholds.maxNet;
@@ -245,6 +235,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
   const architectureJustification = checkArchitectureJustification({
     englishBlock: blocks.englishBlock,
     chineseBlock: blocks.chineseBlock,
+    productionDelta: context.productionDelta,
   });
   issues.push(...architectureJustification.issues);
 
@@ -300,13 +291,13 @@ function readBodyFromArgs(argv) {
           "",
           "Requires a top-level `# English` block before a top-level `# 中文` block.",
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
-          "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures and exactly one CI-backed Production-Delta declaration are required.",
-          "When the single Production-Delta declaration exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
+          "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures is required.",
+          "When the computed production delta exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
           "When an accepted canonical-event sample changes, Event-Migration must name an existing ha migrate command or explain why no migration is required.",
           "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
           "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
-          "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures，并包含且仅包含一行由 CI 提供依据的 Production-Delta。",
-          "当唯一的 Production-Delta 超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
+          "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures。",
+          "当机器计算的生产变更超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
           "变更 canonical-event accepted 样本时，Event-Migration 必须声明现有 ha migrate 命令，或说明为什么不需要迁移。",
         ].join("\n"),
       );
@@ -324,7 +315,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const base = process.env.PR_BASE_SHA,
       head = process.env.PR_HEAD_SHA,
       files = base && head ? changedFiles(repoRoot(), base, head) : [],
-      result = checkPrBodyBilingual(body, defaultThresholds, { eventMigration: { files } });
+      productionDelta = base && head ? computeProductionDelta({ rootDir: repoRoot(), base }) : undefined,
+      result = checkPrBodyBilingual(body, defaultThresholds, { eventMigration: { files }, productionDelta });
     if (result.ok) {
       process.stdout.write(
         [
