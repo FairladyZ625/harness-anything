@@ -194,18 +194,21 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
       rows(status.evidence)
         .filter((row) => row.state !== "clean")
         .map((row) => row.path),
-      [prose],
+      [prose, "events/segments/manifest.json"],
       "non-prose JSONL must not enter the authored candidate set before oversized prose is restored",
     );
     const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
     assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
-    assert.equal(unconfirmed.code, "doc_submit_confirmation_required");
-    assert.match(String((unconfirmed as Record<string, unknown>).summary), new RegExp(prose, "u"));
-    assert.match(String((unconfirmed as Record<string, unknown>).summary), /--path.*--all/u);
+    assert.equal(unconfirmed.code, "preview_blocked");
+    assert.deepEqual(
+      unconfirmed.detail?.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [["events/segments/manifest.json", "canonical-event"]],
+      "the canonical manifest is rejected before full-submit confirmation; JSONL never enters the scan",
+    );
 
     const confirmed = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
     assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(confirmed.opId);
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(confirmed.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
