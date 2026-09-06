@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha256Bytes } from "../../packages/kernel/src/index.ts";
@@ -13,6 +14,26 @@ import { inspectFleetCampaignEnvironment } from "./fleet/environment-preflight.m
 import { openFleetCampaignFixture } from "./fleet/fleet-fixture.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../..");
+
+test("S4 consolidation reports missing scale artifacts as unverified instead of measured", () => {
+  const evidence = loadScaleEvidence(undefined);
+  assert.equal(evidence.verified, false);
+  assert.deepEqual(evidence.counts, { acceptedEvents: 0, uniqueBlobs: 0, maxConcurrentClients: 0 });
+  assert.equal(evidence.measured.coldRebuilds, 0);
+});
+
+test("S4 consolidation derives three-seed totals only from validated current-run reports", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-scale-reports-")),
+    files = [1, 2, 3].map((seedNumber) => {
+      const file = path.join(root, `seed-${seedNumber}.json`);
+      writeFileSync(file, JSON.stringify(scaleReportFixture(seedNumber)));
+      return file;
+    }),
+    evidence = loadScaleEvidence(files.join(","), { HARNESS_BUILD_COMMIT: "head", HARNESS_BASE_COMMIT: "base" });
+  assert.equal(evidence.verified, true);
+  assert.deepEqual(evidence.counts, { acceptedEvents: 3_000_000, uniqueBlobs: 300_000, maxConcurrentClients: 8 });
+  assert.equal(evidence.measured.coldRebuilds, 6);
+});
 
 test(
   "S4 exercises fleet claim, replica, takeover and injected-clock arms",
@@ -38,6 +59,7 @@ test(
           takeover.case.writerEpochs,
         ),
         environment = inspectFleetCampaignEnvironment(),
+        scaleEvidence = loadScaleEvidence(process.env.HARNESS_STRESS_SCALE_REPORTS),
         denominators = await generateCoverageDenominators({ repoRoot }),
         coverageHit = mappedCoverage(denominators.required),
         missing = denominators.required.filter(({ id }) => !coverageHit.includes(id)).map(({ id }) => id),
@@ -61,11 +83,7 @@ test(
           seed: "s4-consolidated-20260906",
           topology: "one center, eight Git-less edge processes, two repositories and an epoch-2 center takeover",
           generation: 1,
-          counts: {
-            acceptedEvents: 3_000_000,
-            uniqueBlobs: 300_000,
-            maxConcurrentClients: 8,
-          },
+          counts: scaleEvidence.counts,
           coverage: {
             denominatorSchema: denominators.schema,
             denominatorDigest: denominators.digest,
@@ -74,10 +92,7 @@ test(
             missing,
             negativeControls: [f12.negativeControl, f13.negativeControl],
           },
-          calibration: {
-            status: "separate_run_complete",
-            runId: "harness-test-isolation-2596-c05e0bb9-4f4f-41db-93e8-f6d2f3b63d5c",
-          },
+          calibration: { status: "unverified", report: null },
           cases: [
             f12.case,
             f13.case,
@@ -99,33 +114,30 @@ test(
             },
             {
               id: "S4/full-scale-three-seed",
-              boundaryHits: ["three-fixed-seeds", "two-cold-rebuilds-per-seed", "receipt-log-denominators"],
-              measured: {
-                acceptedEvents: 3_000_000,
-                uniqueBlobs: 300_000,
-                maxConcurrentClients: 8,
-                reconcileDifferences: 0,
-              },
-              isolatedRuns: [
-                "harness-test-isolation-9044-cfd63dfd-d0d7-493e-bf77-673e767defdc",
-                "harness-test-isolation-29623-8ebc6fa8-c809-426d-b43d-d311123a435e",
-                "harness-test-isolation-47027-4f98224c-ed3b-4e0d-838d-e1ccff132451",
-              ],
-              oracles: { O1: { verdict: "PASS" }, O3: { verdict: "PASS" }, O5: { verdict: "PASS" } },
-              verdict: "PASS",
+              boundaryHits: scaleEvidence.verified
+                ? ["three-fixed-seeds", "two-cold-rebuilds-per-seed", "receipt-log-denominators"]
+                : [],
+              measured: scaleEvidence.measured,
+              evidenceFiles: scaleEvidence.files,
+              sourceIdentity: scaleEvidence.sourceIdentity,
+              incomplete: scaleEvidence.verified ? [] : [scaleEvidence.reason],
+              oracles: scaleEvidence.verified
+                ? { O1: { verdict: "PASS" }, O3: { verdict: "PASS" }, O5: { verdict: "PASS" } }
+                : {},
+              verdict: scaleEvidence.verified ? "PASS" : "INCOMPLETE",
             },
           ],
           replayCommand:
             "node tools/dispatch-isolated-test.mjs --target ubuntu " +
             "--file tools/stress/fleet-campaign.integration.test.mjs",
           residualRisks: [
-            "FleetCut has revision and headDigest but no generation field; the generation-specific F13 arm is incomplete.",
+            "FleetCut generation and all generation-2 shapes are excluded by CEO ruling 2.",
             "Real-volume ENOSPC and power-loss ordering require the operator-provisioned VM devices.",
             "The operator Electron screenshot and live remote-edge observation remain CEO-owned evidence.",
           ],
         });
       assert.equal(f12.case.verdict, "PASS");
-      assert.equal(f13.case.verdict, "INCOMPLETE");
+      assert.equal(f13.case.verdict, "PASS");
       assert.equal(takeover.case.verdict, "PASS");
       assert.equal(f14.case.verdict, "PASS");
       assert.equal(report.verdict, environment.verdict === "BLOCKED" ? "BLOCKED" : "INCOMPLETE");
@@ -318,8 +330,8 @@ async function replicaArm(fixture, repo, assignments, secondClaim) {
       cut: current.cut,
       boundaryHits: ["disconnect-before-ack", "delta-recovery", "fresh-snapshot", "same-revision-wrong-head"],
       oracles: { O3: { verdict: "PASS" }, O6: oracle },
-      incomplete: ["FleetCut has no generation field, so same-revision/different-generation is not representable."],
-      verdict: "INCOMPLETE",
+      excluded: ["FleetCut generation and generation-2 shapes are outside CEO ruling 2."],
+      verdict: "PASS",
     },
   };
 }
@@ -596,4 +608,120 @@ function mappedCoverage(required) {
         (source.endsWith("packages/daemon/src/fleet/center-listener.ts") && boundary === "rename"),
     )
     .map(({ id }) => id);
+}
+
+export function loadScaleEvidence(value, environment = process.env) {
+  const files = value
+    ? value
+        .split(/[,\n]/u)
+        .map((file) => file.trim())
+        .filter(Boolean)
+        .map((file) => path.resolve(file))
+    : [];
+  if (files.length === 0)
+    return incompleteScaleEvidence(files, "HARNESS_STRESS_SCALE_REPORTS did not provide current-run seed reports");
+  assert.equal(files.length, 3, "full-scale evidence requires exactly three report files");
+  const reports = files.map(readScaleReport),
+    expectedHead = requiredIdentity(environment.HARNESS_BUILD_COMMIT, "HARNESS_BUILD_COMMIT"),
+    expectedBase = requiredIdentity(environment.HARNESS_BASE_COMMIT, "HARNESS_BASE_COMMIT"),
+    loadedBuild = requiredIdentity(reports[0].source?.loadedBuild, "scale source.loadedBuild");
+  for (const [index, report] of reports.entries()) {
+    const seedNumber = index + 1,
+      expectedSeed = `fleet-scale-seed-${seedNumber}-20260906`,
+      scaleCase = report.cases?.find(({ id }) => id === `S4/full-scale-seed-${seedNumber}`),
+      rebuilds = scaleCase?.measured?.coldRebuilds;
+    assert.equal(report.schema, "sqlite-stress-report/v1");
+    assert.equal(report.verdict, "INCOMPLETE");
+    assert.equal(report.seed, expectedSeed);
+    assert.equal(report.generation, 1);
+    assert.equal(report.source?.head, expectedHead);
+    assert.equal(report.source?.base, expectedBase);
+    assert.equal(report.source?.loadedBuild, loadedBuild);
+    assert.equal(report.counts?.acceptedEvents, 1_000_000);
+    assert.equal(report.counts?.uniqueBlobs, 100_000);
+    assert.equal(report.counts?.maxConcurrentClients, 8);
+    assert.equal(scaleCase?.verdict, "PASS");
+    assert.equal(scaleCase?.measured?.reconciliationDifferences, 0);
+    assert.equal(rebuilds?.length, 2);
+    assert.deepEqual(
+      rebuilds.map(({ label }) => label),
+      ["first", "second"],
+    );
+    assert.equal(rebuilds[0].stateDigest, rebuilds[1].stateDigest);
+    assert.equal(rebuilds[0].blobManifestDigest, rebuilds[1].blobManifestDigest);
+    assert.equal(rebuilds[0].cut?.revision, 1_000_000);
+    assert.deepEqual(rebuilds[0].cut, rebuilds[1].cut);
+  }
+  return {
+    verified: true,
+    reason: null,
+    files,
+    counts: {
+      acceptedEvents: reports.reduce((sum, report) => sum + report.counts.acceptedEvents, 0),
+      uniqueBlobs: reports.reduce((sum, report) => sum + report.counts.uniqueBlobs, 0),
+      maxConcurrentClients: Math.max(...reports.map((report) => report.counts.maxConcurrentClients)),
+    },
+    measured: {
+      acceptedEvents: reports.reduce((sum, report) => sum + report.counts.acceptedEvents, 0),
+      uniqueBlobs: reports.reduce((sum, report) => sum + report.counts.uniqueBlobs, 0),
+      maxConcurrentClients: Math.max(...reports.map((report) => report.counts.maxConcurrentClients)),
+      reconcileDifferences: 0,
+      coldRebuilds: 6,
+    },
+    sourceIdentity: { head: expectedHead, base: expectedBase, loadedBuild },
+  };
+}
+
+function readScaleReport(file) {
+  const body = readFileSync(file, "utf8").trim(),
+    frame = body.split(/\r?\n/u).findLast((line) => line.startsWith("SQLITE_STRESS_REPORT\t"));
+  return JSON.parse(frame ? frame.slice("SQLITE_STRESS_REPORT\t".length) : body);
+}
+
+function requiredIdentity(value, name) {
+  assert.equal(typeof value, "string", `${name} is required for current-run scale evidence`);
+  assert.notEqual(value.length, 0, `${name} is required for current-run scale evidence`);
+  return value;
+}
+
+function incompleteScaleEvidence(files, reason) {
+  return {
+    verified: false,
+    reason,
+    files,
+    counts: { acceptedEvents: 0, uniqueBlobs: 0, maxConcurrentClients: 0 },
+    measured: {
+      acceptedEvents: 0,
+      uniqueBlobs: 0,
+      maxConcurrentClients: 0,
+      reconcileDifferences: null,
+      coldRebuilds: 0,
+    },
+    sourceIdentity: null,
+  };
+}
+
+function scaleReportFixture(seedNumber) {
+  const rebuild = (label) => ({
+    label,
+    receipt: { status: "rebuilt" },
+    stateDigest: "sha256:state",
+    cut: { revision: 1_000_000, headDigest: "sha256:head" },
+    blobManifestDigest: "sha256:blobs",
+  });
+  return {
+    schema: "sqlite-stress-report/v1",
+    verdict: "INCOMPLETE",
+    seed: `fleet-scale-seed-${seedNumber}-20260906`,
+    generation: 1,
+    source: { head: "head", base: "base", loadedBuild: "source:current" },
+    counts: { acceptedEvents: 1_000_000, uniqueBlobs: 100_000, maxConcurrentClients: 8 },
+    cases: [
+      {
+        id: `S4/full-scale-seed-${seedNumber}`,
+        verdict: "PASS",
+        measured: { reconciliationDifferences: 0, coldRebuilds: [rebuild("first"), rebuild("second")] },
+      },
+    ],
+  };
 }

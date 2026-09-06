@@ -395,7 +395,16 @@ async function scaleReport({ seed, command, blobs, rebuild, calibration, caseId,
           blobElapsedMs: blobs.elapsedMs,
           rebuildElapsedMs: rebuild.elapsedMs,
           specialRequestRatio: command.denominators.specialRequestRatio,
-          reconciliationDifferences: rebuild.reconciliation.revisionDifferences.length,
+          reconciliationDifferences: rebuild.reconciliation.matches ? 0 : 1,
+          coldRebuilds: [rebuild.first, rebuild.second].map(
+            ({ label, receipt, stateDigest, cut, blobManifestDigest }) => ({
+              label,
+              receipt,
+              stateDigest,
+              cut,
+              blobManifestDigest,
+            }),
+          ),
         },
         oracles: {
           O1: { verdict: "PASS", acceptedEventsFromReceiptLogs: command.denominators.acceptedEvents },
