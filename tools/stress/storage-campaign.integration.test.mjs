@@ -5,11 +5,13 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, taskLifecycleWritePlan } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventStore, sha256Text, taskLifecycleWritePlan } from "../../packages/kernel/src/index.ts";
 import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
 import { eventAt } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
 import { initRepo } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
+import { generateCoverageDenominators } from "./core/denominators.mjs";
+import { oracleO2 } from "./core/oracles.mjs";
 import { runUnderStrace, syscallOccurrences } from "./storage/strace-injector.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../.."),
@@ -66,13 +68,16 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
     }
     const f08 = await gitFailureAfterAcceptance(path.join(scratch, "git-failure"));
     cases.push(f08);
+    const acceptedMissing = oracleO2(acceptedButMissingInput());
+    assert.equal(acceptedMissing.verdict, "FAIL");
+    const denominators = await storageDenominators();
     const negativeControls = [
       { id: "injector/pwrite64-EIO", observed: positiveControl.code, passed: true },
       {
         id: "F01/accepted-but-missing",
-        observed: "FAIL",
-        passed: true,
-        violations: ["an accepted receipt without its event/outcome pair is rejected"],
+        observed: acceptedMissing.verdict,
+        passed: acceptedMissing.verdict === "FAIL",
+        violations: acceptedMissing.violations,
       },
     ];
     const report = buildStressReport({
@@ -90,10 +95,12 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
       generation: 1,
       counts: { acceptedEvents: 1, uniqueBlobs: 0, maxConcurrentClients: 1 },
       coverage: {
-        required: ["F01/sqlite-accept-pwrite64-EIO", "F08/post-accept-git-pending"],
-        hit: ["F01/sqlite-accept-pwrite64-EIO", "F08/post-accept-git-pending"],
-        missing: [],
-        unmapped: [],
+        denominatorSchema: denominators.schema,
+        denominatorDigest: denominators.digest,
+        required: denominators.required,
+        hit: denominators.hit,
+        missing: denominators.missing,
+        unmapped: denominators.missing,
         negativeControls,
       },
       calibration: { pwrite64Occurrences: writes.length },
@@ -116,6 +123,53 @@ async function tracedCommand(root, tracePath, injection) {
     ...(injection ? { injection } : {}),
     cwd: repoRoot,
   });
+}
+
+function acceptedButMissingInput() {
+  const event = eventAt(1),
+    request = {
+      requestId: "accepted-but-missing",
+      opId: event.opId,
+      intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`,
+      expectedEvents: [event],
+    },
+    emptyCut = { generation: 1, revision: 0, events: [], outcomes: [] };
+  return {
+    authority: "sqlite",
+    canonicalCut: emptyCut,
+    sqliteCut: emptyCut,
+    receiptLog: {
+      complete: true,
+      errors: [],
+      records: [
+        { type: "campaign_started" },
+        { type: "request", request },
+        { type: "receipt", requestId: request.requestId, receipt: { status: "accepted_durable" } },
+        { type: "campaign_completed" },
+      ],
+    },
+  };
+}
+
+async function storageDenominators() {
+  const all = await generateCoverageDenominators({ repoRoot }),
+    required = all.required.filter(
+      ({ source, kind }) =>
+        kind === "durable-boundary" &&
+        ["sqlite-event-store.ts", "sqlite-task-event-store.ts", "local-layout-file-system.ts"].some((name) =>
+          source.endsWith(name),
+        ),
+    ),
+    hit = required
+      .filter(({ source, boundary }) => source.endsWith("sqlite-event-store.ts") && boundary === "commit")
+      .map(({ id }) => id);
+  return {
+    schema: all.schema,
+    digest: all.digest,
+    required: required.map(({ id }) => id),
+    hit,
+    missing: required.map(({ id }) => id).filter((id) => !hit.includes(id)),
+  };
 }
 
 function prepareRoot(root) {

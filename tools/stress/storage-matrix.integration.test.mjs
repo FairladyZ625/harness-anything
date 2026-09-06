@@ -14,8 +14,7 @@ import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/doma
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
 import { makeTaskEventStore } from "../../packages/kernel/src/store/task-event-store.ts";
-import { captureWalDurableCut, openWalEventLog } from "../../packages/kernel/src/store/wal-event-log.ts";
-import { docBundle, eventAt, git, initRepo } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { docBundle, eventAt, initRepo } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO2, oracleO3, oracleO8 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
@@ -37,7 +36,7 @@ test(
       const f02 = runBlobClosure(path.join(scratch, "f02"));
       const f06 = await runIoFaults(path.join(scratch, "f06"));
       const f07 = await runContention(path.join(scratch, "f07"));
-      const f08 = runCheckpointAndPublication(path.join(scratch, "f08"));
+      const f08 = runPublicationBoundaries(path.join(scratch, "f08"));
       const denominators = await storageDenominators();
       const report = buildStressReport({
         campaignComplete: false,
@@ -71,7 +70,7 @@ test(
           storageRequired: denominators.required.length,
           storageMapped: denominators.hit.length,
           sqliteWalPwrite64K: f06.baselineK,
-          walBoundaryK: f06.walK,
+          sqliteBoundaryK: f06.baselineK,
           contentionClients: f03.clients,
           gitKillpoints: f08.killpoints.length,
         },
@@ -300,11 +299,8 @@ async function runIoFaults(root) {
       verdict: "PASS",
     });
   }
-  const walFaults = await runWalFaults(root);
-  caseResults.push(...walFaults.caseResults);
   return {
     baselineK: hits.length,
-    walK: walFaults.observedK,
     controls,
     caseResults,
     redControl: {
@@ -313,84 +309,6 @@ async function runIoFaults(root) {
       passed: controls.every(({ passed }) => passed),
     },
   };
-}
-
-async function runWalFaults(root) {
-  const baselineRoot = path.join(root, "wal-baseline");
-  mkdirSync(baselineRoot, { recursive: true });
-  const baseline = await runUnderStrace({
-    command: process.execPath,
-    args: [boundaryFixture, "wal-append", baselineRoot, "stress-s2-wal"],
-    tracePath: path.join(root, "wal-baseline.strace"),
-    cwd: repoRoot,
-  });
-  assert.equal(JSON.parse(baseline.stdout.trim()).status, "ok");
-  const boundaryHits = [
-    ...logicalBoundaryHits(baseline.trace, "fsync", ["fsync"]),
-    ...logicalBoundaryHits(baseline.trace, "rename", ["rename", "renameat", "renameat2"]),
-  ];
-  assert.ok(boundaryHits.some(({ boundary }) => boundary === "fsync"));
-  assert.ok(boundaryHits.some(({ boundary }) => boundary === "rename"));
-  const caseResults = [];
-  for (const hit of boundaryHits) {
-    const id = `${hit.boundary}-n${hit.boundaryOccurrence}`;
-    const targetRoot = path.join(root, `wal-${id}`);
-    mkdirSync(targetRoot, { recursive: true });
-    const faulted = await runUnderStrace({
-      command: process.execPath,
-      args: [boundaryFixture, "wal-append", targetRoot, "stress-s2-wal"],
-      tracePath: path.join(root, `wal-${id}.strace`),
-      injection: `${hit.syscall}:error=EIO:when=${hit.ordinal}`,
-      cwd: repoRoot,
-    });
-    const frame = JSON.parse(faulted.stdout.trim());
-    assert.equal(frame.status, "error", JSON.stringify(frame));
-    assert.match(faulted.trace, new RegExp(`${hit.syscall}\\(.+EIO.+INJECTED`, "u"));
-    const wal = openWalEventLog(targetRoot);
-    const body = "stress-s2-wal-blob\n";
-    wal.append({ event: eventAt(1), blobs: [blob(body)] });
-    assert.deepEqual(
-      wal.records().map(({ revision }) => revision),
-      [1],
-    );
-    assert.deepEqual(wal.readContentBlob(sha256Text(body)), Buffer.from(body));
-    wal.close();
-    caseResults.push({
-      id: `F01-F02-F06/wal-${id}`,
-      pid: frame.pid,
-      loadedBuild: sourceBuildId(),
-      boundaryHits: [
-        {
-          syscall: hit.syscall,
-          boundary: hit.boundary,
-          boundaryOccurrence: hit.boundaryOccurrence,
-          syscallOrdinal: hit.ordinal,
-          observedK: hit.observedK,
-        },
-      ],
-      faults: [{ kind: "one-shot-EIO", message: frame.message }],
-      oracles: { durableRetry: "PASS", contentClosure: "PASS" },
-      verdict: "PASS",
-    });
-  }
-  return {
-    observedK: Object.fromEntries(
-      ["fsync", "rename"].map((boundary) => [boundary, boundaryHits.filter((hit) => hit.boundary === boundary).length]),
-    ),
-    caseResults,
-  };
-}
-
-function logicalBoundaryHits(trace, boundary, syscalls) {
-  const hits = syscalls.flatMap((syscall) =>
-    syscallOccurrences(trace, { syscall, pathIncludes: ".harness/wal" }).map((hit) => ({ ...hit, syscall })),
-  );
-  return hits.map((hit, index) => ({
-    ...hit,
-    boundary,
-    boundaryOccurrence: index + 1,
-    observedK: hits.length,
-  }));
 }
 
 async function provePwriteFault(root, id, injection) {
@@ -496,40 +414,16 @@ async function runContention(root) {
   };
 }
 
-function runCheckpointAndPublication(root) {
+function runPublicationBoundaries(root) {
   mkdirSync(root, { recursive: true });
-  const walRoot = path.join(root, "wal");
-  mkdirSync(walRoot, { recursive: true });
-  const wal = openWalEventLog(walRoot);
-  const firstBody = "first blob\n";
-  const secondBody = "second blob\n";
-  wal.append({ event: eventAt(1), blobs: [blob(firstBody)] });
-  const cut = captureWalDurableCut(wal);
-  assert.ok(cut);
-  wal.append({ event: eventAt(2), blobs: [blob(secondBody)] });
-  wal.checkpointCut(cut);
-  assert.deepEqual(
-    wal.records().map(({ revision }) => revision),
-    [2],
-  );
-  assert.equal(wal.readContentBlob(sha256Text(firstBody)), null);
-  assert.deepEqual(wal.readContentBlob(sha256Text(secondBody)), Buffer.from(secondBody));
-  const cleanupRedInput = {
-    receiptLog: receiptFor(requestFor([eventAt(2)], { opId: eventAt(2).opId })),
-    content: {
-      claims: [{ acceptedOpId: eventAt(2).opId, sha256: sha256Text(secondBody), size: Buffer.byteLength(secondBody) }],
-      objects: {},
-    },
-  };
-  const cleanupRed = oracleO3(cleanupRedInput);
-  assert.equal(cleanupRed.verdict, "FAIL");
-  wal.close();
-
   const killpoints = [
     "before_event_write",
     "after_event_write",
-    "after_head_write",
+    "after_sqlite_commit",
+    "before_response_write",
+    "after_response_write",
     "after_git_commit",
+    "after_git_ref_update",
     "before_worktree_rename",
     "after_worktree_rename",
   ];
@@ -540,7 +434,7 @@ function runCheckpointAndPublication(root) {
     const child = spawnSync(process.execPath, [boundaryFixture, "git-kill", gitRoot, "stress-s2-f08", killpoint], {
       encoding: "utf8",
     });
-    assert.equal(child.signal, "SIGKILL", child.stderr);
+    assert.equal(child.signal, "SIGKILL", `${killpoint}:${child.stderr}`);
     const recoveredStore = makeTaskEventStore({ repoId: "stress-s2-f08", rootDir: gitRoot });
     const recovery = recoveredStore.recover();
     if (recoveredStore.read().revision === 0)
@@ -548,20 +442,26 @@ function runCheckpointAndPublication(root) {
         docBundle(recoveredStore, "# Stress S2 content\n", 1, "op-stress-s2-git", "context/stress-s2.md"),
       );
     assert.equal(recoveredStore.read().revision, 1, `${killpoint}:${recovery.status}`);
-    assert.equal(git(gitRoot, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/"), "");
-    assert.equal(git(gitRoot, "rev-parse", "refs/ha/canonical"), git(gitRoot, "rev-parse", "HEAD"));
+    const claim = recoveredStore.read().events.flatMap((event) => event.payload.documentClaims ?? [])[0];
+    assert.ok(claim && recoveredStore.readContentBlob(claim.sha256));
+    recoveredStore.close?.();
   }
+  const red = oracleO3({
+    receiptLog: receiptFor(requestFor([eventAt(1)], { opId: eventAt(1).opId })),
+    content: { claims: [{ acceptedOpId: eventAt(1).opId, sha256: sha256Text("missing"), size: 7 }], objects: {} },
+  });
+  assert.equal(red.verdict, "FAIL");
   return {
     killpoints,
     gitRevisions: killpoints.length,
-    redControl: control("F08/cleanup-before-follower-confirmation", cleanupRed.verdict),
+    redControl: control("F08/accepted-content-missing-before-follower", red.verdict),
     caseResult: {
-      id: "F08/wal-checkpoint-and-git-publication",
+      id: "F08/sqlite-object-manifest-git-publication",
       pid: process.pid,
       loadedBuild: sourceBuildId(),
-      boundaryHits: ["wal:checkpoint-replace", "wal:object-cleanup", ...killpoints.map((point) => `git:${point}`)],
+      boundaryHits: killpoints,
       faults: killpoints.map((point) => ({ kind: "SIGKILL", boundary: point })),
-      oracles: { acceptedClosure: "PASS", replay: "PASS" },
+      oracles: { acceptedClosure: "PASS", recovery: "PASS", gitFollower: "PASS" },
       verdict: "PASS",
     },
   };
@@ -573,7 +473,6 @@ async function storageDenominators() {
     ({ source, kind }) =>
       [
         "packages/kernel/src/store/sqlite-event-store.ts",
-        "packages/kernel/src/store/wal-event-log.ts",
         "packages/kernel/src/store/task-event-store-publication.ts",
         "packages/kernel/src/local/local-layout-file-system.ts",
         "packages/daemon/src/repo-cell.ts",
@@ -625,10 +524,6 @@ function commandFor(repoId, events, opId) {
     },
     events,
   };
-}
-
-function blob(body) {
-  return { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/plain", body };
 }
 
 function control(id, observed) {
