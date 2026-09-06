@@ -802,6 +802,9 @@ test("contract migration repairs old migrated rows through one canonical event a
     });
     const applied = await cell.run({ kind: "task-contract-migrate", mode: "apply", taskId }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const settled = await cell.run({ kind: "receipt-show", opId: applied.opId }, binding);
+    assert.equal(settled.git.state, "verified", JSON.stringify(settled));
+    assert.equal(settled.worktree.state, "verified", JSON.stringify(settled));
     assert.equal(ledger().revision, revisionBeforeDryRun + 1);
     assert.equal(ledger().events.filter((event) => event.type === "task_contract_migrated").length, 1);
     const repaired = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!;
@@ -817,7 +820,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     assert.equal(nextGate.code, "not_in_review", JSON.stringify(nextGate));
     const revisionBeforeRerun = ledger().revision,
       rerun = await cell.run({ kind: "task-contract-migrate", mode: "apply", taskId }, binding);
-    assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
+    assert.equal(rerun.outcome, "no_changes", JSON.stringify(rerun));
     assert.equal(ledger().revision, revisionBeforeRerun);
     assert.equal(ledger().events.filter((event) => event.type === "task_contract_migrated").length, 1);
     const missingDryRun = await cell.run(
@@ -1036,7 +1039,7 @@ test("contract migration deterministically disposes all three canonical manual f
     }
     const rerun = await cell.run({ kind: "task-contract-migrate", mode: "apply" }, binding),
       secondLedger = makeTaskEventReader({ repoId, rootDir }).read();
-    assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
+    assert.equal(rerun.outcome, "no_changes", JSON.stringify(rerun));
     assert.equal(secondLedger.revision, firstLedger.revision);
     assert.equal(secondLedger.events.length, firstLedger.events.length);
   } finally {

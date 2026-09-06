@@ -428,7 +428,6 @@ export function acceptPreparedTaskSurfaceWrites(
     }),
     publication = cell.publicPublication(appended);
   for (const member of prepared) cell.projection.apply(member.compiled.event, member.compiled.plan);
-  cell.store.materialize();
   cell.input.killpoint?.("after_sqlite_commit");
   const receipts = prepared.map((member) => {
     const receipt = cell.lifecycleReceipt(

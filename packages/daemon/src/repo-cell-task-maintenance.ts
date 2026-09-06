@@ -258,13 +258,6 @@ export function migrateTaskContracts(
       origin: "task-contract-migrate",
       evidence: JSON.stringify({ report, applied: false, migrated: [], steps: [] }),
       visibility: "center",
-      proof: {
-        committedRevision: cell.store.readHead()?.revision ?? 0,
-        appliedCut: cell.store.readHead()?.revision ?? 0,
-        durable: true,
-        canonicalVisible: true,
-        worktreeVisible: true,
-      },
       report,
       applied: false,
       migrated: [],
