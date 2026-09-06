@@ -647,8 +647,17 @@ export function loadScaleEvidence(value, environment = process.env) {
     assert.equal(report.counts?.acceptedEvents, 1_000_000);
     assert.equal(report.counts?.uniqueBlobs, 100_000);
     assert.equal(report.counts?.maxConcurrentClients, 8);
+    assert.equal(report.counts?.primaryCommands, 10_000);
+    assert.equal(report.counts?.idempotentRequests, 600);
+    assert.equal(report.counts?.conflictRequests, 600);
+    assert.equal(report.counts?.totalRequests, 11_200);
     assert.equal(scaleCase?.verdict, "PASS");
+    assert.equal(scaleCase?.receiptLogs?.length, 8);
+    assert.equal(scaleCase?.measured?.contentObjectsAcceptedInCommandTransactions, 100_000);
     assert.equal(scaleCase?.measured?.reconciliationDifferences, 0);
+    assert.equal(scaleCase?.oracles?.O1?.acceptedEventsFromReceiptLogs, 1_000_000);
+    assert.equal(scaleCase?.oracles?.O3?.distinctAcceptedContentObjects, 100_000);
+    assert.equal(scaleCase?.oracles?.O7?.reconciliationMatches, true);
     assert.equal(rebuilds?.length, 2);
     assert.deepEqual(
       rebuilds.map(({ label }) => label),
@@ -656,7 +665,7 @@ export function loadScaleEvidence(value, environment = process.env) {
     );
     assert.equal(rebuilds[0].stateDigest, rebuilds[1].stateDigest);
     assert.equal(rebuilds[0].blobManifestDigest, rebuilds[1].blobManifestDigest);
-    assert.equal(rebuilds[0].cut?.revision, 1_000_000);
+    assert.deepEqual(rebuilds[0].cut, { status: "ready", watermark: 1_000_000, sourceRevision: 1_000_000 });
     assert.deepEqual(rebuilds[0].cut, rebuilds[1].cut);
   }
   return {
@@ -711,9 +720,9 @@ function incompleteScaleEvidence(files, reason) {
 function scaleReportFixture(seedNumber) {
   const rebuild = (label) => ({
     label,
-    receipt: { status: "rebuilt" },
+    receipt: { watermark: 1_000_000, stateDigest: "sha256:state" },
     stateDigest: "sha256:state",
-    cut: { revision: 1_000_000, headDigest: "sha256:head" },
+    cut: { status: "ready", watermark: 1_000_000, sourceRevision: 1_000_000 },
     blobManifestDigest: "sha256:blobs",
   });
   return {
@@ -722,12 +731,30 @@ function scaleReportFixture(seedNumber) {
     seed: `fleet-scale-seed-${seedNumber}-20260906`,
     generation: 1,
     source: { head: "head", base: "base", loadedBuild: "source:current" },
-    counts: { acceptedEvents: 1_000_000, uniqueBlobs: 100_000, maxConcurrentClients: 8 },
+    counts: {
+      acceptedEvents: 1_000_000,
+      uniqueBlobs: 100_000,
+      maxConcurrentClients: 8,
+      primaryCommands: 10_000,
+      idempotentRequests: 600,
+      conflictRequests: 600,
+      totalRequests: 11_200,
+    },
     cases: [
       {
         id: `S4/full-scale-seed-${seedNumber}`,
         verdict: "PASS",
-        measured: { reconciliationDifferences: 0, coldRebuilds: [rebuild("first"), rebuild("second")] },
+        receiptLogs: Array.from({ length: 8 }, (_value, index) => `commands-client-${index + 1}.jsonl`),
+        measured: {
+          contentObjectsAcceptedInCommandTransactions: 100_000,
+          reconciliationDifferences: 0,
+          coldRebuilds: [rebuild("first"), rebuild("second")],
+        },
+        oracles: {
+          O1: { acceptedEventsFromReceiptLogs: 1_000_000 },
+          O3: { distinctAcceptedContentObjects: 100_000 },
+          O7: { reconciliationMatches: true },
+        },
       },
     ],
   };
