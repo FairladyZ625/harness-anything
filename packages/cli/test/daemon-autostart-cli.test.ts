@@ -25,11 +25,12 @@ import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-ta
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   canonicalEventWritePlan,
-  makeGitEventStore,
+  makeTaskEventStore,
   registerDaemonRepo,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -37,9 +38,20 @@ import {
   type AgentRuntimeEventV1,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
+// The receipt validator is deliberately internal until the public kernel barrel exports it.
+// eslint-disable-next-line no-restricted-imports
+import { validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/domain/receipt-domain-registry.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts");
+
+function assertValidWriteReceipt(value: unknown): void {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  const allowed = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]),
+    receipt = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => allowed.has(key)));
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+}
 
 test("resident daemon autostart strips the worker callback relay marker", () => {
   const previous = process.env.HARNESS_DAEMON_RELAY;
@@ -415,7 +427,7 @@ test("runtime stream attach stays live before, during, and after a blocked verti
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let client: JsonRpcLineClient | undefined, scriptRequest: Promise<Record<string, unknown>> | undefined;
   try {
-    seedAttachableRuntime(fixture.root, repoId, runtimeSessionId);
+    await seedAttachableRuntime(fixture.root, fixture.userRoot, repoId, runtimeSessionId);
     writeFileSync(blocker, "blocked\n", "utf8");
     const launched = spawnSync(
       process.execPath,
@@ -609,6 +621,76 @@ test("receipt show diagnoses a missing daemon without starting one", () => {
     const receipt = JSON.parse(result.stdout) as { error: { code: string } };
     assert.equal(receipt.error.code, "daemon_unavailable");
     assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "a diagnostic read must not autostart the daemon");
+  } finally {
+    stop(fixture.root, fixture.userRoot);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("receipt show waits for independent SQLite, projection, Git, and worktree facets", () => {
+  const fixture = setup(),
+    repoId = "receipt-wait";
+  try {
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    assert.equal(
+      run(fixture.root, fixture.userRoot, [
+        "init",
+        "--repo-id",
+        repoId,
+        "--person-id",
+        "owner",
+        "--display-name",
+        "Owner",
+      ]).ok,
+      true,
+    );
+    const accepted = run(fixture.root, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-receipt-wait",
+      "--admin",
+      "--title",
+      "Receipt wait",
+    ]);
+    assert.equal(accepted.status, "accepted_durable", JSON.stringify(accepted));
+    assertValidWriteReceipt(accepted);
+
+    const settled = run(fixture.root, fixture.userRoot, [
+      "receipt",
+      "show",
+      String(accepted.opId),
+      "--wait",
+      "accepted_durable,projection_visible,git_verified,worktree_visible",
+      "--timeout-ms",
+      "5000",
+    ]);
+    assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
+    assert.deepEqual(settled.wait, { state: "timed_out", unsatisfied: ["worktree_visible"] });
+    assert.equal((settled.git as { readonly state?: unknown }).state, "verified");
+    assert.equal((settled.worktree as { readonly state?: unknown }).state, "pending");
+
+    for (const args of [
+      ["receipt", "show", String(accepted.opId), "--wait", "git_visible"],
+      ["receipt", "show", String(accepted.opId), "--timeout-ms", "60001"],
+    ] as const) {
+      const rejected = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
+        encoding: "utf8",
+        env: cliEnv(fixture.root, fixture.userRoot),
+      });
+      assert.notEqual(rejected.status, 0);
+      const body = JSON.parse(rejected.stdout) as {
+        readonly code?: string;
+        readonly error?: { readonly code?: string };
+      };
+      assert.ok(
+        body.code === "unsupported_wait_condition" ||
+          body.code === "invalid_field" ||
+          body.error?.code === "unsupported_wait_condition" ||
+          body.error?.code === "invalid_field",
+        rejected.stdout,
+      );
+    }
   } finally {
     stop(fixture.root, fixture.userRoot);
     rmSync(fixture.parent, { recursive: true, force: true });
@@ -927,12 +1009,12 @@ test("cancelled task reinstates to planned through the CLI and daemon", () => {
   }
 });
 
-test("dry-run contract migration prints each manual task once", () => {
+test("dry-run contract migration prints each manual task once", async () => {
   const fixture = setup(),
     repoId = "contract-receipt",
     taskId = "task_legacy_l1";
   try {
-    seedLegacyTask(fixture.root, repoId, taskId);
+    await seedLegacyTask(fixture.root, fixture.userRoot, repoId, taskId);
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     register(fixture.root, fixture.userRoot, repoId);
     const result = spawnSync(
@@ -1101,7 +1183,7 @@ function git(root: string, ...args: string[]): string {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
-function seedLegacyTask(root: string, repoId: string, taskId: string): void {
+async function seedLegacyTask(root: string, userRoot: string, repoId: string, taskId: string): Promise<void> {
   const actor = { principal: { personId: "owner" }, executor: null } as const,
     event: TaskEventV1 = {
       schema: "task-event/v1",
@@ -1130,9 +1212,26 @@ function seedLegacyTask(root: string, repoId: string, taskId: string): void {
         },
       },
     };
-  makeGitEventStore({ repoId, rootDir: root }).append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "direct-store" }),
+    lease = authority.acquire(repoId),
+    store = makeTaskEventStore({
+      repoId,
+      rootDir: root,
+      writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
+    });
+  try {
+    store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    await store.drain();
+  } finally {
+    authority.close();
+  }
 }
-function seedAttachableRuntime(root: string, repoId: string, runtimeSessionId: string): void {
+async function seedAttachableRuntime(
+  root: string,
+  userRoot: string,
+  repoId: string,
+  runtimeSessionId: string,
+): Promise<void> {
   const actor = { principal: { personId: "owner" }, executor: null } as const,
     definition: AgentDefinitionSnapshot = {
       schema: "agent-definition-snapshot/v1",
@@ -1207,9 +1306,20 @@ function seedAttachableRuntime(root: string, repoId: string, runtimeSessionId: s
       },
     },
   ];
-  const store = makeGitEventStore({ repoId, rootDir: root });
-  for (const event of events)
-    store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "direct-store" }),
+    lease = authority.acquire(repoId),
+    store = makeTaskEventStore({
+      repoId,
+      rootDir: root,
+      writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
+    });
+  try {
+    for (const event of events)
+      store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+    await store.drain();
+  } finally {
+    authority.close();
+  }
 }
 async function probeRuntimeAttach(
   endpoint: string,
