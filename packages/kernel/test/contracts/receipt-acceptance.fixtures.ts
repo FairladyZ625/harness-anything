@@ -1,3 +1,4 @@
+export { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 import type { ReceiptAcceptanceFields } from "../../src/domain/receipt-acceptance.ts";
 const pending = { state: "pending", cut: null } as const;
 export const rejectedAcceptance: ReceiptAcceptanceFields = {

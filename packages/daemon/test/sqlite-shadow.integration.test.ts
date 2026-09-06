@@ -6,9 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
-// The receipt validator is deliberately internal until the public kernel barrel exports it.
-// eslint-disable-next-line no-restricted-imports
-import { validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/domain/receipt-domain-registry.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

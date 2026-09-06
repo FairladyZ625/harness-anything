@@ -12,9 +12,8 @@ import {
   readDaemonRegistry,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
-// The receipt validator is deliberately internal until the public kernel barrel exports it.
-// eslint-disable-next-line no-restricted-imports
-import { validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/domain/receipt-domain-registry.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";

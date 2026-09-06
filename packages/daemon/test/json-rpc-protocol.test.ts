@@ -27,9 +27,8 @@ import {
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
 } from "../../kernel/src/index.ts";
-// The receipt validator is deliberately internal until the public kernel barrel exports it.
-// eslint-disable-next-line no-restricted-imports
-import { validateWriteReceipt, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/domain/receipt-domain-registry.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
