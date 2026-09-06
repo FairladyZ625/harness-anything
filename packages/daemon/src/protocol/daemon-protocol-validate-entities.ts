@@ -583,9 +583,11 @@ export function validSquadControlAuthorization(value: unknown): boolean {
 
 export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unknown>>): readonly string[] {
   const errors: string[] = [];
-  if (!["accepted_durable", "rejected", "unknown"].includes(String(value.status)))
-    errors.push("receipt status is invalid");
-  if (value.status === "accepted_durable") {
+  const status = String(value.status),
+    known = ["accepted_durable", "rejected", "unknown"].includes(status),
+    accepted = status === "accepted_durable";
+  if (!known) errors.push("receipt status is invalid");
+  if (accepted) {
     const a = value.acceptance;
     if (
       !isJsonObject(a) ||
@@ -625,8 +627,7 @@ export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unk
     )
       errors.push(`${name} must report an independent verified cut or pending state`);
   }
-  if (value.outcome === "applied" && value.status !== "accepted_durable")
-    errors.push("applied requires accepted_durable");
+  if (value.outcome === "applied" && !accepted) errors.push("applied requires accepted_durable");
   if (
     "wait" in value &&
     (!isJsonObject(value.wait) ||
