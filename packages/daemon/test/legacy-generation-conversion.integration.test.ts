@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -116,6 +116,15 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       }).matches,
       false,
     );
+    const objectDigest = sqlite.contentObjectDigests()[0]!,
+      objectPath = sqliteContentObjectPath(root, objectDigest),
+      objectBytes = sqlite.readContentObject(objectDigest)!;
+    writeFileSync(objectPath, Buffer.alloc(objectBytes.byteLength, 0x78));
+    assert.equal(
+      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback }).objectMatches,
+      false,
+    );
+    writeFileSync(objectPath, objectBytes);
     assert.doesNotThrow(() => assertNoPendingHistoricalRewrites({ rootDir: root, store: convertedSource }));
     const firstProjection = makeTaskProjection({
       rootDir: root,
@@ -132,9 +141,8 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     const secondRebuild = secondProjection.rebuild();
     secondProjection.close();
     assert.equal(firstRebuild.stateDigest, secondRebuild.stateDigest);
-    const objectDigest = sqlite.contentObjectDigests()[0]!;
     sqlite.close();
-    rmSync(sqliteContentObjectPath(root, objectDigest), { force: true });
+    rmSync(objectPath, { force: true });
     assert.throws(
       () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
       /missing object/u,

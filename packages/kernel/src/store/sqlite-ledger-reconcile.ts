@@ -1,8 +1,8 @@
-import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { LedgerCutIdentity } from "../domain/write-chain.contract.ts";
-import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
-import { canonicalLedgerCut } from "./task-event-store-reads.ts";
+import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { planLegacyGenerationSnapshotConversion } from "./legacy-generation-conversion.ts";
 import { openSqliteEventStore, sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-event-store.ts";
 
@@ -79,9 +79,8 @@ export function reconcileSqliteEvents(input: {
         intentDigest: outcome.intentDigest,
         rejectionCode: outcome.rejectionCode,
       })),
-      expectedObjects = [
-        ...new Set(plan.events.flatMap((event) => contentClaims(event).map((claim) => claim.sha256))),
-      ].sort(),
+      allClaims = rows.flatMap((row) => contentClaims(parseCanonicalEvent(row.eventJson))),
+      expectedObjects = [...new Set(allClaims.map((claim) => claim.sha256))].sort(),
       actualObjects = [...store.contentObjectDigests()].sort(),
       metadataMatches =
         metadata.repoId === input.repoId && metadata.generation === generation && metadata.revision === rows.length,
@@ -101,7 +100,10 @@ export function reconcileSqliteEvents(input: {
             outcome.lastRevision >= row.revision
           );
         }),
-      objectMatches = expectedObjects.every((sha256) => actualObjects.includes(sha256)),
+      objectMatches = allClaims.every((claim) => {
+        const bytes = store.readContentObject(claim.sha256);
+        return bytes !== null && bytes.byteLength === claim.size && sha256Bytes(bytes) === claim.sha256;
+      }),
       current = rows.at(-1),
       expectedCut = canonicalLedgerCut(
         input.repoId,
