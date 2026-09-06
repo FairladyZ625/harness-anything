@@ -1,4 +1,4 @@
-import { isSquadControlResult } from "../squad-control-result.ts";
+import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
@@ -632,6 +632,10 @@ function isStructuredGuidance(value: unknown): boolean {
 
 function isStructuredDiagnostic(value: unknown): boolean {
   return isJsonObject(value) && nonEmpty(value.kind);
+}
+
+export function isSquadControlResult(value: object): value is SquadControlResult {
+  return "schema" in value && value.schema === "squad-control-result/v1";
 }
 
 export function validateSquadControlReceipt(value: Readonly<Record<string, unknown>>): readonly string[] {

@@ -1,4 +1,6 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
+import { isSquadControlResult } from "./protocol/daemon-protocol-validate-results.ts";
+export { isSquadControlResult };
 import type { WriteReceiptDraft } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
@@ -29,9 +31,6 @@ export type SquadControlResult = Partial<Omit<WriteReceiptDraft, AcceptanceKeys 
 
 export function isSquadControlCommand(kind: string): kind is SquadControlCommand {
   return kind === "squad-run" || kind === "squad-cancel";
-}
-export function isSquadControlResult(value: object): value is SquadControlResult {
-  return "schema" in value && value.schema === "squad-control-result/v1";
 }
 export function squadControlRejected(command: SquadControlCommand, receipt: WriteReceiptDraft): SquadControlResult {
   return {
