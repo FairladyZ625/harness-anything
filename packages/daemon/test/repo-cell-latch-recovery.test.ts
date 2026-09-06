@@ -6,20 +6,13 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  REPLAY_TASK_GRAPH,
-  taskLifecycleWritePlan,
-  type TaskEventV1,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { projectedTaskIds } from "../src/repo-cell-receipts.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/recovery-state.ts";
-import { initRepo as initMigrationRepo, legacyFixture, sources } from "./migration-import.fixtures.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
 
@@ -75,10 +68,7 @@ test("projection recovery names and carries the reachable rebuild command", () =
   });
   assert.equal(recoveryCommandPolicy("projection-rebuild", "data-shape"), null);
   assert.equal(recoveryCommandPolicy("projection-rebuild", "infrastructure"), null);
-  assert.deepEqual(recoveryCommandPolicy("ledger-migrate", "data-shape"), {
-    causes: ["data-shape"],
-    settlesLatch: true,
-  });
+  assert.equal(recoveryCommandPolicy("ledger-migrate", "data-shape"), null);
   assert.deepEqual(recoveryCommandPolicy("migrate-import", "data-shape"), {
     causes: ["data-shape"],
     settlesLatch: true,
@@ -91,83 +81,64 @@ test("projection recovery names and carries the reachable rebuild command", () =
   });
 });
 
-test("migration import enters a data-shape latch, stays single-flight, and re-probes after apply", async () => {
-  const scratch = mkdtempSync(path.join(tmpdir(), "ha-latch-migrate-import-")),
-    source = path.join(scratch, "legacy"),
-    destination = path.join(scratch, "destination"),
-    binding = { actor, source: "local" as const },
-    clock = "2026-09-01T00:00:00.000Z";
-  let injectLatch = false,
-    cell: RepoCell | undefined;
+test("Git event-layout corruption cannot revoke SQLite acceptance or reads", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-ignores-git-layout-"));
+  let cell: RepoCell | undefined;
   try {
-    legacyFixture(source);
-    initMigrationRepo(destination);
-    const sourceRoots = sources(source);
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-migrate-import"),
-      rootDir: canonicalRoot(destination),
-      ownerId: "latch-migrate-import-bootstrap",
-      now: () => clock,
-    });
-    await cell.close();
-    cell = undefined;
-    git(destination, "read-tree", "refs/ha/canonical");
-    git(destination, "checkout-index", "-a", "-f");
-    git(destination, "update-ref", "HEAD", "refs/ha/canonical");
-
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-migrate-import"),
-      rootDir: canonicalRoot(destination),
-      ownerId: "latch-migrate-import-recovery",
-      now: () => clock,
-      killpoint: (point) => {
-        if (injectLatch && point === "before_event_write") {
-          injectLatch = false;
-          throw new Error("migration task entity is invalid");
-        }
-      },
-    });
-    injectLatch = true;
-    const latched = await cell.run(
-      { kind: "task-create", taskId: "task_injected_latch", title: "Injected latch" },
+    initRepo(rootDir);
+    const repoId = workspaceId("sqlite-ignores-git-layout"),
+      binding = { actor, source: "local" as const };
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-git-one" });
+    const accepted = await cell.run(
+      { kind: "task-create", taskId: "task_sqlite_truth", title: "SQLite truth" },
       binding,
     );
-    assert.equal(latched.outcome, "op_rejected", JSON.stringify(latched));
-    assert.equal(latched.code, "service_rejected");
-    assert.deepEqual(latched.diagnostic, { kind: "failure", code: "service_rejected" });
-    assert.equal(cell.status().state, "unavailable");
-    assert.equal(cell.status().causeClass, "data-shape");
-    const cache = path.join(destination, ".harness/cache/task.sqlite"),
-      db = new DatabaseSync(cache),
-      row = db.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get() as {
-        readonly schema_version: number;
-      };
-    db.exec("UPDATE projection_meta SET schema_version = 999 WHERE singleton = 1;");
-    db.close();
-    const failedProbe = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(failedProbe.code, "repo_unavailable");
-    assert.deepEqual(failedProbe.diagnostic, { kind: "failure", code: "repo_unavailable" });
-
-    const repaired = new DatabaseSync(cache);
-    repaired.prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1").run(row.schema_version);
-    repaired.close();
-    const dryRun = await cell.run({ kind: "migrate-import", sourceRoots, dryRun: true }, binding);
-    assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
-    assert.equal((dryRun as Record<string, unknown>).mode, "dry-run");
-    assert.equal((dryRun as Record<string, unknown>).exitCode, 0);
-    assert.equal(cell.status().state, "attached", "the supervisor rebinds once the repaired candidate verifies");
-    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
-
-    const first = cell.run({ kind: "migrate-import", sourceRoots }, binding),
-      second = await cell.run({ kind: "migrate-import", sourceRoots }, binding),
-      applied = await first;
-    assert.equal(second.outcome, "applied", JSON.stringify(second));
-    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(accepted.outcome, "applied");
+    await cell.close();
+    cell = undefined;
+    mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness/events/legacy-flat.json"), "{}\n");
+    git(rootDir, "add", "harness/events/legacy-flat.json");
+    git(rootDir, "commit", "-qm", "corrupt retired Git event layout");
+    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-git-two" });
     assert.equal(cell.status().state, "attached");
-    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
+    const listed = await cell.run({ kind: "task-list" }, binding);
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    assert.match(String(listed.evidence), /task_sqlite_truth/u);
+    const receipt = await cell.run({ kind: "receipt-show", opId: accepted.opId }, binding);
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("SQLite malformed canonical rows fail closed during activation", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-invalid-activation-"));
+  let cell: RepoCell | undefined;
+  try {
+    initRepo(rootDir);
+    const repoId = workspaceId("sqlite-invalid-activation"),
+      binding = { actor, source: "local" as const };
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-invalid-one" });
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task_before_corruption", title: "Before" }, binding)).outcome,
+      "applied",
+    );
+    await cell.close();
+    cell = undefined;
+    const databasePath = path.join(rootDir, ".harness/store/generations/1/ledger.sqlite"),
+      db = new DatabaseSync(databasePath);
+    db.prepare("UPDATE event SET event_json = ? WHERE revision = 1").run("{}");
+    db.close();
+    await assert.rejects(
+      openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-invalid-two" }),
+      /event|canonical|invalid|schema/iu,
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
@@ -240,361 +211,6 @@ test("projection rebuild is executable from a projection latch and settles it", 
   }
 });
 
-test("an invalid_store latch re-attaches on the next command after the ledger is repaired", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-heal-"));
-  let clock = "2026-08-18T00:00:00.000Z";
-  let cell: RepoCell | undefined;
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-heal"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-heal-one",
-      now: () => clock,
-    });
-    const binding = { actor, source: "local" as const };
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_heal", title: "Heal" }, binding)).outcome,
-      "applied",
-    );
-    await cell.close();
-    cell = undefined;
-    // One more event lands after the daemon's projection cut (the kty-web lag shape), then a flat
-    // entry lands in the sharded events root: the next catch-up scan must judge the mixed layout.
-    await appendRawEvent(rootDir, "latch-heal", "task_lagging");
-    const stray = "harness/events/migration-stray.json";
-    writeFileSync(path.join(rootDir, stray), "{}\n");
-    git(rootDir, "add", stray);
-    git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-heal"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-heal-two",
-      now: () => clock,
-    });
-    assert.equal(cell.status().state, "unavailable"); // attach catch-up classifies the mixed ledger immediately
-    const latchedList = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(latchedList.outcome, "op_rejected");
-    assert.equal(latchedList.code, "repo_unavailable");
-    assert.deepEqual(latchedList.diagnostic, { kind: "failure", code: "repo_unavailable" });
-    assert.equal(cell.status().state, "unavailable");
-    assert.equal(cell.status().causeClass, "data-shape");
-    // The fault persists: the next command re-probes, fails the same judgment, and keeps rejecting.
-    clock = "2026-08-18T00:00:06.000Z";
-    const stillLatched = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(stillLatched.outcome, "op_rejected");
-    assert.equal(stillLatched.code, "repo_unavailable");
-    assert.deepEqual(stillLatched.diagnostic, { kind: "failure", code: "repo_unavailable" });
-    assert.equal(cell.status().state, "unavailable");
-    // Repair the data underneath the live cell; the next command re-attaches without a reopen.
-    git(rootDir, "rm", "-q", stray);
-    git(rootDir, "commit", "-qm", "repair: restore pure sharded events root");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    clock = "2026-08-18T00:00:12.000Z";
-    const healed = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(healed.outcome, "applied", JSON.stringify(healed));
-    assert.match(String(healed.evidence), /task_lagging/u);
-    assert.equal(cell.status().state, "attached");
-    assert.equal(cell.status().lastError, null);
-    assert.equal(cell.status().causeClass, null);
-    // Healing rebinds the replica cut source; the cell must expose the live one, not the closed one.
-    assert.doesNotThrow(() => cell!.replica.latest());
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_after_heal", title: "After heal" }, binding)).outcome,
-      "applied",
-    );
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("relation reads use the rebound ledger head after an in-place projection rebuild", async (t) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-relation-rebound-head-"));
-  let cell: RepoCell | undefined,
-    clock = "2026-08-18T00:00:00.000Z";
-  const repoId = "relation-rebound-head",
-    binding = { actor, source: "local" as const };
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId(repoId),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "relation-rebound-head-seed",
-      now: () => clock,
-    });
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_relation_seed", title: "Relation seed" }, binding)).outcome,
-      "applied",
-    );
-    await cell.close();
-    cell = undefined;
-
-    await appendRawEvent(rootDir, repoId, "task_relation_lagging");
-    const stray = "harness/events/migration-stray.json";
-    writeFileSync(path.join(rootDir, stray), "{}\n");
-    git(rootDir, "add", stray);
-    git(rootDir, "commit", "-qm", "corrupt: force relation reader recovery");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-
-    cell = await openRepoCell({
-      repoId: workspaceId(repoId),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "relation-rebound-head-live",
-      now: () => clock,
-    });
-    const latched = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(latched.outcome, "op_rejected");
-    assert.equal(cell.status().state, "unavailable");
-
-    git(rootDir, "rm", "-q", stray);
-    git(rootDir, "commit", "-qm", "repair: restore relation reader ledger");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    clock = "2026-08-18T00:00:06.000Z";
-    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
-    const staleReadHead = makeTaskEventReader({ repoId, rootDir }).readHead();
-
-    const advanced = await cell.run(
-      { kind: "task-create", taskId: "task_relation_advanced", title: "Relation head advanced" },
-      binding,
-    );
-    assert.equal(advanced.outcome, "applied", JSON.stringify(advanced));
-    await cell.settlePendingMaterialization("rebound-head-test");
-    const currentReadHead = makeTaskEventReader({ repoId, rootDir }).readHead(),
-      relationBeforeRebuild = await cell.run({ kind: "relation-list" }, binding),
-      rebuilt = await cell.run({ kind: "projection-rebuild" }, binding),
-      relationAfterRebuild = await cell.run({ kind: "relation-list" }, binding);
-    t.diagnostic(
-      JSON.stringify({
-        staleReadHead,
-        currentReadHead,
-        relationBeforeRebuild,
-        rebuilt,
-        relationAfterRebuild,
-      }),
-    );
-    assert.equal(relationBeforeRebuild.outcome, "applied", JSON.stringify(relationBeforeRebuild));
-    assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
-    assert.equal(relationAfterRebuild.outcome, "applied", JSON.stringify(relationAfterRebuild));
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("the latch re-probe is throttled to one attempt per interval", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-throttle-"));
-  let clock = "2026-08-18T00:00:00.000Z";
-  let cell: RepoCell | undefined;
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-throttle"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-throttle-one",
-      now: () => clock,
-    });
-    const binding = { actor, source: "local" as const };
-    await cell.run({ kind: "task-create", taskId: "task_throttle", title: "Throttle" }, binding);
-    await cell.close();
-    cell = undefined;
-    await appendRawEvent(rootDir, "latch-throttle", "task_lagging");
-    const stray = "harness/events/migration-stray.json";
-    writeFileSync(path.join(rootDir, stray), "{}\n");
-    git(rootDir, "add", stray);
-    git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-throttle"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-throttle-two",
-      now: () => clock,
-    });
-    await cell.run({ kind: "task-list" }, binding); // latches on the mixed layout
-    const firstProbe = await cell.run({ kind: "task-list" }, binding); // probe 1 fails on the same fault
-    assert.equal(firstProbe.outcome, "op_rejected");
-    assert.equal(firstProbe.code, "repo_unavailable");
-    git(rootDir, "rm", "-q", stray);
-    git(rootDir, "commit", "-qm", "repair: restore pure sharded events root");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    clock = "2026-08-18T00:00:01.000Z"; // inside the throttle window of probe 1
-    const throttled = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(throttled.outcome, "op_rejected");
-    assert.equal(throttled.code, "repo_unavailable"); // no probe ran: healthy data is not yet re-examined
-    assert.equal(cell.status().state, "unavailable");
-    clock = "2026-08-18T00:00:06.000Z"; // past the throttle window
-    const healed = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(healed.outcome, "applied", JSON.stringify(healed));
-    assert.equal(cell.status().state, "attached");
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("every latched RepoCell exit declares the latch and the cause identically while the fault persists", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-latch-"));
-  let cell: RepoCell | undefined;
-  const reason = (error: unknown): string => (error instanceof Error ? error.message : String(error));
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-one" });
-    const binding = { actor, source: "local" as const };
-    await cell.run({ kind: "task-create", taskId: "task-latch", title: "Latch" }, binding);
-    await cell.close();
-    cell = undefined;
-    const laggingStore = makeTaskEventStore({ repoId: "latch", rootDir });
-    const lagging: TaskEventV1 = {
-      schema: "task-event/v1",
-      eventId: "event-task-lagging",
-      workspaceRevision: laggingStore.read().revision + 1,
-      opId: "op-task-lagging",
-      taskId: "task-lagging",
-      type: "task_created",
-      actor,
-      source: "local",
-      occurredAt: "2026-08-18T00:00:00.000Z",
-      payload: {
-        task: {
-          schema: "task/v2",
-          taskId: "task-lagging",
-          title: "Lagging",
-          taskClass: "standard",
-          status: "planned",
-          graph: REPLAY_TASK_GRAPH,
-          currentNode: "implementation",
-          iteration: 0,
-          createdBy: actor,
-          completionGateIds: [],
-          presetSnapshotDigest: null,
-          pinned: false,
-        },
-      },
-    };
-    laggingStore.append({ event: lagging, plan: taskLifecycleWritePlan(lagging), blobs: [] });
-    await laggingStore.drain();
-    writeFileSync(path.join(rootDir, "harness/events/migration-stray.json"), "{}\n");
-    git(rootDir, "add", "harness/events/migration-stray.json");
-    git(rootDir, "commit", "-qm", "corrupt: flat entry in sharded events root");
-    git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
-    cell = await openRepoCell({ repoId: workspaceId("latch"), rootDir: canonicalRoot(rootDir), ownerId: "latch-two" });
-    const first = await cell.run({ kind: "task-list" }, binding);
-    assert.equal(first.outcome, "op_rejected");
-    assert.equal(first.code, "repo_unavailable");
-    assert.equal(cell.status().state, "unavailable");
-    assert.deepEqual(first.diagnostic, { kind: "failure", code: "repo_unavailable" });
-    const write = await cell.run({ kind: "task-create", taskId: "task-after-latch", title: "After latch" }, binding);
-    assert.equal(write.code, "repo_unavailable");
-    assert.deepEqual(write.diagnostic, { kind: "failure", code: "repo_unavailable" });
-    const declared = String(write.rejectionExplanation ?? ""),
-      latched = cell;
-    const staleRead = await latched.read("repo.tasks.list");
-    assert.equal(staleRead.watermark <= staleRead.sourceRevision, true);
-    const reads = await Promise.all(
-      [latched.spawnRuntime({}, binding), latched.attach("runtime-session", ""), latched.verifyReadiness()].map(
-        (pending) => pending.then(() => "resolved without reporting the latch", reason),
-      ),
-    );
-    for (const observed of reads) assert.equal(observed, declared);
-    assert.match(declared, /stays latched until its ledger data verifies/u);
-    assert.match(declared, /re-probes the ledger and re-attaches automatically/u);
-    assert.match(
-      declared,
-      /Cause: events root mixes \d+ flat\/v1 and \d+ sharded entries; run ha migrate ledger to normalize and migrate the ledger$/u,
-    );
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("an authored-branch advance does not revoke an acknowledged WAL receipt", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-infra-")),
-    clock = "2026-08-18T00:00:00.000Z";
-  let cell: RepoCell | undefined;
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-infra"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-infra-one",
-      now: () => clock,
-    });
-    const binding = { actor, source: "local" as const };
-    const seed = await cell.run({ kind: "task-create", taskId: "task_infra", title: "Infra" }, binding);
-    mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
-    writeFileSync(path.join(rootDir, "harness/context/notes.md"), "# Notes\n");
-    git(rootDir, "commit", "--allow-empty", "-qm", "external advance"); // moves the authored branch off the canonical cut
-    const pending = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
-    assert.equal(pending.outcome, "applied", JSON.stringify(pending));
-    assert.equal(pending.commitSha, null);
-    assert.ok(pending.cut);
-    assert.equal(cell.status().state, "attached");
-    assert.equal(cell.status().causeClass, null);
-    const receiptWhileLatched = await cell.run({ kind: "receipt-show", opId: seed.opId }, binding);
-    assert.equal(receiptWhileLatched.outcome, "applied", JSON.stringify(receiptWhileLatched));
-    // The batch materializer preserves an authored descendant and catches Git up on drain.
-    await cell.close();
-    cell = undefined;
-    assert.equal(git(rootDir, "show", "refs/ha/canonical:harness/context/notes.md"), "# Notes");
-    assert.equal(
-      git(rootDir, "log", "-1", "--format=%s", "HEAD"),
-      `harness WAL flush ${seed.revision}-${pending.revision}`,
-    );
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-infra"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-infra-two",
-      now: () => clock,
-    });
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_infra_after", title: "After infra heal" }, binding)).outcome,
-      "applied",
-    );
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
-test("in-process recovery promotes a durable WAL operation after an external authored advance", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-latch-prepared-receipt-")),
-    clock = "2026-08-18T00:00:00.000Z";
-  let armed = true,
-    cell: RepoCell | undefined;
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({
-      repoId: workspaceId("latch-prepared-receipt"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "latch-prepared-receipt",
-      now: () => clock,
-      killpoint: (point) => {
-        if (armed && point === "after_head_write") {
-          armed = false;
-          throw new Error("prepared publication interruption");
-        }
-      },
-    });
-    const binding = { actor, source: "local" as const };
-    const interrupted = await cell.run(
-      { kind: "task-create", taskId: "task_prepared_receipt", title: "Prepared receipt" },
-      binding,
-    );
-    assert.equal(interrupted.outcome, "op_rejected");
-    assert.equal(cell.status().state, "unavailable");
-    git(rootDir, "commit", "--allow-empty", "-qm", "external advance after prepared publication");
-    const receipt = await cell.run({ kind: "receipt-show", opId: interrupted.opId }, binding);
-    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    assert.match(String(receipt.commitSha), /^[0-9a-f]{40}$/u);
-    assert.equal(cell.status().state, "attached");
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test("a queued write rechecks Cell state after close begins", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-cell-close-queue-"));
   let cell: RepoCell | undefined;
@@ -624,38 +240,6 @@ test("a queued write rechecks Cell state after close begins", async () => {
   }
 });
 
-async function appendRawEvent(rootDir: string, repoId: string, taskId: string): Promise<void> {
-  const store = makeTaskEventStore({ repoId, rootDir });
-  const event: TaskEventV1 = {
-    schema: "task-event/v1",
-    eventId: `event-${taskId}`,
-    workspaceRevision: store.read().revision + 1,
-    opId: `op-${taskId}`,
-    taskId,
-    type: "task_created",
-    actor,
-    source: "local",
-    occurredAt: "2026-08-18T00:00:00.000Z",
-    payload: {
-      task: {
-        schema: "task/v2",
-        taskId,
-        title: "Lagging append",
-        taskClass: "standard",
-        status: "planned",
-        graph: REPLAY_TASK_GRAPH,
-        currentNode: "implementation",
-        iteration: 0,
-        createdBy: actor,
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-        pinned: false,
-      },
-    },
-  };
-  store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-  await store.drain();
-}
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");
   git(rootDir, "config", "user.name", "Latch Recovery Test");
