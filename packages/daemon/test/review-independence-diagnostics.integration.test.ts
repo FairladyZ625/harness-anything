@@ -426,6 +426,8 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       bare,
     );
     assert.equal(dispatchCannotBeSkipped.code, "actor_unauthorized", JSON.stringify(dispatchCannotBeSkipped));
+    assert.match(JSON.stringify(dispatchCannotBeSkipped), /HARNESS_ACTOR=agent:<id>/u);
+    assert.match(JSON.stringify(dispatchCannotBeSkipped), /declare-executor requires an existing dispatch record/u);
     writeFileSync(
       path.join(rootDir, "no-independent-review.json"),
       JSON.stringify({
