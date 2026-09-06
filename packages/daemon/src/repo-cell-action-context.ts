@@ -1,3 +1,4 @@
+import type { RepoCellCore } from "./repo-cell.ts";
 import type { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import type {
   CanonicalEventAppendReceipt,
@@ -63,7 +64,6 @@ import {
   readResult as readResultImpl,
   upgradePresetSnapshot as upgradePresetSnapshotImpl,
   withHumanSummary as withHumanSummaryImpl,
-  withLayoutAdvisory as withLayoutAdvisoryImpl,
 } from "./repo-cell-task-create.ts";
 import {
   archiveTasks as archiveTasksImpl,
@@ -198,9 +198,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly completionKillpoint: Bound<typeof completionKillpointImpl>;
   readonly executeAction: Bound<typeof executeActionImpl>;
   readonly withHumanSummary: Bound<typeof withHumanSummaryImpl>;
-  readonly withLayoutAdvisory: Bound<typeof withLayoutAdvisoryImpl>;
   recoveryUncertain: boolean;
-  readonly recovery: ReturnType<CanonicalEventStore["recover"]>;
+  readonly recovery: RepoCellCore["recovery"];
   readonly canonicalSettlement: Bound<typeof canonicalSettlementImpl>;
   knownTaskIds: Set<string> | null;
 }
@@ -234,7 +233,7 @@ export function createRepoCellActionContext(bindings: {
   readonly getEntityActionRuntimes: () => EntityActionCatalogRuntimes;
   readonly getService: () => ReturnType<typeof makeTaskLifecycleService>;
   readonly getSettings: () => SettingsV1;
-  readonly getRecovery: () => ReturnType<CanonicalEventStore["recover"]>;
+  readonly getRecovery: () => RepoCellCore["recovery"];
   readonly getRecoveryUncertain: () => boolean;
   readonly setRecoveryUncertain: (value: boolean) => void;
   readonly getKnownTaskIds: () => Set<string> | null;
@@ -350,7 +349,6 @@ export function createRepoCellActionContext(bindings: {
     completionKillpoint: bind(completionKillpointImpl),
     executeAction: bind(executeActionImpl),
     withHumanSummary: bind(withHumanSummaryImpl),
-    withLayoutAdvisory: bind(withLayoutAdvisoryImpl),
     get recoveryUncertain() {
       return bindings.getRecoveryUncertain();
     },

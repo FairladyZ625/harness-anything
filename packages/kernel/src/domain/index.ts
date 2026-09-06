@@ -142,7 +142,6 @@ export {
   decisionMachineDigest,
   decisionStates,
   decisionWritePlan,
-  reduceDecisionDocument,
 } from "./decision-event.ts";
 export type {
   DecisionAmendableSnapshot,
@@ -150,17 +149,9 @@ export type {
   DecisionEventV1,
   DecisionState,
 } from "./decision-event.ts";
-export {
-  compileFactWrite,
-  factConfidenceLevels,
-  factMemoryClasses,
-  factMemoryTags,
-  factWritePlan,
-  isFactId,
-  validateFactEvent,
-} from "./fact-event.ts";
+export { compileFactWrite, factConfidenceLevels, factMemoryClasses, factWritePlan, isFactId } from "./fact-event.ts";
 export { validDomainType } from "./fact-event.ts";
-export type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass, FactMemoryTag } from "./fact-event.ts";
+export type { FactConfidence, FactDomainType, FactEventV1, FactMemoryClass } from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";
@@ -214,7 +205,6 @@ export {
 } from "./entity-relation.ts";
 export { isRelationEvent, relationEventWritePlan, relationRecord } from "./relation-event.ts";
 export type {
-  EntityRelationRecord,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,

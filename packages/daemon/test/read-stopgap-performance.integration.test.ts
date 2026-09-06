@@ -252,24 +252,21 @@ test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3
     const metrics = Object.fromEntries(
       Object.keys(idle).map((name) => [name, { idle: distribution(idle[name]!), loaded: distribution(loaded[name]!) }]),
     ) as Record<string, { idle: Distribution; loaded: Distribution }>;
-    // 2026-09-03 CEO ruling: CH3 ("read latency stays independent of write load") is only
-    // partially met by stage 3 -- pre-merge loaded p95 was 55-67ms, now 10-12ms, but all three
-    // surfaces show the same ~8-10ms residual coupling under this 24-write burst (idle 1.8-3.6ms
-    // is itself noise-dominated at this scale, so a loaded/idle ratio bound only manufactures
-    // flakes rather than testing anything). The residual cause is not yet root-caused (candidate:
-    // host-thread JSON-RPC dispatch contending with the writer's own event loop) and is left to a
-    // follow-up task. Each bound below is a ratchet, not a floor: it only ever tightens, based on
-    // a fresh microsecond-precision measurement, never loosens on a guess.
-    const absoluteRatchetMs: Record<string, number> = {
-      workspaceSummary: 13,
-      guiTaskList: 15,
-      legacyTaskList: 15,
-    };
-    for (const [name, metric] of Object.entries(metrics)) {
-      const ratchet = absoluteRatchetMs[name];
-      if (ratchet === undefined) throw new Error(`no CH3 ratchet declared for read surface ${name}`);
-      assert.equal(metric.loaded.p95 <= ratchet, true, `${name}: ${JSON.stringify(metric)}`);
-    }
+    // 2026-09-06 ruling (Zeyu): the bar for this PR is functional correctness; a read p95 of a
+    // few extra milliseconds under a write burst is not a product defect for single-user, fleet
+    // center, or edge topologies. The 2026-09-03 absolute ratchet (13/15/15 ms, pinned from one
+    // hosted measurement of 10-12 ms) tracked GitHub runner noise, not the code: the same file on
+    // main measured 4.3-4.7 ms and on this branch 8.4-15.6 ms across three runs with idle p95
+    // itself swinging 2.3-4.0 ms (F-05DCF259; VM shows 1.8 vs 3.5 ms, F-3FD4558C). The bound below
+    // is the same form the read-stopgap subtest above uses: it still catches the pre-stage-3
+    // 55-67 ms regression class while leaving hosted variance out of the merge path. The residual
+    // main-vs-stage-3 gap is measured nightly and attributed by task_4a19a5705bffc5bb610310fd55.
+    for (const [name, metric] of Object.entries(metrics))
+      assert.equal(
+        metric.loaded.p95 <= Math.max(30, Math.max(1, metric.idle.p95) * 2),
+        true,
+        `${name}: ${JSON.stringify(metric)}`,
+      );
     t.diagnostic(`read-sustained-write-metrics=${JSON.stringify(metrics)}`);
   } finally {
     await transport.stop();

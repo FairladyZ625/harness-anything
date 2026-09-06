@@ -5,11 +5,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeGitEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
@@ -45,6 +45,7 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     ] as const) {
       const created = await cell.run({ kind: "task-create", taskId, title }, binding);
       assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
       createdTasks.set(taskId, String((created as Record<string, unknown>).packagePath));
     }
     for (const taskId of ["task_active", "task_review"])
@@ -281,7 +282,7 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
     };
     const eventFor = async (opId: string) => {
         await cell.settlePendingMaterialization("agenda event assertion");
-        return makeGitEventStore({ repoId: "agenda-pin-command", rootDir }).readEvent(opId);
+        return makeTaskEventReader({ repoId: "agenda-pin-command", rootDir }).readEvent(opId);
       },
       pin = await runCli(["task", "pin", "task_z"]);
     assert.equal(pin.outcome, "applied", JSON.stringify(pin));

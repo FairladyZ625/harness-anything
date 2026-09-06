@@ -8,8 +8,11 @@ import {
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
+import type { CanonicalContentBlob } from "./task-event-store-types.ts";
+import { contentClaims } from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 
 export const SQLITE_LEDGER_GENERATION = 1;
@@ -18,6 +21,19 @@ export interface SqliteWriterFence {
   readonly repoId: string;
   readonly holder: string;
   readonly epoch: number;
+}
+
+export interface SqliteLedgerMetadata {
+  readonly repoId: string;
+  readonly generation: number;
+  readonly revision: number;
+}
+
+export interface SqliteEventRow {
+  readonly revision: number;
+  readonly opId: string;
+  readonly eventJson: string;
+  readonly digest: `sha256:${string}`;
 }
 
 export interface SqliteCommandIntent {
@@ -34,6 +50,8 @@ export interface SqliteCommandOutcome {
   readonly intentDigest: `sha256:${string}`;
   readonly summary: string;
   readonly rejectionCode: string | null;
+  readonly recordedAt: string;
+  readonly memberOpIds: readonly string[];
 }
 
 export type SqliteLedgerRevisionDifference = {
@@ -73,21 +91,47 @@ export interface SqliteEventStore {
   readonly databasePath: string;
   readonly sqliteVersion: string;
   readonly claimWriter: (fence: SqliteWriterFence) => void;
+  readonly writerFence: () => SqliteWriterFence | null;
   readonly appendCommand: (input: {
     readonly fence: SqliteWriterFence;
     readonly intent: SqliteCommandIntent;
     readonly events: readonly CanonicalEventV1[];
+    readonly blobs?: readonly CanonicalContentBlob[];
     readonly rejectionCode?: string;
     readonly beforeOutcome?: () => void;
   }) => SqliteCommandOutcome;
   readonly outcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
+  readonly outcomes: () => readonly SqliteCommandOutcome[];
+  readonly metadata: () => SqliteLedgerMetadata;
+  readonly eventRows: () => readonly SqliteEventRow[];
+  readonly readContentObject: (sha256: string) => Uint8Array | null;
+  readonly contentObjectDigests: () => readonly string[];
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
+  readonly event: (opId: string) => CanonicalEventV1 | null;
+  readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
+  readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
 
 export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
+}
+
+export function sqliteContentObjectPath(
+  input: HarnessLayoutInput,
+  sha256: string,
+  generation = SQLITE_LEDGER_GENERATION,
+): string {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
+  return path.join(
+    path.dirname(sqliteLedgerPath(input, generation)),
+    "objects",
+    "sha256",
+    sha256.slice(0, 2),
+    sha256.slice(2),
+  );
 }
 
 const SQLITE_BUSY = 5,
@@ -99,13 +143,15 @@ const SQLITE_BUSY = 5,
 // connection holds RESERVED (deadlock avoidance), so with several openers on one fresh ledger a
 // concurrent opener gets SQLITE_BUSY at once no matter the timeout. A bounded retry within the same
 // budget is the only remedy the engine leaves; every pragma here is idempotent.
-function configureLedgerConnection(db: DatabaseSync): void {
+function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
   const deadline = Date.now() + OPEN_BUSY_BUDGET_MS;
   for (;;) {
     try {
       /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
-        `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
-          "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
+        readOnly
+          ? `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA foreign_keys=ON`
+          : `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
+              "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
       );
       return;
     } catch (error) {
@@ -126,17 +172,28 @@ function isSqliteBusy(error: unknown): boolean {
 }
 
 export function openSqliteEventStore(options: {
-  readonly repoId: string;
+  readonly repoId?: string;
   readonly rootInput?: HarnessLayoutInput;
   readonly databasePath?: string;
   readonly generation?: number;
+  readonly readOnly?: boolean;
 }): SqliteEventStore {
+  if (!options.readOnly && options.repoId === undefined)
+    throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
-    databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation);
-  localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
-  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath);
-  configureLedgerConnection(db);
-  createSchema(db, options.repoId, generation);
+    databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
+    objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
+  if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
+  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
+    readOnly: options.readOnly ?? false,
+  });
+  configureLedgerConnection(db, options.readOnly);
+  const query: SqliteQuery = (sql, values = []) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
+  if (!options.readOnly) createSchema(db, options.repoId!, generation);
+  const metadata = readMetadata(query),
+    repoId = options.repoId ?? metadata.repoId;
+  assertMetadata(query, repoId, generation);
   const sqliteVersion = String(
     /* @gate-identity check-bypass-write-boundary/bypass-write-126 */ db
       .prepare("SELECT sqlite_version() AS version")
@@ -162,8 +219,8 @@ export function openSqliteEventStore(options: {
   };
   const claimWriter = (fence: SqliteWriterFence): void =>
     transaction(() => {
-      assertFenceShape(fence, options.repoId);
-      const current = readWriter(db, options.repoId);
+      assertFenceShape(fence, repoId);
+      const current = readWriter(db, repoId);
       if (current && fence.epoch < current.epoch)
         throw new TaskEventStoreError(
           "revision_conflict",
@@ -177,11 +234,12 @@ export function openSqliteEventStore(options: {
       ).run(fence.repoId, fence.holder, fence.epoch);
     });
 
-  const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, opId);
-  const appendCommand: SqliteEventStore["appendCommand"] = (input) =>
-    transaction(() => {
-      assertFenceShape(input.fence, options.repoId);
-      const prior = readOutcome(db, input.intent.opId);
+  const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
+  const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
+    prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
+    return transaction(() => {
+      assertFenceShape(input.fence, repoId);
+      const prior = readOutcome(db, query, input.intent.opId);
       if (prior) {
         if (prior.intentDigest !== input.intent.intentDigest)
           throw new TaskEventStoreError(
@@ -190,7 +248,7 @@ export function openSqliteEventStore(options: {
           );
         return prior;
       }
-      const writer = readWriter(db, options.repoId);
+      const writer = readWriter(db, repoId);
       if (writer && input.fence.epoch < writer.epoch)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${input.fence.epoch} is stale`);
       if (writer && input.fence.epoch === writer.epoch && input.fence.holder !== writer.holder)
@@ -241,20 +299,34 @@ export function openSqliteEventStore(options: {
         input.intent.summary,
         input.rejectionCode ?? null,
       );
-      return readOutcome(db, input.intent.opId)!;
+      return readOutcome(db, query, input.intent.opId)!;
     });
+  };
   return {
     databasePath,
     sqliteVersion,
     claimWriter,
+    writerFence: () => {
+      const writer = readWriter(db, repoId);
+      return writer ? { repoId, ...writer } : null;
+    },
     appendCommand,
     outcome,
+    readCommandOutcome: (opId) => readCommandOutcome(db, query, opId),
+    outcomes: () => readOutcomes(db, query),
+    metadata: () => readMetadata(query),
+    eventRows: () => readEventRows(query),
+    readContentObject: (sha256) => readContentObject(objectRoot, sha256),
+    contentObjectDigests: () => listContentObjectDigests(objectRoot),
     revision: () => readRevision(db),
     events: () =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db
-        .prepare("SELECT event_json FROM event ORDER BY revision")
-        .all()
-        .map((row) => parseCanonicalEvent(String(row.event_json))),
+      query("SELECT event_json FROM event ORDER BY revision").map((row) => parseCanonicalEvent(String(row.event_json))),
+    event: (opId) => readEvent(query, "op_id", opId),
+    eventAtRevision: (revision) => readEvent(query, "revision", revision),
+    eventsAfter: (revision, limit = 4096) =>
+      query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map((row) =>
+        parseCanonicalEvent(String(row.event_json)),
+      ),
     close: () => db.close(),
   };
 }
@@ -266,6 +338,7 @@ export function migrateEventsToSqlite(input: {
   readonly holder?: string;
   readonly epoch?: number;
   readonly verifyExact?: boolean;
+  readonly beforeEvent?: (revision: number) => void;
 }): { readonly migrated: number; readonly revision: number } {
   const fence = {
     repoId: input.repoId,
@@ -277,6 +350,7 @@ export function migrateEventsToSqlite(input: {
   if (existingRevision > input.events.length)
     throw new TaskEventStoreError("invalid_store", "SQLite migration revision exceeds the source stream");
   for (const event of input.events.slice(existingRevision)) {
+    input.beforeEvent?.(event.workspaceRevision);
     const eventJson = serializePersistedCanonicalEvent(event),
       intentDigest = `sha256:${sha256Text(eventJson)}` as const;
     input.store.appendCommand({
@@ -346,6 +420,22 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
     );
 }
 
+type SqliteQuery = (
+  sql: string,
+  values?: readonly (string | number | null)[],
+) => Record<string, import("node:sqlite").SQLOutputValue>[];
+
+function assertMetadata(query: SqliteQuery, repoId: string, generation: number): void {
+  const metadata = readMetadata(query);
+  if (metadata.repoId !== repoId || metadata.generation !== generation)
+    throw new TaskEventStoreError("repo_mismatch", "SQLite ledger belongs to another repository or generation");
+}
+
+function readEvent(query: SqliteQuery, column: "op_id" | "revision", value: string | number): CanonicalEventV1 | null {
+  const row = query(`SELECT event_json FROM event WHERE ${column}=?`, [value]).at(0);
+  return row ? parseCanonicalEvent(String(row.event_json)) : null;
+}
+
 function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
   if (event.schema !== "task-event/v1") return;
   if (event.type === "execution_started") replayClaim(db, event);
@@ -369,11 +459,80 @@ function readWriter(db: DatabaseSync, repoId: string): { readonly holder: string
   return row ? { holder: String(row.holder), epoch: Number(row.epoch) } : null;
 }
 
-function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
+function readMetadata(query: SqliteQuery): SqliteLedgerMetadata {
+  const row = query("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").at(0)!;
+  return { repoId: String(row.repo_id), generation: Number(row.generation), revision: Number(row.revision) };
+}
+
+function readEventRows(query: SqliteQuery): readonly SqliteEventRow[] {
+  return query("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision").map((row) => ({
+    revision: Number(row.revision),
+    opId: String(row.op_id),
+    eventJson: String(row.event_json),
+    digest: String(row.digest) as `sha256:${string}`,
+  }));
+}
+
+function readOutcomes(db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {
+  return query("SELECT op_id FROM command_outcome ORDER BY rowid").map(
+    (row) => readOutcome(db, query, String(row.op_id))!,
+  );
+}
+
+function prepareContentObjects(
+  objectRoot: string,
+  events: readonly CanonicalEventV1[],
+  blobs: readonly CanonicalContentBlob[],
+): void {
+  const supplied = new Map(blobs.map((blob) => [blob.sha256, blob]));
+  for (const event of events) {
+    for (const claim of contentClaims(event)) {
+      const existing = readContentObject(objectRoot, claim.sha256);
+      if (existing !== null) {
+        if (existing.byteLength !== claim.size || sha256Text(Buffer.from(existing).toString("utf8")) !== claim.sha256)
+          throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is corrupt`);
+        continue;
+      }
+      const blob = supplied.get(claim.sha256);
+      if (!blob || blob.size !== claim.size || sha256Text(blob.body) !== claim.sha256)
+        throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
+      const target = objectPath(objectRoot, claim.sha256);
+      localContentObjectFileSystem.replace(target, blob.body);
+    }
+  }
+}
+
+function objectPath(objectRoot: string, sha256: string): string {
+  if (!/^[0-9a-f]{64}$/u.test(sha256)) throw new Error("content object hash is invalid");
+  return path.join(objectRoot, sha256.slice(0, 2), sha256.slice(2));
+}
+
+function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
+  const target = objectPath(objectRoot, sha256);
+  return localContentObjectFileSystem.exists(target)
+    ? Buffer.from(localContentObjectFileSystem.readText(target))
+    : null;
+}
+
+function listContentObjectDigests(objectRoot: string): readonly string[] {
+  if (!localContentObjectFileSystem.exists(objectRoot)) return [];
+  return localContentObjectFileSystem
+    .readNames(objectRoot)
+    .filter((prefix) => /^[0-9a-f]{2}$/u.test(prefix))
+    .flatMap((prefix) =>
+      localContentObjectFileSystem
+        .readNames(path.join(objectRoot, prefix))
+        .filter((name) => /^[0-9a-f]{62}$/u.test(name))
+        .map((name) => `${prefix}${name}`),
+    )
+    .sort();
+}
+
+function readOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): SqliteCommandOutcome | null {
   const row = /* @gate-identity check-bypass-write-boundary/bypass-write-112 */ db
     .prepare(
       "SELECT op_id, status, first_revision, last_revision, intent_digest, " +
-        "intent_summary, rejection_code " +
+        "intent_summary, rejection_code, recorded_at " +
         "FROM command_outcome WHERE op_id=?",
     )
     .get(opId);
@@ -386,7 +545,33 @@ function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | nul
     intentDigest: String(row.intent_digest) as `sha256:${string}`,
     summary: String(row.intent_summary),
     rejectionCode: row.rejection_code === null ? null : String(row.rejection_code),
+    recordedAt: String(row.recorded_at),
+    memberOpIds: outcomeMemberOpIds(query, row),
   };
+}
+
+function readCommandOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): SqliteCommandOutcome | null {
+  const direct = readOutcome(db, query, opId);
+  if (direct !== null) return direct;
+  const event = query("SELECT revision FROM event WHERE op_id=?", [opId]).at(0);
+  if (!event) return null;
+  const revision = Number(event.revision),
+    parent = query(
+      "SELECT op_id FROM command_outcome " +
+        "WHERE first_revision<=? AND last_revision>=? ORDER BY last_revision LIMIT 1",
+      [revision, revision],
+    ).at(0);
+  return parent ? readOutcome(db, query, String(parent.op_id)) : null;
+}
+
+function outcomeMemberOpIds(query: SqliteQuery, row: Record<string, unknown>): readonly string[] {
+  if (row.first_revision === null || row.last_revision === null) return [];
+  const firstRevision = Number(row.first_revision),
+    lastRevision = Number(row.last_revision);
+  return query("SELECT op_id FROM event WHERE revision BETWEEN ? AND ? ORDER BY revision", [
+    firstRevision,
+    lastRevision,
+  ]).map((event) => String(event.op_id));
 }
 
 function readRevision(db: DatabaseSync): number {

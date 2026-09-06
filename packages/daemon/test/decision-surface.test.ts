@@ -40,8 +40,10 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       { kind: "decision-repin", all: true, migrationEvidence: "task/task-evidence/preflight" },
       proposer,
     );
-    assert.equal(emptyRepin.outcome, "pending");
-    assert.equal(emptyRepin.proof?.canonicalVisible, false);
+    assert.equal(emptyRepin.outcome, "no_changes");
+    assert.equal(emptyRepin.status, "rejected");
+    assert.equal(emptyRepin.acceptance, null);
+    assert.equal(emptyRepin.proof, undefined);
     const proposed = await cell.run(proposal("Lifecycle surface"), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       oldIdentity = {
@@ -104,6 +106,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(bodyAmended.outcome, "applied", JSON.stringify(bodyAmended));
     assert.equal((receiptJson(bodyAmended) as { amendments: readonly unknown[] }).amendments.length, 2);
+    await cell.settlePendingMaterialization("read amended decision document");
     const body = readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8");
     assert.match(body, /title: "Lifecycle surface amended"/u);
     assert.match(body, /"id":"CH2"/u);
@@ -135,7 +138,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         proposer,
       );
     assert.equal(preview.outcome, "pending");
-    assert.equal(preview.proof?.canonicalVisible, false);
+    assert.equal(preview.acceptance, null);
     assert.equal((receiptJson(preview) as { dryRun: boolean }).dryRun, true);
     assert.equal(makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().revision, beforePreviewRevision);
     assert.equal(
@@ -164,6 +167,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     assert.equal(receiptJson(accepted).state, "in_effect");
+    await cell.settlePendingMaterialization("read accepted decision document");
     assert.match(
       readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"),
       /## Judgment-only acceptance\n\nIndependent judgment after reviewing the proposal\./u,
@@ -225,6 +229,24 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(repinned.outcome, "applied", JSON.stringify(repinned));
     assert.equal((receiptJson(repinned) as { decisionIds: readonly string[] }).decisionIds.length, 2);
+    assert.equal(repinned.status, "accepted_durable");
+    assert.equal(repinned.acceptance?.revisionTo - repinned.acceptance?.revisionFrom, 1);
+    assert.equal(repinned.acceptance?.memberOpIds.length, 2);
+    assert.equal(repinned.acceptance?.memberOpIds.at(-1), repinned.opId);
+    const acceptedStore = makeTaskEventReader({ repoId: "decision-surface", rootDir });
+    assert.deepEqual(acceptedStore.readCommandOutcome(repinned.opId), {
+      opId: repinned.opId,
+      intentDigest: acceptedStore.readCommandOutcome(repinned.opId)?.intentDigest,
+      summary: "decision_repinned",
+      status: "accepted_durable",
+      firstRevision: repinned.acceptance?.revisionFrom,
+      lastRevision: repinned.acceptance?.revisionTo,
+      recordedAt: acceptedStore.readCommandOutcome(repinned.opId)?.recordedAt,
+      memberOpIds: repinned.acceptance?.memberOpIds,
+      rejectionCode: null,
+    });
+    await acceptedStore.drain();
+    await cell.settlePendingMaterialization("continue after decision repin batch");
     const inputPath = path.join(rootDir, "evidence.md");
     writeFileSync(inputPath, "A stable distilled observation.\nSupporting detail.\n");
     const candidate = await cell.run(
@@ -244,7 +266,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         factState: candidateReport.factState,
         factWrite: candidateReport.factWrite,
       },
-      { outcome: "pending", canonicalVisible: false, factState: "candidate", factWrite: false },
+      { outcome: "pending", canonicalVisible: undefined, factState: "candidate", factWrite: false },
     );
     assert.equal(candidateReport.subject.kind, "workspace-file");
     assert.equal(candidateReport.subject.ref, "evidence.md");
@@ -264,6 +286,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(promoted.outcome, "applied", JSON.stringify(promoted));
     assert.equal((promoted as Record<string, unknown>).factId, "F-DEADBEEF");
+    await cell.settlePendingMaterialization("read promoted fact document");
     const factBody = readFileSync(path.join(rootDir, "harness/facts/F-DEADBEEF.md"), "utf8");
     assert.match(factBody, /### F-DEADBEEF/u);
     assert.match(factBody, /provenance=.*workspace-file/u);

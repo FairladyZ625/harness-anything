@@ -330,48 +330,6 @@
         "reason": "RepoCell-owned writer updates only its exact local runtime state."
       },
       {
-        "value": "bypass-write-060",
-        "api": "mkdirSync",
-        "ref": "task_6e3a253ed79c2c458543c7d3d7",
-        "reason": "Local-only WAL creates its exact private buffer directory."
-      },
-      {
-        "value": "bypass-write-061",
-        "api": "rmSync",
-        "ref": "dec_F906FA4E1BE047B6F591CF4316; task_32e553b6c0ff5f31a6d914e5cb",
-        "reason": "S4 checkpoint GC removes only a local-only WAL object after the materialized Git cut no longer references it."
-      },
-      {
-        "value": "bypass-write-062",
-        "api": "mkdirSync",
-        "ref": "task_6e3a253ed79c2c458543c7d3d7",
-        "reason": "Local-only WAL creates the parent of its exact append target."
-      },
-      {
-        "value": "bypass-write-063",
-        "api": "openSync",
-        "ref": "task_6e3a253ed79c2c458543c7d3d7",
-        "reason": "Git-first local-only WAL opens its exact shadow append target."
-      },
-      {
-        "value": "bypass-write-064",
-        "api": "writeSync",
-        "ref": "task_6e3a253ed79c2c458543c7d3d7",
-        "reason": "Local-only WAL appends canonical record bytes."
-      },
-      {
-        "value": "bypass-write-065",
-        "api": "fsyncSync",
-        "ref": "dec_F906FA4E1BE047B6F591CF4316; task_32e553b6c0ff5f31a6d914e5cb",
-        "reason": "S4 acknowledgment hardens the exact appended WAL segment before the write receipt returns."
-      },
-      {
-        "value": "bypass-write-066",
-        "api": "closeSync",
-        "ref": "task_6e3a253ed79c2c458543c7d3d7",
-        "reason": "Local-only WAL closes its append descriptor."
-      },
-      {
         "value": "bypass-write-067",
         "api": "mkdirSync",
         "ref": "task_6e3a253ed79c2c458543c7d3d7",

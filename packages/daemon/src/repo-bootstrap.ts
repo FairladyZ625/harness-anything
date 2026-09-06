@@ -200,13 +200,7 @@ export function bootstrapRepo(
   git(ledgerRoot, ["init", "--quiet"]);
   const maintenance = configureLedgerMaintenance(ledgerRoot);
   checkoutAuthoredBranch(ledgerRoot, boundBranch);
-  const before = optionalGit(ledgerRoot, ["rev-parse", "--verify", "HEAD"]),
-    canonical = optionalGit(ledgerRoot, ["rev-parse", "--verify", "refs/ha/canonical"]);
-  if (canonical && canonical !== before)
-    throw repoBootstrapError(
-      "publication_indeterminate",
-      "Canonical and authored refs must agree before init publication.",
-    );
+  const before = optionalGit(ledgerRoot, ["rev-parse", "--verify", "HEAD"]);
   const repositoryDocuments = input.repositoryPlan.documents,
     currentPaths = repositoryDocuments.map(({ path: target }) => target),
     current = new Set(currentPaths),
@@ -260,10 +254,6 @@ export function bootstrapRepo(
       ...authoredDocuments.map(({ ledgerPath }) => ledgerPath),
     ]);
     commit = git(ledgerRoot, ["rev-parse", "HEAD"]).trim();
-    git(
-      ledgerRoot,
-      canonical ? ["update-ref", "refs/ha/canonical", commit, canonical] : ["update-ref", "refs/ha/canonical", commit],
-    );
   }
   const visibleCommit = commit ?? before,
     verified = writtenDocuments.every((document) => {
@@ -299,7 +289,7 @@ export function bootstrapRepo(
         }),
   };
 }
-/** Reapplies the ledger's machine-level Git configuration to an already-initialized workspace. Everything the full bootstrap does past that point — scaffold documents, the identity commit, the canonical ref — is skipped, so the receipt reports no writes and no commit. */
+/** Reapplies the ledger's machine-level Git configuration to an already-initialized workspace. Everything the full bootstrap does past that point — scaffold documents, the identity commit — is skipped, so the receipt reports no writes and no commit. */
 function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string): RepoBootstrapReceipt {
   const ledgerRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     boundBranch = authoredBranch ?? resolveBootstrapAuthoredBranch(input.rootDir),

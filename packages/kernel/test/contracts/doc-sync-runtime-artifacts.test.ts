@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
@@ -282,6 +283,7 @@ test("mixed body-replaceable rejection produces a valid typed receipt", () => {
     for (const count of [difference.insertBytes, difference.deleteBytes, difference.replaceBytes])
       assert.equal(Number.isSafeInteger(count) && count >= 0, true, JSON.stringify(difference));
   const receipt = {
+    ...rejectedAcceptance,
     outcome: "op_rejected",
     opId: "doc-op",
     code: result.code,

@@ -122,8 +122,7 @@ test("Artifact import forwards edge observations into the center single-writer q
   });
   assert.equal(command?.commandClass, "repo-write");
   const squadMigration = daemonProtocolCommands.find(({ id }) => id === "entity-migrate-squads");
-  assert.deepEqual(squadMigration?.admission, command?.admission);
-  assert.equal(squadMigration?.commandClass, "repo-write");
+  assert.equal(squadMigration, undefined, "in-place Squad migration has no live command descriptor");
 });
 
 test("Settings locale-only updates use local admission while repository fields keep center routing", () => {

@@ -12,6 +12,8 @@ import {
   readDaemonRegistry,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
@@ -26,6 +28,14 @@ const auth = {
   transportKind: "unix-socket",
   unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0, source: "unix-socket-filesystem-owner-boundary" },
 } as const;
+
+function assertValidWriteReceipt(value: unknown): void {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  const allowed = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]),
+    receipt = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => allowed.has(key)));
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+}
 
 test("a startup-failed repo self-heals on the next command and reports honest status", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-heal-")),
@@ -233,78 +243,82 @@ test("daemon status exposes the writer phase and progress while a repository att
   }
 });
 
-test("daemon status turns materialization red, rejects writes, and returns to ok after recovery", async (context) => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-materialization-")),
+test("a failed Git follower stays observable without rejecting later SQLite writes", async (context) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-git-follower-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
-    repoId = workspaceId("host-materialization");
+    repoId = workspaceId("host-git-follower");
   rosterRepo(rootDir, repoId);
-  const prepared = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "prepare-materialization" });
+  const prepared = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "prepare-git-follower" });
   await prepared.close();
   const bootstrapEvents = makeTaskEventReader({ repoId, rootDir }).read().events;
   assert.equal(bootstrapEvents.length, 2);
   assert.equal(bootstrapEvents[1]?.schema, "vertical-declaration-event/v1");
   assert.equal(bootstrapEvents[1]?.type, "vertical_declared");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  let failGit = true;
   const host = await openDaemonHost({
-    daemonId: "host-materialization",
+    daemonId: "host-git-follower",
     userRoot,
     openCell: (cellInput) =>
       openRepoCell({
         ...cellInput,
-        walMaterializationTestFault: { point: "before_materialization", failures: 8 },
+        killpoint: (point) => {
+          if (failGit && point === "after_git_commit") throw new Error("simulated Git follower failure");
+        },
       }),
   });
   await host.attachmentsSettled();
   try {
     const accepted = await host.run(
       repoId,
-      { kind: "task-create", taskId: "task_materialization_1", title: "Accepted before latch" },
+      { kind: "task-create", taskId: "task_git_follower_1", title: "Accepted before Git" },
       auth,
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
-    await assert.rejects(
-      host.settleMaterialization(repoId, "force injected materialization failures"),
-      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
-    );
+    assert.equal(accepted.status, "accepted_durable");
+    assertValidWriteReceipt(accepted);
+    await host.settleMaterialization(repoId, "observe injected Git follower failure");
     const failed = await waitForRepoMaterialization(host, repoId, "failed");
     context.diagnostic(`failed daemon status row: ${JSON.stringify(failed)}`);
-    assert.deepEqual(failed.materialization, {
-      state: "failed",
-      lastCheckpointRevision: 2,
-      lastCheckpointAt: "2026-09-05T00:00:00.000Z",
-      pendingWalEvents: 1,
-      reason: "retry_budget_exhausted",
-      lastError: "simulated worker materialization failure",
-    });
+    assert.equal(failed.materialization?.state, "failed");
+    assert.equal(failed.materialization?.reason, "deterministic_failure");
+    assert.match(String(failed.materialization?.lastError), /simulated Git follower failure/u);
 
-    const rejected = await host.run(
+    const acceptedWhilePending = await host.run(
       repoId,
-      { kind: "task-create", taskId: "task_materialization_2", title: "Rejected after latch" },
+      { kind: "task-create", taskId: "task_git_follower_2", title: "Accepted while Git is pending" },
       auth,
     );
-    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
-    assert.equal(rejected.code, "materialization_failed");
-    assert.deepEqual(rejected.diagnostic, {
-      kind: "materialization-failed",
-      lastCheckpointRevision: 2,
-      lastCheckpointAt: "2026-09-05T00:00:00.000Z",
-      pendingWalEvents: 1,
-      reason: "retry_budget_exhausted",
-      lastError: "simulated worker materialization failure",
-    });
+    assert.equal(acceptedWhilePending.status, "accepted_durable", JSON.stringify(acceptedWhilePending));
+    assert.notEqual(acceptedWhilePending.outcome, "op_rejected");
+    assertValidWriteReceipt(acceptedWhilePending);
+    const pending = await host.run(
+      repoId,
+      { kind: "receipt-show", opId: accepted.opId, waitFor: ["git_verified"], timeoutMs: 0 },
+      auth,
+    );
+    assert.equal(pending.status, "accepted_durable");
+    assert.equal(pending.git.state, "pending");
+    assert.deepEqual(pending.wait, { state: "timed_out", unsatisfied: ["git_verified"] });
 
-    await host.settleMaterialization(repoId, "materialization recovery control");
+    failGit = false;
+    await host.settleMaterialization(repoId, "Git follower recovery control");
     const healthy = await waitForRepoMaterialization(host, repoId, "ok");
     context.diagnostic(`recovered daemon status row: ${JSON.stringify(healthy)}`);
-    assert.equal(healthy.materialization?.lastCheckpointRevision, 3);
-    assert.equal(healthy.materialization?.pendingWalEvents, 0);
+    assert.equal(healthy.materialization?.lastCheckpointRevision, acceptedWhilePending.acceptance?.revisionTo);
     const recovered = await host.run(
       repoId,
-      { kind: "task-create", taskId: "task_materialization_3", title: "Accepted after recovery" },
+      {
+        kind: "receipt-show",
+        opId: accepted.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified"],
+        timeoutMs: 5_000,
+      },
       auth,
     );
     assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(recovered.wait?.state, "satisfied");
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

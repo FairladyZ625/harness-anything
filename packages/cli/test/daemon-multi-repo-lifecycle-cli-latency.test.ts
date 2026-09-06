@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { availableParallelism, loadavg } from "node:os";
-import path from "node:path";
 import test from "node:test";
 
 import { builtCli, median, register, run, runNoop, setup, stop } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
@@ -109,33 +108,6 @@ test("resident daemon CLI write p50 includes process startup through parsed rece
       `latency-ratio=paired-round-cli-write-over-cli-help-noop warmup-rounds=${warmupRounds} rounds=${ratios.length} samples-per-round=${samplesPerRound} p50=${startupRatio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x load1-per-parallelism=${loadSamples.map((value) => value.toFixed(2)).join(",")}`,
     );
     context.diagnostic(`latency-round-ratios=${ratios.map((value) => value.toFixed(3)).join(",")}`);
-    const walProbe = JSON.parse(
-      execFileSync(process.execPath, [path.resolve("tools/verify-wal-append-fsync.mjs")], { encoding: "utf8" }),
-    ) as { durable: boolean; trace: readonly string[] };
-    context.diagnostic(
-      `wal-append-fsync=write-then-fsync-before-close durable=${walProbe.durable} trace=${walProbe.trace.join(">")}`,
-    );
-    // dec_10D83683B9518BF355313083BB keeps the wall-clock ratio diagnostic-only:
-    // variance in the short no-op denominator makes it non-invariant under CI load.
-    // The acknowledged WAL is the durability boundary: localWalFileSystem.append must
-    // fsync the segment descriptor after the write and before the close. This used to be
-    // gated by a wall-clock ratio (shadow append over an explicit-fsync append), but both
-    // arms ran near-identical syscall sequences, so the ratio measured fsync-latency
-    // jitter between two time windows rather than the presence of the fsync: across
-    // twenty main runs on CI Linux it read 0.462x-6.076x with the fsync present the
-    // whole time, redding both sides of its [0.25, 2.5] band while carrying no
-    // information about the property (in each red run the other Node arm read ~1x green
-    // in the same run, on the same disk). Moving the floor only traded which side reds.
-    // A crash-visibility check cannot replace it: the page cache survives process
-    // death, so only the node:fs call sequence observes the boundary directly. The
-    // probe instruments node:fs in a fresh process before importing the kernel adapter,
-    // so the verdict is deterministic under any load and fails closed (empty trace) if
-    // the instrumentation ever stops binding on a future Node.
-    assert.equal(
-      walProbe.durable,
-      true,
-      `acknowledged WAL append did not cross an fsync boundary (expected write-then-fsync-before-close on the segment descriptor); node:fs trace: ${walProbe.trace.join(">")}`,
-    );
   } finally {
     stop(fixture.alpha, fixture.userRoot, builtCli);
     rmSync(fixture.root, { recursive: true, force: true });

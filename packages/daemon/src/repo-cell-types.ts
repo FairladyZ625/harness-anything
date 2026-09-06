@@ -1,3 +1,4 @@
+import type { SquadControlResult } from "./squad-control-result.ts";
 import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
 import {
   type ActorIdentity,
@@ -61,7 +62,7 @@ export type RuntimeIngressAction =
 export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly summary: string;
   readonly taskId: string;
-  readonly status: "planned";
+  readonly taskStatus: "planned";
   readonly packagePath: string;
   readonly generatedPaths: readonly string[];
   readonly presetDigest: string;
@@ -123,7 +124,11 @@ export type RepoCellTerminal = Omit<TerminalHost, "spawn" | "spawnTrusted" | "in
 
 export interface RepoCell {
   readonly bootstrapReceipt?: RepoBootstrapReceipt;
-  readonly run: (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => Promise<WriteReceipt>;
+  readonly run: (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<PresetRunReceiptV1>;
   readonly spawnRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly cancelRuntime: (payload: JsonObject, binding: RepoCellBinding) => Promise<JsonObject>;
@@ -148,7 +153,7 @@ export interface RepoCell {
   readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>;
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
-  /** Joins acknowledged WAL while the caller's writer epoch is still current. */
+  /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
   readonly close: () => Promise<void>;
 }

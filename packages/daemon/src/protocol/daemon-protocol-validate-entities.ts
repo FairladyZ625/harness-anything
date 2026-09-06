@@ -497,3 +497,146 @@ export function lease(value: unknown): boolean {
     Number(value.version) >= 0
   );
 }
+
+// Wire validation deliberately owns no kernel runtime dependency. The differential
+// receipt tests keep its SQLite acceptance contract aligned with the domain validator.
+const wireWaitPredicates = [
+  "accepted_durable",
+  "projection_visible",
+  "git_verified",
+  "worktree_visible",
+  "replica_verified",
+] as const;
+const wireText = (value: unknown): value is string => nonEmpty(value) && value.trim().length > 0;
+const wireRevision = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+function wireConsumerCut(value: unknown): value is JsonObject {
+  return (
+    exactRecord(value, ["repoId", "generation", "revision", "headDigest"]) &&
+    wireText(value.repoId) &&
+    value.generation === 1 &&
+    wireRevision(value.revision) &&
+    digest(value.headDigest)
+  );
+}
+export function wireUnmetCriterion(value: unknown): boolean {
+  return (
+    exactRecord(value, ["ref", "failureCode", "explain"]) &&
+    wireText(value.ref) &&
+    wireText(value.failureCode) &&
+    wireText(value.explain)
+  );
+}
+function wireAuthorizationActor(value: unknown): boolean {
+  return (
+    exactRecord(value, ["principal", "executor"]) &&
+    exactRecord(value.principal, ["personId"]) &&
+    wireText(value.principal.personId) &&
+    (value.executor === null ||
+      (exactRecord(value.executor, ["kind", "id"]) && value.executor.kind === "agent" && wireText(value.executor.id)))
+  );
+}
+// Exactly the built-in ref candidates emitted by repo-cell-authorization actionTarget.
+// It constructs kind/id locally: external harness aliases and artifact refs cannot occur here.
+function squadControlSubject(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return (
+    value === "settings/repository" ||
+    /^task\/(?:task_[A-Za-z0-9_-]+|[A-Za-z0-9][A-Za-z0-9_-]*-[A-Za-z0-9_-]+)$/u.test(value) ||
+    /^decision\/(?:dec_[A-Za-z0-9_-]+|[A-Za-z0-9][A-Za-z0-9_-]*-[A-Za-z0-9_-]+)(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u.test(
+      value,
+    ) ||
+    /^fact\/F-[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(value) ||
+    /^execution\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(value) ||
+    /^(?:schedule|agent|squad)\/[a-z0-9][a-z0-9-]{0,63}$/u.test(value)
+  );
+}
+export function validSquadControlAuthorization(value: unknown): boolean {
+  if (
+    !exactRecord(value, [
+      "policyRef",
+      "actor",
+      "subject",
+      "bindingsUsed",
+      "outcome",
+      "reasonCodes",
+      "nextActions",
+      "evaluatedAtCut",
+    ])
+  )
+    return false;
+  const denied = value.outcome === "denied";
+  return (
+    /^\S+@[1-9][0-9]*$/u.test(String(value.policyRef)) &&
+    wireAuthorizationActor(value.actor) &&
+    squadControlSubject(value.subject) &&
+    Array.isArray(value.bindingsUsed) &&
+    value.bindingsUsed.every(isJsonObject) &&
+    (value.outcome === "allowed" || denied) &&
+    Array.isArray(value.reasonCodes) &&
+    value.reasonCodes.every(wireText) &&
+    Array.isArray(value.nextActions) &&
+    value.nextActions.every(wireText) &&
+    (!denied || (value.reasonCodes.length > 0 && value.nextActions.length > 0)) &&
+    wireText(value.evaluatedAtCut)
+  );
+}
+
+export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unknown>>): readonly string[] {
+  const errors: string[] = [];
+  const status = String(value.status),
+    known = ["accepted_durable", "rejected", "unknown"].includes(status),
+    accepted = status === "accepted_durable";
+  if (!known) errors.push("receipt status is invalid");
+  if (accepted) {
+    const a = value.acceptance;
+    if (
+      !isJsonObject(a) ||
+      !exactRecord(a, ["storage", "durability", "recordedAt", "revisionFrom", "revisionTo", "memberOpIds", "cut"]) ||
+      a.storage !== "sqlite" ||
+      a.durability !== "local_fsync" ||
+      !wireText(a.recordedAt) ||
+      !Number.isFinite(Date.parse(a.recordedAt)) ||
+      !wireRevision(a.revisionFrom) ||
+      a.revisionFrom < 1 ||
+      !wireRevision(a.revisionTo) ||
+      a.revisionTo < a.revisionFrom ||
+      !wireConsumerCut(a.cut) ||
+      a.cut.revision !== a.revisionTo ||
+      !Array.isArray(a.memberOpIds) ||
+      a.memberOpIds.length !== a.revisionTo - a.revisionFrom + 1 ||
+      !a.memberOpIds.every(wireText) ||
+      new Set(a.memberOpIds).size !== a.memberOpIds.length ||
+      typeof value.opId !== "string" ||
+      !a.memberOpIds.includes(value.opId)
+    )
+      errors.push("accepted_durable requires a committed acceptance interval");
+  } else if (value.acceptance !== null) errors.push("unaccepted receipt requires acceptance:null");
+  for (const name of ["projection", "git", "worktree", "replica"] as const) {
+    const facet = value[name],
+      fields = ["state", "cut", ...(name === "git" ? ["commitSha"] : [])];
+    if (
+      !isJsonObject(facet) ||
+      !exactRecord(facet, [...fields, ...("reason" in facet ? ["reason"] : [])]) ||
+      !["pending", "verified", ...(name === "replica" ? ["not_configured"] : [])].includes(String(facet.state)) ||
+      (facet.state === "verified" ? !wireConsumerCut(facet.cut) : facet.cut !== null) ||
+      ("reason" in facet && !wireText(facet.reason)) ||
+      (name === "git" &&
+        (facet.state === "verified"
+          ? typeof facet.commitSha !== "string" || !/^[0-9a-f]{40}$/u.test(facet.commitSha)
+          : facet.commitSha !== null))
+    )
+      errors.push(`${name} must report an independent verified cut or pending state`);
+  }
+  if (value.outcome === "applied" && !accepted) errors.push("applied requires accepted_durable");
+  if (
+    "wait" in value &&
+    (!isJsonObject(value.wait) ||
+      !exactRecord(value.wait, ["state", "unsatisfied"]) ||
+      !["satisfied", "timed_out"].includes(String(value.wait.state)) ||
+      !Array.isArray(value.wait.unsatisfied) ||
+      !value.wait.unsatisfied.every((item) => (wireWaitPredicates as readonly unknown[]).includes(item)) ||
+      (value.wait.state === "satisfied") !== (value.wait.unsatisfied.length === 0))
+  )
+    errors.push("receipt wait result is invalid");
+  return errors;
+}

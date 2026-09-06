@@ -1,4 +1,5 @@
 import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
+import { validateReceiptAcceptance } from "../../kernel/src/index.ts";
 import { isContractVersion } from "../../kernel/src/domain/contract-version.ts";
 
 export interface DaemonControlReceipt extends JsonObject {
@@ -467,6 +468,14 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       evidence: "string",
       visibility: "string",
       proof: "object",
+      cut: "object",
+      commitSha: "null-string",
+      status: "string",
+      acceptance: "nullable-object",
+      projection: "object",
+      git: "object",
+      worktree: "object",
+      replica: "object",
       ledgerAccess: "optional-string",
       reportDelivery: "optional-string",
 
@@ -475,6 +484,7 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
     "runtime spawn receipt",
   );
   if (!record(value)) return errors;
+  errors.push(...validateReceiptAcceptance(value));
   if (value.schema !== "command-receipt/v2") errors.push("runtime spawn receipt schema is invalid");
   if (value.ledgerAccess !== undefined && value.ledgerAccess !== "unavailable")
     errors.push("runtime spawn receipt ledgerAccess is invalid");

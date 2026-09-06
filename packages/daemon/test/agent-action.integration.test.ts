@@ -43,7 +43,8 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       binding,
     );
     assert.equal(preview.outcome, "pending");
-    assert.equal(preview.proof?.durable, false);
+    assert.equal(preview.acceptance, null);
+    assert.equal(preview.proof, undefined);
     assert.deepEqual(preview.effects, []);
     assert.equal(preview.updatedProjection, null);
 

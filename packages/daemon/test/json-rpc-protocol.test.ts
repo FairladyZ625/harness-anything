@@ -16,20 +16,19 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import {
-  eventObjectTarget,
+  canonicalEventWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
+  preflightCanonicalGeneration,
   readDaemonRegistry,
-  REPLAY_TASK_GRAPH,
-  serializeCanonicalEvent,
-  serializeEventHead,
-  sha256Text,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
-  type TaskEventV1,
 } from "../../kernel/src/index.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { projectDecisionReadiness, reviewDigest } from "../../kernel/src/index.ts";
 import {
   actionForDaemonMethod,
@@ -59,6 +58,31 @@ function assertValidationDiagnostic(errors: readonly string[], entity: RegExp, f
   assert.match(errors[0]!, /actual=/u);
 }
 
+function assertValidWriteReceipt(value: unknown): void {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  const allowed = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]),
+    receipt = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => allowed.has(key)));
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+}
+
+async function waitForAcceptedReceipt(
+  cell: Awaited<ReturnType<typeof openProductRepoCell>>,
+  accepted: { readonly opId: string; readonly acceptance?: { readonly revisionTo?: number } | null },
+  binding = repoWriteBinding,
+  waitFor: readonly ("accepted_durable" | "projection_visible" | "git_verified" | "worktree_visible")[] = [
+    "accepted_durable",
+    "projection_visible",
+    "git_verified",
+    "worktree_visible",
+  ],
+): Promise<Awaited<ReturnType<typeof cell.run>>> {
+  const shown = await cell.run({ kind: "receipt-show", opId: accepted.opId, waitFor, timeoutMs: 5_000 }, binding);
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.acceptance?.revisionTo, accepted.acceptance?.revisionTo);
+  return shown;
+}
+
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const repoWriteBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
 
@@ -67,7 +91,6 @@ const repoWriteBinding = withRoleBinding({ actor, source: "local" as const }, "r
 test("protocol descriptors preserve topology metadata without authorizing actions", () => {
   const expected = {
     "migrate-import": "repo-write",
-    "ledger-migrate": "repo-write",
     "projection-rebuild": "repo-write",
     "task-create": "repo-write",
     "preset-list": "repo-read",
@@ -187,31 +210,6 @@ test("protocol hello accepts only runtime identity and executor-attribution vari
 
 // prettier-ignore
 
-test("ledger migrate runs through the RepoCell write queue and reports its bounded projection catch-up", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ledger-layout-migrate-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    initRepo(rootDir); writeLegacyHarness(rootDir); const flatEvent: TaskEventV1 = { schema: "task-event/v1", eventId: "event-flat-ledger", workspaceRevision: 1, opId: "migration-flat-ledger", taskId: "task_flat_ledger", type: "task_created", actor, source: "local", occurredAt: "2026-08-16T00:00:00.000Z", payload: { task: { schema: "task/v2", taskId: "task_flat_ledger", title: "Flat ledger", taskClass: "standard", status: "planned", graph: REPLAY_TASK_GRAPH, currentNode: "implementation", iteration: 0, createdBy: actor, completionGateIds: [], presetSnapshotDigest: null, pinned: false, packageDisposition: "active" } } }, eventBody = serializeCanonicalEvent(flatEvent), eventsRoot = path.join(rootDir, "harness/events"); mkdirSync(eventsRoot, { recursive: true }); writeFileSync(path.join(eventsRoot, `${flatEvent.opId}.json`), eventBody); writeFileSync(path.join(eventsRoot, "head.json"), serializeEventHead({ revision: 1, opId: flatEvent.opId, eventDigest: `sha256:${sha256Text(eventBody)}` })); git(rootDir, "add", "harness"); git(rootDir, "commit", "--quiet", "-m", "flat ledger fixture"); const commitsBeforeRepair = Number(git(rootDir, "rev-list", "--count", "HEAD"));
-    cell = await openProductRepoCell({ repoId: workspaceId("ledger-layout-migrate"), rootDir: canonicalRoot(rootDir), ownerId: "ledger-layout-migrate", now: () => "2026-08-16T00:00:01.000Z" }); const receipt = await cell.run({ kind: "ledger-migrate" }, repoWriteBinding) as Record<string, unknown>; assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.revision, flatEvent.workspaceRevision + 1); assert.equal(receipt.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(git(rootDir, "ls-tree", "--name-only", "HEAD:harness/events").split("\n").filter((name) => name.endsWith(".json")), ["head.json"]); const projected = await cell.read("repo.tasks.list"); assert.equal(projected.status, "ready"); assert.equal(projected.watermark, flatEvent.workspaceRevision + 1); assert.equal(projected.rows.some(({ taskId }) => taskId === flatEvent.taskId), true); assert.deepEqual(makeTaskEventReader({ repoId: "ledger-layout-migrate", rootDir }).read().events.map((event) => event.schema), ["task-event/v1", "ledger-layout-event/v1"]);
-    const repeated = await cell.run({ kind: "ledger-migrate" }, repoWriteBinding) as Record<string, unknown>; assert.equal(repeated.commitSha, receipt.commitSha); assert.equal(git(rootDir, "rev-list", "--count", "HEAD"), String(commitsBeforeRepair + 1));
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
-});
-
-// prettier-ignore
-
-test("explicit projection rebuild is a local repair action with a source-complete digest", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    initRepo(rootDir); writeLegacyHarness(rootDir); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild" });
-    const repaired = await cell.run({ kind: "projection-rebuild" }, repoWriteBinding) as Record<string, unknown>, repairEvidence = JSON.parse(String(repaired.evidence)) as { readonly stateDigest: string; readonly metrics: { readonly reducedItems: number } };
-    assert.equal(repaired.outcome, "applied", JSON.stringify(repaired)); assert.equal(repaired.revision, 1); assert.equal((repaired.proof as { readonly committedRevision: number; readonly appliedCut: number }).appliedCut, 1); assert.match(repairEvidence.stateDigest, /^sha256:[0-9a-f]{64}$/u); assert.equal(repairEvidence.metrics.reducedItems, 1); assert.equal(makeTaskEventReader({ repoId: "projection-rebuild", rootDir }).read().events[0]?.schema, "settings-event/v1");
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task_projection_rebuild", title: "Projection rebuild" }, repoWriteBinding)).outcome, "applied");
-    const receipt = await cell.run({ kind: "projection-rebuild" }, repoWriteBinding) as Record<string, unknown>, evidence = JSON.parse(String(receipt.evidence)) as { readonly stateDigest: string; readonly metrics: { readonly reducedItems: number } };
-    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.revision, 2); assert.equal((receipt.proof as { readonly committedRevision: number; readonly appliedCut: number }).appliedCut, 2); assert.match(evidence.stateDigest, /^sha256:[0-9a-f]{64}$/u); assert.equal(evidence.metrics.reducedItems, 2);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
-});
-
-// prettier-ignore
-
 test("projection rebuild repairs a repository that has no authored settings document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-bare-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -223,9 +221,9 @@ test("projection rebuild repairs a repository that has no authored settings docu
 
 // prettier-ignore
 
-test("replay receipts retain their event cut and upgrade pending commit identity after drain", async () => {
+test("replay receipts retain their SQLite cut while Git identity settles independently", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replay-current-cut-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = repoWriteBinding; const created = await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(first.commitSha, null); assert.equal(second.commitSha, null); assert.notDeepEqual(first.cut, second.cut); assert.equal(replay.commitSha, null); assert.deepEqual(replay.cut, first.cut); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.equal(materialized.commitSha, git(rootDir, "rev-parse", "HEAD")); assert.deepEqual(materialized.cut, first.cut); }
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = repoWriteBinding; const created = await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.notDeepEqual(first.cut, second.cut); assert.deepEqual(replay.cut, first.cut); assert.equal(replay.status, "accepted_durable"); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await waitForAcceptedReceipt(cell, first as { opId: string; acceptance?: { revisionTo?: number } | null }, binding, ["accepted_durable", "projection_visible", "git_verified"]); assert.equal(materialized.git.state, "verified"); assert.deepEqual(materialized.cut, first.cut); }
   finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -368,19 +366,10 @@ const availability = { consents: "unknown", codeDocWitnesses: "unknown", gateWit
 
 // prettier-ignore
 
-test("repo-bound ledger commit rejects cross-repo SHA", () => {
-  const roots = ["a", "b"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-ledger-${name}-`)));
-  try { roots.forEach(initRepo); const left = makeTaskEventReader({ rootDir: roots[0]!, repoId: "repo-a" }), right = makeTaskEventReader({ rootDir: roots[1]!, repoId: "repo-b" });
-    assert.match(left.currentCommit().sha, /^[0-9a-f]{40}$/u); assert.throws(() => right.revisionAt(left.currentCommit()), /repo/iu);
-  } finally { roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
-});
-
-// prettier-ignore
-
 test("task create dry-run validates the exact package without event, revision, commit, or authored writes", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-create-preview-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/custom"), { recursive: true }); mkdirSync(path.join(rootDir, "harness/templates"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  scaffolds:\n    task: custom/task-scaffold.json\n"); writeFileSync(path.join(rootDir, "harness/templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); writeFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), `${JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] })}\n`); cell = await openRepoCell({ repoId: workspaceId("preview"), rootDir: canonicalRoot(rootDir), ownerId: "preview-daemon" }); const action = { kind: "task-create", taskId: "task-preview", title: "Preview Package" } as const, baselineRevision = makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, before = git(rootDir, "rev-parse", "HEAD"), preview = await cell.run({ ...action, dryRun: true }, repoWriteBinding) as Record<string, unknown>; assert.equal(preview.outcome, "pending"); assert.equal((preview.proof as { canonicalVisible: boolean }).canonicalVisible, false); assert.equal(preview.packagePath, "tasks/task-preview-preview-package"); assert.equal(preview.commitSha, null); assert.equal(preview.dryRun, true); assert.equal((preview.generatedPaths as string[]).length, 6); assert.equal((preview.generatedPaths as string[]).includes("tasks/task-preview-preview-package/notes.md"), true); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision); assert.equal(git(rootDir, "rev-parse", "HEAD"), before); assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-preview-preview-package")), false);
-    const created = await cell.run(action, repoWriteBinding) as Record<string, unknown>; assert.equal(created.packagePath, preview.packagePath); assert.equal(created.presetDigest, preview.presetDigest); assert.equal(created.scaffoldDigest, preview.scaffoldDigest); assert.equal(created.commitSha, null); assert.equal(typeof created.cut, "object"); assert.equal((created.guidance as { kind: string }[]).some(({ kind }) => kind === "task-create-start"), true); assert.equal(readFileSync(path.join(rootDir, "harness/tasks/task-preview-preview-package/notes.md"), "utf8"), "# Notes\n\n## Project Notes\n\nCustom.\n"); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); const duplicate = await cell.run({ ...action, title: "Different title" }, repoWriteBinding); assert.equal(duplicate.outcome, "op_rejected"); assert.equal(duplicate.code, "task_exists"); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); writeFileSync(path.join(rootDir, "harness/tasks/task-preview-preview-package/INDEX.md"), "corrupt markdown\n"); const shown = await cell.run({ kind: "task-show", taskId: "task-preview" }, repoWriteBinding); const evidence = JSON.parse(String(shown.evidence)) as { packagePath: string; task: { title: string } }; assert.equal(evidence.packagePath, preview.packagePath); assert.equal(evidence.task.title, "Preview Package");
+  try { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/custom"), { recursive: true }); mkdirSync(path.join(rootDir, "harness/templates"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  scaffolds:\n    task: custom/task-scaffold.json\n"); writeFileSync(path.join(rootDir, "harness/templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); writeFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), `${JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] })}\n`); cell = await openRepoCell({ repoId: workspaceId("preview"), rootDir: canonicalRoot(rootDir), ownerId: "preview-daemon" }); const action = { kind: "task-create", taskId: "task-preview", title: "Preview Package" } as const, baselineRevision = makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, before = git(rootDir, "rev-parse", "HEAD"), preview = await cell.run({ ...action, dryRun: true }, repoWriteBinding) as Record<string, unknown>; assert.equal(preview.outcome, "pending"); assert.equal(preview.packagePath, "tasks/task-preview-preview-package"); assert.equal(preview.dryRun, true); assert.equal((preview.generatedPaths as string[]).length, 6); assert.equal((preview.generatedPaths as string[]).includes("tasks/task-preview-preview-package/notes.md"), true); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision); assert.equal(git(rootDir, "rev-parse", "HEAD"), before); assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-preview-preview-package")), false);
+    const created = await cell.run(action, repoWriteBinding) as Record<string, unknown>; assert.equal(created.packagePath, preview.packagePath); assert.equal(created.presetDigest, preview.presetDigest); assert.equal(created.scaffoldDigest, preview.scaffoldDigest); assert.equal(typeof created.cut, "object"); assert.equal((created.guidance as { kind: string }[]).some(({ kind }) => kind === "task-create-start"), true); const settled = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, repoWriteBinding); assert.deepEqual(settled.wait, { state: "satisfied", unsatisfied: [] }); assert.equal(settled.worktree.state, "verified"); assert.equal(execFileSync("git", ["show", "HEAD:harness/tasks/task-preview-preview-package/notes.md"], { cwd: rootDir, encoding: "utf8" }), "# Notes\n\n## Project Notes\n\nCustom.\n"); assert.equal(readFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), "utf8").includes('"project.notes"'), true); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); const duplicate = await cell.run({ ...action, title: "Different title" }, repoWriteBinding); assert.equal(duplicate.outcome, "op_rejected"); assert.equal(duplicate.code, "task_exists"); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); const shown = await cell.run({ kind: "task-show", taskId: "task-preview" }, repoWriteBinding); const evidence = JSON.parse(String(shown.evidence)) as { packagePath: string; task: { title: string } }; assert.equal(evidence.packagePath, preview.packagePath); assert.equal(evidence.task.title, "Preview Package");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -390,21 +379,20 @@ test("RepoCell rejects completion on snapshot drift and preset upgrade publishes
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-upgrade-cell-")), source = path.join(rootDir, "source/upgrade-task"), taskId = "task-upgrade-cell", binding = repoWriteBinding; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const packageBody = (version: string) => JSON.stringify({ schema: "preset-manifest/v3", id: "upgrade-task", title: "Upgrade Task", vertical: "software/coding", version, kind: "template-content", outputShape: "repository-diff", kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" }, capabilityImports: [], profiles: [{ id: "baseline", title: "Baseline", completionGates: ["ci", "code-doc-reconciliation"], templateSelections: [] }], defaultProfile: "baseline" });
   try {
-    initRepo(rootDir); mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, "preset.json"), packageBody("3.1.0")); writeFileSync(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Upgrade fixture.\nwhenToUse: Test upgrade.\n---\n# Upgrade\n"); cell = await openRepoCell({ repoId: workspaceId("preset-upgrade-cell"), rootDir: canonicalRoot(rootDir), ownerId: "preset-upgrade-daemon" }); const installed = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(installed.outcome, "pending"); assert.equal(installed.proof?.canonicalVisible, false); const created = await cell.run({ kind: "task-create", taskId, title: "Upgrade Cell", presetId: "upgrade-task" }, binding) as Record<string, unknown>, previousDigest = String(created.presetDigest); writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0")); const reinstalled = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(reinstalled.outcome, "pending"); assert.equal(reinstalled.proof?.canonicalVisible, false);
+    initRepo(rootDir); mkdirSync(source, { recursive: true }); writeFileSync(path.join(source, "preset.json"), packageBody("3.1.0")); writeFileSync(path.join(source, "PRESET.md"), "---\nschema: preset-document/v1\ndescription: Upgrade fixture.\nwhenToUse: Test upgrade.\n---\n# Upgrade\n"); cell = await openRepoCell({ repoId: workspaceId("preset-upgrade-cell"), rootDir: canonicalRoot(rootDir), ownerId: "preset-upgrade-daemon" }); const installed = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(installed.outcome, "pending"); assert.equal(installed.acceptance, null); const created = await cell.run({ kind: "task-create", taskId, title: "Upgrade Cell", presetId: "upgrade-task" }, binding) as Record<string, unknown>, previousDigest = String(created.presetDigest); const createdVisible = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0")); const reinstalled = await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, binding); assert.equal(reinstalled.outcome, "pending"); assert.equal(reinstalled.acceptance, null);
     const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding); assert.equal(blocked.code, "preset_snapshot_mismatch"); const upgraded = await cell.run({ kind: "preset-upgrade", taskId }, binding) as Record<string, unknown>; assert.equal(upgraded.outcome, "applied"); const evidence = JSON.parse(String(upgraded.evidence)) as { previousDigest: string; digest: string }; assert.equal(evidence.previousDigest, previousDigest); assert.notEqual(evidence.digest, previousDigest); const event = makeTaskEventReader({ repoId: "preset-upgrade-cell", rootDir }).readEvent(String(upgraded.opId)); assert.equal(event?.schema, "preset-snapshot-upgrade-event/v1"); assert.equal((await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding)).code, "not_in_review");
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
 // prettier-ignore
 
-test("RepoCell serializes identical lifecycle intents into one WAL event and one drained Git publication", async () => {
+test("RepoCell serializes identical lifecycle intents into one accepted SQLite outcome", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId: workspaceId("alpha"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
-    const baselineRevision = makeTaskEventReader({ repoId: "alpha", rootDir }).read().revision,
-      baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical"));
+    const baselineRevision = makeTaskEventReader({ repoId: "alpha", rootDir }).read().revision;
     const action = { kind: "task-create", verb: "create", commandType: "CreateReplayTask", taskId: "task-alpha",
       title: "Alpha task" } as const;
 
@@ -416,14 +404,22 @@ test("RepoCell serializes identical lifecycle intents into one WAL event and one
     assert.deepEqual([left.outcome, right.outcome], ["applied", "applied"], JSON.stringify([left, right]));
     assert.equal(left.opId, right.opId);
     assert.equal(left.revision, baselineRevision + 1);
-    assert.equal(left.commitSha, null);
     assert.deepEqual(left.cut, right.cut);
-    assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits));
+    assert.equal(left.status, "accepted_durable");
+    assert.equal(right.status, "accepted_durable");
+    assertValidWriteReceipt(left);
+    assertValidWriteReceipt(right);
+    const reader = makeTaskEventReader({ repoId: "alpha", rootDir });
+    assert.equal(reader.read().events.filter((event) => event.opId === left.opId).length, 1);
+    assert.equal(reader.readCommandOutcome(left.opId)?.status, "accepted_durable");
+    await reader.drain();
     const shown = await cell.run({ kind: "task-show", verb: "show", taskId: "task-alpha" }, repoWriteBinding);
     assert.equal(shown.outcome, "applied");
     assert.match(String(shown.evidence), /Alpha task/u);
+    const settled = await cell.run({ kind: "receipt-show", opId: left.opId,
+      waitFor: ["accepted_durable", "projection_visible", "git_verified"], timeoutMs: 5_000 }, repoWriteBinding);
+    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
     await cell.close(); cell = undefined;
-    assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits + 1));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -439,15 +435,14 @@ test("structured GUI submit and CLI packet submit publish the same canonical eve
   try {
     roots.forEach(initDeterministicRepo);
     for (const [index, rootDir] of roots.entries()) cells.push(await openRepoCell({ repoId: workspaceId("submit-ab"), rootDir: canonicalRoot(rootDir), ownerId: `submit-ab-${index}`, now }));
-    for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
-    const commitSha = git(roots[0]!, "rev-parse", "HEAD"); assert.equal(git(roots[1]!, "rev-parse", "HEAD"), commitSha);
-    const submission = { completionClaim: "Typed GUI submit is equivalent.", deliverables: ["canonical event"], outputs: ["harness/tasks/task-submit-ab-submit-a-b/INDEX.md"], verificationNotes: ["A/B"], knownGaps: [], residualRisks: [], commitSha };
-    writeFileSync(path.join(roots[0]!, "submission.json"), JSON.stringify(submission));
+    for (const [index, cell] of cells.entries()) { const created = await cell.run({ kind: "task-create", taskId, title: "Submit A B" }, binding); assert.equal(created.outcome, "applied"); const visible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); await realizeTaskPlanFixture(roots[index]!, String((created as Record<string, unknown>).packagePath), (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding)); assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied"); }
+    const submissionBase = { completionClaim: "Typed GUI submit is equivalent.", deliverables: ["canonical event"], outputs: ["harness/tasks/task-submit-ab-submit-a-b/INDEX.md"], verificationNotes: ["A/B"], knownGaps: [], residualRisks: [] }, submissions = roots.map((rootDir) => ({ ...submissionBase, commitSha: git(rootDir, "rev-parse", "HEAD") }));
+    writeFileSync(path.join(roots[0]!, "submission.json"), JSON.stringify(submissions[0]));
     assert.equal((await cells[0]!.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding)).outcome, "applied");
-    const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: { commit: null }, authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId, submission } } }); assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied"); server.close();
+    const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: { commit: null }, authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId, submission: submissions[1] } } }); assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied"); server.close();
     const events = roots.map((rootDir) => makeTaskEventReader({ repoId: "submit-ab", rootDir }).read().events.at(-1));
-    assert.deepEqual(events[1], events[0]);
-    const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!, output = row.executionEvidence[0]!.outputs[0]!; assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" }); assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" }); assert.equal(row.placement.provenance.length > 0, true); assert.deepEqual({ executionId: row.executionEvidence[0]!.executionId, origin: row.executionEvidence[0]!.origin, locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult }, { executionId, origin: "native", locator: submission.outputs[0], substrate: "repository-path", checkerReceiptRef: null, checkerResult: "unknown" }); assert.match(output.evidenceId, /^evidence_[0-9a-f]{24}$/u); assert.deepEqual(validateDaemonTaskSnapshotList(projected), []);
+    assert.equal(events[0]?.schema, "task-event/v1"); assert.equal(events[1]?.schema, "task-event/v1"); assert.equal(events[0]?.type, "execution_submitted"); assert.equal(events[1]?.type, "execution_submitted"); if (events[0]?.schema === "task-event/v1" && events[1]?.schema === "task-event/v1" && events[0].type === "execution_submitted" && events[1].type === "execution_submitted") { assert.deepEqual({ taskId: events[1].taskId, actor: events[1].actor, source: events[1].source, submission: { ...events[1].payload.submission, commitSha: "<repo-cut>" } }, { taskId: events[0].taskId, actor: events[0].actor, source: events[0].source, submission: { ...events[0].payload.submission, commitSha: "<repo-cut>" } }); }
+    const projected = await cells[1]!.read("repo.tasks.list"), row = projected.rows[0]!, output = row.executionEvidence[0]!.outputs[0]!; assert.deepEqual(row.snapshotAvailability, { consents: "known", codeDocWitnesses: "known", gateWitnesses: "known" }); assert.deepEqual({ parentTaskId: row.placement.parentTaskId, origin: row.placement.origin, packageDisposition: row.placement.packageDisposition }, { parentTaskId: null, origin: "native", packageDisposition: "active" }); assert.equal(row.placement.provenance.length > 0, true); assert.deepEqual({ executionId: row.executionEvidence[0]!.executionId, origin: row.executionEvidence[0]!.origin, locator: output.locator, substrate: output.substrate, checkerReceiptRef: output.checkerReceiptRef, checkerResult: output.checkerResult }, { executionId, origin: "native", locator: submissionBase.outputs[0], substrate: "repository-path", checkerReceiptRef: null, checkerResult: "unknown" }); assert.match(output.evidenceId, /^evidence_[0-9a-f]{24}$/u); assert.deepEqual(validateDaemonTaskSnapshotList(projected), []);
   } finally { await Promise.all(cells.map((cell) => cell.close())); roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
 });
 
@@ -458,26 +453,26 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
   const taskId = "task-life", executionId = "execution-life", packagePath = "tasks/task-life-lifecycle-files", binding = repoWriteBinding;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("lifecycle-files"), rootDir: canonicalRoot(rootDir), ownerId: "lifecycle-daemon" }); const baselineRevision = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).read().revision;
-    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
-    const assertCut = (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(receipt.worktreeVisible, true); assert.equal(receipt.commitSha, null); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
+    const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle files" }, binding); assert.equal(created.outcome, "applied"); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
+    const assertCut = async (receipt: Record<string, unknown>, type: string, paths: readonly string[]) => { assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); assert.equal(receipt.status, "accepted_durable"); assert.equal(receipt.taskId, taskId); assert.equal(receipt.executionId, executionId); assert.deepEqual(receipt.changedPaths, paths); assert.equal(typeof receipt.cut, "object"); assert.equal(typeof receipt.transition, "object"); assert.equal(Array.isArray(receipt.next), true); const event = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(receipt.opId)); assert.equal(event?.type, type); if (event?.schema !== "task-event/v1") throw new Error("lifecycle receipt requires a TaskEvent"); assert.deepEqual(event.payload.documentClaims?.map((claim) => claim.path), paths); const visible = await waitForAcceptedReceipt(cell!, receipt as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); for (const target of paths) assert.equal(existsSync(path.join(rootDir, "harness", target)), true, target); };
     const indexPath = `${packagePath}/INDEX.md`, executionPath = `${packagePath}/executions/${executionId}.md`, reviewPath = `${packagePath}/reviews/review-life.md`, codeDocPath = `${packagePath}/code-doc-anchors.json`;
-    const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
+    const started = await cell.run({ kind: "task-start", taskId, executionId }, binding) as unknown as Record<string, unknown>; await assertCut(started, "execution_started", [indexPath, executionPath]); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: active/u);
     assert.equal((started.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
     assert.equal((started.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const commitSha = git(rootDir, "rev-parse", "HEAD"), beforeInvalidSubmit = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "incomplete", deliverables: [], outputs: [], verificationNotes: [], knownGaps: [], commitSha })); const invalidSubmit = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding); assert.equal(invalidSubmit.outcome, "op_rejected"); assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidSubmit); assert.equal(git(rootDir, "rev-parse", "HEAD"), commitSha); writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "Lifecycle output is ready.", deliverables: ["README.md"], outputs: ["machine files"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha }));
-    const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding) as unknown as Record<string, unknown>; assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding) as unknown as Record<string, unknown>; await assertCut(submitted, "execution_submitted", [indexPath, executionPath]); assert.deepEqual(submitted.transition, { from: "active/implementation", to: "in_review/review" }); assert.match(readFileSync(path.join(rootDir, "harness", executionPath), "utf8"), /State: submitted[\s\S]*Lifecycle output is ready/u);
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withRoleBinding({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "arbiter");
-    const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
+    const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
     const reviewEvent = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reviewed.opId)); if (reviewEvent?.type !== "review_recorded") throw new Error("review event missing"); assert.equal(reviewed.reviewDigest, reviewDigest(reviewEvent.payload.review)); assert.equal(reviewed.contentDigest, reviewEvent.payload.review.contentDigest); writeFileSync(path.join(rootDir, "consent.json"), JSON.stringify({ reviewDigest: reviewed.reviewDigest, contentDigest: reviewed.contentDigest }));
-    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-life", consentId: "consent-life", fromFile: "consent.json" }, binding) as unknown as Record<string, unknown>; assertCut(consented, "review_consent_recorded", [indexPath, executionPath, reviewPath]); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Consent: consent-life[\s\S]*Consent actor: person-owner/u);
+    const consented = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-life", consentId: "consent-life", fromFile: "consent.json" }, binding) as unknown as Record<string, unknown>; await assertCut(consented, "review_consent_recorded", [indexPath, executionPath, reviewPath]); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Consent: consent-life[\s\S]*Consent actor: person-owner/u);
     assert.equal((consented.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
     assert.equal((consented.authorizationDecision as Record<string, unknown>).outcome, "allowed");
-    const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: [witnessedPath] }, binding) as unknown as Record<string, unknown>; assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
+    const witnessedPath = "README.md", beforeInvalidWitness = makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision; assert.equal((await cell.run({ kind: "task-code-doc-reconcile", taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath] }, binding)).outcome, "op_rejected"); assert.equal(makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readHead()?.revision, beforeInvalidWitness); const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: [witnessedPath] }, binding) as unknown as Record<string, unknown>; await assertCut(reconciled, "code_doc_reconciled", [indexPath, executionPath, codeDocPath]); assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", codeDocPath), "utf8")), { schema: "code-doc-witness/v1", witnessId: String((makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { payload: { witness: { witnessId: string } } }).payload.witness.witnessId), taskId, executionId, commitSha, iteration: 0, paths: [witnessedPath], actor, source: "local", reconciledAt: (makeTaskEventReader({ repoId: "lifecycle-files", rootDir }).readEvent(String(reconciled.opId)) as { occurredAt: string }).occurredAt });
     const lookedUp = await cell.run({ kind: "receipt-show", opId: reconciled.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: reconciled.transition, changedPaths: reconciled.changedPaths });
-    await cell.close(); cell = undefined; const store = makeTaskEventStore({ repoId: "lifecycle-files", rootDir }); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) rmSync(path.join(rootDir, "harness", target)); const changed = store.materialize().changed; await store.drain(); assert.deepEqual(new Set(changed), new Set([indexPath, codeDocPath, executionPath, reviewPath]));
-    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, baselineRevision + 7); assert.equal(projection.read(taskId).snapshot.codeDocWitnesses.length, 1); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close();
+    await cell.close(); cell = undefined; const store = makeTaskEventReader({ repoId: "lifecycle-files", rootDir });
+    const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, baselineRevision + 7); assert.equal(projection.read(taskId).snapshot.codeDocWitnesses.length, 1); for (const target of [indexPath, executionPath, reviewPath, codeDocPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close(); await store.drain();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -527,6 +522,8 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
       } as const,
       repointed = (await cell.run(action, repoWriteBinding)) as Record<string, unknown>;
     assert.equal(repointed.outcome, "applied", JSON.stringify(repointed));
+    const repointedVisible = await waitForAcceptedReceipt(cell, repointed as { opId: string; acceptance?: { revisionTo?: number } | null });
+    assert.equal(repointedVisible.wait?.state, "satisfied", JSON.stringify(repointedVisible));
     const afterBytes = readFileSync(anchorPath),
       lines = afterBytes
         .toString("utf8")
@@ -563,6 +560,8 @@ test("code-doc repoint appends a replacement witness and rejects stale or unknow
       repoWriteBinding,
     )) as Record<string, unknown>;
     assert.equal(knownInvalid.outcome, "applied", JSON.stringify(knownInvalid));
+    const invalidVisible = await waitForAcceptedReceipt(cell, knownInvalid as { opId: string; acceptance?: { revisionTo?: number } | null });
+    assert.equal(invalidVisible.wait?.state, "satisfied", JSON.stringify(invalidVisible));
     const afterKnownInvalid = readFileSync(anchorPath),
       invalidLines = afterKnownInvalid
         .toString("utf8")
@@ -602,14 +601,14 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     }, "repo-write");
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRevision = store().read().revision, active = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: active.outcome, code: active.code, stoppedAt: active.stoppedAt, next: active.next }, { outcome: "op_rejected", code: "not_in_review", stoppedAt: "not_in_review", next: [{ command: `ha task submit ${taskId} --json-input '<submission-json>'`, reason: "Complete never submits or starts an execution; reach in_review first." }] }); assert.equal(store().read().revision, activeRevision);
     await cell.run({ kind: "task-progress-append", taskId, text: "implementation complete", evidence: [] }, binding); await cell.run({ kind: "fact-record", taskId, statement: "Completion uses canonical witnesses.", evidenceSource: "test:completion", confidence: "high", memoryClass: "semantic", memoryTags: [] }, binding);
     const closeoutPath = `${packagePath}/closeout.md`, artifactPath = `${packagePath}/artifacts/evidence.md`; writeFileSync(path.join(rootDir, "harness", closeoutPath), "# Closeout\n\n## Summary\n\nComplete.\n\n## Verification\n\nAll checks passed.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n"); writeFileSync(path.join(rootDir, "harness", artifactPath), "# Evidence\n\nCanonical flow.\n");
     const commitSha = git(rootDir, "rev-parse", "HEAD"); writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify({ completionClaim: "All required outputs are complete.", deliverables: ["README.md"], outputs: [artifactPath], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha })); await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
     const beforeReviewBlock = store().read().revision, missingReview = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code, steps: missingReview.steps }, { outcome: "op_rejected", code: "review_missing", steps: [] }); assert.equal(store().read().revision, beforeReviewBlock);
     const reviewBinding = (id: string) => withRoleBinding({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "arbiter");
-    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); return receipt; };
+    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
     assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task review-execution/u, "a dismissed Review must leave the execution awaiting review");
     await recordReview("review-unselected", "approved");
@@ -630,6 +629,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     ) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     assert.equal(consented.reviewId, "review-complete");
+    const consentVisible = await waitForAcceptedReceipt(cell, consented as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(consentVisible.wait?.state, "satisfied", JSON.stringify(consentVisible));
     assert.match(readFileSync(executionPath, "utf8"), /Selected review: review-complete[\s\S]*Consent: consent-complete/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-unselected.md`), "utf8"), /Consent: pending/u); assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/reviews/review-complete.md`), "utf8"), /Consent: consent-complete/u);
     const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); const beforeCi = store().read().revision, partial = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: partial.outcome, code: partial.code, stoppedAt: partial.stoppedAt, stepTypes: (partial.steps as { eventId?: string }[]).map((step) => store().readEvent(String(step.opId))?.type) }, { outcome: "op_rejected", code: "code_doc_missing", stoppedAt: "code_doc_missing", stepTypes: ["completion_gate_verified"] }); assert.equal(store().read().revision, beforeCi + 1); assert.equal((await cell.run({ kind: "task-show", taskId }, binding)).evidence.includes('"gateWitnesses"'), true);
     assert.equal(
@@ -693,7 +693,7 @@ test("CompleteTask response loss settles by stable receipt and never publishes a
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write") { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
-    const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "indeterminate", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
+    const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -708,9 +708,9 @@ test("Fact record publishes one event, L2 row, authored facts document, and supe
       supersedes: { factRef: "fact/F-ABCDEFGH", rationale: "x".repeat(200) } }, repoWriteBinding);
     assert.deepEqual({ outcome: receipt.outcome, code: receipt.code, state: cell.status().state }, { outcome: "op_rejected", code: "task_not_found", state: "attached" });
     assert.deepEqual(makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readHead(), baselineHead);
-    const binding = repoWriteBinding; assert.equal((await cell.run({ kind: "task-create", taskId: "task-fact", title: "Fact History" }, binding)).outcome, "applied");
-    const firstAction = { kind: "fact-record", taskId: "task-fact", statement: "Canonical facts are event-backed.", evidenceSource: "test:first", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"] }, first = await cell.run(firstAction, binding) as Record<string, unknown>; assert.equal(first.outcome, "applied", JSON.stringify(first)); assert.match(String(first.path), /^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u); assert.equal(first.worktreeVisible, true); assert.equal(first.commitSha, null); assert.equal(typeof first.cut, "object"); const firstId = String(first.factId), factsPath = `facts/${firstId}.md`, factsFile = path.join(rootDir, "harness", factsPath); assert.equal(readFileSync(factsFile, "utf8").includes(`### ${firstId}`), true); const replay = await cell.run(firstAction, binding); assert.deepEqual({ opId: replay.opId, revision: replay.revision, commitSha: replay.commitSha, cut: replay.cut }, { opId: first.opId, revision: first.revision, commitSha: null, cut: first.cut }); const firstEvent = makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readEvent(String(first.opId)); assert.equal(firstEvent?.schema, "fact-event/v1"); if (firstEvent?.schema === "fact-event/v1") { assert.equal(firstEvent.payload.factsDocumentClaim.path, factsPath); assert.equal(firstEvent.workspaceRevision, first.revision); }
-    const second = await cell.run({ kind: "fact-record", taskId: "task-fact", statement: "Canonical facts also have per-fact documents.", evidenceSource: "test:second", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], supersedes: { factRef: `fact/${firstId}`, rationale: "The stronger observation supersedes the first." } }, binding) as Record<string, unknown>; assert.equal(second.outcome, "applied", JSON.stringify(second)); const secondId = String(second.factId), secondPath = `facts/${secondId}.md`; assert.equal(readFileSync(path.join(rootDir, "harness", secondPath), "utf8").includes(`### ${secondId}`), true); const shown = await cell.run({ kind: "fact-show", factId: firstId }, binding); assert.equal((JSON.parse(String(shown.evidence)) as { fact: { state: string } }).fact.state, "superseded_fact"); assert.equal(makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readHead()?.revision, baselineRevision + 3);
+    const binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-fact", title: "Fact History" }, binding); assert.equal(created.outcome, "applied"); const taskVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(taskVisible.wait?.state, "satisfied", JSON.stringify(taskVisible));
+    const firstAction = { kind: "fact-record", taskId: "task-fact", statement: "Canonical facts are event-backed.", evidenceSource: "test:first", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"] }, first = await cell.run(firstAction, binding) as Record<string, unknown>; assert.equal(first.outcome, "applied", JSON.stringify(first)); assert.match(String(first.path), /^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u); assert.equal(first.status, "accepted_durable"); assert.equal(typeof first.cut, "object"); const firstVisible = await waitForAcceptedReceipt(cell, first as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(firstVisible.wait?.state, "satisfied", JSON.stringify(firstVisible)); const firstId = String(first.factId), factsPath = `facts/${firstId}.md`, factsFile = path.join(rootDir, "harness", factsPath); assert.equal(readFileSync(factsFile, "utf8").includes(`### ${firstId}`), true); const replay = await cell.run(firstAction, binding); assert.equal(replay.outcome, "applied", JSON.stringify(replay)); assert.equal(replay.status, "accepted_durable"); assert.equal(replay.opId, first.opId); assert.deepEqual(replay.acceptance, first.acceptance); const firstEvent = makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readEvent(String(first.opId)); assert.equal(firstEvent?.schema, "fact-event/v1"); if (firstEvent?.schema === "fact-event/v1") { assert.equal(firstEvent.payload.factsDocumentClaim.path, factsPath); assert.equal(firstEvent.workspaceRevision, first.revision); }
+    const second = await cell.run({ kind: "fact-record", taskId: "task-fact", statement: "Canonical facts also have per-fact documents.", evidenceSource: "test:second", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], supersedes: { factRef: `fact/${firstId}`, rationale: "The stronger observation supersedes the first." } }, binding) as Record<string, unknown>; assert.equal(second.outcome, "applied", JSON.stringify(second)); const secondVisible = await waitForAcceptedReceipt(cell, second as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(secondVisible.wait?.state, "satisfied", JSON.stringify(secondVisible)); const secondId = String(second.factId), secondPath = `facts/${secondId}.md`; assert.equal(readFileSync(path.join(rootDir, "harness", secondPath), "utf8").includes(`### ${secondId}`), true); const shown = await cell.run({ kind: "fact-show", factId: firstId }, binding); assert.equal((JSON.parse(String(shown.evidence)) as { fact: { state: string } }).fact.state, "superseded_fact"); assert.equal(makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readHead()?.revision, baselineRevision + 3);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -720,19 +720,19 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-decision-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-cell"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const binding = repoWriteBinding;
-    assert.equal((await cell.run({ kind: "task-create", taskId: "task-decision", title: "Decision evidence" }, binding)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId: "task-decision", title: "Decision evidence" }, binding); assert.equal(created.outcome, "applied"); const taskVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(taskVisible.wait?.state, "satisfied", JSON.stringify(taskVisible));
     const beforeMissing = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()!.revision, missing = await cell.run({ kind: "decision-reckon", decisionId: "dec_MISSING", taskId: "task-decision" }, binding);
     assert.deepEqual({ outcome: missing.outcome, code: missing.code, state: cell.status().state }, { outcome: "op_rejected", code: "entity_not_found", state: "attached" }); assert.equal(makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeMissing);
     const proposal = decisionProposal("Canonical", "Should reckon use the exact basis?"), proposed = await cell.run(proposal, binding);
-    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, related = await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/CH1`, targetRef: "task/task-decision", relationType: "derives", rationale: "Decision creates this task.", expectedVersion: 0 }, binding); assert.equal(related.outcome, "applied", JSON.stringify(related)); const decisionPath = `decisions/decision-${decisionId}/decision.md`, decisionFile = path.join(rootDir, "harness", decisionPath), beforeInvalid = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()!.revision;
-    assert.deepEqual({ path: (proposed as Record<string, unknown>).path, worktreeVisible: (proposed as Record<string, unknown>).worktreeVisible, commitSha: (proposed as Record<string, unknown>).commitSha }, { path: decisionPath, worktreeVisible: true, commitSha: null });
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const proposedVisible = await waitForAcceptedReceipt(cell, proposed, binding); assert.equal(proposedVisible.wait?.state, "satisfied", JSON.stringify(proposedVisible)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, related = await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/CH1`, targetRef: "task/task-decision", relationType: "derives", rationale: "Decision creates this task.", expectedVersion: 0 }, binding); assert.equal(related.outcome, "applied", JSON.stringify(related)); const decisionPath = `decisions/decision-${decisionId}/decision.md`, decisionFile = path.join(rootDir, "harness", decisionPath), beforeInvalid = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()!.revision;
+    assert.equal((proposed as Record<string, unknown>).path, decisionPath); assert.equal(proposed.status, "accepted_durable");
     const placement = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task-decision")!.placement; assert.equal(placement.moduleKeys.includes("daemon"), true, JSON.stringify(placement)); assert.equal(placement.provenance.some(({ kind }) => kind === "decision-relation"), true, JSON.stringify(placement));
     const decisionBody = readFileSync(decisionFile, "utf8"); assert.match(decisionBody, /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n# Canonical\n\nUse the canonical event-backed flow for this fixture\.\n$/u); const decisionEvent = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readEvent(proposed.opId); assert.equal(decisionEvent?.schema, "decision-event/v1"); if (decisionEvent?.schema === "decision-event/v1") { assert.equal(decisionEvent.payload.decisionDocumentClaim.path, decisionPath); assert.equal(decisionEvent.payload.decisionDocumentClaim.sha256, String((proposed as Record<string, unknown>).documentSha256)); }
     const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, withRoleBinding({ actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }, "arbiter"));
     assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "op_rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);
     const reckon = await cell.run({ kind: "decision-reckon", decisionId, taskId: "task-decision" }, binding); assert.equal(reckon.outcome, "applied", JSON.stringify(reckon)); const fact = JSON.parse(reckon.evidence) as { evidenceSource: string; statement: string; workspaceRevision: number };
     assert.equal(fact.evidenceSource, `decision/${decisionId}@${beforeInvalid}`); assert.match(fact.statement, new RegExp(`basisRevision ${beforeInvalid}`, "u")); assert.equal(fact.workspaceRevision, beforeInvalid + 1);
-    const stable = await cell.run({ kind: "receipt-show", opId: proposed.opId }, binding) as Record<string, unknown>; assert.deepEqual({ consentId: stable.consentId, path: stable.path, commitSha: stable.commitSha, cut: stable.cut, documentSha256: stable.documentSha256, worktreeVisible: stable.worktreeVisible }, { consentId: (proposed as Record<string, unknown>).consentId, path: (proposed as Record<string, unknown>).path, commitSha: null, cut: (proposed as Record<string, unknown>).cut, documentSha256: (proposed as Record<string, unknown>).documentSha256, worktreeVisible: true });
+    const stable = await cell.run({ kind: "receipt-show", opId: proposed.opId }, binding) as Record<string, unknown>; assert.deepEqual({ consentId: stable.consentId, path: stable.path, cut: stable.cut, documentSha256: stable.documentSha256 }, { consentId: (proposed as Record<string, unknown>).consentId, path: (proposed as Record<string, unknown>).path, cut: (proposed as Record<string, unknown>).cut, documentSha256: (proposed as Record<string, unknown>).documentSha256 }); assert.equal((stable.git as { state: string }).state, "verified"); assert.equal((stable.worktree as { state: string }).state, "verified");
     const event = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readEvent(reckon.opId); assert.equal(event?.schema, "fact-event/v1"); if (event?.schema === "fact-event/v1") assert.equal(event.payload.evidenceSource, fact.evidenceSource);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
@@ -741,7 +741,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
 
 test("Decision proposal packet defaults optional fields, checks boundaries before reads, and leaves the Task INDEX untouched", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-packet-")), outside = `${rootDir}-outside.json`; let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-packet"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical")), binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-related", title: "Related Task" }, binding) as Record<string, unknown>, index = path.join(rootDir, "harness", String(created.packagePath), "INDEX.md"), indexBefore = readFileSync(index); const packet = { title: "Atomic proposal", question: "Can one event publish the whole proposal?", riskTier: "medium", urgency: "high", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Publish once" }], rejected: [{ id: "RJ1", text: "Patch later", whyNot: "It exposes partial state" }], claims: [{ id: "C1", text: "The packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "delivered" }] }, minimalPacket = (({ vertical: _vertical, preset: _preset, appliesTo: _appliesTo, fulfillments: _fulfillments, ...minimal }) => minimal)(packet), before = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()!.revision;
+  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("decision-packet"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" }); const binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-related", title: "Related Task" }, binding) as Record<string, unknown>, createdVisible = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); const index = path.join(rootDir, "harness", String(created.packagePath), "INDEX.md"), indexBefore = readFileSync(index); const packet = { title: "Atomic proposal", question: "Can one event publish the whole proposal?", riskTier: "medium", urgency: "high", vertical: "default", preset: "default", decisionClass: "ordinary", appliesTo: { modules: ["daemon"], productLines: [] }, chosen: [{ id: "CH1", text: "Publish once" }], rejected: [{ id: "RJ1", text: "Patch later", whyNot: "It exposes partial state" }], claims: [{ id: "C1", text: "The packet is atomic.", loadBearing: true }], fulfillments: [{ claimId: "C1", mode: "delivered" }] }, minimalPacket = (({ vertical: _vertical, preset: _preset, appliesTo: _appliesTo, fulfillments: _fulfillments, ...minimal }) => minimal)(packet), before = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()!.revision;
     // Unknown fields and missing substantive fields remain rejected.
     for (const { action, code, field } of [
       { action: { kind: "decision-propose", jsonInput: JSON.stringify({ ...packet, unknown: true }) }, code: "invalid_command", field: undefined },
@@ -768,7 +768,7 @@ test("Decision proposal packet defaults optional fields, checks boundaries befor
     writeFileSync(path.join(rootDir, "proposal.json"), JSON.stringify(minimalPacket)); const outsidePacket = await cell.run({ kind: "decision-propose", fromFile: outside }, binding); assert.equal(outsidePacket.code, "invalid_command"); assert.deepEqual(outsidePacket.diagnostic, { kind: "workspace-boundary", field: "fromFile", workspaceRoot: realpathSync(rootDir) });
     writeFileSync(path.join(rootDir, "bad.md"), Buffer.from([0xff])); const invalidUtf8 = await cell.run({ kind: "decision-propose", fromFile: "proposal.json", bodyFile: "bad.md" }, binding); assert.equal(invalidUtf8.code, "invalid_command"); assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, afterDefault);
     const prose = `${realizedDecisionBody("Atomic proposal")}\n初始正文。\n`; writeFileSync(path.join(rootDir, "body.md"), prose); const proposed = await cell.run({ kind: "decision-propose", fromFile: "proposal.json", bodyFile: "body.md" }, binding) as Record<string, unknown>; assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); assert.equal(proposed.revision, afterDefault + 1); const event = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readEvent(String(proposed.opId)); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_proposed") { assert.deepEqual(event.payload.claims, packet.claims); assert.deepEqual(event.payload.fulfillments, []); assert.deepEqual(event.payload.relations, []); assert.equal(event.payload.body, prose); }
-    const decisionId = (JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId, document = readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"), projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId: "decision-packet", rootDir }) }), projected = projection.readDecision(decisionId).decision; assert.equal(document.endsWith(`---\n${prose}`), true); assert.deepEqual(projected?.claims, [{ ...packet.claims[0], fulfillment: null }]); assert.deepEqual(readFileSync(index), indexBefore); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits)); projection.close(); await cell.close(); cell = undefined; assert.ok(Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical")) >= baselineCanonicalCommits + 1);
+    const settled = await waitForAcceptedReceipt(cell, proposed as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled)); const decisionId = (JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId, document = readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"), projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId: "decision-packet", rootDir }) }), projected = projection.readDecision(decisionId).decision; assert.equal(document.endsWith(`---\n${prose}`), true); assert.deepEqual(projected?.claims, [{ ...packet.claims[0], fulfillment: null }]); assert.deepEqual(readFileSync(index), indexBefore); projection.close(); await cell.close(); cell = undefined;
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); rmSync(outside, { force: true }); }
 });
 
@@ -788,7 +788,7 @@ test("Decision judgment keeps the transport arbiter gate and returns the embedde
 
 test("Decision full vertical golden rebuilds proposal, prose, claim, relation, consent, list, and show", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-vertical-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); mkdirSync(path.join(rootDir, "packages/daemon"), { recursive: true }); writeFileSync(path.join(rootDir, "packages/daemon/index.ts"), "export const daemon = true;\n"); git(rootDir, "add", "."); git(rootDir, "commit", "--quiet", "-m", "add daemon scope"); cell = await openRepoCell({ repoId: workspaceId("decision-vertical"), rootDir: canonicalRoot(rootDir), ownerId: "decision-vertical" }); const binding = repoWriteBinding, proposal = await cell.run(decisionProposal("Vertical Decision", "Does the full Decision flow rebuild?"), binding), decisionId = (JSON.parse(String(proposal.evidence)) as { decisionId: string }).decisionId, logical = `decisions/decision-${decisionId}/decision.md`, target = path.join(rootDir, "harness", logical), canonical = readFileSync(target, "utf8"), split = canonical.indexOf("\n---\n", 4) + 5, prose = `${realizedDecisionBody("Vertical Decision")}\nCanonical body from doc-sync.\n`; writeFileSync(target, `${canonical.slice(0, split)}${prose}`);
+  try { initRepo(rootDir); mkdirSync(path.join(rootDir, "packages/daemon"), { recursive: true }); writeFileSync(path.join(rootDir, "packages/daemon/index.ts"), "export const daemon = true;\n"); git(rootDir, "add", "."); git(rootDir, "commit", "--quiet", "-m", "add daemon scope"); cell = await openRepoCell({ repoId: workspaceId("decision-vertical"), rootDir: canonicalRoot(rootDir), ownerId: "decision-vertical" }); const binding = repoWriteBinding, proposal = await cell.run(decisionProposal("Vertical Decision", "Does the full Decision flow rebuild?"), binding), proposalVisible = await waitForAcceptedReceipt(cell, proposal, binding); assert.equal(proposalVisible.wait?.state, "satisfied", JSON.stringify(proposalVisible)); const decisionId = (JSON.parse(String(proposal.evidence)) as { decisionId: string }).decisionId, logical = `decisions/decision-${decisionId}/decision.md`, target = path.join(rootDir, "harness", logical), canonical = readFileSync(target, "utf8"), split = canonical.indexOf("\n---\n", 4) + 5, prose = `${realizedDecisionBody("Vertical Decision")}\nCanonical body from doc-sync.\n`; writeFileSync(target, `${canonical.slice(0, split)}${prose}`);
     const synced = await cell.run({ kind: "doc-submit", paths: [logical] }, binding); assert.equal(synced.outcome, "applied", JSON.stringify(synced)); assert.equal((await cell.run({ kind: "decision-claim-add", decisionId, claimId: "C1", text: "The vertical flow is event-derived.", loadBearing: true }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/C1`, relationType: "supports", targetRef: `decision/${decisionId}/CH1`, rationale: "The chosen option demonstrates the claim.", expectedVersion: 0 }, binding)).outcome, "applied"); const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "Evidence relation reviewed.", judgmentOnlyRationale: null }, withRoleBinding({ actor: { principal: { personId: "person-ceo" }, executor: null }, source: "local" }, "arbiter")); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     const invalidList = await cell.run({ kind: "decision-list", legacyRange: { start: 10, end: 2 }, authoredFallback: true }, binding); assert.equal(invalidList.code, "invalid_command"); const listed = JSON.parse(String((await cell.run({ kind: "decision-list", search: "Canonical body" }, binding)).evidence)) as { decisions: readonly Record<string, unknown>[] }, shown = JSON.parse(String((await cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence)) as { decision: { state: string; body: { body: string }; claims: readonly unknown[]; judgmentConsents: readonly unknown[] } }; assert.deepEqual(listed.decisions.map(({ decisionId: id }) => id), [decisionId]); assert.equal(Object.hasOwn(listed.decisions[0]!, "body"), false); assert.deepEqual({ state: shown.decision.state, body: shown.decision.body.body, claims: shown.decision.claims.length, consents: shown.decision.judgmentConsents.length }, { state: "in_effect", body: prose, claims: 1, consents: 1 }); const gui = await cell.read("repo.decisions.list"), graph = await cell.read("repo.triadic.relationGraph", { limit: 500 }); assert.deepEqual(gui.decisions.map(({ decisionId: id }) => id), listed.decisions.map(({ decisionId: id }) => id)); assert.equal(gui.decisions[0]?.readiness?.conflictMarker.state, "clear"); assert.deepEqual(gui.decisions[0]?.capabilities.filter(({ available }) => available).map(({ id }) => id), ["supersede", "retire"]); assert.equal(gui.decisions[0]?.claimsOpen, true); assert.deepEqual(validateDaemonDecisionList(gui), []); const support = graph.edges.find((edge) => edge.sourceRef === `decision/${decisionId}/C1` && edge.targetRef === `decision/${decisionId}/CH1`); assert.deepEqual({ state: support?.state, freshness: support?.freshness, strength: support?.strength, current: support?.current }, { state: "active", freshness: "suspect", strength: "strong", current: false }); process.stdout.write(`[RELATION-CURRENT-DIVERGENCE] state=${support?.state} freshness=${support?.freshness} strength=${support?.strength} current=${support?.current}\n`); assert.deepEqual(validateDaemonRelationGraph(graph), []); // the read carries the kernel's uncovered-cause classification on every uncovered row
     // (here: claim C1 declares no fulfillment mode), so consumers never re-derive the judgment;
@@ -800,88 +800,236 @@ test("Decision full vertical golden rebuilds proposal, prose, claim, relation, c
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
-// prettier-ignore
-
-test("a pending WAL receipt remains readable when the Git object store is unavailable", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-corrupt-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("corrupt"), rootDir: canonicalRoot(rootDir), ownerId: "daemon-test" });
-    const applied = await cell.run({ kind: "task-create", taskId: "task-corrupt", title: "Corrupt" }, repoWriteBinding); assert.equal(applied.outcome, "applied");
-    rmSync(path.join(rootDir, ".git/objects"), { recursive: true, force: true });
-    const receipt = await cell.run({ kind: "receipt-show", opId: applied.opId }, repoWriteBinding);
-    assert.deepEqual({ outcome: receipt.outcome, commitSha: receipt.commitSha, cut: receipt.cut }, { outcome: "applied", commitSha: null, cut: applied.cut });
-    assert.equal(cell.status().state, "attached");
-    await assert.rejects(cell.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "materialization_failed"); cell = undefined;
-  } finally { if (cell) await cell.close(); rmSync(rootDir, { recursive: true, force: true }); }
-});
-
-for (const killpoint of [
-  "before_event_write",
-  "after_event_write",
-  "after_head_write",
-  "before_worktree_rename",
-  "after_worktree_rename",
-  "after_sqlite_commit",
-  "before_response_write",
-  "after_response_write",
-] as const) {
-  // prettier-ignore
-  test(`RepoCell new generation recovers ${killpoint} without a duplicate publication`, async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-crash-"));
-    const action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint } as const;
-    let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+for (const killpoint of ["before_event_write", "after_event_write"] as const) {
+  test(`RepoCell rolls back event and outcome together at ${killpoint}`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-preaccept-crash-")),
+      repoId = workspaceId("preaccept-crash"),
+      action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint } as const;
+    let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
     try {
-      initRepo(rootDir); crashed = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-one",
-        killpoint: (point) => { if (point === killpoint) throw new Error(`crash:${point}`); } });
-      const baselineRevision = makeTaskEventReader({ repoId: "crash", rootDir }).read().revision,
-        baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical"));
-      const first = await crashed.run(action, repoWriteBinding);
-      assert.equal(first.outcome, "op_rejected"); assert.equal(crashed.status().state, "unavailable");
-      const prePublicationCrash = killpoint === "before_event_write"; assert.equal(makeTaskEventReader({ repoId: "crash", rootDir }).read().revision, baselineRevision + (prePublicationCrash ? 0 : 1));
-      await crashed.close(); crashed = undefined;
-      recovered = await openRepoCell({ repoId: workspaceId("crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
-      const settled = await recovered.run({ kind: "receipt-show", opId: first.opId }, repoWriteBinding);
-      assert.equal(settled.outcome, prePublicationCrash ? "op_rejected" : "applied", JSON.stringify(settled));
-      if (prePublicationCrash) {
-        const retried = await recovered.run(action, repoWriteBinding);
-        assert.equal(retried.outcome, "applied", JSON.stringify(retried));
-      }
-      assert.equal(makeTaskEventReader({ repoId: "crash", rootDir }).read().events.filter((event) => event.opId === first.opId).length, 1);
-      if (prePublicationCrash) { assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits)); await recovered.close(); recovered = undefined; }
-      assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits + 1));
-    } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+      initRepo(rootDir);
+      crashed = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "generation-one",
+        killpoint: (point) => {
+          if (point === killpoint) throw new Error(`crash:${point}`);
+        },
+      });
+      const baselineRevision = makeTaskEventReader({ repoId, rootDir }).read().revision,
+        first = await crashed.run(action, repoWriteBinding);
+      assert.equal(first.outcome, "op_rejected", JSON.stringify(first));
+      assert.equal(first.status, "rejected");
+      assert.equal(first.acceptance, null);
+      assertValidWriteReceipt(first);
+      const rolledBack = makeTaskEventReader({ repoId, rootDir });
+      assert.equal(rolledBack.read().revision, baselineRevision);
+      assert.equal(rolledBack.readCommandOutcome(first.opId), null);
+      await rolledBack.drain();
+
+      await crashed.close();
+      crashed = undefined;
+      recovered = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "generation-two",
+      });
+      const missing = await recovered.run({ kind: "receipt-show", opId: first.opId }, repoWriteBinding);
+      assert.equal(missing.status, "rejected");
+      assert.equal(missing.acceptance, null);
+      const retried = await recovered.run(action, repoWriteBinding);
+      assert.equal(retried.status, "accepted_durable", JSON.stringify(retried));
+      assertValidWriteReceipt(retried);
+      const reader = makeTaskEventReader({ repoId, rootDir });
+      assert.equal(reader.read().events.filter((event) => event.opId === first.opId).length, 1);
+      assert.equal(reader.readCommandOutcome(first.opId)?.status, "accepted_durable");
+      await reader.drain();
+    } finally {
+      await crashed?.close();
+      await recovered?.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 }
 
-// prettier-ignore
+for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+  test(`RepoCell records durable acceptance before the ${killpoint} failure`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-postaccept-crash-")),
+      repoId = workspaceId("postaccept-crash"),
+      action = { kind: "task-create", taskId: `task-${killpoint}`, title: killpoint } as const;
+    let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    try {
+      initRepo(rootDir);
+      crashed = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "generation-one",
+        killpoint: (point) => {
+          if (point === killpoint) throw new Error(`crash:${point}`);
+        },
+      });
+      const baselineRevision = makeTaskEventReader({ repoId, rootDir }).read().revision,
+        first = await crashed.run(action, repoWriteBinding);
+      assert.equal(first.status, "accepted_durable", JSON.stringify(first));
+      assert.equal(first.acceptance?.revisionFrom, baselineRevision + 1);
+      assert.equal(first.acceptance?.revisionTo, baselineRevision + 1);
+      assertValidWriteReceipt(first);
+      const committed = makeTaskEventReader({ repoId, rootDir });
+      assert.equal(committed.read().revision, baselineRevision + 1);
+      assert.equal(committed.readCommandOutcome(first.opId)?.status, "accepted_durable");
+      await committed.drain();
 
-test("RepoCell preserves an acknowledged receipt when Git materialization stops after ref update", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-git-cut-crash-"));
-  const action = { kind: "task-create", taskId: "task-after-git-commit", title: "after_git_commit" } as const;
-  let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+      await crashed.close();
+      crashed = undefined;
+      recovered = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "generation-two",
+      });
+      const settled = await recovered.run(
+        {
+          kind: "receipt-show",
+          opId: first.opId,
+          waitFor: ["accepted_durable", "projection_visible", "git_verified"],
+          timeoutMs: 5_000,
+        },
+        repoWriteBinding,
+      );
+      assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+      assert.equal(settled.wait?.state, "satisfied");
+      const retried = await recovered.run(action, repoWriteBinding);
+      assert.equal(retried.status, "accepted_durable", JSON.stringify(retried));
+      const reader = makeTaskEventReader({ repoId, rootDir });
+      assert.equal(reader.read().events.filter((event) => event.opId === first.opId).length, 1);
+      await reader.drain();
+    } finally {
+      await crashed?.close();
+      await recovered?.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+}
+
+test("a post-accept Git failure leaves SQLite writable and the receipt independently recoverable", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-git-follower-failure-")),
+    repoId = workspaceId("git-follower-failure");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    failGit = true;
   try {
-    initRepo(rootDir); crashed = await openRepoCell({ repoId: workspaceId("git-cut-crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-one",
-      walMaterializationTestFault: { point: "after_git_commit", failures: 8 } });
-    const baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical"));
-    const first = await crashed.run(action, repoWriteBinding);
-    assert.deepEqual({ outcome: first.outcome, commitSha: first.commitSha }, { outcome: "applied", commitSha: null });
-    assert.ok(first.cut); assert.equal(crashed.status().state, "attached");
-    await assert.rejects(crashed.close(), (error: unknown) => error instanceof Error && "code" in error && error.code === "materialization_failed"); crashed = undefined;
-    recovered = await openRepoCell({ repoId: workspaceId("git-cut-crash"), rootDir: canonicalRoot(rootDir), ownerId: "generation-two" });
-    const settled = await recovered.run({ kind: "receipt-show", opId: first.opId }, repoWriteBinding);
-    assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.match(String(settled.commitSha), /^[0-9a-f]{40}$/u); assert.deepEqual(settled.cut, first.cut);
-    assert.equal(makeTaskEventReader({ repoId: "git-cut-crash", rootDir }).read().events.filter((event) => event.opId === first.opId).length, 1);
-    assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits + 1));
-  } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "git-follower-writer",
+      killpoint: (point) => {
+        if (failGit && point === "after_git_commit") throw new Error("simulated Git follower failure");
+      },
+    });
+    const first = await cell.run(
+      { kind: "task-create", taskId: "task-git-follower-one", title: "Accepted before Git" },
+      repoWriteBinding,
+    );
+    assert.equal(first.status, "accepted_durable", JSON.stringify(first));
+    assertValidWriteReceipt(first);
+    const pending = await cell.run(
+      { kind: "receipt-show", opId: first.opId, waitFor: ["git_verified"], timeoutMs: 0 },
+      repoWriteBinding,
+    );
+    assert.equal(pending.status, "accepted_durable");
+    assert.equal(pending.git.state, "pending");
+    assert.deepEqual(pending.wait, { state: "timed_out", unsatisfied: ["git_verified"] });
+
+    const second = await cell.run(
+      { kind: "task-create", taskId: "task-git-follower-two", title: "Accepted while Git is pending" },
+      repoWriteBinding,
+    );
+    assert.equal(second.status, "accepted_durable", JSON.stringify(second));
+    assert.notEqual(second.outcome, "op_rejected");
+
+    failGit = false;
+    await cell.settlePendingMaterialization("recover Git follower");
+    const settled = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: first.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified"],
+        timeoutMs: 5_000,
+      },
+      repoWriteBinding,
+    );
+    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    assert.equal(settled.git.state, "verified");
+    assert.equal(settled.worktree.state, "verified");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
-  // prettier-ignore
-  test(`Decision response recovery handles ${killpoint} without a duplicate authored event`, async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")), action = decisionProposal("Recover Decision", "Does the receipt settle once?"), binding = repoWriteBinding;
-    let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined, recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try { initRepo(rootDir); crashed = await openRepoCell({ repoId: workspaceId("decision-response-crash"), rootDir: canonicalRoot(rootDir), ownerId: "decision-generation-one", killpoint: (point) => { if (point === killpoint) throw new Error(`crash:${point}`); } }); const baselineCanonicalCommits = Number(git(rootDir, "rev-list", "--count", "refs/ha/canonical")), first = await crashed.run(action, binding); assert.equal(first.outcome, "op_rejected"); assert.equal(crashed.status().state, "unavailable"); assert.equal(makeTaskEventReader({ repoId: "decision-response-crash", rootDir }).read().events.filter((event) => event.schema === "decision-event/v1").length, 1); await crashed.close(); crashed = undefined;
-      recovered = await openRepoCell({ repoId: workspaceId("decision-response-crash"), rootDir: canonicalRoot(rootDir), ownerId: "decision-generation-two" }); const retried = await recovered.run(action, binding) as Record<string, unknown>; assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.worktreeVisible, true); assert.equal(makeTaskEventReader({ repoId: "decision-response-crash", rootDir }).read().events.filter((event) => event.schema === "decision-event/v1").length, 1); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), String(baselineCanonicalCommits + 1));
-    } finally { await crashed?.close(); await recovered?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  test(`Decision response recovery handles ${killpoint} without a duplicate publication`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")),
+      repoId = workspaceId("decision-response-crash"),
+      action = decisionProposal("Recover Decision", "Does the receipt settle once?");
+    let crashed: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      recovered: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    try {
+      initRepo(rootDir);
+      crashed = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "decision-generation-one",
+        killpoint: (point) => {
+          if (point === killpoint) throw new Error(`crash:${point}`);
+        },
+      });
+      const first = await crashed.run(action, repoWriteBinding);
+      assert.equal(first.status, "accepted_durable", JSON.stringify(first));
+      assert.equal(first.outcome, first.projection.state === "verified" ? "applied" : "pending");
+      assert.equal(first.code, "publication_indeterminate");
+      assert.equal(first.rejectionExplanation, undefined);
+      assertValidWriteReceipt(first);
+      const acceptedReader = makeTaskEventReader({ repoId, rootDir }),
+        acceptedEvents = acceptedReader.read().events.filter((event) => event.schema === "decision-event/v1");
+      assert.equal(acceptedEvents.length, 1);
+      const acceptedOpId = acceptedEvents[0]!.opId;
+      assert.equal(first.opId, acceptedOpId);
+      assert.deepEqual(first.acceptance?.memberOpIds, [acceptedOpId]);
+      assert.equal(acceptedReader.readCommandOutcome(acceptedOpId)?.status, "accepted_durable");
+      await acceptedReader.drain();
+      await crashed.close();
+      crashed = undefined;
+
+      recovered = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "decision-generation-two",
+      });
+      const settled = await recovered.run(
+        {
+          kind: "receipt-show",
+          opId: acceptedOpId,
+          waitFor: ["accepted_durable", "projection_visible", "git_verified"],
+          timeoutMs: 5_000,
+        },
+        repoWriteBinding,
+      );
+      assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+      const retried = await recovered.run(action, repoWriteBinding);
+      assert.equal(retried.status, "accepted_durable", JSON.stringify(retried));
+      assert.equal(retried.outcome, "applied");
+      assert.equal(retried.opId, acceptedOpId);
+      assert.deepEqual(retried.acceptance, first.acceptance);
+      const reader = makeTaskEventReader({ repoId, rootDir });
+      assert.equal(reader.read().events.filter((event) => event.schema === "decision-event/v1").length, 1);
+      await reader.drain();
+    } finally {
+      await crashed?.close();
+      await recovered?.close();
+      rmSync(rootDir, { recursive: true, force: true });
+    }
   });
 }
 
@@ -890,16 +1038,16 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
 test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion rejection, and worktree preservation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cell-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" });
-    const binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
+    const binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, binding); assert.equal(created.outcome, "applied"); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
     assert.equal((await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, repoWriteBinding)).outcome, "applied");
     const claims = path.join(rootDir, ".harness/doc-sync-claims"), authored = path.join(rootDir, "harness/context/notes.md"); mkdirSync(claims, { recursive: true }); mkdirSync(path.dirname(authored), { recursive: true });
     let body = "# Notes\nA\n"; writeFileSync(authored, body);
     const statusBefore = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, repoWriteBinding); assert.equal(statusBefore.outcome, "applied"); assert.equal(statusBefore.proof?.worktreeVisible, false);
     const action = { kind: "doc-submit", executionId: "execution-doc", paths: ["context/notes.md"] } as const;
-    const before = { head: git(rootDir, "rev-parse", "HEAD"), bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, repoWriteBinding);
-    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.proof?.worktreeVisible, true); assert.equal(applied.commitSha, null); assert.ok(applied.cut); assert.equal(git(rootDir, "rev-parse", "HEAD"), before.head); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), before.head); assert.equal(readFileSync(authored).toString("hex"), before.bytes);
-    const shown = await cell.run({ kind: "receipt-show", opId: applied.opId }, repoWriteBinding); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.proof?.canonicalVisible, true);
-    const commits = git(rootDir, "rev-list", "--count", "refs/ha/canonical"), retried = await cell.run(action, repoWriteBinding); assert.equal(retried.outcome, "no_changes"); assert.equal(retried.code, "no_changes"); assert.match(retried.opId, /^noop:/u); assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical"), commits);
+    const before = { revision: makeTaskEventReader({ repoId: "docs", rootDir }).read().revision, bytes: readFileSync(authored).toString("hex") }, applied = await cell.run(action, repoWriteBinding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied)); assert.equal(applied.detail?.kind, "doc_sync"); assert.equal(applied.status, "accepted_durable"); assert.ok(applied.cut); assert.equal(readFileSync(authored).toString("hex"), before.bytes); assertValidWriteReceipt(applied);
+    const shown = await cell.run({ kind: "receipt-show", opId: applied.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5_000 }, repoWriteBinding); assert.equal(shown.outcome, "applied"); assert.equal(shown.detail?.kind, "doc_sync"); assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+    const retried = await cell.run(action, repoWriteBinding); assert.equal(retried.outcome, "no_changes"); assert.equal(retried.code, "no_changes"); assert.match(retried.opId, /^noop:/u); assert.equal(makeTaskEventReader({ repoId: "docs", rootDir }).read().revision, before.revision + 1);
     const next = `${body}B\n`; writeFileSync(authored, next);
     const updated = await cell.run(action, repoWriteBinding); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
     rmSync(authored); const deletion = await cell.run(action, repoWriteBinding); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
@@ -911,13 +1059,13 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
 test("doc ingress rejects symbolic links in claim and authored path chains", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-claim-link-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("claim-link"), rootDir: canonicalRoot(rootDir), ownerId: "doc-daemon" }); const source = { kind: "assignment", nodeId: "node", assignmentId: "assignment" } as const, sourceBinding = withRoleBinding({ actor, source }, "repo-write");
-    const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, repoWriteBinding); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding)); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, sourceBinding);
+    const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, repoWriteBinding); const createdVisible = await waitForAcceptedReceipt(cell, created, repoWriteBinding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding)); await cell.run({ kind: "task-start", taskId: "task-doc", executionId: "execution-doc" }, sourceBinding);
     const body = "# Outside\n", hash = createHash("sha256").update(body).digest("hex"), claims = path.join(rootDir, ".harness/doc-sync-claims"); mkdirSync(claims, { recursive: true }); writeFileSync(path.join(rootDir, "outside.md"), body); symlinkSync("../../outside.md", path.join(claims, "linked"));
-    const binding = { actor, source, assignmentScope: { repoId: "claim-link", scope: { kind: "task" as const, taskId: "task-doc", executionId: "execution-doc", paths: ["context/link.md"] } } }, base = makeTaskEventReader({ repoId: "claim-link", rootDir }).currentCut(), beforeCommit = git(rootDir, "rev-parse", "refs/ha/canonical"), result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
-    assert.equal(result.code, "content_claim_mismatch"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), beforeCommit);
+    const binding = { actor, source, assignmentScope: { repoId: "claim-link", scope: { kind: "task" as const, taskId: "task-doc", executionId: "execution-doc", paths: ["context/link.md"] } } }, base = makeTaskEventReader({ repoId: "claim-link", rootDir }).currentCut(), beforeRevision = makeTaskEventReader({ repoId: "claim-link", rootDir }).read().revision, result = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/linked", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
+    assert.equal(result.code, "content_claim_mismatch"); assert.equal(makeTaskEventReader({ repoId: "claim-link", rootDir }).read().revision, beforeRevision);
     writeFileSync(path.join(claims, "plain"), body); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); symlinkSync("../../outside.md", path.join(rootDir, "harness/context/link.md"));
     const authoredLink = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/plain", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
-    assert.equal(authoredLink.code, "invalid_command"); assert.equal(git(rootDir, "rev-parse", "refs/ha/canonical"), beforeCommit);
+    assert.equal(authoredLink.code, "invalid_command"); assert.equal(makeTaskEventReader({ repoId: "claim-link", rootDir }).read().revision, beforeRevision);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 
@@ -946,10 +1094,10 @@ test("bootstrap binds the ledger repository branch independently of the project 
   try {
     const initialized = await host.bootstrap({ rootDir, repoId: "branch-bound", personId: "owner", displayName: "Owner" }, auth); assert.equal(initialized.outcome, "applied");
     const ledgerRoot = path.join(rootDir, "harness"), registered = readDaemonRegistry({ userRoot }).repos.find((repo) => repo.repoId === "branch-bound"), ledgerBranch = git(ledgerRoot, "branch", "--show-current"); assert.equal(registered?.authoredBranch, ledgerBranch);
-    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
+    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
     await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot }); await host.attachmentsSettled();
-    const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart));
-    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
+    const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart)); const settled = await host.run("branch-bound", { kind: "receipt-show", opId: afterRestart.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified"], timeoutMs: 5_000 }, auth); assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
+    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), git(ledgerRoot, "rev-parse", `refs/heads/${ledgerBranch}`)); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
   } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -1050,12 +1198,12 @@ test("local daemon stop acknowledges the control request and triggers shutdown",
 
 test("Policy rejects a principal without a durable-action RoleBinding", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-surfaces-")), root = path.join(parent, "repo"), second = path.join(parent, "second"), userRoot = path.join(parent, "user");
-  const ids = { reader: 4101, writer: 4102, arbiter: 4103, admin: 4104 }; [root, second].forEach((repo) => rbacRepo(repo, ids)); seedSettingsEvent({ repoId: "rbac", rootDir: root });
+  const ids = { reader: 4101, writer: 4102, arbiter: 4103, admin: 4104 }; [root, second].forEach((repo) => rbacRepo(repo, ids)); const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet"), holderId: "rbac-seed" }), lease = authority.acquire("rbac"); seedSettingsEvent({ repoId: "rbac", rootDir: root, writerEpochFence: { schema: "harness-writer-epoch-fence/v1", stateRoot: path.join(userRoot, "fleet"), repoId: "rbac", holderId: lease.holderId, epoch: lease.epoch } }); authority.close();
   const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
   const host = await openDaemonHost({ daemonId: "rbac", userRoot });
   try {
     assert.equal((await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: root, repoId: "rbac" })).outcome, "applied");
-    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied"); await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth(ids.writer)));
+    const created = await host.run("rbac", { kind: "task-create", taskId: "task-rbac", title: "RBAC" }, auth(ids.writer)); assert.equal(created.outcome, "applied", JSON.stringify(created)); const visible = await host.run("rbac", { kind: "receipt-show", opId: created.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"], timeoutMs: 5_000 }, auth(ids.writer)); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); assert.equal(visible.status, "accepted_durable"); await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) => host.run("rbac", { kind: "doc-submit", paths: [planPath] }, auth(ids.writer)));
     const executionId = "exec-rbac", commitSha = "a".repeat(40); assert.equal((await host.run("rbac", { kind: "task-start", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-show", taskId: "task-rbac" }, auth(ids.reader))).outcome, "applied");
     const deniedWrite = await host.run("rbac", { kind: "task-create", taskId: "task-denied", title: "Denied" }, auth(ids.reader));
@@ -1083,7 +1231,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
 
 test("runtime witness issuance binds the server principal without transport role authorization", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 }; rbacRepo(root, ids); const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
-  const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); await store.drain();
+  const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root, activationPreflight: preflightCanonicalGeneration }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); await store.drain();
   const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.throws(() => host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never), hasCode("invalid_provider_frame")); const assignment = { transportKind: "unix-socket", assignmentBinding: { nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [], actor: { principal: { personId: "worker" }, executor: null } } } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const [personId, ownerUid] of [["dualAdmin", ids.dualAdmin], ["dualArbiter", ids.dualArbiter]] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ownerUid)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 
@@ -1100,6 +1248,8 @@ test("task mutation rejections name the missing field and current execution stat
       ownerId: "task-rejection-diagnostics",
     });
     const created = await cell.run({ kind: "task-create", taskId, title: "Rejection diagnostics" }, repoWriteBinding);
+    const createdVisible = await waitForAcceptedReceipt(cell, created, repoWriteBinding);
+    assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding),
     );
@@ -1246,13 +1396,6 @@ function initRepo(rootDir: string): void {
   git(rootDir, "add", "README.md");
   git(rootDir, "commit", "--quiet", "-m", "fixture base");
 }
-function writeLegacyHarness(rootDir: string): void {
-  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(rootDir, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-}
 function initDeterministicRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
   git(rootDir, "config", "user.name", "RepoCell Test");
@@ -1294,11 +1437,14 @@ async function prepareReadyCompletion(
 ): Promise<void> {
   const binding = repoWriteBinding;
   const created = await cell.run({ kind: "task-create", taskId, title }, binding);
+  const createdVisible = await waitForAcceptedReceipt(cell, created, binding);
+  assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
   await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
     cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
   );
-  await cell.run({ kind: "task-start", taskId, executionId }, binding);
-  await cell.run(
+  const started = await cell.run({ kind: "task-start", taskId, executionId }, binding);
+  assert.equal((await waitForAcceptedReceipt(cell, started, binding)).wait?.state, "satisfied");
+  const fact = await cell.run(
     {
       kind: "fact-record",
       taskId,
@@ -1310,6 +1456,7 @@ async function prepareReadyCompletion(
     },
     binding,
   );
+  assert.equal((await waitForAcceptedReceipt(cell, fact, binding)).wait?.state, "satisfied");
   const packagePath = `tasks/${taskId}-${title
       .toLocaleLowerCase("en-US")
       .replace(/[^a-z0-9]+/gu, "-")
@@ -1319,7 +1466,9 @@ async function prepareReadyCompletion(
     path.join(rootDir, "harness", closeoutPath),
     "# Closeout\n\n## Summary\n\nDone.\n\n## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
   );
-  assert.equal((await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding)).outcome, "applied");
+  const closeout = await cell.run({ kind: "doc-submit", paths: [closeoutPath] }, binding);
+  assert.equal(closeout.outcome, "applied");
+  assert.equal((await waitForAcceptedReceipt(cell, closeout, binding)).wait?.state, "satisfied");
   const commitSha = git(rootDir, "rev-parse", "HEAD");
   writeFileSync(
     path.join(rootDir, "submission.json"),
@@ -1333,12 +1482,13 @@ async function prepareReadyCompletion(
       commitSha,
     }),
   );
-  await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  const submitted = await cell.run({ kind: "task-submit", taskId, executionId, fromFile: "submission.json" }, binding);
+  assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
   );
-  await cell.run(
+  const reviewed = await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
     withRoleBinding(
       {
@@ -1348,12 +1498,20 @@ async function prepareReadyCompletion(
       "arbiter",
     ),
   );
-  await cell.run(
+  assert.equal((await waitForAcceptedReceipt(cell, reviewed, binding)).wait?.state, "satisfied");
+  const consented = await cell.run(
     { kind: "task-review-consent", taskId, executionId, reviewId: "review-ready", consentId: "consent-ready" },
     binding,
   );
-  await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
-  if (reconcileCodeDoc) await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding);
+  assert.equal((await waitForAcceptedReceipt(cell, consented, binding)).wait?.state, "satisfied");
+  const completionAttempt = await cell.run({ kind: "task-complete", taskId, executionId, ci: "passed" }, binding);
+  if (completionAttempt.outcome === "applied")
+    assert.equal((await waitForAcceptedReceipt(cell, completionAttempt, binding)).wait?.state, "satisfied");
+  else assert.equal(completionAttempt.code, "code_doc_missing", JSON.stringify(completionAttempt));
+  if (reconcileCodeDoc) {
+    const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, binding);
+    assert.equal((await waitForAcceptedReceipt(cell, reconciled, binding)).wait?.state, "satisfied");
+  }
 }
 function rbacRepo(rootDir: string, ids: Readonly<Record<string, number>>): void {
   mkdirSync(rootDir, { recursive: true });
@@ -1506,14 +1664,5 @@ function hasCode(expected: string): (error: unknown) => boolean {
   return (error) => typeof error === "object" && error !== null && "code" in error && error.code === expected;
 }
 function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
-  return Object.freeze({
-    commandType: event.type,
-    targets: Object.freeze(
-      [
-        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
-        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        { kind: "projection_invalidation", projection: "agent-runtime/v1", key: event.opId },
-      ].map((target) => Object.freeze(target)),
-    ),
-  }) as FrozenWritePlan;
+  return canonicalEventWritePlan(event, "agent-runtime/v1", event.opId);
 }

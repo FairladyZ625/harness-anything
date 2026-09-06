@@ -152,6 +152,18 @@ test(
         true,
       );
       assert.deepEqual(listA, listB);
+      const publication = await rpcA("repo.task.read", {
+        repo: { repoId },
+        payload: {
+          action: {
+            kind: "receipt-show",
+            opId: created.opId,
+            waitFor: ["git_verified", "worktree_visible"],
+            timeoutMs: 4000,
+          },
+        },
+      });
+      assert.equal((publication.wait as { state?: string })?.state, "satisfied", JSON.stringify(publication));
       const document = await rpcA("repo.tasks.document.read", {
         repo: { repoId },
         payload: { taskId: "task_proxy_round_trip", path: "INDEX.md" },

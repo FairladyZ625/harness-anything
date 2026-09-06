@@ -28,7 +28,9 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
     register(fixture.alpha, fixture.userRoot, "alpha");
     const installed = run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
     assert.equal(installed.outcome, "pending");
-    assert.equal((installed.proof as Record<string, unknown>).canonicalVisible, false);
+    assert.equal(installed.status, "unknown");
+    assert.equal(installed.acceptance, null);
+    assert.equal((installed.git as Record<string, unknown>).state, "pending");
     const result = spawnSync(
       process.execPath,
       [
@@ -100,7 +102,9 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
         canonicalVisible: directProof.canonicalVisible,
       },
     );
-    assert.equal(directReceipt.commitSha, null);
+    const directGit = directReceipt.git as Record<string, unknown>;
+    assert.equal(directGit.state, "verified");
+    assert.equal(directReceipt.commitSha, directGit.commitSha);
     assert.ok(directReceipt.cut);
     stop(fixture.alpha, fixture.userRoot);
     const materialized = makeTaskEventReader({
@@ -168,7 +172,7 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
   let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     held = await openRepoCell({
-      repoId: workspaceId("held-alpha"),
+      repoId: workspaceId("alpha"),
       rootDir: canonicalRoot(fixture.alpha),
       ownerId: "external-writer",
     });

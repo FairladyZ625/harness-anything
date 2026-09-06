@@ -367,7 +367,7 @@ function assessDaemonStatus(result: Record<string, unknown>): {
             ...result,
             summary:
               `${String(result.summary ?? "daemon status")}\n` +
-              `WAL-to-Git materialization retrying: ${retryingRows.join("; ")}`,
+              `SQLite-to-Git publication retrying: ${retryingRows.join("; ")}`,
           },
     failedRows = rows.filter(
       (value) => statusRecord(value) && statusRecord(value.materialization) && value.materialization.state === "failed",
@@ -416,8 +416,8 @@ function assessDaemonStatus(result: Record<string, unknown>): {
       })
       .join("; "),
     hint =
-      `WAL-to-Git materialization failed: ${details}. Repair the reported cause, then use the existing ` +
-      "repository recovery path by retrying the write; no daemon restart is required.";
+      `SQLite-to-Git publication failed: ${details}. Repair the reported cause, then use the existing ` +
+      "repository recovery path. Accepted commands remain durable in SQLite; query their operation ids.";
   return {
     exitCode: 1,
     receipt: {

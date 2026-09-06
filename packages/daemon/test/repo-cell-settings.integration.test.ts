@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, validateReceiptAcceptance, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -62,7 +63,13 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
           binding,
         ),
       ]);
-    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    assert.equal(applied.outcome, "applied", JSON.stringify({ applied, cellStatus: cell.status() }));
+    assert.equal(applied.status, "accepted_durable");
+    const receiptFields = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]);
+    assert.deepEqual(
+      validateWriteReceipt(Object.fromEntries(Object.entries(applied).filter(([key]) => receiptFields.has(key)))),
+      [],
+    );
     assert.deepEqual(applied.updatedProjection, {
       kind: "settings",
       ref: "settings/repository",
@@ -77,8 +84,14 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
         explain: "When supplied, expectedVersion matches the current Settings singleton revision.",
       },
     ]);
+    const visible = await cell.run(
+      { kind: "receipt-show", opId: applied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
+    assert.deepEqual(validateReceiptAcceptance(visible as unknown as Record<string, unknown>), []);
     assert.match(readFileSync(configPath, "utf8"), /defaultPreset: docs-task[\s\S]*defaultProfile: baseline/u);
-    const eventStore = makeTaskEventStore({ repoId: "settings-catalog", rootDir: root }),
+    const eventStore = makeTaskEventReader({ repoId: "settings-catalog", rootDir: root }),
       audited = eventStore.readEvent(applied.opId);
     assert.equal(audited?.schema, "settings-event/v1");
     if (audited?.schema === "settings-event/v1") {
@@ -126,6 +139,11 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       bytes: 16_777_216,
       milliseconds: 30_000,
     });
+    const flushed = await cell.run(
+      { kind: "receipt-show", opId: flushApplied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      binding,
+    );
+    assert.equal(flushed.wait?.state, "satisfied", JSON.stringify(flushed));
     assert.match(readFileSync(configPath, "utf8"), /walFlush:[\s\S]*adaptive: false[\s\S]*events: 4096/u);
 
     const beforeLocalRevision = eventStore.readHead()!.revision,

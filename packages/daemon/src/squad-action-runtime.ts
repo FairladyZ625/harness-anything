@@ -28,26 +28,6 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       const raw = cell.squadCoordinator.status(squadRequiredText(action.squadRunId, "squadRunId"));
       return coordinatorReceipt(cell, raw, opId, revision, []);
     }
-    if (contract.id === "run") {
-      const raw = await cell.squadCoordinator.start(action as JsonObject, binding);
-      return coordinatorReceipt(
-        cell,
-        raw,
-        opId,
-        revision,
-        contract.effects.map(({ ref }) => ref),
-      );
-    }
-    if (contract.id === "cancel") {
-      const raw = await cell.squadCoordinator.cancel(squadRequiredText(action.squadRunId, "squadRunId"), binding);
-      return coordinatorReceipt(
-        cell,
-        raw,
-        opId,
-        revision,
-        contract.effects.map(({ ref }) => ref),
-      );
-    }
     throw cell.cellCodedError("invalid_store", `Squad Action ${contract.id} has no catalog runtime implementation.`);
   };
 }

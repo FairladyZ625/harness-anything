@@ -22,10 +22,6 @@ export interface RepoWriterBootstrapV1 {
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly bootstrap?: RepoBootstrapInput;
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
-    readonly walMaterializationTestFault?: {
-      readonly point: "before_materialization" | "worker_exit" | "after_git_commit" | "after_git_ref_update";
-      readonly failures: number;
-    };
   };
   readonly capabilities: {
     readonly now: boolean;
@@ -37,7 +33,6 @@ export interface RepoWriterBootstrapV1 {
     readonly runtimeLaunch: boolean;
     readonly runtimeSignal: boolean;
     readonly fleetRoster: boolean;
-    readonly storeOpened: boolean;
   };
 }
 
@@ -86,7 +81,7 @@ export interface RepoWriterControlV1 {
   readonly schema: "harness-repo-writer-control/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
-  readonly command: "recover" | "drain" | "crash" | "beginBulkWrite" | "finishBulkWrite";
+  readonly command: "recover" | "drain" | "crash";
 }
 
 export type RepoWriterMessageV1 =
@@ -128,7 +123,6 @@ export type RepoWriterCapabilityName =
   | "runtimeSignal"
   | "attemptTerminal"
   | "lifecycle"
-  | "storeOpened"
   | "fleetRoster";
 
 export interface RepoWriterCapabilityCallV1 {

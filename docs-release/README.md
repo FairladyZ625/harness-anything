@@ -132,8 +132,8 @@ mirrors, and the remote boundary.
 ## Recover a repository that refuses every command
 
 An upgraded daemon can refuse a repository whose ledger still carries legacy migration events.
-That refusal has a defined in-place recovery: read the symptom, preview the fact rekey, reconcile
-the counts, apply, prove idempotency, and confirm the repository re-attaches.
+Preserve the source and convert its historical shapes into an inactive generation-1 database.
+Activation verifies the converted prefix and required objects; in-place historical rewrites are retired.
 
 → **[migration-legacy-ledger-recovery.md](migration-legacy-ledger-recovery.md)**
 

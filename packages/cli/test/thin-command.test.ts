@@ -5,6 +5,7 @@ import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { settleCommandVisibility } from "../src/daemon/client.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -70,7 +71,7 @@ test("an unknown command domain reports unknown with the available set instead o
   }
   assert.equal(logs.length, 1);
   assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
-  assert.match(logs[0] ?? "", /ha migrate rekey-facts(?: --dry-run)?/u);
+  assert.doesNotMatch(logs[0] ?? "", /rekey-facts|dispatch-records|settings-wal-flush|migrate ledger/u);
 });
 
 test("entity import projects its concurrency and dry-run flags into one daemon Action", () => {
@@ -183,41 +184,18 @@ test("vertical entity-kind commands coexist with the existing vertical command s
   assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
 });
 
-test("dispatch record migration projects its dry-run flag into the daemon Action", () => {
-  const parsed = parseThinCommand(["migrate", "dispatch-records", "--dry-run"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, { kind: "dispatch-records-migrate", dryRun: true });
-});
-
-test("settings WAL flush migration projects its dry-run flag into the daemon Action", () => {
-  const parsed = parseThinCommand(["migrate", "settings-wal-flush", "--dry-run"]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, { kind: "settings-wal-flush-migrate", dryRun: true });
-});
-
-test("Squad migration projects legacy sources and dry-run into one center Action", () => {
-  const parsed = parseThinCommand([
-    "migrate",
-    "squads",
-    "--source",
-    "harness/squads/ledger-squad.json",
-    "--source",
-    "harness/squads/debug-squad.json",
-    "--dry-run",
-  ]);
-  assert.equal(parsed.ok, true);
-  if (!parsed.ok) return;
-  assert.equal(parsed.command.method, "repo.task.run");
-  assert.deepEqual(parsed.command.action, {
-    kind: "entity-migrate-squads",
-    sourcePaths: ["harness/squads/ledger-squad.json", "harness/squads/debug-squad.json"],
-    dryRun: true,
-  });
-  assert.equal(parseThinCommand(["migrate", "squads", "--dry-run"]).ok, false);
+test("retired mutation migrations are explicitly absent from the thin router", () => {
+  for (const argv of [
+    ["migrate", "rekey-facts"],
+    ["migrate", "relation-events"],
+    ["migrate", "decision-digests"],
+    ["migrate", "schedule-definitions"],
+    ["migrate", "settings-wal-flush"],
+    ["migrate", "dispatch-records"],
+    ["migrate", "squads"],
+    ["migrate", "ledger"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
 
 test("capabilities is an exact-set projection of the command contract", () => {
@@ -276,18 +254,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     gui: ["gui"],
     init: ["repo-bootstrap"],
     ledger: ["ledger-reconcile"],
-    migrate: [
-      "decision-digests-migrate",
-      "dispatch-records-migrate",
-      "entity-migrate-squads",
-      "fact-rekey",
-      "ledger-migrate",
-      "migrate-import",
-      "relation-events-migrate",
-      "schedule-definitions-migrate",
-      "settings-wal-flush-migrate",
-      "vertical-declaration-migrate",
-    ],
+    migrate: ["migrate-import", "vertical-declaration-migrate"],
     preset: [
       "preset-audit",
       "preset-check",
@@ -732,3 +699,64 @@ function captureStdout(run: () => void): string {
     console.log = log;
   }
 }
+
+test("CLI visibility waiting preserves durable acceptance and business fields, with an explicit opt-out", async () => {
+  const parsed = parseThinCommand(["task", "create", "--admin", "--id", "task-wait", "--title", "Wait fixture"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const receipt = {
+    status: "accepted_durable",
+    opId: "op-visible",
+    outcome: "applied",
+    command: "task-create",
+    packagePath: "tasks/task-visible",
+    worktree: { state: "pending", cut: null },
+  };
+  let calls = 0;
+  const observed = {
+    ...receipt,
+    command: "receipt-show",
+    worktree: { state: "verified", cut: null },
+    wait: { state: "satisfied", unsatisfied: [] },
+  };
+  const settled = await settleCommandVisibility(parsed.command, receipt, async (opId) => {
+    calls += 1;
+    assert.equal(opId, receipt.opId);
+    return observed;
+  });
+  assert.equal(calls, 1);
+  assert.equal(settled.command, "task-create");
+  assert.equal(settled.packagePath, receipt.packagePath);
+  assert.deepEqual(settled.worktree, observed.worktree);
+  const noWait = parseThinCommand([
+    "task",
+    "create",
+    "--admin",
+    "--id",
+    "task-wait",
+    "--title",
+    "Wait fixture",
+    "--no-wait",
+  ]);
+  assert.equal(noWait.ok, true);
+  if (!noWait.ok) return;
+  assert.equal(noWait.command.noWait, true);
+  assert.equal("noWait" in noWait.command.action, false);
+  const unexpectedRead = async () => {
+    assert.fail("receipt read must not run");
+  };
+  assert.equal(await settleCommandVisibility(noWait.command, receipt, unexpectedRead), receipt);
+  const rejected = { ...receipt, status: "rejected", outcome: "op_rejected" };
+  assert.equal(await settleCommandVisibility(parsed.command, rejected, unexpectedRead), rejected);
+  const pending = { ...receipt, wait: { state: "timed_out", unsatisfied: ["worktree_visible"] } };
+  const timedOut = await settleCommandVisibility(parsed.command, receipt, async () => pending);
+  assert.equal(timedOut.status, "accepted_durable");
+  assert.deepEqual(timedOut.wait, pending.wait);
+  assert.deepEqual(timedOut.worktree, receipt.worktree);
+  const disconnected = await settleCommandVisibility(parsed.command, receipt, async () => {
+    throw new Error("socket disconnected");
+  });
+  assert.equal(disconnected.status, "accepted_durable");
+  assert.equal(disconnected.outcome, "applied");
+  assert.equal(disconnected.visibilityWaitError, "socket disconnected");
+});

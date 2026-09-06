@@ -1,3 +1,4 @@
+import { validateReceiptAcceptance, type ReceiptAcceptanceFields } from "./receipt-acceptance.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
@@ -143,7 +144,8 @@ export const receiptDetailRegistry = Object.freeze([
 ] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail | EntityUpsertReceiptDetail;
 /** Internal mutation result before the center attaches its authorization decision. */
-export interface WriteReceiptDraft {
+export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields, "status">> {
+  readonly status?: string;
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
@@ -176,14 +178,25 @@ export interface WriteReceiptDraft {
   };
 }
 /** Public durable-write receipt framed at the center's canonical cut. */
-export interface WriteReceipt extends WriteReceiptDraft {
+export interface WriteReceipt extends Omit<WriteReceiptDraft, keyof ReceiptAcceptanceFields>, ReceiptAcceptanceFields {
   readonly authorizationDecision: AuthorizationDecision;
 }
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
   outcomes: Object.freeze(["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
-  required: Object.freeze(["outcome", "opId", "authorizationDecision"]),
+  required: Object.freeze([
+    "outcome",
+    "opId",
+    "authorizationDecision",
+    "status",
+    "acceptance",
+    "projection",
+    "git",
+    "worktree",
+    "replica",
+  ]),
   optional: Object.freeze([
+    "wait",
     "revision",
     "code",
     "origin",
@@ -208,6 +221,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   const errors = Object.keys(value)
     .filter((key) => ![...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].includes(key))
     .map((key) => `unexpected field: ${key}`);
+  errors.push(...validateReceiptAcceptance(value));
+  const unaccepted = value.acceptance === null && (value.status === "unknown" || value.status === "rejected");
+  if (unaccepted && "proof" in value) errors.push("unaccepted receipt must not carry committed proof");
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome))
     errors.push("receipt outcome is invalid");
   if (!isNonEmptyString(value.opId)) errors.push("opId is required");
@@ -304,7 +320,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("materialized commitSha and cut must be reported together");
   if (
     (value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes") &&
-    (visibility === undefined || !validProof)
+    (visibility === undefined || (!unaccepted && !validProof))
   )
     errors.push(`${String(value.outcome)} requires visibility and proof`);
   if (
@@ -322,7 +338,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("replica applied requires worktree visibility and ackCut at the same cut");
   if (
     (value.outcome === "applied" || value.outcome === "no_changes") &&
-    (!cut(value.revision) || !isNonEmptyString(value.evidence))
+    ((!unaccepted && !cut(value.revision)) || !isNonEmptyString(value.evidence))
   )
     errors.push(`${String(value.outcome)} requires revision and evidence`);
   if (value.outcome === "no_changes" && (value.code !== "no_changes" || !isNonEmptyString(value.origin)))
@@ -332,7 +348,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     hasLegacyRemediation = isNonEmptyString(value.nextAction);
   if (
     value.outcome === "pending" &&
-    (!cut(value.revision) || !isNonEmptyString(value.evidence) || (!hasStructuredRemediation && !hasLegacyRemediation))
+    ((!unaccepted && !cut(value.revision)) ||
+      !isNonEmptyString(value.evidence) ||
+      (!hasStructuredRemediation && !hasLegacyRemediation))
   )
     errors.push("pending requires committed evidence, revision, and remediation guidance");
   if (value.outcome === "indeterminate" || value.outcome === "op_rejected")

@@ -7,16 +7,12 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
-import { openPersistentWriterEpoch } from "../../packages/daemon/src/writer-epoch.ts";
 import { openBootstrappedRepoCell } from "../../packages/daemon/test/repo-settings.fixture.ts";
 import { actor, initRepo } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
-import { makeTaskEventReader } from "../../packages/kernel/src/index.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../packages/kernel/src/projection/rebuildable-task-projection.ts";
-import { migrateEventsToSqlite, openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
-import { reconcileSqliteEvents } from "../../packages/kernel/src/store/sqlite-ledger-reconcile.ts";
-import { openWalEventLog } from "../../packages/kernel/src/store/wal-event-log.ts";
+import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
 import { eventAt } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
 import { createProcessTree, createSeededScenario, runScenario } from "./core/controller.mjs";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
@@ -70,7 +66,7 @@ test(
           capabilities: ["node:sqlite", "POSIX process SIGKILL", "fsync receipt log"],
         },
         seed,
-        topology: "serial S1 fixture: external controller + SQLite store + RepoCell shadow",
+        topology: "serial S1 fixture: external controller + SQLite store + RepoCell canonical acceptance",
         generation: 1,
         counts: {
           acceptedEvents: core.cut.events.length,
@@ -135,7 +131,7 @@ test(
             verdict: "PASS",
           },
           {
-            id: "S1/repo-cell-shadow",
+            id: "S1/repo-cell-sqlite-acceptance",
             pid: process.pid,
             loadedBuild: sourceBuildId(),
             nodeId: "isolated-s1-node",
@@ -144,7 +140,7 @@ test(
             claim: daemon.taskId,
             cut: { generation: 1, revision: daemon.sqliteRevision },
             schedule: daemon.schedule,
-            boundaryHits: ["repo-cell-wal-append", "sqlite-shadow-append"],
+            boundaryHits: ["repo-cell-sqlite-accept", "sqlite-command-outcome-readback"],
             receiptLog: daemon.receiptLog,
             receiptLogLocation: daemon.receiptLogPath,
             oracles: {},
@@ -181,7 +177,23 @@ async function runCoreFixture(targetRoot, controllerRoot) {
   const store = openSqliteEventStore({ repoId, databasePath });
   const fence = { repoId, holder: "controller-primary", epoch: 1 };
   store.claimWriter(fence);
-  const eventOne = eventAt(1);
+  const blobBody = '{"stress":"s1-blob-π"}\n';
+  const blobHash = sha256Text(blobBody);
+  const eventOne = {
+    ...eventAt(1),
+    payload: {
+      ...eventAt(1).payload,
+      documentClaims: [
+        {
+          path: "artifacts/stress-s1.txt",
+          sha256: blobHash,
+          size: Buffer.byteLength(blobBody),
+          mediaType: "application/json",
+          policyId: "typed-machine-writer/v1",
+        },
+      ],
+    },
+  };
   const eventTwo = eventAt(2);
   const eventThree = eventAt(3);
   const eventFour = eventAt(4);
@@ -250,6 +262,18 @@ async function runCoreFixture(targetRoot, controllerRoot) {
               summary: request.summary,
             },
             events: request.expectedEvents,
+            ...(request.opId === eventOne.opId
+              ? {
+                  blobs: [
+                    {
+                      sha256: blobHash,
+                      size: Buffer.byteLength(blobBody),
+                      mediaType: "application/json",
+                      body: blobBody,
+                    },
+                  ],
+                }
+              : {}),
             ...(request.rejectionCode ? { rejectionCode: request.rejectionCode } : {}),
           });
           return { ...outcome, sequence: request.callSequence };
@@ -269,26 +293,27 @@ async function runCoreFixture(targetRoot, controllerRoot) {
   const commandElapsedMs = performance.now() - started;
   store.claimWriter({ repoId, holder: "controller-successor", epoch: 2 });
   const sqliteVersion = store.sqliteVersion;
+  const blobStarted = performance.now();
+  const blobBytes = store.readContentObject(blobHash);
+  const tBlobMs = performance.now() - blobStarted;
+  assert.ok(blobBytes);
+  const reconciliation = {
+    matches: store.eventRows().every((row) => row.digest === digest(row.eventJson)),
+    metadata: store.metadata(),
+    outcomes: store.outcomes().length,
+    objects: store.contentObjectDigests(),
+  };
   store.close();
   const cut = readSqliteCut(databasePath);
   const receiptLogValue = readReceiptLog(receiptLogPath);
 
-  const blobBody = "stress-s1-blob-π\n";
-  const blobHash = sha256Text(blobBody);
-  const wal = openWalEventLog(targetRoot);
-  const blobStarted = performance.now();
-  wal.append({
-    event: eventOne,
-    blobs: [{ sha256: blobHash, size: Buffer.byteLength(blobBody), mediaType: "text/plain", body: blobBody }],
-  });
-  const tBlobMs = performance.now() - blobStarted;
-  const blobBytes = wal.readContentBlob(blobHash);
-  wal.close();
-  assert.ok(blobBytes);
-  const segmentPath = path.join(targetRoot, ".harness", "wal", "seg-000000.log");
-  const segmentBytes = readFileSync(segmentPath);
-
-  const eventStream = sqliteEventStream(cut.events);
+  const eventStream = sqliteEventStream(
+    cut.events.map((event) =>
+      event.type === "task_created" && event.payload.documentClaims?.length
+        ? { ...event, payload: { ...event.payload, documentClaims: [] } }
+        : event,
+    ),
+  );
   const hotRoot = path.join(targetRoot, "hot-projection");
   const coldRoot = path.join(targetRoot, "cold-projection");
   const hot = makeTaskProjection({ rootDir: hotRoot, eventStore: eventStream });
@@ -308,7 +333,6 @@ async function runCoreFixture(targetRoot, controllerRoot) {
   second.close();
   const tRebuildMs = performance.now() - rebuildStarted;
 
-  const reconciliation = reconcileSqliteEvents({ repoId, databasePath, events: cut.events });
   const otherRepo = openSqliteEventStore({
     repoId: "stress-s1-other",
     databasePath: path.join(targetRoot, "other", "ledger.sqlite"),
@@ -336,14 +360,9 @@ async function runCoreFixture(targetRoot, controllerRoot) {
     logs: {
       diagnosticScope: "unresolved",
       claims: [
-        {
-          streamId: "wal/seg-000000.log",
-          offset: 0,
-          length: segmentBytes.length,
-          contentBase64: segmentBytes.toString("base64"),
-        },
+        { streamId: "stress-s1-log", offset: 0, length: 3, contentBase64: Buffer.from("log").toString("base64") },
       ],
-      streams: { "wal/seg-000000.log": { bytesBase64: segmentBytes.toString("base64") } },
+      streams: { "stress-s1-log": { bytesBase64: Buffer.from("log").toString("base64") } },
     },
     canonicalProjection: {
       hotRows,
@@ -517,46 +536,16 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
   mkdirSync(targetRoot, { recursive: true });
   initRepo(targetRoot);
   const repoId = "stress-s1-repo-cell";
-  let cell = await openBootstrappedRepoCell({
+  const cell = await openBootstrappedRepoCell({
     repoId: workspaceId(repoId),
     rootDir: canonicalRoot(targetRoot),
     ownerId: "stress-s1-bootstrap",
     now: () => "2026-09-05T00:00:00.000Z",
   });
-  await cell.close();
-  const authority = openPersistentWriterEpoch({
-    stateRoot: path.join(targetRoot, ".harness", "fleet"),
-    holderId: "stress-s1-center",
-    now: () => "2026-09-05T00:00:01.000Z",
-  });
-  const lease = authority.acquire(repoId);
-  const eventReader = makeTaskEventReader({ repoId, rootDir: targetRoot });
-  const canonicalEvents = eventReader.read().events;
   const sqlite = openSqliteEventStore({ repoId, rootInput: targetRoot });
-  migrateEventsToSqlite({
-    store: sqlite,
-    repoId,
-    events: canonicalEvents,
-    holder: lease.holderId,
-    epoch: lease.epoch,
-  });
   const before = sqlite.revision();
   sqlite.close();
-  const descriptor = {
-    schema: "harness-writer-epoch-fence/v1",
-    stateRoot: path.join(targetRoot, ".harness", "fleet"),
-    repoId,
-    epoch: lease.epoch,
-    holderId: lease.holderId,
-  };
-  cell = await openBootstrappedRepoCell({
-    repoId: workspaceId(repoId),
-    rootDir: canonicalRoot(targetRoot),
-    ownerId: "stress-s1-shadow",
-    defaultWriterEpochFence: descriptor,
-    now: () => "2026-09-05T00:00:02.000Z",
-  });
-  const taskId = "task_stress_s1_shadow";
+  const taskId = "task_stress_s1_sqlite";
   const receiptLogPath = path.join(controllerRoot, "repo-cell-receipts.jsonl");
   const receiptLog = openReceiptLog({
     file: receiptLogPath,
@@ -574,7 +563,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
         intentDigest: digest("repo-cell-task-create"),
         summary: "task-create through RepoCell",
         expectedEvents: [],
-        action: { kind: "task-create", taskId, title: "Stress S1 shadow", profileId: "baseline" },
+        action: { kind: "task-create", taskId, title: "Stress S1 SQLite acceptance", profileId: "baseline" },
       },
     ],
   });
@@ -600,15 +589,14 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
     await cell.settlePendingMaterialization("stress S1 fixture");
   } finally {
     await cell.close();
-    authority.close();
   }
   const after = readSqliteCut(path.join(targetRoot, ".harness", "store", "generations", "1", "ledger.sqlite"));
-  assert.ok(after.revision > before, `SQLite shadow did not advance beyond ${before}`);
+  assert.ok(after.revision > before, `SQLite acceptance did not advance beyond ${before}`);
   assert.ok(after.events.some((event) => event.taskId === taskId));
   return {
     taskId,
-    holder: lease.holderId,
-    epoch: lease.epoch,
+    holder: "stress-s1-bootstrap",
+    epoch: 1,
     sqliteRevision: after.revision,
     receiptLog: readReceiptLog(receiptLogPath),
     receiptLogPath,

@@ -273,6 +273,11 @@ export const localGitObjectRefStore = Object.freeze({
     }
   },
   batch: (repoRoot: string, input: string) => localGitBytes(repoRoot, ["cat-file", "--batch"], Buffer.from(input)),
+  writeBlob: (repoRoot: string, body: string) => {
+    const oid = localGitBytes(repoRoot, ["hash-object", "-w", "--stdin"], Buffer.from(body)).toString("utf8").trim();
+    if (!/^[0-9a-f]{40}$/u.test(oid)) throw new Error("Git hash-object returned no blob object id");
+    return oid;
+  },
   listTree: (
     repoRoot: string,
     commit: string,

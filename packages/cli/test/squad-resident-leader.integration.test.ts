@@ -20,7 +20,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   mkdirSync(path.join(parent, "tmp"), { recursive: true });
-  writeResidentProvider(path.join(binRoot, "codex"));
+  writeResidentProvider(path.join(binRoot, "codex"), path.join(root, ".harness/store/generations/1/ledger.sqlite"));
   const env = isolatedDaemonEnvironment({
     HOME: path.join(parent, "home"),
     TMPDIR: daemonSocketTemp(parent),
@@ -103,12 +103,16 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
       ] as const,
       started = run(root, env, runArgs);
     assert.equal(started.ok, true, JSON.stringify(started));
-    assert.equal(started.outcome, "applied", JSON.stringify(started));
-    assert.equal(started.status, "leader_running", JSON.stringify(started));
+    assert.equal(started.outcome, "completed", JSON.stringify(started));
+    assert.equal(started.schema, "squad-control-result/v1", JSON.stringify(started));
+    assert.equal(started.phase, "leader_running", JSON.stringify(started));
+    for (const field of ["opId", "acceptance", "proof", "status"]) assert.equal(Object.hasOwn(started, field), false);
     assert.match(String(started.squadRunId), /^squad_[a-f0-9]{24}$/u);
     const duplicate = runMaybe(root, env, runArgs);
     assert.equal(duplicate.status, 1, JSON.stringify(duplicate));
     assert.equal(duplicate.receipt.code, "squad_run_active", JSON.stringify(duplicate));
+    for (const field of ["opId", "acceptance", "proof", "status"])
+      assert.equal(Object.hasOwn(duplicate.receipt, field), false);
     assert.ok(
       (duplicate.receipt.nextActions as unknown[]).some((next) => String(next).includes(String(started.squadRunId))),
       JSON.stringify(duplicate),
@@ -149,6 +153,12 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
         (call) =>
           call.kind === "leader-callback" && Array.isArray(call.args) && (call.args as unknown[]).includes("resume"),
       );
+    const acceptedAtLaunch = calls.find((call) => call.kind === "leader-initial")?.acceptedAtLaunch as {
+      opId: string;
+      runtimeSessionId: string;
+    };
+    assert.match(acceptedAtLaunch.opId, /^runtime-spawn-/u);
+    assert.equal(acceptedAtLaunch.runtimeSessionId, started.leaderRuntimeSessionId);
     assert.equal(callbackLeaders.length, 3, JSON.stringify(calls));
     assert.equal(
       calls.every((call) => String(call.cwd).endsWith(`${path.sep}squadwork`)),
@@ -356,7 +366,10 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       ((positiveStatus.leaders as Array<Record<string, unknown>>)[0]?.provider as Record<string, unknown>).model,
       "fable",
     );
-    run(root, env, ["squad", "cancel", String(positive.squadRunId)]);
+    const positiveCancellation = run(root, env, ["squad", "cancel", String(positive.squadRunId)]);
+    assert.equal(positiveCancellation.outcome, "completed");
+    for (const field of ["opId", "acceptance", "proof", "status"])
+      assert.equal(Object.hasOwn(positiveCancellation, field), false);
 
     const negative = run(root, env, [
         "squad",
@@ -392,7 +405,10 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
     });
     assert.match(String(callback?.prompt), /worker_rejected/u);
     assert.match(String(callback?.prompt), /no enabled agy instance is available on this node/u);
-    run(root, env, ["squad", "cancel", String(negative.squadRunId)]);
+    const negativeCancellation = run(root, env, ["squad", "cancel", String(negative.squadRunId)]);
+    assert.equal(negativeCancellation.outcome, "completed");
+    for (const field of ["opId", "acceptance", "proof", "status"])
+      assert.equal(Object.hasOwn(negativeCancellation, field), false);
     process.stdout.write(
       `squad-mixed-runtime-flow ${JSON.stringify({
         positive: { squadRunId: positive.squadRunId, status: positiveStatus.status, workers: positiveWorkers },
@@ -532,8 +548,10 @@ test(
         "squad-api-task",
       ]);
       assert.equal(started.ok, true, JSON.stringify(started));
-      assert.equal(started.outcome, "applied", JSON.stringify(started));
-      assert.equal(started.status, "leader_running", JSON.stringify(started));
+      assert.equal(started.outcome, "completed", JSON.stringify(started));
+      assert.equal(started.schema, "squad-control-result/v1", JSON.stringify(started));
+      assert.equal(started.phase, "leader_running", JSON.stringify(started));
+      for (const field of ["opId", "acceptance", "proof", "status"]) assert.equal(Object.hasOwn(started, field), false);
       const current = pollSquadStatus(root, env, String(started.squadRunId));
       assert.equal(current.status, "converged", JSON.stringify(current));
       const workers = current.workers as Array<Record<string, unknown>>;
@@ -678,7 +696,7 @@ setInterval(() => undefined, 1000);
   );
 }
 
-function writeResidentProvider(target: string): void {
+function writeResidentProvider(target: string, ledgerPath: string): void {
   writeProviderExecutable(
     target,
     `const fs = require("node:fs");
@@ -693,6 +711,14 @@ if (args[0] === "login" && args[1] === "status") {
 const prompt = fs.readFileSync(0, "utf8");
 const frame = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 const initialLeader = prompt.includes("# Squad dispatch protocol");
+let acceptedAtLaunch = null;
+if (initialLeader) {
+  const db = new (require("node:sqlite").DatabaseSync)(${JSON.stringify(ledgerPath)}, { readOnly: true });
+  const row = db.prepare("SELECT e.op_id, e.event_json, c.status FROM event e JOIN command_outcome c ON c.op_id=e.op_id WHERE json_extract(e.event_json, '$.type')='runtime_dispatch_requested' ORDER BY e.revision DESC LIMIT 1").get();
+  if (!row || row.status !== "accepted_durable") throw new Error("leader launched before dispatch acceptance");
+  acceptedAtLaunch = { opId: row.op_id, runtimeSessionId: JSON.parse(row.event_json).payload.runtimeSessionId };
+  db.close();
+}
 const callbackLeader = prompt.includes("# Squad worker callback") || prompt.includes("# Squad leader retry");
 const terra = prompt.includes("# Agent Identity: Terra (terra)");
 const luna = prompt.includes("# Agent Identity: Luna (luna)");
@@ -703,6 +729,7 @@ fs.appendFileSync(
   process.env.CODEX_HOME + "/provider.jsonl",
   JSON.stringify({
     kind: initialLeader ? "leader-initial" : callbackLeader ? "leader-callback" : "worker",
+    acceptedAtLaunch,
     args,
     cwd: process.cwd(),
     prompt,

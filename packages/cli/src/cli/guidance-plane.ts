@@ -46,22 +46,20 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "failure:materialization-failed",
     (args) =>
-      `WAL-to-Git materialization failed: reason=${textArg(args, "reason")} ` +
+      `SQLite-to-Git publication failed: reason=${textArg(args, "reason")} ` +
       `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
       `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
       `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
-      "Repair the cause, then retry the write; the repository recovery path will " +
-      "re-probe and resume without a daemon restart.",
+      "Repair the cause, then query the accepted operation id and wait for git_verified.",
   ],
   [
     "failure:materialization-retrying",
     (args) =>
-      `WAL-to-Git materialization is retrying: waited=${numberArg(args, "retryElapsedMs")}ms ` +
+      `SQLite-to-Git publication is retrying: waited=${numberArg(args, "retryElapsedMs")}ms ` +
       `lastCheckpointRevision=${numberArg(args, "lastCheckpointRevision")} ` +
       `lastCheckpointAt=${nullableTextArg(args, "lastCheckpointAt")} ` +
       `pendingWalEvents=${numberArg(args, "pendingWalEvents")} lastError=${textArg(args, "lastError")}. ` +
-      "New writes are temporarily refused while the durable WAL retries; wait and retry the write " +
-      "without restarting the daemon.",
+      "Accepted commands remain durable in SQLite. Query the same operation id and wait for git_verified.",
   ],
   [
     "failure:invalid-enum",

@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DOC_POLICY_ID, decideDocWrite, validateCurrentDocEvent } from "../../src/domain/doc-sync.contract.ts";
@@ -27,6 +28,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
   assert.deepEqual(
     validateWriteReceipt({
+      ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "doc-op",
       code: staleLedger.code,

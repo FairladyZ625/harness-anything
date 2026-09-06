@@ -397,6 +397,61 @@
         "value": "packages/daemon/test/adr-entity-migration.integration.test.ts",
         "ref": "task_39cc8158d2f76a930bf4dcd0de",
         "reason": "The one-shot ADR migration is retired after canonical cutover completed (30 ADR entities, 38 relations); its runner and integration test are deleted together."
+      },
+      {
+        "value": "packages/daemon/test/event-shape-migration.integration.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/daemon/test/fact-rekey-migration-task-provenance.integration.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/daemon/test/fact-rekey.integration.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/daemon/test/ledger-layout-consistency.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/daemon/test/squad-entity-migration.integration.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-content-recovery.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-decision-recovery.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-layout-migrations.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-publication-documents.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/task-event-store-startup-opid.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
+      },
+      {
+        "value": "packages/kernel/test/store/wal-shadow-event-store.test.ts",
+        "ref": "dec_B1F5FF7648436C985F38F14226",
+        "reason": "Stage 3 retires the old WAL/Git accepting path and in-place historical migration; SQLite acceptance, immutable pre-activation import, and follower tests cover the replacement contract in this same PR."
       }
     ]
   }

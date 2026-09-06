@@ -3,6 +3,11 @@ import {
   renderFactsDocument,
   sha256Text,
   stableStringify,
+  makeTaskProjection,
+  serializePersistedCanonicalEvent,
+  type CanonicalEventStore,
+  type CanonicalEventV1,
+  type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type RelationFactRow,
 } from "../../kernel/src/index.ts";
@@ -13,6 +18,7 @@ import {
 } from "./migration-import-run.ts";
 import { combineMigrationReceipts, migrationSourceRoots } from "./migration-import-source.ts";
 import { migrationImportError } from "./migration-import-report.ts";
+import { createMigrationPlanningWorkspace } from "./migration-import-oracle-rebuild.ts";
 import type { MigrationImportReceipt } from "./migration-import-types.ts";
 
 export type { MigrationImportReceipt } from "./migration-import-types.ts";
@@ -32,13 +38,168 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
     );
   if (sourceRoots.length === 1)
     return runSingleMigrationImport({ ...input, action: { ...input.action, sourceRoot: sourceRoots[0] } }, addFact);
-  const receipts: MigrationImportReceipt[] = [];
-  for (const sourceRoot of sourceRoots) {
-    const receipt = await runSingleMigrationImport({ ...input, action: { ...input.action, sourceRoot } }, addFact);
-    receipts.push(receipt);
-    if (receipt.exitCode === 1) break;
+  const staged = stagedImportView(input),
+    receipts: MigrationImportReceipt[] = [];
+  try {
+    for (const sourceRoot of sourceRoots) {
+      const receipt = await runSingleMigrationImport(
+        {
+          ...input,
+          rootDir: staged.rootDir,
+          action: { ...input.action, sourceRoot },
+          store: staged.store,
+          projection: staged.projection,
+          stagePrepared: staged.accept,
+        },
+        addFact,
+      );
+      receipts.push(receipt);
+      if (receipt.exitCode === 1) {
+        const failed = combineMigrationReceipts(receipts, sourceRoots);
+        return {
+          ...failed,
+          proof: { ...failed.proof!, durable: false, canonicalVisible: false, worktreeVisible: false },
+        };
+      }
+    }
+    if (input.shouldStop?.())
+      throw migrationImportError(
+        "daemon_shutdown",
+        "Daemon shutdown interrupted migration planning before acceptance.",
+      );
+    const bundles = staged.bundles();
+    let terminal: CanonicalWriteBundle | undefined;
+    if (bundles.length > 0) {
+      terminal = bundles.at(-1)!;
+      input.store.append({ ...terminal, preceding: bundles.slice(0, -1) });
+      input.projection.catchUp?.();
+    }
+    const combined = combineMigrationReceipts(receipts, sourceRoots);
+    return terminal
+      ? {
+          ...combined,
+          opId: terminal.event.opId,
+          revision: terminal.event.workspaceRevision,
+          proof: {
+            committedRevision: terminal.event.workspaceRevision,
+            appliedCut: input.projection.list().watermark,
+            durable: true,
+            canonicalVisible: input.projection.list().watermark >= terminal.event.workspaceRevision,
+            worktreeVisible: false,
+          },
+        }
+      : {
+          ...combined,
+          outcome: "no_changes",
+          opId: `migration-import-no-changes-${sha256Text(sourceRoots.join("\0"))}`,
+          proof: {
+            committedRevision: input.store.readHead()?.revision ?? 0,
+            appliedCut: input.projection.list().watermark,
+            durable: false,
+            canonicalVisible: false,
+            worktreeVisible: false,
+          },
+        };
+  } finally {
+    staged.close();
   }
-  return combineMigrationReceipts(receipts, sourceRoots);
+}
+
+function stagedImportView(input: MigrationImportRunInput): {
+  readonly store: CanonicalEventStore;
+  readonly rootDir: string;
+  readonly projection: ReturnType<typeof makeTaskProjection>;
+  readonly accept: (prepared: readonly CanonicalWriteBundle[]) => void;
+  readonly bundles: () => readonly CanonicalWriteBundle[];
+  readonly close: () => void;
+} {
+  const workspace = createMigrationPlanningWorkspace(input.rootDir),
+    rootDir = workspace.rootDir;
+  const accepted: CanonicalWriteBundle[] = [],
+    events = new Map<string, CanonicalWriteBundle>(),
+    outcomes = new Map<string, ReturnType<CanonicalEventStore["readCommandOutcome"]>>(),
+    content = new Map<string, Uint8Array>();
+  const projectionHolder: { current: ReturnType<typeof makeTaskProjection> | null } = { current: null };
+  const store = new Proxy(input.store, {
+    get(target, property) {
+      if (property === "readEvent") return (opId: string) => events.get(opId)?.event ?? target.readEvent(opId);
+      if (property === "readCommandOutcome")
+        return (opId: string) => outcomes.get(opId) ?? target.readCommandOutcome(opId);
+      if (property === "readContentBlob")
+        return (sha256: string) => content.get(sha256) ?? target.readContentBlob(sha256);
+      if (property === "read")
+        return () => {
+          const base = target.read();
+          return {
+            ...base,
+            revision: accepted.at(-1)?.event.workspaceRevision ?? base.revision,
+            events: [...base.events, ...accepted.map(({ event }) => event)],
+          };
+        };
+      if (property === "readHead")
+        return () => {
+          const last = accepted.at(-1)?.event;
+          return last
+            ? {
+                revision: last.workspaceRevision,
+                opId: last.opId,
+                eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(last))}`,
+              }
+            : target.readHead();
+        };
+      if (property === "append")
+        return (bundle: CanonicalWriteBundle) => {
+          const members = [...(bundle.preceding ?? []), bundle];
+          accepted.push(...members);
+          for (const member of members) {
+            events.set(member.event.opId, member);
+            for (const blob of member.blobs) content.set(blob.sha256, Buffer.from(blob.body));
+            projectionHolder.current!.apply(member.event, member.plan);
+            workspace.stage(member);
+          }
+          outcomes.set(bundle.event.opId, {
+            opId: bundle.event.opId,
+            status: "accepted_durable",
+            firstRevision: members[0]!.event.workspaceRevision,
+            lastRevision: bundle.event.workspaceRevision,
+            recordedAt: input.now(),
+            memberOpIds: members.map(({ event }) => event.opId),
+          });
+          return {
+            status: "applied",
+            event: bundle.event,
+            revision: bundle.event.workspaceRevision,
+            commitSha: null,
+            cut: target.publication(bundle.event).cut,
+          };
+        };
+      if (property === "publication")
+        return (event: CanonicalEventV1) => ({
+          cut: {
+            repoId: input.store.ledgerMetadata().repoId,
+            revision: event.workspaceRevision,
+            headDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+            opId: event.opId,
+          },
+          commitSha: null,
+        });
+      return Reflect.get(target, property);
+    },
+  }) as CanonicalEventStore;
+  const projection = makeTaskProjection({ rootDir, eventStore: store });
+  projectionHolder.current = projection;
+  projection.catchUp?.();
+  return {
+    store,
+    rootDir,
+    projection,
+    accept: (prepared) => store.append({ ...prepared.at(-1)!, preceding: prepared.slice(0, -1) }),
+    bundles: () => accepted,
+    close: () => {
+      projection.close();
+      workspace.close();
+    },
+  };
 }
 
 function addFact(context: MigrationImportContext, row: RelationFactRow): void {

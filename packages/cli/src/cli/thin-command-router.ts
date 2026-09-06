@@ -56,25 +56,6 @@ export function parseRouted(
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "vertical-declaration-migrate" })
       : rejected("unknown_field", "ha migrate vertical-declaration takes no options.", json);
-  if (route.id === "entity-migrate-squads")
-    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
-  if (
-    route.id === "fact-rekey" ||
-    route.id === "relation-events-migrate" ||
-    route.id === "decision-digests-migrate" ||
-    route.id === "schedule-definitions-migrate" ||
-    route.id === "settings-wal-flush-migrate" ||
-    route.id === "dispatch-records-migrate"
-  ) {
-    const f = readFlags(route.id, args.slice(2), inputs);
-    return f.ok
-      ? accepted(rootDir, repoId, json, {
-          kind: route.id,
-          ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
-        })
-      : rejected(f.code, f.nextAction, json);
-  }
-  if (route.id === "ledger-migrate") return parseLedgerMigrateRouted(route, args, rootDir, repoId, json, inputs);
   if (route.id === "ledger-reconcile") return parseLedgerReconcileRouted(route, args, rootDir, repoId, json, inputs);
   if (route.id === "explain") return parseExplain(args, rootDir, repoId, json, route.method);
   if (rootCommand === "runtime" && route.path[1] === "instance")
@@ -84,11 +65,26 @@ export function parseRouted(
   if (rootCommand === "settings" || rootCommand === "ci")
     return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "receipt-show" && nonEmpty(args[2]) && args.length === 3)
-    return accepted(rootDir, repoId, json, {
-      kind: "receipt-show",
-      opId: args[2],
-    });
+  if (route.id === "receipt-show" && nonEmpty(args[2])) {
+    const f = readFlags(route.id, args.slice(3), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const wait = f.one.get("--wait"),
+      timeout = f.one.get("--timeout-ms");
+    if (timeout !== undefined && (!/^[0-9]+$/u.test(timeout) || Number(timeout) > 60_000))
+      return rejected("invalid_field", "--timeout-ms must be between 0 and 60000.", json);
+    return accepted(
+      rootDir,
+      repoId,
+      json,
+      {
+        kind: "receipt-show",
+        opId: args[2],
+        ...(wait ? { waitFor: wait.split(",") } : {}),
+        ...(timeout === undefined ? {} : { timeoutMs: Number(timeout) }),
+      },
+      route.method,
+    );
+  }
   if (rootCommand === "doc") return parseDoc(route.id, args, rootDir, repoId, json, inputs);
   if (rootCommand === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
   if (rootCommand === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
@@ -110,25 +106,6 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
-}
-
-function parseLedgerMigrateRouted(
-  route: ProtocolCommand,
-  args: readonly string[],
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const f = readFlags(route.id, args.slice(2), inputs);
-  if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const generation = f.one.get("--generation");
-  if (generation !== undefined && generation !== "1")
-    return rejected("invalid_field", "--generation currently requires 1.", json);
-  return accepted(rootDir, repoId, json, {
-    kind: "ledger-migrate",
-    ...(generation ? { generation: Number(generation) } : {}),
-  });
 }
 
 function parseLedgerReconcileRouted(

@@ -7,7 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -44,6 +44,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "action-failure-criteria" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Action failure criteria" }, owner);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
@@ -201,7 +202,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
   }
 });
 
-test("publication indeterminate remains operational and never invents an Action criterion", async () => {
+test("post-accept response loss remains operational and never invents an Action criterion", async () => {
   const rootDir = workspace("operational"),
     repoId = workspaceId("action-failure-operational"),
     taskId = "task-action-operational";
@@ -221,12 +222,16 @@ test("publication indeterminate remains operational and never invents an Action 
     });
     const created = await cell.run({ kind: "task-create", taskId, title: "Operational failure" }, owner);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     armed = true;
     const receipt = await cell.run({ kind: "task-start", taskId, executionId: "execution-operational" }, owner);
-    assert.equal(receipt.outcome, "indeterminate", JSON.stringify(receipt));
+    assert.equal(receipt.outcome, "pending", JSON.stringify(receipt));
+    assert.equal(receipt.status, "accepted_durable");
+    assert.ok(receipt.acceptance?.memberOpIds.includes(receipt.opId));
+    assert.equal(receipt.projection?.state, "pending");
     assert.equal(receipt.code, "publication_indeterminate");
     assert.deepEqual(receipt.unmetCriteria, []);
     assert.deepEqual(receipt.guidance, [{ kind: "retry-receipt", args: { opId: receipt.opId } }]);

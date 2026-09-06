@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
@@ -32,9 +33,7 @@ export function setupEmpty(): { root: string; userRoot: string; repo: string } {
 export function makeCanary(
   root: string,
   script = 'const { title } = JSON.parse(process.env.HA_PRESET_INPUT); console.log(JSON.stringify({ schema: "preset-script-result/v1", produces: [{ capabilityId: "policy:task-create/v1", payload: { taskId: "task-canary", title } }] }));\n',
-  produces: readonly Record<string, string>[] = [
-    { id: "policy:task-create/v1", kind: "command", version: "1" },
-  ],
+  produces: readonly Record<string, string>[] = [{ id: "policy:task-create/v1", kind: "command", version: "1" }],
 ): string {
   const source = path.join(root, "user-canary");
   mkdirSync(path.join(source, "scripts"), { recursive: true });
@@ -79,12 +78,7 @@ export function makeCanary(
   writeFileSync(path.join(source, "scripts/create.mjs"), script);
   return source;
 }
-export async function waitForRun(
-  root: string,
-  userRoot: string,
-  runId: string,
-  phase: string,
-): Promise<void> {
+export async function waitForRun(root: string, userRoot: string, runId: string, phase: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const status = await requestLocalDaemonJsonRpc(
       root,
@@ -100,11 +94,7 @@ export async function waitForRun(
 }
 export function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(root, "harness/harness.yaml"),
-    "layout:\n  authoredRoot: harness\n",
-    "utf8",
-  );
+  writeFileSync(path.join(root, "harness/harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(
     path.join(root, "harness/people.yaml"),
     `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
@@ -119,44 +109,34 @@ export function median(values: readonly number[]): number {
   return ordered[Math.floor(ordered.length / 2)]!;
 }
 
-export function register(
-  root: string,
-  userRoot: string,
-  repoId: string,
-  entry = cli,
-): void {
-  seedSettingsEvent({ rootDir: root, repoId });
-  assert.equal(
-    run(
-      root,
-      userRoot,
-      [
-        "daemon",
-        "repo",
-        "register",
-        "--repo-id",
+export function register(root: string, userRoot: string, repoId: string, entry = cli): void {
+  const stateRoot = path.join(userRoot, "fleet"),
+    authority = openPersistentWriterEpoch({ stateRoot, holderId: "cli-fixture" });
+  try {
+    const lease = authority.acquire(repoId);
+    seedSettingsEvent({
+      rootDir: root,
+      repoId,
+      writerEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
         repoId,
-        "--root",
-        root,
-        "--no-link",
-      ],
-      entry,
-    ).ok,
+        holderId: lease.holderId,
+        epoch: lease.epoch,
+      },
+    });
+  } finally {
+    authority.close();
+  }
+
+  assert.equal(
+    run(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"], entry).ok,
     true,
   );
 }
-export function run(
-  root: string,
-  userRoot: string,
-  args: readonly string[],
-  entry = cli,
-): Record<string, unknown> {
+export function run(root: string, userRoot: string, args: readonly string[], entry = cli): Record<string, unknown> {
   const result = runMaybe(root, userRoot, args, entry);
-  assert.equal(
-    result.status,
-    0,
-    `${result.stderr}\n${JSON.stringify(result.receipt)}`,
-  );
+  assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
   return result.receipt;
 }
 export function runMaybe(
@@ -166,55 +146,39 @@ export function runMaybe(
   entry = cli,
 ): { status: number | null; receipt: Record<string, unknown>; stderr: string } {
   const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
-  const result = spawnSync(
-    process.execPath,
-    [entry, "--root", root, "--json", ...args],
-    {
-      encoding: "utf8",
-      env: {
-        ...baseEnv,
-        HOME: path.join(root, ".home"),
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        HARNESS_DAEMON_USER_ROOT: userRoot,
-      },
+  const result = spawnSync(process.execPath, [entry, "--root", root, "--json", ...args], {
+    encoding: "utf8",
+    env: {
+      ...baseEnv,
+      HOME: path.join(root, ".home"),
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
     },
-  );
+  });
   return {
     status: result.status,
     receipt: JSON.parse(result.stdout) as Record<string, unknown>,
     stderr: result.stderr,
   };
 }
-export function runNoop(
-  root: string,
-  userRoot: string,
-  entry: string,
-): { status: number | null } {
+export function runNoop(root: string, userRoot: string, entry: string): { status: number | null } {
   const { HARNESS_ACTOR: _actor, ...baseEnv } = process.env;
-  const result = spawnSync(
-    process.execPath,
-    [entry, "--root", root, "--help"],
-    {
-      stdio: "ignore",
-      env: {
-        ...baseEnv,
-        HOME: path.join(root, ".home"),
-        GIT_CONFIG_GLOBAL: "/dev/null",
-        HARNESS_DAEMON_USER_ROOT: userRoot,
-      },
+  const result = spawnSync(process.execPath, [entry, "--root", root, "--help"], {
+    stdio: "ignore",
+    env: {
+      ...baseEnv,
+      HOME: path.join(root, ".home"),
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
     },
-  );
+  });
   return { status: result.status };
 }
 export function stop(root: string, userRoot: string, entry = cli): void {
-  spawnSync(
-    process.execPath,
-    [entry, "--root", root, "--json", "daemon", "stop"],
-    {
-      encoding: "utf8",
-      env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
-    },
-  );
+  spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"], {
+    encoding: "utf8",
+    env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
+  });
 }
 // The ledger repository is created by `ha init`, which supplies the commit
 // identity per command instead of configuring it in the repository. Fixture

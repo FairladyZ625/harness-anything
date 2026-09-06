@@ -329,7 +329,8 @@ test("the task-aware template omits submission after submit and selects the cont
   try {
     const receipt = await value.run(),
       template = JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
-    assert.equal(receipt.outcome, "applied");
+    assert.equal(receipt.outcome, "no_changes");
+    assert.equal(receipt.proof?.durable, false);
     assert.equal(Object.hasOwn(template, "submission"), false);
     assert.deepEqual(template.completion, { ci: "not_applicable", codeDocPaths: ["path/to/code-or-doc"] });
     assert.equal(value.calls.length, 0);

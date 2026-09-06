@@ -4,7 +4,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, type TaskProjection } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  makeTaskEventStore,
+  makeTaskProjection,
+  type TaskProjection,
+} from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
@@ -32,8 +37,9 @@ test("confirmed full submit accepts two authored paths with identical content", 
       unknown
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted, binding);
     assert.doesNotMatch(JSON.stringify(submitted), /duplicate write target/u);
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
@@ -60,7 +66,9 @@ test("confirmed full submit applies prose after its heading is rewritten", async
     binding = ownerBinding;
   try {
     write(rootDir, "context/blocked.md", "# Stable\n\nbase\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/blocked.md"] }, binding)).outcome, "applied");
+    const initial = await cell.run({ kind: "doc-submit", paths: ["context/blocked.md"] }, binding);
+    assert.equal(initial.outcome, "applied");
+    await waitForWorktree(cell, initial, binding);
     write(rootDir, "context/blocked.md", "# Renamed\n\nbase\n");
     write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
     const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
@@ -68,8 +76,12 @@ test("confirmed full submit applies prose after its heading is rewritten", async
       unknown
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.match(String(submitted.summary), /skipped:\n\(none\)/u);
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    await waitForWorktree(cell, submitted, binding);
+    assert.match(
+      String(submitted.summary),
+      /skipped:\nevents\/segments\/manifest\.json\tblocked\tpath is owned by canonical-event/u,
+    );
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
@@ -78,8 +90,16 @@ test("confirmed full submit applies prose after its heading is rewritten", async
       );
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
-    const clean = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
-    assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
+    const unconfirmed = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
+    assert.equal(unconfirmed.code, "preview_blocked");
+    assert.equal(unconfirmed.acceptance, null);
+    assert.deepEqual(
+      (
+        unconfirmed.detail as { unresolvedTouches?: readonly { path: string; requiredRoute: string }[] }
+      ).unresolvedTouches?.map(({ path, requiredRoute }) => [path, requiredRoute]),
+      [["events/segments/manifest.json", "canonical-event"]],
+    );
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -98,7 +118,9 @@ test("confirmed full submit applies eligible prose and reports an unrelated dele
     binding = ownerBinding;
   try {
     write(rootDir, "context/deleted.md", "# Retained\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/deleted.md"] }, binding)).outcome, "applied");
+    const initial = await cell.run({ kind: "doc-submit", paths: ["context/deleted.md"] }, binding);
+    assert.equal(initial.outcome, "applied");
+    await waitForWorktree(cell, initial, binding);
     rmSync(path.join(rootDir, "harness/context/deleted.md"));
     write(rootDir, "context/eligible.md", "# Eligible\n");
     const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
@@ -106,11 +128,13 @@ test("confirmed full submit applies eligible prose and reports an unrelated dele
       unknown
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const settled = await waitForWorktree(cell, submitted, binding);
+    assert.equal(settled.worktree.state, "verified");
     assert.match(
       String(submitted.summary),
       /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*skipped:[\s\S]*context\/deleted\.md\tdeletion\tcanonical document is missing from the worktree/u,
     );
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
@@ -250,6 +274,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
         packagePath?: string;
       },
       packagePath = created.packagePath!;
+    await waitForWorktree(cell, { opId: String((created as { opId?: string }).opId) }, person);
     await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, person),
     );
@@ -287,7 +312,7 @@ test("path and confirmed full submits ride the repository prose channel when ano
       person,
     );
     assert.equal(scoped.outcome, "applied", JSON.stringify(scoped));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(scoped.opId);
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(scoped.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.equal(
@@ -378,6 +403,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
         person,
       )) as { packagePath?: string },
       report = `${created.packagePath}/artifacts/reports/r.md`;
+    await waitForWorktree(cell, { opId: String((created as { opId?: string }).opId) }, person);
     await realizeTaskPlanFixture(rootDir, created.packagePath!, (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, person),
     );
@@ -400,7 +426,7 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
       ),
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventStore({ repoId, rootDir }) });
+    const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId, rootDir }) });
     try {
       projection.catchUp();
     } finally {
@@ -424,6 +450,31 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function waitForWorktree(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  receipt: { readonly opId: string },
+  binding: Parameters<Awaited<ReturnType<typeof openRepoCell>>["run"]>[1],
+) {
+  return waitForReceipt(cell, receipt, binding, [
+    "accepted_durable",
+    "projection_visible",
+    "git_verified",
+    "worktree_visible",
+  ]);
+}
+
+async function waitForReceipt(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  receipt: { readonly opId: string },
+  binding: Parameters<Awaited<ReturnType<typeof openRepoCell>>["run"]>[1],
+  waitFor: readonly ("accepted_durable" | "projection_visible" | "git_verified" | "worktree_visible")[],
+) {
+  const shown = await cell.run({ kind: "receipt-show", opId: receipt.opId, waitFor, timeoutMs: 5_000 }, binding);
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+  return shown;
+}
 
 // …and the named recovery terminates for a session that is actually bound:
 // flipping the same lease back to held (what release+start does) makes the

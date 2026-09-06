@@ -8,6 +8,7 @@ import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import {
   compileSettingsChangedEvent,
   makeTaskEventStore,
+  preflightCanonicalGeneration,
   readSettingsFacet,
   repositorySettings,
 } from "../../kernel/src/index.ts";
@@ -306,14 +307,13 @@ test("local init isolates the ledger from later project commits and removes trac
       "Still writable",
     ]);
     assert.equal(written.outcome, "applied", JSON.stringify(written));
-    assert.equal(written.commitSha, null);
+    assert.match(String(written.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(written.cut);
     assert.equal(git(fixture.repo, "rev-parse", "HEAD"), projectHead);
-    assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), ledgerHead);
+    assert.notEqual(git(ledgerRoot, "rev-parse", "HEAD"), ledgerHead);
     stop(fixture.repo, fixture.userRoot);
     const ledgerAfter = git(ledgerRoot, "rev-parse", "HEAD");
     assert.notEqual(ledgerAfter, ledgerHead);
-    assert.equal(git(ledgerRoot, "rev-parse", "refs/ha/canonical"), ledgerAfter);
     assert.equal(
       spawnSync("git", ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"], { encoding: "utf8" }).status,
       128,
@@ -332,7 +332,11 @@ test("center registration keeps an external ledger repository readable and writa
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
-      store = makeTaskEventStore({ rootDir: fixture.alpha, repoId: "alpha" });
+      store = makeTaskEventStore({
+        rootDir: fixture.alpha,
+        repoId: "center",
+        activationPreflight: preflightCanonicalGeneration,
+      });
     store.append(
       compileSettingsChangedEvent({
         settings: readSettingsFacet(documentBody),
@@ -360,9 +364,9 @@ test("center registration keeps an external ledger repository readable and writa
         "Center ledger",
       ]);
     assert.equal(written.outcome, "applied", JSON.stringify(written));
-    assert.equal(written.commitSha, null);
+    assert.match(String(written.commitSha), /^[0-9a-f]{40}$/u);
     assert.ok(written.cut);
-    assert.equal(git(fixture.alpha, "rev-parse", "HEAD"), before);
+    assert.notEqual(git(fixture.alpha, "rev-parse", "HEAD"), before);
     assert.match(
       String(run(fixture.alpha, fixture.userRoot, ["task", "show", "task-center"]).evidence),
       /Center ledger/u,
@@ -370,7 +374,7 @@ test("center registration keeps an external ledger repository readable and writa
     stop(fixture.alpha, fixture.userRoot);
     const after = git(fixture.alpha, "rev-parse", "HEAD");
     assert.notEqual(after, before);
-    assert.equal(git(fixture.alpha, "rev-parse", "refs/ha/canonical"), after);
+    assert.equal((written.git as { commitSha: string }).commitSha, after);
     assert.equal(
       git(fixture.alpha, "ls-tree", "-r", "--name-only", "HEAD")
         .split("\n")
@@ -378,7 +382,7 @@ test("center registration keeps an external ledger repository readable and writa
       true,
     );
     context.diagnostic(
-      `ledger.git=${fixture.alpha}\nledger.head.before=${before}\nledger.head.after=${after}\nledger.canonical=${git(fixture.alpha, "rev-parse", "refs/ha/canonical")}\nwrite.outcome=${String(written.outcome)}\nread.task=Center ledger`,
+      `ledger.git=${fixture.alpha}\nledger.head.before=${before}\nledger.head.after=${after}\nledger.sqlite.revision=${String(written.revision)}\nwrite.outcome=${String(written.outcome)}\nread.task=Center ledger`,
     );
   } finally {
     stop(fixture.alpha, fixture.userRoot);

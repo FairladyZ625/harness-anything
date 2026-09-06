@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { openDaemonHost } from "../../../packages/daemon/src/daemon-host.ts";
+import { openPersistentWriterEpoch } from "../../../packages/daemon/src/writer-epoch.ts";
 import { listenFleetTls } from "../../../packages/daemon/src/fleet/center.ts";
 import { runFleetReplicaPullClient, runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../../packages/daemon/test/repo-settings.fixture.ts";
@@ -13,7 +14,7 @@ export async function openFleetCampaignFixture(options = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stress-s4-fleet-")),
     userRoot = path.join(root, "center-user"),
     stateRoot = path.join(root, "fleet-state"),
-    writerStateRoot = path.join(root, "writer-state"),
+    writerStateRoot = path.join(userRoot, "fleet"),
     keyFile = path.join(root, "tls.key"),
     certFile = path.join(root, "tls.crt"),
     repos = (options.repoNames ?? ["alpha", "beta"]).map((name) => ({
@@ -40,6 +41,9 @@ export async function openFleetCampaignFixture(options = {}) {
     ),
     byId = new Map(assignments.map((assignment) => [assignment.assignmentId, assignment]));
   let center = null,
+    centerStarts = 0,
+    activeEpochs = new Map(),
+    takeoverAuthority = null,
     clock = options.now ?? "2026-09-06T00:00:00.000Z";
   const children = new Set();
   try {
@@ -76,10 +80,38 @@ export async function openFleetCampaignFixture(options = {}) {
     }
     const startCenter = async (writerId) => {
       if (center) throw new Error("fleet center must be closed before takeover");
+      const observer = openPersistentWriterEpoch({ stateRoot: writerStateRoot, holderId: `${writerId}-observer` });
+      try {
+        if (centerStarts > 0) {
+          takeoverAuthority?.close();
+          takeoverAuthority = openPersistentWriterEpoch({
+            stateRoot: writerStateRoot,
+            holderId: writerId,
+            now: () => clock,
+          });
+          activeEpochs = new Map(repos.map(({ repoId }) => [repoId, takeoverAuthority.acquire(repoId)]));
+        } else {
+          activeEpochs = new Map(
+            repos.map(({ repoId }) => {
+              const lease = observer.current(repoId);
+              if (!lease) throw new Error(`daemon writer lease is absent for ${repoId}`);
+              return [repoId, lease];
+            }),
+          );
+        }
+      } finally {
+        observer.close();
+      }
+      centerStarts += 1;
       center = await listenFleetTls({
         host,
         stateRoot,
         writerEpochStateRoot: writerStateRoot,
+        writerEpochLease: (repoId) => {
+          const lease = activeEpochs.get(repoId);
+          if (!lease) throw new Error(`fleet writer lease is absent for ${repoId}`);
+          return lease;
+        },
         writerId,
         hostname: options.bind,
         port: options.port,
@@ -118,6 +150,8 @@ export async function openFleetCampaignFixture(options = {}) {
         clock = value;
       },
       startCenter,
+      writerEpoch: (repoId) => activeEpochs.get(repoId)?.epoch ?? null,
+      writerLease: (repoId) => activeEpochs.get(repoId) ?? null,
       closeCenter,
       assignment: (repoId, index) =>
         assignments.find((candidate) => candidate.repoId === repoId && candidate.nodeId === `edge-${index + 1}`),
@@ -140,6 +174,7 @@ export async function openFleetCampaignFixture(options = {}) {
         for (const child of children) child.kill("SIGKILL");
         children.clear();
         await closeCenter();
+        takeoverAuthority?.close();
         await host.close();
         rmSync(root, { recursive: true, force: true });
       },
@@ -147,6 +182,7 @@ export async function openFleetCampaignFixture(options = {}) {
   } catch (error) {
     for (const child of children) child.kill("SIGKILL");
     await center?.close().catch(() => undefined);
+    takeoverAuthority?.close();
     rmSync(root, { recursive: true, force: true });
     throw error;
   }

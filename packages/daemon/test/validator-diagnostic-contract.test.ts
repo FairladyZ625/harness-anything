@@ -24,6 +24,42 @@ import {
 import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
+test("unaccepted pending and no-op receipts carry no fabricated committed proof", () => {
+  const pending: JsonObject = {
+    outcome: "pending",
+    opId: "cancel-missing-session",
+    status: "unknown",
+    acceptance: null,
+    projection: { state: "pending", cut: null },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
+    visibility: "center",
+    evidence: "runtime-cancel:missing-session",
+    guidance: [{ kind: "retry-receipt", args: { opId: "cancel-missing-session" } }],
+  };
+  assert.deepEqual(writeReceipt(pending), []);
+  assert.deepEqual(writeReceipt({ ...pending, outcome: "no_changes", code: "no_changes", origin: "daemon" }), []);
+  assert.match(writeReceipt({ ...pending, outcome: "applied" }).join("\n"), /applied requires accepted_durable/u);
+  assert.match(
+    writeReceipt({
+      ...pending,
+      proof: {
+        committedRevision: 1,
+        appliedCut: 1,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: true,
+      },
+    }).join("\n"),
+    /must be absent without a committed acceptance/u,
+  );
+  assert.match(writeReceipt({ ...pending, acceptance: {} }).join("\n"), /acceptance:null/u);
+  const legacy = { ...pending };
+  for (const key of ["status", "acceptance", "projection", "git", "worktree", "replica"]) delete legacy[key];
+  assert.match(writeReceipt(legacy).join("\n"), /must be a valid committed proof/u);
+});
+
 interface ValidatorCase {
   readonly name: string;
   readonly entityId: string;
@@ -55,31 +91,6 @@ test("entity import wire input is exact and projected from its executable Action
       payload: { action: { ...payload.payload.action, expectedVersion: -1 } },
     } as JsonObject).join("\n"),
     /action\.expectedVersion.*must be number/u,
-  );
-});
-
-test("Squad migration wire input is limited to legacy source paths and dry-run", () => {
-  const payload = {
-    payload: {
-      action: {
-        kind: "entity-migrate-squads",
-        sourcePaths: ["harness/squads/ledger-squad.json"],
-        dryRun: true,
-      },
-    },
-  } as JsonObject;
-  assert.deepEqual(validateCatalogActionPayload(payload), []);
-  assert.match(
-    validateCatalogActionPayload({
-      payload: { action: { ...payload.payload.action, sourcePaths: "harness/squads/ledger-squad.json" } },
-    } as JsonObject).join("\n"),
-    /action\.sourcePaths.*must be string-array/u,
-  );
-  assert.match(
-    validateCatalogActionPayload({
-      payload: { action: { ...payload.payload.action, declaration: {} } },
-    } as JsonObject).join("\n"),
-    /action\.declaration.*not declared/u,
   );
 });
 

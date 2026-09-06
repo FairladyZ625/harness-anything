@@ -1,17 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createHash } from "node:crypto";
 import {
+  openSqliteEventStore,
   applyTransition,
   canonicalGateReceipts,
   compileCompletionGateWitness,
   completionBlockers,
-  eventObjectTarget,
   normalizeTaskLifecycleCommand,
   serializeCanonicalEvent,
   sha256Text,
@@ -21,7 +20,6 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   reduceTaskEvent,
-  serializeEventHead,
   serializeTaskEvent,
   TASK_LEASE_BROKER_CONTRACT,
 } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -396,16 +394,7 @@ test("transition republishes a historical task without its retired longRunning m
         },
       },
     } as unknown as typeof historical;
-    const eventBody = serializeCanonicalEvent(legacy),
-      target = path.join(rootDir, eventObjectTarget(legacy.opId));
-    mkdirSync(path.dirname(target), { recursive: true });
-    writeFileSync(target, eventBody);
-    writeFileSync(
-      path.join(rootDir, "harness/events/head.json"),
-      serializeEventHead({ revision: 1, opId: legacy.opId, eventDigest: `sha256:${sha256Text(eventBody)}` }),
-    );
-    git(rootDir, "add", "harness/events");
-    git(rootDir, "commit", "--quiet", "-m", "historical task fixture");
+    seedAcceptedEvents(rootDir, "legacy-task", [legacy]);
     const eventStore = makeTaskEventStore({ repoId: "legacy-task", rootDir });
     projection = makeTaskProjection({ rootDir, eventStore });
     projection.rebuild();
@@ -803,27 +792,31 @@ function seedOldEvents(rootDir: string, count: number): void {
   initRepo(rootDir);
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "config", "maintenance.auto", "false");
-  const eventsRoot = path.join(rootDir, "harness/events");
-  mkdirSync(eventsRoot, { recursive: true });
-  let last = oldTaskEvent(1);
-  for (let revision = 1; revision <= count; revision += 1) {
-    last = oldTaskEvent(revision);
-    const eventPath = path.join(rootDir, eventObjectTarget(last.opId));
-    mkdirSync(path.dirname(eventPath), { recursive: true });
-    writeFileSync(eventPath, serializeTaskEvent(last));
-  }
-  const lastBytes = serializeTaskEvent(last);
-  writeFileSync(
-    path.join(eventsRoot, "head.json"),
-    serializeEventHead({
-      revision: last.workspaceRevision,
-      opId: last.opId,
-      eventDigest: `sha256:${createHash("sha256").update(lastBytes).digest("hex")}`,
-    }),
+  seedAcceptedEvents(
+    rootDir,
+    "test-repo",
+    Array.from({ length: count }, (_, index) => oldTaskEvent(index + 1)),
   );
-  git(rootDir, "add", "--", "harness/events");
-  git(rootDir, "commit", "--quiet", "-m", `${count} old event fixture`);
-  git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
+}
+
+function seedAcceptedEvents(rootDir: string, repoId: string, events: readonly TaskEventV1[]): void {
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir });
+  try {
+    for (const event of events)
+      store.appendCommand({
+        fence: { repoId, holder: "direct-store", epoch: 1 },
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+          summary: event.type,
+        },
+        events: [event],
+      });
+    assert.equal(store.revision(), events.at(-1)?.workspaceRevision ?? 0);
+    assert.equal(store.outcomes().length, events.length);
+  } finally {
+    store.close();
+  }
 }
 
 type ReadMode = "bounded" | "whole-history";
@@ -1023,17 +1016,14 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       );
       const proof = { taskIdUnique: true as const, actorBinding: actor };
       await assert.rejects(interrupted.execute(create, proof), new RegExp(`killpoint:${point}`, "u"));
-      await eventStore.drain();
-      const commitCount = git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim();
+      await eventStore.settlePendingMaterialization();
+      const commitCount = git(rootDir, "rev-list", "--count", "HEAD").trim();
       const published = eventStore.readTaskEvent(create.opId);
       if (published === null) throw new Error(`${point} did not publish an event`);
       const eventBytes = serializeTaskEvent(published);
-      const digest = `sha256:${createHash("sha256").update(eventBytes).digest("hex")}` as const;
-      assert.equal(git(rootDir, "show", `refs/ha/canonical:${eventObjectTarget(create.opId)}`), eventBytes);
-      assert.equal(
-        git(rootDir, "show", "refs/ha/canonical:harness/events/head.json"),
-        serializeEventHead({ revision: 1, opId: create.opId, eventDigest: digest }),
-      );
+      const acceptedOutcome = eventStore.readCommandOutcome(create.opId);
+      assert.equal(acceptedOutcome?.status, "accepted_durable");
+      assert.equal(eventStore.read().revision, 1);
 
       const resumed = makeTaskLifecycleService({ eventStore, projection });
       const first = await resumed.execute(create, proof);
@@ -1041,7 +1031,12 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       assert.equal(first.outcome, "applied", point);
       assert.deepEqual(second, first, point);
       assert.equal(projection.readOperation(create.opId)?.event.opId, create.opId);
-      assert.equal(git(rootDir, "rev-list", "--count", "refs/ha/canonical").trim(), commitCount);
+      await eventStore.settlePendingMaterialization();
+      assert.equal(git(rootDir, "rev-list", "--count", "HEAD").trim(), commitCount);
+      assert.equal(serializeTaskEvent(eventStore.readTaskEvent(create.opId)!), eventBytes);
+      assert.deepEqual(eventStore.readCommandOutcome(create.opId), acceptedOutcome);
+      assert.equal(eventStore.read().revision, 1);
+      await eventStore.drain();
     } finally {
       projection?.close();
       rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });

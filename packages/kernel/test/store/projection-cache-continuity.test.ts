@@ -8,12 +8,12 @@ import { taskProjectionSchemaVersion } from "../../src/projection/projection-sch
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import { makeTaskEventStore, type CanonicalEventStore } from "../../src/store/task-event-store.ts";
-import { CANONICAL_EVENT_REF } from "../../src/store/task-event-store-types.ts";
+import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "./task-lifecycle-fixture.ts";
-import { git, initRepo } from "./task-event-store.fixtures.ts";
+import { initRepo } from "./task-event-store.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
-test("a real Git event gap blocks schema rebuild and preserves the cache bytes", async (t) => {
+test("a real SQLite event gap blocks schema rebuild and preserves the cache bytes", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
     const writer = makeTaskEventStore({ repoId: "cache-continuity", rootDir }),
@@ -36,15 +36,20 @@ test("a real Git event gap blocks schema rebuild and preserves the cache bytes",
       .run(taskProjectionSchemaVersion - 1);
     schema.close();
     const retained = readFileSync(projection.path),
-      missingEvent = events[1]!,
-      eventPath = git(rootDir, "ls-tree", "-r", "--name-only", "HEAD", "harness/events")
-        .split(/\r?\n/u)
-        .find((candidate) => candidate.endsWith(`/${missingEvent.opId}.json`));
-    assert.ok(eventPath, "the negative control must locate a persisted Git event object");
-    git(rootDir, "rm", "--quiet", "--", eventPath);
-    git(rootDir, "commit", "--quiet", "-m", "remove one event for continuity negative control");
-    git(rootDir, "update-ref", CANONICAL_EVENT_REF, "HEAD");
-    readable = makeTaskEventStore({ repoId: "cache-continuity", rootDir });
+      missingEvent = events[1]!;
+    await writer.drain();
+    const ledgerPath = sqliteLedgerPath(rootDir),
+      ledger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(
+        ledger.prepare("DELETE FROM event WHERE revision = ?").run(missingEvent.workspaceRevision).changes,
+        1,
+      );
+    } finally {
+      ledger.close();
+    }
+    readable = makeTaskEventStore({ repoId: "cache-continuity", rootDir, mutable: false });
+    t.after(() => readable.drain());
 
     const rejectsGap = (error: unknown): boolean => {
       assert.equal(error instanceof Error, true);
@@ -66,8 +71,9 @@ test("a real Git event gap blocks schema rebuild and preserves the cache bytes",
     assert.deepEqual(readFileSync(projection.path), retained);
     t.diagnostic(
       JSON.stringify({
-        case: "git-event-gap",
-        removedPath: eventPath,
+        case: "sqlite-event-gap",
+        ledgerPath,
+        removedRevision: missingEvent.workspaceRevision,
         cacheWatermark: 3,
         eventStreamHead: 3,
         missingRange: { from: 2, to: 2 },

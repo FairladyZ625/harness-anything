@@ -5,10 +5,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, validateDaemonRpcCall, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 const method = "repo.entity.actions.explain" as const,
@@ -28,14 +28,15 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       ownerId: "action-explain-local",
       now: () => fixedNow,
     });
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-explain", title: "Explain typed daemon read" }, binding))
-        .outcome,
-      "applied",
+    const created = await cell.run(
+      { kind: "task-create", taskId: "task-explain", title: "Explain typed daemon read" },
+      binding,
     );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     await cell.read("repo.tasks.list");
 
-    const observerStore = makeTaskEventStore({ repoId, rootDir }),
+    const observerStore = makeTaskEventReader({ repoId, rootDir }),
       observerProjection = makeTaskProjection({ rootDir, eventStore: observerStore, now: () => fixedNow }),
       beforeStream = observerStore.read(),
       beforeHead = observerStore.readHead(),

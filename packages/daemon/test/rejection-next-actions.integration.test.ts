@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const submission = {
@@ -37,6 +37,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     writeFileSync(path.join(rootDir, "submission.json"), JSON.stringify(submission));
     const created = await cell.run({ kind: "task-create", taskId, title: "Submit exit" }, holder);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
@@ -105,6 +106,7 @@ test("progress lease mismatch names the holder and a release plus re-entry route
     });
     const created = await cell.run({ kind: "task-create", taskId, title: "Progress exit" }, holder);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
@@ -137,6 +139,7 @@ test("start rejection identifies the active execution and its reuse command", as
     });
     const created = await cell.run({ kind: "task-create", taskId, title: "Start reuse" }, owner);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
@@ -173,6 +176,7 @@ test("executor declaration rejection names its eligibility rule and review comma
     });
     const created = await cell.run({ kind: "task-create", taskId, title: "Declare assigned" }, worker);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, worker);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, worker),
     );
@@ -213,6 +217,7 @@ test("executor declaration and completion context refusals name projection rebui
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, owner);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );

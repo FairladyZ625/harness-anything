@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { actor, git, initRepo } from "./task-surface.fixtures.ts";
@@ -138,6 +138,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     ] as const) {
       const created = await cell.run({ kind: "task-create", taskId, title, profileId: "baseline" }, binding);
       assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(cell, created.opId, binding);
       await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
         cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
       );

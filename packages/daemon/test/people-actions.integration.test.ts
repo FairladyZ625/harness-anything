@@ -4,10 +4,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, parsePeopleRosterDocument } from "../../kernel/src/index.ts";
-import { initRepo, actor, bootstrapPerson } from "./migration-import.fixtures.ts";
+import { makeTaskEventReader, parsePeopleRosterDocument } from "../../kernel/src/index.ts";
+import { initRepo, actor, bootstrapPerson, git } from "./migration-import.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 test("People Action commands are the canonical write surface for people.yaml", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-people-actions-"));
@@ -35,6 +35,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(added.outcome, "applied");
+    await waitForFixturePublication(cell, added.opId, { actor, source: "local" });
     const bound = await cell.run(
       {
         kind: "people-bind",
@@ -45,6 +46,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(bound.outcome, "applied");
+    await waitForFixturePublication(cell, bound.opId, { actor, source: "local" });
     const malformedBinding = await cell.run(
       {
         kind: "people-bind",
@@ -77,6 +79,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(roleChanged.outcome, "applied");
+    await waitForFixturePublication(cell, roleChanged.opId, { actor, source: "local" });
     const afterRole = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(afterRole.people.find(({ personId }) => personId === "person_alice")?.roles, ["reviewer"]);
     assert.deepEqual(afterRole.bindings, [
@@ -90,13 +93,14 @@ test("People Action commands are the canonical write surface for people.yaml", a
     ]);
     const removed = await cell.run({ kind: "people-remove", personId: "person_alice" }, binding);
     assert.equal(removed.outcome, "applied");
+    await waitForFixturePublication(cell, removed.opId, { actor, source: "local" });
     const finalRoster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.equal(
       finalRoster.people.some(({ personId }) => personId === "person_alice"),
       false,
     );
     assert.equal(
-      makeTaskEventStore({ repoId: "people-actions", rootDir: root })
+      makeTaskEventReader({ repoId: "people-actions", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
       4,
@@ -133,6 +137,7 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
       binding,
     );
     assert.equal(addedAdmin.outcome, "applied");
+    await waitForFixturePublication(cell, addedAdmin.opId, { actor, source: "local" });
     const ownerPolicyChanged = await cell.run(
       {
         kind: "people-set-role",
@@ -161,7 +166,7 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
     assert.equal(ownerDowngrade.outcome, "op_rejected");
     assert.equal(ownerDowngrade.code, "invalid_people_action");
     assert.equal(
-      makeTaskEventStore({ repoId: "people-invariants", rootDir: root })
+      makeTaskEventReader({ repoId: "people-invariants", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
       1,
@@ -211,7 +216,7 @@ test("People Action commands cannot remove the last enabled admin", async () => 
     assert.equal(removed.outcome, "op_rejected");
     assert.equal(removed.code, "invalid_people_action");
     assert.equal(
-      makeTaskEventStore({ repoId: "people-last-admin", rootDir: root })
+      makeTaskEventReader({ repoId: "people-last-admin", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
       0,
@@ -227,13 +232,15 @@ test("People Action commands create people.yaml through the null roster transiti
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(root);
+    rmSync(path.join(root, "harness/people.yaml"));
+    git(root, "add", "harness/people.yaml");
+    git(root, "commit", "-qm", "remove roster for null transition fixture");
     cell = await openRepoCell({
       repoId: workspaceId("people-missing"),
       rootDir: canonicalRoot(root),
       ownerId: "people-daemon",
       now: () => "2026-08-27T02:20:00.000Z",
     });
-    rmSync(path.join(root, "harness/people.yaml"));
     const created = await cell.run(
       {
         kind: "people-add",
@@ -245,6 +252,7 @@ test("People Action commands create people.yaml through the null roster transiti
       { actor, source: "local" as const },
     );
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, { actor, source: "local" });
     const roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(
       roster.people.map(({ personId }) => personId),
@@ -277,19 +285,18 @@ test("People Action commands hydrate closed file and inline packets", async () =
         commandClass: ["repo-write"],
       }),
     );
-    assert.equal((await cell.run({ kind: "people-add", fromFile: "people-add.json" }, binding)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "people-set-role",
-            jsonInput: JSON.stringify({ personId: "person_alice", role: "reviewer", commandClass: ["repo-read"] }),
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
+    const added = await cell.run({ kind: "people-add", fromFile: "people-add.json" }, binding);
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    await waitForFixturePublication(cell, added.opId, binding);
+    const roleChanged = await cell.run(
+      {
+        kind: "people-set-role",
+        jsonInput: JSON.stringify({ personId: "person_alice", role: "reviewer", commandClass: ["repo-read"] }),
+      },
+      binding,
     );
+    assert.equal(roleChanged.outcome, "applied", JSON.stringify(roleChanged));
+    await waitForFixturePublication(cell, roleChanged.opId, binding);
     writeFileSync(
       path.join(root, "people-binding.json"),
       JSON.stringify({
@@ -299,15 +306,13 @@ test("People Action commands hydrate closed file and inline packets", async () =
         expiresAt: null,
       }),
     );
-    assert.equal(
-      (await cell.run({ kind: "people-bind", fromFile: "people-binding.json" }, binding)).outcome,
-      "applied",
-    );
+    const bound = await cell.run({ kind: "people-bind", fromFile: "people-binding.json" }, binding);
+    assert.equal(bound.outcome, "applied", JSON.stringify(bound));
+    await waitForFixturePublication(cell, bound.opId, binding);
     writeFileSync(path.join(root, "people-remove.json"), JSON.stringify({ personId: "person_alice" }));
-    assert.equal(
-      (await cell.run({ kind: "people-remove", fromFile: "people-remove.json" }, binding)).outcome,
-      "applied",
-    );
+    const removed = await cell.run({ kind: "people-remove", fromFile: "people-remove.json" }, binding);
+    assert.equal(removed.outcome, "applied", JSON.stringify(removed));
+    await waitForFixturePublication(cell, removed.opId, binding);
     writeFileSync(
       path.join(root, "people-invalid.json"),
       JSON.stringify({ personId: "person_bob", unsupported: true }),
@@ -346,6 +351,7 @@ test("People delegated tokens issue and revoke through the canonical people even
         binding,
       );
     assert.equal(issued.outcome, "applied", JSON.stringify(issued));
+    await waitForFixturePublication(cell, issued.opId, { actor, source: "local" });
     let roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(roster.delegatedExecutionTokens, [
       {
@@ -364,10 +370,11 @@ test("People delegated tokens issue and revoke through the canonical people even
     now = "2026-08-27T02:30:00.000Z";
     const revoked = await cell.run({ kind: "people-revoke-delegation", tokenId: "det_owner_runtime_1" }, binding);
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
+    await waitForFixturePublication(cell, revoked.opId, { actor, source: "local" });
     roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.equal(roster.delegatedExecutionTokens[0]?.revokedAt, now);
     assert.equal(
-      makeTaskEventStore({ repoId: "people-delegation", rootDir: root })
+      makeTaskEventReader({ repoId: "people-delegation", rootDir: root })
         .read()
         .events.filter(({ schema }) => schema === "people-event/v1").length,
       2,

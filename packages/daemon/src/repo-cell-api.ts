@@ -1,3 +1,16 @@
+import {
+  executeSquadControl,
+  isSquadControlCommand,
+  isSquadControlResult,
+  squadControlRejected,
+  type SquadControlResult,
+} from "./squad-control-result.ts";
+import type { RepoCellCore } from "./repo-cell.ts";
+import {
+  attachReceiptAcceptance,
+  readAcceptedCommandOutcome,
+  waitForReceiptAcceptance,
+} from "../../kernel/src/index.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -63,6 +76,7 @@ import {
   authorizeDurableRepoCellAction,
   authorizeRepoCellAction,
   bindVerifiedExecutorClaim,
+  withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
 import { admitRepoMode, entityActionCommandTopology } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
@@ -116,7 +130,6 @@ export interface RepoCellApiContext {
   activeWriterEpochGuard: (() => void) | null;
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
   activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
-  readonly withLayoutAdvisory: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   lastError: string | null;
   recoveryUncertain: boolean;
@@ -138,7 +151,7 @@ export interface RepoCellApiContext {
   readonly terminal: RepoCell["terminal"];
   readonly runtimeStream: AgentRuntimeStreamHub;
   readonly generation: number;
-  readonly recovery: ReturnType<CanonicalEventStore["recover"]>;
+  readonly recovery: RepoCellCore["recovery"];
   readonly lock: { readonly close: () => Promise<void> };
 }
 
@@ -171,7 +184,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     );
     return { queued: true as const, result: pending };
   };
-  const run = async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal): Promise<WriteReceipt> => {
+  const run = async (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
     try {
@@ -251,13 +268,13 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withLayoutAdvisory(context.withHumanSummary(await context.executeAction(action, binding)));
+          return context.withHumanSummary(await context.executeAction(action, binding));
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(error));
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
-    ): Promise<WriteReceipt> => {
+    ): Promise<WriteReceipt | SquadControlResult> => {
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
         replaceAfterPublication = false;
@@ -287,8 +304,18 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         context.activeWriterEpochGuard = binding.assertWriterEpoch ?? null;
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
-          const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
+          if (isSquadControlCommand(action.kind)) {
+            const controlled = await executeSquadControl(
+              context.extracted,
+              action,
+              queuedDecision ? { ...binding, authorizationDecision: queuedDecision } : binding,
+            );
+            context.replica.kick();
+            return controlled;
+          }
+          const executed = context.withHumanSummary(await execute(queuedDecision)),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
@@ -304,6 +331,21 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           }
           context.replica.kick();
           return receipt;
+        } catch (error) {
+          if (isSquadControlCommand(action.kind))
+            return squadControlRejected(action.kind, failAction(error, queuedDecision));
+          // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
+          const head = context.store.readHead(),
+            accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
+          if (accepted !== null && accepted.firstRevision > revisionBeforeExecution)
+            throw Object.assign(
+              context.cellCodedError(
+                "publication_indeterminate",
+                error instanceof Error ? error.message : String(error),
+              ),
+              { opId: accepted.opId, cause: error },
+            );
+          throw error;
         } finally {
           context.activeWriterEpochGuard = null;
           context.activeWriterEpochFence = null;
@@ -422,6 +464,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
                 },
                 publish: async (produced: RepoTaskAction) => {
                   const receipt = await run(produced, binding);
+                  if (isSquadControlResult(receipt))
+                    throw context.cellCodedError(
+                      "invalid_preset_receipt",
+                      "Preset-produced writes require a write receipt.",
+                    );
                   if (receipt.outcome === "no_changes")
                     throw context.cellCodedError(
                       "invalid_preset_receipt",
@@ -861,7 +908,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
       try {
         const result = await execute({ ...binding, authorizationDecision }, revision);
-        return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
+        const receipt =
+          typeof result.opId === "string" && typeof result.outcome === "string"
+            ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)
+            : result;
+        return {
+          ...receipt,
+          authorizationDecision: authorizationDecision as unknown as JsonObject,
+        } as unknown as JsonObject;
       } finally {
         context.activeWriterEpochGuard = null;
         context.activeWriterEpochFence = null;
@@ -948,7 +1002,26 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
-    run,
+    run: async (action, binding, signal) => {
+      const receipt = await run(action, binding, signal);
+      if (isSquadControlResult(receipt)) return receipt;
+      if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
+      if (
+        action.kind === "settings-update" &&
+        receipt.effects?.length === 1 &&
+        receipt.effects[0] === "settings-local/locale_changed"
+      )
+        return receipt;
+      if (
+        action.kind === "projection-rebuild" ||
+        (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
+      )
+        return receipt;
+      const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
+      return action.kind === "receipt-show" && action.waitFor !== undefined
+        ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal)
+        : read();
+    },
     presetRun,
     spawnRuntime,
     cancelRuntime,
@@ -1018,23 +1091,5 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         await context.lock.close();
       }
     },
-  };
-}
-
-function withAuthorizationDecision(
-  receipt: WriteReceiptDraft,
-  authorizationDecision: AuthorizationDecision,
-  unmetCriteria: readonly EntityActionUnmetCriterionV1[] = receipt.unmetCriteria ?? [],
-  rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
-): WriteReceipt {
-  return {
-    ...receipt,
-    authorizationDecision,
-    unmetCriteria,
-    rejectionExplanation:
-      receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
-        ? (rejectionExplanation ?? `Action rejected after ${authorizationDecision.policyRef} qualification.`)
-        : null,
-    nextActions: Object.freeze([...new Set([...(receipt.nextActions ?? []), ...authorizationDecision.nextActions])]),
   };
 }

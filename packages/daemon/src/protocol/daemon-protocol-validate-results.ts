@@ -1,3 +1,4 @@
+import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonGuiActionMethods } from "./daemon-protocol-gui-actions.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
@@ -7,6 +8,9 @@ import {
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
 import {
+  validateReceiptAcceptanceWire,
+  validSquadControlAuthorization,
+  wireUnmetCriterion,
   exactRecord,
   integer,
   nonEmpty,
@@ -84,6 +88,18 @@ export function parseScheduleListReceipt(
 }
 
 export function makeDaemonCommandReceipt(command: string, receipt: object): JsonObject {
+  if (isSquadControlResult(receipt)) {
+    if (receipt.command !== command) throw new Error("Squad control command mismatch");
+    const result = Object.fromEntries(
+      Object.entries({
+        ...receipt,
+        ok: receipt.outcome === "completed",
+        ...(receipt.outcome === "op_rejected" ? { error: { code: receipt.code ?? "squad_control_failed" } } : {}),
+      }).filter(([, value]) => value !== undefined),
+    );
+    if (!isJsonObject(result)) throw new Error("Squad control result must contain JSON values");
+    return result;
+  }
   const {
       schema: _schema,
       ok: _ok,
@@ -132,7 +148,7 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
 }
 
 export function daemonCommandReceiptRejectionCode(receipt: Readonly<Record<string, unknown>>): string | null {
-  return receipt.schema === "command-receipt/v2" &&
+  return (receipt.schema === "command-receipt/v2" || receipt.schema === "squad-control-result/v1") &&
     receipt.ok === false &&
     receipt.outcome === "op_rejected" &&
     nonEmpty(receipt.code)
@@ -441,11 +457,20 @@ export function writeReceipt(value: JsonObject): string[] {
   if (!nonEmpty(value.opId)) return [validationError(entityId, "opId", value.opId, "must be a non-empty string")];
   if (value.revision !== undefined && (!integer(value.revision) || Number(value.revision) < 0))
     return [validationError(entityId, "revision", value.revision, "must be a non-negative integer")];
-  if ((applied || pending || noChanges) && !validProof)
+  const acceptanceAware = "status" in value || "acceptance" in value;
+  if (acceptanceAware) {
+    const errors = validateReceiptAcceptanceWire(value);
+    if (errors.length > 0)
+      return errors.map((error) => validationError(entityId, "acceptance", value.acceptance, error));
+  }
+  const unaccepted = acceptanceAware && value.acceptance === null;
+  if (unaccepted && value.proof !== undefined)
+    return [validationError(entityId, "proof", value.proof, "must be absent without a committed acceptance")];
+  if ((applied || pending || noChanges) && !unaccepted && !validProof)
     return [validationError(entityId, "proof", value.proof, "must be a valid committed proof")];
   if ((applied || pending || noChanges) && value.visibility !== "center")
     return [validationError(entityId, "visibility", value.visibility, "must be center")];
-  if ((applied || pending || noChanges) && !integer(value.revision))
+  if ((applied || pending || noChanges) && !unaccepted && !integer(value.revision))
     return [validationError(entityId, "revision", value.revision, "must be an integer")];
   if ((applied || pending || noChanges) && !nonEmpty(value.evidence))
     return [validationError(entityId, "evidence", value.evidence, "must be a non-empty string")];
@@ -484,6 +509,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
     "receipt:<unknown>",
   );
   if (!isJsonObject(value)) return [validationError(entityId, "$", value, "must be an object")];
+  if (value.schema === "squad-control-result/v1") return validateSquadControlReceipt(value);
   const allowed = ["schema", "ok", "command", ...writeReceiptFields, ...guiReceiptExtensions],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
@@ -520,7 +546,7 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       (value.commitSha !== null && !/^[0-9a-f]{40}$/u.test(String(value.commitSha))) ||
       (!/^sha256:[0-9a-f]{64}$/u.test(String(value.documentSha256)) &&
         !/^[0-9a-f]{64}$/u.test(String(value.documentSha256))) ||
-      value.worktreeVisible !== true ||
+      !decisionWorktreeVisibility(value) ||
       (value.consentId !== null && !nonEmpty(value.consentId)))
   )
     errors.push(validationError(entityId, "decisionReceipt", value, "must carry complete decision fidelity fields"));
@@ -606,4 +632,80 @@ function isStructuredGuidance(value: unknown): boolean {
 
 function isStructuredDiagnostic(value: unknown): boolean {
   return isJsonObject(value) && nonEmpty(value.kind);
+}
+
+export function isSquadControlResult(value: object): value is SquadControlResult {
+  return "schema" in value && value.schema === "squad-control-result/v1";
+}
+
+export function validateSquadControlReceipt(value: Readonly<Record<string, unknown>>): readonly string[] {
+  const allowed = [
+    "schema",
+    "ok",
+    "command",
+    "outcome",
+    "squadRunId",
+    "leaderRuntimeSessionId",
+    "phase",
+    "summary",
+    "evidence",
+    "code",
+    "authorizationDecision",
+    "nextActions",
+    "unmetCriteria",
+    "error",
+  ];
+  const errors: string[] = [];
+  if (value.schema !== "squad-control-result/v1" || !["squad-run", "squad-cancel"].includes(String(value.command)))
+    errors.push("control result must name squad-run or squad-cancel");
+  if (Object.keys(value).some((key) => !allowed.includes(key))) errors.push("undeclared Squad control field");
+  if (value.outcome !== "completed" && value.outcome !== "op_rejected") errors.push("invalid control outcome");
+  if (value.ok !== (value.outcome === "completed")) errors.push("control ok must match its outcome");
+  if (typeof value.summary !== "string" || !value.summary.trim()) errors.push("control summary is required");
+  if (value.authorizationDecision !== undefined && !validSquadControlAuthorization(value.authorizationDecision))
+    errors.push("control authorizationDecision must match AuthorizationDecision");
+  if (
+    value.nextActions !== undefined &&
+    (!Array.isArray(value.nextActions) || !value.nextActions.every((item) => typeof item === "string" && item.trim()))
+  )
+    errors.push("control nextActions must be non-empty strings");
+  if (
+    value.unmetCriteria !== undefined &&
+    (!Array.isArray(value.unmetCriteria) || !value.unmetCriteria.every(wireUnmetCriterion))
+  )
+    errors.push("invalid control unmetCriteria");
+  if (value.evidence !== undefined && typeof value.evidence !== "string") errors.push("invalid control evidence");
+  if (
+    value.leaderRuntimeSessionId !== undefined &&
+    (typeof value.leaderRuntimeSessionId !== "string" || !value.leaderRuntimeSessionId.trim())
+  )
+    errors.push("invalid leader runtime session id");
+  if (
+    value.outcome === "op_rejected" &&
+    (!isJsonObject(value.error) || Object.keys(value.error).length !== 1 || value.error.code !== value.code)
+  )
+    errors.push("control error must contain only its rejection code");
+  if (value.outcome === "completed") {
+    if (typeof value.squadRunId !== "string" || !/^squad_[a-f0-9]{24}$/u.test(value.squadRunId))
+      errors.push("completed Squad control requires its run handle");
+    if (typeof value.phase !== "string" || !value.phase.trim()) errors.push("control phase is required");
+    if (value.error !== undefined) errors.push("completed Squad control cannot carry an error");
+  } else if (typeof value.code !== "string" || !value.code.trim()) errors.push("control rejection needs a code");
+  return errors;
+}
+
+function decisionWorktreeVisibility(value: JsonObject): boolean {
+  if (!("acceptance" in value)) return value.worktreeVisible === true;
+  const acceptance = isJsonObject(value.acceptance) ? value.acceptance : {},
+    acceptedCut = isJsonObject(acceptance.cut) ? acceptance.cut : {},
+    worktree = isJsonObject(value.worktree) ? value.worktree : {},
+    cut = isJsonObject(worktree.cut) ? worktree.cut : {},
+    coversAcceptance =
+      worktree.state === "verified" &&
+      cut.repoId === acceptedCut.repoId &&
+      cut.generation === acceptedCut.generation &&
+      integer(cut.revision) &&
+      integer(acceptedCut.revision) &&
+      Number(cut.revision) >= Number(acceptedCut.revision);
+  return typeof value.worktreeVisible === "boolean" && value.worktreeVisible === coversAcceptance;
 }

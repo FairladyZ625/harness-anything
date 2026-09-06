@@ -77,7 +77,12 @@ import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
-import { openPersistentWriterEpoch, type PersistentWriterEpoch, type WriterEpochLease } from "./writer-epoch.ts";
+import {
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+  type PersistentWriterEpoch,
+  type WriterEpochLease,
+} from "./writer-epoch.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -160,7 +165,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         holderId: `local-daemon:${input.daemonId}:${process.pid}`,
         now,
       });
-      const lease = daemonWriterLeases.get(repoId) ?? daemonWriterEpoch.acquire(repoId);
+      const existing = daemonWriterLeases.get(repoId);
+      if (existing) return existing;
+      const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
+      // The lease database allocates epochs above the accepting ledger's enforced fence floor.
+      const lease = daemonWriterEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repo?.canonicalRoot));
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },

@@ -5,17 +5,13 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
-// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
-// wait for materialized commits, so pin the test-local idle timer to a fast interval.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
-
-test("WAL flush settles an eligible authored edit and status highlights blocked candidates", async () => {
+test("Explicit submission settles an eligible authored edit and status highlights blocked candidates", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-doc-sync-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -31,12 +27,10 @@ test("WAL flush settles an eligible authored edit and status highlights blocked 
     );
     write(rootDir, "context/auto.md", "# Settled by WAL\n");
 
-    const tracked = path.join(rootDir, "harness/context/auto.md"),
-      deadline = Date.now() + 10_000;
-    while (!gitHasPath(rootDir, "harness/context/auto.md") && Date.now() < deadline)
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(gitHasPath(rootDir, "harness/context/auto.md"), true, "eligible edit did not reach HEAD in time");
-    assert.equal(readFileSync(tracked, "utf8"), "# Settled by WAL\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/auto.md"] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell, submitted.opId, binding);
+    assert.equal(git(rootDir, "show", "HEAD:harness/context/auto.md"), "# Settled by WAL");
 
     write(rootDir, "harness.yaml", "schema: hand-edited\n");
     const status = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding);
@@ -45,12 +39,12 @@ test("WAL flush settles an eligible authored edit and status highlights blocked 
   } finally {
     await cell.close();
     assert.equal(git(rootDir, "diff", "--name-only"), "harness/harness.yaml");
-    assert.match(git(rootDir, "status", "--porcelain", "-uall"), /^M harness\/harness\.yaml$/mu);
+    assert.match(git(rootDir, "status", "--porcelain", "--", "harness/harness.yaml"), /^M harness\/harness\.yaml$/mu);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("WAL flush keeps forbidden and unresolved candidates out of an eligible batch", async () => {
+test("Explicit submission keeps forbidden and unresolved candidates out of an eligible batch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-mixed-"));
   initRepo(rootDir);
   const repoId = workspaceId("authored-wal-mixed"),
@@ -63,17 +57,14 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-mixed", title: "Mixed WAL" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     const unresolved = "context/unresolved.md";
     write(rootDir, unresolved, "---\nowner: canonical\n---\n# Unresolved\n\nbase\n");
-    // The idle authored-candidate settler may publish these bytes before the explicit
-    // submit reaches the cell; both writers are by design and publish the same content,
-    // so the receipt is either applied or a truthful no_changes. The canonical head is
-    // the assertion, not which writer won the race.
-    const seeded = (await cell.run({ kind: "doc-submit", paths: [unresolved] }, binding)).outcome;
-    assert.ok(seeded === "applied" || seeded === "no_changes", JSON.stringify(seeded));
+    const seeded = await cell.run({ kind: "doc-submit", paths: [unresolved] }, binding);
+    assert.equal(seeded.outcome, "applied", JSON.stringify(seeded));
     await waitForHeadBody(rootDir, unresolved, "---\nowner: canonical\n---\n# Unresolved\n\nbase\n");
 
     write(rootDir, unresolved, "---\nowner: hand-edit\n---\n# Unresolved\n\nbase\n");
@@ -84,6 +75,9 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
       binding,
     );
     assert.equal(transition.outcome, "applied", JSON.stringify(transition));
+    await waitForFixturePublication(cell, transition.opId, binding);
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/eligible.md"] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForHeadBody(rootDir, "context/eligible.md", "# Eligible\n\nsettled in the same WAL cut\n");
 
     const status = await cell.run(
@@ -108,7 +102,7 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
   }
 });
 
-test("a repeated authored write target settles to the latest WAL claim", async () => {
+test("a repeated authored write target settles to the latest accepted claim", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-repeat-"));
   initRepo(rootDir);
   const repoId = workspaceId("authored-wal-repeat"),
@@ -130,7 +124,7 @@ test("a repeated authored write target settles to the latest WAL claim", async (
     assert.equal(second.outcome, "applied", JSON.stringify(second));
     await waitForHeadBody(rootDir, logical, latestBody);
     assert.equal(git(rootDir, "show", `HEAD:harness/${logical}`), latestBody.trim());
-    const events = makeTaskEventStore({ repoId, rootDir })
+    const events = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.filter((event) => event.schema === "doc-event/v1");
     assert.equal(events.length, 2);
@@ -143,7 +137,7 @@ test("a repeated authored write target settles to the latest WAL claim", async (
   }
 });
 
-test("closing after a state transition drains a settlement event created by the same flush", async () => {
+test("closing drains an explicitly submitted authored document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-close-"));
   initRepo(rootDir);
   const repoId = workspaceId("authored-wal-close"),
@@ -158,6 +152,7 @@ test("closing after a state transition drains a settlement event created by the 
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-close", title: "Close settlement" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -166,17 +161,20 @@ test("closing after a state transition drains a settlement event created by the 
       (await cell.run({ kind: "task-start", taskId: "task-close", executionId: "execution-close" }, binding)).outcome,
       "applied",
     );
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await cell.close();
     assert.equal(git(rootDir, "show", `HEAD:harness/${logical}`), body.trim());
     assert.equal(git(rootDir, "diff", "--name-only"), "");
   } finally {
+    await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
 function gitHasPath(rootDir: string, target: string): boolean {
   try {
-    execFileSync("git", ["-C", rootDir, "ls-files", "--error-unmatch", "--", target], {
+    execFileSync("git", ["-C", rootDir, "cat-file", "-e", `HEAD:${target}`], {
       stdio: "ignore",
     });
     return true;

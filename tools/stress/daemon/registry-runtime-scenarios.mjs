@@ -14,7 +14,6 @@ import {
   registerBootstrappedDaemonRepo,
 } from "../../../packages/daemon/test/repo-settings.fixture.ts";
 import { writeProviderExecutable } from "../../../packages/daemon/test/fixtures/runtime-stub.ts";
-import { reproduceRegistryWalRestart } from "../../../packages/daemon/test/registry-wal-restart.repro.mjs";
 import { oracleO1, oracleO4 } from "../core/oracles.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
@@ -66,10 +65,6 @@ export async function runRegistryChangeoverScenario(root) {
   assert.equal(wrongRead.status, 0, wrongRead.stderr);
   assert.equal(wrongRejected, true, JSON.stringify(wrongFrame));
 
-  const restartRoot = path.join(root, "same-binary-restart"),
-    restarted = await reproduceRegistryWalRestart("sigkill", { fixtureRoot: restartRoot });
-  assert.equal(restarted.after.taskId, restarted.after.expectedTaskId);
-  assert.equal(restarted.after.factId, restarted.after.expectedFactId);
   const changeover = await runBuildChangeover(path.join(root, "different-build"));
   return {
     redControl: {
@@ -83,18 +78,15 @@ export async function runRegistryChangeoverScenario(root) {
       boundaryHits: [
         "v1 to v2 before atomic rename",
         "v1 to v2 after atomic rename",
-        "same-binary daemon SIGKILL restart",
         "build drift drain then replacement start",
       ],
       faults: [
         { kind: "SIGKILL", boundary: "registry upgrade before rename" },
         { kind: "SIGKILL", boundary: "registry upgrade after rename" },
-        { kind: "SIGKILL", boundary: "acknowledged WAL before same-build restart" },
       ],
       observations: {
         registryKillArms: killArms,
-        originalRepoId: restarted.after.taskId === restarted.after.expectedTaskId,
-        originalFactId: restarted.after.factId === restarted.after.expectedFactId,
+        originalRepoId: killArms.every(({ recoveredSchema }) => recoveredSchema === "harness-daemon-registry/v2"),
         buildChangeover: changeover,
       },
       oracles: { O1: "PASS", O3: "PASS", O5: "PASS" },

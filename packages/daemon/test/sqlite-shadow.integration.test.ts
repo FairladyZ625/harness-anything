@@ -1,70 +1,100 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, openSqliteEventStore } from "../../kernel/src/index.ts";
-import { bundle, eventAt, initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
+import { initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-test("first RepoCell write does not import an unseeded 1k-event history into the SQLite shadow", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-sqlite-shadow-repo-cell-")),
+function assertValidWriteReceipt(value: unknown): void {
+  assert.equal(typeof value, "object");
+  assert.notEqual(value, null);
+  const allowed = new Set([...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional]),
+    receipt = Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([key]) => allowed.has(key)));
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+}
+
+test("RepoCell accepts in SQLite before independently verified Git and worktree followers", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-sqlite-accept-repo-cell-")),
     rootDir = path.join(parent, "repo"),
-    repoId = workspaceId("sqlite-shadow-repo-cell"),
-    events = Array.from({ length: 1_000 }, (_, index) => eventAt(index + 1)),
-    terminal = bundle(events.at(-1)!);
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
-    seed: ReturnType<typeof makeTaskEventStore> | undefined;
+    repoId = workspaceId("sqlite-accept-repo-cell");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  let failWorktree = true;
   mkdirSync(rootDir);
   initRepo(rootDir);
   try {
-    seed = makeTaskEventStore({ repoId, rootDir });
-    seed.append({ ...terminal, preceding: events.slice(0, -1).map(bundle) });
-    await seed.drain();
-    const stateRoot = path.join(parent, "writer-epoch"),
-      holderId = "sqlite-shadow-writer",
-      authority = openPersistentWriterEpoch({ stateRoot, holderId }),
-      lease = authority.acquire(repoId),
-      binding = {
-        actor: { principal: { personId: "sqlite-shadow-owner" }, executor: null },
-        source: "local" as const,
-        writerEpochFence: {
-          schema: "harness-writer-epoch-fence/v1" as const,
-          stateRoot,
-          repoId,
-          epoch: lease.epoch,
-          holderId,
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "sqlite-accept-writer",
+      killpoint: (point) => {
+        if (failWorktree && point === "before_worktree_rename") throw new Error("simulated worktree follower failure");
+      },
+    });
+    const before = makeTaskEventReader({ repoId, rootDir }).read().revision,
+      accepted = await cell.run(
+        { kind: "task-create", taskId: "task-sqlite-accept", title: "SQLite accept" },
+        {
+          actor: { principal: { personId: "sqlite-accept-owner" }, executor: null },
+          source: "local",
         },
-      };
-    authority.close();
+      );
 
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: holderId });
-    const shadow = openSqliteEventStore({ repoId, rootInput: rootDir });
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    assert.equal(accepted.status, "accepted_durable");
+    assert.equal(accepted.acceptance?.storage, "sqlite");
+    assert.equal(accepted.acceptance?.durability, "local_fsync");
+    assert.equal(accepted.acceptance?.revisionFrom, before + 1);
+    assert.equal(accepted.acceptance?.revisionTo, before + 1);
+    assert.deepEqual(accepted.acceptance?.memberOpIds, [accepted.opId]);
+    assertValidWriteReceipt(accepted);
+
+    const reader = makeTaskEventReader({ repoId, rootDir });
     try {
-      assert.equal(shadow.revision(), 0);
-      const first = await cell.run(
-        { kind: "task-create", taskId: "task-after-history", title: "After history" },
-        binding,
-      );
-      assert.equal(first.outcome, "applied", JSON.stringify(first));
-      assert.equal(first.revision, 1_003, JSON.stringify(first));
-      assert.equal(first.cut?.revision, 1_003, JSON.stringify(first));
-      assert.equal(shadow.revision(), 0, "the first write must not import pre-existing history");
-
-      const second = await cell.run(
-        { kind: "task-create", taskId: "task-after-skip", title: "After skipped shadow" },
-        binding,
-      );
-      assert.equal(second.outcome, "applied", JSON.stringify(second));
-      assert.equal(shadow.revision(), 0, "an unseeded shadow stays disabled for later writes in the cell");
+      assert.equal(reader.read().revision, before + 1);
+      assert.equal(reader.readCommandOutcome(accepted.opId)?.status, "accepted_durable");
     } finally {
-      shadow.close();
+      await reader.drain();
     }
+
+    const settled = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: accepted.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      {
+        actor: { principal: { personId: "sqlite-accept-owner" }, executor: null },
+        source: "local",
+      },
+    );
+    assert.equal(settled.wait?.state, "timed_out", JSON.stringify(settled));
+    assert.deepEqual(settled.wait?.unsatisfied, ["worktree_visible"]);
+    assert.equal(settled.git.state, "verified");
+    assert.equal(settled.worktree.state, "pending");
+    assert.equal(settled.replica.state, "not_configured");
+    failWorktree = false;
+    const manifest = JSON.parse(
+      execFileSync("git", ["-C", rootDir, "show", "HEAD:harness/events/segments/manifest.json"], {
+        encoding: "utf8",
+      }),
+    ) as {
+      readonly generation: number;
+      readonly cut: { readonly repoId: string; readonly revision: number; readonly headDigest: string };
+    };
+    assert.equal(manifest.generation, 1);
+    assert.equal(manifest.cut.repoId, settled.acceptance?.cut.repoId);
+    assert.equal(manifest.cut.revision, settled.acceptance?.cut.revision);
+    assert.equal(manifest.cut.headDigest, settled.acceptance?.cut.headDigest);
+    assert.equal(existsSync(path.join(rootDir, "harness/events/head.json")), false);
   } finally {
-    await seed?.drain();
     await cell?.close();
     rmSync(parent, { recursive: true, force: true });
   }

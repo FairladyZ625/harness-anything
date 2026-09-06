@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError, type WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError, openSqliteEventStore, sqliteLedgerPath } from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease {
   readonly repoId: string;
@@ -11,9 +11,15 @@ export interface WriterEpochLease {
   readonly version: number;
   readonly issuedAt: string;
 }
-export type WriterEpochFenceDescriptor = WalMaterializationFenceV1;
+export interface WriterEpochFenceDescriptor {
+  readonly schema: "harness-writer-epoch-fence/v1";
+  readonly stateRoot: string;
+  readonly repoId: string;
+  readonly epoch: number;
+  readonly holderId: string;
+}
 export interface PersistentWriterEpoch {
-  readonly acquire: (repoId: string) => WriterEpochLease;
+  readonly acquire: (repoId: string, observedLedgerEpoch?: number) => WriterEpochLease;
   readonly current: (repoId: string) => WriterEpochLease | null;
   readonly assert: (repoId: string, epoch: number, holderId?: string) => void;
   readonly withAppendFence: <T>(repoId: string, epoch: number, holderId: string, operation: () => T) => T;
@@ -107,13 +113,15 @@ export function openPersistentWriterEpoch(options: {
           "Query the receipt or reacquire the writer epoch before retrying.",
       );
   };
-  const acquire = (repoId: string): WriterEpochLease => {
+  const acquire = (repoId: string, observedLedgerEpoch = 0): WriterEpochLease => {
     ensureOpen();
     if (!repoId) throw new WriterEpochError("writer_epoch_invalid", "repoId is required for writer epoch allocation");
+    if (!Number.isSafeInteger(observedLedgerEpoch) || observedLedgerEpoch < 0)
+      throw new WriterEpochError("writer_epoch_invalid", "Observed ledger epoch must be a nonnegative safe integer");
     return withImmediateTransaction(() => {
       const previous = readCurrent(repoId),
         floor = Number((selectFloor.get(repoId) as { readonly floor: number | null }).floor ?? 0),
-        epoch = Math.max(previous?.epoch ?? 0, floor) + 1,
+        epoch = Math.max(previous?.epoch ?? 0, floor, observedLedgerEpoch) + 1,
         lease: WriterEpochLease = {
           repoId,
           holderId,
@@ -195,4 +203,14 @@ function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescript
     descriptor.epoch < 1
   )
     throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
+}
+
+export function readLedgerWriterEpoch(repoId: string, rootDir: string | null | undefined): number {
+  if (typeof rootDir !== "string" || !existsSync(sqliteLedgerPath(rootDir))) return 0;
+  const ledger = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+  try {
+    return ledger.writerFence()?.epoch ?? 0;
+  } finally {
+    ledger.close();
+  }
 }

@@ -10,15 +10,15 @@ import {
   compileFactWrite,
   compileScheduleDefinitionEvent,
   createScheduleV1,
-  eventObjectRelativePath,
   makeTaskProjection,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
   type PersistedCanonicalEventV1,
 } from "../../kernel/src/index.ts";
+import { eventObjectRelativePath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, git, initRepo, legacyFixture } from "./migration-import.fixtures.ts";
 
 type VariantBuilder = (root: string) => void;

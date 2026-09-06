@@ -124,6 +124,7 @@ export interface MigrationImportRunInput {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly shouldStop?: () => boolean;
+  readonly stagePrepared?: (prepared: readonly Prepared[]) => void;
 }
 
 export interface MigrationImportContext extends MigrationRelationsContext {
@@ -676,8 +677,8 @@ export async function runSingleMigrationImport(
     prepared.push(backfillMapPrepared);
     revision += 1;
   }
-  // The WAL is authoritative for each append. Migration defers worktree/Git
-  // materialization and projection reduction, then settles each surface once.
+  // Every new source-scoped event is one command interval. SQLite commits all
+  // members and the terminal map outcome together before projection catch-up.
   const unexplained = migrationOracleKinds.filter((kind) => !reconciliation[kind].passed),
     coveragePassed = actual.coverage === expected.coverage,
     writesAllowed = !dryRun && authoredCoverage.passed && unexplained.length === 0 && coveragePassed,
@@ -695,20 +696,18 @@ export async function runSingleMigrationImport(
       );
     };
   if (writesAllowed) {
-    const bulk = input.store.beginBulkWrite?.();
     try {
-      for (const [index, item] of prepared.entries()) {
+      if (prepared.length > 0) {
         throwIfShutdownRequested();
-        input.store.append(item);
-        if (!bulk) input.projection.apply(item.event, item.plan);
-        if ((index + 1) % 256 === 0) await yieldToEventLoop();
+        const terminal = prepared.at(-1)!;
+        const command = { ...terminal, preceding: prepared.slice(0, -1) };
+        if (input.stagePrepared) input.stagePrepared(prepared);
+        else input.store.append(command);
       }
     } finally {
-      await bulk?.finish();
-      if (bulk) input.projection.catchUp?.();
+      if (!input.stagePrepared) input.projection.catchUp?.();
     }
     await yieldToEventLoop();
-    throwIfShutdownRequested();
   }
   const exitCode: 0 | 1 | 3 = !authoredCoverage.passed || unexplained.length || !coveragePassed ? 1 : 0,
     summary = reportTable(

@@ -112,7 +112,6 @@ async function publishSettingsDraft(
 ): Promise<WriteReceipt> {
   if (draft.kind === "no-changes") {
     const localChanged = locale === undefined ? false : settingsState.writeLocal(locale),
-      headRevision = cell.store.readHead()?.revision ?? 0,
       settings = settingsState.read();
     return {
       outcome: localChanged ? "applied" : "no_changes",
@@ -120,13 +119,6 @@ async function publishSettingsDraft(
       revision: draft.revision,
       evidence: JSON.stringify({ schema: "settings-update/v1", settings }),
       visibility: "center",
-      proof: {
-        committedRevision: headRevision,
-        appliedCut: headRevision,
-        durable: true,
-        canonicalVisible: true,
-        worktreeVisible: true,
-      },
       effects: localChanged ? [localEffect] : [],
       updatedProjection: null,
       summary: localChanged ? "Updated local settings." : "Settings already match the requested values.",
@@ -143,7 +135,6 @@ async function publishSettingsDraft(
   await assertCatalogSelection(cell.rootDir, fullSettings);
   const appended = cell.store.append(draft.bundle),
     publication = cell.publicPublication(appended);
-  cell.store.configureWalFlushPolicy?.(repository.walFlush);
   cell.projection.apply(draft.bundle.event, draft.bundle.plan);
   const localChanged = locale === undefined ? false : settingsState.writeLocal(locale),
     applied = cell.projection.readOperation(draft.bundle.event.opId),

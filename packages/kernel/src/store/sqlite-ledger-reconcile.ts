@@ -1,99 +1,208 @@
-import { DatabaseSync } from "node:sqlite";
-import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import type { HarnessLayoutInput } from "../layout/index.ts";
+import { consumeKnownError } from "../error-consumption.ts";
+import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
+import type { LedgerCutIdentity } from "../domain/write-chain.contract.ts";
+import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { contentClaims } from "./task-event-store-claims-layout.ts";
+import { canonicalLedgerCut } from "./task-event-store-contract.ts";
+import { planLegacyGenerationSnapshotConversion } from "./legacy-generation-conversion.ts";
 import {
-  SQLITE_LEDGER_GENERATION,
+  openSqliteEventStore,
   sqliteLedgerPath,
-  type SqliteLedgerReconciliation,
-  type SqliteLedgerRevisionDifference,
+  SQLITE_LEDGER_GENERATION,
+  type SqliteCommandOutcome,
 } from "./sqlite-event-store.ts";
-import { TaskEventStoreError } from "./task-event-store-types.ts";
 
-// Read-only reconciliation of the generation-N SQLite ledger against the canonical stream.
-// It opens the database read-only and never writes; that is why it lives outside the store module.
+export interface GitFollowerReadback {
+  readonly commitSha: string;
+  readonly cut: LedgerCutIdentity;
+  readonly documents: readonly {
+    readonly path: string;
+    readonly mode: string;
+    readonly sha256: string;
+    readonly size: number;
+  }[];
+  readonly retirements: readonly string[];
+}
+
+export interface SqliteLedgerReconciliation {
+  readonly schema: "sqlite-ledger-reconciliation/v2";
+  readonly repoId: string;
+  readonly generation: number;
+  readonly sourceDigest: string;
+  readonly matches: boolean;
+  readonly metadataMatches: boolean;
+  readonly rowDigestMatches: boolean;
+  readonly outcomeMatches: boolean;
+  readonly objectMatches: boolean;
+  readonly gitReadbackMatches: boolean;
+  readonly expected: { readonly events: number; readonly outcomes: number; readonly objects: number };
+  readonly actual: { readonly events: number; readonly outcomes: number; readonly objects: number };
+  readonly differences: readonly string[];
+}
+
+/** Compares the accepted ledger to an immutable import source and independent Git read-back. */
 export function reconcileSqliteEvents(input: {
   readonly repoId: string;
-  readonly events: readonly CanonicalEventV1[];
-  readonly rootInput?: HarnessLayoutInput;
+  readonly rootDir: string;
+  readonly snapshotPath: string;
+  readonly gitReadback: GitFollowerReadback;
   readonly databasePath?: string;
   readonly generation?: number;
 }): SqliteLedgerReconciliation {
   const generation = input.generation ?? SQLITE_LEDGER_GENERATION,
-    databasePath = input.databasePath ?? sqliteLedgerPath(input.rootInput ?? process.cwd(), generation),
-    db = new DatabaseSync(databasePath, { readOnly: true });
+    databasePath = input.databasePath ?? sqliteLedgerPath(input.rootDir, generation),
+    { snapshot, plan } = planLegacyGenerationSnapshotConversion({
+      rootDir: input.rootDir,
+      snapshotPath: input.snapshotPath,
+    }),
+    store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation, readOnly: true });
   try {
-    const meta = db.prepare("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").get();
-    if (!meta || meta.repo_id !== input.repoId || Number(meta.generation) !== generation)
-      throw new TaskEventStoreError(
-        "repo_mismatch",
-        "SQLite ledger metadata belongs to another repository or generation",
-      );
-    const rows = db.prepare("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision").all(),
-      sqliteByRevision = new Map(rows.map((row) => [Number(row.revision), row])),
-      canonicalByRevision = new Map(input.events.map((event) => [event.workspaceRevision, event])),
-      revisions = [...new Set([...canonicalByRevision.keys(), ...sqliteByRevision.keys()])].sort(
-        (left, right) => left - right,
-      ),
-      revisionDifferences: SqliteLedgerRevisionDifference[] = [];
-    for (const revision of revisions) {
-      const canonical = canonicalByRevision.get(revision),
-        sqlite = sqliteByRevision.get(revision),
-        canonicalDigest = canonical
-          ? (`sha256:${sha256Text(serializePersistedCanonicalEvent(canonical))}` as const)
+    const marker = readImportEvidence(`${databasePath}.import-source.json`),
+      certificate = readImportEvidence(`${databasePath}.activation.json`),
+      metadata = store.metadata(),
+      rows = store.eventRows(),
+      outcomes = store.outcomes(),
+      parsedRows = rows.map((row) => {
+        try {
+          return parseCanonicalEvent(row.eventJson);
+        } catch (error) {
+          consumeKnownError(error);
+          return null;
+        }
+      }),
+      expectedRows = plan.events.map((event) => {
+        const eventJson = serializePersistedCanonicalEvent(event);
+        return {
+          revision: event.workspaceRevision,
+          opId: event.opId,
+          eventJson,
+          digest: `sha256:${sha256Text(eventJson)}`,
+        };
+      }),
+      expectedOutcomes = expectedRows.map((row) => ({
+        opId: row.opId,
+        status: "accepted_durable",
+        firstRevision: row.revision,
+        lastRevision: row.revision,
+        intentDigest: row.digest,
+        rejectionCode: null,
+      })),
+      actualOutcomes = outcomes.map((outcome) => ({
+        opId: outcome.opId,
+        status: outcome.status,
+        firstRevision: outcome.firstRevision,
+        lastRevision: outcome.lastRevision,
+        intentDigest: outcome.intentDigest,
+        rejectionCode: outcome.rejectionCode,
+      })),
+      allClaims = parsedRows.flatMap((event) => (event === null ? [] : contentClaims(event))),
+      expectedObjects = [...new Set(allClaims.map((claim) => claim.sha256))].sort(),
+      actualObjects = [...store.contentObjectDigests()].sort(),
+      metadataMatches =
+        snapshot.repoId === input.repoId &&
+        snapshot.generation === 0 &&
+        marker?.schema === "generation-import-source/v1" &&
+        marker.sourceDigest === snapshot.sourceDigest &&
+        certificate?.schema === "generation-activation/v1" &&
+        certificate.repoId === input.repoId &&
+        certificate.sourceDigest === snapshot.sourceDigest &&
+        certificate.importedPrefixRevision === expectedRows.length &&
+        metadata.repoId === input.repoId &&
+        metadata.generation === generation &&
+        metadata.revision === rows.length,
+      rowDigestMatches =
+        rows.length >= expectedRows.length &&
+        stableStringify(rows.slice(0, expectedRows.length)) === stableStringify(expectedRows) &&
+        rows.every((row, index) => {
+          const event = parsedRows[index];
+          return (
+            event !== null &&
+            event !== undefined &&
+            row.revision === index + 1 &&
+            event.workspaceRevision === row.revision &&
+            event.opId === row.opId &&
+            row.digest === `sha256:${sha256Text(row.eventJson)}`
+          );
+        }),
+      outcomeMatches =
+        stableStringify(actualOutcomes.slice(0, expectedOutcomes.length)) === stableStringify(expectedOutcomes) &&
+        outcomes.every((outcome) =>
+          outcome.status === "rejected"
+            ? outcome.firstRevision === null && outcome.lastRevision === null && outcome.memberOpIds.length === 0
+            : outcome.firstRevision === null || outcome.lastRevision === null
+              ? outcome.firstRevision === null && outcome.lastRevision === null && outcome.memberOpIds.length === 0
+              : outcome.firstRevision >= 1 &&
+                outcome.lastRevision <= rows.length &&
+                outcome.memberOpIds.length === outcome.lastRevision - outcome.firstRevision + 1,
+        ) &&
+        completeCommandIntervals(outcomes, rows.length),
+      objectMatches =
+        parsedRows.every((event) => event !== null) &&
+        allClaims.every((claim) => {
+          const bytes = store.readContentObject(claim.sha256);
+          return bytes !== null && bytes.byteLength === claim.size && sha256Bytes(bytes) === claim.sha256;
+        }),
+      current = rows.at(-1),
+      expectedCut = canonicalLedgerCut(
+        input.repoId,
+        current
+          ? {
+              revision: current.revision,
+              opId: current.opId,
+              eventDigest: `sha256:${sha256Text(current.eventJson)}`,
+            }
           : null,
-        sqliteDigest = sqlite ? (`sha256:${sha256Text(String(sqlite.event_json))}` as const) : null,
-        sqliteStoredDigest = sqlite ? String(sqlite.digest) : null;
-      if (
-        !canonical ||
-        !sqlite ||
-        canonical.opId !== sqlite.op_id ||
-        canonicalDigest !== sqliteDigest ||
-        sqliteDigest !== sqliteStoredDigest
-      )
-        revisionDifferences.push({
-          revision,
-          kind: !canonical ? "unexpected_in_sqlite" : !sqlite ? "missing_in_sqlite" : "event_mismatch",
-          canonicalOpId: canonical?.opId ?? null,
-          sqliteOpId: sqlite ? String(sqlite.op_id) : null,
-          canonicalDigest,
-          sqliteDigest,
-          sqliteStoredDigest,
-        });
-    }
-    const canonicalOpIds = new Set(input.events.map(({ opId }) => opId)),
-      sqliteOpIds = new Set(rows.map((row) => String(row.op_id))),
-      missingInSqlite = [...canonicalOpIds].filter((opId) => !sqliteOpIds.has(opId)).sort(),
-      unexpectedInSqlite = [...sqliteOpIds].filter((opId) => !canonicalOpIds.has(opId)).sort(),
-      canonical = {
-        eventCount: input.events.length,
-        maxRevision: input.events.reduce((maximum, event) => Math.max(maximum, event.workspaceRevision), 0),
-        distinctOpIds: canonicalOpIds.size,
-      },
-      sqlite = {
-        eventCount: rows.length,
-        maxRevision: rows.reduce((maximum, row) => Math.max(maximum, Number(row.revision)), 0),
-        distinctOpIds: sqliteOpIds.size,
-      },
-      matches =
-        canonical.eventCount === sqlite.eventCount &&
-        canonical.maxRevision === sqlite.maxRevision &&
-        canonical.distinctOpIds === sqlite.distinctOpIds &&
-        revisionDifferences.length === 0 &&
-        missingInSqlite.length === 0 &&
-        unexpectedInSqlite.length === 0;
+      ),
+      gitReadbackMatches =
+        input.gitReadback.commitSha.length > 0 &&
+        stableStringify(input.gitReadback.cut) === stableStringify(expectedCut),
+      differences = [
+        metadataMatches ? null : "ledger metadata differs from immutable source",
+        rowDigestMatches ? null : "event rows or stored row digests differ from immutable source",
+        outcomeMatches ? null : "command outcomes differ from immutable source import outcomes",
+        objectMatches ? null : "content object closure differs from immutable source claims",
+        gitReadbackMatches ? null : "Git follower read-back differs from immutable source",
+      ].filter((difference): difference is string => difference !== null);
     return {
-      schema: "sqlite-ledger-reconciliation/v1",
+      schema: "sqlite-ledger-reconciliation/v2",
       repoId: input.repoId,
       generation,
-      matches,
-      canonical,
-      sqlite,
-      firstDivergentRevision: revisionDifferences[0]?.revision ?? null,
-      revisionDifferences,
-      opIdDifferences: { missingInSqlite, unexpectedInSqlite },
+      sourceDigest: snapshot.sourceDigest,
+      matches: differences.length === 0,
+      metadataMatches,
+      rowDigestMatches,
+      outcomeMatches,
+      objectMatches,
+      gitReadbackMatches,
+      expected: { events: expectedRows.length, outcomes: expectedOutcomes.length, objects: expectedObjects.length },
+      actual: { events: rows.length, outcomes: outcomes.length, objects: actualObjects.length },
+      differences,
     };
   } finally {
-    db.close();
+    store.close();
   }
+}
+
+function readImportEvidence(inputPath: string): Record<string, unknown> | null {
+  if (!localRuntimeStateFileSystem.exists(inputPath)) return null;
+  const value: unknown = JSON.parse(localRuntimeStateFileSystem.readText(inputPath));
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function completeCommandIntervals(outcomes: readonly SqliteCommandOutcome[], revisions: number): boolean {
+  const intervals = outcomes
+    .filter(
+      (outcome) =>
+        outcome.status === "accepted_durable" && outcome.firstRevision !== null && outcome.lastRevision !== null,
+    )
+    .sort((left, right) => left.firstRevision! - right.firstRevision!);
+  let next = 1;
+  for (const interval of intervals) {
+    if (interval.firstRevision !== next || interval.lastRevision! < interval.firstRevision) return false;
+    next = interval.lastRevision! + 1;
+  }
+  return next === revisions + 1;
 }

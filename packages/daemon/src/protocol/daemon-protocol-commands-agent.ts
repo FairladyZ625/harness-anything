@@ -122,84 +122,6 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
-    id: "fact-rekey",
-    phase: "Migration-A",
-    path: ["migrate", "rekey-facts"],
-    summary:
-      "Re-key facts in a committed canonical repository; stop daemon writers first and use --dry-run before applying.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineLedgerWriteCommand({
-    id: "relation-events-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "relation-events"],
-    summary:
-      "Upcast historical relation events to the current record shape: derived strength, active|retired state, " +
-      "target witness at the event cut. Stop daemon writers first; --dry-run reports the rewrites.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineLedgerWriteCommand({
-    id: "decision-digests-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "decision-digests"],
-    summary:
-      "Restamp historical decision consent and content-pin machine digests under the current projection " +
-      "derivation. Stop daemon writers first; --dry-run reports the rewrites.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineLedgerWriteCommand({
-    id: "schedule-definitions-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "schedule-definitions"],
-    summary:
-      "Upcast historical schedule declarations to the current target shape and restamp their content claims. " +
-      "Stop daemon writers first; --dry-run reports the rewrites.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineLedgerWriteCommand({
-    id: "settings-wal-flush-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "settings-wal-flush"],
-    summary:
-      "Fill the historical repository Settings walFlush snapshot with its declared default. " +
-      "Stop daemon writers first; --dry-run reports the rewrites.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineLedgerWriteCommand({
-    id: "dispatch-records-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "dispatch-records"],
-    summary:
-      "Recover missing RuntimeSession lifecycle events from canonical runtime-dispatch/v1 task artifacts. " +
-      "Use --dry-run to report import-full, settle-tail, and skip decisions before applying.",
-    method: "repo.task.run",
-    inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
-  }),
-  defineCenterForwardWriteCommand({
-    id: "entity-migrate-squads",
-    phase: "Governed-Entity-W1-F",
-    path: ["migrate", "squads"],
-    summary: "Install legacy Squad JSON declarations through the canonical Squad entity action.",
-    method: "repo.task.run",
-    inputs: [
-      cliInput(
-        "--source",
-        "repeated",
-        true,
-        {
-          code: "missing_field",
-        },
-        { field: "sourcePaths" },
-      ),
-      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
-    ],
-  }),
   defineRuntimeLocalWriteCommand({
     id: "agent-create",
     phase: "Runtime-B",
@@ -288,19 +210,11 @@ export const agentProtocolCommands = Object.freeze([
     positional: "squadRunId",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
-    id: "ledger-migrate",
-    phase: "Migration-A",
-    path: ["migrate", "ledger"],
-    summary: "Migrate the ledger layout or seed a declared SQLite generation.",
-    method: "repo.task.run",
-    inputs: [cliInput("--generation", "single", false, { code: "missing_field" })],
-  }),
   defineRepoReadCommand({
     id: "ledger-reconcile",
     phase: "Migration-A",
     path: ["ledger", "reconcile"],
-    summary: "Compare the canonical event stream with one SQLite ledger generation.",
+    summary: "Verify the SQLite ledger against its immutable import source, outcomes and required content.",
     method: "repo.task.read",
     inputs: [cliInput("--generation", "single", true, { code: "missing_field" })],
   }),

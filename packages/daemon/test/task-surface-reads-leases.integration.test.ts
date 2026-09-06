@@ -53,6 +53,17 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       binding,
     )) as Record<string, unknown>;
     assert.equal(created.outcome, "applied");
+    assert.equal(created.status, "accepted_durable");
+    const createdVisible = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: String(created.opId),
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      binding,
+    );
+    assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
     await realizeTaskPlanFixture(rootDir, String(created.packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -135,7 +146,9 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
         binding,
       );
     assert.equal(startPreview.outcome, "pending");
-    assert.equal(startPreview.proof?.canonicalVisible, false);
+    assert.equal(startPreview.status, "unknown");
+    assert.equal(startPreview.acceptance, null);
+    assert.equal(startPreview.proof, undefined);
     assert.equal(relationPreview.outcome, "op_rejected");
     assert.equal(relationPreview.code, "invalid_command");
     assert.equal(makeTaskEventReader({ repoId: "task-read-surface", rootDir }).read().events.length, eventCount);
@@ -313,6 +326,17 @@ test("a lapsed lease stays readable through task show and releasable through tas
     };
     const created = await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder);
     assert.equal(created.outcome, "applied");
+    assert.equal(created.status, "accepted_durable");
+    const createdVisible = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: created.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      holder,
+    );
+    assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, holder),
     );
@@ -449,6 +473,17 @@ test("a released round is re-enterable by its own execution and still refuses a 
       binding,
     );
     assert.equal(created.outcome, "applied");
+    assert.equal(created.status, "accepted_durable");
+    const createdVisible = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: created.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      binding,
+    );
+    assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );

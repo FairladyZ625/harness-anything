@@ -3,7 +3,6 @@ import {
   compileExecutionExecutorDeclaration,
   compileTaskLifecycleWrite,
   createEntityStore,
-  eventShapeMigrations,
   executionExecutorDeclarationCandidates,
   getExecutableEntityAction,
   lifecycleDocumentPaths,
@@ -15,15 +14,8 @@ import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { isDocAction, runArtifactAdd, runDocAction } from "./doc-sync-actions.ts";
 import { runMigrationImport } from "./migration-import.ts";
-import { runFactRekey } from "./fact-rekey.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
-import {
-  runDispatchRecordMigrationAction,
-  runEventShapeMigrationAction,
-  runLedgerMigrateAction,
-  runLedgerReconcileAction,
-} from "./repo-cell-migration-actions.ts";
-import { runSquadEntityMigration } from "./squad-entity-migration.ts";
+import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { pullAndIngestCiObservations } from "./ci-observation-actions.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
@@ -57,21 +49,6 @@ export async function executeAction(
       now: cell.now,
       ...(cell.input.shouldStop ? { shouldStop: cell.input.shouldStop } : {}),
     });
-  if (action.kind === "fact-rekey") {
-    if (action.dryRun !== true) await cell.store.settlePendingMaterialization?.("fact rekey");
-    return runFactRekey({
-      action,
-      binding,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-    });
-  }
-  const eventShapeMigration = eventShapeMigrations[action.kind as keyof typeof eventShapeMigrations];
-  if (eventShapeMigration) return runEventShapeMigrationAction(cell, eventShapeMigration, action, binding);
-  if (action.kind === "dispatch-records-migrate") return runDispatchRecordMigrationAction(cell, action, binding);
-  if (action.kind === "entity-migrate-squads") return runSquadEntityMigration(cell, action, binding);
   if (action.kind === "projection-rebuild") {
     cell.settings.initializeFromAuthoredDocument(binding);
     const rebuilt = cell.projection.rebuild(),
@@ -113,13 +90,9 @@ export async function executeAction(
           proof,
         };
   }
-  if (action.kind === "ledger-migrate") return runLedgerMigrateAction(cell, action, binding);
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
-    // A provably absent operation can be answered from the durable read model.
-    // Do not let unrelated recovery WAL mask that negative receipt.
-    if (cell.store.readEvent(opId) !== null) await cell.store.settleRecoveryMaterialization?.();
     return cell.receiptForOperation(opId, binding);
   }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));

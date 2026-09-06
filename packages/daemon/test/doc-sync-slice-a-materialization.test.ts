@@ -4,12 +4,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-import { actor, git, initRepo, materializeReport, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { actor, git, initRepo, materializeReport, write } from "./doc-sync-slice-a.fixtures.ts";
 test("a committed DocEvent reports pending with its stable receipt id until L2 reaches the event cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-pending-")),
     repoId = workspaceId("doc-pending"),
@@ -26,7 +26,7 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     const applied = await cell.run({ kind: "doc-submit", paths: ["context/pending.md"] }, binding);
     assert.equal(applied.outcome, "applied");
     await cell.close();
-    const store = makeTaskEventStore({ repoId, rootDir }),
+    const store = makeTaskEventReader({ repoId, rootDir }),
       event = store.readEvent(applied.opId);
     if (event?.schema !== "doc-event/v1") throw new Error("DocEvent missing");
     const projection = makeTaskProjection({
@@ -49,6 +49,7 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     assert.equal(pending.outcome, "pending");
     assert.equal(pending.opId, event.opId);
     assert.equal(pending.proof?.committedRevision, event.workspaceRevision);
+    assert.equal(pending.proof?.durable, true);
     assert.equal(pending.proof?.canonicalVisible, false);
     assert.deepEqual(pending.guidance, [{ kind: "retry-receipt", args: { opId: event.opId } }]);
     projection.close();
@@ -58,7 +59,7 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
   }
 });
 
-test("materialize restores task-bootstrap and doc-event files and is idempotent", async () => {
+test("materialize reports an already settled SQLite follower without inventing acceptance", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-materialize-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -68,19 +69,16 @@ test("materialize restores task-bootstrap and doc-event files and is idempotent"
     }),
     binding = { actor, source: "local" as const };
   try {
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-create",
-            taskId: "task-materialize",
-            title: "Materialize",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-materialize",
+        title: "Materialize",
+      },
+      binding,
     );
+    assert.equal(created.outcome, "applied");
+    await waitForWorktree(cell, created);
     const packagePath = "tasks/task-materialize-materialize",
       taskRoot = path.join(rootDir, "harness", packagePath),
       prosePaths = [`${packagePath}/task_plan.md`, `${packagePath}/closeout.md`];
@@ -92,7 +90,8 @@ test("materialize restores task-bootstrap and doc-event files and is idempotent"
       );
     const prose = await cell.run({ kind: "doc-submit", paths: prosePaths }, binding);
     assert.equal(prose.outcome, "applied", JSON.stringify(prose));
-    const proseEvent = makeTaskEventStore({
+    await waitForWorktree(cell, prose);
+    const proseEvent = makeTaskEventReader({
       repoId: "materialize",
       rootDir,
     }).readEvent(prose.opId);
@@ -100,25 +99,29 @@ test("materialize restores task-bootstrap and doc-event files and is idempotent"
     if (proseEvent?.schema === "doc-event/v1")
       assert.deepEqual(proseEvent.payload.changes.map(({ path: target }) => target).sort(), [...prosePaths].sort());
     write(rootDir, "context/notes.md", "# Notes\n\ncanonical\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding)).outcome, "applied");
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
+    assert.equal(submitted.outcome, "applied");
+    await waitForWorktree(cell, submitted);
     const cut = git(rootDir, "rev-parse", "HEAD"),
       count = git(rootDir, "rev-list", "--count", "HEAD");
-    rmSync(taskRoot, { recursive: true, force: true });
-    rmSync(path.join(rootDir, "harness/context/notes.md"));
     const first = await cell.run({ kind: "doc-materialize" }, binding),
       firstReport = materializeReport(first.evidence);
-    assert.equal(first.outcome, "applied", JSON.stringify(first));
-    assert.equal(firstReport.changed.includes("context/notes.md"), true);
-    assert.equal(
-      firstReport.changed.some((value) => value.startsWith(`${packagePath}/`)),
-      true,
-    );
+    assert.equal(first.outcome, "indeterminate", JSON.stringify(first));
+    assert.equal(first.acceptance, null);
+    assert.equal(first.proof, undefined);
+    assert.deepEqual(firstReport.changed, []);
+    assert.deepEqual(firstReport.conflicts, []);
     assert.equal(existsSync(taskRoot), true);
     for (const logical of prosePaths)
       assert.match(readFileSync(path.join(rootDir, "harness", logical), "utf8"), /Canonical prose update/u);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), "# Notes\n\ncanonical\n");
     assert.equal(git(rootDir, "diff", "--name-only"), "");
     const second = await cell.run({ kind: "doc-materialize" }, binding),
       secondReport = materializeReport(second.evidence);
+    assert.equal(second.outcome, "indeterminate", JSON.stringify(second));
+    assert.equal(second.acceptance, null);
+    assert.equal(second.proof, undefined);
+    assert.equal(second.opId, first.opId);
     assert.deepEqual(secondReport.changed, []);
     assert.deepEqual(secondReport.conflicts, []);
     assert.equal(git(rootDir, "rev-parse", "HEAD"), cut);
@@ -130,92 +133,54 @@ test("materialize restores task-bootstrap and doc-event files and is idempotent"
   }
 });
 
-test("local conflict exits run through the doc-sync write path", async (t) => {
+test("the SQLite worktree follower preserves a caller edit and recovers from its pending state", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-conflict-"));
   initRepo(rootDir);
+  let injectLocal = false;
+  const canonical = "# Notes\n\ncanonical\n",
+    local = "# Notes\n\nlocal draft\n",
+    logical = "context/notes.md";
   const cell = await openRepoCell({
       repoId: workspaceId("conflict"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "conflict-daemon",
+      killpoint: (point) => {
+        if (injectLocal && point === "after_git_ref_update") {
+          injectLocal = false;
+          write(rootDir, logical, local);
+        }
+      },
     }),
-    binding = { actor, source: "local" as const },
-    canonical = "# Notes\n\ncanonical\n",
-    local = "# Notes\n\nlocal draft\n";
+    binding = { actor, source: "local" as const };
   try {
-    write(rootDir, "context/notes.md", canonical);
-    assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding)).outcome, "applied");
-    write(rootDir, "context/notes.md", local);
-    const first = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence);
-    assert.deepEqual(first.changed, ["context/notes.md"]);
-    assert.equal(first.conflicts.length, 1);
-    assert.equal(readFileSync(path.join(rootDir, first.conflicts[0]!), "utf8"), local);
-    assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), canonical);
-    assert.equal(git(rootDir, "status", "--porcelain", "-uall").includes("conflict-"), false);
-    const conflicted = await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding);
-    assert.equal(rows(conflicted.evidence)[0]?.state, "conflict");
-    await t.test("discard-local removes the scratch and retains center bytes", async () => {
-      const conflictId = conflictIdOf(first.conflicts[0]!);
-      const discarded = await cell.run({ kind: "doc-conflict-discard-local", conflictId }, binding);
-      assert.equal(discarded.outcome, "applied", JSON.stringify(discarded));
-      assert.equal(existsSync(path.join(rootDir, first.conflicts[0]!)), false);
-      assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), canonical);
-      assert.equal((await cell.run({ kind: "doc-show", path: "context/notes.md" }, binding)).evidence, canonical);
-      assert.equal(
-        rows((await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding)).evidence)[0]?.state,
-        "clean",
-      );
-    });
+    write(rootDir, logical, canonical);
+    injectLocal = true;
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(submitted.outcome, "applied");
+    const gitSettled = await waitForReceipt(cell, submitted, [
+      "accepted_durable",
+      "projection_visible",
+      "git_verified",
+    ]);
+    assert.equal(gitSettled.proof?.durable, true);
+    assert.equal(gitSettled.proof?.canonicalVisible, true);
+    assert.equal(gitSettled.proof?.worktreeVisible, false);
+    assert.equal(gitSettled.worktree.state, "pending");
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), local);
 
-    await t.test("overwrite-center publishes scratch bytes and returns clean", async () => {
-      const overwrite = "# Notes\n\nlocal overwrite\n";
-      write(rootDir, "context/notes.md", overwrite);
-      const overwriteConflict = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence)
-          .conflicts[0]!,
-        overwritten = await cell.run(
-          { kind: "doc-conflict-overwrite-center", conflictId: conflictIdOf(overwriteConflict) },
-          binding,
-        );
-      assert.equal(overwritten.outcome, "applied", JSON.stringify(overwritten));
-      assert.equal(existsSync(path.join(rootDir, overwriteConflict)), false);
-      assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), overwrite);
-      assert.equal((await cell.run({ kind: "doc-show", path: "context/notes.md" }, binding)).evidence, overwrite);
-      assert.equal(
-        rows((await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding)).evidence)[0]?.state,
-        "clean",
-      );
-    });
-
-    await t.test("resolve publishes the hand-merged document and returns clean", async () => {
-      const unresolved = "# Notes\n\nsecond local draft\n",
-        merged = "# Notes\n\nlocal overwrite and second local draft\n";
-      write(rootDir, "context/notes.md", unresolved);
-      const resolveConflict = materializeReport((await cell.run({ kind: "doc-materialize" }, binding)).evidence)
-        .conflicts[0]!;
-      write(rootDir, "context/notes.md", merged);
-      const resolved = await cell.run(
-        { kind: "doc-conflict-resolve", conflictId: conflictIdOf(resolveConflict) },
-        binding,
-      );
-      assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
-      assert.equal(existsSync(path.join(rootDir, resolveConflict)), false);
-      assert.equal(readFileSync(path.join(rootDir, "harness/context/notes.md"), "utf8"), merged);
-      assert.equal((await cell.run({ kind: "doc-show", path: "context/notes.md" }, binding)).evidence, merged);
-      assert.equal(
-        rows((await cell.run({ kind: "doc-status", paths: ["context/notes.md"] }, binding)).evidence)[0]?.state,
-        "clean",
-      );
-    });
+    rmSync(path.join(rootDir, "harness", logical));
+    const retried = await cell.run({ kind: "doc-materialize" }, binding);
+    assert.equal(retried.acceptance, null);
+    assert.equal(retried.proof, undefined);
+    const worktreeSettled = await waitForWorktree(cell, submitted);
+    assert.equal(worktreeSettled.worktree.state, "verified");
+    assert.equal(worktreeSettled.proof?.worktreeVisible, true);
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-
-function conflictIdOf(relativePath: string): string {
-  const conflictId = /\.conflict-([0-9a-f]{8})\.(?:md|txt)$/u.exec(relativePath)?.[1];
-  assert.ok(conflictId, `expected a deterministic conflict id in ${relativePath}`);
-  return conflictId;
-}
 
 test("an authored branch advanced outside the daemon remains an ancestor of the asynchronously materialized cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-diverged-"));
@@ -235,11 +200,37 @@ test("an authored branch advanced outside the daemon remains an ancestor of the 
     assert.equal(result.outcome, "applied");
     assert.equal(result.commitSha, null);
     assert.equal(cell.status().state, "attached");
+    const settled = await waitForReceipt(cell, result, ["accepted_durable", "projection_visible", "git_verified"]);
+    assert.equal(settled.git.state, "verified");
     await cell.close();
     assert.equal(git(rootDir, "merge-base", "--is-ancestor", external, "HEAD") === "", true);
-    assert.equal(git(rootDir, "log", "-1", "--format=%s"), `harness WAL flush ${result.revision}-${result.revision}`);
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), settled.commitSha);
+    assert.match(git(rootDir, "log", "-1", "--format=%s"), /^harness sqlite outbox /u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function waitForWorktree(cell: Awaited<ReturnType<typeof openRepoCell>>, receipt: { readonly opId: string }) {
+  return waitForReceipt(cell, receipt, ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"]);
+}
+
+async function waitForReceipt(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  receipt: { readonly opId: string },
+  waitFor: readonly ("accepted_durable" | "projection_visible" | "git_verified" | "worktree_visible")[],
+) {
+  const shown = await cell.run(
+    {
+      kind: "receipt-show",
+      opId: receipt.opId,
+      waitFor,
+      timeoutMs: 5_000,
+    },
+    { actor, source: "local" },
+  );
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+  return shown;
+}

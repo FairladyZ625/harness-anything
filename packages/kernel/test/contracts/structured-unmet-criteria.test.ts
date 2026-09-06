@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { authorizationPort, type ActionEnvelope, type AuthorizationContext } from "../../src/index.ts";
@@ -31,6 +32,7 @@ const criterion = {
 
 function receipt(unmetCriteria: unknown): WriteReceipt {
   return {
+    ...rejectedAcceptance,
     outcome: "op_rejected",
     opId: "op-criteria",
     code: criterion.failureCode,

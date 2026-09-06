@@ -1,6 +1,62 @@
 import type { StatusWordRegistration } from "./status-vocabulary-types.ts";
 
 export const presentationStatusWords: readonly StatusWordRegistration[] = [
+  {
+    word: "accepted_durable",
+    entity: "WriteReceipt",
+    field: "status",
+    meaning: "The accepting SQLite transaction committed the event and command outcome.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "rejected",
+    entity: "WriteReceipt",
+    field: "status",
+    meaning: "The command was refused without accepting an event.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "unknown",
+    entity: "WriteReceipt",
+    field: "status",
+    meaning: "Acceptance has not been established; query the same operation ID.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "pending",
+    entity: "WriteReceipt",
+    field: "facetState",
+    meaning: "The consumer has not verified the requested accepted cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "verified",
+    entity: "WriteReceipt",
+    field: "facetState",
+    meaning: "The independent consumer read back the accepted cut.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "not_configured",
+    entity: "WriteReceipt",
+    field: "facetState",
+    meaning: "No replica consumer is configured for this receipt.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "satisfied",
+    entity: "WriteReceipt",
+    field: "waitState",
+    meaning: "Every requested receipt predicate holds.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "timed_out",
+    entity: "WriteReceipt",
+    field: "waitState",
+    meaning: "At least one requested predicate remains unsatisfied; acceptance is unchanged.",
+    divergence: "entity-scoped",
+  },
   // ---- EntityActionCriterion explanation status (advisory read; entity-action-explanation.ts) ----
   {
     word: "met",

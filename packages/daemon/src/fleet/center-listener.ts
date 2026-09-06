@@ -1,3 +1,4 @@
+import { isSquadControlResult } from "../squad-control-result.ts";
 import {
   appendFileSync,
   existsSync,
@@ -13,7 +14,7 @@ import { createServer, type Server } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts";
 import { syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
-import { openPersistentWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import {
   brokerHost as brokerHostImpl,
   discardOwnedClaims as discardOwnedClaimsImpl,
@@ -55,7 +56,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       now,
     }),
     ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
-    acquireWriterEpoch = options.writerEpochLease ?? writerEpoch.acquire;
+    acquireWriterEpoch =
+      options.writerEpochLease ??
+      ((repoId: string) => {
+        const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
+        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+      });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   // A center must keep using the epoch it acquired, even after another center
@@ -368,6 +374,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         },
         auth(a),
       );
+      if (isSquadControlResult(receipt))
+        throw new FleetFault(
+          "assignment_scope_mismatch",
+          "Fleet document writes cannot return runtime control results.",
+        );
       if (receipt.outcome === "applied") {
         for (const uploadId of completed) delete state.uploads[uploadId];
         persist();
@@ -474,6 +485,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const ingressAuth = auth(a),
         baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
         receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
+      if (isSquadControlResult(receipt))
+        throw new FleetFault(
+          "assignment_scope_mismatch",
+          "Fleet schedule writes cannot return runtime control results.",
+        );
       return immediate({
         schema: "fleet.schedule.result/v1",
         messageId: mid(frame.messageId, "schedule"),

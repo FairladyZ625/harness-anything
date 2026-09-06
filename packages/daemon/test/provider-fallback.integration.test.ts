@@ -10,7 +10,7 @@ import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/
 import { readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -423,6 +423,7 @@ async function startTask(
 ): Promise<void> {
   const created = await cell.run({ kind: "task-create", taskId, title: taskId }, binding);
   assert.equal(created.outcome, "applied");
+  await waitForFixturePublication(cell, created.opId, binding);
   await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
     cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
   );

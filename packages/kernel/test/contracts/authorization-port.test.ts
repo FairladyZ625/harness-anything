@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-policy.ts";
@@ -51,7 +52,8 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // 2026-09-05:vertical declaration migrate / kind upsert / kind retire 进入 durable inventory,113 → 116。
   // 2026-09-05:schedule-definitions-migrate 修复存量 schedule 声明形状,116 → 117。
   // 2026-09-05:settings-wal-flush-migrate 补齐存量 Settings WAL 快照,117 → 118。
-  assert.equal(durablePolicyActions.length, 118);
+  // CEO ruling 2 retires eight historical rewrite actions at the SQLite cutover: 118 → 110.
+  assert.equal(durablePolicyActions.length, 110);
   // 其余两条是自洽不变量,不需要第二个硬编码数字:清单内无重复(三个角色分段互不重叠),
   // 且每个 durable Action 恰好被一条 rule 覆盖。
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);
@@ -140,6 +142,7 @@ test("lease and review facts do not change Policy qualification", () => {
 test("public WriteReceipt rejects a missing or null AuthorizationDecision", () => {
   const decision = port.authorize(action("fact-record"), roleContext("repo-write")),
     receipt = {
+      ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "op-authorized",
       code: "state_conflict",
@@ -157,6 +160,7 @@ test("public WriteReceipt rejects a missing or null AuthorizationDecision", () =
 test("public WriteReceipt accepts only structured unmet criteria", () => {
   const decision = port.authorize(action("task-submit"), roleContext("repo-write")),
     receipt = {
+      ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "op-unmet-criterion",
       code: "invalid_transition",

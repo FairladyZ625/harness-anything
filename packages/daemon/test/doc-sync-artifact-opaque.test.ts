@@ -1,19 +1,22 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   decideDocWrite,
+  createImmutableLegacyGenerationSnapshot,
+  convertLegacyGeneration,
+  legacyGenerationSnapshotPath,
   docSyncWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
   parseDocWriteIntent,
   sha256Bytes,
 } from "../../kernel/src/index.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -36,10 +39,9 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-opaque" }),
     binding = { actor, source: "local" as const };
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-opaque", title: "Opaque Artifacts" }, binding)).outcome,
-      "applied",
-    );
+    const created = await cell.run({ kind: "task-create", taskId: "task-opaque", title: "Opaque Artifacts" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     const cases = [
       {
         source: "tool.mjs",
@@ -113,29 +115,30 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
       assert.equal(change.candidate.sha256, sha256Bytes(bytes));
       assert.equal(change.candidate.size, bytes.byteLength);
       assert.deepEqual(change.regionProofs, [], `${destination}: opaque whole-file policy must not emit region proofs`);
+      await waitForFixturePublication(cell, String(added.opId), binding);
       const onDisk = readFileSync(path.join(rootDir, "harness", ...logical.split("/")));
       assert.equal(onDisk.equals(bytes), true, `${destination}: authored bytes must equal source bytes`);
       const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
       const row = rows(status.evidence).find((candidate) => candidate.path === logical);
       assert.deepEqual([row?.state, row?.mediaType], ["clean", mediaType], `${destination}: doc status`);
     }
+    const reader = makeTaskEventReader({ repoId, rootDir }),
+      beforeMaterialize = reader.readHead();
     rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
     const materialized = await cell.run({ kind: "doc-materialize" }, binding);
-    assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
-    for (const { destination, body } of cases)
-      assert.equal(
-        readFileSync(
-          path.join(
-            rootDir,
-            "harness",
-            packagePath,
-            "artifacts",
-            ...destination.replace(/^artifacts\//u, "").split("/"),
-          ),
-        ).equals(Buffer.from(body, "utf8")),
-        true,
-        `${destination}: materialize must restore source bytes`,
+    assert.equal(materialized.outcome, "indeterminate", JSON.stringify(materialized));
+    assert.equal(materialized.code, "acceptance_unknown");
+    assert.equal(materialized.acceptance, null);
+    assert.deepEqual(reader.readHead(), beforeMaterialize, "materialization must not admit a new command");
+    for (const { destination, body } of cases) {
+      const logical = `${packagePath}/artifacts/${destination.replace(/^artifacts\//u, "")}`;
+      assert.equal(existsSync(path.join(rootDir, "harness", logical)), false, "follower preserves local deletion");
+      assert.deepEqual(
+        reader.readContentBlob(sha256Bytes(Buffer.from(body))),
+        Buffer.from(body),
+        "accepted bytes remain canonical",
       );
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -152,10 +155,9 @@ test("artifact add still rejects escapes, symlinked path segments, and non-UTF-8
     }),
     binding = { actor, source: "local" as const };
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-guards", title: "Guards" }, binding)).outcome,
-      "applied",
-    );
+    const created = await cell.run({ kind: "task-create", taskId: "task-guards", title: "Guards" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = "tasks/task-guards-guards",
       artifactsDir = path.join(rootDir, "harness", packagePath, "artifacts");
     writeFileSync(path.join(rootDir, "incoming.mjs"), "export const one = 1;\n");
@@ -198,10 +200,9 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
     binding = { actor, source: "local" as const };
   let cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-policy-reclassify" });
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-reclassify", title: "Reclassify" }, binding)).outcome,
-      "applied",
-    );
+    const created = await cell.run({ kind: "task-create", taskId: "task-reclassify", title: "Reclassify" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     await cell.close();
     const packagePath = "tasks/task-reclassify-reclassify",
       report = `${packagePath}/artifacts/report.md`,
@@ -253,6 +254,7 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
     write(rootDir, report, rewritten);
     const submitted = (await cell.run({ kind: "doc-submit", paths: [report] }, binding)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell, String(submitted.opId), binding);
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
@@ -297,6 +299,7 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
       unknown
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell, String(submitted.opId), binding);
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
@@ -318,11 +321,14 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
 test("a historical opaque Markdown claim is restamped through the prose channel", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-opaque-prose-restamp-"));
   initRepo(rootDir);
+  const sourceRoot = path.join(rootDir, "inactive-source");
+  mkdirSync(sourceRoot);
+  initRepo(sourceRoot);
   const repoId = workspaceId("opaque-prose-restamp"),
     binding = { actor, source: "local" as const },
     logical = "context/architecture/Architecture-SSoT.md",
     legacy = "# Architecture\n\nLegacy state.\n",
-    store = makeTaskEventStore({ repoId, rootDir }),
+    store = makeTaskEventStore({ repoId, rootDir: sourceRoot }),
     bytes = Buffer.from(legacy),
     sha = sha256Bytes(bytes),
     base = store.currentCut(),
@@ -360,13 +366,22 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
       documents: [null],
       claims: [bytes],
     });
+  const emptyHead = git(sourceRoot, "rev-parse", "HEAD");
+  store.materialize();
+  assert.equal(git(sourceRoot, "rev-parse", "HEAD"), emptyHead);
+  assert.equal(existsSync(path.join(sourceRoot, "harness/events/segments/manifest.json")), false);
+  assert.equal(store.followerStatus().git.status, "pending");
   assert.equal(historic.accepted, true, JSON.stringify(historic));
   if (!historic.accepted) {
     rmSync(rootDir, { recursive: true, force: true });
     return;
   }
   store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
+  const snapshotPath = legacyGenerationSnapshotPath(rootDir);
+  createImmutableLegacyGenerationSnapshot({ repoId, source: store, snapshotPath });
   await store.drain();
+  const converted = convertLegacyGeneration({ rootDir, snapshotPath });
+  assert.equal(converted.migratedEvents, 1);
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "opaque-prose-restamp" });
   try {
     const firstBody = `${legacy}Current state.\n`;
@@ -378,6 +393,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     );
     const first = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as Record<string, unknown>;
     assert.equal(first.outcome, "applied", JSON.stringify(first));
+    await waitForFixturePublication(cell, String(first.opId), binding);
     const upgraded = makeTaskEventReader({ repoId, rootDir }).readEvent(String(first.opId));
     assert.equal(upgraded?.schema, "doc-event/v1");
     if (upgraded?.schema === "doc-event/v1") {
@@ -407,10 +423,9 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "task-prose" }),
     binding = { actor, source: "local" as const };
   try {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task-prose", title: "Prose" }, binding)).outcome,
-      "applied",
-    );
+    const created = await cell.run({ kind: "task-create", taskId: "task-prose", title: "Prose" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     const packagePath = "tasks/task-prose-prose",
       prosePaths = [`${packagePath}/task_plan.md`, `${packagePath}/closeout.md`];
     for (const logical of prosePaths)
@@ -421,6 +436,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
       );
     const submitted = (await cell.run({ kind: "doc-submit", paths: prosePaths }, binding)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForFixturePublication(cell, String(submitted.opId), binding);
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema !== "doc-event/v1") return;
@@ -432,6 +448,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
       write(rootDir, logical, "# Removed\n");
       const replaced = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
       assert.equal(replaced.outcome, "applied", JSON.stringify(replaced));
+      await waitForFixturePublication(cell, replaced.opId, binding);
       rmSync(path.join(rootDir, "harness", logical));
       const status = await cell.run({ kind: "doc-status", paths: [logical] }, binding),
         row = rows(status.evidence)[0];
@@ -457,7 +474,9 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
   });
   const taskId = "task-complete";
   try {
-    assert.equal((await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding)).outcome, "applied");
+    const created = await cell.run({ kind: "task-create", taskId, title: "Complete" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
     assert.equal(
       (
         await cell.run(
@@ -481,6 +500,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
       binding,
     )) as Record<string, unknown>;
     assert.equal(added.outcome, "applied", JSON.stringify(added));
+    await waitForFixturePublication(cell, String(added.opId), binding);
     const packagePath = String(added.destination).split("/artifacts/")[0]!,
       manual = `${packagePath}/artifacts/reports/manual.html`;
     write(rootDir, manual, "<!doctype html>\n<title>Manual report</title>\n");
@@ -512,9 +532,9 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     await cell.close();
     cell = null;
     assert.equal(
-      git(rootDir, "status", "--porcelain", "-uall").includes("manual.html"),
-      false,
-      "close must drain the pending cut into Git",
+      git(rootDir, "show", `HEAD:harness/${manual}`),
+      "<!doctype html>\n<title>Manual report</title>",
+      "close must drain the pending cut into Git independently of the caller index",
     );
   } finally {
     await cell?.close();

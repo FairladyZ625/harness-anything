@@ -39,12 +39,6 @@ const frozenMutations = Object.freeze([
     facet: "boolean",
     argv: ["decision", "show", "dec_1", "--include-body"],
   },
-  {
-    commandId: "fact-rekey",
-    inputName: "--dry-run",
-    facet: "boolean",
-    argv: ["migrate", "rekey-facts", "--dry-run"],
-  },
 ] as const);
 
 test("all public commands expose the canonical structured input facet", () => {
@@ -61,7 +55,6 @@ test("all public commands expose the canonical structured input facet", () => {
   }
   for (const id of [
     "task-show",
-    "receipt-show",
     "doc-materialize",
     "preset-upgrade",
     "daemon-projection-rebuild",
@@ -69,11 +62,15 @@ test("all public commands expose the canonical structured input facet", () => {
     "daemon-status",
   ])
     assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
-  const ledgerMigrate = daemonProtocolCommands.find((command) => command.id === "ledger-migrate");
   assert.deepEqual(
-    ledgerMigrate?.inputs.map((input) => [input.name, input.kind, input.required]),
-    [["--generation", "single", false]],
-    "ledger-migrate",
+    daemonProtocolCommands
+      .find(({ id }) => id === "receipt-show")
+      ?.inputs.map(({ name, kind, required }) => [name, kind, required]),
+    [
+      ["--wait", "single", false],
+      ["--timeout-ms", "single", false],
+    ],
+    "receipt-show",
   );
   const ledgerReconcile = daemonProtocolCommands.find((command) => command.id === "ledger-reconcile");
   assert.deepEqual(

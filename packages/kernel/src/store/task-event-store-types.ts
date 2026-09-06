@@ -1,12 +1,6 @@
 import { type CanonicalEventV1, type LedgerCommitSha } from "../domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
-import {
-  type ActorIdentity,
-  type EventHead,
-  type FrozenWritePlan,
-  type LedgerCutIdentity,
-  type WriteSource,
-} from "../domain/write-chain.contract.ts";
+import { type EventHead, type FrozenWritePlan, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { type LedgerLayoutState } from "../layout/ledger-object-layout.ts";
 
 // Public store contract, publication records, and write-bundle shapes.
@@ -87,13 +81,6 @@ export interface PublicationDelete {
   readonly delete: string;
 }
 export type PublicationFile = PublicationWrite | PublicationRename | PublicationDelete;
-export interface EventRecoveryReceipt {
-  readonly status: "none" | "committed" | "already_committed" | "indeterminate";
-  readonly publications: 0 | 1;
-  readonly elapsedMs: number;
-  readonly error?: string;
-  readonly errorCode?: string;
-}
 export interface EventFileBatch {
   readonly sourceRevision: number;
   readonly events: readonly CanonicalEventV1[];
@@ -120,6 +107,21 @@ export interface MaterializationHealth {
   readonly reason?: MaterializationFailureReason;
   readonly lastError?: string;
 }
+export interface CanonicalCommandOutcome {
+  readonly opId: string;
+  readonly status: "accepted_durable" | "rejected";
+  readonly firstRevision: number | null;
+  readonly lastRevision: number | null;
+  readonly recordedAt: string;
+  readonly memberOpIds: readonly string[];
+}
+export interface CanonicalFollowerFacet {
+  readonly status: "pending" | "verified";
+  readonly cut: LedgerCutIdentity | null;
+  readonly commitSha: string | null;
+  readonly reason?: string;
+  readonly conflicts?: readonly string[];
+}
 export type EventPublicationKillpoint =
   | "before_event_write"
   | "after_event_write"
@@ -141,33 +143,19 @@ export interface CanonicalEventStore {
   readonly revisionAt: (commit: LedgerCommitSha) => number | null;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
+  readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;
+  readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
+  readonly followerStatus: () => {
+    readonly git: CanonicalFollowerFacet;
+    readonly worktree: CanonicalFollowerFacet;
+  };
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;
-  readonly append: (
-    bundle: CanonicalWriteBundle,
-    additionalFiles?: readonly PublicationFile[],
-  ) => CanonicalEventAppendReceipt;
-  readonly migrateLayout: (input: {
-    readonly actor: ActorIdentity;
-    readonly source: WriteSource;
-    readonly occurredAt: string;
-  }) => CanonicalEventAppendReceipt;
-  readonly recover: () => EventRecoveryReceipt;
+  readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
   readonly materialize: () => MaterializationReceipt;
   /** Read-only health of the WAL to Git materialization owned by this store. */
   readonly materializationHealth: () => MaterializationHealth;
-  /** Suspends timer/threshold materialization until one explicit batch settlement. */
-  readonly beginBulkWrite?: () => { readonly finish: () => Promise<void> };
-  readonly configureWalFlushPolicy?: (policy: {
-    readonly adaptive: boolean;
-    readonly events: number;
-    readonly bytes: number;
-    readonly milliseconds: number;
-  }) => void;
   readonly drain: () => Promise<void>;
-  /** Materializes acknowledged WAL without closing the store before an atomic Git rewrite. */
   readonly settlePendingMaterialization?: (context: string) => Promise<void>;
-  /** Joins only materialization scheduled by crash recovery; normal acknowledged WAL remains asynchronous. */
-  readonly settleRecoveryMaterialization?: () => Promise<void>;
 }

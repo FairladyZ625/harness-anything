@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, submissionDigest } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -44,6 +44,7 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
   try {
     const created = await cell.run({ kind: "task-create", taskId, title: "Lifecycle hit rate" }, holder);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, holder);
     const fact = await cell.run(
       {
         kind: "fact-record",
@@ -95,7 +96,8 @@ test("task start, inline submit, and code-doc reconcile reuse daemon-known lifec
         { kind: "task-start", taskId, executionId: "ignored-new-execution" },
         holder,
       )) as Record<string, unknown>;
-    assert.equal(repeated.outcome, "applied", JSON.stringify(repeated));
+    assert.equal(repeated.outcome, "no_changes", JSON.stringify(repeated));
+    assert.equal(repeated.acceptance, null);
     assert.equal(repeated.executionId, executionId);
     assert.match(String(repeated.opId), /^noop:/u);
     assert.deepEqual(JSON.parse(String(repeated.evidence)), { noOp: true, taskId, executionId });

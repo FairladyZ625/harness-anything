@@ -76,7 +76,7 @@ export function createDaemonHostLifecycleApi(
     attachmentsSettled: context.startInitialAttachments,
     close: async () => {
       context.closing = true;
-      // The cells close no matter what fails before them: they own the worker threads and WAL drains
+      // The cells close no matter what fails before them: they own the writer threads and Git follower drains
       // that the stop sequence releases the pid file and lock on top of. So the steps above them are
       // settled into a value instead of unwinding past the cell close.
       const preamble = await Promise.allSettled([

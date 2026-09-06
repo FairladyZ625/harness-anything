@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {
   actor,
@@ -42,6 +42,7 @@ test("a destination roster and a source roster both survive the migration withou
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
+    await cell.settlePendingMaterialization("inspect imported roster");
     assert.match(
       String(result.summary),
       /\| people-registry \| migrated \| 1 \| PASS \| unioned both rosters into the destination: 2 people \(1 carried from the source: person_dingwen, 1 enriched in place: person_zeyu\), 1 roles \(0 carried from the source\) \|/u,
@@ -55,7 +56,6 @@ test("a destination roster and a source roster both survive the migration withou
     assert.deepEqual([...roster.people[0]!.credentials], [...bootstrapPerson.credentials]);
     await cell.close();
     cell = undefined;
-    assert.equal(git(destination, "status", "--porcelain", "--", "harness"), "");
     const event = makeTaskEventReader({
       repoId: "migration-people-union",
       rootDir: destination,
@@ -168,6 +168,7 @@ test("rosters that genuinely contradict still stop, name the contradiction, and 
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(resolved.exitCode, 0, JSON.stringify(resolved));
+    await cell.settlePendingMaterialization("inspect resolved roster");
     assert.equal(readFileSync(path.join(destination, "harness/people.yaml"), "utf8"), bootstrapRoster());
   } finally {
     await cell?.close();
@@ -199,6 +200,7 @@ test("two independent Git sources merge incrementally with explicit id remaps an
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
+    await cell.settlePendingMaterialization("inspect multi-source import");
     assert.match(String(result.summary), /Migration import batch \(2\/2 sources processed\)/u);
     assert.match(String(result.summary), /REMAP task task_shared -> task_shared__[0-9a-f]{10}/u);
     assert.match(String(result.summary), /REMAP decision dec_SHARED -> dec_SHARED__[0-9a-f]{10}/u);
@@ -328,6 +330,10 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
       ownerId: "migration-daemon",
       now: () => "2026-08-19T00:00:00.000Z",
     });
+    const initialRevision = makeTaskEventReader({
+      repoId: "migration-git-validation",
+      rootDir: destination,
+    }).read().revision;
     writeFileSync(path.join(source, "uncommitted.txt"), "not part of the source cut\n");
     const dirty = await cell.run({ kind: "migrate-import", sourceRoots: [source] }, { actor, source: "local" });
     assert.equal(dirty.outcome, "op_rejected");
@@ -337,7 +343,7 @@ test("migration rejects dirty, shallow, and multi-root Git sources before any ev
         repoId: "migration-git-validation",
         rootDir: destination,
       }).readHead()?.revision ?? 0,
-      0,
+      initialRevision,
     );
     rmSync(path.join(source, "uncommitted.txt"));
     execFileSync("git", ["clone", "-q", "--depth", "1", `file://${source}`, shallow]);

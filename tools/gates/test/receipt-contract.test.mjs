@@ -19,12 +19,38 @@ const authorizationDecision = Object.freeze({
   nextActions: [],
   evaluatedAtCut: "canonical:test",
 });
+const unaccepted = {
+  status: "unknown",
+  acceptance: null,
+  projection: { state: "pending", cut: null },
+  git: { state: "pending", cut: null, commitSha: null },
+  worktree: { state: "pending", cut: null },
+  replica: { state: "not_configured", cut: null },
+};
+function accepted(opId, revision) {
+  const cut = { repoId: "gate-fixture", generation: 1, revision, headDigest: `sha256:${"a".repeat(64)}` };
+  return {
+    ...unaccepted,
+    status: "accepted_durable",
+    acceptance: {
+      storage: "sqlite",
+      durability: "local_fsync",
+      recordedAt: "2026-09-06T00:00:00.000Z",
+      revisionFrom: revision,
+      revisionTo: revision,
+      memberOpIds: [opId],
+      cut,
+    },
+    projection: { state: "verified", cut },
+  };
+}
 const validateReceipt = (value) => validateWriteReceipt({ authorizationDecision, ...value });
 
 test("G04 accepts all four receipt outcomes and requires honest error fields", () => {
   assert.deepEqual(
     validateReceipt({
       outcome: "applied",
+      ...accepted("op_0", 7),
       opId: "op_0",
       revision: 7,
       evidence: "event:7",
@@ -36,6 +62,7 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
   assert.deepEqual(
     validateReceipt({
       outcome: "pending",
+      ...accepted("op_1", 7),
       opId: "op_1",
       revision: 7,
       evidence: "event:7",
@@ -47,6 +74,7 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
   );
   assert.deepEqual(
     validateReceipt({
+      ...unaccepted,
       outcome: "indeterminate",
       opId: "op_2",
       code: "readback_unknown",
@@ -55,12 +83,13 @@ test("G04 accepts all four receipt outcomes and requires honest error fields", (
     }),
     [],
   );
-  assert.deepEqual(validateReceipt(fixture("receipt-error-golden.json")), []);
+  assert.deepEqual(validateReceipt({ ...unaccepted, status: "rejected", ...fixture("receipt-error-golden.json") }), []);
 });
 
 test("G04 rejects replica applied without an ACK committed at the applied cut", () => {
   const receipt = {
     outcome: "applied",
+    ...accepted("op_replica", 7),
     opId: "op_replica",
     revision: 7,
     evidence: "event:7",
@@ -75,6 +104,7 @@ test("G04 rejects replica applied without an ACK committed at the applied cut", 
 test("G04 derives durable, canonical-visible, and worktree-visible independently", () => {
   const base = {
     outcome: "applied",
+    ...accepted("op_visibility", 3),
     opId: "op_visibility",
     revision: 3,
     evidence: "event:3",
@@ -82,6 +112,14 @@ test("G04 derives durable, canonical-visible, and worktree-visible independently
     proof: { committedRevision: 3, appliedCut: 3, durable: true, canonicalVisible: true, worktreeVisible: false },
   };
   assert.deepEqual(validateReceipt(base), []);
+  assert.match(
+    validateReceipt({ ...base, status: "unknown", acceptance: null }).join("\n"),
+    /applied requires accepted_durable/u,
+  );
+  assert.match(validateReceipt({ ...base, acceptance: null }).join("\n"), /committed acceptance interval/u);
+  for (const facet of ["projection", "git", "worktree", "replica"])
+    assert.match(validateReceipt({ ...base, [facet]: undefined }).join("\n"), /independent verified cut or pending/u);
+
   assert.match(validateReceipt({ ...base, proof: { ...base.proof, durable: false } }).join("\n"), /durable/u);
   assert.match(
     validateReceipt({ ...base, proof: { ...base.proof, canonicalVisible: false } }).join("\n"),
@@ -110,6 +148,7 @@ test("G06 error golden retains nextAction and incomplete errors fail", () => {
 
 test("G06 evidence-free results can only be N/A indeterminate", () => {
   const honest = {
+    ...unaccepted,
     outcome: "indeterminate",
     opId: "op_3",
     code: "evidence_absent",

@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, makeTaskEventStore } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import {
   actor,

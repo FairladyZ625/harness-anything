@@ -20,7 +20,7 @@ const ontologySquad = {
     "默认派 sol:kernel / daemon / CLI 写路 / identity / gate 语义 / 任何需要读懂现有契约再改的活,以及所有子锚的第一版实现 -> sol\n明确机械且范围已被 sol 或 Commander 圈死的后端改造(按清单改、按模板生成、批量迁移)-> terra\n纯跑命令收数、生成测量表、重命名、整理清单 -> luna\n只有 packages/gui 渲染器与视图的核心前端逻辑 -> glm-5-3;GUI 之外不派它\n对已交回实现做变异/分辨力复核 -> ae-discrimination\n\n这个里程碑难且重要:拿不准派谁就派 sol,不要为了省额度降级。承重判断(限值数字、Entity 取舍、门的去留)不派 worker,由 Commander 整理成选项上报 CEO。一个 worker 一个 worktree,文件面不重叠。worker 回报里没有真实命令输出的,退回重做,不进综合报告。",
 } as const;
 
-test("agent create runs and ontology-squad reinstall stays on the canonical Entity write road", () => {
+test("agent create runs and ontology-squad reinstall stays on the canonical Entity write road", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-agent-create-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -51,8 +51,10 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     });
     const preview = run(root, env, ["agent", "install", "--source", designerRoot, "--dry-run"]);
     assert.equal(preview.outcome, "pending");
-    assert.equal((preview.proof as Record<string, unknown>).durable, false);
-    assert.equal((preview.proof as Record<string, unknown>).canonicalVisible, false);
+    assert.equal(preview.status, "unknown");
+    assert.equal(preview.acceptance, null);
+    assert.equal(preview.proof, undefined);
+    assert.equal((JSON.parse(String(preview.evidence)) as { dryRun: boolean }).dryRun, true);
     assert.equal(existsSync(path.join(root, "harness", "agents", "meta-designer.json")), false);
     const installed = run(root, env, ["agent", "install", "--source", designerRoot]);
     writeSquad(squadRoot, {
@@ -237,19 +239,17 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     assert.equal(child.outcome, "succeeded");
     assert.equal(existsSync(path.join(root, "created-by-agent.txt")), true);
     assert.equal(readFileSync(path.join(root, "created-by-agent.txt"), "utf8"), "created by mechanic-agent\n");
-    const dispatch = JSON.parse(
-      readFileSync(
-        path.join(
-          root,
-          "harness",
-          String(created.packagePath),
-          "artifacts",
-          "dispatches",
-          `${String((child.spawn as Record<string, unknown>).dispatchId)}.json`,
-        ),
-        "utf8",
-      ),
-    ) as Record<string, unknown>;
+    const dispatchPath = path.join(
+      root,
+      "harness",
+      String(created.packagePath),
+      "artifacts",
+      "dispatches",
+      `${String((child.spawn as Record<string, unknown>).dispatchId)}.json`,
+    );
+    for (let attempt = 0; attempt < 500 && !existsSync(dispatchPath); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    const dispatch = JSON.parse(readFileSync(dispatchPath, "utf8")) as Record<string, unknown>;
     const mission = readFileSync(path.join(root, "harness", String(dispatch.missionRef)), "utf8");
     assert.equal(dispatch.agentId, "mechanic-agent");
     assert.match(mission, /MECHANIC_INSTRUCTIONS_WITNESS/u);

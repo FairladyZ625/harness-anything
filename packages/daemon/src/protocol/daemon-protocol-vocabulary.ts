@@ -67,7 +67,7 @@ export const relationOriginWords = ["declared", "imported_snapshot", "generated"
 
 export const packageDispositionWords = ["active", "archived", "tombstoned"] as const;
 
-/** Wire mirror of the kernel WAL-to-Git materialization health vocabulary. */
+/** Wire mirror of the kernel SQLite-to-Git publication health vocabulary. */
 export const materializationStateWords = Object.freeze([
   "ok",
   "retrying",

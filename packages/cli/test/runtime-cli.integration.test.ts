@@ -412,7 +412,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       boundSpawn = bound.spawn as Record<string, unknown>,
       boundDispatchId = String(boundSpawn.dispatchId),
       boundDispatch = JSON.parse(
-        readFileSync(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`), "utf8"),
+        await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`)),
       ) as Record<string, unknown>;
     const assembledPrompt = readFileSync(path.join(artifactRoot, "missions", `${boundDispatchId}.md`), "utf8");
     assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
@@ -582,7 +582,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       ]),
       reusedDispatchId = String((reused.spawn as Record<string, unknown>).dispatchId),
       reusedDispatch = JSON.parse(
-        readFileSync(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`), "utf8"),
+        await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`)),
       ) as Record<string, unknown>;
     const reusedMission = readFileSync(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`), "utf8"),
       reusedReport = readFileSync(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`), "utf8");
@@ -758,7 +758,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "--wait",
         "--no-stream",
       ]),
-      controlInvariant = runtimeInvariantEvidence(root, artifactRoot, controlNotification, controlNotificationWait);
+      controlInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        controlNotification,
+        controlNotificationWait,
+      );
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const missingNotifier = path.join(parent, "missing-notifier"),
       missingNotification = run(root, env, [
@@ -781,7 +786,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "--no-stream",
       ]),
       missingTrace = await eventuallyNotification(root, String(missingNotification.dispatchId)),
-      missingInvariant = runtimeInvariantEvidence(root, artifactRoot, missingNotification, missingNotificationWait);
+      missingInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        missingNotification,
+        missingNotificationWait,
+      );
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
     const nonzeroNotification = run(root, env, [
         "runtime",
@@ -803,7 +813,12 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
         "--no-stream",
       ]),
       nonzeroNotificationTrace = await eventuallyNotification(root, String(nonzeroNotification.dispatchId)),
-      nonzeroInvariant = runtimeInvariantEvidence(root, artifactRoot, nonzeroNotification, nonzeroNotificationWait),
+      nonzeroInvariant = await runtimeInvariantEvidence(
+        root,
+        artifactRoot,
+        nonzeroNotification,
+        nonzeroNotificationWait,
+      ),
       callbackObservation = JSON.parse(readFileSync(nonzeroTrace, "utf8")) as Record<string, unknown>,
       callbackEnvironment = callbackObservation.environment as Record<string, unknown>,
       callbackPayload = callbackObservation.payload as Record<string, unknown>;
@@ -837,10 +852,14 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     });
     assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
     const missingArchive = JSON.parse(
-        readFileSync(path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`), "utf8"),
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(missingNotification.dispatchId)}.json`),
+        ),
       ) as Record<string, unknown>,
       nonzeroArchive = JSON.parse(
-        readFileSync(path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`), "utf8"),
+        await readPublishedDispatch(
+          path.join(artifactRoot, "dispatches", `${String(nonzeroNotification.dispatchId)}.json`),
+        ),
       ) as Record<string, unknown>;
     assert.equal(missingArchive.onExitCommand, missingNotifier);
     assert.equal(nonzeroArchive.onExitCommand, nonzeroNotifier);
@@ -920,6 +939,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
       submittedDispatch = (
         run(root, env, ["task", "dispatches", submittedTaskId]).dispatches as Array<Record<string, unknown>>
       ).find((row) => row.dispatchId === submittedDispatchId);
+    await eventuallyFile(path.join(root, "harness", submittedReportPath));
     assert.equal(existsSync(path.join(root, "harness", submittedReportPath)), true);
     assert.equal(submittedDispatch?.reportPath, submittedReportPath);
     const readOnly = runMaybe(root, env, [
@@ -1128,10 +1148,11 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     const batchArchives = successfulBatchRows.map((row) =>
       path.join(artifactRoot, "dispatches", `${String(row.dispatchId)}.json`),
     );
+    await Promise.all(batchArchives.map(eventuallyFile));
     assert.deepEqual(
       batchArchives.filter((archive) => !existsSync(archive)),
       [],
-      "runtime batch returned before its successful dispatch archive became visible",
+      "successful runtime batch dispatch archives must become visible",
     );
     const slowBatchArchive = batchArchives[0]!;
     assert.equal(
@@ -1235,7 +1256,11 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(failedRow?.status, "failed");
     assert.equal(failedRow?.exitCode, 1);
     assert.equal(failedRow?.dispatchPath, `${packagePath}/artifacts/dispatches/${detachedFailure.dispatchId}.json`);
-    assert.equal(failedRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
+    await eventuallyFile(path.join(artifactRoot, "reports", `${detachedFailure.dispatchId}.md`));
+    const publishedFailureRow = (
+      run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>
+    ).find((row) => row.dispatchId === detachedFailure.dispatchId);
+    assert.equal(publishedFailureRow?.reportPath, `${packagePath}/artifacts/reports/${detachedFailure.dispatchId}.md`);
     const healthAfterRuntimeFailure = (run(root, env, ["daemon", "status"]).repos as Array<Record<string, unknown>>)[0]
       ?.materialization as Record<string, unknown>;
     assert.equal(healthAfterRuntimeFailure.state, "ok", JSON.stringify(healthAfterRuntimeFailure));
@@ -1289,10 +1314,9 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(cancelledRow.status, "cancelled");
     assert.equal(
       (
-        JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`), "utf8")) as Record<
-          string,
-          unknown
-        >
+        JSON.parse(
+          await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${detachedDispatchId}.json`)),
+        ) as Record<string, unknown>
       ).outcome,
       "cancelled",
     );
@@ -1372,10 +1396,9 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     assert.equal(resumedRow?.status, "succeeded");
     assert.equal(
       (
-        JSON.parse(readFileSync(path.join(artifactRoot, "dispatches", `${resumedDispatchId}.json`), "utf8")) as Record<
-          string,
-          unknown
-        >
+        JSON.parse(
+          await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${resumedDispatchId}.json`)),
+        ) as Record<string, unknown>
       ).providerSessionId,
       "provider-cli-session",
     );
@@ -1421,23 +1444,24 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
   }
 });
 
-function runtimeInvariantEvidence(
+async function runtimeInvariantEvidence(
   root: string,
   artifactRoot: string,
   spawned: Record<string, unknown>,
   settled: Record<string, unknown>,
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   const dispatchId = String(spawned.dispatchId),
     runtimeSessionId = String(spawned.runtimeSessionId),
     archivePath = path.join(artifactRoot, "dispatches", `${dispatchId}.json`),
     reportPath = path.join(artifactRoot, "reports", `${dispatchId}.md`),
-    archive = JSON.parse(readFileSync(archivePath, "utf8")) as Record<string, unknown>,
+    archive = JSON.parse(await readPublishedDispatch(archivePath)) as Record<string, unknown>,
     events = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root })
       .read()
       .events.filter(
         (event) => "runtimeSessionId" in event.payload && event.payload.runtimeSessionId === runtimeSessionId,
       ),
     observed = events.filter((event) => event.type === "runtime_session_outcome_observed");
+  await eventuallyFile(reportPath);
   return {
     outcome: settled.outcome,
     exitCode: ((settled.session as Record<string, unknown>).activity as Record<string, unknown>).exitCode,
@@ -1470,6 +1494,10 @@ async function eventuallyNotification(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`notification did not settle: ${JSON.stringify(records)}`);
+}
+async function readPublishedDispatch(target: string): Promise<string> {
+  await eventuallyFile(target);
+  return readFileSync(target, "utf8");
 }
 async function eventuallyFile(target: string): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {

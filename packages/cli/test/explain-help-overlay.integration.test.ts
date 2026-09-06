@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -26,7 +26,7 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
       0,
     );
 
-    const store = makeTaskEventStore({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
+    const store = makeTaskEventReader({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
       beforeStream = store.read(),
       beforeGit = git(root, "status", "--porcelain=v1"),
       catalog = requireSuccess(runJson(root, userRoot, ["explain", "task"])),
@@ -121,6 +121,7 @@ async function seedTasks(root: string): Promise<void> {
       binding,
     );
     assert.equal(planned.outcome, "applied", JSON.stringify(planned));
+    await cell.settlePendingMaterialization("explain planned fixture");
     await realizeTaskPlanFixture(root, String((planned as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -129,6 +130,7 @@ async function seedTasks(root: string): Promise<void> {
       binding,
     );
     assert.equal(active.outcome, "applied", JSON.stringify(active));
+    await cell.settlePendingMaterialization("explain active fixture");
     await realizeTaskPlanFixture(root, String((active as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );

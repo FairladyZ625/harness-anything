@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { startDaemon } from "../../daemon/src/runtime.ts";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 export async function startGuiResidentDaemonFixture({
@@ -55,6 +56,25 @@ export async function startGuiResidentDaemonFixture({
         1_000,
       );
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
+      const visible = await requestDaemonJsonRpcAt(
+        daemon.endpoint,
+        "repo.task.read",
+        {
+          repo: { repoId },
+          payload: {
+            action: {
+              kind: "receipt-show",
+              opId: created.opId,
+              waitFor: ["git_verified", "worktree_visible"],
+              timeoutMs: 5000,
+            },
+          },
+        },
+        1000,
+        10000,
+      );
+      if (visible.wait?.state !== "satisfied")
+        throw new Error(`GUI task publication pending: ${JSON.stringify(visible)}`);
       packagePath = String(created.packagePath);
       await realizeTaskPlanFixture(
         rootDir,
@@ -72,7 +92,22 @@ export async function startGuiResidentDaemonFixture({
     if (beforeRestart) {
       await beforeStop?.(daemon.endpoint, repoId);
       await daemon.stop();
-      await beforeRestart(rootDir, repoId);
+      const stateRoot = path.join(userRoot, "fleet"),
+        authority = openPersistentWriterEpoch({ stateRoot, holderId: "gui-stopped-fixture" });
+      let writerFence;
+      try {
+        const lease = authority.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+        writerFence = Object.freeze({
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot,
+          repoId,
+          holderId: lease.holderId,
+          epoch: lease.epoch,
+        });
+      } finally {
+        authority.close();
+      }
+      await beforeRestart(rootDir, repoId, writerFence);
       daemon = await startDaemon({ daemonId, userRoot });
     }
     return {

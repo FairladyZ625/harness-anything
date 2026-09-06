@@ -197,8 +197,11 @@ export const taskExecutionProtocolCommands = Object.freeze([
     id: "receipt-show",
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],
-    summary: "Read a write receipt.",
+    summary: "Read acceptance and independent progress; optionally wait for comma-separated receipt predicates.",
     method: "repo.task.read",
-    inputs: [],
+    inputs: [
+      cliInput("--wait", "single", false, { code: "invalid_field" }),
+      cliInput("--timeout-ms", "single", false, { code: "invalid_field" }),
+    ],
   }),
 ] as const);

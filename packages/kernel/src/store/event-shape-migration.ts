@@ -1,21 +1,15 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ActorIdentity } from "../domain/actor-identity.ts";
 import {
   decisionContentPin,
   decisionMachineDigest,
   reduceDecisionDocument,
 } from "../domain/decision-event-document.ts";
 import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
-import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
-import {
-  isMigrationImportEvent,
-  migrationImportWritePlan,
-  type MigrationImportEventV1,
-} from "../domain/migration-import-event.ts";
+import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import { normalizeLegacyRelationState } from "../domain/entity-relation.ts";
 import {
   serializeEntityJsonSchema,
@@ -28,26 +22,19 @@ import {
   validateScheduleDefinitionV1,
   type ScheduleV1,
 } from "../domain/schedule.ts";
-import type { WriteReceiptDraft } from "../domain/receipt-domain-registry.ts";
 import { isRelationEvent } from "../domain/relation-event.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { contentObjectRelativePath, eventObjectRelativePath } from "../layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
-import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
-import type { CanonicalContentBlob, CanonicalEventStore, PublicationFile } from "./task-event-store-types.ts";
+import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-store-types.ts";
 
-// One-shot history upcasts. A migrating replay walks the ledger into a scratch projection:
-// candidates (`matches`) are replayed alone so each is rewritten against the projection state at
-// its own cut, everything between them is caught up in bulk rounds, and the rewritten event is
-// what the scratch projection applies. The rewrites are then published
-// atomically as rewritten event objects alongside a migration marker, the same publication
-// shape `fact-rekey` uses, so the ledger head and commit are produced by the store. The live
-// projection is left alone: every rewrite is, by construction, what the projection already
-// derived, so it only has to catch up the marker. Cold rebuilds are proved separately.
+// Pure offline generation planner. It replays an immutable generation-0 snapshot into a scratch
+// projection and emits generation-1 event values and required content blobs. Candidates are
+// replayed at their historical cuts; the planner neither mutates the source nor publishes into an
+// active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
   | "relation-events"
   | "decision-digests"
@@ -74,12 +61,15 @@ export interface EventShapeMigrationSpec {
   readonly matches: (event: CanonicalEventV1) => boolean;
   readonly rewrite: (event: CanonicalEventV1, cut: EventShapeCut) => EventShapeRewrite | null;
 }
-export interface EventShapeMigrationInput {
-  readonly dryRun: boolean;
-  readonly actor: ActorIdentity;
-  readonly rootDir: string;
-  readonly store: CanonicalEventStore;
-  readonly now: () => string;
+export interface LegacyGenerationConversionPlan {
+  readonly events: readonly CanonicalEventV1[];
+  readonly blobs: readonly CanonicalContentBlob[];
+  readonly rewrites: readonly {
+    readonly migration: EventShapeMigrationName;
+    readonly opId: string;
+    readonly revision: number;
+    readonly category: string;
+  }[];
 }
 
 const relationEventsMigration: EventShapeMigrationSpec = {
@@ -320,108 +310,58 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "settings-wal-flush-migrate": settingsWalFlushMigration,
 };
 
-export async function runEventShapeMigration(
-  spec: EventShapeMigrationSpec,
-  input: EventShapeMigrationInput,
-): Promise<WriteReceiptDraft> {
-  const { store } = input;
-  if (!input.dryRun) await store.settlePendingMaterialization?.(`${spec.name} migration`);
-  const head = store.readHead(),
+/**
+ * Plans the generation-0 to generation-1 shape conversion without changing the source store.
+ * The replay uses the historical projection cut, so relation witnesses and decision digests are
+ * derived from the state that existed immediately before each event.
+ */
+export function planLegacyGenerationConversion(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+}): LegacyGenerationConversionPlan {
+  const head = input.store.readHead(),
     headRevision = head?.revision ?? 0,
-    gitRevision = store.revisionAt(store.currentCommit()) ?? 0,
-    rewrites = replayRewrites(spec, input, headRevision, head),
-    report = migrationReport(spec.name, headRevision, gitRevision, rewrites),
-    reportBody = `${JSON.stringify(report, null, 2)}\n`,
-    digest = sha256Text(reportBody),
-    markerOpId = `op_${sha256Text(`${spec.name}\0${digest}`)}`;
-  if (input.dryRun || rewrites.length === 0)
-    return {
-      outcome: "pending",
-      opId: `preview:${markerOpId}`,
-      revision: headRevision,
-      evidence: JSON.stringify(report),
-      visibility: "center",
-      proof: {
-        committedRevision: headRevision,
-        appliedCut: 0,
-        durable: false,
-        canonicalVisible: false,
-        worktreeVisible: false,
-      },
-    };
-  if (gitRevision !== headRevision)
-    throw new Error(
-      `${spec.name} migration requires the WAL to be settled into Git first (head ${headRevision}, Git ${gitRevision})`,
-    );
-  const ledger = resolveLedgerGitLayout(input.rootDir),
-    eventLayout = store.layout();
-  if (eventLayout === "mixed") throw new Error(`${spec.name} migration requires a single flat or sharded event layout`);
-  const additional = new Map<string, PublicationFile>();
-  for (const rewrite of rewrites) {
-    const target = ledgerGitPath(ledger, eventObjectRelativePath(rewrite.event.opId, eventLayout));
-    additional.set(target, { target, body: serializePersistedCanonicalEvent(rewrite.event), mode: "100644" });
-    for (const blob of rewrite.blobs ?? []) {
-      const blobTarget = ledgerGitPath(ledger, contentObjectRelativePath(blob.sha256, eventLayout));
-      additional.set(blobTarget, { target: blobTarget, body: blob.body, mode: "100644" });
+    byOpId = new Map(input.store.read().events.map((event) => [event.opId, event])),
+    blobs = new Map<string, CanonicalContentBlob>(),
+    rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [];
+  for (const spec of Object.values(eventShapeMigrations)) {
+    const planned = replayRewrites(spec, input, headRevision, head);
+    for (const rewrite of planned) {
+      byOpId.set(rewrite.event.opId, rewrite.event);
+      for (const blob of rewrite.blobs ?? []) blobs.set(blob.sha256, blob);
+      rewrites.push({
+        migration: spec.name,
+        opId: rewrite.event.opId,
+        revision: rewrite.event.workspaceRevision,
+        category: rewrite.category,
+      });
     }
   }
-  const marker: MigrationImportEventV1 = {
-    schema: "migration-import-event/v1",
-    eventId: `event-${sha256Text(markerOpId)}`,
-    workspaceRevision: headRevision + 1,
-    opId: markerOpId,
-    type: "entity_migrated",
-    actor: input.actor,
-    source: "migration-import/v1",
-    occurredAt: input.now(),
-    payload: {
-      migratedFrom: `${spec.name}:${digest}`,
-      generation: "v0",
-      entity: {
-        kind: "id-map",
-        importId: `${spec.name}-${digest.slice(0, 16)}`,
-        documentClaim: {
-          path: `migrations/${spec.name}/${digest.slice(0, 16)}/report.json`,
-          sha256: digest,
-          size: Buffer.byteLength(reportBody),
-          mediaType: "application/json",
-          policyId: "typed-migration-import/v1",
-        },
-      },
-    },
-  };
-  const appended = store.append(
-    {
-      event: marker,
-      plan: migrationImportWritePlan(marker),
-      blobs: [{ sha256: digest, size: Buffer.byteLength(reportBody), mediaType: "application/json", body: reportBody }],
-      preceding: [],
-    },
-    [...additional.values()],
-  );
   return {
-    outcome: "applied",
-    opId: marker.opId,
-    revision: appended.revision,
-    evidence: JSON.stringify(report),
-    visibility: "center",
-    proof: {
-      committedRevision: appended.revision,
-      appliedCut: appended.revision,
-      durable: true,
-      canonicalVisible: true,
-      worktreeVisible: true,
-    },
-    commitSha: appended.commitSha?.sha ?? null,
-    cut: appended.cut,
+    events: [...byOpId.values()].sort((left, right) => left.workspaceRevision - right.workspaceRevision),
+    blobs: [...blobs.values()],
+    rewrites,
   };
+}
+
+export function assertNoPendingHistoricalRewrites(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+}): void {
+  const plan = planLegacyGenerationConversion(input);
+  if (plan.rewrites.length === 0) return;
+  const first = plan.rewrites[0]!;
+  throw new Error(
+    `generation activation requires zero pending historical rewrites; found ${plan.rewrites.length}, ` +
+      `first is ${first.migration} at revision ${first.revision} (${first.opId})`,
+  );
 }
 
 const BULK_ROUND_LIMIT = 4096;
 
 function replayRewrites(
   spec: EventShapeMigrationSpec,
-  input: EventShapeMigrationInput,
+  input: { readonly rootDir: string; readonly store: CanonicalEventStore },
   headRevision: number,
   head: ReturnType<CanonicalEventStore["readHead"]>,
 ): readonly EventShapeRewrite[] {
@@ -514,31 +454,4 @@ function replayRewrites(
     for (const suffix of ["", "-wal", "-shm"]) localRuntimeStateFileSystem.remove(`${scratchPath}${suffix}`);
   }
   return rewrites;
-}
-
-function migrationReport(
-  name: EventShapeMigrationName,
-  headRevision: number,
-  gitRevision: number,
-  rewrites: readonly EventShapeRewrite[],
-) {
-  const counts: Record<string, number> = {};
-  for (const rewrite of rewrites) counts[rewrite.category] = (counts[rewrite.category] ?? 0) + 1;
-  return {
-    schema: "event-shape-migration-report/v1",
-    migration: name,
-    sourceRevision: headRevision,
-    gitRevision,
-    walPendingRevisions: headRevision - gitRevision,
-    rewrittenEvents: rewrites.length,
-    categories: counts,
-    samples: rewrites.slice(0, 5).map((rewrite) => ({
-      opId: rewrite.event.opId,
-      workspaceRevision: rewrite.event.workspaceRevision,
-      type: rewrite.event.type,
-      category: rewrite.category,
-      before: rewrite.before,
-      after: rewrite.after,
-    })),
-  };
 }

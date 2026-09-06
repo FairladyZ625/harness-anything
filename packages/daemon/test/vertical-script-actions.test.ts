@@ -70,13 +70,23 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     const preview = await cell.run(action, binding);
     assert.equal(preview.outcome, "pending", JSON.stringify(preview));
     const previewResult = parseVerticalScriptResult(JSON.parse(String(preview.evidence)));
-    assert.equal(preview.proof?.canonicalVisible, false);
-    assert.equal(preview.proof?.worktreeVisible, false);
+    assert.equal(preview.acceptance, null);
+    assert.equal(preview.proof, undefined);
     assert.equal(previewResult.documents.length, 1);
     assert.equal(store().readHead()?.revision ?? 0, before);
     assert.equal(existsSync(path.join(rootDir, "harness", previewResult.documents[0]!.path)), false);
     const applied = await cell.run({ ...action, dryRun: false }, binding);
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const settled = await cell.run(
+      {
+        kind: "receipt-show",
+        opId: applied.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      binding,
+    );
+    assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
     const appliedResult = parseVerticalScriptResult(JSON.parse(String(applied.evidence)));
     assert.equal(appliedResult.mode, "apply");
     assert.equal(appliedResult.planDigest, previewResult.planDigest);
@@ -87,18 +97,30 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     );
     assert.equal(store().read().events.at(-1)?.schema, "doc-event/v1");
     const revision = store().readHead()!.revision,
-      unchangedReceipt = await cell.run({ ...action, dryRun: false }, binding),
-      unchanged = parseVerticalScriptResult(JSON.parse(String(unchangedReceipt.evidence)));
-    assert.equal(unchangedReceipt.outcome, "pending");
-    assert.equal(unchangedReceipt.proof?.canonicalVisible, false);
-    assert.equal(unchanged.status, "unchanged");
-    assert.equal(store().readHead()!.revision, revision);
+      secondReceipt = await cell.run({ ...action, dryRun: false }, binding),
+      secondResult = parseVerticalScriptResult(JSON.parse(String(secondReceipt.evidence)));
+    assert.equal(secondReceipt.outcome, "applied");
+    assert.equal(secondReceipt.status, "accepted_durable");
+    assert.notEqual(secondReceipt.opId, applied.opId);
+    assert.equal(secondReceipt.acceptance?.revisionFrom, revision + 1);
+    assert.equal(secondReceipt.acceptance?.revisionTo, revision + 1);
+    assert.equal(secondReceipt.proof?.durable, true);
+    assert.equal(secondResult.status, appliedResult.status);
+    assert.deepEqual(
+      secondResult.documents.map(({ path: target, mediaType }) => ({ target, mediaType })),
+      appliedResult.documents.map(({ path: target, mediaType }) => ({ target, mediaType })),
+    );
+    assert.deepEqual(
+      secondResult.documents.map(({ disposition }) => disposition),
+      ["replace"],
+    );
+    assert.equal(store().readHead()!.revision, revision + 1);
     const undeclared = await cell.run({ ...action, scriptId: "vertical:software-coding:not-declared" }, binding);
     assert.deepEqual(
       { outcome: undeclared.outcome, code: undeclared.code },
       { outcome: "op_rejected", code: "script_not_found" },
     );
-    assert.equal(store().readHead()!.revision, revision);
+    assert.equal(store().readHead()!.revision, revision + 1);
     const unknown = await cell.run({ ...action, unknown: true }, binding);
     assert.deepEqual(
       { outcome: unknown.outcome, code: unknown.code },
@@ -139,7 +161,8 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
       binding,
     );
     assert.equal(conformance.outcome, "pending", JSON.stringify(conformance));
-    assert.equal(conformance.proof?.canonicalVisible, false);
+    assert.equal(conformance.acceptance, null);
+    assert.equal(conformance.proof, undefined);
     const conformanceResult = parseVerticalScriptResult(JSON.parse(String(conformance.evidence)));
     assert.equal(conformanceResult.status, "attention-required");
     assert.equal(conformanceResult.report.decisionCount, 1);
@@ -225,11 +248,9 @@ test("same-repo writes advance while a vertical script is running", async (conte
     rmSync(blocker, { force: true });
     const scriptReceipt = await head;
     assert.equal(scriptReceipt.outcome, "pending", JSON.stringify(scriptReceipt));
-    assert.equal(
-      scriptReceipt.revision,
-      beforeRevision + 1,
-      "dry-run settlement must observe the advanced canonical revision",
-    );
+    assert.equal(scriptReceipt.acceptance, null);
+    assert.equal(scriptReceipt.proof, undefined);
+    assert.equal(store().readHead()?.revision, beforeRevision + 1);
   } finally {
     rmSync(blocker, { force: true });
     await Promise.allSettled(writes);

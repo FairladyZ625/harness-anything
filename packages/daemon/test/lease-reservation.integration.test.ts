@@ -99,6 +99,17 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
     );
     const created = await host.run(repoId, { kind: "task-create", taskId, title: "Lease reservation" }, auth);
     assert.equal(created.outcome, "applied");
+    const publication = await host.run(
+      repoId,
+      {
+        kind: "receipt-show",
+        opId: String(created.opId),
+        waitFor: ["git_verified", "worktree_visible"],
+        timeoutMs: 5000,
+      },
+      auth,
+    );
+    assert.equal(publication.wait?.state, "satisfied", JSON.stringify(publication));
     await realizeTaskPlanFixture(root, String((created as Record<string, unknown>).packagePath), (planPath) =>
       host.run(repoId, { kind: "doc-submit", paths: [planPath] }, auth),
     );

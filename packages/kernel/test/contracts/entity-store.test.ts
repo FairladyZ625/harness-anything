@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { committedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -263,6 +264,7 @@ test("Entity upsert rejects schema-invalid declarations and tampered declaration
 
 test("entity_upsert receipt detail is closed and registered", () => {
   const receipt = {
+    ...committedAcceptance("op-agent-terra-1", 1),
     outcome: "applied",
     opId: "op-agent-terra-1",
     revision: 1,

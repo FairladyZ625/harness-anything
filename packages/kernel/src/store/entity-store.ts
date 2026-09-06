@@ -10,9 +10,7 @@ import {
 import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
 import { requireEntityStoreKindContract, type EntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { resolveLedgerGitLayout } from "./ledger-git-layout.ts";
-import { publicationRefs } from "./task-event-store-git-refs.ts";
-import { readBlobAt, readHeadAt, readStream } from "./task-event-store-reads.ts";
+import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
 
 export interface StoredEntity<T = unknown> {
@@ -82,16 +80,10 @@ export function createEntityStore(
 }
 
 export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
-  const ledger = resolveLedgerGitLayout(rootInput),
-    canonical = publicationRefs(ledger.rootDir, "refs/heads/__entity-read__").canonical;
-  if (canonical === null)
-    return createEntityStore({
-      read: () => ({ schema: "canonical-event-stream/v1", revision: 0, events: [] }),
-      readContentBlob: () => null,
-    });
+  const canonical = openSqliteEventStore({ rootInput, readOnly: true });
   return createEntityStore({
-    read: () => readStream(ledger, canonical, readHeadAt(ledger, canonical)),
-    readContentBlob: (sha256) => readBlobAt(ledger, canonical, sha256),
+    read: () => ({ schema: "canonical-event-stream/v1", revision: canonical.revision(), events: canonical.events() }),
+    readContentBlob: canonical.readContentObject,
   });
 }
 

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
 import {
   daemonGuiInvokeFacets,
   daemonGuiStreamFacets,
@@ -68,6 +69,26 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
     );
     assert.equal(squadReceipt.ok, true, JSON.stringify(squadReceipt));
     assert.equal(squadReceipt.outcome, "applied");
+    for (const receipt of [agentReceipt, squadReceipt]) {
+      const visible = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.task.read",
+        {
+          repo: scope,
+          payload: {
+            action: {
+              kind: "receipt-show",
+              opId: receipt.opId,
+              waitFor: ["git_verified", "worktree_visible"],
+              timeoutMs: 5000,
+            },
+          },
+        },
+        1000,
+        10000,
+      );
+      assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible));
+    }
     assert.equal(existsSync(path.join(fixture.rootDir, "harness/agents/gui-created-agent.json")), true);
     assert.equal(existsSync(path.join(fixture.rootDir, "harness/squads/gui-created-squad.json")), true);
     assert.equal(existsSync(path.join(fixture.rootDir, ".harness/agents")), false);

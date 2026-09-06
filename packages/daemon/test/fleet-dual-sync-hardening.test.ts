@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { DOC_SYNC_INLINE_MAX_BYTES } from "../../kernel/src/index.ts";
+import { DOC_SYNC_INLINE_MAX_BYTES, makeTaskEventReader } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
@@ -130,15 +130,19 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
         },
       };
     const created = await cell.run({ kind: "task-create", taskId: "task-direct", title: "Direct" }, localOwner);
+    await cell.settlePendingMaterialization("inspect created task package");
     const packagePath = String((created as Record<string, unknown>).packagePath),
       logical = `${packagePath}/task_plan.md`;
     const target = path.join(root, "harness", logical);
     writeFileSync(target, realizedTaskPlan("Direct"));
     const planned = await cell.run({ kind: "doc-submit", paths: [logical] }, localOwner);
     assert.equal(planned.outcome, "applied", JSON.stringify(planned));
+    await cell.settlePendingMaterialization("inspect submitted task plan");
     const original = readFileSync(target, "utf8"),
       body = `${original}\n## Unheld push\n`;
-    const before = git(root, "rev-list", "--count", "refs/ha/canonical");
+    const beforeReader = makeTaskEventReader({ repoId: "w3c-h-f1", rootDir: root }),
+      before = beforeReader.read().revision;
+    await beforeReader.drain();
     const bypass = await cell.run(
       {
         kind: "doc-submit",
@@ -159,11 +163,9 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
     );
     assert.equal(bypass.outcome, "op_rejected");
     assert.equal(bypass.code, "task_docs_require_task_command");
-    assert.equal(
-      git(root, "rev-list", "--count", "refs/ha/canonical"),
-      before,
-      "the ledger must not move for a channel-less task-document push",
-    );
+    const afterReader = makeTaskEventReader({ repoId: "w3c-h-f1", rootDir: root });
+    assert.equal(afterReader.read().revision, before, "the ledger must not move for a channel-less task-document push");
+    await afterReader.drain();
     const ghostPath = "tasks/ghost-package/task_plan.md";
     const ghost = await cell.run(
       {
@@ -208,6 +210,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       heldAssignment,
     );
     assert.equal(held.outcome, "applied", JSON.stringify(held).slice(0, 300));
+    await cell.settlePendingMaterialization("inspect held task document update");
     // A different principal naming the held execution is still refused.
     const other = { principal: { personId: "someone-else" }, executor: null } as const;
     const forged = await cell.run(
@@ -264,6 +267,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
   };
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-crash", title: "Crash" }, binding);
+    await cell.settlePendingMaterialization("inspect crash test task package");
     const packagePath = String((created as Record<string, unknown>).packagePath),
       logical = `${packagePath}/task_plan.md`,
       target = path.join(root, "harness", logical),
@@ -283,7 +287,9 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
       },
       binding,
     );
-    assert.equal(failed.outcome, "op_rejected");
+    assert.equal(failed.outcome, "pending");
+    assert.equal(failed.status, "accepted_durable");
+    assert.ok(failed.acceptance, "the committed command must retain its acceptance interval");
     await cell.close();
     cell = await openRepoCell({ repoId: workspaceId("w3c-h-f2"), rootDir: canonicalRoot(root), ownerId: "f2-two" });
     const shown = await cell.run({ kind: "task-show", taskId: "task-crash" }, { actor, source: "local" });
@@ -316,6 +322,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
   };
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-fence", title: "Fence" }, binding);
+    await cell.settlePendingMaterialization("inspect fence test task package");
     const packagePath = String((created as Record<string, unknown>).packagePath),
       logical = `${packagePath}/task_plan.md`,
       target = path.join(root, "harness", logical),

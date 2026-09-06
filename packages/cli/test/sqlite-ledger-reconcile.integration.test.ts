@@ -1,12 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import type { DaemonHost } from "../../daemon/src/daemon-host.ts";
 import { listenFleetTls } from "../../daemon/src/fleet/center.ts";
 import { daemonStdioLogPath } from "../../daemon/src/lifecycle-log.ts";
@@ -15,7 +14,7 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
-test("local CLI seeds, follows, and reconciles the generation-1 SQLite shadow", async (context) => {
+test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-cli-sqlite-reconcile-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -28,6 +27,7 @@ test("local CLI seeds, follows, and reconciles the generation-1 SQLite shadow", 
   git(root, "config", "user.email", "sqlite-reconcile@example.invalid");
   git(root, "commit", "--allow-empty", "-qm", "project root");
   try {
+    assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
     const initialized = run(root, userRoot, [
       "init",
       "--repo-id",
@@ -38,26 +38,108 @@ test("local CLI seeds, follows, and reconciles the generation-1 SQLite shadow", 
       "Zeyu Li",
     ]);
     assert.equal(initialized.ok, true, JSON.stringify(initialized));
-    assert.equal(run(root, userRoot, ["task", "create", "--title", "Before seed"]).outcome, "applied");
+    const databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+      snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
+    assert.equal(existsSync(databasePath), true, "init must activate the canonical SQLite ledger directly");
+    assert.equal(existsSync(snapshotPath), true, "init must bind SQLite to its immutable source snapshot");
+    for (const title of ["Initial SQLite", "After acceptance one", "After acceptance two"])
+      waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["task", "create", "--title", title]));
 
-    const migrated = run(root, userRoot, ["migrate", "ledger", "--generation", "1"]);
-    assert.equal(migrated.outcome, "applied", JSON.stringify(migrated));
-    assert.equal(run(root, userRoot, ["task", "create", "--title", "After seed one"]).outcome, "applied");
-    assert.equal(run(root, userRoot, ["task", "create", "--title", "After seed two"]).outcome, "applied");
-
-    const authoredPath = "context/auto-settled.md",
-      authoredBody = "# Auto settled\n\nThe daemon materializer authored this event.\n";
+    const authoredPath = "context/explicitly-submitted.md",
+      authoredBody = "# Explicitly submitted\n\nThe daemon accepts this document through doc submit.\n";
     mkdirSync(path.join(root, "harness", "context"), { recursive: true });
     writeFileSync(path.join(root, "harness", authoredPath), authoredBody);
-    assert.equal(run(root, userRoot, ["task", "create", "--title", "Trigger authored settlement"]).outcome, "applied");
-    await waitForDocEvent(root, repoId, authoredPath, daemonStdioLogPath(userRoot, "default"));
+    waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]));
 
-    const exact = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"])),
-      canonical = makeTaskEventReader({ repoId, rootDir: root }).read();
-    assert.equal(exact.schema, "sqlite-ledger-reconciliation/v1");
+    const source = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
+        readonly schema: string;
+        readonly sourceDigest: string;
+        readonly eventBytes: readonly string[];
+        readonly objects: readonly unknown[];
+      },
+      counts = sqliteCounts(root),
+      authoredRoot = path.join(root, "harness"),
+      manifest = JSON.parse(git(authoredRoot, "show", "HEAD:events/segments/manifest.json")) as {
+        readonly schema: string;
+        readonly generation: number;
+        readonly cut: { readonly repoId: string; readonly revision: number; readonly headDigest: string };
+      };
+    assert.equal(source.schema, "immutable-legacy-generation-snapshot/v1");
+    assert.deepEqual(source.eventBytes, []);
+    assert.deepEqual(source.objects, []);
+    assert.ok(counts.events > 0, "accepted commands must extend the immutable empty prefix");
+    assert.ok(counts.objects > 0, "accepted document claims must have content-object closure");
+    assert.equal(manifest.schema, "sqlite-ledger-segment-manifest/v1");
+    assert.equal(manifest.generation, 1);
+    assert.equal(manifest.cut.repoId, repoId);
+    assert.equal(manifest.cut.revision, counts.events);
+    assert.match(manifest.cut.headDigest, /^sha256:[0-9a-f]{64}$/u);
+    const db = new DatabaseSync(databasePath),
+      originalLastRevision = Number(
+        db.prepare("SELECT last_revision FROM command_outcome ORDER BY rowid LIMIT 1").get()!.last_revision,
+      );
+    try {
+      db.prepare(
+        "UPDATE command_outcome SET last_revision=last_revision+1 WHERE rowid=(SELECT MIN(rowid) FROM command_outcome)",
+      ).run();
+    } finally {
+      db.close();
+    }
+    try {
+      const divergent = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"]));
+      assert.equal(divergent.matches, false);
+      assert.deepEqual(
+        {
+          metadataMatches: divergent.metadataMatches,
+          rowDigestMatches: divergent.rowDigestMatches,
+          outcomeMatches: divergent.outcomeMatches,
+          objectMatches: divergent.objectMatches,
+          gitReadbackMatches: divergent.gitReadbackMatches,
+        },
+        {
+          metadataMatches: true,
+          rowDigestMatches: true,
+          outcomeMatches: false,
+          objectMatches: true,
+          gitReadbackMatches: true,
+        },
+      );
+      assert.deepEqual(divergent.differences, ["command outcomes differ from immutable source import outcomes"]);
+      context.diagnostic(JSON.stringify({ sqliteEvents: counts.events, differences: divergent.differences }));
+    } finally {
+      const repair = new DatabaseSync(databasePath);
+      try {
+        repair
+          .prepare("UPDATE command_outcome SET last_revision=? WHERE rowid=(SELECT MIN(rowid) FROM command_outcome)")
+          .run(originalLastRevision);
+      } finally {
+        repair.close();
+      }
+    }
+    stop(root, userRoot);
+    assert.equal(run(root, userRoot, ["daemon", "start", "--service"]).ok, true);
+    const exact = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"]));
+    assert.equal(exact.schema, "sqlite-ledger-reconciliation/v2");
     assert.equal(exact.matches, true, JSON.stringify(exact));
-    assert.equal((exact.canonical as Record<string, unknown>).eventCount, canonical.events.length);
-    assert.deepEqual(exact.revisionDifferences, []);
+    assert.deepEqual(
+      {
+        metadataMatches: exact.metadataMatches,
+        rowDigestMatches: exact.rowDigestMatches,
+        outcomeMatches: exact.outcomeMatches,
+        objectMatches: exact.objectMatches,
+        gitReadbackMatches: exact.gitReadbackMatches,
+      },
+      {
+        metadataMatches: true,
+        rowDigestMatches: true,
+        outcomeMatches: true,
+        objectMatches: true,
+        gitReadbackMatches: true,
+      },
+    );
+    assert.equal(source.sourceDigest, exact.sourceDigest);
+    assert.deepEqual(exact.expected, { events: 0, outcomes: 0, objects: counts.objects });
+    assert.deepEqual(exact.actual, counts);
     assert.doesNotMatch(
       readFileSync(daemonStdioLogPath(userRoot, "default"), "utf8"),
       /writer epoch fence is unavailable/u,
@@ -89,50 +171,25 @@ test("local CLI seeds, follows, and reconciles the generation-1 SQLite shadow", 
       assert.ok(centerLease.epoch > localLease.epoch, JSON.stringify({ localLease, centerLease }));
       assert.equal(existsSync(path.join(transportStateRoot, "writer-epochs.json")), false);
 
-      const canonicalBeforeStaleWrite = canonical.events.length,
-        sqliteBeforeStaleWrite = sqliteEventCount(root),
+      const sqliteBeforeStaleWrite = sqliteCounts(root),
+        gitBeforeStaleWrite = git(authoredRoot, "rev-parse", "HEAD"),
         stale = invoke(root, userRoot, ["task", "create", "--title", "Rejected stale local write"]);
       assert.notEqual(stale.status, 0, `${stale.stderr}\n${JSON.stringify(stale.receipt)}`);
       assert.equal(stale.receipt.outcome, "op_rejected", JSON.stringify(stale.receipt));
       assert.equal(stale.receipt.code, "writer_epoch_stale", JSON.stringify(stale.receipt));
-      assert.equal(makeTaskEventReader({ repoId, rootDir: root }).read().events.length, canonicalBeforeStaleWrite);
-      assert.equal(sqliteEventCount(root), sqliteBeforeStaleWrite);
+      assert.deepEqual(sqliteCounts(root), sqliteBeforeStaleWrite);
+      assert.equal(git(authoredRoot, "rev-parse", "HEAD"), gitBeforeStaleWrite);
       context.diagnostic(
         JSON.stringify({
           localEpoch: localLease.epoch,
           centerEpoch: centerLease.epoch,
           staleWriteCode: stale.receipt.code,
-          canonicalEventsAfterStaleWrite: canonicalBeforeStaleWrite,
-          sqliteEventsAfterStaleWrite: sqliteBeforeStaleWrite,
+          sqliteAfterStaleWrite: sqliteBeforeStaleWrite,
         }),
       );
     } finally {
       await center.close();
     }
-
-    const db = new DatabaseSync(path.join(root, ".harness/store/generations/1/ledger.sqlite"));
-    try {
-      db.prepare("UPDATE event SET event_json=event_json || ? WHERE revision=1").run(" ");
-    } finally {
-      db.close();
-    }
-    const divergent = report(run(root, userRoot, ["ledger", "reconcile", "--generation", "1"]));
-    assert.equal(divergent.matches, false);
-    assert.equal(divergent.firstDivergentRevision, 1);
-    assert.deepEqual(
-      (divergent.revisionDifferences as readonly Record<string, unknown>[]).map(({ revision, kind }) => ({
-        revision,
-        kind,
-      })),
-      [{ revision: 1, kind: "event_mismatch" }],
-    );
-    context.diagnostic(
-      JSON.stringify({
-        canonicalEvents: canonical.events.length,
-        sqliteEvents: (exact.sqlite as Record<string, unknown>).eventCount,
-        firstDivergentRevision: divergent.firstDivergentRevision,
-      }),
-    );
   } finally {
     stop(root, userRoot);
     rmSync(parent, { recursive: true, force: true });
@@ -173,13 +230,25 @@ function invoke(
   };
 }
 
-function sqliteEventCount(root: string): number {
+function sqliteCounts(root: string): { readonly events: number; readonly outcomes: number; readonly objects: number } {
   const db = new DatabaseSync(path.join(root, ".harness/store/generations/1/ledger.sqlite"), { readOnly: true });
   try {
-    return Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count);
+    return {
+      events: Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count),
+      outcomes: Number(db.prepare("SELECT COUNT(*) AS count FROM command_outcome").get()!.count),
+      objects: countFiles(path.join(root, ".harness/store/generations/1/objects/sha256")),
+    };
   } finally {
     db.close();
   }
+}
+
+function countFiles(root: string): number {
+  if (!existsSync(root)) return 0;
+  return readdirSync(root, { withFileTypes: true }).reduce(
+    (count, entry) => count + (entry.isDirectory() ? countFiles(path.join(root, entry.name)) : 1),
+    0,
+  );
 }
 
 function centerHost(root: string, repoId: string): Parameters<typeof listenFleetTls>[0]["host"] {
@@ -223,21 +292,29 @@ function generateCertificate(keyFile: string, certFile: string): void {
   );
 }
 
-async function waitForDocEvent(root: string, repoId: string, target: string, daemonLog: string): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const event = makeTaskEventReader({ repoId, rootDir: root })
-      .read()
-      .events.find(
-        (candidate) =>
-          candidate.schema === "doc-event/v1" && candidate.payload.changes.some((change) => change.path === target),
-      );
-    if (event) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  assert.fail(
-    `${target} did not produce an authored DocEvent\n${existsSync(daemonLog) ? readFileSync(daemonLog, "utf8") : "daemon log absent"}`,
-  );
+function waitForAcceptedReceipt(
+  root: string,
+  userRoot: string,
+  receipt: Record<string, unknown>,
+): Record<string, unknown> {
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  assert.equal(receipt.status, "accepted_durable", JSON.stringify(receipt));
+  assert.equal((receipt.acceptance as { readonly storage?: unknown } | null)?.storage, "sqlite");
+  assert.equal(typeof receipt.opId, "string");
+  const settled = run(root, userRoot, [
+    "receipt",
+    "show",
+    String(receipt.opId),
+    "--wait",
+    "accepted_durable,projection_visible,git_verified,worktree_visible",
+    "--timeout-ms",
+    "10000",
+  ]);
+  assert.equal(settled.status, "accepted_durable", JSON.stringify(settled));
+  assert.deepEqual(settled.wait, { state: "satisfied", unsatisfied: [] });
+  for (const facet of ["projection", "git", "worktree"])
+    assert.equal((settled[facet] as { readonly state?: unknown }).state, "verified", JSON.stringify(settled));
+  return settled;
 }
 
 function stop(root: string, userRoot: string): void {
@@ -253,8 +330,6 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
     ...base,
     HOME: path.join(root, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
-    HARNESS_WAL_FLUSH_EVENTS: "1",
-    HARNESS_WAL_FLUSH_MS: "250",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     HARNESS_DAEMON_ENDPOINT:
       process.platform === "win32"

@@ -177,9 +177,9 @@ Do this **after step 1 fetches the current source, before creating a destination
 or running `migrate import`**. The symptoms below are an entry point, not a
 decision: both kinds of ledger can produce them.
 
-| What you see | What it means | Next action |
-| --- | --- | --- |
-| `doc event envelope or payload is invalid` | Could be either an older ledger or a current ledger with pre-S4 doc cuts. | Run the read-only event scan below. |
+| What you see                                                                             | What it means                                                                          | Next action                                                         |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `doc event envelope or payload is invalid`                                               | Could be either an older ledger or a current ledger with pre-S4 doc cuts.              | Run the read-only event scan below.                                 |
 | daemon receipt `repo_attach_failed` or `repo_unavailable` while attaching the repository | The daemon could not build its projection; it does not identify the ledger generation. | Run the read-only event scan below; do not retry attach as a probe. |
 
 Set the source path once. The scan only reads its event files; it does not need
@@ -252,6 +252,7 @@ Interpret the counts conservatively:
   than looking for a narrower tool. If remapped IDs are genuinely unacceptable
   for your ledger, stop and report that; do not improvise a hand-edit of event
   bytes.
+
 - If all three failure counts are zero, the stream already parses under the
   current code. This is not a generation mismatch, so migration will not fix it;
   stop and investigate the reported symptom separately.
@@ -373,15 +374,15 @@ unchanged.
 
 Branch on those rows:
 
-| What the report shows | Go to |
-| --- | --- |
-| a `required` row saying `destination content differs` | section 5 |
-| `required` on `presets/**` | section 6 |
-| `ACCEPT schedule_definition_facet_mismatch` | review it in section 7; no source edit |
-| `unsupported_legacy_event` or `migration_projection_rebuild_failed` | section 7 |
-| any `- SKIP` line | review it in section 7; it is diagnostic, not a count subtraction |
-| any other `required` row | show the exact row to the user and stop — this workflow does not cover it |
-| no `required` and all five reconciliation rows pass | section 8 |
+| What the report shows                                               | Go to                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| a `required` row saying `destination content differs`               | section 5                                                                 |
+| `required` on `presets/**`                                          | section 6                                                                 |
+| `ACCEPT schedule_definition_facet_mismatch`                         | review it in section 7; no source edit                                    |
+| `unsupported_legacy_event` or `migration_projection_rebuild_failed` | section 7                                                                 |
+| any `- SKIP` line                                                   | review it in section 7; it is diagnostic, not a count subtraction         |
+| any other `required` row                                            | show the exact row to the user and stop — this workflow does not cover it |
+| no `required` and all five reconciliation rows pass                 | section 8                                                                 |
 
 ## 5. Resolve destination conflicts — one batch, one decision
 
@@ -415,7 +416,7 @@ done
 current format's skeleton and the migration exists to adopt it — a source file
 that merely says the same thing in the old shape has nothing to preserve.
 
-What the source file *may* have is project-specific substance the skeleton does
+What the source file _may_ have is project-specific substance the skeleton does
 not carry: local conventions, routing rules, directory contracts, a
 project's own standards. **Carry that content forward into the destination
 file.** Merging is an edit you make, not something the importer does; the flag
@@ -423,11 +424,11 @@ is still `=destination`.
 
 So present **one table** and ask for **one confirmation**:
 
-| path | resolution | what carries over from the old file |
-| --- | --- | --- |
-| `harness/adr/README.md` | destination | when a lightweight ADR fits, `ha decision propose` for load-bearing choices, back-link rule |
-| `harness/context/architecture/README.md` | destination | manifest read order, model update boundary |
-| `harness/people.yaml` | **choose** | nothing — see below |
+| path                                     | resolution  | what carries over from the old file                                                         |
+| ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------- |
+| `harness/adr/README.md`                  | destination | when a lightweight ADR fits, `ha decision propose` for load-bearing choices, back-link rule |
+| `harness/context/architecture/README.md` | destination | manifest read order, model update boundary                                                  |
+| `harness/people.yaml`                    | **choose**  | nothing — see below                                                                         |
 
 Say plainly: this is the default, and they can override any row to `source` if
 they want the old file kept verbatim. One answer covers the whole table.
@@ -499,7 +500,7 @@ no blocked package.
 
 `preset audit --json` answers about the vertical as a whole — a count of
 packages and a count of issues — not one row per package. So it tells you
-*whether* something is blocked, not *which* package it is. The per-package
+_whether_ something is blocked, not _which_ package it is. The per-package
 verdict is the `validate` output in the loop above; if the audit reports issues,
 read back the validations rather than looking for a package list in the audit
 receipt that is not there.
@@ -909,7 +910,7 @@ Then sort the list by what each file can actually do:
   it. This is the road; naming the path explicitly is fine and expected.
 - **Non-prose, route allowed** (`walls.json` and friends) — **there is no road.**
   Naming it does not help: the scanner blocks it a few lines later with `path is
-  not canonical prose`. `--path` converts silence into a stated reason, which is
+not canonical prose`. `--path` converts silence into a stated reason, which is
   worth doing so you know what you are looking at, but it does not make the file
   submittable. Leave it in the working tree, name it and its contents in the
   hand-over, and do **not** commit it — see the next paragraph for why that
@@ -922,31 +923,17 @@ Then sort the list by what each file can actually do:
 So keep the step 5 merge column to prose files wherever you have the choice. A
 non-prose file in that column is content the migration cannot land.
 
-**Never run `git commit` inside the ledger directory.** The ledger's HEAD must
-be exactly the last event commit; the daemon derives that expectation from
-`harness/events/head.json`, whose `opId` is the last event commit's message. Any
-extra commit on top breaks the compare-and-swap and every write starts failing:
+**Keep accepting data separate from Git publication.** Generation-1 acceptance lives in
+`.harness/store/generations/1/ledger.sqlite` with its required `objects/` closure.
+The event-derived Git publisher certifies its document/manifest cut independently.
+Concurrent authored edits may leave worktree visibility pending even when Git verifies.
 
-```
-error code=publication_indeterminate hint=authored or canonical ref advanced outside
-the daemon; reconcile before publishing: cannot lock ref 'refs/heads/master':
-is at <your commit> but expected <last event commit>
-```
-
-Two things about that message are worth knowing in advance:
-
-- **Recovery is a `git reset` followed by a write retry, not a daemon restart.**
-  Reset back to the expected commit — the sha the message calls `expected`,
-  which appears nowhere on disk to search for — then retry the command. The
-  repository recovery path re-probes the repaired refs and resumes
-  materialization. The first retry can still report the old latch while that
-  recovery settles; wait for `ha daemon status` to return to `ok`, then retry
-  again. Retrying without the reset still fails because the ref really is wrong.
-- **`reconcile` names no command.** There is no `ha reconcile`; the word
-  describes an outcome, not a path. The recovery is the `git reset` above.
-
-Editing files in the ledger tree without committing is safe: the daemon commits
-by explicit pathspec and leaves unrelated working-tree changes alone.
+Use `ha receipt show <op-id> --wait git_verified` to inspect an accepted command's
+publication. Use `ha ledger reconcile --generation 1` for independent import-prefix,
+ledger, object, and Git checks. Do not reset Git or discard the canonical database
+as a response to a publication failure: neither operation undoes accepted commands.
+Preserve concurrent edits and repair the reported follower discrepancy before retrying
+settlement. A wait timeout is not a failed acceptance.
 
 Then tell them:
 
@@ -966,7 +953,7 @@ It is git-ignored runtime state and the importer never read it.
 
 **It is no longer purely old state once you have landed a local placement.**
 `daemon repo register --root "$LEDGER_HOME"` puts the new runtime directory at
-`$LEDGER_HOME/.harness` — and in the default local placement `$LEDGER_HOME` *is*
+`$LEDGER_HOME/.harness` — and in the default local placement `$LEDGER_HOME` _is_
 `$ARCHIVE_SOURCE`, so from the moment you registered, the current generation's
 live `cache/` sits in the same directory as the previous generation's dead
 `write-journal/`, `task-holders/` and `script-runs/`. **Never describe this
@@ -1010,7 +997,7 @@ run is in flight.
 The `chmod` is not optional. Some staged copies contain read-only archives —
 benchmark fixtures are stored `dr-xr-xr-x`/`-r--r--r--` on purpose — and `rm`
 stops on them with `Permission denied`, leaving the reclaim silently partial.
-Only the *copies* are made writable; the originals under `harness/` keep their
+Only the _copies_ are made writable; the originals under `harness/` keep their
 protection.
 
 Deleting is theirs to decide, for two reasons worth saying out loud: the moment
@@ -1065,7 +1052,7 @@ success and failure paths.
   probes for it before assuming otherwise.
 - **The CLI version string does not identify a generation.** Both the current
   source checkout and a current-generation global install print `0.1.0`. What
-  discriminates is whether `--version` is *accepted* at all: the previous
+  discriminates is whether `--version` is _accepted_ at all: the previous
   generation rejects it with `unknown_option` and a nonzero exit. Never compare
   version numbers to decide which build you are talking to.
 - **`ha people` is the only roster write road.** `ha people add`,

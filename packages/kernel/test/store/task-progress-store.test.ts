@@ -135,7 +135,7 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
   );
 });
 
-test("three progress bundles preserve every old byte and ordered duplicate evidence across worktree materialize and L2 rebuild", () => {
+test("three progress bundles preserve every old byte and ordered duplicate evidence across initial materialization, local deletion, and L2 rebuild", async () => {
   const rootDir = workspace();
   try {
     const { store, projection, start } = bootstrapAndStart(rootDir),
@@ -170,6 +170,7 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
       projection.apply(compiled.event, compiled.plan);
       previous = compiled.body;
     }
+    await store.settlePendingMaterialization();
     const body = readFileSync(path.join(rootDir, "harness", progressPath), "utf8");
     assert.equal(body, previous);
     assert.equal(
@@ -182,8 +183,11 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
       texts,
     );
     unlinkSync(path.join(rootDir, "harness", progressPath));
-    assert.deepEqual(store.materialize().changed, [progressPath]);
+    const accepted = store.read();
+    assert.deepEqual(store.materialize().changed, []);
     assert.equal(readFileSync(path.join(rootDir, "harness", progressPath), "utf8"), body);
+    assert.deepEqual(store.read(), accepted);
+    assert.equal(Buffer.from(store.readContentBlob(sha256Text(body))!).toString("utf8"), body);
     projection.close();
     rmSync(projection.path, { force: true });
     assert.equal(projection.rebuild().watermark, 5);
@@ -198,7 +202,7 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
   }
 });
 
-test("progress publication recovers after prepared HEAD and retry does not duplicate the event or file entry", async () => {
+test("progress publication survives an interruption after SQLite commit and retry does not duplicate the event or file entry", async () => {
   const rootDir = workspace();
   let initialProjection: ReturnType<typeof makeTaskProjection> | undefined,
     replay: ReturnType<typeof makeTaskProjection> | undefined,
@@ -207,6 +211,7 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
     const initial = bootstrapAndStart(rootDir);
     initialProjection = initial.projection;
     await initial.store.drain();
+    let interruptOnce = true;
     const { start } = initial,
       compiled = compileTaskProgress({
         ...domainFixture(),
@@ -216,15 +221,19 @@ test("progress publication recovers after prepared HEAD and retry does not dupli
         repoId: "progress",
         rootDir,
         killpoint: (point) => {
-          if (point === "after_head_write") throw new Error("kill");
+          if (point === "after_sqlite_commit" && interruptOnce) {
+            interruptOnce = false;
+            throw new Error("kill");
+          }
         },
       });
     store = interrupted;
     assert.throws(() => interrupted.append(compiled), /kill/u);
-    assert.equal(interrupted.recover().status, "committed");
+    assert.deepEqual(interrupted.readEvent(compiled.event.opId), compiled.event);
     const before = interrupted.currentCommit();
     assert.deepEqual(interrupted.append(compiled).metrics.changedPaths, []);
     assert.deepEqual(interrupted.currentCommit(), before);
+    await interrupted.settlePendingMaterialization();
     replay = makeTaskProjection({ rootDir, eventStore: interrupted });
     replay.rebuild();
     assert.equal(replay.readProgress("task-progress").rows.length, 1);

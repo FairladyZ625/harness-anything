@@ -281,7 +281,7 @@ for (const sample of [
     addedPath: null,
   },
 ] as const)
-  test(`${sample.presetId} dry-run claims equal canonical materialization`, () => {
+  test(`${sample.presetId} dry-run claims equal initial materialization and canonical bytes survive local deletion`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), `ha-preset-${sample.presetId}-`)),
       userRoot = path.join(rootDir, ".harness/presets");
     try {
@@ -324,19 +324,20 @@ for (const sample of [
         plan: preview.plan,
         blobs: preview.blobs,
       });
+      await store.settlePendingMaterialization();
       for (const document of preview.documents)
         assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
       rmSync(path.join(rootDir, "harness", preview.packagePath), {
         recursive: true,
         force: true,
       });
-      const restored = store.materialize();
-      assert.deepEqual(
-        restored.changed,
-        [...dryRunPaths].sort((left, right) => left.localeCompare(right)),
-      );
-      for (const document of preview.documents)
+      const accepted = store.read();
+      assert.deepEqual(store.materialize().changed, []);
+      assert.deepEqual(store.read(), accepted);
+      for (const document of preview.documents) {
         assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
+        assert.equal(Buffer.from(store.readContentBlob(sha256Text(document.body))!).toString("utf8"), document.body);
+      }
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
