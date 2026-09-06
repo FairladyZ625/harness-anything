@@ -1,8 +1,10 @@
 import {
   closeSync,
+  cpSync,
   existsSync,
   fsyncSync,
   mkdirSync,
+  mkdtempSync,
   openSync,
   readdirSync,
   readFileSync,
@@ -27,6 +29,17 @@ export const localEvidenceFileSystem = {
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
   realpath: (inputPath: string) => realpathSync(inputPath),
 };
+
+export const localLedgerBackupFileSystem = {
+  copy: cpSync,
+  exists: existsSync,
+  makeTemporaryDirectory: mkdtempSync,
+  mkdir: mkdirSync,
+  read: readFileSync,
+  readDirectory: readdirSync,
+  stat: statSync,
+  write: writeFileSync,
+} as const;
 
 export const localEventFileSystem = {
   exists: (inputPath: string) => existsSync(inputPath),

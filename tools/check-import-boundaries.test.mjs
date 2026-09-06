@@ -175,6 +175,46 @@ test("import boundary check confines kernel store imports to the kernel composit
   }
 });
 
+test("import boundary check allows only the named offline CLI store composition root", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-policy-"));
+  try {
+    mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+    writeFileSync(path.join(root, "packages/kernel/src/store/ledger-backup.ts"), "export const backup = true;\n");
+    writeFileSync(
+      path.join(root, "packages/cli/src/cli-offline-storage.ts"),
+      "import { backup } from '../../kernel/src/store/ledger-backup.ts';\nexport { backup };\n",
+    );
+    writeFileSync(
+      path.join(root, "packages/cli/src/not-a-composition-root.ts"),
+      "import { backup } from '../../kernel/src/store/ledger-backup.ts';\nexport { backup };\n",
+    );
+    writeFileSync(
+      path.join(policyRoot, "check-import-boundaries.json"),
+      JSON.stringify({
+        schema: "harness-anything/gate-allowlist/v1",
+        gateId: "check-import-boundaries",
+        entries: {
+          guiAdapterCompositionRoots: [],
+          cliAdapterCompositionRoots: [allowlistEntry("packages/cli/src/cli-offline-storage.ts")],
+          kernelStoreCompositionRoots: [allowlistEntry("packages/cli/src/cli-offline-storage.ts")],
+          cliAdapterKnownDebt: [],
+        },
+      }),
+      "utf8",
+    );
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/cli\/src\/not-a-composition-root\.ts/u);
+    assert.doesNotMatch(result.stderr, /packages\/cli\/src\/cli-offline-storage\.ts/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check restricts GUI adapter imports to local composition root", () => {
   const root = makeFixtureRoot();
   try {
@@ -542,6 +582,10 @@ function makeFixtureRoot() {
     );
   }
   return root;
+}
+
+function allowlistEntry(value) {
+  return { value, ref: "dec_4944EEC7EE3618CEFDD210DC6B#CH1", reason: "Fixture composition root." };
 }
 
 function addPackageExport(root, packageRoot, exportKey, target) {

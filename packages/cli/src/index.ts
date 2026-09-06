@@ -46,6 +46,10 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   if (argv.includes("--version") || argv.includes("-v") || command === "version")
     return emitMeta("version", argv.includes("--json"));
   if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
+  if (command === "backup" || command === "restore" || command === "events") {
+    const { runOfflineStorageCommand } = await import("./cli-offline-storage.ts");
+    return runOfflineStorageCommand(argv, emit);
+  }
   if (isRetiredEntityExplain(argv)) {
     emit(
       cliFailure(

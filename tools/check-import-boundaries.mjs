@@ -6,17 +6,25 @@ const root = process.cwd();
 const sourceRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const violations = [];
-const importPattern = /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
+const importPattern =
+  /\b(?:import|export)\s+(?:type\s+)?(?:[^"']*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)|\brequire\s*\(\s*["']([^"']+)["']\s*\)/g;
 const oldRuntimePattern = /scripts\/(?:kernel\/task|lib\/task-)|(?:^|\/)(?:states|policies)\.mts$|TaskBinding/;
 const allowlist = loadGateAllowlist("check-import-boundaries", {
-  requiredSections: ["guiAdapterCompositionRoots", "cliAdapterCompositionRoots", "kernelStoreCompositionRoots", "cliAdapterKnownDebt"]
+  requiredSections: [
+    "guiAdapterCompositionRoots",
+    "cliAdapterCompositionRoots",
+    "kernelStoreCompositionRoots",
+    "cliAdapterKnownDebt",
+  ],
 });
 const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompositionRoots));
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
 const workspacePackages = await loadWorkspacePackages(path.join(root, "packages"));
-const workspacePackagesByName = new Map(workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]));
+const workspacePackagesByName = new Map(
+  workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
+);
 
 async function walk(dir) {
   let entries;
@@ -31,8 +39,14 @@ async function walk(dir) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out" || entry.name === "build-resources") continue;
-      files.push(...await walk(full));
+      if (
+        entry.name === "node_modules" ||
+        entry.name === "dist" ||
+        entry.name === "out" ||
+        entry.name === "build-resources"
+      )
+        continue;
+      files.push(...(await walk(full)));
     } else if (sourceFile.test(entry.name)) {
       files.push(full);
     }
@@ -44,8 +58,12 @@ async function loadWorkspacePackages(packagesRoot) {
   const packageFiles = [];
   async function discover(dir) {
     let entries;
-    try { entries = await readdir(dir, { withFileTypes: true }); }
-    catch (error) { if (error?.code === "ENOENT") return; throw error; }
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (error?.code === "ENOENT") return;
+      throw error;
+    }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory() && !["node_modules", "dist", "out"].includes(entry.name)) await discover(full);
@@ -77,11 +95,16 @@ function resolveImport(file, specifier) {
 }
 
 function resolveWorkspacePackageImport(specifier) {
-  const segments = specifier.split("/"), packageSegmentCount = specifier.startsWith("@") ? 2 : 1;
+  const segments = specifier.split("/"),
+    packageSegmentCount = specifier.startsWith("@") ? 2 : 1;
   const workspacePackage = workspacePackagesByName.get(segments.slice(0, packageSegmentCount).join("/"));
   if (!workspacePackage) return null;
-  const packageSubpath = segments.slice(packageSegmentCount).join("/"), exportKey = packageSubpath ? `./${packageSubpath}` : ".";
-  const target = exportTarget(workspacePackage.exports?.[exportKey] ?? (exportKey === "." && typeof workspacePackage.exports === "string" ? workspacePackage.exports : undefined));
+  const packageSubpath = segments.slice(packageSegmentCount).join("/"),
+    exportKey = packageSubpath ? `./${packageSubpath}` : ".";
+  const target = exportTarget(
+    workspacePackage.exports?.[exportKey] ??
+      (exportKey === "." && typeof workspacePackage.exports === "string" ? workspacePackage.exports : undefined),
+  );
   return target?.startsWith("./") ? relative(path.normalize(path.join(workspacePackage.root, target))) : null;
 }
 
@@ -111,7 +134,7 @@ function resolveImportFile(file, specifier, knownFiles) {
     `${baseRel}/index.mts`,
     `${baseRel}/index.js`,
     `${baseRel}/index.jsx`,
-    `${baseRel}/index.mjs`
+    `${baseRel}/index.mjs`,
   ];
   return candidates.find((candidate) => knownFiles.has(candidate)) ?? null;
 }
@@ -128,7 +151,7 @@ async function collectImportEdges(files, knownFiles) {
     const rel = relative(file);
     const imports = [...text.matchAll(importPattern)].map((match) => ({
       specifier: match[1] ?? match[2] ?? match[3],
-      statement: match[0]
+      statement: match[0],
     }));
     for (const { specifier, statement } of imports) {
       const target = resolveImportFile(file, specifier, knownFiles);
@@ -139,7 +162,7 @@ async function collectImportEdges(files, knownFiles) {
           specifier,
           statement,
           kind: importStatementKind(statement),
-          importedNames: extractImportedNames(statement)
+          importedNames: extractImportedNames(statement),
         });
       }
     }
@@ -169,8 +192,11 @@ function parseSpecifierListNames(specifierList, mode) {
   for (const rawPart of specifierList.split(",")) {
     const part = rawPart.trim().replace(/^type\s+/u, "");
     if (!part) continue;
-    const [left, right] = part.split(/\s+as\s+/u).map((value) => value.trim()).filter(Boolean);
-    const name = mode === "exported" ? right ?? left : left;
+    const [left, right] = part
+      .split(/\s+as\s+/u)
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const name = mode === "exported" ? (right ?? left) : left;
     if (name) names.add(name);
   }
   return names;
@@ -188,7 +214,8 @@ function extractReexportedNames(statement, targetText) {
 
 function extractLocalExportNames(text) {
   const names = new Set();
-  const declarationPattern = /\bexport\s+(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gu;
+  const declarationPattern =
+    /\bexport\s+(?:declare\s+)?(?:async\s+)?(?:function|class|interface|type|const|let|var|enum)\s+([A-Za-z_$][\w$]*)/gu;
   for (const match of text.matchAll(declarationPattern)) names.add(match[1]);
   const namedExportPattern = /\bexport\s+\{([^}]*)\}(?:\s+from\b)?/gsu;
   for (const match of text.matchAll(namedExportPattern)) {
@@ -234,21 +261,26 @@ async function checkOrphanPackageModules(packageFiles, importEdges) {
     if (/@slice-activation\b/u.test(targetText)) continue;
     const packageSourceRoot = packageSourceRootFromPath(target);
     const packageIndex = `${packageSourceRoot}/index.ts`;
-    const hasRealConsumer = importEdges.some((edge) => {
-      if (edge.target !== target || edge.importer === target) return false;
-      if (isTestOrFixturePath(edge.importer)) return false;
-      if (edge.importer === packageIndex && edge.kind === "reexport") return false;
-      return edge.importer.startsWith("packages/") || edge.importer.startsWith("tools/");
-    }) || importEdges.some((edge) => {
-      if (edge.target !== packageIndex || isTestOrFixturePath(edge.importer)) return false;
-      if (!edge.importer.startsWith("packages/") && !edge.importer.startsWith("tools/")) return false;
-      if (edge.importer === target || edge.importer === packageIndex) return false;
-      if (edge.importedNames === "namespace") return exportedNames.size > 0;
-      if (!edge.importedNames) return false;
-      return [...edge.importedNames].some((name) => exportedNames.has(name));
-    });
+    const hasRealConsumer =
+      importEdges.some((edge) => {
+        if (edge.target !== target || edge.importer === target) return false;
+        if (isTestOrFixturePath(edge.importer)) return false;
+        if (edge.importer === packageIndex && edge.kind === "reexport") return false;
+        return edge.importer.startsWith("packages/") || edge.importer.startsWith("tools/");
+      }) ||
+      importEdges.some((edge) => {
+        if (edge.target !== packageIndex || isTestOrFixturePath(edge.importer)) return false;
+        if (!edge.importer.startsWith("packages/") && !edge.importer.startsWith("tools/")) return false;
+        if (edge.importer === target || edge.importer === packageIndex) return false;
+        if (edge.importedNames === "namespace") return exportedNames.size > 0;
+        if (!edge.importedNames) return false;
+        return [...edge.importedNames].some((name) => exportedNames.has(name));
+      });
     if (!hasRealConsumer) {
-      record(path.join(root, target), "package source module is only re-exported from its package barrel; add @slice-activation with an owning slice or remove it from src");
+      record(
+        path.join(root, target),
+        "package source module is only re-exported from its package barrel; add @slice-activation with an owning slice or remove it from src",
+      );
     }
   }
 }
@@ -259,92 +291,127 @@ const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map
 const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
 
 for (const file of packageSourceFiles) {
-    const text = await readFile(file, "utf8");
-    const rel = relative(file);
-    const isTestOrFixture = isTestOrFixturePath(rel);
+  const text = await readFile(file, "utf8");
+  const rel = relative(file);
+  const isTestOrFixture = isTestOrFixturePath(rel);
 
-    if (rel.startsWith("packages/kernel/src/domain/")) {
-      if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
-        record(file, "domain layer imports legacy runtime");
+  if (rel.startsWith("packages/kernel/src/domain/")) {
+    if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {
+      record(file, "domain layer imports legacy runtime");
+    }
+  }
+
+  const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+  if (rel.startsWith("packages/kernel/src/domain/")) {
+    for (const specifier of imports) {
+      if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
+        record(file, `domain layer imports IO/runtime module via ${specifier}`);
+      }
+      if (
+        importedPathViolates(file, specifier, (target) =>
+          /packages\/kernel\/src\/(?:ports|application|store)\//.test(target),
+        )
+      ) {
+        record(file, `domain layer imports upper kernel layer via ${specifier}`);
       }
     }
+  }
 
-    const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
-    if (rel.startsWith("packages/kernel/src/domain/")) {
-      for (const specifier of imports) {
-        if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
-          record(file, `domain layer imports IO/runtime module via ${specifier}`);
-        }
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:ports|application|store)\//.test(target))) {
-          record(file, `domain layer imports upper kernel layer via ${specifier}`);
-        }
+  if (rel.startsWith("packages/kernel/src/ports/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(
+          file,
+          specifier,
+          (target) =>
+            /packages\/kernel\/src\/(?:application|store)\//.test(target) ||
+            /packages\/(?:cli|gui|adapters)\//.test(target) ||
+            /^@harness-anything\/(?:cli|gui|adapter-)/.test(target),
+        )
+      ) {
+        record(file, `ports layer imports implementation/controller layer via ${specifier}`);
       }
     }
+  }
 
-    if (rel.startsWith("packages/kernel/src/ports/")) {
-      for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/(?:application|store)\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
-          record(file, `ports layer imports implementation/controller layer via ${specifier}`);
-        }
+  const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
+  const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
+  if (
+    !isTestOrFixture &&
+    !isLocalAdapterCompositionRoot &&
+    !isKernelStoreCompositionRoot &&
+    !rel.startsWith("packages/kernel/src/store/")
+  ) {
+    for (const specifier of imports) {
+      if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
+        record(
+          file,
+          `store implementation is internal to the kernel and must be obtained via the packages/kernel/src/composition/ seam, not imported via ${specifier}`,
+        );
       }
     }
+  }
 
-    const isLocalAdapterCompositionRoot = rel === "packages/adapters/local/src/index.ts";
-    const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-    if (!isTestOrFixture && !isLocalAdapterCompositionRoot && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
-      for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
-          record(file, `store implementation is internal to the kernel and must be obtained via the packages/kernel/src/composition/ seam, not imported via ${specifier}`);
-        }
+  if (rel.startsWith("packages/application/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(
+          file,
+          specifier,
+          (target) =>
+            /packages\/kernel\/src\/store\//.test(target) ||
+            /packages\/(?:cli|gui|adapters)\//.test(target) ||
+            /^@harness-anything\/(?:cli|gui|adapter-)/.test(target),
+        )
+      ) {
+        record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
       }
     }
+  }
 
-    if (rel.startsWith("packages/application/")) {
-      for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target) || /packages\/(?:cli|gui|adapters)\//.test(target) || /^@harness-anything\/(?:cli|gui|adapter-)/.test(target))) {
-          record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
-        }
-      }
-    }
-
-    if (rel.startsWith("packages/gui/")) {
-      for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => {
+  if (rel.startsWith("packages/gui/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(file, specifier, (target) => {
           if (/packages\/kernel\/src\/store\//.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !guiAdapterCompositionRoots.has(rel);
           }
           return false;
-        })) {
-          record(file, `GUI imports store or external adapter implementation via ${specifier}`);
-        }
+        })
+      ) {
+        record(file, `GUI imports store or external adapter implementation via ${specifier}`);
       }
     }
+  }
 
-    if (rel.startsWith("packages/cli/")) {
-      for (const specifier of imports) {
-        if (importedPathViolates(file, specifier, (target) => {
-          if (/packages\/gui\//.test(target) || /packages\/kernel\/src\/store\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
+  if (rel.startsWith("packages/cli/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(file, specifier, (target) => {
+          if (/packages\/kernel\/src\/store\//.test(target)) return !kernelStoreCompositionRoots.has(rel);
+          if (/packages\/gui\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !cliAdapterCompositionRoots.has(rel) && !cliAdapterKnownDebt.has(rel);
           }
           return false;
-        })) {
-          record(file, `CLI imports GUI, adapter, or store implementation via ${specifier}`);
-        }
+        })
+      ) {
+        record(file, `CLI imports GUI, adapter, or store implementation via ${specifier}`);
       }
     }
+  }
 
-    if (/packages\/(?!kernel\/src\/legacy-fixtures)/.test(rel)) {
-      for (const specifier of imports) {
-        if (oldRuntimePattern.test(specifier)) {
-          record(file, `production package imports old runtime via ${specifier}`);
-        }
-      }
-      if (oldRuntimePattern.test(text)) {
-        record(file, "production package references old runtime symbol or path");
+  if (/packages\/(?!kernel\/src\/legacy-fixtures)/.test(rel)) {
+    for (const specifier of imports) {
+      if (oldRuntimePattern.test(specifier)) {
+        record(file, `production package imports old runtime via ${specifier}`);
       }
     }
+    if (oldRuntimePattern.test(text)) {
+      record(file, "production package references old runtime symbol or path");
+    }
+  }
 }
 
 await checkOrphanPackageModules(packageSourceFiles, importEdges);
