@@ -115,6 +115,21 @@ test("manifest gate runner preserves the full CI plan when --changed is absent",
   ]);
 });
 
+test("standalone changed mode derives its local PR gates from manifest path globs", () => {
+  const manifest = selectionManifest();
+  for (const gate of manifest.gates) {
+    gate.deterministic = true;
+    gate.executionSurfaces.classes = ["local", "pr"];
+  }
+  const options = parseManifestGateArgs(["--changed", "origin/main"]);
+  options.changedPaths = ["docs-release/guide.md"];
+
+  assert.deepEqual(buildManifestGatePlan(manifest, options), [
+    { id: "check-docs", command: "node check-docs.mjs" },
+    { id: "check-release", command: "node check-release.mjs" },
+  ]);
+});
+
 test("manifest gate runner resumes only the failed run and removes its checkpoint after success", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "ha-manifest-resume-"));
   try {
@@ -127,7 +142,8 @@ test("manifest gate runner resumes only the failed run and removes its checkpoin
     const ciEnv = fixtureCiEnv(root);
     const first = runFixture(root, ciEnv);
     assert.equal(first.status, 1, first.stderr);
-    assert.equal(readRuns(root), "one\n");
+    assert.equal(readRuns(root), "one\nthree\n");
+    assert.match(first.stderr, /Manifest gate runner failed \(workflow:boundaries\): check-two/u);
     assert.equal(existsSync(ciEnv.HARNESS_CI_GATE_RESULTS), true);
 
     const resumed = runFixture(root, { ...ciEnv, ALLOW_SECOND_GATE: "1" }, ["--resume"]);

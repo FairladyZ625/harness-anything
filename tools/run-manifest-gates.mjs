@@ -2,10 +2,11 @@
 /**
  * Executes gate commands from tools/gate-manifest.json.
  *
- * This runner keeps aggregate check chains and CI job gate steps derived from
- * the manifest so adding a gate changes the manifest entry, not every consumer
- * surface. It intentionally executes commands sequentially and stops at the
- * first failure to preserve the old `&&` chain behavior.
+ * This runner keeps aggregate check chains, CI job gate steps, and changed-path
+ * local checks derived from the manifest so adding a gate changes the manifest
+ * entry, not every consumer surface. Workflow jobs and changed-path checks run
+ * every selected command before reporting failure; package aggregates retain
+ * their explicit `&&` short-circuit semantics.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -67,9 +68,12 @@ export function parseManifestGateArgs(args) {
     throw new Error(`unknown run-manifest-gates option: ${arg}`);
   }
 
-  const selectorCount = Number(Boolean(options.packageSurface)) + Number(Boolean(options.workflowJob));
+  const selectorCount =
+    Number(Boolean(options.packageSurface)) +
+    Number(Boolean(options.workflowJob)) +
+    Number(options.changed !== null && !options.packageSurface && !options.workflowJob);
   if (selectorCount !== 1) {
-    throw new Error("exactly one of --package-surface or --workflow-job is required");
+    throw new Error("exactly one of --package-surface, --workflow-job, or standalone --changed is required");
   }
 
   if (options.packageSurface !== null && !["check", "checkPr"].includes(options.packageSurface)) {
@@ -88,7 +92,7 @@ export function selectManifestGateIds(manifest, options) {
     }
     const gatesById = new Map(manifest.gates.map((gate) => [gate.id, gate]));
     gates = ids.map((id) => gatesById.get(id) ?? { id });
-  } else {
+  } else if (options.workflowJob) {
     gates = manifest.gates
       .filter((gate) => !gate.aggregate)
       .filter((gate) =>
@@ -99,12 +103,32 @@ export function selectManifestGateIds(manifest, options) {
           ...(gate.executionSurfaces?.prBody?.nonPullRequestJobs ?? []),
         ].includes(options.workflowJob),
       );
+  } else {
+    gates = manifest.gates
+      .filter((gate) => !gate.aggregate && gate.deterministic === true)
+      .filter((gate) => gate.executionSurfaces?.classes?.includes("local"))
+      .filter((gate) => gate.executionSurfaces?.classes?.includes("pr"));
+    return selectChangedLocalGates(gates, options.changedPaths)
+      .map((gate) => gate.id)
+      .filter((id) => !(options.exclude ?? new Set()).has(id));
   }
 
   const exclude = options.exclude ?? new Set();
   return selectGatesForChangedPaths(gates, options.changedPaths)
     .map((gate) => gate.id)
     .filter((id) => !exclude.has(id));
+}
+
+function selectChangedLocalGates(gates, changedPaths) {
+  if (!Array.isArray(changedPaths) || changedPaths.length === 0) return [];
+  const scopedGates = gates.filter((gate) => gate.localPathGlobs !== undefined);
+  for (const gate of scopedGates) validateLocalPathGlobs(gate);
+  return scopedGates.filter((gate) =>
+    changedPaths.some((changedPath) => {
+      const normalizedPath = changedPath.replaceAll("\\", "/");
+      return gate.localPathGlobs.some((glob) => pathMatchesGlob(normalizedPath, glob));
+    }),
+  );
 }
 
 export function selectGatesForChangedPaths(gates, changedPaths) {
@@ -302,7 +326,11 @@ function main(argv) {
   }
   const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
-  const selector = options.packageSurface ? `package:${options.packageSurface}` : `workflow:${options.workflowJob}`;
+  const selector = options.packageSurface
+    ? `package:${options.packageSurface}`
+    : options.workflowJob
+      ? `workflow:${options.workflowJob}`
+      : `changed:${options.changed}`;
   const resume = prepareResume(manifest, options);
 
   if (options.changed !== null) {
@@ -310,6 +338,7 @@ function main(argv) {
   }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
   const gateResults = [];
+  const failedGateIds = [];
   for (const entry of plan) {
     if (resume.passedCommands.has(entry.command)) {
       console.log(`↷ ${entry.id} (already passed; resumed)`);
@@ -318,15 +347,20 @@ function main(argv) {
     const result = runCommand(entry.id, entry.command);
     gateResults.push({ gate: canonicalGateId(entry.id), pass: result.ok, metrics: { durationMs: result.durationMs } });
     if (!result.ok) {
-      writeResumeCheckpoint(resume);
-      writeObservation(gateResults);
-      process.exitCode = 1;
-      return;
+      failedGateIds.push(entry.id);
+      if (options.packageSurface) break;
+      continue;
     }
     resume.passedCommands.add(entry.command);
   }
-  rmSync(resume.path, { force: true });
   writeObservation(gateResults);
+  if (failedGateIds.length > 0) {
+    writeResumeCheckpoint(resume);
+    console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
+    process.exitCode = 1;
+    return;
+  }
+  rmSync(resume.path, { force: true });
   console.log(`\nManifest gate runner passed (${selector}).`);
 }
 

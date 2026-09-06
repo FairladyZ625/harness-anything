@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
 // app-node_modules is the GUI packaging output: gitignored, full of vendored third-party test
@@ -29,7 +30,9 @@ export function parseTestTierMarker(source, file = "test file") {
   const match = markerLines[0].line.match(markerPattern);
   const tier = match?.[1];
   if (tier === undefined || !testTierNames.includes(tier)) {
-    throw new Error(`invalid test tier marker: ${file}: ${markerLines[0].line.trim()}; expected ${testTierNames.join(", ")}`);
+    throw new Error(
+      `invalid test tier marker: ${file}: ${markerLines[0].line.trim()}; expected ${testTierNames.join(", ")}`,
+    );
   }
   return tier;
 }
@@ -54,13 +57,22 @@ export function discoverTestFiles(repoRoot, roots = ["packages", "tools"]) {
 export function discoverTestTierManifest(repoRoot, options = {}) {
   return deriveTestTierManifest(
     discoverTestFiles(repoRoot, options.roots),
-    options.readSource ?? ((file) => readFileSync(path.join(repoRoot, file), "utf8"))
+    options.readSource ?? ((file) => readFileSync(path.join(repoRoot, file), "utf8")),
   );
+}
+
+function main() {
+  const repositoryRoot = path.resolve(import.meta.dirname, "..");
+  const manifest = discoverTestTierManifest(repositoryRoot);
+  const count = testTierNames.reduce((total, tier) => total + manifest[tier].length, 0);
+  console.log(`Test tier manifest passed (${count} test files).`);
 }
 
 function walk(directory, repoRoot, files) {
   if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
     if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
@@ -68,5 +80,14 @@ function walk(directory, repoRoot, files) {
     } else if (entry.isFile() && testFilePattern.test(entry.name)) {
       files.push(path.relative(repoRoot, entryPath).split(path.sep).join("/"));
     }
+  }
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`Test tier manifest failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
   }
 }

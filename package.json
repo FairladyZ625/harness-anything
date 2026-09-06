@@ -49,6 +49,7 @@
     "check:local:line-budget": "node tools/run-local-line-budget.mjs",
     "check:local:line-density": "node tools/run-local-line-density.mjs",
     "check:local:schema-closure": "node tools/gates/schema-closure.mjs --check",
+    "harness:check-test-tier-manifest": "node tools/test-tier-manifest.mjs",
     "harness:check-file-complexity": "node tools/check-file-complexity.mjs",
     "harness:check-cli-structure": "node tools/check-cli-structure.mjs",
     "harness:check-cli-help-contract": "node tools/check-cli-help-contract.mjs",
