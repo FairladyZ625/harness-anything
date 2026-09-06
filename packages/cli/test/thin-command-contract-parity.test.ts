@@ -55,7 +55,6 @@ test("all public commands expose the canonical structured input facet", () => {
   }
   for (const id of [
     "task-show",
-    "receipt-show",
     "doc-materialize",
     "preset-upgrade",
     "daemon-projection-rebuild",
@@ -63,6 +62,16 @@ test("all public commands expose the canonical structured input facet", () => {
     "daemon-status",
   ])
     assert.deepEqual(daemonProtocolCommands.find((command) => command.id === id)?.inputs, [], id);
+  assert.deepEqual(
+    daemonProtocolCommands
+      .find(({ id }) => id === "receipt-show")
+      ?.inputs.map(({ name, kind, required }) => [name, kind, required]),
+    [
+      ["--wait", "single", false],
+      ["--timeout-ms", "single", false],
+    ],
+    "receipt-show",
+  );
   const ledgerReconcile = daemonProtocolCommands.find((command) => command.id === "ledger-reconcile");
   assert.deepEqual(
     ledgerReconcile?.inputs.map((input) => [input.name, input.kind, input.required]),
