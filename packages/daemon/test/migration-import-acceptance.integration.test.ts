@@ -14,14 +14,14 @@ test("migration import commits its prepared members and terminal outcome atomica
     source = path.join(scratch, "legacy"),
     rootDir = path.join(scratch, "repo"),
     repoId = workspaceId("migration-import-acceptance"),
-    binding = { actor, source: "local" as const },
-    action = { kind: "migrate-import" as const, sourceRoots: sources(source) };
+    binding = { actor, source: "local" as const };
   let armed = false,
     first: Awaited<ReturnType<typeof openRepoCell>> | undefined,
     retry: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     coverageCompleteFixture(source);
     initRepo(rootDir);
+    const action = { kind: "migrate-import" as const, sourceRoots: sources(source) };
     first = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
