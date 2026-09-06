@@ -59,7 +59,6 @@ export interface SqliteTaskEventStoreOptions {
   readonly writerFence?: () => DaemonWriterFence;
   readonly beforeAppend?: () => void;
   readonly withAppendFence?: <T>(operation: () => T) => T;
-  readonly afterFlush?: (actor: unknown, inventory: unknown | null) => void | Promise<void>;
   readonly onMaterializationHealthChange?: (health: MaterializationHealth) => void;
   readonly mutable?: boolean;
   readonly killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void;
@@ -82,7 +81,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     return `refs/heads/${branch}`;
   };
   let closed = false,
-    follower = pendingFollower("Git follower has not published this ledger cut");
+    follower = pendingFollower("Git follower has not published this ledger cut"),
+    scheduled: Promise<void> | null = null;
 
   const head = (): EventHead | null => {
     const event = sqlite.eventAtRevision(sqlite.revision());
@@ -121,14 +121,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     else accept();
     options.killpoint?.("after_sqlite_commit");
     follower = pendingFollower("Git follower has not verified the accepted ledger cut");
-    try {
-      publishFollower(appended);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      consumeKnownError(error);
-      follower = pendingFollower(reason);
-      options.onMaterializationHealthChange?.(health("failed", reason));
-    }
+    scheduleFollower();
     options.killpoint?.("before_response_write");
     const receipt: CanonicalEventAppendReceipt = {
       status: "applied",
@@ -142,14 +135,27 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     return receipt;
   };
 
-  const publishFollower = (suffix?: readonly CanonicalEventV1[]) => {
+  const publishFollower = () => {
     const accepted = cut(),
       currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef),
-      pendingEvents = suffix ?? readPendingEvents(sqlite, readFollowerRevision(currentLedger, parent)),
-      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted),
-      tempRef = publicationRef(`outbox-${accepted.revision}-${accepted.headDigest}`),
+      verifiedRevision = certifiedFollowerRevision(currentLedger, parent, sqlite),
+      pendingEvents = readPendingEvents(sqlite, verifiedRevision),
+      files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
+    if (verifiedRevision === accepted.revision) {
+      follower = {
+        git: { status: "verified", cut: accepted, commitSha: parent },
+        worktree: pendingFollower("worktree follower requires independent settlement").worktree,
+      };
+      return {
+        status: "visible" as const,
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        changed: [],
+        conflicts: [],
+      };
+    }
+    const tempRef = publicationRef(`outbox-${accepted.revision}-${accepted.headDigest}`),
       commit = prepareCommit(
         currentLedger.rootDir,
         tempRef,
@@ -162,7 +168,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     updateRef(currentLedger.rootDir, currentRef, commit, parent);
     deleteRef(currentLedger.rootDir, tempRef);
     verifyGitFiles(currentLedger.rootDir, commit, files);
-    if (!dirty) settleFiles(currentLedger.rootDir, commit, files);
+    if (!dirty) {
+      settleFiles(currentLedger.rootDir, commit, files);
+      verifyWorktreeFiles(currentLedger.rootDir, files);
+    }
     const manifest = files.find((file) => "target" in file && file.target.endsWith("events/segments/manifest.json"));
     if (!manifest || !("target" in manifest)) throw new Error("outbox manifest is absent");
     const gitReadback =
@@ -185,6 +194,32 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       conflicts: [],
     };
   };
+
+  const scheduleFollower = (): Promise<void> => {
+    if (scheduled) return scheduled;
+    scheduled = new Promise((resolve) =>
+      setImmediate(() => {
+        if (closed) {
+          resolve();
+          return;
+        }
+        try {
+          publishFollower();
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          consumeKnownError(error);
+          follower = pendingFollower(reason);
+          options.onMaterializationHealthChange?.(health("failed", reason));
+        } finally {
+          scheduled = null;
+          resolve();
+        }
+      }),
+    );
+    return scheduled;
+  };
+
+  if (options.mutable !== false) void scheduleFollower();
 
   return {
     canonicalRef: "sqlite:generation-1",
@@ -211,9 +246,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     materialize: publishFollower,
     materializationHealth: () => health(follower.git.status === "verified" ? "ok" : "failed", follower.git.reason),
     drain: async () => {
+      await scheduled;
       if (!closed) sqlite.close();
       closed = true;
     },
+    settlePendingMaterialization: scheduleFollower,
     readCommandOutcome: sqlite.readCommandOutcome,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => follower,
@@ -321,20 +358,59 @@ function readPendingEvents(
   }
 }
 
-function readFollowerRevision(ledger: ReturnType<typeof resolveLedgerGitLayout>, commit: string): number {
+function certifiedFollowerRevision(
+  ledger: ReturnType<typeof resolveLedgerGitLayout>,
+  commit: string,
+  sqlite: ReturnType<typeof openSqliteEventStore>,
+): number {
   const target = ledgerGitPath(ledger, "events/segments/manifest.json"),
     bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
   if (!bytes) return 0;
   try {
     const parsed = JSON.parse(bytes.toString("utf8")) as {
       readonly generation?: unknown;
-      readonly cut?: { revision?: unknown };
+      readonly cut?: { repoId?: unknown; revision?: unknown; headDigest?: unknown };
     };
-    return parsed.generation === 1 && Number.isSafeInteger(parsed.cut?.revision) ? Number(parsed.cut?.revision) : 0;
+    const revision = Number(parsed.cut?.revision);
+    if (
+      parsed.generation !== 1 ||
+      parsed.cut?.repoId !== sqlite.metadata().repoId ||
+      !Number.isSafeInteger(revision) ||
+      revision < 0 ||
+      revision > sqlite.revision()
+    )
+      return 0;
+    const event = sqlite.eventAtRevision(revision),
+      expected = canonicalLedgerCut(sqlite.metadata().repoId, event ? eventHead(event) : null);
+    if (parsed.cut.headDigest !== expected.headDigest) return 0;
+    const closure = followerFiles(
+      ledger,
+      commit,
+      readEventsThrough(sqlite, revision),
+      sqlite.readContentObject,
+      expected,
+    );
+    verifyGitFiles(ledger.rootDir, commit, closure);
+    return revision;
   } catch (error) {
     consumeKnownError(error);
     return 0;
   }
+}
+
+function eventHead(event: CanonicalEventV1): EventHead {
+  return {
+    revision: event.workspaceRevision,
+    opId: event.opId,
+    eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+  };
+}
+
+function readEventsThrough(
+  sqlite: ReturnType<typeof openSqliteEventStore>,
+  revision: number,
+): readonly CanonicalEventV1[] {
+  return readPendingEvents(sqlite, 0).filter((event) => event.workspaceRevision <= revision);
 }
 
 function verifyGitFiles(repoRoot: string, commit: string, files: readonly PublicationFile[]): void {
@@ -346,6 +422,18 @@ function verifyGitFiles(repoRoot: string, commit: string, files: readonly Public
         throw new Error(`Git follower read-back differs at ${file.target}`);
     } else if ("delete" in file && localGitObjectRefStore.readPath(repoRoot, commit, file.delete) !== null) {
       throw new Error(`Git follower did not retire ${file.delete}`);
+    }
+  }
+}
+
+function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]): void {
+  for (const file of files) {
+    if ("target" in file) {
+      const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
+      if (node?.body !== file.body || node.mode !== file.mode)
+        throw new Error(`worktree follower read-back differs at ${file.target}`);
+    } else if ("delete" in file && localGitWorktreeSettlement.readNode(`${repoRoot}/${file.delete}`) !== null) {
+      throw new Error(`worktree follower did not retire ${file.delete}`);
     }
   }
 }

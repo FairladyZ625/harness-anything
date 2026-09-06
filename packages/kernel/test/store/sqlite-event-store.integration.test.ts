@@ -36,6 +36,7 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
     });
   try {
     const receipt = store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    await store.settlePendingMaterialization?.("test");
     assert.equal(receipt.status, "applied");
     assert.equal(store.ledgerMetadata().revision, 1);
     assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
@@ -80,6 +81,7 @@ test("Git can verify an accepted document while a concurrently edited worktree r
   });
   try {
     store.append(docBundle(store, "# Published\n", 1, "doc-one", "context/published.md"));
+    await store.settlePendingMaterialization?.("test");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
   } finally {
