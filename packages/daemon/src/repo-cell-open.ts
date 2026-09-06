@@ -1010,7 +1010,6 @@ export async function openRepoWriterCell(
     set activeWriterEpochFenceDescriptor(value) {
       activeWriterEpochFenceDescriptor = value;
     },
-    withLayoutAdvisory: extracted.withLayoutAdvisory,
     withHumanSummary: extracted.withHumanSummary,
     get lastError() {
       return lastError;

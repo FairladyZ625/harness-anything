@@ -17,6 +17,8 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   const outcome = store.readCommandOutcome(receipt.opId);
   const pending = { state: "pending", cut: null } as const;
   const empty = {
+    ...("worktreeVisible" in receipt ? { worktreeVisible: false } : {}),
+    ...("canonicalVisible" in receipt ? { canonicalVisible: false } : {}),
     acceptance: null,
     projection: pending,
     git: { ...pending, commitSha: null },

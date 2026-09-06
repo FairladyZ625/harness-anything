@@ -76,10 +76,6 @@ export function previewResult(
   };
 }
 
-export function withLayoutAdvisory(_cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
-  return receipt;
-}
-
 export function withHumanSummary(cell: RepoCellOperationalContext, receipt: WriteReceipt): WriteReceipt {
   if (
     typeof (

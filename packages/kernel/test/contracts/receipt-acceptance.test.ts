@@ -95,7 +95,14 @@ test("wait timeout preserves durable acceptance and lists unsatisfied facets", (
 
 test("an intent-conflict rejection cannot borrow acceptance from the operation id's older command", () => {
   const receipt = attachReceiptAcceptance(
-    { outcome: "op_rejected", opId: "command", code: "op_conflict", origin: "daemon" },
+    {
+      outcome: "op_rejected",
+      opId: "command",
+      code: "op_conflict",
+      origin: "daemon",
+      worktreeVisible: true,
+      canonicalVisible: true,
+    },
     {
       readCommandOutcome: () => ({
         status: "accepted_durable",
@@ -112,5 +119,7 @@ test("an intent-conflict rejection cannot borrow acceptance from the operation i
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.status, "rejected");
   assert.equal(receipt.acceptance, null);
+  assert.equal(receipt.worktreeVisible, false);
+  assert.equal(receipt.canonicalVisible, false);
   assert.deepEqual(validateReceiptAcceptance(receipt), []);
 });

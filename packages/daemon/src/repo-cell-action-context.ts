@@ -64,7 +64,6 @@ import {
   readResult as readResultImpl,
   upgradePresetSnapshot as upgradePresetSnapshotImpl,
   withHumanSummary as withHumanSummaryImpl,
-  withLayoutAdvisory as withLayoutAdvisoryImpl,
 } from "./repo-cell-task-create.ts";
 import {
   archiveTasks as archiveTasksImpl,
@@ -199,7 +198,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly completionKillpoint: Bound<typeof completionKillpointImpl>;
   readonly executeAction: Bound<typeof executeActionImpl>;
   readonly withHumanSummary: Bound<typeof withHumanSummaryImpl>;
-  readonly withLayoutAdvisory: Bound<typeof withLayoutAdvisoryImpl>;
   recoveryUncertain: boolean;
   readonly recovery: RepoCellCore["recovery"];
   readonly canonicalSettlement: Bound<typeof canonicalSettlementImpl>;
@@ -351,7 +349,6 @@ export function createRepoCellActionContext(bindings: {
     completionKillpoint: bind(completionKillpointImpl),
     executeAction: bind(executeActionImpl),
     withHumanSummary: bind(withHumanSummaryImpl),
-    withLayoutAdvisory: bind(withLayoutAdvisoryImpl),
     get recoveryUncertain() {
       return bindings.getRecoveryUncertain();
     },

@@ -118,7 +118,6 @@ export interface RepoCellApiContext {
   activeWriterEpochGuard: (() => void) | null;
   activeWriterEpochFence: (<T>(operation: () => T) => T) | null;
   activeWriterEpochFenceDescriptor: NonNullable<RepoCellBinding["writerEpochFence"]> | null;
-  readonly withLayoutAdvisory: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   readonly withHumanSummary: (receipt: WriteReceiptDraft) => WriteReceiptDraft;
   lastError: string | null;
   recoveryUncertain: boolean;
@@ -253,7 +252,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withLayoutAdvisory(context.withHumanSummary(await context.executeAction(action, binding)));
+          return context.withHumanSummary(await context.executeAction(action, binding));
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(error));
@@ -291,7 +290,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
         const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
-          const executed = context.withLayoutAdvisory(context.withHumanSummary(await execute(queuedDecision))),
+          const executed = context.withHumanSummary(await execute(queuedDecision)),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
