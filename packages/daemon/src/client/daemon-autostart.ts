@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   acquireDaemonAutostartFlight,
+  daemonPidPath,
   daemonProcessAlive,
   daemonSocketProbe,
   readDaemonSingletonLockPid,
@@ -16,6 +17,7 @@ export interface DaemonLaunchSpec {
   readonly env: NodeJS.ProcessEnv;
 }
 export const autostartFailureCodes = [
+  "daemon_stopped_by_operator",
   "daemon_start_noncanonical_checkout",
   "daemon_start_runtime_forbidden",
   "daemon_spawn_not_found",
@@ -38,6 +40,24 @@ export interface DaemonStartProgress {
 export interface DaemonGenerationWaitResult {
   readonly ok: boolean;
   readonly waitedMs: number;
+}
+export function daemonStoppedMarkerPath(userRoot: string, daemonId: string): string {
+  return daemonPidPath(userRoot, daemonId).replace(/\.pid$/u, ".stopped");
+}
+export function writeDaemonStoppedMarker(userRoot: string, daemonId: string): string {
+  const stoppedAt = new Date().toISOString(),
+    markerPath = daemonStoppedMarkerPath(userRoot, daemonId);
+  mkdirSync(userRoot, { recursive: true });
+  writeFileSync(markerPath, `${stoppedAt}\n${process.pid}\n`, { mode: 0o600 });
+  return stoppedAt;
+}
+export function readDaemonStoppedAt(userRoot: string, daemonId: string): string | null {
+  const markerPath = daemonStoppedMarkerPath(userRoot, daemonId);
+  if (!existsSync(markerPath)) return null;
+  return readFileSync(markerPath, "utf8").split("\n", 1)[0] || null;
+}
+export function clearDaemonStoppedMarker(userRoot: string, daemonId: string): void {
+  rmSync(daemonStoppedMarkerPath(userRoot, daemonId), { force: true });
 }
 export class DaemonAutostartError extends Error {
   readonly code: DaemonAutostartFailureCode;
@@ -133,6 +153,14 @@ export async function ensureLocalDaemonRunning(input: {
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
     const refusal = await daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
     if (refusal) return { ok: false, ...refusal, attempts: 0 };
+    const stoppedAt = readDaemonStoppedAt(target.userRoot, target.daemonId);
+    if (stoppedAt)
+      return {
+        ok: false,
+        code: "daemon_stopped_by_operator",
+        hint: `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it.`,
+        attempts: 0,
+      };
     flight = await acquireDaemonAutostartFlight(target);
     // The probe belongs inside the claim: another caller may have bound the
     // socket between this process's initial probe and atomic lock creation.

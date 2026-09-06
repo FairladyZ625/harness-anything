@@ -72,13 +72,27 @@ export async function withAutostart(
     }
   } catch (error) {
     if (!options.autostart) throw error;
-    const { DaemonAutostartError, ensureLocalDaemonRunning, isDaemonUnreachable, runtimeDaemonStartRefusal } =
-      await import("../../../daemon/src/client/daemon-autostart.ts");
+    const {
+      DaemonAutostartError,
+      ensureLocalDaemonRunning,
+      isDaemonUnreachable,
+      readDaemonStoppedAt,
+      runtimeDaemonStartRefusal,
+    } = await import("../../../daemon/src/client/daemon-autostart.ts");
     if (!isDaemonUnreachable(error)) throw error;
     // The failed connection already proves this socket unavailable. A second socket probe can
     // consume its full timeout without adding evidence.
     const refusal = runtimeDaemonStartRefusal(options.env);
     if (refusal) throw new DaemonAutostartError({ ok: false, ...refusal, attempts: 0 });
+    const stoppedAt =
+      options.userRoot && options.daemonId ? readDaemonStoppedAt(options.userRoot, options.daemonId) : null;
+    if (stoppedAt)
+      throw new DaemonAutostartError({
+        ok: false,
+        code: "daemon_stopped_by_operator",
+        hint: `The daemon was stopped by the operator at ${stoppedAt}. Run \`ha daemon start --service\` to start it.`,
+        attempts: 0,
+      });
     const started = await ensureLocalDaemonRunning({
       socketPath,
       invokingRoot: options.invokingRoot,

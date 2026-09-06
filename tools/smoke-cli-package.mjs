@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,11 +59,19 @@ export function runCliPackageSmoke(root = process.cwd()) {
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "submit", "task-smoke", "--execution-id", "execution-smoke", "--from-file", "submission.json"], projectDir, env(userRoot, home)), "task submit");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "status"], projectDir, env(userRoot, home)), "daemon status");
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)), "daemon stop"); started = false;
-    // Bounded autostart is the headline behavior: with no explicit daemon left
-    // running, a plain repository command must bring it back and still answer.
+    // An explicit operator stop sticks: a plain repository command is refused by name
+    // instead of resurrecting the daemon (the cold-migration single-writer window).
+    const refused = runJson(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home));
+    if (refused.status === 0 || refused.receipt?.ok !== false || refused.receipt?.code !== "daemon_stopped_by_operator") throw new Error(`task list after an explicit stop must be refused with daemon_stopped_by_operator: ${JSON.stringify(refused)}`);
+    if (existsSync(path.join(userRoot, "daemon-default.pid"))) throw new Error("explicit stop was not sticky: a daemon pid appeared after the refused command");
+    expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "start", "--service"], projectDir, env(userRoot, home)), "daemon start after operator stop"); started = true;
+    // Bounded autostart is the headline behavior for a daemon that died without an operator
+    // stop: kill it outright, then a plain repository command must bring it back and still answer.
+    const killedPid = Number(readFileSync(path.join(userRoot, "daemon-default.pid"), "utf8").trim()); process.kill(killedPid, "SIGKILL");
+    for (const deadline = Date.now() + 10_000; ; ) { try { process.kill(killedPid, 0); } catch { break; } if (Date.now() > deadline) throw new Error(`daemon ${killedPid} survived SIGKILL for 10s`); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); }
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "task", "list"], projectDir, env(userRoot, home)), "task list after auto-start"); started = true;
     expectOk(runJson(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home)), "daemon stop after auto-start"); started = false;
-    console.log(`CLI package smoke passed: npm-pack consumer bootstrap + lifecycle + auto-start; unstartable-daemon rejection=${unstartableMs === null ? "skipped" : `${unstartableMs.toFixed(3)}ms`}.`);
+    console.log(`CLI package smoke passed: npm-pack consumer bootstrap + lifecycle + sticky operator stop + auto-start after kill; unstartable-daemon rejection=${unstartableMs === null ? "skipped" : `${unstartableMs.toFixed(3)}ms`}.`);
   } finally {
     if (started && binPath) run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home));
     rmSync(tempRoot, { recursive: true, force: true });

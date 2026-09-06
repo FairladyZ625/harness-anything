@@ -18,10 +18,13 @@ test("CLI merges two independently initialized Git Harness repositories into a t
     userRoot = path.join(parent, "user");
   try {
     initialize(first, userRoot, "source-first");
+    run(first, userRoot, ["daemon", "start", "--service"]);
     initialize(second, userRoot, "source-second");
+    run(second, userRoot, ["daemon", "start", "--service"]);
     initialize(center, userRoot, "center");
     addSourceData(first, "alpha", "person_alpha");
     addSourceData(second, "beta", "person_beta");
+    run(center, userRoot, ["daemon", "start", "--service"]);
     const receipt = run(center, userRoot, ["migrate", "import", "--source", first, "--source", second]);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(receipt.exitCode, 0);

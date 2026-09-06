@@ -22,6 +22,7 @@ import {
 } from "../../daemon/src/client/local-json-rpc-client.ts";
 import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
 import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
+import { clearDaemonStoppedMarker } from "../../daemon/src/client/daemon-autostart.ts";
 import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
@@ -52,7 +53,23 @@ test("resident daemon autostart strips the worker callback relay marker", () => 
   }
 });
 
-test("registered checkout autostarts the daemon while its worktree only connects", (context) => {
+test("stopping a cold daemon leaves the user root untouched", () => {
+  const fixture = setup();
+  try {
+    const stopped = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "stop"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    assert.notEqual(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
+    const receipt = JSON.parse(stopped.stdout) as { error?: { code?: string } };
+    assert.equal(receipt.error?.code, "daemon_unavailable");
+    assert.equal(existsSync(fixture.userRoot), false, "a cold stop must not create daemon state");
+  } finally {
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+test("operator stop blocks autostart until explicit start while process death remains recoverable", async (context) => {
   const fixture = setup();
   try {
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
@@ -112,6 +129,14 @@ test("registered checkout autostarts the daemon while its worktree only connects
       lifecycle.some((record) => record.event === "process_exit" && record.outcome === "stop_requested"),
       true,
     );
+    const stoppedStatusRun = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "daemon", "status"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    // Unavailable answers exit non-zero: the first-run lane polls this exit code to see the daemon gone.
+    assert.notEqual(stoppedStatusRun.status, 0, `${stoppedStatusRun.stderr}\n${stoppedStatusRun.stdout}`);
+    const stoppedStatus = JSON.parse(stoppedStatusRun.stdout) as Record<string, unknown>;
+    assert.match(String(stoppedStatus.summary), /not running \(stopped by operator at \d{4}-\d{2}-\d{2}T/u);
     const worktree = path.join(fixture.root, ".worktrees", "task-list-feature");
     git(fixture.root, "worktree", "add", "--quiet", "--detach", worktree);
     const refused = spawnSync(process.execPath, [cli, "--root", worktree, "--json", "task", "list"], {
@@ -120,20 +145,33 @@ test("registered checkout autostarts the daemon while its worktree only connects
     });
     assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
     const refusal = JSON.parse(refused.stdout) as { error?: { code?: string } };
-    assert.equal(refusal.error?.code, "daemon_start_noncanonical_checkout");
+    assert.equal(refusal.error?.code, "daemon_stopped_by_operator");
     assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "the refused worktree must not claim the daemon");
 
-    // The daemon is gone; a repository command from the registered checkout must bring it back and answer.
+    const blocked = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
+      encoding: "utf8",
+      env: cliEnv(fixture.root, fixture.userRoot),
+    });
+    assert.notEqual(blocked.status, 0, `${blocked.stderr}\n${blocked.stdout}`);
+    const blockedReceipt = JSON.parse(blocked.stdout) as {
+      error?: { code?: string };
+      diagnostic?: { expectation?: string };
+    };
+    assert.equal(blockedReceipt.error?.code, "daemon_stopped_by_operator");
+    assert.match(String(blockedReceipt.diagnostic?.expectation), /ha daemon start --service/u);
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), null, "operator stop must suppress autostart");
+
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     const result = spawnSync(process.execPath, [cli, "--root", fixture.root, "--json", "task", "list"], {
       encoding: "utf8",
       env: cliEnv(fixture.root, fixture.userRoot),
     });
     assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    const receipt = JSON.parse(result.stdout) as { ok: boolean; outcome?: string; error?: { code: string } };
+    const receipt = JSON.parse(result.stdout) as { ok: boolean; outcome?: string };
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
     assert.equal(receipt.outcome, "applied");
     const restartedPid = readDaemonPid(fixture.userRoot, "default");
-    assert.ok(restartedPid, "autostart must leave a resident daemon pid file");
+    assert.ok(restartedPid, "explicit start must leave a resident daemon pid file");
     assert.notEqual(restartedPid, previousPid);
     const connected = spawnSync(process.execPath, [cli, "--root", worktree, "--json", "task", "list"], {
       encoding: "utf8",
@@ -146,7 +184,7 @@ test("registered checkout autostarts the daemon while its worktree only connects
       "the worktree must reuse the resident daemon",
     );
     context.diagnostic(
-      `worktree refusal=${refusal.error?.code}; registered checkout pid=${restartedPid}; worktree existing-daemon task-list=ok`,
+      `stop refusal=${blockedReceipt.error?.code}; explicit-start pid=${restartedPid}; worktree existing-daemon task-list=ok`,
     );
     const restartedLifecycle = readDaemonLifecycleRecords(fixture.userRoot, "default"),
       generationStart = restartedLifecycle.findLastIndex((record) => record.event === "process_start"),
@@ -160,6 +198,14 @@ test("registered checkout autostarts the daemon while its worktree only connects
       generationStart >= 0 && bound > generationStart && attach > bound,
       "the resident socket must bind before the cold registry starts attaching",
     );
+    process.kill(restartedPid, "SIGKILL");
+    await waitForProcessExit(restartedPid);
+    const recovered = run(fixture.root, fixture.userRoot, ["task", "list"]);
+    assert.equal(recovered.outcome, "applied");
+    const recoveredPid = readDaemonPid(fixture.userRoot, "default");
+    assert.ok(recoveredPid, "process death without daemon stop must remain autostartable");
+    assert.notEqual(recoveredPid, restartedPid);
+    context.diagnostic(`SIGKILL negative control autostart pid=${recoveredPid}`);
     assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   } finally {
     rmSync(fixture.parent, { recursive: true, force: true });
@@ -967,6 +1013,7 @@ test(
       register(fixture.root, fixture.userRoot, "autostart-fail");
       assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
       waitForDaemonDown(fixture.userRoot);
+      clearDaemonStoppedMarker(fixture.userRoot, "default");
       // The lock is the first mutating step. A read-only user root must fail there
       // with the permission cause instead of spawning or waiting for a bind timeout.
       chmodSync(fixture.userRoot, 0o555);
