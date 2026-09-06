@@ -1,6 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import {
+  offlineMaintenanceExternalEdges,
+  offlineMaintenanceModules,
+} from "./gate-allowlists/offline-maintenance-modules.mjs";
 
 const root = process.cwd();
 const violations = [];
@@ -85,7 +89,7 @@ function checkDistStaticImportGraph() {
     const file = pending.shift();
     if (!file || visited.has(file)) continue;
     visited.add(file);
-    if (!isCliProductionFile(file) && !allowedStaticGraph.has(file)) {
+    if (!isCliProductionFile(file) && !allowedStaticGraph.has(file) && !offlineMaintenanceModules.has(file)) {
       const detail =
         file === "packages/kernel/src/index.ts"
           ? "kernel public barrel"
@@ -98,15 +102,33 @@ function checkDistStaticImportGraph() {
     for (const candidate of runtimeImports(parseTypeScript(file)).static) {
       if (candidate.specifier.startsWith("node:")) continue;
       if (!candidate.specifier.startsWith(".")) {
-        violations.push(`dist static import graph reached external package ${candidate.specifier} from ${file}`);
+        if (!offlineMaintenanceExternalEdges.has(`${file} -> ${candidate.specifier}`))
+          violations.push(`dist static import graph reached external package ${candidate.specifier} from ${file}`);
         continue;
       }
       const resolved = resolveSourceImport(file, candidate.specifier);
       if (resolved === null)
         violations.push(`dist static import graph cannot resolve ${candidate.specifier} from ${file}`);
-      else pending.push(resolved);
+      else {
+        if (
+          offlineMaintenanceModules.has(resolved) &&
+          resolved.startsWith("packages/kernel/src/") &&
+          !allowedOfflineMaintenanceEdge(file, resolved)
+        )
+          violations.push(
+            `dist static import graph reached kernel module outside the offline-maintenance edge: ${file} -> ${resolved}`,
+          );
+        else pending.push(resolved);
+      }
     }
   }
+}
+
+function allowedOfflineMaintenanceEdge(fromFile, resolved) {
+  if (!offlineMaintenanceModules.has(resolved)) return false;
+  return fromFile === "packages/cli/src/cli-offline-storage.ts"
+    ? resolved === "packages/kernel/src/store/ledger-backup.ts"
+    : offlineMaintenanceModules.has(fromFile);
 }
 
 function isCliProductionFile(file) {

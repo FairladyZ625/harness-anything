@@ -11,10 +11,11 @@ const scriptPath = path.resolve(import.meta.dirname, "../../check-cli-structure.
 
 test("thin CLI structure accepts the bounded production surface on the dist static graph", async () => {
   const root = await fixture();
-  write(root, "packages/cli/src/index.ts", entrySource([
-    "import { taskRead } from './commands/task-read.ts';",
-    "void taskRead;"
-  ]));
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { taskRead } from './commands/task-read.ts';", "void taskRead;"]),
+  );
   write(root, "packages/cli/src/commands/task-read.ts", "export const taskRead = true;\n");
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
@@ -23,36 +24,93 @@ test("thin CLI structure accepts the bounded production surface on the dist stat
 
 test("thin CLI structure rejects a kernel public barrel reachable from the dist entry", async () => {
   const root = await fixture();
-  write(root, "packages/daemon/src/client/local-daemon-target.ts", [
-    "import { readDaemonRegistry } from '../../../kernel/src/index.ts';",
-    "export const resolveLocalDaemonTarget = readDaemonRegistry;",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/daemon/src/client/local-daemon-target.ts",
+    [
+      "import { readDaemonRegistry } from '../../../kernel/src/index.ts';",
+      "export const resolveLocalDaemonTarget = readDaemonRegistry;",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/kernel/src/index.ts", "export const readDaemonRegistry = () => ({});\n");
 
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.ok(result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"));
+  assert.ok(
+    result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"),
+  );
 });
 
 test("thin CLI structure rejects a kernel runtime import from any CLI production module", async () => {
   const root = await fixture();
-  write(root, "packages/cli/src/index.ts", entrySource([
-    "import { taskRead } from './commands/task-read.ts';",
-    "void taskRead;"
-  ]));
-  write(root, "packages/cli/src/commands/task-read.ts", [
-    "import { readTask } from '../../../kernel/src/index.ts';",
-    "export const taskRead = readTask;",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { taskRead } from './commands/task-read.ts';", "void taskRead;"]),
+  );
+  write(
+    root,
+    "packages/cli/src/commands/task-read.ts",
+    ["import { readTask } from '../../../kernel/src/index.ts';", "export const taskRead = readTask;", ""].join("\n"),
+  );
   write(root, "packages/kernel/src/index.ts", "export const readTask = () => ({});\n");
 
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.ok(result.stderr.includes(
-    "dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"
-  ));
+  assert.ok(
+    result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"),
+  );
+});
+
+test("thin CLI structure accepts only the named offline-maintenance entry edge", async () => {
+  const root = await fixture();
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { offline } from './cli-offline-storage.ts';", "void offline;"]),
+  );
+  write(
+    root,
+    "packages/cli/src/cli-offline-storage.ts",
+    [
+      "import { createLedgerBackup } from '../../kernel/src/store/ledger-backup.ts';",
+      "export const offline = createLedgerBackup;",
+      "",
+    ].join("\\n"),
+  );
+  write(root, "packages/kernel/src/store/ledger-backup.ts", "export function createLedgerBackup(): void {}\\n");
+
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
+});
+
+test("thin CLI structure rejects every other kernel edge even when its target is in the named closure", async () => {
+  const root = await fixture();
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { parse } from './commands/task-read.ts';", "void parse;"]),
+  );
+  write(
+    root,
+    "packages/cli/src/commands/task-read.ts",
+    [
+      "import { parseCanonicalEvent } from '../../../kernel/src/domain/doc-sync-canonical-events.ts';",
+      "export const parse = parseCanonicalEvent;",
+      "",
+    ].join("\\n"),
+  );
+  write(
+    root,
+    "packages/kernel/src/domain/doc-sync-canonical-events.ts",
+    "export function parseCanonicalEvent(): void {}\\n",
+  );
+
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /kernel module outside the offline-maintenance edge/u);
 });
 
 // The original pre-restoration assertions are preserved verbatim here for audit:
@@ -74,7 +132,11 @@ test("thin CLI structure enforces the re-derived function complexity limit", asy
 test("CLI branch-count limit stays active with the re-derived line limits", async () => {
   const root = await fixture();
   const branches = Array.from({ length: 41 }, (_, index) => `  if (input === ${index}) return ${index};`).join("\n");
-  write(root, "packages/cli/src/cli/thin-command.ts", `export function branchy(input: number): number {\n${branches}\n  return -1;\n}\n`);
+  write(
+    root,
+    "packages/cli/src/cli/thin-command.ts",
+    `export function branchy(input: number): number {\n${branches}\n  return -1;\n}\n`,
+  );
 
   const result = run(root);
   assert.notEqual(result.status, 0);
@@ -83,11 +145,11 @@ test("CLI branch-count limit stays active with the re-derived line limits", asyn
 
 test("thin CLI permits only the zero-dependency preset command contract", async () => {
   const root = await fixture();
-  write(root, "packages/preset/src/preset-command-contract.ts", [
-    "import { runtime } from './preset.contract.ts';",
-    "export const presetCommands = runtime;",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/preset/src/preset-command-contract.ts",
+    ["import { runtime } from './preset.contract.ts';", "export const presetCommands = runtime;", ""].join("\n"),
+  );
   write(root, "packages/preset/src/preset.contract.ts", "export const runtime = [];\n");
   const result = run(root);
   assert.notEqual(result.status, 0);
@@ -96,12 +158,16 @@ test("thin CLI permits only the zero-dependency preset command contract", async 
 
 test("daemon transport graph accepts the line client's thin leaf imports", async () => {
   const root = await fixture();
-  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
-    "import net from 'node:net';",
-    "import { currentDaemonProtocolVersion } from '../protocol/version.ts';",
-    "export function transport(): void { void net; void currentDaemonProtocolVersion; }",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    [
+      "import net from 'node:net';",
+      "import { currentDaemonProtocolVersion } from '../protocol/version.ts';",
+      "export function transport(): void { void net; void currentDaemonProtocolVersion; }",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/daemon/src/protocol/version.ts", "export const currentDaemonProtocolVersion = 1;\n");
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
@@ -110,61 +176,90 @@ test("daemon transport graph accepts the line client's thin leaf imports", async
 
 test("daemon transport graph rejects a kernel barrel reachable from the line client", async () => {
   const root = await fixture();
-  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
-    "import { consumeKnownError } from '../../../kernel/src/index.ts';",
-    "export function transport(): void { void consumeKnownError; }",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    [
+      "import { consumeKnownError } from '../../../kernel/src/index.ts';",
+      "export function transport(): void { void consumeKnownError; }",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/kernel/src/index.ts", "export function consumeKnownError(): void {}\n");
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.ok(result.stderr.includes("daemon transport import graph reached kernel public barrel: packages/kernel/src/index.ts"));
+  assert.ok(
+    result.stderr.includes("daemon transport import graph reached kernel public barrel: packages/kernel/src/index.ts"),
+  );
 });
 
 test("daemon transport graph rejects even a kernel leaf import reachable from the line client", async () => {
   const root = await fixture();
-  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", [
-    "import { consumeKnownError } from '../../../kernel/src/error-consumption.ts';",
-    "export function transport(): void { void consumeKnownError; }",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    [
+      "import { consumeKnownError } from '../../../kernel/src/error-consumption.ts';",
+      "export function transport(): void { void consumeKnownError; }",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/kernel/src/error-consumption.ts", "export function consumeKnownError(): void {}\n");
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.ok(result.stderr.includes("daemon transport import graph reached module is outside the daemon transport allowlist: packages/kernel/src/error-consumption.ts"));
+  assert.ok(
+    result.stderr.includes(
+      "daemon transport import graph reached module is outside the daemon transport allowlist: packages/kernel/src/error-consumption.ts",
+    ),
+  );
 });
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
-  write(root, "packages/cli/package.json", JSON.stringify({
-    bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" }
-  }));
+  write(
+    root,
+    "packages/cli/package.json",
+    JSON.stringify({
+      bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
+    }),
+  );
   write(root, "packages/cli/src/index.ts", entrySource());
-  write(root, "packages/cli/src/cli/thin-command.ts", [
-    "import { resolveThinCliCommand } from '../../../daemon/src/protocol/daemon-protocol.contract.ts';",
-    "export function parseThinCommand(): void { void resolveThinCliCommand; }",
-    ""
-  ].join("\n"));
-  write(root, "packages/cli/src/daemon/client.ts", [
-    "import { resolveLocalDaemonTarget } from '../../../daemon/src/client/local-daemon-target.ts';",
-    "export function runCommandThroughDaemon(): void { void resolveLocalDaemonTarget; }",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/cli/src/cli/thin-command.ts",
+    [
+      "import { resolveThinCliCommand } from '../../../daemon/src/protocol/daemon-protocol.contract.ts';",
+      "export function parseThinCommand(): void { void resolveThinCliCommand; }",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/cli/src/daemon/client.ts",
+    [
+      "import { resolveLocalDaemonTarget } from '../../../daemon/src/client/local-daemon-target.ts';",
+      "export function runCommandThroughDaemon(): void { void resolveLocalDaemonTarget; }",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/cli/src/daemon/control.ts", "export function runDaemonControl(): void {}\n");
-  write(root, "packages/daemon/src/client/local-daemon-target.ts", [
-    "import path from 'node:path';",
-    "export function resolveLocalDaemonTarget(): void { void path; }",
-    ""
-  ].join("\n"));
-  write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", [
-    "import { presetCommands } from '../../../preset/src/preset-command-contract.ts';",
-    "export function resolveThinCliCommand(): void { void presetCommands; }",
-    ""
-  ].join("\n"));
+  write(
+    root,
+    "packages/daemon/src/client/local-daemon-target.ts",
+    ["import path from 'node:path';", "export function resolveLocalDaemonTarget(): void { void path; }", ""].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    [
+      "import { presetCommands } from '../../../preset/src/preset-command-contract.ts';",
+      "export function resolveThinCliCommand(): void { void presetCommands; }",
+      "",
+    ].join("\n"),
+  );
   write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
   return root;
 }
-
 function entrySource(additions = []) {
   return [
     "import { parseThinCommand } from './cli/thin-command.ts';",
@@ -174,7 +269,7 @@ function entrySource(additions = []) {
     "if (process.argv.includes('daemon')) void import('./daemon/control.ts');",
     "void parseThinCommand; void runCommandThroughDaemon; void emit;",
     ...additions.filter((line) => !line.startsWith("import ")),
-    ""
+    "",
   ].join("\n");
 }
 
@@ -194,7 +289,7 @@ function genericLongFunction(bodyLines = 118) {
     "  value: A,",
     "  input: I",
     "): { readonly value: A; readonly input: I } {",
-    "  const pair = { value, input };"
+    "  const pair = { value, input };",
   ];
   for (let index = 0; index < bodyLines; index += 1) lines.push(`  void ${index};`);
   lines.push("  return pair;", "}");
