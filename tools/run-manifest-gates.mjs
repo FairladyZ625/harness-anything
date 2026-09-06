@@ -26,6 +26,7 @@ export function parseManifestGateArgs(args) {
     exclude: new Set(),
     changed: null,
     changedPaths: null,
+    eventName: null,
     resume: false,
   };
 
@@ -93,15 +94,22 @@ export function selectManifestGateIds(manifest, options) {
     const gatesById = new Map(manifest.gates.map((gate) => [gate.id, gate]));
     gates = ids.map((id) => gatesById.get(id) ?? { id });
   } else if (options.workflowJob) {
+    const eventJobKey =
+      options.eventName === "pull_request" ? "pullRequestJobs" : options.eventName ? "nonPullRequestJobs" : null;
     gates = manifest.gates
       .filter((gate) => !gate.aggregate)
       .filter((gate) =>
-        [
-          ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
-          ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []),
-          ...(gate.executionSurfaces?.prBody?.pullRequestJobs ?? []),
-          ...(gate.executionSurfaces?.prBody?.nonPullRequestJobs ?? []),
-        ].includes(options.workflowJob),
+        eventJobKey
+          ? [
+              ...(gate.executionSurfaces?.rewriteCi?.[eventJobKey] ?? []),
+              ...(gate.executionSurfaces?.prBody?.[eventJobKey] ?? []),
+            ].includes(options.workflowJob)
+          : [
+              ...(gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? []),
+              ...(gate.executionSurfaces?.rewriteCi?.nonPullRequestJobs ?? []),
+              ...(gate.executionSurfaces?.prBody?.pullRequestJobs ?? []),
+              ...(gate.executionSurfaces?.prBody?.nonPullRequestJobs ?? []),
+            ].includes(options.workflowJob),
       );
   } else {
     gates = manifest.gates
@@ -303,6 +311,7 @@ function runCommand(label, command) {
 
 function main(argv) {
   const options = parseManifestGateArgs(argv);
+  options.eventName = process.env.GITHUB_EVENT_NAME ?? null;
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";

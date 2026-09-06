@@ -41,10 +41,43 @@ test("manifest gate runner executes gates declared for non-pull-request workflow
     ],
   };
   const options = parseManifestGateArgs(["--workflow-job", "windows-integration-shard", "--shard", "4"]);
+  options.eventName = "schedule";
 
   assert.deepEqual(buildManifestGatePlan(manifest, options), [
     { id: "test-integration", command: "npm run test:integration -- --shard 4" },
   ]);
+});
+
+test("manifest gate runner selects workflow gates for the current event surface", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "lint",
+        command: "npm run lint",
+        executionSurfaces: {
+          rewriteCi: { pullRequestJobs: ["crlf-checkout"], nonPullRequestJobs: ["crlf-checkout"] },
+        },
+      },
+      {
+        id: "test-fast",
+        command: "npm run test:fast",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["crlf-checkout"] } },
+      },
+    ],
+  };
+  const pullRequest = parseManifestGateArgs(["--workflow-job", "crlf-checkout"]);
+  pullRequest.eventName = "pull_request";
+  const schedule = parseManifestGateArgs(["--workflow-job", "crlf-checkout"]);
+  schedule.eventName = "schedule";
+  const push = parseManifestGateArgs(["--workflow-job", "crlf-checkout"]);
+  push.eventName = "push";
+
+  assert.deepEqual(buildManifestGatePlan(manifest, pullRequest), [{ id: "lint", command: "npm run lint" }]);
+  assert.deepEqual(buildManifestGatePlan(manifest, schedule), [
+    { id: "lint", command: "npm run lint" },
+    { id: "test-fast", command: "npm run test:fast" },
+  ]);
+  assert.deepEqual(buildManifestGatePlan(manifest, push), buildManifestGatePlan(manifest, schedule));
 });
 
 test("manifest gate runner selects gates declared in the PR-body workflow", () => {

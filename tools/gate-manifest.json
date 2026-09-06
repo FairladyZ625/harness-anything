@@ -165,6 +165,8 @@
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": [
         "full-check",
+        "crlf-checkout",
+        "node26-compatibility",
         "windows-integration-shard",
         "nightly-daemon-soak",
         "nightly-cli-command-timing"
@@ -620,7 +622,8 @@
             "node26-compatibility"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "node26-compatibility"
           ]
         },
         "branchProtection": {
@@ -708,7 +711,8 @@
             "crlf-checkout"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "crlf-checkout"
           ]
         },
         "branchProtection": {
@@ -890,7 +894,9 @@
           "fast-contract"
         ],
         "workflowJobs": [
-          "fast-contract"
+          "fast-contract",
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -922,7 +928,10 @@
           "pullRequestJobs": [
             "fast-contract"
           ],
-          "nonPullRequestJobs": []
+          "nonPullRequestJobs": [
+            "node26-compatibility",
+            "crlf-checkout"
+          ]
         },
         "branchProtection": {
           "required": true,
@@ -967,7 +976,9 @@
           "fast-contract"
         ],
         "workflowJobs": [
-          "fast-contract"
+          "fast-contract",
+          "node26-compatibility",
+          "crlf-checkout"
         ],
         "nodeVersions": [
           24,
@@ -1000,7 +1011,10 @@
           "pullRequestJobs": [
             "fast-contract"
           ],
-          "nonPullRequestJobs": []
+          "nonPullRequestJobs": [
+            "node26-compatibility",
+            "crlf-checkout"
+          ]
         },
         "branchProtection": {
           "required": true,
