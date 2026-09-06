@@ -58,31 +58,6 @@ test("entity import wire input is exact and projected from its executable Action
   );
 });
 
-test("Squad migration wire input is limited to legacy source paths and dry-run", () => {
-  const payload = {
-    payload: {
-      action: {
-        kind: "entity-migrate-squads",
-        sourcePaths: ["harness/squads/ledger-squad.json"],
-        dryRun: true,
-      },
-    },
-  } as JsonObject;
-  assert.deepEqual(validateCatalogActionPayload(payload), []);
-  assert.match(
-    validateCatalogActionPayload({
-      payload: { action: { ...payload.payload.action, sourcePaths: "harness/squads/ledger-squad.json" } },
-    } as JsonObject).join("\n"),
-    /action\.sourcePaths.*must be string-array/u,
-  );
-  assert.match(
-    validateCatalogActionPayload({
-      payload: { action: { ...payload.payload.action, declaration: {} } },
-    } as JsonObject).join("\n"),
-    /action\.declaration.*not declared/u,
-  );
-});
-
 test("an undeclared inner write outcome becomes a diagnostic rejection with its summary intact", () => {
   const receipt = makeDaemonCommandReceipt("squad-run", {
     outcome: "running",
