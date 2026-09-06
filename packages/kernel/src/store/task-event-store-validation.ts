@@ -6,10 +6,8 @@ import {
   isFactEvent,
   isMigrationImportEvent,
   isTaskEvent,
-  serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
   validateCurrentDocEvent,
-  type CanonicalEventV1,
   type DocEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { assertMigrationImportWritePlan } from "../domain/migration-import-event.ts";
@@ -37,17 +35,14 @@ import {
   isFrozenWritePlan,
   normalizeContentAddressedInputs,
   WriteChainContractError,
-  type EventHead,
   type FrozenWritePlan,
   type WriteTarget,
 } from "../domain/write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import { type LedgerGitLayout } from "./ledger-git-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store-types.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { canonicalDocumentClaims, contentClaims, targetShape } from "./task-event-store-claims-layout.ts";
-import { validateEventBlobs } from "./task-event-store-reads.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
 export function assertBundle(bundle: CanonicalEventWriteBundle): void {
@@ -318,19 +313,4 @@ export function assertContentInputs(
       "invalid_write_plan",
       `${label} content inputs must exactly match the frozen write plan`,
     );
-}
-export function validatePrepared(
-  ledger: LedgerGitLayout,
-  commit: string,
-  head: EventHead,
-  events: readonly CanonicalEventV1[],
-): void {
-  const event = events.find((candidate) => candidate.opId === head.opId);
-  if (!event) throw new Error("prepared commit has no changed head event");
-  for (const changed of events) validateEventBlobs(ledger, commit, changed);
-  if (
-    event.workspaceRevision !== head.revision ||
-    head.eventDigest !== `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`
-  )
-    throw new Error("prepared event/head mismatch");
 }

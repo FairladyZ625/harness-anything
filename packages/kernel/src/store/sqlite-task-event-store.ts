@@ -10,12 +10,11 @@ import { type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import {
   canonicalDocumentClaims,
+  canonicalDocumentMode,
   canonicalDocumentRetirements,
   contentClaims,
 } from "./task-event-store-claims-layout.ts";
-import { canonicalDocumentMode, settleFiles } from "./task-event-store-materialization.ts";
-import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-reads.ts";
-import { prepareCommit, publicationRef, updateRef, deleteRef } from "./task-event-store-git-refs.ts";
+import { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { resolveLedgerGitLayout, ledgerGitPath } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore, type SqliteCommandOutcome } from "./sqlite-event-store.ts";
@@ -48,7 +47,6 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
   readonly followerStatus: () => { readonly git: FollowerFacet; readonly worktree: FollowerFacet };
-  readonly acceptMaterializedCut: (input: unknown) => void;
 }
 
 export interface SqliteTaskEventStoreOptions {
@@ -84,7 +82,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   };
   let closed = false,
     follower = pendingFollower("Git follower has not published this ledger cut"),
-    scheduled: Promise<void> | null = null;
+    scheduled: Promise<void> | null = null,
+    certified: { readonly commit: string; readonly revision: number } | null = null;
 
   const head = (): EventHead | null => {
     const event = sqlite.eventAtRevision(sqlite.revision());
@@ -142,9 +141,11 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       currentLedger = ledger(),
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef),
-      verifiedRevision = certifiedFollowerRevision(currentLedger, parent, sqlite),
+      verifiedRevision =
+        certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
       pendingEvents = readPendingEvents(sqlite, verifiedRevision),
       files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
+    certified = { commit: parent, revision: verifiedRevision };
     if (verifiedRevision === accepted.revision) {
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
@@ -157,8 +158,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         conflicts: [],
       };
     }
-    const tempRef = publicationRef(`outbox-${accepted.revision}-${accepted.headDigest}`),
-      commit = prepareCommit(
+    const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`${accepted.revision}:${accepted.headDigest}`)}`,
+      commit = prepareFollowerCommit(
         currentLedger.rootDir,
         tempRef,
         parent,
@@ -167,11 +168,19 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         new Date().toISOString(),
       );
     const dirty = localGitWorktreeSettlement.hasChanges(currentLedger.rootDir, currentLedger.authoredPrefix || ".");
-    updateRef(currentLedger.rootDir, currentRef, commit, parent);
-    deleteRef(currentLedger.rootDir, tempRef);
+    try {
+      localGitObjectRefStore.updateRef(currentLedger.rootDir, currentRef, commit, parent);
+    } finally {
+      try {
+        localGitObjectRefStore.deleteRef(currentLedger.rootDir, tempRef);
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    }
     verifyGitFiles(currentLedger.rootDir, commit, files);
+    certified = { commit, revision: accepted.revision };
     if (!dirty) {
-      settleFiles(currentLedger.rootDir, commit, files);
+      settleWorktree(currentLedger.rootDir, files);
       verifyWorktreeFiles(currentLedger.rootDir, files);
     }
     const manifest = files.find((file) => "target" in file && file.target.endsWith("events/segments/manifest.json"));
@@ -241,10 +250,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContentBlob: readContent,
     layout: () => "sharded-sha256-2/v1",
     append,
-    migrateLayout: () => {
-      throw new TaskEventStoreError("legacy_shape", "in-place event-shape migration is retired");
-    },
-    recover: () => ({ status: "none", publications: 0, elapsedMs: 0 }),
     materialize: publishFollower,
     materializationHealth: () => health(follower.git.status === "verified" ? "ok" : "failed", follower.git.reason),
     drain: async () => {
@@ -256,9 +261,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readCommandOutcome: sqlite.readCommandOutcome,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => follower,
-    acceptMaterializedCut: () => {
-      throw new TaskEventStoreError("legacy_shape", "Git event cuts are retired");
-    },
   };
 
   function health(state: "ok" | "failed", reason?: string): MaterializationHealth {
@@ -438,4 +440,42 @@ function verifyWorktreeFiles(repoRoot: string, files: readonly PublicationFile[]
       throw new Error(`worktree follower did not retire ${file.delete}`);
     }
   }
+}
+
+function settleWorktree(repoRoot: string, files: readonly PublicationFile[]): void {
+  const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
+    writes = files.flatMap((file) => ("target" in file ? [file] : []));
+  if (deletes.length) localGitWorktreeSettlement.deleteVisible(repoRoot, deletes);
+  if (writes.length) localGitWorktreeSettlement.visible(repoRoot, writes);
+}
+
+function prepareFollowerCommit(
+  repoRoot: string,
+  ref: string,
+  parent: string,
+  files: readonly PublicationFile[],
+  opId: string,
+  occurredAt: string,
+): string {
+  const message = `harness sqlite outbox ${opId}`,
+    timestamp = Math.floor(Date.parse(occurredAt) / 1_000);
+  let input = [
+    `commit ${ref}\n`,
+    "mark :1\n",
+    `committer Harness SQLite Outbox <harness-sqlite-outbox@local.invalid> ${timestamp} +0000\n`,
+    `data ${Buffer.byteLength(message)}\n`,
+    `${message}\n`,
+    `from ${parent}\n`,
+  ].join("");
+  for (const file of files)
+    input +=
+      "from" in file
+        ? `R ${file.from} ${file.to}\n`
+        : "delete" in file
+          ? `D ${file.delete}\n`
+          : `M ${file.mode} inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
+  input += "\nget-mark :1\ndone\n";
+  const sha = localGitObjectRefStore.importCommit(repoRoot, input).toString("utf8").trim().split("\n").at(-1) ?? "";
+  if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error("Git outbox import returned no commit");
+  return sha;
 }

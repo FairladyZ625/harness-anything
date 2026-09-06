@@ -1,7 +1,14 @@
-import { type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
-import { freezeDeclaredWritePlan, type FrozenWritePlan } from "../domain/write-chain.contract.ts";
+import { serializePersistedCanonicalEvent, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
+import {
+  freezeDeclaredWritePlan,
+  serializeEventHead,
+  type EventHead,
+  type FrozenWritePlan,
+  type LedgerCutIdentity,
+} from "../domain/write-chain.contract.ts";
+import { sha256Text } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
-import type { CanonicalWriteBundle } from "./task-event-store-types.ts";
+import type { CanonicalEventCut, CanonicalWriteBundle } from "./task-event-store-types.ts";
 import { assertBundle } from "./task-event-store-validation.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 
@@ -43,4 +50,24 @@ export function canonicalEventWritePlan(event: CanonicalEventV1, projection: str
     },
     [event.type],
   );
+}
+export function canonicalEventCut(repoId: string, event: CanonicalEventV1): CanonicalEventCut {
+  const head: EventHead = {
+    revision: event.workspaceRevision,
+    opId: event.opId,
+    eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+  };
+  return {
+    repoId,
+    revision: event.workspaceRevision,
+    opId: event.opId,
+    headDigest: `sha256:${sha256Text(serializeEventHead(head))}`,
+  };
+}
+export function canonicalLedgerCut(repoId: string, head: EventHead | null): LedgerCutIdentity {
+  return {
+    repoId,
+    revision: head?.revision ?? 0,
+    headDigest: `sha256:${sha256Text(head === null ? "null\n" : serializeEventHead(head))}`,
+  };
 }

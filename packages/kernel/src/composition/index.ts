@@ -3,12 +3,10 @@ export {
   canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
-  makeTaskEventStore as makeGitEventStore,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
 export { makeTaskEventReader, makeTaskEventStore } from "../store/task-event-store-factory.ts";
 export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
-export type WalRecoveryProgress = { readonly applied: number; readonly total?: number; readonly watermark: number };
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore } from "../store/sqlite-event-store.ts";
@@ -49,9 +47,3 @@ export {
 } from "../store/local-version-control-system.ts";
 export { createEntityStore, openEntityStore } from "../store/entity-store.ts";
 export type { EntityStore } from "../store/entity-store.ts";
-export {
-  type WalMaterializationFenceV1,
-  type WalMaterializationRequestV1,
-  type WalMaterializationWorkerConfig,
-} from "../store/wal-materialization-protocol.ts";
-export { runWalMaterializationRequest } from "../store/wal-materialization-worker.ts";

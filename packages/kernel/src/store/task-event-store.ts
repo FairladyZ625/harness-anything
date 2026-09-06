@@ -12,7 +12,6 @@ export {
   type CanonicalWriteBundle,
   type EventFileBatch,
   type EventPublicationKillpoint,
-  type EventRecoveryReceipt,
   type MaterializationReceipt,
   type MaterializationFailureReason,
   type MaterializationHealth,
@@ -22,11 +21,15 @@ export {
   type TaskEventStoreErrorCode,
 } from "./task-event-store-types.ts";
 export {
+  canonicalEventCut,
+  canonicalLedgerCut,
   canonicalEventContentClaims,
   canonicalEventWritePlan,
   validateCanonicalWriteBundle,
 } from "./task-event-store-contract.ts";
 export { makeTaskEventStore } from "./task-event-store-factory.ts";
-export { canonicalDocumentClaims, canonicalDocumentRetirements } from "./task-event-store-claims-layout.ts";
-export { canonicalDocumentMode } from "./task-event-store-materialization.ts";
-export { canonicalEventCut, canonicalLedgerCut } from "./task-event-store-reads.ts";
+export {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  canonicalDocumentRetirements,
+} from "./task-event-store-claims-layout.ts";

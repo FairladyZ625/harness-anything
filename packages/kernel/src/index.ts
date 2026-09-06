@@ -297,7 +297,6 @@ export {
   localGitWorktreeSettlement,
   createEntityStore,
   ledgerGitPath,
-  makeGitEventStore,
   makeTaskEventReader,
   openEntityStore,
   resolveLedgerGitLayout,
@@ -311,7 +310,6 @@ export {
   openSqliteEventStore,
   reconcileSqliteEvents,
   makeTaskProjectionReader,
-  runWalMaterializationRequest,
 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
@@ -334,8 +332,6 @@ export type {
   TaskRelationProjectionRead,
   TaskRelationNeighborhoodQuery,
   TaskRelationQuery,
-  WalMaterializationFenceV1,
-  WalRecoveryProgress,
 } from "./composition/index.ts";
 export {
   readDaemonRegistry,
