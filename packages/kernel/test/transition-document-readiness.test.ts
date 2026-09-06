@@ -90,13 +90,13 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   assert.equal(assessTransitionDocument("task.plan", retainedScaffold).ready, true);
   const pureScaffoldSection = realizedPlan().replace(
     "## Verification\n\nImplemented Verification.",
-    "## Verification\n\nStop point = targeted tests for the surface you touched, green, plus a local commit.",
+    "## Verification\n\nThe full gate matrix is GitHub CI's job, not this machine's.",
   );
   assert.deepEqual(assessTransitionDocument("task.plan", pureScaffoldSection).missingSections, [
     {
       section: "Verification",
       reason: "scaffold",
-      retainedScaffold: "Stop point = targeted tests for the surface you touched, gre",
+      retainedScaffold: "The full gate matrix is GitHub CI's job, not this machine's.",
     },
   ]);
   assert.equal(assessTransitionDocument("task.plan", realizedPlan()).ready, true);

@@ -90,6 +90,7 @@ const FAST_STEPS = [
   ["line-budget", "check:local:line-budget"],
   ["line-density", "check:local:line-density"],
   ["typecheck", "typecheck"],
+  ["lint", "lint"],
   ["test:fast", "test:fast"],
   ["test:contract", "test:contract"],
   ...manifestDerivedSteps(),

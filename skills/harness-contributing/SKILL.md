@@ -135,9 +135,20 @@ git diff -- <changed-paths>
 ## Run local gates
 
 Do not use `npm run check:local` as the contribution loop, and do not run the
-full aggregate merely to approximate GitHub. GitHub CI is authoritative. Run
-the exact local job surface selected from the current gate manifest, plus
-typecheck.
+full aggregate merely to approximate GitHub. GitHub CI is authoritative. The
+worker stop-point command derives its cheap deterministic checks from the
+current gate manifest and the complete working-tree diff:
+
+```bash
+node tools/run-manifest-gates.mjs --changed origin/main
+```
+
+Run that command before the local commit. It includes every matching gate whose
+manifest entry is deterministic, local, PR-visible, and declares
+`localPathGlobs`; an unscoped gate is not silently promoted into this bounded
+local path. Run affected integration tests separately through the isolated test
+dispatcher. Use `--workflow-job` only to reproduce or preflight a particular CI
+job; workflow mode runs all selected gates and reports every failure together.
 
 First list the current pull-request job names and tiers:
 
@@ -189,10 +200,10 @@ after success. If the selected gates or their commands changed, the runner
 rejects the checkpoint; rerun without `--resume` so affected checks are not
 skipped. Results are never cached across successful runs.
 
-> 中文：从 `tools/gate-manifest.json` 读取当前 job/tier，用
-> `run-manifest-gates --changed origin/main` 跑改动面对应的 job，并始终运行
-> `npm run typecheck`。只有所有改动路径都被 manifest 的 `localPathGlobs` 覆盖时才
-> 缩小本地命令；遇到未分类或混合改动就保守地跑完整 job，CI 始终全跑。
+> 中文：worker 停止点统一运行 `node tools/run-manifest-gates.mjs --changed
+> origin/main`；它从 manifest 中派生带 `localPathGlobs` 的本地、PR、确定性门，不维护
+> 第二份清单。受影响的 integration 测试仍须经隔离派测入口单独运行。按 job 复现 CI
+> 时才使用 `--workflow-job`，该模式会跑完所选门并一次报告全部失败；CI 始终全跑。
 > 本地只有 `check-github-required-contexts` 的精确报错
 > `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
 > 该排除不适用于 CI，也不能掩盖其他失败。`--resume` 只复用同一 worktree 最近一次

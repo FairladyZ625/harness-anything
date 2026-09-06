@@ -165,6 +165,8 @@
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": [
         "full-check",
+        "crlf-checkout",
+        "node26-compatibility",
         "windows-integration-shard",
         "nightly-daemon-soak",
         "nightly-cli-command-timing"
@@ -620,7 +622,8 @@
             "node26-compatibility"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "node26-compatibility"
           ]
         },
         "branchProtection": {
@@ -650,6 +653,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "**/*.js",
+        "**/*.mjs",
+        "**/*.ts",
+        "**/*.tsx"
+      ],
       "authoritySource": [
         "eslint.config.mjs",
         "tools/port-physical-io-boundary-known-debt.mjs",
@@ -666,11 +675,9 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "boundaries",
           "crlf-checkout"
         ],
         "workflowJobs": [
-          "boundaries",
           "crlf-checkout"
         ],
         "nodeVersions": [
@@ -701,17 +708,16 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "boundaries",
             "crlf-checkout"
           ],
           "nonPullRequestJobs": [
-            "full-check"
+            "full-check",
+            "crlf-checkout"
           ]
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "boundaries",
             "crlf-checkout"
           ]
         },
@@ -798,6 +804,78 @@
       }
     },
     {
+      "id": "check-test-tier-manifest",
+      "command": "npm run harness:check-test-tier-manifest",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/**/*.test.js",
+        "packages/**/*.test.mjs",
+        "packages/**/*.test.ts",
+        "packages/**/*.test.tsx",
+        "packages/**/*.spec.js",
+        "packages/**/*.spec.mjs",
+        "packages/**/*.spec.ts",
+        "packages/**/*.spec.tsx",
+        "tools/**/*.test.js",
+        "tools/**/*.test.mjs",
+        "tools/**/*.test.ts",
+        "tools/**/*.spec.js",
+        "tools/**/*.spec.mjs",
+        "tools/**/*.spec.ts"
+      ],
+      "authoritySource": [
+        "tools/test-tier-manifest.mjs",
+        "package.json:scripts.harness:check-test-tier-manifest"
+      ],
+      "consumerScope": [
+        "first-line tier markers for every discovered package and tool test"
+      ],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Test discovery and tier markers are fail-closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.harness:check-test-tier-manifest",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-test-tier-manifest"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["boundaries"]
+        },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/test-tier-manifest.test.mjs"]
+      }
+    },
+    {
       "id": "test-fast",
       "command": "npm run test:fast",
       "category": "local-consistency",
@@ -813,9 +891,7 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "fast-contract",
-          "node26-compatibility",
-          "crlf-checkout"
+          "fast-contract"
         ],
         "workflowJobs": [
           "fast-contract",
@@ -850,18 +926,17 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "fast-contract",
+            "fast-contract"
+          ],
+          "nonPullRequestJobs": [
             "node26-compatibility",
             "crlf-checkout"
-          ],
-          "nonPullRequestJobs": []
+          ]
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "fast-contract",
-            "node26-compatibility",
-            "crlf-checkout"
+            "fast-contract"
           ]
         },
         "classes": [
@@ -898,9 +973,7 @@
       ],
       "githubContext": {
         "requiredContexts": [
-          "fast-contract",
-          "node26-compatibility",
-          "crlf-checkout"
+          "fast-contract"
         ],
         "workflowJobs": [
           "fast-contract",
@@ -936,18 +1009,17 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [
-            "fast-contract",
+            "fast-contract"
+          ],
+          "nonPullRequestJobs": [
             "node26-compatibility",
             "crlf-checkout"
-          ],
-          "nonPullRequestJobs": []
+          ]
         },
         "branchProtection": {
           "required": true,
           "contexts": [
-            "fast-contract",
-            "node26-compatibility",
-            "crlf-checkout"
+            "fast-contract"
           ]
         },
         "classes": [
@@ -1270,76 +1342,6 @@
       }
     },
     {
-      "id": "node26-compatibility",
-      "aggregate": true,
-      "command": "npm run typecheck && npm run test:fast && npm run test:contract",
-      "category": "local-consistency",
-      "tier": "pr-required",
-      "tierReason": null,
-      "authoritySource": [
-        ".github/workflows/rewrite-ci.yml:jobs.node26-compatibility",
-        "harness/governance/standards/ci-cd-standard.md#ci-lane"
-      ],
-      "consumerScope": [
-        "Node 26 compatibility for typecheck plus fast and contract tests"
-      ],
-      "githubContext": {
-        "requiredContexts": [
-          "node26-compatibility"
-        ],
-        "workflowJobs": [
-          "node26-compatibility"
-        ],
-        "nodeVersions": [
-          26
-        ]
-      },
-      "allowlistPolicy": {
-        "allowed": false,
-        "location": null,
-        "adrOrDecisionRequired": false,
-        "notes": "No compatibility allowlist is declared."
-      },
-      "changeControl": {
-        "ordinaryImplementationMayModify": false,
-        "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          ".github/workflows/rewrite-ci.yml",
-          "tools/gate-manifest.json"
-        ]
-      },
-      "bypassFixtureRequired": false,
-      "executionSurfaces": {
-        "packageJson": {
-          "check": false,
-          "checkPr": false,
-          "script": null
-        },
-        "rewriteCi": {
-          "pullRequestJobs": [
-            "node26-compatibility"
-          ],
-          "nonPullRequestJobs": []
-        },
-        "branchProtection": {
-          "required": true,
-          "contexts": [
-            "node26-compatibility"
-          ]
-        },
-        "classes": [
-          "pr"
-        ]
-      },
-      "deterministic": false,
-      "positiveControl": {
-        "status": "not-applicable",
-        "evidence": [
-          "Composite compatibility lane; positive controls belong to typecheck, fast, and contract leaf gates."
-        ]
-      }
-    },
-    {
       "id": "check-file-complexity",
       "command": "npm run harness:check-file-complexity",
       "category": "local-consistency",
@@ -1419,6 +1421,9 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/**/src/**"
+      ],
       "authoritySource": [
         "packages/cli/src",
         "tools/check-cli-structure.mjs"
@@ -1727,6 +1732,9 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/**/src/**"
+      ],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "package.json:workspaces",
@@ -2042,6 +2050,9 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/kernel/src/**"
+      ],
       "authoritySource": [
         "packages/kernel/src/index.ts",
         "packages/kernel/tsconfig.json",
@@ -2581,6 +2592,9 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/**/src/**"
+      ],
       "authoritySource": [
         "packages/** source definitions",
         "tools/check-duplicate-definitions.mjs"
@@ -3590,6 +3604,9 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/**/src/**"
+      ],
       "authoritySource": [
         "harness/governance/standards/implementation-contract-standard.md",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
