@@ -23,6 +23,7 @@ import {
   reconcileSqliteEvents,
   readSettingsFacet,
   serializeEventHead,
+  sha256Bytes,
   sha256Text,
   stableStringify,
   validateCurrentCanonicalEvent,
@@ -215,6 +216,32 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       /zero pending historical rewrites/u,
     );
     createImmutableLegacyGenerationSnapshot({ repoId, source, snapshotPath });
+    const snapshot = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
+        schema: string;
+        eventBytes?: readonly string[];
+        eventSegments: readonly { firstRevision: number; size: number }[];
+        objects: readonly { sha256: string; size: number; bytesBase64?: string }[];
+      },
+      snapshotEventSegment = snapshot.eventSegments[0]!,
+      snapshotEventPath = path.join(`${snapshotPath}.events`, `${snapshotEventSegment.firstRevision}.json`),
+      snapshotEventBytes = readFileSync(snapshotEventPath),
+      snapshotObject = snapshot.objects[0]!,
+      snapshotObjectPath = path.join(`${snapshotPath}.objects`, snapshotObject.sha256),
+      snapshotObjectBytes = readFileSync(snapshotObjectPath);
+    assert.equal(snapshot.schema, "immutable-legacy-generation-snapshot/v2");
+    assert.equal(snapshot.eventBytes, undefined);
+    assert.equal(snapshotObject.bytesBase64, undefined);
+    assert.equal(snapshotEventBytes.byteLength, snapshotEventSegment.size);
+    assert.equal(snapshotObjectBytes.byteLength, snapshotObject.size);
+    writeFileSync(snapshotObjectPath, Buffer.alloc(snapshotObject.size, 0x78));
+    assert.throws(() => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }), /object .* differs/u);
+    writeFileSync(snapshotObjectPath, snapshotObjectBytes);
+    writeFileSync(snapshotEventPath, "[]\n");
+    assert.throws(
+      () => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }),
+      /event segment .* differs/u,
+    );
+    writeFileSync(snapshotEventPath, snapshotEventBytes);
     assert.throws(
       () =>
         convertLegacyGeneration({
@@ -309,6 +336,103 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "canonical-scale snapshot streams event digests and object sidecars through repeat conversion",
+  // ~11 minutes on an M-series laptop; the CI test-file watchdog is 15 minutes and hosted runners
+  // are slower, so this case runs on demand (before a canonical changeover), not in the PR lane.
+  { skip: process.env.HARNESS_CANONICAL_SCALE === "1" ? false : "set HARNESS_CANONICAL_SCALE=1 to run" },
+  () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-generation-scale-")),
+      repoId = "canonical-scale-generation",
+      snapshotPath = path.join(root, ".harness/store/import/gen0.snapshot.json"),
+      databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+      eventCount = 61_618,
+      objectCount = 43_802,
+      totalObjectBytes = 434_700_000,
+      largestObjectBytes = 20_000_000;
+    try {
+      initRepo(root);
+      const seeded = seedLegacySettings(root, false),
+        baseEvent = seeded.source.read().events[0]!,
+        remainingBytes = totalObjectBytes - largestObjectBytes,
+        regularSize = Math.floor(remainingBytes / (objectCount - 1)),
+        remainder = remainingBytes % (objectCount - 1),
+        bodyFor = (index: number, size: number): string => {
+          const prefix = `# canonical-scale-object-${index}\n`;
+          return `${prefix}${"x".repeat(size - prefix.length)}`;
+        },
+        objects = Array.from({ length: objectCount }, (_, index) => {
+          const size = index === 0 ? largestObjectBytes : regularSize + (index <= remainder ? 1 : 0),
+            sha256 = sha256Text(bodyFor(index, size));
+          return { index, sha256, size };
+        }),
+        events = Array.from({ length: eventCount }, (_, index) => {
+          const revision = index + 1,
+            object = objects[index % objectCount]!;
+          return {
+            ...baseEvent,
+            eventId: `event-canonical-scale-${revision}`,
+            opId: `op-canonical-scale-${revision}`,
+            workspaceRevision: revision,
+            payload: {
+              ...baseEvent.payload,
+              harnessDocumentClaim: {
+                ...baseEvent.payload.harnessDocumentClaim,
+                sha256: object.sha256,
+                size: object.size,
+              },
+            },
+          } as CanonicalEventV1;
+        }),
+        byDigest = new Map(objects.map((object) => [object.sha256, object])),
+        source = arrayStore(events, (sha256) => {
+          const object = byDigest.get(sha256);
+          return object ? Buffer.from(bodyFor(object.index, object.size)) : null;
+        }),
+        written = createImmutableLegacyGenerationSnapshot({ repoId, source, snapshotPath }),
+        manifest = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
+          eventSegments: readonly { count: number }[];
+          objects: readonly { sha256: string; size: number; bytesBase64?: string }[];
+        };
+      assert.equal(written.eventCount, eventCount);
+      assert.equal(written.objectCount, objectCount);
+      assert.equal(
+        manifest.eventSegments.reduce((total, segment) => total + segment.count, 0),
+        eventCount,
+      );
+      assert.equal(manifest.objects.length, objectCount);
+      assert.equal(
+        manifest.objects.some((object) => object.bytesBase64 !== undefined),
+        false,
+      );
+      assert.equal(
+        manifest.objects.reduce((total, object) => total + object.size, 0),
+        totalObjectBytes,
+      );
+      assert.equal(Math.max(...manifest.objects.map((object) => object.size)), largestObjectBytes);
+      for (const object of manifest.objects) {
+        const bytes = readFileSync(path.join(`${snapshotPath}.objects`, object.sha256));
+        assert.equal(bytes.byteLength, object.size);
+        assert.equal(sha256Bytes(bytes), object.sha256);
+      }
+      const first = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }),
+        second = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+      assert.equal(first.sourceEvents, eventCount);
+      assert.equal(first.copiedObjects, objectCount);
+      assert.equal(first.migratedEvents, eventCount);
+      assert.equal(second.migratedEvents, 0);
+      assert.equal(second.sourceDigest, first.sourceDigest);
+      const marker = JSON.parse(readFileSync(`${databasePath}.import-source.json`, "utf8")) as {
+        sourceDigest: string;
+      };
+      assert.equal(marker.sourceDigest, written.sourceDigest);
+      assert.ok(process.resourceUsage().maxRSS < 1_400_000, `maxRSS=${process.resourceUsage().maxRSS} KiB`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test("inactive generation conversion repairs schedule definition bytes without rewriting its source", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-generation-schedule-")),

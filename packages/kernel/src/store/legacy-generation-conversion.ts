@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { validateCurrentCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localEvidenceFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import {
   decodeLegacyEventBytes,
@@ -15,13 +16,19 @@ import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } fro
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventStore } from "./task-event-store-types.ts";
 
-export interface ImmutableLegacySnapshotV1 {
-  readonly schema: "immutable-legacy-generation-snapshot/v1";
+export interface ImmutableLegacySnapshotV2 {
+  readonly schema: "immutable-legacy-generation-snapshot/v2";
   readonly repoId: string;
   readonly generation: 0;
   readonly sourceDigest: `sha256:${string}`;
   readonly eventBytes: readonly string[];
-  readonly objects: readonly { readonly sha256: string; readonly size: number; readonly bytesBase64: string }[];
+  readonly eventSegments: readonly {
+    readonly firstRevision: number;
+    readonly count: number;
+    readonly sha256: string;
+    readonly size: number;
+  }[];
+  readonly objects: readonly { readonly sha256: string; readonly size: number }[];
   readonly sourceEvidence?: StoppedLegacySourceEvidenceV1;
 }
 
@@ -104,20 +111,33 @@ export function createImmutableLegacyGenerationSnapshot(input: {
     claims = new Map(events.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, claim] as const))),
     objects = [...claims.values()]
       .sort((left, right) => left.sha256.localeCompare(right.sha256))
-      .map((claim) => {
-        const bytes = input.source.readContentBlob(claim.sha256);
-        if (!bytes)
-          throw new TaskEventStoreError("invalid_store", `legacy snapshot requires content object ${claim.sha256}`);
-        return { sha256: claim.sha256, size: claim.size, bytesBase64: Buffer.from(bytes).toString("base64") };
-      }),
-    content = { repoId: input.repoId, generation: 0 as const, eventBytes, objects },
-    sourceDigest = `sha256:${sha256Text(stableStringify(content))}` as const,
+      .map(({ sha256, size }) => ({ sha256, size })),
+    eventSegments = snapshotEventSegments(eventBytes),
+    sourceDigest = snapshotSourceDigest(input.repoId, eventBytes, objects),
     body = `${JSON.stringify({
-      schema: "immutable-legacy-generation-snapshot/v1",
-      ...content,
+      schema: "immutable-legacy-generation-snapshot/v2",
+      repoId: input.repoId,
+      generation: 0,
+      eventSegments,
+      objects,
       sourceDigest,
-    } satisfies ImmutableLegacySnapshotV1)}\n`;
+    })}\n`;
   localRuntimeStateFileSystem.mkdirp(path.dirname(input.snapshotPath));
+  if (localRuntimeStateFileSystem.exists(input.snapshotPath)) {
+    const existing = readLegacySnapshot(input.snapshotPath);
+    if (existing.sourceDigest !== sourceDigest)
+      throw new TaskEventStoreError("invalid_store", "immutable generation snapshot already names another source");
+    return { sourceDigest, eventCount: events.length, objectCount: objects.length };
+  }
+  writeSnapshotEvents(input.snapshotPath, eventBytes, eventSegments);
+  localRuntimeStateFileSystem.mkdirp(snapshotObjectsPath(input.snapshotPath));
+  for (const object of objects) {
+    const bytes = input.source.readContentBlob(object.sha256);
+    if (!bytes)
+      throw new TaskEventStoreError("invalid_store", `legacy snapshot requires content object ${object.sha256}`);
+    writeSnapshotObject(input.snapshotPath, { ...object, bytes });
+  }
+  localRuntimeStateFileSystem.syncDirectory(snapshotObjectsPath(input.snapshotPath));
   if (!localRuntimeStateFileSystem.createExclusiveText(input.snapshotPath, body)) {
     const existing = readLegacySnapshot(input.snapshotPath);
     if (existing.sourceDigest !== sourceDigest)
@@ -162,17 +182,14 @@ export function convertLegacyGeneration(input: {
     marker = `${JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: snapshot.sourceDigest })}\n`;
   if (localRuntimeStateFileSystem.exists(`${databasePath}.activation.json`))
     throw new TaskEventStoreError("invalid_store", "active generation cannot be converted");
-  const plan = validatedConversionPlan(snapshot, input.rootDir);
+  const plan = validatedConversionPlan(snapshot, input.rootDir, input.snapshotPath);
   localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   if (!localRuntimeStateFileSystem.createExclusiveText(markerPath, marker)) {
     const prior = JSON.parse(localRuntimeStateFileSystem.readText(markerPath));
     if (prior.sourceDigest !== snapshot.sourceDigest)
       throw new TaskEventStoreError("invalid_store", "inactive generation was seeded from another immutable source");
   }
-  const sourceObjects = new Map(
-      snapshot.objects.map((object) => [object.sha256, Buffer.from(object.bytesBase64, "base64")]),
-    ),
-    generated = new Map(plan.blobs.map((blob) => [blob.sha256, blob])),
+  const generated = new Map(plan.blobs.map((blob) => [blob.sha256, blob])),
     store = openSqliteEventStore({ repoId: snapshot.repoId, databasePath, generation: 1 }),
     fence = input.fence ?? { repoId: snapshot.repoId, holder: "generation-converter", epoch: 1 },
     existingRevision = store.revision();
@@ -186,7 +203,9 @@ export function convertLegacyGeneration(input: {
       input.beforeEvent?.(event.workspaceRevision);
       const blobs: CanonicalContentBlob[] = contentClaims(event).map((claim) => {
         const generatedBlob = generated.get(claim.sha256),
-          bytes = generatedBlob ? Buffer.from(generatedBlob.body) : sourceObjects.get(claim.sha256);
+          bytes = generatedBlob
+            ? Buffer.from(generatedBlob.body)
+            : readSnapshotObject(input.snapshotPath, claim.sha256, claim.size);
         if (!bytes)
           throw new TaskEventStoreError("invalid_store", `converted event requires missing object ${claim.sha256}`);
         return {
@@ -231,7 +250,7 @@ export function convertLegacyGeneration(input: {
   }
 }
 
-export function readImmutableLegacyGenerationSnapshot(snapshotPath: string): ImmutableLegacySnapshotV1 {
+export function readImmutableLegacyGenerationSnapshot(snapshotPath: string): ImmutableLegacySnapshotV2 {
   return readLegacySnapshot(snapshotPath);
 }
 
@@ -240,7 +259,7 @@ export function planLegacyGenerationSnapshotConversion(input: {
   readonly snapshotPath: string;
 }) {
   const snapshot = readLegacySnapshot(input.snapshotPath),
-    plan = validatedConversionPlan(snapshot, input.rootDir);
+    plan = validatedConversionPlan(snapshot, input.rootDir, input.snapshotPath);
   return { snapshot, plan };
 }
 
@@ -305,8 +324,8 @@ export function preflightConvertedGenerationActivation(input: {
   }
 }
 
-function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV1, rootDir: string) {
-  const plan = planLegacyGenerationConversion({ rootDir, store: snapshotStore(snapshot) });
+function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV2, rootDir: string, snapshotPath: string) {
+  const plan = planLegacyGenerationConversion({ rootDir, store: snapshotStore(snapshot, snapshotPath) });
   for (const event of plan.events) {
     serializePersistedCanonicalEvent(event);
     const issues = validateCurrentCanonicalEvent(event);
@@ -318,68 +337,67 @@ function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV1, rootDir: s
   }
   assertNoPendingHistoricalRewrites({
     rootDir,
-    store: convertedPlanStore(snapshot, plan.events, plan.blobs),
+    store: convertedPlanStore(snapshot, snapshotPath, plan.events, plan.blobs),
   });
   return plan;
 }
 
-function readLegacySnapshot(snapshotPath: string): ImmutableLegacySnapshotV1 {
-  const value = JSON.parse(localRuntimeStateFileSystem.readText(snapshotPath)) as ImmutableLegacySnapshotV1;
-  if (value.schema !== "immutable-legacy-generation-snapshot/v1" || value.generation !== 0)
+function readLegacySnapshot(snapshotPath: string): ImmutableLegacySnapshotV2 {
+  const value = JSON.parse(localRuntimeStateFileSystem.readText(snapshotPath)) as Omit<
+    ImmutableLegacySnapshotV2,
+    "eventBytes"
+  >;
+  if (value.schema !== "immutable-legacy-generation-snapshot/v2" || value.generation !== 0)
     throw new TaskEventStoreError("invalid_store", "legacy generation snapshot has the wrong schema");
-  const content = {
-      repoId: value.repoId,
-      generation: value.generation,
-      eventBytes: value.eventBytes,
-      objects: value.objects,
-      ...(value.sourceEvidence ? { sourceEvidence: value.sourceEvidence } : {}),
-    },
-    digest = `sha256:${sha256Text(stableStringify(content))}`;
+  const eventBytes = readSnapshotEvents(snapshotPath, value.eventSegments),
+    digest = snapshotSourceDigest(value.repoId, eventBytes, value.objects, value.sourceEvidence);
   if (digest !== value.sourceDigest)
     throw new TaskEventStoreError("invalid_store", "legacy generation snapshot digest differs");
-  return value;
+  for (const object of value.objects) readSnapshotObject(snapshotPath, object.sha256, object.size);
+  return { ...value, eventBytes };
 }
 
-function snapshotStore(snapshot: ImmutableLegacySnapshotV1): CanonicalEventStore {
-  const events = snapshot.eventBytes.map(
+function snapshotStore(snapshot: ImmutableLegacySnapshotV2, snapshotPath: string): CanonicalEventStore {
+  const objects = new Map(snapshot.objects.map((object) => [object.sha256, object])),
+    events = snapshot.eventBytes.map(
       (body, index) => decodeLegacyEventBytes(body, `snapshot revision ${index + 1}`).event,
-    ),
-    objects = new Map(snapshot.objects.map((object) => [object.sha256, Buffer.from(object.bytesBase64, "base64")]));
-  return {
-    read: () => ({ revision: events.length, events }),
-    readHead: () =>
-      events.length === 0
-        ? null
-        : { revision: events.length, eventDigest: `sha256:${sha256Text(snapshot.eventBytes.at(-1)!)}` },
-    readBatch: () => ({
-      sourceRevision: events.length,
-      events,
-      cursor: null,
-      done: true,
-      accessedItems: events.length,
-      prefetchContent: () => objects,
-    }),
-    readContentBlob: (sha256: string) => objects.get(sha256) ?? null,
-  } as unknown as CanonicalEventStore;
+    );
+  return arraySnapshotStore(events, (sha256) => {
+    const object = objects.get(sha256);
+    return object ? readSnapshotObject(snapshotPath, sha256, object.size) : null;
+  });
 }
 
 function writeRawSnapshot(input: {
   readonly repoId: string;
   readonly snapshotPath: string;
   readonly eventBytes: readonly string[];
-  readonly objects: ImmutableLegacySnapshotV1["objects"];
+  readonly objects: readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[];
   readonly sourceEvidence: StoppedLegacySourceEvidenceV1;
 }) {
   const content = {
       repoId: input.repoId,
       generation: 0 as const,
-      eventBytes: input.eventBytes,
-      objects: input.objects,
+      eventSegments: snapshotEventSegments(input.eventBytes),
+      objects: input.objects.map(({ sha256, size }) => ({ sha256, size })),
       sourceEvidence: input.sourceEvidence,
     },
-    sourceDigest = `sha256:${sha256Text(stableStringify(content))}` as const,
-    body = `${JSON.stringify({ schema: "immutable-legacy-generation-snapshot/v1", ...content, sourceDigest })}\n`;
+    sourceDigest = snapshotSourceDigest(input.repoId, input.eventBytes, content.objects, input.sourceEvidence),
+    body = `${JSON.stringify({ schema: "immutable-legacy-generation-snapshot/v2", ...content, sourceDigest })}\n`;
   localRuntimeStateFileSystem.mkdirp(path.dirname(input.snapshotPath));
+  if (localRuntimeStateFileSystem.exists(input.snapshotPath)) {
+    const existing = readLegacySnapshot(input.snapshotPath);
+    if (existing.sourceDigest !== sourceDigest)
+      throw new TaskEventStoreError("invalid_store", "immutable generation snapshot already names another source");
+    return {
+      sourceDigest,
+      eventCount: input.eventBytes.length,
+      objectCount: input.objects.length,
+      sourceEvidence: input.sourceEvidence,
+    };
+  }
+  writeSnapshotEvents(input.snapshotPath, input.eventBytes, content.eventSegments);
+  writeSnapshotObjects(input.snapshotPath, input.objects);
   if (!localRuntimeStateFileSystem.createExclusiveText(input.snapshotPath, body)) {
     const existing = readLegacySnapshot(input.snapshotPath);
     if (existing.sourceDigest !== sourceDigest)
@@ -394,43 +412,148 @@ function writeRawSnapshot(input: {
 }
 
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {
-  const events = store.events(),
-    objects = new Map(store.contentObjectDigests().map((sha256) => [sha256, store.readContentObject(sha256)!]));
-  return {
-    read: () => ({ revision: events.length, events }),
-    readHead: () =>
-      events.length === 0
-        ? null
-        : {
-            revision: events.length,
-            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(events.at(-1)!))}`,
-          },
-    readBatch: () => ({
-      sourceRevision: events.length,
-      events,
-      cursor: null,
-      done: true,
-      accessedItems: events.length,
-      prefetchContent: () => objects,
-    }),
-    readContentBlob: (sha256: string) => objects.get(sha256) ?? null,
-  } as unknown as CanonicalEventStore;
+  return arraySnapshotStore(store.events(), (sha256) => store.readContentObject(sha256));
 }
 
 function convertedPlanStore(
-  snapshot: ImmutableLegacySnapshotV1,
+  snapshot: ImmutableLegacySnapshotV2,
+  snapshotPath: string,
   events: readonly CanonicalEventV1[],
   generatedBlobs: readonly CanonicalContentBlob[],
 ): CanonicalEventStore {
-  const objects = new Map(snapshot.objects.map((object) => [object.sha256, Buffer.from(object.bytesBase64, "base64")]));
-  for (const blob of generatedBlobs) objects.set(blob.sha256, Buffer.from(blob.body));
-  return arraySnapshotStore(events, objects);
+  const generated = new Map(generatedBlobs.map((blob) => [blob.sha256, Buffer.from(blob.body)])),
+    objects = new Map(snapshot.objects.map((object) => [object.sha256, object]));
+  return arraySnapshotStore(events, (sha256) => {
+    const blob = generated.get(sha256);
+    if (blob) return blob;
+    const object = objects.get(sha256);
+    return object ? readSnapshotObject(snapshotPath, sha256, object.size) : null;
+  });
+}
+
+function snapshotSourceDigest(
+  repoId: string,
+  eventBytes: readonly string[],
+  objects: ImmutableLegacySnapshotV2["objects"],
+  sourceEvidence?: StoppedLegacySourceEvidenceV1,
+): `sha256:${string}` {
+  const hash = createHash("sha256");
+  hash.update(stableStringify({ repoId, generation: 0 }), "utf8");
+  for (const event of eventBytes) hash.update(stableStringify(event), "utf8");
+  for (const object of objects) hash.update(stableStringify(object), "utf8");
+  if (sourceEvidence) hash.update(stableStringify(sourceEvidence), "utf8");
+  return `sha256:${hash.digest("hex")}`;
+}
+
+function snapshotObjectsPath(snapshotPath: string): string {
+  return `${snapshotPath}.objects`;
+}
+
+const SNAPSHOT_EVENT_SEGMENT_SIZE = 512;
+
+function snapshotEventsPath(snapshotPath: string): string {
+  return `${snapshotPath}.events`;
+}
+
+function snapshotEventSegments(eventBytes: readonly string[]): ImmutableLegacySnapshotV2["eventSegments"] {
+  const segments: Array<ImmutableLegacySnapshotV2["eventSegments"][number]> = [];
+  for (let offset = 0; offset < eventBytes.length; offset += SNAPSHOT_EVENT_SEGMENT_SIZE) {
+    const body = `${JSON.stringify(eventBytes.slice(offset, offset + SNAPSHOT_EVENT_SEGMENT_SIZE))}\n`;
+    segments.push({
+      firstRevision: offset + 1,
+      count: Math.min(SNAPSHOT_EVENT_SEGMENT_SIZE, eventBytes.length - offset),
+      sha256: sha256Text(body),
+      size: Buffer.byteLength(body),
+    });
+  }
+  return segments;
+}
+
+function writeSnapshotEvents(
+  snapshotPath: string,
+  eventBytes: readonly string[],
+  segments: ImmutableLegacySnapshotV2["eventSegments"],
+): void {
+  const eventsPath = snapshotEventsPath(snapshotPath);
+  localRuntimeStateFileSystem.mkdirp(eventsPath);
+  for (const segment of segments) {
+    const offset = segment.firstRevision - 1,
+      body = `${JSON.stringify(eventBytes.slice(offset, offset + segment.count))}\n`,
+      segmentPath = path.join(eventsPath, `${segment.firstRevision}.json`);
+    if (!localRuntimeStateFileSystem.createExclusiveText(segmentPath, body, false)) {
+      const existing = localRuntimeStateFileSystem.readText(segmentPath);
+      if (Buffer.byteLength(existing) !== segment.size || sha256Text(existing) !== segment.sha256)
+        throw new TaskEventStoreError(
+          "invalid_store",
+          `legacy snapshot event segment ${segment.firstRevision} differs`,
+        );
+    }
+  }
+  localRuntimeStateFileSystem.syncDirectory(eventsPath);
+}
+
+function readSnapshotEvents(
+  snapshotPath: string,
+  segments: ImmutableLegacySnapshotV2["eventSegments"],
+): readonly string[] {
+  const eventBytes: string[] = [];
+  for (const segment of segments) {
+    if (segment.firstRevision !== eventBytes.length + 1 || segment.count < 1)
+      throw new TaskEventStoreError("invalid_store", "legacy snapshot event segments are discontinuous");
+    const segmentPath = path.join(snapshotEventsPath(snapshotPath), `${segment.firstRevision}.json`);
+    if (!localRuntimeStateFileSystem.exists(segmentPath))
+      throw new TaskEventStoreError("invalid_store", `legacy snapshot requires event segment ${segment.firstRevision}`);
+    const body = localRuntimeStateFileSystem.readText(segmentPath);
+    if (Buffer.byteLength(body) !== segment.size || sha256Text(body) !== segment.sha256)
+      throw new TaskEventStoreError("invalid_store", `legacy snapshot event segment ${segment.firstRevision} differs`);
+    const events = JSON.parse(body) as readonly string[];
+    if (events.length !== segment.count || events.some((event) => typeof event !== "string"))
+      throw new TaskEventStoreError(
+        "invalid_store",
+        `legacy snapshot event segment ${segment.firstRevision} is invalid`,
+      );
+    eventBytes.push(...events);
+  }
+  return eventBytes;
+}
+
+function writeSnapshotObjects(
+  snapshotPath: string,
+  objects: readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[],
+): void {
+  const objectsPath = snapshotObjectsPath(snapshotPath);
+  localRuntimeStateFileSystem.mkdirp(objectsPath);
+  for (const object of objects) writeSnapshotObject(snapshotPath, object);
+  localRuntimeStateFileSystem.syncDirectory(objectsPath);
+}
+
+function writeSnapshotObject(
+  snapshotPath: string,
+  object: { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array },
+): void {
+  if (object.bytes.byteLength !== object.size || sha256Bytes(object.bytes) !== object.sha256)
+    throw new TaskEventStoreError("invalid_store", `legacy snapshot content object ${object.sha256} differs`);
+  localRuntimeStateFileSystem.mkdirp(snapshotObjectsPath(snapshotPath));
+  const objectPath = path.join(snapshotObjectsPath(snapshotPath), object.sha256);
+  if (!localRuntimeStateFileSystem.createExclusiveText(objectPath, object.bytes, false))
+    readSnapshotObject(snapshotPath, object.sha256, object.size);
+}
+
+function readSnapshotObject(snapshotPath: string, sha256: string, size: number): Uint8Array {
+  const objectPath = path.join(snapshotObjectsPath(snapshotPath), sha256);
+  if (!localEvidenceFileSystem.exists(objectPath))
+    throw new TaskEventStoreError("invalid_store", `legacy snapshot requires content object ${sha256}`);
+  const bytes = localEvidenceFileSystem.readBytes(objectPath);
+  if (bytes.byteLength !== size || sha256Bytes(bytes) !== sha256)
+    throw new TaskEventStoreError("invalid_store", `legacy snapshot content object ${sha256} differs`);
+  return bytes;
 }
 
 function arraySnapshotStore(
   events: readonly CanonicalEventV1[],
-  objects: ReadonlyMap<string, Uint8Array>,
+  objects: ReadonlyMap<string, Uint8Array> | ((sha256: string) => Uint8Array | null),
 ): CanonicalEventStore {
+  const readContent = typeof objects === "function" ? objects : (sha256: string) => objects.get(sha256) ?? null;
   return {
     read: () => ({ revision: events.length, events }),
     readHead: () =>
@@ -446,8 +569,13 @@ function arraySnapshotStore(
       cursor: null,
       done: true,
       accessedItems: events.length,
-      prefetchContent: () => objects,
+      prefetchContent: (replay: readonly CanonicalEventV1[]) =>
+        new Map(
+          replay.flatMap((event) =>
+            contentClaims(event).map((claim) => [claim.sha256, readContent(claim.sha256)!] as const),
+          ),
+        ),
     }),
-    readContentBlob: (sha256: string) => objects.get(sha256) ?? null,
+    readContentBlob: readContent,
   } as unknown as CanonicalEventStore;
 }

@@ -21,7 +21,7 @@ export type LegacyEventEntry = { readonly bytes: string; readonly event: Canonic
 
 export function readStoppedLegacyGeneration(input: { readonly rootInput: HarnessLayoutInput }): {
   readonly eventEntries: readonly LegacyEventEntry[];
-  readonly objects: readonly { readonly sha256: string; readonly size: number; readonly bytesBase64: string }[];
+  readonly objects: readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[];
   readonly sourceEvidence: StoppedLegacySourceEvidenceV1;
 } {
   const layout = resolveHarnessLayout(input.rootInput),
@@ -233,7 +233,7 @@ function readStoppedObjects(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
   rootDir: string,
-): readonly { readonly sha256: string; readonly size: number; readonly bytesBase64: string }[] {
+): readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[] {
   const objects = new Map<string, Buffer>(),
     prefix = ledgerGitPath(ledger, "objects/sha256"),
     objectTree = localGitObjectRefStore.listTree(ledger.rootDir, commit, prefix),
@@ -258,7 +258,7 @@ function readStoppedObjects(
     }
   return [...objects]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([sha256, bytes]) => ({ sha256, size: bytes.byteLength, bytesBase64: bytes.toString("base64") }));
+    .map(([sha256, bytes]) => ({ sha256, size: bytes.byteLength, bytes }));
 }
 
 function readOptionalText(inputPath: string): string | null {
