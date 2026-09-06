@@ -6,11 +6,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
+import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -81,13 +82,13 @@ test("local selection and assignment claim normalize to the same doc event throu
     );
     assert.equal(localResult.outcome, "applied", JSON.stringify(localResult));
     assert.equal(remoteResult.outcome, "applied", JSON.stringify(remoteResult));
-    const localEvent = makeTaskEventStore({ repoId: "local", rootDir: local.rootDir }).readEvent(localResult.opId);
-    const remoteEvent = makeTaskEventStore({ repoId: "remote", rootDir: remote.rootDir }).readEvent(remoteResult.opId);
+    const localEvent = makeTaskEventReader({ repoId: "local", rootDir: local.rootDir }).readEvent(localResult.opId);
+    const remoteEvent = makeTaskEventReader({ repoId: "remote", rootDir: remote.rootDir }).readEvent(remoteResult.opId);
     assert.equal(localEvent?.schema, "doc-event/v1");
     assert.equal(remoteEvent?.schema, "doc-event/v1");
     if (localEvent?.schema === "doc-event/v1" && remoteEvent?.schema === "doc-event/v1")
       assert.deepEqual(localEvent.payload.changes, remoteEvent.payload.changes);
-    assert.deepEqual(remoteResult.proof?.worktreeVisible, null);
+    assert.equal(remoteResult.proof?.worktreeVisible, false);
     assert.equal("gitCredential" in remoteBinding, false);
   } finally {
     await local.close();
@@ -121,6 +122,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       binding,
     );
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    await waitForWorktree(fixture.cell, proposed, binding);
     const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId;
     const relativePath = `decisions/decision-${decisionId}/decision.md`,
       initial = JSON.parse(
@@ -138,6 +140,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const firstAction = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
     const first = await fixture.cell.run(firstAction, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
+    await waitForWorktree(fixture.cell, first, binding);
     assert.equal(first.authorizationDecision?.policyRef, "default@5");
     assert.equal(first.authorizationDecision?.outcome, "allowed");
     const retried = await fixture.cell.run(firstAction, binding);
@@ -156,7 +159,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       mediaType: "text/markdown",
       workspaceRevision: first.revision,
     });
-    const store = makeTaskEventStore({ repoId: "decision-prose", rootDir: fixture.rootDir }),
+    const store = makeTaskEventReader({ repoId: "decision-prose", rootDir: fixture.rootDir }),
       event = store.readEvent(first.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
@@ -186,6 +189,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       binding,
     );
     assert.equal(second.outcome, "applied", JSON.stringify(second));
+    await waitForWorktree(fixture.cell, second, binding);
     const updated = JSON.parse(
       (await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence,
     ) as { decision: { body: { body: string; blobSha256: string } } };
@@ -227,6 +231,26 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
 
 test("doc submit returns holder and scope detail for wrong role, another holder, expiry, and assignment scope", async () => {
   const fixture = rbacFixture();
+  const authority = openPersistentWriterEpoch({
+    stateRoot: path.join(fixture.userRoot, "fleet"),
+    holderId: "rbac-seed",
+  });
+  try {
+    const lease = authority.acquire("rbac");
+    seedSettingsEvent({
+      rootDir: fixture.rootDir,
+      repoId: "rbac",
+      writerEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot: path.join(fixture.userRoot, "fleet"),
+        repoId: "rbac",
+        holderId: lease.holderId,
+        epoch: lease.epoch,
+      },
+    });
+  } finally {
+    authority.close();
+  }
   const host = await openDaemonHost({ daemonId: "doc-rbac", userRoot: fixture.userRoot });
   await host.attachmentsSettled();
   const auth = (ownerUid: number) =>
@@ -235,14 +259,24 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
       unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
     }) as const;
   try {
-    seedSettingsEvent({ rootDir: fixture.rootDir, repoId: "rbac" });
     await host.admin({ kind: "register", rootDir: fixture.rootDir, repoId: "rbac" }, auth(fixture.ids.admin));
     const created = await host.run(
       "rbac",
       { kind: "task-create", taskId: "task-doc", title: "Docs" },
       auth(fixture.ids.writer),
     );
-    assert.equal(created.outcome, "applied");
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const createdVisible = await host.run(
+      "rbac",
+      {
+        kind: "receipt-show",
+        opId: created.opId,
+        waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+        timeoutMs: 5_000,
+      },
+      auth(fixture.ids.writer),
+    );
+    assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible));
     await realizeTaskPlanFixture(
       fixture.rootDir,
       String((created as Record<string, unknown>).packagePath),
@@ -347,7 +381,7 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
     assert.equal(JSON.stringify(action).includes(body), false);
     const result = await local.cell.run(action, localBinding);
     assert.equal(result.outcome, "applied", JSON.stringify(result));
-    const event = makeTaskEventStore({ repoId: "large", rootDir: local.rootDir }).readEvent(result.opId);
+    const event = makeTaskEventReader({ repoId: "large", rootDir: local.rootDir }).readEvent(result.opId);
     assert.equal(JSON.stringify(event).includes(body), false);
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(event.payload.changes[0]?.candidate, {
@@ -431,6 +465,7 @@ async function startLease(
   const roleBinding = withRoleBinding({ actor, source }, "repo-write");
   const created = await cell.run({ kind: "task-create", taskId: "task-doc", title: "Docs" }, roleBinding);
   assert.equal(created.outcome, "applied", JSON.stringify(created));
+  await waitForWorktree(cell, created, roleBinding);
   await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
     cell.run({ kind: "doc-submit", paths: [planPath] }, localBinding),
   );
@@ -440,6 +475,24 @@ async function startLease(
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   return ledgerCut(started.cut);
+}
+async function waitForWorktree(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  receipt: { readonly opId: string },
+  binding: RepoCellBinding,
+) {
+  const shown = await cell.run(
+    {
+      kind: "receipt-show",
+      opId: receipt.opId,
+      waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+      timeoutMs: 5_000,
+    },
+    binding,
+  );
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+  return shown;
 }
 function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBinding {
   return {
