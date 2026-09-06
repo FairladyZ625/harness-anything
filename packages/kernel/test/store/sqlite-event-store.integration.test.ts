@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -18,9 +18,10 @@ import {
   type SqliteWriterFence,
 } from "../../src/store/sqlite-event-store.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
-import { docBundle, eventAt, initRepo } from "./task-event-store.fixtures.ts";
+import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
+import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
 
 const repoId = "sqlite-generation-test";
 const fence: SqliteWriterFence = { repoId, holder: "writer-a", epoch: 1 };
@@ -84,6 +85,38 @@ test("Git can verify an accepted document while a concurrently edited worktree r
     await store.settlePendingMaterialization?.("test");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
+    unlinkSync(path.join(rootDir, "harness/context/local.md"));
+    await store.settlePendingMaterialization?.("test recovery");
+    assert.equal(store.followerStatus().worktree.status, "verified");
+  } finally {
+    await store.drain();
+  }
+});
+
+test("certified Git follower rejects document tampering even when its manifest is intact", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-git-tamper-"));
+  initRepo(rootDir);
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
+  });
+  try {
+    store.append(docBundle(store, "# Canonical\n", 1, "doc-tamper", "context/canonical.md"));
+    await store.settlePendingMaterialization?.("test");
+    git(rootDir, "reset", "--mixed", "HEAD");
+    writeFileSync(path.join(rootDir, "harness/context/canonical.md"), "tampered\n");
+    git(rootDir, "add", "harness/context/canonical.md");
+    git(rootDir, "commit", "-qm", "tamper authored follower only");
+    const sqlite = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+    try {
+      assert.throws(
+        () => readCertifiedGitFollower({ rootInput: rootDir, repoId, store: sqlite }),
+        /read-back differs/u,
+      );
+    } finally {
+      sqlite.close();
+    }
   } finally {
     await store.drain();
   }

@@ -8,7 +8,7 @@ import {
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { localWalFileSystem } from "../local/local-layout-file-system.ts";
+import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
@@ -171,12 +171,14 @@ function isSqliteBusy(error: unknown): boolean {
 }
 
 export function openSqliteEventStore(options: {
-  readonly repoId: string;
+  readonly repoId?: string;
   readonly rootInput?: HarnessLayoutInput;
   readonly databasePath?: string;
   readonly generation?: number;
   readonly readOnly?: boolean;
 }): SqliteEventStore {
+  if (!options.readOnly && options.repoId === undefined)
+    throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
     objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
@@ -187,8 +189,10 @@ export function openSqliteEventStore(options: {
   configureLedgerConnection(db, options.readOnly);
   const query: SqliteQuery = (sql, values = []) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
-  if (!options.readOnly) createSchema(db, options.repoId, generation);
-  else assertMetadata(query, options.repoId, generation);
+  if (!options.readOnly) createSchema(db, options.repoId!, generation);
+  const metadata = readMetadata(query),
+    repoId = options.repoId ?? metadata.repoId;
+  assertMetadata(query, repoId, generation);
   const sqliteVersion = String(
     /* @gate-identity check-bypass-write-boundary/bypass-write-126 */ db
       .prepare("SELECT sqlite_version() AS version")
@@ -214,8 +218,8 @@ export function openSqliteEventStore(options: {
   };
   const claimWriter = (fence: SqliteWriterFence): void =>
     transaction(() => {
-      assertFenceShape(fence, options.repoId);
-      const current = readWriter(db, options.repoId);
+      assertFenceShape(fence, repoId);
+      const current = readWriter(db, repoId);
       if (current && fence.epoch < current.epoch)
         throw new TaskEventStoreError(
           "revision_conflict",
@@ -233,7 +237,7 @@ export function openSqliteEventStore(options: {
   const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
-      assertFenceShape(input.fence, options.repoId);
+      assertFenceShape(input.fence, repoId);
       const prior = readOutcome(db, query, input.intent.opId);
       if (prior) {
         if (prior.intentDigest !== input.intent.intentDigest)
@@ -243,7 +247,7 @@ export function openSqliteEventStore(options: {
           );
         return prior;
       }
-      const writer = readWriter(db, options.repoId);
+      const writer = readWriter(db, repoId);
       if (writer && input.fence.epoch < writer.epoch)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${input.fence.epoch} is stale`);
       if (writer && input.fence.epoch === writer.epoch && input.fence.holder !== writer.holder)
@@ -488,7 +492,7 @@ function prepareContentObjects(
       if (!blob || blob.size !== claim.size || sha256Text(blob.body) !== claim.sha256)
         throw new TaskEventStoreError("invalid_write_plan", `event content object ${claim.sha256} is missing`);
       const target = objectPath(objectRoot, claim.sha256);
-      localWalFileSystem.replace(target, blob.body);
+      localContentObjectFileSystem.replace(target, blob.body);
     }
   }
 }
@@ -500,16 +504,18 @@ function objectPath(objectRoot: string, sha256: string): string {
 
 function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
-  return localWalFileSystem.exists(target) ? Buffer.from(localWalFileSystem.readText(target)) : null;
+  return localContentObjectFileSystem.exists(target)
+    ? Buffer.from(localContentObjectFileSystem.readText(target))
+    : null;
 }
 
 function listContentObjectDigests(objectRoot: string): readonly string[] {
-  if (!localWalFileSystem.exists(objectRoot)) return [];
-  return localWalFileSystem
+  if (!localContentObjectFileSystem.exists(objectRoot)) return [];
+  return localContentObjectFileSystem
     .readNames(objectRoot)
     .filter((prefix) => /^[0-9a-f]{2}$/u.test(prefix))
     .flatMap((prefix) =>
-      localWalFileSystem
+      localContentObjectFileSystem
         .readNames(path.join(objectRoot, prefix))
         .filter((name) => /^[0-9a-f]{62}$/u.test(name))
         .map((name) => `${prefix}${name}`),

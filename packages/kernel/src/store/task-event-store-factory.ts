@@ -4,3 +4,4 @@ export const makeTaskEventStore = makeSqliteTaskEventStore;
 export const makeTaskEventReader = (options: SqliteTaskEventStoreOptions) =>
   makeSqliteTaskEventStore({ ...options, mutable: false });
 export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
+export { readCertifiedGitFollower, type CertifiedGitFollower } from "./sqlite-task-event-store.ts";

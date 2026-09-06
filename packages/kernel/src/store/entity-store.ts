@@ -79,8 +79,8 @@ export function createEntityStore(
   };
 }
 
-export function openEntityStore(rootInput: HarnessLayoutInput, repoId: string): EntityStore {
-  const canonical = openSqliteEventStore({ rootInput, repoId, readOnly: true });
+export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
+  const canonical = openSqliteEventStore({ rootInput, readOnly: true });
   return createEntityStore({
     read: () => ({ schema: "canonical-event-stream/v1", revision: canonical.revision(), events: canonical.events() }),
     readContentBlob: canonical.readContentObject,

@@ -308,10 +308,12 @@ export {
   runEventShapeMigration,
   migrateEventsToSqlite,
   openSqliteEventStore,
+  readCertifiedGitFollower,
   reconcileSqliteEvents,
   makeTaskProjectionReader,
 } from "./composition/index.ts";
 export type {
+  CertifiedGitFollower,
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,
   CanonicalEventCut,

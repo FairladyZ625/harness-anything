@@ -6,7 +6,12 @@ export {
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
 export { makeTaskEventReader, makeTaskEventStore } from "../store/task-event-store-factory.ts";
-export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
+export { readCertifiedGitFollower } from "../store/task-event-store-factory.ts";
+export type {
+  CertifiedGitFollower,
+  SqliteCanonicalEventStore,
+  SqliteTaskEventStoreOptions,
+} from "../store/task-event-store-factory.ts";
 export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 export { eventShapeMigrations, runEventShapeMigration } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore } from "../store/sqlite-event-store.ts";
