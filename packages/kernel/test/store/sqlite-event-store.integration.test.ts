@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,6 +17,11 @@ import {
   type SqliteEventStore,
   type SqliteWriterFence,
 } from "../../src/store/sqlite-event-store.ts";
+import {
+  createImmutableLegacyGenerationSnapshot,
+  convertLegacyGeneration,
+  preflightConvertedGenerationActivation,
+} from "../../src/store/legacy-generation-conversion.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
 import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
@@ -74,7 +79,7 @@ test("Git can verify an accepted document while a concurrently edited worktree r
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-"));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness/context/local.md"), "local edit\n");
+  writeFileSync(path.join(rootDir, "harness/context/published.md"), "local edit\n");
   const store = makeTaskEventStore({
     repoId,
     rootDir,
@@ -85,7 +90,8 @@ test("Git can verify an accepted document while a concurrently edited worktree r
     await store.settlePendingMaterialization?.("test");
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "pending");
-    unlinkSync(path.join(rootDir, "harness/context/local.md"));
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/published.md"), "utf8"), "local edit\n");
+    unlinkSync(path.join(rootDir, "harness/context/published.md"));
     await store.settlePendingMaterialization?.("test recovery");
     assert.equal(store.followerStatus().worktree.status, "verified");
   } finally {
@@ -242,7 +248,7 @@ test("event, writer takeover, ledger head, and outcome roll back atomically", ()
   }
 });
 
-test("one shadow bundle appends preceding events and its terminal event in one command", () => {
+test("one canonical bundle appends preceding events and its terminal event in one command", () => {
   const store = openSqliteEventStore({ repoId, databasePath: scratch("bundle") }),
     events = [eventAt(1), eventAt(2), eventAt(3)],
     eventBytes = events.map(serializePersistedCanonicalEvent),
@@ -312,46 +318,51 @@ test("generation paths coexist beneath the local store root", () => {
   assert.equal(sqliteLedgerPath(rootDir, 2), path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
 });
 
-test("reconciliation reports exact equality and the first tampered revision", () => {
-  const databasePath = scratch("reconcile"),
-    events = [eventAt(1), eventAt(2), eventAt(3)],
-    store = openSqliteEventStore({ repoId, databasePath });
-  try {
-    migrateEventsToSqlite({ store, repoId, events, holder: fence.holder, epoch: fence.epoch });
-  } finally {
-    store.close();
-  }
-  const exact = reconcileSqliteEvents({ repoId, databasePath, events });
-  assert.deepEqual(exact, {
-    schema: "sqlite-ledger-reconciliation/v1",
+test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-reconcile-"));
+  initRepo(rootDir);
+  const databasePath = sqliteLedgerPath(rootDir, 1),
+    snapshotPath = path.join(rootDir, ".harness/source.json"),
+    events = [eventAt(1), eventAt(2), eventAt(3)];
+  createImmutableLegacyGenerationSnapshot({
     repoId,
-    generation: 1,
-    matches: true,
-    canonical: { eventCount: 3, maxRevision: 3, distinctOpIds: 3 },
-    sqlite: { eventCount: 3, maxRevision: 3, distinctOpIds: 3 },
-    firstDivergentRevision: null,
-    revisionDifferences: [],
-    opIdDifferences: { missingInSqlite: [], unexpectedInSqlite: [] },
+    snapshotPath,
+    source: { read: () => ({ events }), readContentBlob: () => null } as never,
   });
-
+  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
+  const publisher = makeTaskEventStore({ repoId, rootDir });
+  await publisher.settlePendingMaterialization!("independent reconcile fixture");
+  await publisher.drain();
+  const reader = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+  const gitReadback = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: reader });
+  reader.close();
+  const reconcile = () => reconcileSqliteEvents({ repoId, rootDir, databasePath, snapshotPath, gitReadback });
+  const exact = reconcile();
+  assert.equal(exact.schema, "sqlite-ledger-reconciliation/v2");
+  assert.equal(exact.matches, true, JSON.stringify(exact));
+  assert.deepEqual(exact.expected, { events: 3, outcomes: 3, objects: 0 });
   const db = new DatabaseSync(databasePath);
   try {
     db.prepare("UPDATE event SET event_json=event_json || ? WHERE revision=2").run(" ");
+    assert.equal(reconcile().rowDigestMatches, false);
+    db.prepare("UPDATE event SET event_json=? WHERE revision=2").run(serializePersistedCanonicalEvent(events[1]!));
+    db.prepare("UPDATE command_outcome SET last_revision=3 WHERE first_revision=2").run();
+    assert.equal(reconcile().outcomeMatches, false);
+    db.prepare("UPDATE command_outcome SET last_revision=2 WHERE first_revision=2").run();
   } finally {
     db.close();
   }
-  const divergent = reconcileSqliteEvents({ repoId, databasePath, events });
-  assert.equal(divergent.matches, false);
-  assert.equal(divergent.firstDivergentRevision, 2);
-  assert.deepEqual(
-    divergent.revisionDifferences.map(({ revision, kind }) => ({ revision, kind })),
-    [{ revision: 2, kind: "event_mismatch" }],
-  );
-  assert.notEqual(divergent.revisionDifferences[0]!.canonicalDigest, divergent.revisionDifferences[0]!.sqliteDigest);
+  const markerPath = `${databasePath}.import-source.json`,
+    markerBytes = readFileSync(markerPath, "utf8");
+  writeFileSync(markerPath, JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: "wrong" }));
+  assert.equal(reconcile().metadataMatches, false);
+  writeFileSync(markerPath, markerBytes);
+  assert.equal(reconcile().matches, true);
 });
 
-test("50k bootstrap is incremental and subsequent shadow bundles append one command each", (context) => {
-  const store = openSqliteEventStore({ repoId, databasePath: scratch("shadow-cost") }),
+test("50k bootstrap is incremental and subsequent canonical bundles append one command each", (context) => {
+  const store = openSqliteEventStore({ repoId, databasePath: scratch("canonical-cost") }),
     sourceEvents = Array.from({ length: 50_000 }, (_, index) => eventAt(index + 1)),
     bootstrapStarted = performance.now();
   try {

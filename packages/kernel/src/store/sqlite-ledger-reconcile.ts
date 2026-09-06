@@ -1,10 +1,17 @@
+import { consumeKnownError } from "../error-consumption.ts";
 import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import { planLegacyGenerationSnapshotConversion } from "./legacy-generation-conversion.ts";
-import { openSqliteEventStore, sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-event-store.ts";
+import {
+  openSqliteEventStore,
+  sqliteLedgerPath,
+  SQLITE_LEDGER_GENERATION,
+  type SqliteCommandOutcome,
+} from "./sqlite-event-store.ts";
 
 export interface GitFollowerReadback {
   readonly commitSha: string;
@@ -51,9 +58,19 @@ export function reconcileSqliteEvents(input: {
     }),
     store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation, readOnly: true });
   try {
-    const metadata = store.metadata(),
+    const marker = readImportEvidence(`${databasePath}.import-source.json`),
+      certificate = readImportEvidence(`${databasePath}.activation.json`),
+      metadata = store.metadata(),
       rows = store.eventRows(),
       outcomes = store.outcomes(),
+      parsedRows = rows.map((row) => {
+        try {
+          return parseCanonicalEvent(row.eventJson);
+        } catch (error) {
+          consumeKnownError(error);
+          return null;
+        }
+      }),
       expectedRows = plan.events.map((event) => {
         const eventJson = serializePersistedCanonicalEvent(event);
         return {
@@ -79,12 +96,18 @@ export function reconcileSqliteEvents(input: {
         intentDigest: outcome.intentDigest,
         rejectionCode: outcome.rejectionCode,
       })),
-      allClaims = rows.flatMap((row) => contentClaims(parseCanonicalEvent(row.eventJson))),
+      allClaims = parsedRows.flatMap((event) => (event === null ? [] : contentClaims(event))),
       expectedObjects = [...new Set(allClaims.map((claim) => claim.sha256))].sort(),
       actualObjects = [...store.contentObjectDigests()].sort(),
       metadataMatches =
         snapshot.repoId === input.repoId &&
         snapshot.generation === 0 &&
+        marker?.schema === "generation-import-source/v1" &&
+        marker.sourceDigest === snapshot.sourceDigest &&
+        certificate?.schema === "generation-activation/v1" &&
+        certificate.repoId === input.repoId &&
+        certificate.sourceDigest === snapshot.sourceDigest &&
+        certificate.importedPrefixRevision === expectedRows.length &&
         metadata.repoId === input.repoId &&
         metadata.generation === generation &&
         metadata.revision === rows.length,
@@ -92,8 +115,10 @@ export function reconcileSqliteEvents(input: {
         rows.length >= expectedRows.length &&
         stableStringify(rows.slice(0, expectedRows.length)) === stableStringify(expectedRows) &&
         rows.every((row, index) => {
-          const event = parseCanonicalEvent(row.eventJson);
+          const event = parsedRows[index];
           return (
+            event !== null &&
+            event !== undefined &&
             row.revision === index + 1 &&
             event.workspaceRevision === row.revision &&
             event.opId === row.opId &&
@@ -102,20 +127,22 @@ export function reconcileSqliteEvents(input: {
         }),
       outcomeMatches =
         stableStringify(actualOutcomes.slice(0, expectedOutcomes.length)) === stableStringify(expectedOutcomes) &&
-        rows.every((row) => {
-          const outcome = store.readCommandOutcome(row.opId);
-          return (
-            outcome?.status === "accepted_durable" &&
-            outcome.firstRevision !== null &&
-            outcome.lastRevision !== null &&
-            outcome.firstRevision <= row.revision &&
-            outcome.lastRevision >= row.revision
-          );
+        outcomes.every((outcome) =>
+          outcome.status === "rejected"
+            ? outcome.firstRevision === null && outcome.lastRevision === null && outcome.memberOpIds.length === 0
+            : outcome.firstRevision === null || outcome.lastRevision === null
+              ? outcome.firstRevision === null && outcome.lastRevision === null && outcome.memberOpIds.length === 0
+              : outcome.firstRevision >= 1 &&
+                outcome.lastRevision <= rows.length &&
+                outcome.memberOpIds.length === outcome.lastRevision - outcome.firstRevision + 1,
+        ) &&
+        completeCommandIntervals(outcomes, rows.length),
+      objectMatches =
+        parsedRows.every((event) => event !== null) &&
+        allClaims.every((claim) => {
+          const bytes = store.readContentObject(claim.sha256);
+          return bytes !== null && bytes.byteLength === claim.size && sha256Bytes(bytes) === claim.sha256;
         }),
-      objectMatches = allClaims.every((claim) => {
-        const bytes = store.readContentObject(claim.sha256);
-        return bytes !== null && bytes.byteLength === claim.size && sha256Bytes(bytes) === claim.sha256;
-      }),
       current = rows.at(-1),
       expectedCut = canonicalLedgerCut(
         input.repoId,
@@ -155,4 +182,27 @@ export function reconcileSqliteEvents(input: {
   } finally {
     store.close();
   }
+}
+
+function readImportEvidence(inputPath: string): Record<string, unknown> | null {
+  if (!localRuntimeStateFileSystem.exists(inputPath)) return null;
+  const value: unknown = JSON.parse(localRuntimeStateFileSystem.readText(inputPath));
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function completeCommandIntervals(outcomes: readonly SqliteCommandOutcome[], revisions: number): boolean {
+  const intervals = outcomes
+    .filter(
+      (outcome) =>
+        outcome.status === "accepted_durable" && outcome.firstRevision !== null && outcome.lastRevision !== null,
+    )
+    .sort((left, right) => left.firstRevision! - right.firstRevision!);
+  let next = 1;
+  for (const interval of intervals) {
+    if (interval.firstRevision !== next || interval.lastRevision! < interval.firstRevision) return false;
+    next = interval.lastRevision! + 1;
+  }
+  return next === revisions + 1;
 }

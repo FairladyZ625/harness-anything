@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { attachReceiptAcceptance } from "../../src/composition/receipt-acceptance.ts";
 import { validateWriteReceipt } from "../../src/domain/receipt-domain-registry.ts";
 import { unsatisfiedReceiptPredicates, type ReceiptAcceptanceFields } from "../../src/domain/receipt-acceptance.ts";
 import { validateReceiptAcceptance } from "../../src/domain/receipt-acceptance.ts";
@@ -90,4 +91,26 @@ test("wait timeout preserves durable acceptance and lists unsatisfied facets", (
     }).join("\n"),
     /wait result/u,
   );
+});
+
+test("an intent-conflict rejection cannot borrow acceptance from the operation id's older command", () => {
+  const receipt = attachReceiptAcceptance(
+    { outcome: "op_rejected", opId: "command", code: "op_conflict", origin: "daemon" },
+    {
+      readCommandOutcome: () => ({
+        status: "accepted_durable",
+        firstRevision: 1,
+        lastRevision: 2,
+        memberOpIds: ["member", "command"],
+      }),
+      readEvent: () => {
+        throw new Error("rejected invocation must not certify old accepted members");
+      },
+    } as never,
+    {} as never,
+  );
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.status, "rejected");
+  assert.equal(receipt.acceptance, null);
+  assert.deepEqual(validateReceiptAcceptance(receipt), []);
 });

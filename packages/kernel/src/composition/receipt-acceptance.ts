@@ -23,14 +23,16 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     worktree: pending,
     replica: { state: "not_configured", cut: null },
   } as const;
+  // A rejected invocation may reuse an operation id belonging to an older accepted intent.
+  // Observing that older outcome must not turn this rejection into a successful write.
+  if (receipt.outcome === "op_rejected") return { ...receipt, ...empty, status: "rejected" };
   if (
     !outcome ||
     outcome.status !== "accepted_durable" ||
     outcome.lastRevision === null ||
     outcome.firstRevision === null
   ) {
-    const rejected =
-      outcome?.status === "rejected" || receipt.outcome === "op_rejected" || receipt.outcome === "no_changes";
+    const rejected = outcome?.status === "rejected" || receipt.outcome === "no_changes";
     const { revision: _revision, cut: _cut, commitSha: _commitSha, proof: _proof, ...unaccepted } = receipt;
     return {
       ...(rejected ? receipt : unaccepted),
