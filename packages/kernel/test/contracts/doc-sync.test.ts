@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  classifyDocSyncCandidatePath,
   OPAQUE_TEXTUAL_MEDIA_TYPE,
   OPAQUE_TEXTUAL_POLICY_ID,
   classifyTextualArtifactPath,
@@ -266,6 +267,19 @@ test("opaque textual paths preserve their media type", () => {
   });
   assert.equal(classifyTextualArtifactPath("context/architecture/notes.json"), null);
   assert.equal(classifyTextualArtifactPath("context/architecture/views/write-path.c4"), null);
+  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/data.json"), null);
+  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/run.jsonl"), null);
+  assert.equal(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/run.log"), null);
+  assert.deepEqual(classifyDocSyncCandidatePath("context/architecture/architecture-manifest.json"), {
+    kind: "opaque-textual",
+    mediaType: "application/json",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
+  assert.deepEqual(classifyDocSyncCandidatePath("tasks/task-owner/artifacts/report.md"), {
+    kind: "opaque-textual",
+    mediaType: "text/markdown",
+    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+  });
 });
 
 test("doc content claims accept only the supported opaque textual media types", () => {

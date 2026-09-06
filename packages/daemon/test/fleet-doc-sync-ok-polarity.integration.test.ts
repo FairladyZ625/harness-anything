@@ -162,8 +162,8 @@ async function pushRejectionFixture() {
       channel: "collaborator",
       changes,
     });
-  const edgeDocSync = (nodeId: NodeId, paths: readonly string[]) =>
-    runFleetEdgeDocSync({ payload: { ...channel(nodeId), paths } });
+  const edgeDocSync = (nodeId: NodeId, options: { readonly all?: true; readonly paths?: readonly string[] } = {}) =>
+    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } });
   const writeWorktree = (nodeId: NodeId, logicalPath: string, body: string): void => {
     const view = locateFleetMirrorView(edgeRoot(nodeId), "fleet-doc-sync-repo");
     assert.ok(view, "mirror view must exist before its registered harness is changed");
@@ -213,11 +213,11 @@ test("push-rejected base_blob_changed staging is rejected instead of applied", {
   const shared = "context/shared-notes.md";
   const base = "# Shared\n\nbaseline.\n";
   assert.equal((await fixture.rawWrite("node-one", [{ path: shared, body: base }])).center.outcome, "applied");
-  assert.equal((await fixture.edgeDocSync("node-one", [shared])).ok, true);
+  assert.equal((await fixture.edgeDocSync("node-one", { paths: [shared] })).ok, true);
   fixture.writeWorktree("node-one", shared, `${base}\nedge-local change.\n`);
   fixture.armBaseBlobRace(shared, base, `${base}\npeer-center change.\n`);
 
-  const receipt = await fixture.edgeDocSync("node-one", [shared]);
+  const receipt = await fixture.edgeDocSync("node-one", { paths: [shared] });
 
   assert.equal(fixture.raceInjected(), true, "the peer must move the shared path after compare and before submit");
   assert.equal(receipt.ok, false, JSON.stringify(receipt));
@@ -227,4 +227,25 @@ test("push-rejected base_blob_changed staging is rejected instead of applied", {
   assert.equal(receipt.canonicalOutcome, "op_rejected");
   assert.equal(receipt.mirrorOutcome, "pull_blocked");
   assert.equal(fixture.conflicts().length, 1, "the losing local bytes must be staged for an explicit exit");
+});
+
+test("remote-edge full submit requires explicit all confirmation", { timeout: 60_000 }, async (t) => {
+  const fixture = await pushRejectionFixture();
+  t.after(() => fixture.close());
+  const shared = "context/shared-notes.md",
+    base = "# Shared\n\nbaseline.\n";
+  assert.equal((await fixture.rawWrite("node-one", [{ path: shared, body: base }])).center.outcome, "applied");
+  assert.equal((await fixture.edgeDocSync("node-one", { paths: [shared] })).ok, true);
+  fixture.writeWorktree("node-one", shared, `${base}\nedge-local change.\n`);
+
+  const unconfirmed = await fixture.edgeDocSync("node-one");
+  assert.equal(unconfirmed.ok, false, JSON.stringify(unconfirmed));
+  assert.equal(unconfirmed.code, "doc_submit_confirmation_required");
+  assert.deepEqual(
+    (unconfirmed.rows as readonly { readonly path: string }[]).map((row) => row.path),
+    [shared],
+  );
+
+  const confirmed = await fixture.edgeDocSync("node-one", { all: true });
+  assert.equal(confirmed.ok, true, JSON.stringify(confirmed));
 });

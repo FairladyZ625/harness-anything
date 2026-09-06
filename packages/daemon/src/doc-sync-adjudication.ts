@@ -200,13 +200,16 @@ export function scannerSubmit(input: Input): DocCandidateScan {
       ? ["kind", "taskId"]
       : Object.hasOwn(input.action, "executionId")
         ? ["kind", "executionId", "paths"]
-        : ["kind", "paths"];
+        : Object.hasOwn(input.action, "all")
+          ? ["kind", "paths", "all"]
+          : ["kind", "paths"];
   if (
     !hasExactDocSyncActionFields(input.action, fields) ||
     (taskScoped
       ? typeof input.action.taskId !== "string"
       : !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string")) ||
-    (Object.hasOwn(input.action, "executionId") && typeof input.action.executionId !== "string")
+    (Object.hasOwn(input.action, "executionId") && typeof input.action.executionId !== "string") ||
+    (Object.hasOwn(input.action, "all") && input.action.all !== true)
   )
     throw docSyncError("invalid_command", "local doc submit requires scanner paths or a task id");
   const scan = scanDocCandidates({

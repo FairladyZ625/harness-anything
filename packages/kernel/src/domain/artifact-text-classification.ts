@@ -1,5 +1,8 @@
 export const OPAQUE_TEXTUAL_POLICY_ID = "opaque-textual-whole-file/v1";
 export const OPAQUE_TEXTUAL_MEDIA_TYPE = "text/x-harness-opaque";
+// Doc sync is an inline prose channel capped by its 256 KiB descriptor frame.
+// Larger raw content belongs to the <=50,000,000 byte blob contract in dec_776B4D61DF711D9F31126D375D.
+export const DOC_SYNC_INLINE_MAX_BYTES = 256 * 1024;
 export type OpaqueTextualMediaType =
   | "application/json"
   | "application/yaml"
@@ -49,6 +52,16 @@ export function classifyTextualArtifactPath(value: string): TextualArtifactClass
   return mediaType === "text/markdown" || mediaType === "text/plain"
     ? { kind: "canonical-prose", mediaType, policyId: "markdown-body-replaceable/v1" }
     : { kind: "opaque-textual", mediaType, policyId: OPAQUE_TEXTUAL_POLICY_ID };
+}
+
+export function classifyDocSyncCandidatePath(value: string): TextualArtifactClassification | null {
+  const classification = classifyTextualArtifactPath(value),
+    extension = extensionOf(value);
+  return (artifactPath(value) && classification?.mediaType === "application/json") ||
+    extension === ".jsonl" ||
+    extension === ".log"
+    ? null
+    : classification;
 }
 
 export function isOpaqueTextualMediaType(value: unknown): value is OpaqueTextualMediaType {

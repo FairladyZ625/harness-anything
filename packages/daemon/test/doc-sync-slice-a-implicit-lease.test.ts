@@ -13,7 +13,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
-test("implicit submit accepts two authored paths with identical content", async () => {
+test("confirmed full submit accepts two authored paths with identical content", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
   initRepo(rootDir);
   const repoId = workspaceId("identical-content"),
@@ -27,7 +27,10 @@ test("implicit submit accepts two authored paths with identical content", async 
   try {
     write(rootDir, "context/one.md", body);
     write(rootDir, "context/two.md", body);
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.doesNotMatch(JSON.stringify(submitted), /duplicate write target/u);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
@@ -45,7 +48,7 @@ test("implicit submit accepts two authored paths with identical content", async 
   }
 });
 
-test("implicit submit applies prose after its heading is rewritten", async () => {
+test("confirmed full submit applies prose after its heading is rewritten", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-"));
   initRepo(rootDir);
   const repoId = workspaceId("partial-blocked"),
@@ -60,7 +63,10 @@ test("implicit submit applies prose after its heading is rewritten", async () =>
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/blocked.md"] }, binding)).outcome, "applied");
     write(rootDir, "context/blocked.md", "# Renamed\n\nbase\n");
     write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(String(submitted.summary), /skipped:\n\(none\)/u);
     const event = makeTaskEventStore({ repoId, rootDir }).readEvent(String(submitted.opId));
@@ -80,7 +86,7 @@ test("implicit submit applies prose after its heading is rewritten", async () =>
   }
 });
 
-test("implicit submit applies eligible prose and reports an unrelated deletion as skipped", async () => {
+test("confirmed full submit applies eligible prose and reports an unrelated deletion as skipped", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-deletion-"));
   initRepo(rootDir);
   const repoId = workspaceId("partial-deletion"),
@@ -95,7 +101,10 @@ test("implicit submit applies eligible prose and reports an unrelated deletion a
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/deleted.md"] }, binding)).outcome, "applied");
     rmSync(path.join(rootDir, "harness/context/deleted.md"));
     write(rootDir, "context/eligible.md", "# Eligible\n");
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(
       String(submitted.summary),
@@ -203,10 +212,10 @@ test("a runtime session with multiple matching held executions rejects with exac
 // The scanner used to pin a single-task selection to that task's CURRENT lease
 // regardless of who held it, so `ha doc sync --submit --path <p>` reported
 // lease_conflict for a legal repository-prose write whenever the task was
-// leased by a dispatched runtime — while an implicit submit escaped only when
+// leased by a dispatched runtime — while a full submit escaped only when
 // the dirty set happened to span two task packages. Both shapes must now ride
 // the prose channel for a non-holder.
-test("path and implicit submits ride the repository prose channel when the task lease is held by another executor", async () => {
+test("path and confirmed full submits ride the repository prose channel when another executor holds the lease", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-path-prose-"));
   initRepo(rootDir);
   const repoId = workspaceId("path-prose"),
@@ -295,9 +304,15 @@ test("path and implicit submits ride the repository prose channel when the task 
     write(rootDir, "context/shared.md", "# Shared\nsynced\n");
     assert.equal((await cell.run({ kind: "doc-submit", paths: ["context/shared.md"] }, person)).outcome, "applied");
     write(rootDir, `${packagePath}/artifacts/reports/second.md`, "# Second\n");
-    const implicit = (await cell.run({ kind: "doc-submit", paths: [] }, person)) as Record<string, unknown>;
-    assert.equal(implicit.outcome, "applied", JSON.stringify(implicit));
-    assert.match(String(implicit.summary), new RegExp(`applied:\\n${packagePath}/artifacts/reports/second\\.md`, "u"));
+    const fullSubmit = (await cell.run({ kind: "doc-submit", paths: [], all: true }, person)) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(fullSubmit.outcome, "applied", JSON.stringify(fullSubmit));
+    assert.match(
+      String(fullSubmit.summary),
+      new RegExp(`applied:\\n${packagePath}/artifacts/reports/second\\.md`, "u"),
+    );
     // Naming the foreign execution explicitly still refuses — and the receipt names the exit that works.
     write(rootDir, `${packagePath}/artifacts/reports/third.md`, "# Third\n");
     const explicit = (await cell.run(

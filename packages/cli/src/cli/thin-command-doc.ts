@@ -1,14 +1,6 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  accepted,
-  nonEmpty,
-  readFlags,
-  rejected,
-} from "./thin-command-flags.ts";
-import type {
-  ThinCliInputDirectory,
-  ThinParseResult,
-} from "./thin-command-types.ts";
+import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
+import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
 export function parseDoc(
   id: string,
@@ -37,7 +29,8 @@ export function parseDoc(
     f = readFlags(id, args.slice(sync ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const paths = f.many.get("--path") ?? [];
-  const taskId = f.one.get("--task");
+  const taskId = f.one.get("--task"),
+    all = f.booleans.has("--all");
   if (taskId && paths.length)
     return rejected(
       "invalid_field",
@@ -67,6 +60,6 @@ export function parseDoc(
     });
   return accepted(rootDir, repoId, json, {
     kind: "doc-submit",
-    ...(taskId ? { taskId } : { paths }),
+    ...(taskId ? { taskId } : { paths, ...(all ? { all: true } : {}) }),
   });
 }
