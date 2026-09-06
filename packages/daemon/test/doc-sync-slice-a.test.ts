@@ -88,6 +88,8 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
       [
         ["context/a.md", "eligible"],
         ["context/b.md", "eligible"],
+        ["events/segments/manifest.json", "blocked"],
+        ["harness.yaml", "clean"],
         ["tasks/task-one/progress.md", "blocked"],
       ],
     );
@@ -172,7 +174,7 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
   write(rootDir, secondLog, jsonl);
   write(rootDir, prose, "# Notes\n");
   write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
-  const store = makeTaskEventStore({ repoId, rootDir }),
+  const store = makeTaskEventReader({ repoId, rootDir }),
     inventory = scanAuthoredCandidateInventory({ rootDir, store }),
     inventoryByPath = new Map(inventory.rows.map((row) => [row.path, row]));
   await store.drain();

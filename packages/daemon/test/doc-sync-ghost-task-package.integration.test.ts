@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, git, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -63,7 +63,10 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.equal(unconfirmed.code, "task_package_unregistered");
     assert.deepEqual(
       unconfirmed.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
-      [[ghost, "ha task artifact add"]],
+      [
+        ["events/segments/manifest.json", "canonical-event"],
+        [ghost, "ha task artifact add"],
+      ],
     );
     // Misfire control: the eligible sibling in the registered package still
     // publishes, and the blocked ghost must not ride along in that submit.
@@ -73,7 +76,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       readonly summary: string | null;
     };
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(submitted.opId);
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
@@ -99,6 +102,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.deepEqual(
       rejected.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
       [
+        ["events/segments/manifest.json", "canonical-event"],
         [ghost, "ha task artifact add"],
         [`${impostor}/artifacts/second.md`, "ha task artifact add"],
       ],
