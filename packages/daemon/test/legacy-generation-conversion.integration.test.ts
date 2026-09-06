@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -77,6 +77,12 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
       })}\n`,
     );
     for (const blob of second.blobs) writeFileSync(path.join(walRoot, "objects", blob.sha256), blob.body);
+    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord.replace(firstDigest, `sha256:${"0".repeat(64)}`));
+    assert.throws(
+      () => createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: root, snapshotPath }),
+      /not anchored/u,
+    );
+    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord);
     const sourceBefore = physicalSourceBytes(root),
       snapshot = createImmutableLegacyGenerationSnapshotFromStoppedRepository({
         repoId,
@@ -111,7 +117,20 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
     const events = store.events();
     assert.equal(Object.hasOwn(events[0]!.payload.relation, "strength"), false);
     assert.equal(Object.hasOwn(events[1]!.payload.settings, "walFlush"), true);
+    const destinationObject = store.contentObjectDigests().find((digest) => digest === second.blobs[0]!.sha256)!,
+      destinationObjectPath = sqliteContentObjectPath(root, destinationObject),
+      destinationBytes = store.readContentObject(destinationObject)!;
     store.close();
+    writeFileSync(destinationObjectPath, Buffer.alloc(destinationBytes.byteLength, 0x78));
+    assert.throws(
+      () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
+      /invalid object/u,
+    );
+    assert.equal(existsSync(`${databasePath}.activation.json`), false);
+    writeFileSync(destinationObjectPath, destinationBytes);
+    assert.doesNotThrow(() =>
+      preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
+    );
 
     rmSync(snapshotPath, { force: true });
     rmSync(path.join(walRoot, "objects", second.blobs[0]!.sha256), { force: true });
@@ -255,7 +274,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     );
     assert.throws(
       () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
-      /missing object/u,
+      /invalid object/u,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
