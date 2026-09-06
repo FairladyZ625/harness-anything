@@ -91,6 +91,7 @@ export interface SqliteEventStore {
   readonly databasePath: string;
   readonly sqliteVersion: string;
   readonly claimWriter: (fence: SqliteWriterFence) => void;
+  readonly writerFence: () => SqliteWriterFence | null;
   readonly appendCommand: (input: {
     readonly fence: SqliteWriterFence;
     readonly intent: SqliteCommandIntent;
@@ -305,6 +306,10 @@ export function openSqliteEventStore(options: {
     databasePath,
     sqliteVersion,
     claimWriter,
+    writerFence: () => {
+      const writer = readWriter(db, repoId);
+      return writer ? { repoId, ...writer } : null;
+    },
     appendCommand,
     outcome,
     readCommandOutcome: (opId) => readCommandOutcome(db, query, opId),

@@ -19,6 +19,7 @@ import {
   getEntityKindContract,
   makeTaskEventStore,
   makeTaskProjection,
+  openSqliteEventStore,
 } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
@@ -543,7 +544,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     writeEntity(source, "core-squad", "squad", squad);
     await install({ rootDir, kind: "agent-install", packageSource: path.join(source, "terra") });
     await install({ rootDir, kind: "squad-install", packageSource: path.join(source, "core-squad") });
-    const eventStore = makeTaskEventStore({ repoId: "agent-entities-gui", rootDir });
+    const eventStore = makeTaskEventStore({ repoId: "agent-entities", rootDir });
     let canonicalReads = 0;
     const guardedEventStore = {
       ...eventStore,
@@ -802,6 +803,7 @@ interface TestEntityAction {
 }
 
 function run(input: TestEntityAction): unknown {
+  if (!input.kind.endsWith("-validate")) initRepo(input.rootDir);
   return runAgentEntityAction({
     rootDir: input.rootDir,
     runtimeInstances: input.runtimeInstances,
@@ -853,6 +855,8 @@ function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.email", "agent-entities@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
+  // Production reads run against an initialized accepting ledger, even when it is empty.
+  openSqliteEventStore({ repoId: "agent-entities", rootInput: rootDir }).close();
 }
 
 function git(rootDir: string, ...args: string[]): string {

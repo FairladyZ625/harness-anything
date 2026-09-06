@@ -5,6 +5,7 @@ export interface ThinCommand {
   readonly rootDir: SafePath;
   readonly repoId?: string;
   readonly json: boolean;
+  readonly noWait?: boolean;
   readonly method: string;
   readonly action: Readonly<Record<string, unknown>> & {
     readonly kind: string;

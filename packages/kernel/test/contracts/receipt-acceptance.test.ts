@@ -125,3 +125,34 @@ test("an intent-conflict rejection cannot borrow acceptance from the operation i
   assert.equal(receipt.proof, undefined);
   assert.deepEqual(validateReceiptAcceptance(receipt), []);
 });
+
+test("an idempotent no-change result retains its accepted interval without claiming another application", () => {
+  const store = {
+    readCommandOutcome: () => ({
+      status: "accepted_durable",
+      firstRevision: 1,
+      lastRevision: 2,
+      memberOpIds: ["member", "command"],
+      recordedAt: "2026-09-06T00:00:00Z",
+    }),
+    readEvent: () => ({ opId: "command" }),
+    publication: () => ({ cut }),
+    followerStatus: () => ({
+      git: { status: "pending", cut: null, commitSha: null },
+      worktree: { status: "pending", cut: null, commitSha: null },
+    }),
+  } as never;
+  for (const watermark of [1, 2]) {
+    const receipt = attachReceiptAcceptance(
+      { outcome: "no_changes", opId: "command", evidence: "same-result:command" },
+      store,
+      { readCut: () => ({ watermark }) } as never,
+    );
+    assert.equal(receipt.outcome, "no_changes");
+    assert.equal(receipt.status, "accepted_durable");
+    assert.equal(receipt.acceptance?.revisionTo, 2);
+    assert.equal(receipt.projection.state, watermark === 2 ? "verified" : "pending");
+    assert.equal(receipt.git.state, "pending");
+    assert.deepEqual(validateReceiptAcceptance(receipt), []);
+  }
+});

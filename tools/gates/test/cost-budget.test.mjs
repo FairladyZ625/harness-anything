@@ -31,7 +31,8 @@ function setup() {
 
 test("G38 measures the production rebuild counter and fixed first-screen reads", async () => {
   assert.deepEqual(await measureCosts(readCostFixture(path.join(setup(), "fixture.json"))), {
-    projectionRebuildGitProcesses: 4,
+    // Rebuild reads the accepting SQLite ledger; it no longer spawns Git.
+    projectionRebuildGitProcesses: 0,
     firstScreenReadRpcs: 7,
   });
 });

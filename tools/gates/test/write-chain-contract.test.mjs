@@ -90,7 +90,7 @@ test("G03 rejects an unsafe target before freezing the write plan", () => {
   );
 });
 
-test("G03 derives exact local WAL declarations from canonical targets", () => {
+test("G03 derives exact ledger declarations from canonical targets", () => {
   const plan = freezeDeclaredWritePlan(
     {
       commandType: "CreateReplayTask",
@@ -104,11 +104,19 @@ test("G03 derives exact local WAL declarations from canonical targets", () => {
     ["CreateReplayTask"],
   );
   assert.deepEqual(
-    plan.targets.filter((target) => target.kind === "local_wal_file"),
+    plan.targets.filter((target) => target.kind === "ledger_file"),
     [
-      { kind: "local_wal_file", path: ".harness/wal/seg-000000.log", operation: "append" },
-      { kind: "local_wal_file", path: ".harness/wal/head.json", operation: "replace" },
-      { kind: "local_wal_file", path: `.harness/wal/objects/${"a".repeat(64)}`, operation: "replace" },
+      ...[
+        ".harness/store/generations/1/ledger.sqlite",
+        ".harness/store/generations/1/ledger.sqlite-wal",
+        ".harness/store/generations/1/ledger.sqlite-shm",
+        "harness/events/segments/manifest.json",
+      ].map((path) => ({ kind: "ledger_file", path, operation: "replace" })),
+      {
+        kind: "ledger_file",
+        path: `.harness/store/generations/1/objects/sha256/aa/${"a".repeat(62)}`,
+        operation: "replace",
+      },
     ],
   );
   assert.throws(
@@ -118,12 +126,16 @@ test("G03 derives exact local WAL declarations from canonical targets", () => {
           commandType: "CreateReplayTask",
           targets: [
             ...plan.targets,
-            { kind: "local_wal_file", path: `.harness/wal/objects/${"b".repeat(64)}`, operation: "replace" },
+            {
+              kind: "ledger_file",
+              path: `.harness/store/generations/1/objects/sha256/bb/${"b".repeat(62)}`,
+              operation: "replace",
+            },
           ],
         },
         ["CreateReplayTask"],
       ),
-    /local WAL targets must exactly derive/u,
+    /ledger targets must exactly derive/u,
   );
 });
 
@@ -191,7 +203,7 @@ test("G03 still rejects two authored writes to the same path", () => {
   );
 });
 
-test("G03 folds identical content targets and their derived WAL object target by SHA", () => {
+test("G03 folds identical content targets and their derived ledger object target by SHA", () => {
   const content = { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" };
   const plan = freezeDeclaredWritePlan(
     {
@@ -209,7 +221,7 @@ test("G03 folds identical content targets and their derived WAL object target by
 
   assert.equal(plan.targets.filter((target) => target.kind === "content_blob").length, 1);
   assert.equal(
-    plan.targets.filter((target) => target.kind === "local_wal_file" && target.path.includes("/objects/")).length,
+    plan.targets.filter((target) => target.kind === "ledger_file" && target.path.includes("/objects/")).length,
     1,
   );
   assert.throws(
@@ -218,7 +230,7 @@ test("G03 folds identical content targets and their derived WAL object target by
         {
           commandType: "DocSyncSubmit",
           targets: [
-            ...plan.targets.filter((target) => target.kind !== "local_wal_file"),
+            ...plan.targets.filter((target) => target.kind !== "ledger_file"),
             { ...content, mediaType: "application/octet-stream" },
           ],
         },
@@ -309,6 +321,23 @@ test("G02 freezes deterministic event bytes and a committed head shape", () => {
 });
 
 test("G02/G07 expose one four-state receipt and bounded recovery contract", async () => {
+  const cut = { repoId: "gate-fixture", generation: 1, revision: 1, headDigest: `sha256:${"a".repeat(64)}` };
+  const acceptanceFields = {
+    status: "accepted_durable",
+    acceptance: {
+      storage: "sqlite",
+      durability: "local_fsync",
+      recordedAt: "2026-09-06T00:00:00.000Z",
+      revisionFrom: 1,
+      revisionTo: 1,
+      memberOpIds: ["op_1"],
+      cut,
+    },
+    projection: { state: "verified", cut },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
+  };
   const contract = await import("../../../packages/kernel/src/domain/write-chain.contract.ts");
   assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "no_changes", "indeterminate", "op_rejected"]);
   assert.deepEqual(contract.RECOVERY_BUDGET, { deadline: 100, maxItems: 64, retry: 1 });
@@ -325,6 +354,7 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   );
   assert.deepEqual(
     createWriteReceipt({
+      ...acceptanceFields,
       outcome: "applied",
       opId: "op_1",
       revision: 1,
@@ -335,6 +365,7 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
     }),
     {
       authorizationDecision,
+      ...acceptanceFields,
       outcome: "applied",
       opId: "op_1",
       revision: 1,
@@ -346,6 +377,7 @@ test("G02/G07 expose one four-state receipt and bounded recovery contract", asyn
   assert.throws(
     () =>
       createWriteReceipt({
+        ...acceptanceFields,
         outcome: "applied",
         opId: "op_1",
         revision: 1,

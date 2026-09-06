@@ -12,10 +12,7 @@ import {
 } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { freezeDeclaredWritePlan } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
-import {
-  contentObjectRelativePath,
-  eventObjectTarget,
-} from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
+import { contentObjectRelativePath } from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
 import { TaskLifecycleContractError } from "../../../packages/kernel/src/domain/task-lifecycle.contract.ts";
@@ -37,15 +34,19 @@ test("G29 compares the complete published byte delta with the frozen plan declar
       ],
     );
     assert.deepEqual(
-      started.frozenPlan.targets.filter((target) => target.kind === "local_wal_file"),
+      started.frozenPlan.targets.filter((target) => target.kind === "ledger_file"),
       [
-        { kind: "local_wal_file", path: ".harness/wal/seg-000000.log", operation: "append" },
-        { kind: "local_wal_file", path: ".harness/wal/head.json", operation: "replace" },
+        ...[
+          ".harness/store/generations/1/ledger.sqlite",
+          ".harness/store/generations/1/ledger.sqlite-wal",
+          ".harness/store/generations/1/ledger.sqlite-shm",
+          "harness/events/segments/manifest.json",
+        ].map((path) => ({ kind: "ledger_file", path, operation: "replace" })),
         ...started.frozenPlan.targets
           .filter((target) => target.kind === "content_blob")
           .map((target) => ({
-            kind: "local_wal_file",
-            path: `.harness/wal/objects/${target.sha256}`,
+            kind: "ledger_file",
+            path: `.harness/store/generations/1/objects/sha256/${target.sha256.slice(0, 2)}/${target.sha256.slice(2)}`,
             operation: "replace",
           })),
       ],
@@ -55,9 +56,11 @@ test("G29 compares the complete published byte delta with the frozen plan declar
     mkdirSync(path.dirname(artifact), { recursive: true });
     writeFileSync(artifact, Buffer.from([9, 8, 7, 6]));
     writeFileSync(sentinel, Buffer.from([0, 1, 2, 255]));
+    await harness.eventStore.settlePendingMaterialization();
     const before = snapshotTree(harness.rootDir);
 
     const receipt = await harness.submit("execution-1");
+    await harness.eventStore.settlePendingMaterialization();
     assert.equal(receipt.outcome, "applied");
     assert.deepEqual(
       receipt.frozenPlan.targets.filter((target) => target.kind === "lease_sqlite"),
@@ -86,8 +89,10 @@ test("G29 rejects an undeclared write outside the frozen plan", async () => {
   try {
     await harness.create();
     await harness.start("execution-1");
+    await harness.eventStore.settlePendingMaterialization();
     const before = snapshotTree(harness.rootDir);
     const receipt = await harness.submit("execution-1");
+    await harness.eventStore.settlePendingMaterialization();
     assert.throws(
       () =>
         assertWriteTargetDeclared(receipt.frozenPlan, {
@@ -110,17 +115,24 @@ test("G29 rejects an undeclared write outside the frozen plan", async () => {
   }
 });
 
-test("G29 matches governed WAL declarations by exact path", () => {
+test("G29 matches governed ledger declarations by exact path", () => {
   const plan = Object.freeze({
-    commandType: "WalTest",
+    commandType: "LedgerTest",
     targets: Object.freeze([
-      Object.freeze({ kind: "local_wal_file", path: ".harness/wal/head.json", operation: "replace" }),
+      Object.freeze({ kind: "ledger_file", path: ".harness/store/generations/1/ledger.sqlite", operation: "replace" }),
     ]),
   });
-  assert.doesNotThrow(() => assertChangedPathsDeclared(new Map(), new Map([[".harness/wal/head.json", "head"]]), plan));
+  assert.doesNotThrow(() =>
+    assertChangedPathsDeclared(new Map(), new Map([[".harness/store/generations/1/ledger.sqlite", "head"]]), plan),
+  );
   assert.throws(
-    () => assertChangedPathsDeclared(new Map(), new Map([[".harness/wal/seg-000000.log", "event"]]), plan),
-    /G29 undeclared byte mutation.*\.harness\/wal\/seg-000000\.log/iu,
+    () =>
+      assertChangedPathsDeclared(
+        new Map(),
+        new Map([[".harness/store/generations/1/ledger.sqlite.backup", "event"]]),
+        plan,
+      ),
+    /G29 undeclared byte mutation.*\.harness\/store\/generations\/1\/ledger\.sqlite\.backup/iu,
   );
 });
 
@@ -144,7 +156,7 @@ test("G29 treats a declared SQLite database as its main file plus -wal and -shm,
   );
 });
 
-test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", () => {
+test("G29 doc publication rejects extra, missing, and late targets before Git or SQLite mutation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g29-doc-"));
   try {
     git(rootDir, "init", "-q");
@@ -191,7 +203,7 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     };
     const blob = { sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown", body },
       plan = docSyncWritePlan(event),
-      baseTargets = plan.targets.filter((target) => target.kind !== "local_wal_file"),
+      baseTargets = plan.targets.filter((target) => target.kind !== "ledger_file"),
       extra = freezeDeclaredWritePlan(
         {
           commandType: "DocSyncSubmit",
@@ -206,18 +218,23 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     for (const invalid of [extra, missing]) {
       assert.throws(() => store.append({ event, plan: invalid, blobs: [blob] }), /write plan/iu);
       assert.deepEqual(store.currentCommit(), baseCommit);
+      assert.deepEqual(store.currentCut(), base);
     }
     assert.throws(() => plan.targets.push(extra.targets.at(-1)));
     assert.deepEqual(store.currentCommit(), baseCommit);
+    assert.deepEqual(store.currentCut(), base);
     const receipt = store.append({ event, plan, blobs: [blob] });
     assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
-    assert.deepEqual(receipt.metrics.changedPaths, [
+    assert.deepEqual(receipt.metrics.changedPaths, []); // Acceptance performs no Git publication.
+    await store.settlePendingMaterialization();
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.deepEqual(git(rootDir, "diff", "--name-only", baseCommit.sha, "HEAD").split("\n"), [
       "harness/context/notes.md",
-      eventObjectTarget("doc-op"),
-      "harness/events/head.json",
-      `harness/${contentObjectRelativePath(hash)}`,
+      "harness/events/segments/manifest.json",
     ]);
+    assert.equal(git(rootDir, "show", "HEAD:harness/context/notes.md"), body.trim());
     assert.equal(projection.readDocument("context/notes.md").document?.blobSha256, hash);
+    await store.drain();
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -257,7 +274,7 @@ function SQLITE_DATABASE_FOOTPRINT(mainFile) {
 function declaredMatchers(plan) {
   return plan.targets.flatMap((target) => {
     if (target.kind === "event_file" || target.kind === "event_head") return [exact(target.path)];
-    if (target.kind === "local_wal_file") return [exact(target.path)];
+    if (target.kind === "ledger_file") return [exact(target.path)];
     if (target.kind === "authored_file") return [exact(`harness/${target.path}`)];
     if (target.kind === "projection_invalidation" || target.kind === "lease_sqlite")
       return SQLITE_DATABASE_FOOTPRINT(".harness/cache/task.sqlite").map(exact);

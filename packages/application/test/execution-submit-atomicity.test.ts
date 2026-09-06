@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
+  openSqliteEventStore,
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
   submissionDigest,
@@ -20,9 +21,17 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
     writeFileSync(sentinel, Buffer.from([0, 1, 2, 255]));
     const before = readFileSync(sentinel);
 
-    harness.kill("after_event_write");
-    await assert.rejects(harness.submit("execution-1"), /killpoint:after_event_write/u);
-    assert.equal(harness.eventStore.recover().status, "committed");
+    harness.kill("after_sqlite_commit");
+    await assert.rejects(harness.submit("execution-1", "op-submit-interrupted"), /killpoint:after_sqlite_commit/u);
+    const reopened = openSqliteEventStore({ repoId: "test-repo", rootInput: harness.rootDir, readOnly: true });
+    try {
+      assert.equal(
+        reopened.readCommandOutcome(harness.eventStore.read().events.at(-1)!.opId)?.status,
+        "accepted_durable",
+      );
+    } finally {
+      reopened.close();
+    }
     harness.projection.catchUp();
 
     const read = await harness.service.read("task-1");
@@ -103,6 +112,32 @@ test("an amendment makes prior Review and consent pins stale until explicit cons
 
     await assert.rejects(harness.amend("execution-1", "op-amend-completed"), /current submitted execution/u);
     await assert.rejects(harness.amend("execution-other", "op-amend-other"), /current submitted execution/u);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("submit interrupted before the SQLite outcome preserves the active execution and held lease", async () => {
+  const harness = lifecycleHarness();
+  try {
+    await harness.create();
+    await harness.start("execution-1");
+    harness.kill("after_event_write");
+    await assert.rejects(harness.submit("execution-1", "op-submit-failed"), /killpoint:after_event_write/u);
+    assert.equal(harness.eventStore.read().events.length, 2);
+    const reopened = openSqliteEventStore({ repoId: "test-repo", rootInput: harness.rootDir, readOnly: true });
+    try {
+      assert.equal(reopened.outcomes().length, 2);
+    } finally {
+      reopened.close();
+    }
+    harness.projection.catchUp();
+    const read = await harness.service.read("task-1");
+    assert.equal(read.snapshot.executions[0]?.state, "active");
+    assert.equal(read.snapshot.task?.currentNode, "implementation");
+    assert.equal(read.snapshot.lease?.phase, "held");
+    assert.deepEqual(read.snapshot.edgesTaken, []);
+    assert.equal((await harness.submit("execution-1", "op-submit-failed")).outcome, "applied");
   } finally {
     await harness.cleanup();
   }

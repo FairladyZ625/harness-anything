@@ -17,7 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import {
   actor,
@@ -72,7 +72,11 @@ test("a different destination document at the same path requires a decision and 
       )) as Record<string, unknown>;
     assert.equal(preview.exitCode, 0, JSON.stringify(preview));
     assert.equal(preview.outcome, "pending");
-    assert.equal((preview.proof as { readonly canonicalVisible: boolean }).canonicalVisible, false);
+    assert.equal(preview.acceptance, null);
+    for (const facet of [preview.projection, preview.git, preview.worktree]) {
+      assert.equal((facet as { readonly state: string }).state, "pending");
+      assert.equal((facet as { readonly cut: unknown }).cut, null);
+    }
     assert.match(String(preview.summary), /resolved: source/u);
     assert.equal(
       makeTaskEventReader({
@@ -91,6 +95,7 @@ test("a different destination document at the same path requires a decision and 
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    await waitForFixturePublication(cell, String(applied.opId), { actor, source: "local" });
     assert.equal(readFileSync(target, "utf8"), sourceBody);
     assert.equal(
       readdirSync(path.dirname(target)).some((name) => name.includes(".conflict-")),
@@ -149,6 +154,7 @@ test("destination resolution keeps the visible target and explicitly accounts fo
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
+    await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
     assert.equal(readFileSync(target, "utf8"), destinationBody);
     assert.match(
       String(result.summary),
@@ -208,6 +214,7 @@ test(
         { actor, source: "local" },
       )) as Record<string, unknown>;
       assert.equal(result.exitCode, 0, JSON.stringify(result));
+      await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
       assert.equal(readlinkSync(target), sourceTarget);
       assert.equal(
         readdirSync(directory).some((name) => name.includes(".conflict-")),
@@ -274,6 +281,7 @@ test(
         { actor, source: "local" },
       )) as Record<string, unknown>;
       assert.equal(result.exitCode, 0, JSON.stringify(result));
+      await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
       assert.equal(lstatSync(target).isFile(), true);
       assert.equal(
         readFileSync(target, "utf8"),

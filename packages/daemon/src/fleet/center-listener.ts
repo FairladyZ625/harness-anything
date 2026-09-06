@@ -13,7 +13,7 @@ import { createServer, type Server } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts";
 import { syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
-import { openPersistentWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import {
   brokerHost as brokerHostImpl,
   discardOwnedClaims as discardOwnedClaimsImpl,
@@ -55,7 +55,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       now,
     }),
     ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
-    acquireWriterEpoch = options.writerEpochLease ?? writerEpoch.acquire;
+    acquireWriterEpoch =
+      options.writerEpochLease ??
+      ((repoId: string) => {
+        const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
+        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+      });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   // A center must keep using the epoch it acquired, even after another center

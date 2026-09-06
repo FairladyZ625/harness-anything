@@ -5,10 +5,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, sha256Text } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
@@ -63,6 +63,7 @@ test("WAL flush keeps forbidden and unresolved candidates out of an eligible bat
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-mixed", title: "Mixed WAL" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -130,7 +131,7 @@ test("a repeated authored write target settles to the latest WAL claim", async (
     assert.equal(second.outcome, "applied", JSON.stringify(second));
     await waitForHeadBody(rootDir, logical, latestBody);
     assert.equal(git(rootDir, "show", `HEAD:harness/${logical}`), latestBody.trim());
-    const events = makeTaskEventStore({ repoId, rootDir })
+    const events = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.filter((event) => event.schema === "doc-event/v1");
     assert.equal(events.length, 2);
@@ -158,6 +159,7 @@ test("closing after a state transition drains a settlement event created by the 
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-close", title: "Close settlement" }, binding);
     assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -170,6 +172,7 @@ test("closing after a state transition drains a settlement event created by the 
     assert.equal(git(rootDir, "show", `HEAD:harness/${logical}`), body.trim());
     assert.equal(git(rootDir, "diff", "--name-only"), "");
   } finally {
+    await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

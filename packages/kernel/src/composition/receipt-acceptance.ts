@@ -98,7 +98,7 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     git: { ...facet(follower.git), commitSha: follower.git.commitSha },
     worktree: facet(follower.worktree),
     replica: empty.replica,
-    outcome: visible ? "applied" : "pending",
+    outcome: receipt.outcome === "no_changes" ? "no_changes" : visible ? "applied" : "pending",
     revision: outcome.lastRevision,
     evidence: receipt.evidence ?? `sqlite-command:${outcome.opId}`,
     visibility: "center",

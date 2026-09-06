@@ -283,7 +283,26 @@ export async function runCommandThroughDaemon(
     daemonAutostartOptions(command, autostart, env, target.userRoot, target.daemonId),
   );
   result = await settleRepoWarming(result, request, target.userRoot, target.daemonId);
-  if (command.action.kind !== "preset-run-start") return result;
+  if (command.action.kind !== "preset-run-start")
+    return settleCommandVisibility(command, result, (opId) =>
+      requestLocalDaemonJsonRpcForTarget(
+        target,
+        "repo.task.read",
+        {
+          repo: { repoId: target.repoId },
+          payload: {
+            action: {
+              kind: "receipt-show",
+              opId,
+              waitFor: ["worktree_visible", "git_verified"],
+              timeoutMs: 5_000,
+            },
+          },
+        },
+        75,
+        10_000,
+      ),
+    );
   let observed = 0;
   for (;;) {
     const phases = Array.isArray(result.phases)
@@ -332,6 +351,47 @@ export async function runCommandThroughDaemon(
         nextAction: "Reconnect and inspect status; do not automatically retry.",
       };
     }
+  }
+}
+
+// This is a follower wait, never a retry of the accepted write. A disconnect must retain its durable receipt.
+export async function settleCommandVisibility(
+  command: ThinCommand,
+  receipt: JsonObject,
+  read: (opId: string) => Promise<JsonObject>,
+): Promise<JsonObject> {
+  if (
+    command.noWait ||
+    command.action.kind === "receipt-show" ||
+    receipt.status !== "accepted_durable" ||
+    typeof receipt.opId !== "string"
+  )
+    return receipt;
+  try {
+    const observed = await read(receipt.opId);
+    if (observed.status !== "accepted_durable" || observed.opId !== receipt.opId)
+      return { ...receipt, visibilityWaitError: "Receipt visibility could not be observed; inspect receipt show." };
+    const fields = [
+      "status",
+      "acceptance",
+      "projection",
+      "git",
+      "worktree",
+      "replica",
+      "wait",
+      "proof",
+      "cut",
+      "commitSha",
+      "canonicalVisible",
+      "worktreeVisible",
+      "revision",
+    ];
+    return {
+      ...receipt,
+      ...Object.fromEntries(fields.filter((key) => key in observed).map((key) => [key, observed[key]])),
+    };
+  } catch (error) {
+    return { ...receipt, visibilityWaitError: cliErrorMessage(error) };
   }
 }
 

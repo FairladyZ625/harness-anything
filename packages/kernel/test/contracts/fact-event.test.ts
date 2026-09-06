@@ -283,9 +283,11 @@ test("Decision compiler renders the exact single-file package and frozen write p
       "projection_invalidation",
       "projection_invalidation",
       "projection_invalidation",
-      "local_wal_file",
-      "local_wal_file",
-      "local_wal_file",
+      "ledger_file",
+      "ledger_file",
+      "ledger_file",
+      "ledger_file",
+      "ledger_file",
     ],
   );
   assert.deepEqual(decision.blobs[0], {

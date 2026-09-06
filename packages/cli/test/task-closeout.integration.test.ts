@@ -5,6 +5,12 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import {
+  createImmutableLegacyGenerationSnapshot,
+  convertLegacyGeneration,
+  legacyGenerationSnapshotPath,
+  makeTaskEventReader,
+} from "../../kernel/src/index.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -24,6 +30,10 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
       packagePath = String(created.packagePath),
       closeoutPath = `${packagePath}/closeout.md`,
       commitSha = git(root, "rev-parse", "HEAD");
+    assert.equal(created.status, "accepted_durable");
+    assert.equal((created.worktree as { state: string }).state, "verified");
+    assert.equal((created.git as { state: string }).state, "verified");
+    assert.equal(existsSync(path.join(root, "harness", packagePath, "task_plan.md")), true);
     const schema = JSON.parse(
         String(run(root, userRoot, ["task", "closeout", taskId, "--print-schema"]).summary),
       ) as Record<string, unknown>,
@@ -99,14 +109,33 @@ test("a submitted fixture reaches done through one ha task closeout command", (c
   }
 });
 
-test("a standard task with only task-package deliverables completes without a fabricated code-doc path", (context) => {
+test("a standard task with only task-package deliverables completes without a fabricated code-doc path", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-task-closeout-report-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     taskId = "task-closeout-report",
     executionId = "execution-closeout-report";
   initialize(root);
-  seedSettingsEvent({ rootDir: root, repoId: "closeout-report" });
+  const sourceRoot = path.join(parent, "import-source");
+  initialize(sourceRoot);
+  seedSettingsEvent({ rootDir: sourceRoot, repoId: "closeout-report" });
+  const sourceLedger = makeTaskEventReader({ rootDir: sourceRoot, repoId: "closeout-report" }),
+    snapshotPath = legacyGenerationSnapshotPath(root);
+  try {
+    const snapshot = createImmutableLegacyGenerationSnapshot({
+      repoId: "closeout-report",
+      source: sourceLedger,
+      snapshotPath,
+    });
+    const imported = convertLegacyGeneration({
+      rootDir: root,
+      snapshotPath,
+      fence: { repoId: "closeout-report", holder: "cold-import", epoch: 40 },
+    });
+    assert.equal(imported.migratedEvents, snapshot.eventCount);
+  } finally {
+    await sourceLedger.drain();
+  }
   try {
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "closeout-report", "--root", root, "--no-link"]);

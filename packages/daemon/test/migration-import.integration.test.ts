@@ -14,7 +14,7 @@ import {
 
 type FactEventDraftV1 = Parameters<typeof compileFactWrite>[0]["event"];
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openFencedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import {
   actor,
@@ -67,11 +67,13 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
     assert.match(String(dryRun.summary), /\| relation \| 3 \| 0 \| 3 \| 3 \| PASS \|/u);
     assert.match(String(dryRun.summary), /Format observations: 1 legacy parser observations/u);
     assert.match(String(dryRun.summary), /\| task:INDEX\.md \| excluded \| 1 \| PASS \|/u);
+    assert.equal(before, 0, "the fenced destination must have no bootstrapped events");
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
       { actor, source: "local" },
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
+    await waitForFixturePublication(cell, String(applied.opId), { actor, source: "local" });
     assert.equal(Number(git(destination, "rev-list", "--count", "HEAD")), commitsBeforeApply + 1);
     assert.match(String(applied.idMapPath), /^migrations\//u);
     assert.match(String(applied.summary), /Authored directory audit \(informational\): complete/u);
@@ -195,9 +197,15 @@ test(
         target = path.join(destination, "harness/field-notes/latest.md");
       assert.equal(result.exitCode, 0, JSON.stringify(result));
       assert.equal(result.outcome, "applied");
+      await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
       assert.equal(lstatSync(target).isSymbolicLink(), true);
       assert.equal(readlinkSync(target), linkTarget);
-      assert.equal(result.commitSha, undefined);
+      // The follower may already have verified Git before the import response arrives.
+      if (result.commitSha !== undefined) {
+        const gitFacet = result.git as { readonly state: string; readonly commitSha: string | null };
+        assert.equal(gitFacet.state, "verified", JSON.stringify(result));
+        assert.equal(result.commitSha, gitFacet.commitSha);
+      }
       await cell.close();
       cell = undefined;
       assert.match(git(destination, "ls-tree", "HEAD", "--", "harness/field-notes/latest.md"), /^120000 blob /u);
@@ -255,6 +263,7 @@ test("an authored document in an unfamiliar directory migrates as a repo documen
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
     assert.match(String(result.summary), /\| repo-document \| migrated \| 1 \| PASS \|/u);
+    await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
     assert.equal(
       readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"),
       "# Field observation\n\nUnknown directories are ordinary authored content.\n",

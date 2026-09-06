@@ -6,7 +6,7 @@ import {
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
 import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
-import { type HarnessLayoutInput } from "../layout/index.ts";
+import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import {
   canonicalDocumentClaims,
@@ -140,6 +140,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   };
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
+  const acceptedWorktree = new Map<string, { fingerprint: string; preserve: boolean }>();
   const append = (bundle: CanonicalWriteBundle): CanonicalEventAppendReceipt => {
     if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
     validateCanonicalWriteBundle(bundle);
@@ -148,7 +149,23 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     const members = [...(bundle.preceding ?? []), bundle],
       appended = members.map((member) => member.event),
       blobs = members.flatMap((member) => member.blobs),
-      fence = options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 },
+      revisionBeforeAcceptance = sqlite.revision(),
+      authoredRoot = resolveHarnessLayout(input).authoredRoot,
+      acceptedBaseline = new Map<string, { fingerprint: string; preserve: boolean }>();
+    for (const event of appended) {
+      for (const claim of canonicalDocumentClaims(event)) {
+        const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${claim.path}`);
+        if (!node || node.mode !== "100644") continue;
+        const prose =
+          event.schema === "doc-event/v1" &&
+          event.payload.changes.some(
+            (change) => change.path === claim.path && change.policyId === "markdown-body-replaceable/v1",
+          );
+        if (isTaskEvent(event) || (prose && sha256Text(node.body.replace(/\r\n/gu, "\n")) === claim.sha256))
+          acceptedBaseline.set(claim.path, { fingerprint: worktreeFingerprint(node), preserve: isTaskEvent(event) });
+      }
+    }
+    const fence = options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 },
       accept = () =>
         sqlite.appendCommand({
           fence: { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
@@ -163,6 +180,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         });
     if (options.withAppendFence) options.withAppendFence(accept);
     else accept();
+    if (sqlite.revision() > revisionBeforeAcceptance)
+      for (const [logical, baseline] of acceptedBaseline) acceptedWorktree.set(logical, baseline);
     try {
       options.killpoint?.("after_sqlite_commit");
       follower = pendingFollower("Git follower has not verified the accepted ledger cut");
@@ -187,12 +206,47 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     }
   };
 
+  const settleFollowerWorktree = (
+    currentLedger: ReturnType<typeof ledger>,
+    files: readonly PublicationFile[],
+    baseline: ReadonlyMap<string, string>,
+    commit: string,
+  ): boolean => {
+    const permitted = new Map(baseline),
+      preserve = new Set<string>();
+    for (const [logical, accepted] of acceptedWorktree) {
+      const target = ledgerGitPath(currentLedger, logical);
+      if (
+        !baseline.has(target) ||
+        worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`)) !==
+          accepted.fingerprint
+      )
+        continue;
+      permitted.set(target, accepted.fingerprint);
+      if (accepted.preserve && baseline.get(target) !== accepted.fingerprint) preserve.add(target);
+    }
+    if (!worktreeMatchesBaseline(currentLedger.rootDir, permitted, files)) return false;
+    if (!settleWorktree(currentLedger.rootDir, files, permitted, options.killpoint, preserve, commit)) return false;
+    verifyWorktreeFiles(currentLedger.rootDir, files);
+    acceptedWorktree.clear();
+    return true;
+  };
+
   const publishFollower = () => {
     const accepted = cut(),
       currentLedger = ledger(),
       currentRef = authoredRef(),
-      parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef),
-      verifiedRevision =
+      parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
+    if (accepted.revision === 0) {
+      follower = pendingFollower("No accepted ledger cut exists to publish");
+      return {
+        status: "visible" as const,
+        commitSha: ledgerCommitSha(options.repoId, parent),
+        changed: [],
+        conflicts: [],
+      };
+    }
+    const verifiedRevision =
         certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
       pendingEvents = readPendingEvents(sqlite, Math.min(verifiedRevision, settledWorktreeRevision)),
       files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
@@ -212,19 +266,15 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
             closureFiles,
           ),
           ...(pendingWorktreeBaseline ?? []),
-        ]),
-        dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, closureFiles);
+        ]);
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
         worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
       };
-      if (!dirty) {
-        pendingWorktreeBaseline = baseline;
-        if (settleWorktree(currentLedger.rootDir, closureFiles, baseline, options.killpoint)) {
-          verifyWorktreeFiles(currentLedger.rootDir, closureFiles);
-          pendingWorktreeBaseline = null;
-          settledWorktreeRevision = accepted.revision;
-        }
+      pendingWorktreeBaseline = baseline;
+      if (settleFollowerWorktree(currentLedger, closureFiles, baseline, parent)) {
+        pendingWorktreeBaseline = null;
+        settledWorktreeRevision = accepted.revision;
       }
       verifyAuthoredRef(currentLedger.rootDir, currentRef, parent);
       follower = {
@@ -251,12 +301,13 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         new Date().toISOString(),
       );
     options.killpoint?.("after_git_commit");
-    const baseline = new Map([
-        ...captureGitBaseline(currentLedger.rootDir, parent, files),
-        ...(pendingWorktreeBaseline ?? []),
-      ]),
-      dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, files);
-    if (dirty) pendingWorktreeBaseline = baseline;
+    const baseline = new Map(captureGitBaseline(currentLedger.rootDir, parent, files));
+    for (const [target, previous] of pendingWorktreeBaseline ?? []) {
+      const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`));
+      // Exact bytes from the latest certified Git cut can advance an older pending baseline.
+      if (current !== baseline.get(target)) baseline.set(target, previous);
+    }
+    pendingWorktreeBaseline = baseline;
     finalizeRefs(currentLedger.rootDir, currentRef, commit, parent, tempRef);
     options.killpoint?.("after_git_ref_update");
     verifyGitFiles(currentLedger.rootDir, commit, files);
@@ -266,13 +317,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
-    if (!dirty) {
-      pendingWorktreeBaseline = baseline;
-      if (settleWorktree(currentLedger.rootDir, files, baseline, options.killpoint)) {
-        verifyWorktreeFiles(currentLedger.rootDir, files);
-        pendingWorktreeBaseline = null;
-        settledWorktreeRevision = accepted.revision;
-      }
+    if (settleFollowerWorktree(currentLedger, files, baseline, commit)) {
+      pendingWorktreeBaseline = null;
+      settledWorktreeRevision = accepted.revision;
     }
     const manifest = files.find((file) => "target" in file && file.target.endsWith("events/segments/manifest.json"));
     if (!manifest || !("target" in manifest)) throw new Error("outbox manifest is absent");
@@ -607,6 +654,8 @@ function settleWorktree(
   files: readonly PublicationFile[],
   baseline: ReadonlyMap<string, string>,
   killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void,
+  preserve: ReadonlySet<string> = new Set(),
+  commit = "",
 ): boolean {
   const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
     writes = files.flatMap((file) => ("target" in file ? [file] : []));
@@ -625,7 +674,20 @@ function settleWorktree(
         `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`,
         baseline,
         killpoint,
-        (hooks) => localGitWorktreeSettlement.visible(repoRoot, [file], hooks),
+        (hooks) => {
+          if (preserve.has(file.target)) {
+            hooks.beforeRename();
+            const node = localGitWorktreeSettlement.readNode(`${repoRoot}/${file.target}`);
+            if (node && node.body !== file.body)
+              localGitWorktreeSettlement.preserveVisibleConflict(
+                repoRoot,
+                `${repoRoot}/${file.target}`,
+                file.target,
+                commit,
+              );
+          }
+          localGitWorktreeSettlement.visible(repoRoot, [file], hooks);
+        },
       )
     )
       return false;

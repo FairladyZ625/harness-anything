@@ -161,7 +161,7 @@ export type WriteTarget =
       readonly operation: "reserve" | "activate" | "release";
     }
   | { readonly kind: "content_blob"; readonly sha256: string; readonly size: number; readonly mediaType: string }
-  | { readonly kind: "local_wal_file"; readonly path: string; readonly operation: "append" | "replace" };
+  | { readonly kind: "ledger_file"; readonly path: string; readonly operation: "replace" };
 export interface ContentAddressedInput {
   readonly sha256: string;
   readonly size: number;
@@ -375,7 +375,7 @@ function safeIdentity(value: unknown): value is string {
 function targetKey(target: WriteTarget): string {
   return target.kind === "event_file" || target.kind === "event_head" || target.kind === "authored_file"
     ? `${target.kind}:${target.path}`
-    : target.kind === "local_wal_file" || target.kind === "authored_file_delete"
+    : target.kind === "ledger_file" || target.kind === "authored_file_delete"
       ? `${target.kind}:${target.path}`
       : target.kind === "projection_invalidation"
         ? `${target.kind}:${target.projection}:${target.key}`
@@ -387,7 +387,8 @@ function targetKey(target: WriteTarget): string {
 function isContentAddressedTarget(target: WriteTarget): boolean {
   return (
     target.kind === "content_blob" ||
-    (target.kind === "local_wal_file" && /^\.harness\/wal\/objects\/[0-9a-f]{64}$/u.test(target.path))
+    (target.kind === "ledger_file" &&
+      /^\.harness\/store\/generations\/1\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
   );
 }
 
@@ -427,33 +428,37 @@ export function normalizeContentAddressedInputs<T extends ContentAddressedInput>
   return [...bySha256.values()];
 }
 
-const WAL_SEGMENT_PATH = ".harness/wal/seg-000000.log";
-const WAL_HEAD_PATH = ".harness/wal/head.json";
+const LEDGER_DATABASE_PATH = ".harness/store/generations/1/ledger.sqlite";
+const LEDGER_FIXED_PATHS = [
+  LEDGER_DATABASE_PATH,
+  `${LEDGER_DATABASE_PATH}-wal`,
+  `${LEDGER_DATABASE_PATH}-shm`,
+  "harness/events/segments/manifest.json",
+];
 
-function localWalWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
+function ledgerWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
   const blobs = targets.filter(
     (target): target is Extract<WriteTarget, { readonly kind: "content_blob" }> => target.kind === "content_blob",
   );
   return [
-    { kind: "local_wal_file", path: WAL_SEGMENT_PATH, operation: "append" },
-    { kind: "local_wal_file", path: WAL_HEAD_PATH, operation: "replace" },
+    ...LEDGER_FIXED_PATHS.map((path) => ({ kind: "ledger_file" as const, path, operation: "replace" as const })),
     ...blobs.map((blob) => ({
-      kind: "local_wal_file" as const,
-      path: `.harness/wal/objects/${blob.sha256}`,
+      kind: "ledger_file" as const,
+      path: `.harness/store/generations/1/objects/sha256/${blob.sha256.slice(0, 2)}/${blob.sha256.slice(2)}`,
       operation: "replace" as const,
     })),
   ];
 }
 
-function localWalTargetShape(targets: readonly WriteTarget[]): string {
+function ledgerTargetShape(targets: readonly WriteTarget[]): string {
   return stableStringify(targets.map(stableStringify).sort());
 }
 
-function validLocalWalTarget(target: Extract<WriteTarget, { readonly kind: "local_wal_file" }>): boolean {
+function validLedgerTarget(target: Extract<WriteTarget, { readonly kind: "ledger_file" }>): boolean {
   return (
-    (target.path === WAL_SEGMENT_PATH && target.operation === "append") ||
-    (target.path === WAL_HEAD_PATH && target.operation === "replace") ||
-    (/^\.harness\/wal\/objects\/[0-9a-f]{64}$/u.test(target.path) && target.operation === "replace")
+    target.operation === "replace" &&
+    (LEDGER_FIXED_PATHS.includes(target.path) ||
+      /^\.harness\/store\/generations\/1\/objects\/sha256\/[0-9a-f]{2}\/[0-9a-f]{62}$/u.test(target.path))
   );
 }
 
@@ -507,7 +512,7 @@ export function validateDeclaredWritePlan(plan: WritePlan, commandTypes: readonl
         !isNonEmptyString(target.mediaType))
     )
       errors.push("content blob target is invalid");
-    if (target.kind === "local_wal_file" && !validLocalWalTarget(target)) errors.push("local WAL target is invalid");
+    if (target.kind === "ledger_file" && !validLedgerTarget(target)) errors.push("ledger target is invalid");
   }
   return errors;
 }
@@ -516,19 +521,19 @@ export function freezeDeclaredWritePlan<C extends string>(
   plan: WritePlan<C>,
   commandTypes: readonly string[],
 ): FrozenWritePlan<C> {
-  const suppliedWalTargets = normalizeWriteTargets(
+  const suppliedLedgerTargets = normalizeWriteTargets(
     plan.targets.filter(
-      (target): target is Extract<WriteTarget, { readonly kind: "local_wal_file" }> => target.kind === "local_wal_file",
+      (target): target is Extract<WriteTarget, { readonly kind: "ledger_file" }> => target.kind === "ledger_file",
     ),
   );
-  const nonWalTargets = normalizeWriteTargets(plan.targets.filter((target) => target.kind !== "local_wal_file"));
-  const derivedWalTargets = localWalWriteTargets(nonWalTargets);
-  const resolvedPlan = { commandType: plan.commandType, targets: [...nonWalTargets, ...derivedWalTargets] };
+  const logicalTargets = normalizeWriteTargets(plan.targets.filter((target) => target.kind !== "ledger_file"));
+  const derivedLedgerTargets = ledgerWriteTargets(logicalTargets);
+  const resolvedPlan = { commandType: plan.commandType, targets: [...logicalTargets, ...derivedLedgerTargets] };
   const errors = [
     ...validateDeclaredWritePlan(plan, commandTypes),
-    ...(suppliedWalTargets.length > 0 &&
-    localWalTargetShape(suppliedWalTargets) !== localWalTargetShape(derivedWalTargets)
-      ? ["local WAL targets must exactly derive from event and content targets"]
+    ...(suppliedLedgerTargets.length > 0 &&
+    ledgerTargetShape(suppliedLedgerTargets) !== ledgerTargetShape(derivedLedgerTargets)
+      ? ["ledger targets must exactly derive from event and content targets"]
       : []),
     ...validateDeclaredWritePlan(resolvedPlan, commandTypes),
   ];

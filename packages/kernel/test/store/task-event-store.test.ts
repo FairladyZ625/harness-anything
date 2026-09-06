@@ -172,6 +172,8 @@ test("a caller edit at the rename boundary is preserved as a pending worktree co
   const rootDir = fixture("rename-boundary-edit"),
     target = path.join(rootDir, "harness/context/boundary.md");
   initRepo(rootDir);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, "accepted content\r\n");
   let injectEdit = true;
   const store = makeTaskEventStore({
     repoId,

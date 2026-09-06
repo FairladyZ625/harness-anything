@@ -43,7 +43,12 @@ export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliR
       receipt.status === "accepted_durable"
         ? {
             ...base,
-            text: `${base.text}\nacceptance: accepted_durable; git: ${isRecord(receipt.git) ? String(receipt.git.state) : "pending"}; projection: ${isRecord(receipt.projection) ? String(receipt.projection.state) : "pending"}${isRecord(receipt.wait) ? `; wait: ${String(receipt.wait.state)}` : ""}`,
+            text: [
+              `${base.text}\nacceptance: accepted_durable`,
+              `git: ${isRecord(receipt.git) ? String(receipt.git.state) : "pending"}`,
+              `projection: ${isRecord(receipt.projection) ? String(receipt.projection.state) : "pending"}`,
+              ...(isRecord(receipt.wait) ? [`wait: ${String(receipt.wait.state)}`] : []),
+            ].join("; "),
           }
         : base,
     daemonBuild =

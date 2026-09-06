@@ -11,8 +11,11 @@ import {
   compileTaskLifecycleWrite,
   makeTaskEventStore,
   makeTaskEventReader,
+  openSqliteEventStore,
   reduceTaskEvent,
   REPLAY_TASK_GRAPH,
+  serializePersistedCanonicalEvent,
+  sha256Text,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -472,6 +475,39 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
   } finally {
     await recoveryCell?.close();
     await oldCell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("cold-import writer epoch is a floor and never permits an equal-epoch holder or stale writer", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-import-writer-floor-")),
+    repo = probeRepo(root),
+    store = openSqliteEventStore({ rootInput: repo, repoId: "probe-repo" }),
+    authority = openPersistentWriterEpoch({ stateRoot: path.join(root, "epochs"), holderId: "daemon" });
+  try {
+    const event = workerTaskCreated(1);
+    store.appendCommand({
+      fence: { repoId: "probe-repo", holder: "generation-migrator", epoch: 40 },
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+        summary: event.type,
+      },
+      events: [event],
+    });
+    const imported = store.writerFence()!;
+    assert.equal(imported.epoch, 40);
+    assert.throws(() => store.claimWriter({ ...imported, holder: "daemon" }), /another holder/u);
+    const lease = authority.acquire("probe-repo", imported.epoch);
+    assert.equal(lease.epoch, 41);
+    store.claimWriter({ repoId: lease.repoId, holder: lease.holderId, epoch: lease.epoch });
+    assert.throws(() => store.claimWriter(imported), /stale/u);
+    assert.equal(store.revision(), 1);
+    assert.equal(store.outcome(workerTaskCreated(1).opId)?.status, "accepted_durable");
+    assert.throws(() => authority.acquire("probe-repo", -1), /nonnegative safe integer/u);
+  } finally {
+    authority.close();
+    store.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

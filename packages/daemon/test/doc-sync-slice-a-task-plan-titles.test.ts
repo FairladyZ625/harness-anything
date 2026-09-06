@@ -13,7 +13,7 @@ import {
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("a renamed task plan H1 remains authored prose and submits normally", async () => {
@@ -29,9 +29,13 @@ test("a renamed task plan H1 remains authored prose and submits normally", async
     taskId = "task_H1REST0RE000000000000AAAAA",
     title = "很长的自解释标题:带括号与路径的完整 create title";
   try {
-    const created = (await cell.run({ kind: "task-create", taskId, title }, binding)) as { packagePath?: string },
+    const created = (await cell.run({ kind: "task-create", taskId, title }, binding)) as {
+        packagePath?: string;
+        opId: string;
+      },
       plan = `${created.packagePath}/task_plan.md`,
       target = path.join(rootDir, "harness", plan);
+    await waitForFixturePublication(cell, created.opId, binding);
     const scaffold = readFileSync(target, "utf8");
     assert.match(
       scaffold.split("\n")[0] ?? "",
@@ -69,17 +73,17 @@ test("amending the title retitles the published plan through the typed route and
   try {
     const created = (await cell.run({ kind: "task-create", taskId, title: firstTitle }, binding)) as {
         packagePath?: string;
+        opId: string;
       },
       plan = `${created.packagePath}/task_plan.md`,
       target = path.join(rootDir, "harness", plan);
+    await waitForFixturePublication(cell, created.opId, binding);
     const scaffold = readFileSync(target, "utf8");
     assert.match(scaffold.split("\n")[0] ?? "", /^# amend retitle first title$/u);
     writeFileSync(target, `${scaffold}\n## Worker Notes\n\nfirst round of worker prose\n`);
-    assert.equal(
-      (await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome,
-      "applied",
-      JSON.stringify(await cell.run({ kind: "doc-status", paths: [plan] }, binding)),
-    );
+    const synced = await cell.run({ kind: "doc-submit", paths: [plan] }, binding);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    await waitForFixturePublication(cell, synced.opId, binding);
     const amended = (await cell.run(
       {
         kind: "task-amend",
@@ -93,6 +97,7 @@ test("amending the title retitles the published plan through the typed route and
       amended.changedPaths?.includes(plan),
       `amend changedPaths must retitle the plan: ${JSON.stringify(amended.changedPaths)}`,
     );
+    await waitForFixturePublication(cell, amended.opId!, binding);
     const retitled = readFileSync(target, "utf8");
     assert.match(retitled.split("\n")[0] ?? "", /^# amend retitle second title$/u);
     assert.match(retitled, /## Worker Notes\n\nfirst round of worker prose/u);
@@ -133,10 +138,12 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
     const binding = { actor, source: "local" as const };
     const created = (await cell.run({ kind: "task-create", taskId, title: firstTitle }, binding)) as {
         packagePath?: string;
+        opId: string;
       },
       packagePath = created.packagePath!,
       plan = `${packagePath}/task_plan.md`,
       target = path.join(rootDir, "harness", plan);
+    await waitForFixturePublication(cell, created.opId, binding);
     const initialSync = await cell.run({ kind: "doc-submit", taskId }, binding);
     assert.equal(initialSync.outcome, "no_changes", JSON.stringify(initialSync));
     assert.equal(initialSync.code, "no_changes", JSON.stringify(initialSync));
@@ -204,12 +211,13 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
         patches: [{ field: "title", value: secondTitle }],
       },
       binding,
-    )) as { outcome?: string; changedPaths?: readonly string[] };
+    )) as { outcome?: string; opId: string; changedPaths?: readonly string[] };
     assert.equal(noop.outcome, "applied", JSON.stringify(noop));
     assert.ok(
       noop.changedPaths?.includes(plan),
       `no-op amend must retitle the plan: ${JSON.stringify(noop.changedPaths)}`,
     );
+    await waitForFixturePublication(cell, noop.opId, binding);
     // The typed settle preserves the unmerged worker edit as conflict scratch and lays down the
     // retitled base; merging the scratch back by hand restores the worker body on the fresh base.
     const scratches = readdirSync(path.dirname(target)).filter((name) =>
@@ -249,6 +257,7 @@ test("authored CRLF prose is canonicalized on scanner read and submitted as LF",
       assert.equal(event.payload.changes[0]?.candidate.sha256, sha256Text(canonical));
       assert.equal(event.payload.changes[0]?.candidate.size, Buffer.byteLength(canonical));
     }
+    await waitForFixturePublication(cell, submitted.opId, binding);
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), canonical);
   } finally {
     await cell.close();

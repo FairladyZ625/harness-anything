@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -13,15 +14,19 @@ import {
 import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
-import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
+import { openRepoCell as openProductRepoCell, type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
+import {
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+  type WriterEpochFenceDescriptor,
+} from "../src/writer-epoch.ts";
 
 const seededSettings = new Set<string>();
 
-function fixtureFence(repoId: string, stateRoot: string): WriterEpochFenceDescriptor {
+function fixtureFence(repoId: string, rootDir: string, stateRoot: string): WriterEpochFenceDescriptor {
   const authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" });
   try {
-    const lease = authority.acquire(repoId);
+    const lease = authority.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
     return { schema: "harness-writer-epoch-fence/v1", stateRoot, repoId, holderId: lease.holderId, epoch: lease.epoch };
   } finally {
     authority.close();
@@ -71,11 +76,35 @@ export function seedSettingsEvent(input: {
   seededSettings.add(fixtureKey);
 }
 
+export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
+  if (input.mode === "remote-edge") return openProductRepoCell(input);
+  const defaultWriterEpochFence =
+    input.defaultWriterEpochFence ??
+    fixtureFence(
+      input.repoId,
+      input.rootDir,
+      path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
+    );
+  return openProductRepoCell({ ...input, defaultWriterEpochFence });
+};
+
+export async function waitForFixturePublication(cell: RepoCell, opId: string, binding: RepoCellBinding): Promise<void> {
+  const receipt = await cell.run(
+    { kind: "receipt-show", opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+    binding,
+  );
+  assert.equal(receipt.wait?.state, "satisfied", JSON.stringify(receipt));
+}
+
 export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input) => {
   if (input.mode === "remote-edge") return openProductRepoCell(input);
   const defaultWriterEpochFence =
     input.defaultWriterEpochFence ??
-    fixtureFence(input.repoId, path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"));
+    fixtureFence(
+      input.repoId,
+      input.rootDir,
+      path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
+    );
   await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
   const cell = await openProductRepoCell({ ...input, defaultWriterEpochFence });
   try {
@@ -150,7 +179,11 @@ async function settleSettingsEvent(input: {
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
-    const writerEpochFence = fixtureFence(input.repoId, path.join(daemonRegistryPaths(input).userRoot, "fleet"));
+    const writerEpochFence = fixtureFence(
+      input.repoId,
+      input.canonicalRoot,
+      path.join(daemonRegistryPaths(input).userRoot, "fleet"),
+    );
     seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot, writerEpochFence });
   }
   return registerProductDaemonRepo(input);

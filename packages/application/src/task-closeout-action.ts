@@ -411,7 +411,7 @@ function sameSubmission(left: SubmissionV1, right: SubmissionV1): boolean {
 }
 function discoveryReceipt(opId: string, snapshot: Snapshot, value: unknown): WriteReceipt {
   return {
-    outcome: "applied",
+    outcome: "no_changes",
     opId: `read:${opId}`,
     revision: snapshot.revision,
     evidence: JSON.stringify(value),
@@ -419,7 +419,7 @@ function discoveryReceipt(opId: string, snapshot: Snapshot, value: unknown): Wri
     proof: {
       committedRevision: snapshot.revision,
       appliedCut: snapshot.revision,
-      durable: true,
+      durable: false,
       canonicalVisible: true,
       worktreeVisible: null,
     },

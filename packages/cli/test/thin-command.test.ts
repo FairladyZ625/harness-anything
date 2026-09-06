@@ -5,6 +5,7 @@ import test from "node:test";
 import { daemonProtocolCommands, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
 import { deriveCliCapabilities, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { settleCommandVisibility } from "../src/daemon/client.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
@@ -698,3 +699,64 @@ function captureStdout(run: () => void): string {
     console.log = log;
   }
 }
+
+test("CLI visibility waiting preserves durable acceptance and business fields, with an explicit opt-out", async () => {
+  const parsed = parseThinCommand(["task", "create", "--admin", "--id", "task-wait", "--title", "Wait fixture"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  const receipt = {
+    status: "accepted_durable",
+    opId: "op-visible",
+    outcome: "applied",
+    command: "task-create",
+    packagePath: "tasks/task-visible",
+    worktree: { state: "pending", cut: null },
+  };
+  let calls = 0;
+  const observed = {
+    ...receipt,
+    command: "receipt-show",
+    worktree: { state: "verified", cut: null },
+    wait: { state: "satisfied", unsatisfied: [] },
+  };
+  const settled = await settleCommandVisibility(parsed.command, receipt, async (opId) => {
+    calls += 1;
+    assert.equal(opId, receipt.opId);
+    return observed;
+  });
+  assert.equal(calls, 1);
+  assert.equal(settled.command, "task-create");
+  assert.equal(settled.packagePath, receipt.packagePath);
+  assert.deepEqual(settled.worktree, observed.worktree);
+  const noWait = parseThinCommand([
+    "task",
+    "create",
+    "--admin",
+    "--id",
+    "task-wait",
+    "--title",
+    "Wait fixture",
+    "--no-wait",
+  ]);
+  assert.equal(noWait.ok, true);
+  if (!noWait.ok) return;
+  assert.equal(noWait.command.noWait, true);
+  assert.equal("noWait" in noWait.command.action, false);
+  const unexpectedRead = async () => {
+    assert.fail("receipt read must not run");
+  };
+  assert.equal(await settleCommandVisibility(noWait.command, receipt, unexpectedRead), receipt);
+  const rejected = { ...receipt, status: "rejected", outcome: "op_rejected" };
+  assert.equal(await settleCommandVisibility(parsed.command, rejected, unexpectedRead), rejected);
+  const pending = { ...receipt, wait: { state: "timed_out", unsatisfied: ["worktree_visible"] } };
+  const timedOut = await settleCommandVisibility(parsed.command, receipt, async () => pending);
+  assert.equal(timedOut.status, "accepted_durable");
+  assert.deepEqual(timedOut.wait, pending.wait);
+  assert.deepEqual(timedOut.worktree, receipt.worktree);
+  const disconnected = await settleCommandVisibility(parsed.command, receipt, async () => {
+    throw new Error("socket disconnected");
+  });
+  assert.equal(disconnected.status, "accepted_durable");
+  assert.equal(disconnected.outcome, "applied");
+  assert.equal(disconnected.visibilityWaitError, "socket disconnected");
+});
