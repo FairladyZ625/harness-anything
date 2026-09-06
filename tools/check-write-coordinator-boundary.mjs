@@ -69,9 +69,13 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
     const body = readFileSync(path.join(rootDir, file), "utf8"); return /(?<!function\s)\bmakeTaskEventStore\s*\(/u.test(body);
   });
   if (consumers.length !== 1 || consumers[0] !== cellPath) violations.push(`makeTaskEventStore production consumers must be exactly ${cellPath}; found ${consumers.join(", ") || "none"}`);
+  // dec_4944EEC7EE3618CEFDD210DC6B/CH1: the daemon-less offline-maintenance entry is the one thin CLI
+  // file allowed to reach the kernel store (read-only backup/restore drill/events); its exact closure is
+  // pinned by check-cli-structure and it must still never write locally.
+  const offlineMaintenanceEntry = "packages/cli/src/cli-offline-storage.ts";
   for (const file of files.filter((candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"))) {
     const body = readFileSync(path.join(rootDir, file), "utf8");
-    if (/from\s+["'][^"']*(?:kernel|application)\/src/u.test(body)) violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
+    if (file !== offlineMaintenanceEntry && /from\s+["'][^"']*(?:kernel|application)\/src/u.test(body)) violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
     if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body)) violations.push(`${file}: thin CLI must not perform local writes`);
   }
   return violations;
