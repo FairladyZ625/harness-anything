@@ -19,13 +19,11 @@ export function prepareCommit(
     `${message}\n`,
     `from ${parent}\n`,
   ].join("");
-  for (const file of files)
-    input +=
-      "from" in file
-        ? `R ${file.from} ${file.to}\n`
-        : "delete" in file
-          ? `D ${file.delete}\n`
-          : `M ${file.mode} inline ${file.target}\ndata ${Buffer.byteLength(file.body)}\n${file.body}\n`;
+  for (const file of files) {
+    if ("from" in file) input += `R ${file.from} ${file.to}\n`;
+    else if ("delete" in file) input += `D ${file.delete}\n`;
+    else input += `M ${file.mode} ${gitObjects.writeBlob(repoRoot, file.body)} ${file.target}\n`;
+  }
   input += "\nget-mark :1\ndone\n";
   const sha = gitObjects.importCommit(repoRoot, input).toString("utf8").trim().split("\n").at(-1) ?? "";
   if (!/^[0-9a-f]{40}$/u.test(sha)) throw new Error("Git outbox import returned no commit");
