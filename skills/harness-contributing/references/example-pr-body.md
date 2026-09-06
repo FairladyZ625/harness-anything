@@ -18,11 +18,9 @@ make the public entry pages point to that authority.
 
 Deleted-Production-Paths: none
 Deleted-Gates-Fixtures: none
-- Production net lines: the declaration below is calculator-backed.
+- Production net lines: see the computed production-delta job summary.
 
 ## Machine-Readable Declarations
-
-Production-Delta: +0/-0
 
 ### Optional Evidence Claims
 
@@ -123,7 +121,7 @@ Production-Delta: +0/-0
 
 ## 机读声明说明
 
-- 英文块中的 `Production-Delta` 是唯一机读生产增删声明。
+- 生产增删由 production-delta job 计算并写入 job summary。
 - 本示例没有依赖变化，也没有保留旧生产路径。
 - 无；本示例不声明 CI 归因或性能证据。
 
