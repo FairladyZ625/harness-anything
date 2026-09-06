@@ -3,15 +3,9 @@ export * from "./domain/index.ts";
 export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
-  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
-  planLegacyGenerationSnapshotConversion,
-  preflightConvertedGenerationActivation,
   preflightCanonicalGeneration,
-  readImmutableLegacyGenerationSnapshot,
 } from "./composition/index.ts";
-export { sqliteContentObjectPath } from "./composition/index.ts";
-export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./composition/index.ts";
 export {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
@@ -23,7 +17,6 @@ export {
   runtimeSessionMissingOutcomeEvidence,
   runtimeSessionOutcomeFromEvidence,
   runtimeSessionSemanticState,
-  runtimeTaskExecutionRelation,
   sessionProvenance,
   unavailableSessionIdentity,
 } from "./domain/agent-runtime.ts";
@@ -151,11 +144,9 @@ export {
   DOC_POLICY_ID,
   decideDocWrite,
   decideDocWriteCriteria,
-  docByteLength,
   docSyncWritePlan,
   documentPath,
   isDocEvent,
-  isFactEvent,
   isTaskEvent,
   parseDocWriteIntent,
   resolveDocRoute,
@@ -164,7 +155,6 @@ export {
   classifyDocSyncCandidatePath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
-  OPAQUE_TEXTUAL_POLICY_ID,
   type OpaqueTextualMediaType,
   worktreeDocumentMediaType,
 } from "./domain/artifact-text-classification.ts";
@@ -209,12 +199,7 @@ export type {
 } from "./domain/execution.ts";
 export { submissionDigest } from "./domain/execution.ts";
 export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
-export {
-  contentObjectRelativePath,
-  eventObjectRelativePath,
-  eventObjectTarget,
-} from "./layout/ledger-object-layout.ts";
-export { isLedgerLayoutMigrationEvent } from "./domain/ledger-layout-migration-event.ts";
+export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {
   assertNoPortablePathCollisions,
   createHarnessRuntimeContext,
@@ -292,12 +277,10 @@ export {
 export type { CloseoutCiJudgment, TaskCloseoutPacket } from "./schemas/task-closeout-packet.ts";
 export {
   canonicalDocumentClaims,
-  canonicalDocumentRetirements,
   canonicalEventCut,
   canonicalEventWritePlan,
   configureLedgerMaintenance,
   localGitObjectRefStore,
-  localGitWorktreeSettlement,
   createEntityStore,
   ledgerGitPath,
   makeTaskEventReader,
@@ -307,7 +290,6 @@ export {
   eventShapeMigrations,
   makeTaskEventStore,
   makeTaskProjection,
-  migrateEventsToSqlite,
   openSqliteEventStore,
   readCertifiedGitFollower,
   sqliteLedgerPath,
@@ -315,14 +297,12 @@ export {
   makeTaskProjectionReader,
 } from "./composition/index.ts";
 export type {
-  CertifiedGitFollower,
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,
   CanonicalEventCut,
   CanonicalEventStore,
   CanonicalWriteBundle,
   DispatchRecordLeaseSettlement,
-  PublicationFile,
   EntityStore,
   EventPublicationKillpoint,
   MaterializationHealth,
@@ -342,7 +322,6 @@ export {
   registerDaemonConnection,
   resolveDaemonRepoByRoot,
   registerDaemonRepo,
-  daemonRegistryPaths,
   removeDaemonConnection,
   unregisterDaemonRepo,
   updateDaemonConnection,
@@ -356,22 +335,6 @@ export type {
   InvalidDaemonRegistryRepo,
 } from "./daemon/registry.ts";
 
-export {
-  receiptWaitPredicates,
-  unsatisfiedReceiptPredicates,
-  validateReceiptAcceptance,
-} from "./domain/receipt-acceptance.ts";
-export type {
-  ReceiptAcceptanceFields,
-  ReceiptAcceptance,
-  ReceiptConsumerCut,
-  ReceiptFacet,
-  ReceiptGitFacet,
-  ReceiptWaitPredicate,
-} from "./domain/receipt-acceptance.ts";
+export { validateReceiptAcceptance } from "./domain/receipt-acceptance.ts";
 
 export { attachReceiptAcceptance, waitForReceiptAcceptance } from "./composition/receipt-acceptance.ts";
-
-export type { StoppedLegacySourceEvidenceV1 } from "./composition/index.ts";
-
-export { validateWriteReceipt } from "./domain/receipt-domain-registry.ts";

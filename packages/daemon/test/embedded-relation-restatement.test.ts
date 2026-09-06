@@ -1,12 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  deriveRelationId,
-  runtimeTaskExecutionRelation,
-  type AgentRuntimeEventV1,
-  type MigrationImportEventV1,
-} from "../../kernel/src/index.ts";
+import { deriveRelationId, type AgentRuntimeEventV1, type MigrationImportEventV1 } from "../../kernel/src/index.ts";
+// eslint-disable-next-line no-restricted-imports
+import { runtimeTaskExecutionRelation } from "../../kernel/src/domain/agent-runtime.ts";
 import { planEmbeddedRelationRestatements } from "../src/embedded-relation-restatement.ts";
 
 const actor = { principal: { personId: "person_zeyu" }, executor: null } as const;

@@ -5,12 +5,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  validateReceiptAcceptance,
-  validateWriteReceipt,
-  WRITE_RECEIPT_SCHEMA,
-} from "../../kernel/src/index.ts";
+import { makeTaskEventReader, validateReceiptAcceptance, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+// eslint-disable-next-line no-restricted-imports
+import { validateWriteReceipt } from "../../kernel/src/domain/receipt-domain-registry.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 

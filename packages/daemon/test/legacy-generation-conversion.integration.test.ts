@@ -6,26 +6,31 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  assertNoPendingHistoricalRewrites,
   compileSettingsChangedEvent,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
-  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   deriveRelationId,
   makeTaskProjection,
   openSqliteEventStore,
   preflightCanonicalGeneration,
-  preflightConvertedGenerationActivation,
   reconcileSqliteEvents,
   readSettingsFacet,
   serializeEventHead,
   sha256Text,
   stableStringify,
   validateCurrentCanonicalEvent,
-  sqliteContentObjectPath,
   type CanonicalEventV1,
   type CanonicalEventStore,
 } from "../../kernel/src/index.ts";
+// eslint-disable-next-line no-restricted-imports
+import { assertNoPendingHistoricalRewrites } from "../../kernel/src/store/event-shape-migration.ts";
+// eslint-disable-next-line no-restricted-imports
+import {
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
+  preflightConvertedGenerationActivation,
+} from "../../kernel/src/store/legacy-generation-conversion.ts";
+// eslint-disable-next-line no-restricted-imports
+import { sqliteContentObjectPath } from "../../kernel/src/store/sqlite-event-store.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 
 test("stopped legacy Git plus accepted WAL suffix converts without a strict reader", () => {

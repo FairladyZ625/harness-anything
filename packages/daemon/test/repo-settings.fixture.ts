@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   compileSettingsChangedEvent,
-  daemonRegistryPaths,
   compileVerticalDeclarationEvent,
   makeTaskEventStore,
   preflightCanonicalGeneration,
@@ -11,6 +10,8 @@ import {
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
 } from "../../kernel/src/index.ts";
+// eslint-disable-next-line no-restricted-imports
+import { daemonRegistryPaths } from "../../kernel/src/daemon/registry.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";

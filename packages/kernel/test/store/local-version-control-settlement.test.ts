@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { localGitWorktreeSettlement } from "../../src/index.ts";
+import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { withTempStore, withTempStoreAsync } from "./helpers.ts";
 
 function git(repoRoot: string, ...args: readonly string[]): string {
