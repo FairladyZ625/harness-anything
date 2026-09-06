@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const scriptPath = path.resolve(import.meta.dirname, "../../check-cli-structure.mjs");
+const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 
 test("thin CLI structure accepts the bounded production surface on the dist static graph", async () => {
   const root = await fixture();
@@ -63,30 +64,15 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   );
 });
 
-test("thin CLI structure accepts only the named offline-maintenance entry edge", async () => {
+test("thin CLI structure accepts the named offline-maintenance dynamic entry", async () => {
   const root = await fixture();
-  write(
-    root,
-    "packages/cli/src/index.ts",
-    entrySource(["import { offline } from './cli-offline-storage.ts';", "void offline;"]),
-  );
-  write(
-    root,
-    "packages/cli/src/cli-offline-storage.ts",
-    [
-      "import { createLedgerBackup } from '../../kernel/src/store/ledger-backup.ts';",
-      "export const offline = createLedgerBackup;",
-      "",
-    ].join("\\n"),
-  );
-  write(root, "packages/kernel/src/store/ledger-backup.ts", "export function createLedgerBackup(): void {}\\n");
 
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /CLI structure check passed/u);
 });
 
-test("thin CLI structure rejects every other kernel edge even when its target is in the named closure", async () => {
+test("thin CLI structure rejects a static kernel edge even when offline maintenance uses a dynamic entry", async () => {
   const root = await fixture();
   write(
     root,
@@ -110,7 +96,31 @@ test("thin CLI structure rejects every other kernel edge even when its target is
 
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /kernel module outside the offline-maintenance edge/u);
+  assert.match(result.stderr, /dist static import graph reached kernel domain module/u);
+});
+
+test("offline-maintenance dynamic closure rejects one additional module", async () => {
+  const root = await productionOfflineFixture();
+  write(root, "packages/kernel/src/store/unapproved-offline-module.ts", "export const unapproved = true;\n");
+  const ledgerBackup = path.join(root, "packages/kernel/src/store/ledger-backup.ts");
+  writeFileSync(
+    ledgerBackup,
+    `import { unapproved } from "./unapproved-offline-module.ts";\nvoid unapproved;\n${readFile(ledgerBackup)}`,
+    "utf8",
+  );
+
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /offline-maintenance module closure has unapproved entries/u);
+});
+
+test("offline-maintenance dynamic closure rejects one missing pinned module", async () => {
+  const root = await productionOfflineFixture();
+  unlinkSync(path.join(root, "packages/kernel/schemas/json/fact-event.schema.json"));
+
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /offline-maintenance module closure is missing pinned entries/u);
 });
 
 // The original pre-restoration assertions are preserved verbatim here for audit:
@@ -260,6 +270,20 @@ async function fixture() {
   write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
   return root;
 }
+
+async function productionOfflineFixture() {
+  const root = await fixture();
+  cpSync(path.join(repositoryRoot, "packages/kernel"), path.join(root, "packages/kernel"), { recursive: true });
+  copyFileSync(
+    path.join(repositoryRoot, "packages/cli/src/cli-offline-storage.ts"),
+    path.join(root, "packages/cli/src/cli-offline-storage.ts"),
+  );
+  return root;
+}
+
+function readFile(file) {
+  return readFileSync(file, "utf8");
+}
 function entrySource(additions = []) {
   return [
     "import { parseThinCommand } from './cli/thin-command.ts';",
@@ -267,8 +291,10 @@ function entrySource(additions = []) {
     ...additions.filter((line) => line.startsWith("import ")),
     "function emit(): void {}",
     "if (process.argv.includes('daemon')) void import('./daemon/control.ts');",
+    "if (process.argv.includes('backup')) void import('./cli-offline-storage.ts');",
+    ...additions.filter((line) => line.includes("void import(")),
     "void parseThinCommand; void runCommandThroughDaemon; void emit;",
-    ...additions.filter((line) => !line.startsWith("import ")),
+    ...additions.filter((line) => !line.startsWith("import ") && !line.includes("void import(")),
     "",
   ].join("\n");
 }

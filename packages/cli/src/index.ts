@@ -15,7 +15,6 @@ import {
 } from "./cli/thin-command.ts";
 import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishCliTiming } from "./cli/timing.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
-import { isOfflineStorageCommand, runOfflineStorageCommand } from "./cli-offline-storage.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import {
   daemonAutostartFailureCode,
@@ -47,7 +46,10 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   if (argv.includes("--version") || argv.includes("-v") || command === "version")
     return emitMeta("version", argv.includes("--json"));
   if (command === "capabilities") return emitMeta("capabilities", argv.includes("--json"));
-  if (isOfflineStorageCommand(argv)) return runOfflineStorageCommand(argv, emit);
+  if (command === "backup" || command === "restore" || command === "events") {
+    const { runOfflineStorageCommand } = await import("./cli-offline-storage.ts");
+    return runOfflineStorageCommand(argv, emit);
+  }
   if (isRetiredEntityExplain(argv)) {
     emit(
       cliFailure(

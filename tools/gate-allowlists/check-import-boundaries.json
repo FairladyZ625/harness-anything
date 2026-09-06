@@ -14,6 +14,11 @@
         "value": "packages/cli/src/index.ts",
         "ref": "ADR-0022#D3",
         "reason": "CLI adapter imports are confined to the CLI composition root until the boundary is derived from the consumer graph."
+      },
+      {
+        "value": "packages/cli/src/cli-offline-storage.ts",
+        "ref": "dec_4944EEC7EE3618CEFDD210DC6B#CH1",
+        "reason": "The named daemon-less offline-maintenance entry composes the exact read-only store closure for backup, restore drill, and events."
       }
     ],
     "kernelStoreCompositionRoots": [
@@ -21,6 +26,11 @@
         "value": "packages/kernel/src/composition/index.ts",
         "ref": "dec_mra9ag8o; harness/contracts/41-port-discipline-contracts.md#1",
         "reason": "PLT-Bedrock W1 needs one public composition seam for local ArtifactStore and WriteCoordinator factories without exposing the internal store barrel."
+      },
+      {
+        "value": "packages/cli/src/cli-offline-storage.ts",
+        "ref": "dec_4944EEC7EE3618CEFDD210DC6B#CH1",
+        "reason": "The named daemon-less offline-maintenance composition root may reach only its separately pinned store closure."
       }
     ],
     "cliAdapterKnownDebt": []
