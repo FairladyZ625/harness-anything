@@ -119,7 +119,7 @@ export function createImmutableLegacyGenerationSnapshot(input: {
     } satisfies ImmutableLegacySnapshotV1)}\n`;
   localRuntimeStateFileSystem.mkdirp(path.dirname(input.snapshotPath));
   if (!localRuntimeStateFileSystem.createExclusiveText(input.snapshotPath, body)) {
-    const existing = readSnapshot(input.snapshotPath);
+    const existing = readLegacySnapshot(input.snapshotPath);
     if (existing.sourceDigest !== sourceDigest)
       throw new TaskEventStoreError("invalid_store", "immutable generation snapshot already names another source");
   }
@@ -156,7 +156,7 @@ export function convertLegacyGeneration(input: {
   readonly fence?: SqliteWriterFence;
   readonly beforeEvent?: (revision: number) => void;
 }): LegacyGenerationConversionReport {
-  const snapshot = readSnapshot(input.snapshotPath),
+  const snapshot = readLegacySnapshot(input.snapshotPath),
     databasePath = input.databasePath ?? sqliteLedgerPath(input.rootDir, 1),
     markerPath = `${databasePath}.import-source.json`,
     marker = `${JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: snapshot.sourceDigest })}\n`;
@@ -232,14 +232,14 @@ export function convertLegacyGeneration(input: {
 }
 
 export function readImmutableLegacyGenerationSnapshot(snapshotPath: string): ImmutableLegacySnapshotV1 {
-  return readSnapshot(snapshotPath);
+  return readLegacySnapshot(snapshotPath);
 }
 
 export function planLegacyGenerationSnapshotConversion(input: {
   readonly rootDir: string;
   readonly snapshotPath: string;
 }) {
-  const snapshot = readSnapshot(input.snapshotPath),
+  const snapshot = readLegacySnapshot(input.snapshotPath),
     plan = validatedConversionPlan(snapshot, input.rootDir);
   return { snapshot, plan };
 }
@@ -323,7 +323,7 @@ function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV1, rootDir: s
   return plan;
 }
 
-function readSnapshot(snapshotPath: string): ImmutableLegacySnapshotV1 {
+function readLegacySnapshot(snapshotPath: string): ImmutableLegacySnapshotV1 {
   const value = JSON.parse(localRuntimeStateFileSystem.readText(snapshotPath)) as ImmutableLegacySnapshotV1;
   if (value.schema !== "immutable-legacy-generation-snapshot/v1" || value.generation !== 0)
     throw new TaskEventStoreError("invalid_store", "legacy generation snapshot has the wrong schema");
@@ -381,7 +381,7 @@ function writeRawSnapshot(input: {
     body = `${JSON.stringify({ schema: "immutable-legacy-generation-snapshot/v1", ...content, sourceDigest })}\n`;
   localRuntimeStateFileSystem.mkdirp(path.dirname(input.snapshotPath));
   if (!localRuntimeStateFileSystem.createExclusiveText(input.snapshotPath, body)) {
-    const existing = readSnapshot(input.snapshotPath);
+    const existing = readLegacySnapshot(input.snapshotPath);
     if (existing.sourceDigest !== sourceDigest)
       throw new TaskEventStoreError("invalid_store", "immutable generation snapshot already names another source");
   }

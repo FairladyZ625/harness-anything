@@ -87,8 +87,16 @@ export function validateReceiptAcceptance(value: Readonly<Record<string, unknown
   if (value.status === "accepted_durable") {
     const a = value.acceptance;
     if (
-      !record(a) ||
-      !exact(a, ["storage", "durability", "recordedAt", "revisionFrom", "revisionTo", "memberOpIds", "cut"]) ||
+      !receiptRecord(a) ||
+      !receiptExactFields(a, [
+        "storage",
+        "durability",
+        "recordedAt",
+        "revisionFrom",
+        "revisionTo",
+        "memberOpIds",
+        "cut",
+      ]) ||
       a.storage !== "sqlite" ||
       a.durability !== "local_fsync" ||
       !isNonEmptyString(a.recordedAt) ||
@@ -112,8 +120,8 @@ export function validateReceiptAcceptance(value: Readonly<Record<string, unknown
     const facet = value[name],
       fields = ["state", "cut", ...(name === "git" ? ["commitSha"] : [])];
     if (
-      !record(facet) ||
-      !exact(facet, [...fields, ...("reason" in facet ? ["reason"] : [])]) ||
+      !receiptRecord(facet) ||
+      !receiptExactFields(facet, [...fields, ...("reason" in facet ? ["reason"] : [])]) ||
       !["pending", "verified", ...(name === "replica" ? ["not_configured"] : [])].includes(String(facet.state)) ||
       (facet.state === "verified" ? !consumerCut(facet.cut) : facet.cut !== null) ||
       ("reason" in facet && !isNonEmptyString(facet.reason)) ||
@@ -128,8 +136,8 @@ export function validateReceiptAcceptance(value: Readonly<Record<string, unknown
     errors.push("applied requires accepted_durable");
   if (
     "wait" in value &&
-    (!record(value.wait) ||
-      !exact(value.wait, ["state", "unsatisfied"]) ||
+    (!receiptRecord(value.wait) ||
+      !receiptExactFields(value.wait, ["state", "unsatisfied"]) ||
       !["satisfied", "timed_out"].includes(String(value.wait.state)) ||
       !Array.isArray(value.wait.unsatisfied) ||
       !value.wait.unsatisfied.every((item) => (receiptWaitPredicates as readonly unknown[]).includes(item)) ||
@@ -138,10 +146,10 @@ export function validateReceiptAcceptance(value: Readonly<Record<string, unknown
     errors.push("receipt wait result is invalid");
   return errors;
 }
-function record(value: unknown): value is Readonly<Record<string, unknown>> {
+function receiptRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function exact(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
+function receiptExactFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return Object.keys(value).length === fields.length && fields.every((key) => key in value);
 }
 function revision(value: unknown): value is number {
@@ -149,8 +157,8 @@ function revision(value: unknown): value is number {
 }
 function consumerCut(value: unknown): value is ReceiptConsumerCut {
   return (
-    record(value) &&
-    exact(value, ["repoId", "generation", "revision", "headDigest"]) &&
+    receiptRecord(value) &&
+    receiptExactFields(value, ["repoId", "generation", "revision", "headDigest"]) &&
     isNonEmptyString(value.repoId) &&
     value.generation === 1 &&
     revision(value.revision) &&
