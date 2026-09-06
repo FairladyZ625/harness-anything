@@ -48,7 +48,7 @@ export async function runScaleCalibration() {
       blobClaims: blobs.claims,
       expectedEvents: command.expectedEvents,
       expectedCommands: command.primaryCommands,
-      expectedCommandOpIds: command.expectedCommandOpIds,
+      expectedCommandIntents: command.expectedCommandIntents,
     });
     const killRestartMs = await measureKillRestart(path.join(targetRoot, "kill-restart.sqlite"));
     const tCmdMs = command.elapsedMs / command.primaryCommands;
@@ -116,7 +116,7 @@ export async function runFullScaleSeed(seedNumber) {
       blobClaims: blobs.claims,
       expectedEvents: command.expectedEvents,
       expectedCommands: command.primaryCommands,
-      expectedCommandOpIds: command.expectedCommandOpIds,
+      expectedCommandIntents: command.expectedCommandIntents,
     });
     assert.equal(command.denominators.acceptedEvents, fullEventCount);
     assert.equal(command.denominators.idempotentRequests, fullReplayRequests);
@@ -242,7 +242,13 @@ async function runCommandWorkload({
     logs,
     denominators,
     expectedEvents,
-    expectedCommandOpIds: primary.map(({ opId }) => opId),
+    expectedCommandIntents: primary.map(({ opId, intentDigest, firstRevision, expectedEvents }) => ({
+      opId,
+      intentDigest,
+      firstRevision,
+      lastRevision: firstRevision + expectedEvents.length - 1,
+      memberOpIds: expectedEvents.map((event) => event.opId),
+    })),
     blobs: {
       claims: blobClaims,
       denominators: { distinctBlobs: new Set(blobClaims.map(({ sha256 }) => sha256)).size, totalRequests: 0 },
@@ -251,7 +257,7 @@ async function runCommandWorkload({
   };
 }
 
-function runColdRebuilds({ targetRoot, repoId, expectedEvents, expectedCommands, expectedCommandOpIds, blobClaims }) {
+function runColdRebuilds({ targetRoot, repoId, expectedEvents, expectedCommands, expectedCommandIntents, blobClaims }) {
   const runs = [];
   const started = performance.now();
   for (const label of ["first", "second"]) {
@@ -288,7 +294,17 @@ function runColdRebuilds({ targetRoot, repoId, expectedEvents, expectedCommands,
             row.eventJson === serializePersistedCanonicalEvent(expectedEvents[index]),
         ) &&
         outcomes.length === expectedCommands &&
-        outcomes.every((outcome, index) => outcome.opId === expectedCommandOpIds[index]) &&
+        outcomes.every((outcome, index) => {
+          const expected = expectedCommandIntents[index];
+          return (
+            outcome.status === "accepted_durable" &&
+            outcome.opId === expected.opId &&
+            outcome.intentDigest === expected.intentDigest &&
+            outcome.firstRevision === expected.firstRevision &&
+            outcome.lastRevision === expected.lastRevision &&
+            JSON.stringify(outcome.memberOpIds) === JSON.stringify(expected.memberOpIds)
+          );
+        }) &&
         ledger.contentObjectDigests().length === blobClaims.length,
       fixedExpectedEvents: expectedEvents.length,
       acceptedRows: rows.length,
@@ -455,10 +471,19 @@ async function scanCommandReceiptLogs(files, expectedMaximumRevision) {
       totals.totalRequests += 1;
       if (request.kind === "conflict") {
         assert.equal(receipt.status, "rejected");
+        assert.equal(receipt.code, "op_conflict");
         totals.conflictRequests += 1;
         return;
       }
       assert.equal(receipt.status, "accepted_durable");
+      assert.equal(receipt.opId, request.opId);
+      assert.equal(receipt.intentDigest, request.intentDigest);
+      assert.equal(receipt.firstRevision, request.expectedEvents[0].workspaceRevision);
+      assert.equal(receipt.lastRevision, request.expectedEvents.at(-1).workspaceRevision);
+      assert.deepEqual(
+        receipt.memberOpIds,
+        request.expectedEvents.map((event) => event.opId),
+      );
       if (request.kind === "idempotent") totals.idempotentRequests += 1;
       if (request.kind === "primary") totals.primaryCommands += 1;
       for (const event of request.expectedEvents) {
