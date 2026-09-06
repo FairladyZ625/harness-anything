@@ -58,7 +58,11 @@ export interface RuntimeHealthInput {
     readonly observedAt: string | null;
     readonly uptimeMs: number | null;
   } | null;
-  readonly repo: Pick<SystemRepoRow, "cellState" | "queueDepth" | "lastError" | "unavailableReason"> | null;
+  readonly repo:
+    | (Pick<SystemRepoRow, "cellState" | "queueDepth" | "lastError" | "unavailableReason"> & {
+        readonly mode?: SystemRepoRow["mode"];
+      })
+    | null;
   readonly projection: {
     readonly watermark: number;
     readonly sourceRevision: number;
@@ -85,12 +89,18 @@ export function deriveRuntimeHealth(input: RuntimeHealthInput): RuntimeHealth {
         ? "unresponsive"
         : "responsive";
   const cell = input.repo;
+  const remoteProxy = cell?.mode === "remote-proxy";
   return {
     daemon: { state: daemonState, observedAgeSec, uptimeMs: input.daemon?.uptimeMs ?? null },
     cell: {
-      state: cell?.cellState ?? "unknown",
+      state: remoteProxy && cell.cellState === "not_loaded" ? "attached" : (cell?.cellState ?? "unknown"),
       queueDepth: cell?.queueDepth ?? null,
-      problem: cell ? (cell.lastError ?? cell.unavailableReason) : null,
+      problem:
+        remoteProxy && cell.cellState === "not_loaded"
+          ? null
+          : cell
+            ? (cell.lastError ?? cell.unavailableReason)
+            : null,
     },
     projection:
       input.projection === null
