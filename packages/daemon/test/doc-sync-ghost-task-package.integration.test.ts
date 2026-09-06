@@ -52,9 +52,22 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.match(ghostRow?.reason ?? "", /tasks\/task-ghost-wrong-slug is not the package path of any projected task/u);
     assert.match(ghostRow?.reason ?? "", /ha task artifact add/u);
     assert.equal(ghostRow?.mediaType, "text/markdown");
+    const unconfirmed = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
+      readonly outcome: string;
+      readonly code: string;
+      readonly detail: {
+        readonly unresolvedTouches: readonly { readonly path: string; readonly requiredRoute: string }[];
+      };
+    };
+    assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
+    assert.equal(unconfirmed.code, "task_package_unregistered");
+    assert.deepEqual(
+      unconfirmed.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
+      [[ghost, "ha task artifact add"]],
+    );
     // Misfire control: the eligible sibling in the registered package still
     // publishes, and the blocked ghost must not ride along in that submit.
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as {
       readonly outcome: string;
       readonly opId: string;
       readonly summary: string | null;
@@ -82,7 +95,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       };
     };
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
-    assert.equal(rejected.code, "preview_blocked");
+    assert.equal(rejected.code, "task_package_unregistered");
     assert.deepEqual(
       rejected.detail.unresolvedTouches.map((touch) => [touch.path, touch.requiredRoute]),
       [

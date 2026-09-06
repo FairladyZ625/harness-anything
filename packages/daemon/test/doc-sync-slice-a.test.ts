@@ -182,6 +182,7 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
   }
   assert.equal(inventoryByPath.get(oversized)?.bytes, null, "oversized prose must not enter inventory bytes");
   assert.equal(inventoryByPath.get(prose)?.bytes?.byteLength, Buffer.byteLength("# Notes\n"));
+  rmSync(path.join(rootDir, "harness", oversized));
 
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "size-type-daemon" }),
     binding = { actor, source: "local" as const };
@@ -191,8 +192,8 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
       rows(status.evidence)
         .filter((row) => row.state !== "clean")
         .map((row) => row.path),
-      [prose, oversized],
-      "non-prose JSONL must not enter the authored candidate set",
+      [prose],
+      "non-prose JSONL must not enter the authored candidate set before oversized prose is restored",
     );
     const unconfirmed = await cell.run({ kind: "doc-submit", paths: [] }, binding);
     assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
@@ -216,6 +217,7 @@ test("scanner refuses multi-megabyte JSONL without reading it and names oversize
       assert.deepEqual([row?.path, row?.state, row?.size], [logical, "blocked", Buffer.byteLength(jsonl)]);
       assert.match(row?.reason ?? "", /not a supported textual document/u);
     }
+    write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
     const rejected = await cell.run({ kind: "doc-submit", paths: [oversized] }, binding);
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "doc_candidate_too_large");

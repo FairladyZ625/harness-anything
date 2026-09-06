@@ -23,7 +23,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan } from "./doc-sync-candidate-scanner.ts";
-import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
+import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths, settleConflictScratch } from "./doc-sync-details.ts";
 import {
   artifactSource,
@@ -118,9 +118,12 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
     !Object.hasOwn(input.action, "taskId") &&
     Array.isArray(input.action.paths) &&
     input.action.paths.length === 0 &&
-    input.action.all !== true &&
-    scan.rows.some((row) => row.state === "eligible")
+    input.action.all !== true
   ) {
+    const code = scanRejectionCode(scan);
+    if (code !== null)
+      return rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code, scanDetail(input, scan, code));
+    if (!scan.rows.some((row) => row.state === "eligible")) return noOp(input, scan);
     const candidates = scan.rows.filter((row) => row.state === "eligible"),
       rejection = rejectDocSyncAction(
         `scan:${scan.baseLedgerSha.headDigest}`,
@@ -137,14 +140,7 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
     });
   }
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
-    const code = scan.rows
-        .map((row) => row.rejectionCode)
-        .find(
-          (candidate) =>
-            candidate === "lease_conflict" ||
-            candidate === "deletion_forbidden" ||
-            candidate === "doc_candidate_too_large",
-        ),
+    const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
       ? rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked)
@@ -165,6 +161,23 @@ export async function runDocAction(input: Input): Promise<WriteReceipt> {
   return scan && (receipt.outcome === "applied" || receipt.outcome === "pending")
     ? scannerSettlement(input, scan, receipt)
     : receipt;
+}
+
+function scanRejectionCode(scan: DocCandidateScan): string | null {
+  const blocked = scan.rows.filter(
+    (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
+  );
+  return (
+    blocked
+      .map((row) => row.rejectionCode)
+      .find(
+        (candidate) =>
+          candidate === "lease_conflict" ||
+          candidate === "deletion_forbidden" ||
+          candidate === "doc_candidate_too_large" ||
+          candidate === "task_package_unregistered",
+      ) ?? (blocked.length > 0 ? "preview_blocked" : null)
+  );
 }
 
 async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {

@@ -326,7 +326,7 @@ test("real CLI reaches one resident multi-workspace daemon and publishes Git eve
     // implicit submit must reject without publishing an event"). Asserting one outcome raced that sweep
     // (flake). What holds either way: the blocked path is reported against its changed machine region, the
     // eligible doc reaches canonical, and the blocked edit does not.
-    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit"]),
+    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--all"]),
       blockedTouch = "context/other-session.md\tmachine region changed";
     if (partial.status === 0) {
       assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));

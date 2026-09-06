@@ -339,9 +339,10 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
   try {
     await startLease(local.cell, local.rootDir, "local");
     const relativePath = "tasks/task-doc-docs/large.md",
-      body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES + 1)}\n`;
+      body = `# Large\n${"x".repeat(DOC_COMMAND_FRAME_MAX_BYTES - 1024)}\n`;
     writeAuthored(local.rootDir, relativePath, body);
     const action = { kind: "doc-submit", executionId: "execution-doc", paths: [relativePath] } as const;
+    assert.equal(Buffer.byteLength(body) > DOC_COMMAND_FRAME_MAX_BYTES / 2, true);
     assert.equal(Buffer.byteLength(JSON.stringify(action)) < DOC_COMMAND_FRAME_MAX_BYTES, true);
     assert.equal(JSON.stringify(action).includes(body), false);
     const result = await local.cell.run(action, localBinding);
