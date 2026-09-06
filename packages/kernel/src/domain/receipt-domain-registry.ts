@@ -1,3 +1,4 @@
+import { validateReceiptAcceptance, type ReceiptAcceptanceFields } from "./receipt-acceptance.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
@@ -143,7 +144,8 @@ export const receiptDetailRegistry = Object.freeze([
 ] as const);
 export type WriteReceiptDetail = DocSyncReceiptDetail | EntityUpsertReceiptDetail;
 /** Internal mutation result before the center attaches its authorization decision. */
-export interface WriteReceiptDraft {
+export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields, "status">> {
+  readonly status?: string;
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
@@ -176,14 +178,25 @@ export interface WriteReceiptDraft {
   };
 }
 /** Public durable-write receipt framed at the center's canonical cut. */
-export interface WriteReceipt extends WriteReceiptDraft {
+export interface WriteReceipt extends Omit<WriteReceiptDraft, keyof ReceiptAcceptanceFields>, ReceiptAcceptanceFields {
   readonly authorizationDecision: AuthorizationDecision;
 }
 export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   id: "write-receipt/v1",
   outcomes: Object.freeze(["applied", "pending", "no_changes", "indeterminate", "op_rejected"] as const),
-  required: Object.freeze(["outcome", "opId", "authorizationDecision"]),
+  required: Object.freeze([
+    "outcome",
+    "opId",
+    "authorizationDecision",
+    "status",
+    "acceptance",
+    "projection",
+    "git",
+    "worktree",
+    "replica",
+  ]),
   optional: Object.freeze([
+    "wait",
     "revision",
     "code",
     "origin",
@@ -208,6 +221,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   const errors = Object.keys(value)
     .filter((key) => ![...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].includes(key))
     .map((key) => `unexpected field: ${key}`);
+  errors.push(...validateReceiptAcceptance(value));
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome))
     errors.push("receipt outcome is invalid");
   if (!isNonEmptyString(value.opId)) errors.push("opId is required");

@@ -380,19 +380,6 @@ export async function openWriterSupervisor(
       case "lifecycle":
         input.recordLifecycle?.(call.payload as never);
         return null;
-      case "storeOpened":
-        input.onStoreOpened?.({
-          beginBulkWrite: () => {
-            const begun = sendControl("beginBulkWrite");
-            return {
-              finish: async () => {
-                await begun;
-                await sendControl("finishBulkWrite");
-              },
-            };
-          },
-        } as Parameters<NonNullable<RepoCellOpenInput["onStoreOpened"]>>[0]);
-        return null;
     }
   }
 
@@ -429,7 +416,6 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
       ...(input.bootstrap ? { bootstrap: input.bootstrap } : {}),
       ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
-      ...(input.walMaterializationTestFault ? { walMaterializationTestFault: input.walMaterializationTestFault } : {}),
     },
     capabilities: {
       now: input.now !== undefined,
@@ -443,7 +429,6 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       runtimeLaunch: true,
       runtimeSignal: input.onRuntimeSignal !== undefined,
       fleetRoster: input.fleetRoster !== undefined,
-      storeOpened: input.onStoreOpened !== undefined,
     },
   };
 }

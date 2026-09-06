@@ -117,8 +117,8 @@ daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、�
 
 ## 恢复一个拒绝一切命令的仓库
 
-升级后的 daemon 可能拒收台账里仍带 legacy migration 事件的仓库。这种拒收有明确的原地恢复
-路径：读症状、预演 fact rekey、对账计数、执行、验证幂等，并确认仓库 re-attach。
+升级后的 daemon 可能拒收台账里仍带 legacy migration 事件的仓库。此时应保留原始来源，
+在激活前转换到未启用的 generation-1，验证转换前缀及必需对象。原地历史重写命令已退役。
 
 → **[migration-legacy-ledger-recovery.zh-CN.md](migration-legacy-ledger-recovery.zh-CN.md)**
 

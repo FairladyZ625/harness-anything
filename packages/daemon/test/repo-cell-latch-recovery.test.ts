@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
 import {
-  makeGitEventStore,
+  makeTaskEventReader,
   makeTaskEventStore,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -353,7 +353,7 @@ test("relation reads use the rebound ledger head after an in-place projection re
     git(rootDir, "update-ref", "refs/ha/canonical", "HEAD");
     clock = "2026-08-18T00:00:06.000Z";
     assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
-    const staleReadHead = makeGitEventStore({ repoId, rootDir }).readHead();
+    const staleReadHead = makeTaskEventReader({ repoId, rootDir }).readHead();
 
     const advanced = await cell.run(
       { kind: "task-create", taskId: "task_relation_advanced", title: "Relation head advanced" },
@@ -361,7 +361,7 @@ test("relation reads use the rebound ledger head after an in-place projection re
     );
     assert.equal(advanced.outcome, "applied", JSON.stringify(advanced));
     await cell.settlePendingMaterialization("rebound-head-test");
-    const currentReadHead = makeGitEventStore({ repoId, rootDir }).readHead(),
+    const currentReadHead = makeTaskEventReader({ repoId, rootDir }).readHead(),
       relationBeforeRebuild = await cell.run({ kind: "relation-list" }, binding),
       rebuilt = await cell.run({ kind: "projection-rebuild" }, binding),
       relationAfterRebuild = await cell.run({ kind: "relation-list" }, binding);
@@ -606,7 +606,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
       ownerId: "cell-close-queue",
     });
     const binding = { actor, source: "local" as const };
-    const headBeforeClose = makeGitEventStore({ repoId: "cell-close-queue", rootDir }).readHead();
+    const headBeforeClose = makeTaskEventReader({ repoId: "cell-close-queue", rootDir }).readHead();
     const pending = cell.run(
         { kind: "task-create", taskId: "task_must_not_publish", title: "Must not publish" },
         binding,
@@ -617,7 +617,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
     assert.equal(receipt.code, "repo_unavailable");
     await closing;
     cell = undefined;
-    assert.deepEqual(makeGitEventStore({ repoId: "cell-close-queue", rootDir }).readHead(), headBeforeClose);
+    assert.deepEqual(makeTaskEventReader({ repoId: "cell-close-queue", rootDir }).readHead(), headBeforeClose);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

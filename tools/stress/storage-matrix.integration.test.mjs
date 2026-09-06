@@ -13,7 +13,7 @@ import { actor } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
-import { makeTaskEventStore } from "../../packages/kernel/src/store/task-event-store.ts";
+import { canonicalEventContentClaims, makeTaskEventStore } from "../../packages/kernel/src/store/task-event-store.ts";
 import { docBundle, eventAt, initRepo } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO2, oracleO3, oracleO8 } from "./core/oracles.mjs";
@@ -36,7 +36,7 @@ test(
       const f02 = runBlobClosure(path.join(scratch, "f02"));
       const f06 = await runIoFaults(path.join(scratch, "f06"));
       const f07 = await runContention(path.join(scratch, "f07"));
-      const f08 = runPublicationBoundaries(path.join(scratch, "f08"));
+      const f08 = await runPublicationBoundaries(path.join(scratch, "f08"));
       const denominators = await storageDenominators();
       const report = buildStressReport({
         campaignComplete: false,
@@ -51,10 +51,15 @@ test(
           sqlite: f03.sqliteVersion,
           os: `${process.platform}-${process.arch}`,
           filesystem: "isolated Ubuntu temporary filesystem",
-          capabilities: ["strace fault injection", "POSIX SIGKILL", "node:sqlite", "Git prepared-ref recovery"],
+          capabilities: [
+            "strace fault injection",
+            "POSIX SIGKILL",
+            "node:sqlite",
+            "event-derived Git follower read-back",
+          ],
         },
         seed,
-        topology: "external controller + independent SQLite clients + WAL + Git publication",
+        topology: "external controller + independent SQLite clients + accepting SQLite transaction + Git follower",
         generation: 1,
         counts: { acceptedEvents: f03.revision + f08.gitRevisions, uniqueBlobs: 3, maxConcurrentClients: 8 },
         coverage: {
@@ -414,7 +419,7 @@ async function runContention(root) {
   };
 }
 
-function runPublicationBoundaries(root) {
+async function runPublicationBoundaries(root) {
   mkdirSync(root, { recursive: true });
   const killpoints = [
     "before_event_write",
@@ -436,15 +441,27 @@ function runPublicationBoundaries(root) {
     });
     assert.equal(child.signal, "SIGKILL", `${killpoint}:${child.stderr}`);
     const recoveredStore = makeTaskEventStore({ repoId: "stress-s2-f08", rootDir: gitRoot });
-    const recovery = recoveredStore.recover();
+    const preaccept = ["before_event_write", "after_event_write"].includes(killpoint);
+    assert.equal(recoveredStore.read().revision, preaccept ? 0 : 1, killpoint);
+    assert.equal(
+      recoveredStore.readCommandOutcome("op-stress-s2-git")?.status ?? null,
+      preaccept ? null : "accepted_durable",
+      killpoint,
+    );
     if (recoveredStore.read().revision === 0)
       recoveredStore.append(
         docBundle(recoveredStore, "# Stress S2 content\n", 1, "op-stress-s2-git", "context/stress-s2.md"),
       );
-    assert.equal(recoveredStore.read().revision, 1, `${killpoint}:${recovery.status}`);
-    const claim = recoveredStore.read().events.flatMap((event) => event.payload.documentClaims ?? [])[0];
+    assert.equal(recoveredStore.read().revision, 1, killpoint);
+    const claim = recoveredStore.read().events.flatMap(canonicalEventContentClaims)[0];
     assert.ok(claim && recoveredStore.readContentBlob(claim.sha256));
-    recoveredStore.close?.();
+    await recoveredStore.settlePendingMaterialization("F08 independent Git readback");
+    assert.equal(
+      recoveredStore.followerStatus().git.status,
+      "verified",
+      JSON.stringify(recoveredStore.followerStatus()),
+    );
+    await recoveredStore.drain();
   }
   const red = oracleO3({
     receiptLog: receiptFor(requestFor([eventAt(1)], { opId: eventAt(1).opId })),
@@ -473,13 +490,18 @@ async function storageDenominators() {
     ({ source, kind }) =>
       [
         "packages/kernel/src/store/sqlite-event-store.ts",
-        "packages/kernel/src/store/task-event-store-publication.ts",
+        "packages/kernel/src/store/sqlite-task-event-store.ts",
         "packages/kernel/src/local/local-layout-file-system.ts",
         "packages/daemon/src/repo-cell.ts",
       ].some((file) => source.includes(file)) && ["claim-point", "durable-boundary"].includes(kind),
   );
   const mapped = storage
-    .filter(({ id }) => id !== "durable-boundary:rename:packages/kernel/src/local/local-layout-file-system.ts:73")
+    .filter(
+      ({ source, boundary }) =>
+        (source.includes("sqlite-event-store.ts:") && ["claimWriter", "writer_lease", "commit"].includes(boundary)) ||
+        (source.includes("sqlite-task-event-store.ts:") && boundary === "ref-publish") ||
+        (source.includes("local-layout-file-system.ts:") && ["fsync", "rename"].includes(boundary)),
+    )
     .map(({ id }) => id);
   const missing = storage.map(({ id }) => id).filter((id) => !mapped.includes(id));
   return {

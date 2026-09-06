@@ -52,3 +52,14 @@ export {
 } from "../store/local-version-control-system.ts";
 export { createEntityStore, openEntityStore } from "../store/entity-store.ts";
 export type { EntityStore } from "../store/entity-store.ts";
+
+export {
+  convertLegacyGeneration,
+  createImmutableLegacyGenerationSnapshot,
+  legacyGenerationSnapshotPath,
+  planLegacyGenerationSnapshotConversion,
+  preflightConvertedGenerationActivation,
+  readImmutableLegacyGenerationSnapshot,
+} from "../store/legacy-generation-conversion.ts";
+export { sqliteContentObjectPath } from "../store/sqlite-event-store.ts";
+export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "../store/event-shape-migration.ts";

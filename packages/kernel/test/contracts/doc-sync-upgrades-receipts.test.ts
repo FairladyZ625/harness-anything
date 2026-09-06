@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
@@ -122,6 +123,7 @@ test("receipt detail registry rejects unregistered or open-ended detail shapes",
     );
   if (rejected.accepted) assert.fail("expected rejection");
   const receipt = {
+    ...rejectedAcceptance,
     outcome: "op_rejected",
     opId: "doc-op",
     code: rejected.code,

@@ -81,7 +81,7 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
       },
     ];
     const report = buildStressReport({
-      campaignComplete: true,
+      campaignComplete: false,
       source: { head: process.env.HARNESS_BUILD_COMMIT ?? null, base: null, loadedBuild: "source", dirty: null },
       environment: {
         node: process.version,
@@ -108,7 +108,7 @@ test("S2 injects the accepting SQLite boundary and keeps Git failure post-accept
       replayCommand: "node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs",
       residualRisks: [],
     });
-    assert.equal(report.verdict, "PASS");
+    assert.equal(report.verdict, "INCOMPLETE");
     emitStressReport(report);
   } finally {
     rmSync(scratch, { recursive: true, force: true });

@@ -168,12 +168,8 @@ export interface RepoCellOpenInput {
   /** Relays validated live provider frames to the host-side read-only stream hub. */
   readonly onRuntimeSignal?: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => void;
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
-  /** Test seam for controlling WAL materialization without wall-clock scheduling. */
-  readonly onStoreOpened?: (store: CanonicalEventStore) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
-  /** Test seam for injecting a failure inside the WAL materialization worker. */
-  readonly walMaterializationTestFault?: Parameters<typeof makeTaskEventStore>[0]["walMaterializationTestFault"];
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -270,15 +266,6 @@ export async function openRepoWriterCell(
       mode,
       now,
       runtimeStream,
-      enqueueAfterFlush: (work) => {
-        queueDepth += 1;
-        const pending = chainRepoCellWrite(tail, async () => {
-          queueDepth -= 1;
-          await work();
-        });
-        tail = pending.catch(() => undefined);
-        return pending;
-      },
     });
   let core: Awaited<ReturnType<typeof initialize>>;
   try {
@@ -336,7 +323,7 @@ export async function openRepoWriterCell(
     recoveryProbe.latch();
   };
   // Latch self-heal: while unavailable, the next command replays the failed judgment against a
-  // freshly built ledger view (publication refs re-read from Git, recovery replayed, projection
+  // freshly built ledger view (SQLite reopened and projection
   // catch-up replayed). Pass -> rebind the core and return to attached; fail -> stay unavailable
   // with the replayed cause. Probes are throttled so frequent read retries cannot hot-loop them,
   // and every fresh latch earns one immediate probe.
@@ -352,13 +339,13 @@ export async function openRepoWriterCell(
       let adoptedIndeterminate = false;
       try {
         // A replacement is a single-owner lifecycle transaction. Quiesce and close the
-        // old mutable WAL owner before a candidate can even be initialized, then publish
+        // old mutable SQLite owner before a candidate can even be initialized, then publish
         // only a candidate whose recovery and projection probe both completed.
         if (!coreClosedForReplacement) {
           try {
             await store.drain();
           } catch (error) {
-            // The durable WAL remains the recovery source. A failed materialization must
+            // The durable SQLite ledger remains the recovery source. A failed outbox publication must
             // not keep the stale owner alive; the candidate will retry from disk.
             consumeKnownError(error);
           } finally {
@@ -368,13 +355,8 @@ export async function openRepoWriterCell(
           }
         }
         candidate = await initialize();
-        // Adopt the candidate's store as soon as it opens: the quiesce above already closed
-        // the prior store, so this is the only live store left, and a store-only recovery
-        // command (relation-events-migrate, decision-digests-migrate, schedule-definitions-migrate,
-        // projection-rebuild's own
-        // store.readHead(), ...) must be able to run against it even while the probes below
-        // stay indeterminate -- repairing that indeterminate state is what those commands exist
-        // to do. Only `state` gates on the probes; the store is live regardless.
+        // The prior store is closed. Adopt the candidate so projection repair reads
+        // the live SQLite ledger even if the projection probe is still indeterminate.
         ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
         candidate = undefined;
         coreClosedForReplacement = false;

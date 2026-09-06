@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { committedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { actionReplayKey, validateActionEnvelope } from "../../src/domain/action-envelope.ts";
@@ -91,6 +92,7 @@ test("public receipts require the structured AuthorizationDecision", () => {
     evaluatedAtCut: "canonical:1",
   };
   const receipt = createWriteReceipt({
+    ...committedAcceptance("op-action", 1),
     outcome: "applied",
     opId: "op-action",
     revision: 1,

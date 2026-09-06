@@ -6,6 +6,30 @@ import { domainStatuses } from "./lifecycle-status.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   {
+    id: "receipt.acceptance",
+    entity: "WriteReceipt",
+    field: "status",
+    module: "packages/kernel/src/domain/receipt-acceptance.ts",
+    anchor: "receiptAcceptanceStatuses",
+    words: ["accepted_durable", "rejected", "unknown"],
+  },
+  {
+    id: "receipt.facet",
+    entity: "WriteReceipt",
+    field: "facetState",
+    module: "packages/kernel/src/domain/receipt-acceptance.ts",
+    anchor: "receiptFacetStates",
+    words: ["pending", "verified", "not_configured"],
+  },
+  {
+    id: "receipt.wait",
+    entity: "WriteReceipt",
+    field: "waitState",
+    module: "packages/kernel/src/domain/receipt-acceptance.ts",
+    anchor: "receiptWaitStates",
+    words: ["satisfied", "timed_out"],
+  },
+  {
     id: "entity-action-criterion.status",
     entity: "EntityActionCriterion",
     field: "status",

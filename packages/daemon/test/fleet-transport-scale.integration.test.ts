@@ -199,16 +199,7 @@ async function scaleFixture() {
     ],
     { stdio: "ignore" },
   );
-  const stores = new Map<string, Parameters<NonNullable<Parameters<typeof openRepoCell>[0]["onStoreOpened"]>>[0]>(),
-    host = await openDaemonHost({
-      daemonId: "fleet-scale",
-      userRoot,
-      openCell: (input) =>
-        openRepoCell({
-          ...input,
-          onStoreOpened: (store) => stores.set(input.repoId, store),
-        }),
-    }),
+  const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
     clients: ScaleClient[] = [],
     assignments = new Map<string, FleetAssignmentRecord>();
   await host.attachmentsSettled();
@@ -229,7 +220,7 @@ async function scaleFixture() {
       return { index, repo, taskId, assignment };
     }),
     repoIds = repos.map((repo) => repo.repoId),
-    creationBatch = beginStoreBatch(stores, repoIds);
+    creationBatch = beginStoreBatch(host, repoIds);
   let created: Array<(typeof drafts)[number] & { packagePath: string }>;
   try {
     created = await Promise.all(
@@ -247,7 +238,7 @@ async function scaleFixture() {
   } finally {
     await creationBatch.finish();
   }
-  const preparationBatch = beginStoreBatch(stores, repoIds);
+  const preparationBatch = beginStoreBatch(host, repoIds);
   let prepared: Array<{ assignment: FleetAssignmentRecord; opId: string; client: ScaleClient }>;
   try {
     prepared = await Promise.all(
@@ -314,7 +305,7 @@ async function scaleFixture() {
         commits: Number(git(repo.rootDir, "rev-list", "--count", "refs/ha/canonical")),
       })),
     beginBatch: (repoIds: readonly string[]) => {
-      return beginStoreBatch(stores, repoIds);
+      return beginStoreBatch(host, repoIds);
     },
     close: async () => {
       await owned.reclaim();
@@ -324,17 +315,15 @@ async function scaleFixture() {
   };
 }
 
-function beginStoreBatch(
-  stores: ReadonlyMap<string, Parameters<NonNullable<Parameters<typeof openRepoCell>[0]["onStoreOpened"]>>[0]>,
-  repoIds: readonly string[],
-) {
-  const batches = [...new Set(repoIds)].map((repoId) => {
-    const store = stores.get(repoId),
-      batch = store?.beginBulkWrite?.();
-    assert.ok(batch, `repo ${repoId} must expose deterministic WAL batching`);
-    return batch;
-  });
-  return { finish: () => Promise.all(batches.map((batch) => batch.finish())) };
+function beginStoreBatch(host: Awaited<ReturnType<typeof openDaemonHost>>, repoIds: readonly string[]) {
+  return {
+    finish: () =>
+      Promise.all(
+        [...new Set(repoIds)].map((repoId) =>
+          host.settleMaterialization(repoId, "verify event-derived Git follower after scale writes"),
+        ),
+      ),
+  };
 }
 // Edge children report their result on stdout, so both runners settle on `close`, not `exit`:
 // `exit` fires when the process ends and can precede the last stdout chunk, which under a

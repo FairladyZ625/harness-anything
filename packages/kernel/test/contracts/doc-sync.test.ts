@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { committedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -82,6 +83,7 @@ test("canonical reader accepts the historical doc-event ledger identity bytes", 
   assert.equal(serializeCanonicalEvent(parsed), legacyDocEventBytes);
   assert.deepEqual(
     validateWriteReceipt({
+      ...committedAcceptance(parsed.opId, parsed.workspaceRevision),
       outcome: "applied",
       opId: parsed.opId,
       revision: parsed.workspaceRevision,

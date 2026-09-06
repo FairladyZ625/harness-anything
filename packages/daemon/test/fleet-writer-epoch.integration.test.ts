@@ -10,9 +10,9 @@ import { pathToFileURL } from "node:url";
 import {
   compileTaskLifecycleWrite,
   makeTaskEventStore,
+  makeTaskEventReader,
   reduceTaskEvent,
   REPLAY_TASK_GRAPH,
-  runWalMaterializationRequest,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -178,14 +178,13 @@ test("a fresh authority starts at epoch zero and ignores legacy epoch files", ()
   }
 });
 
-test("RepoWriterCell verifies the writer epoch inside Git ref finalization", async () => {
+test("SQLite acceptance verifies the writer epoch before committing events and outcomes", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-worker-fence-")),
     repo = probeRepo(root),
     stateRoot = path.join(root, "state"),
     first = openPersistentWriterEpoch({ stateRoot, holderId: "center-a" }),
     second = openPersistentWriterEpoch({ stateRoot, holderId: "center-b" }),
-    leaseA = first.acquire("probe-repo"),
-    leaseB = second.acquire("probe-repo");
+    leaseA = first.acquire("probe-repo");
   let fence = {
     schema: "harness-writer-epoch-fence/v1" as const,
     stateRoot,
@@ -193,43 +192,29 @@ test("RepoWriterCell verifies the writer epoch inside Git ref finalization", asy
     epoch: leaseA.epoch,
     holderId: leaseA.holderId,
   };
-  let materializationAttempts = 0;
   const store = makeTaskEventStore({
     repoId: "probe-repo",
     rootDir: repo,
-    walMaterialize: (config, request) => {
-      materializationAttempts += 1;
-      return runWalMaterializationRequest(config, request, {
-        withFinalizeFence: (descriptor, operation) => withWriterEpochFenceDescriptor(descriptor, operation),
-      });
-    },
-    walMaterializationFence: () => fence,
+    writerFence: () => fence,
+    withAppendFence: (operation) => withWriterEpochFenceDescriptor(fence, operation),
   });
-  const baselineCommit = probeGit(repo, "rev-parse", "refs/ha/canonical");
   try {
     appendWorkerTask(store, 1);
-    const startedAt = performance.now();
-    await assert.rejects(
-      store.settlePendingMaterialization!("writer epoch test"),
-      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
-    );
-    const latchElapsedMs = performance.now() - startedAt;
-    assert.equal(materializationAttempts, 1);
-    assert.equal(store.materializationHealth().reason, "deterministic_failure");
-    console.info(`writer epoch deterministic latch attempts=1 elapsedMs=${latchElapsedMs.toFixed(1)}`);
-    assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), baselineCommit);
-
-    fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
-    assert.notEqual(store.recover().status, "indeterminate");
+    const leaseB = second.acquire("probe-repo"),
+      event = workerTaskCreated(2);
     assert.throws(
       () => appendWorkerTask(store, 2),
-      (error: unknown) =>
-        (error as { readonly diagnostic?: { readonly kind?: string } }).diagnostic?.kind === "materialization-retrying",
+      (error: unknown) => (error as { code?: string }).code === "writer_epoch_stale",
     );
-    await store.settleRecoveryMaterialization!();
+    assert.equal(store.read().revision, 1);
+    assert.equal(store.readEvent(event.opId), null);
+    assert.equal(store.readCommandOutcome(event.opId), null);
+    fence = { ...fence, epoch: leaseB.epoch, holderId: leaseB.holderId };
     appendWorkerTask(store, 2);
+    assert.equal(store.readCommandOutcome(event.opId)?.status, "accepted_durable");
     await store.settlePendingMaterialization!("writer epoch test");
-    assert.equal(JSON.parse(probeGit(repo, "show", "refs/ha/canonical:harness/events/head.json")).revision, 2);
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().git.cut?.revision, 2);
   } finally {
     await store.drain();
     second.close();
@@ -345,6 +330,13 @@ test("append transaction serializes takeover before rejecting the next stale wri
       repoId: "probe-repo" as never,
       rootDir: repo as never,
       ownerId: "probe-cell",
+      defaultWriterEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: oldLease.epoch,
+        holderId: oldLease.holderId,
+      },
       mode: "remote-center",
       killpoint: (point) => {
         if (point === "before_event_write" && !triggered) {
@@ -353,7 +345,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
         }
       },
     });
-    const before = Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical"));
+    const before = makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" }).read().revision;
     const receipt = await cell.run(
       { kind: "task-create", taskId: "task_probe_epoch", title: "stale append window" },
       probeBinding(() => oldAuthority.assert("probe-repo", oldLease.epoch, oldLease.holderId), {
@@ -369,7 +361,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
     const successorLease = (await successor).lease;
     assert.equal(successorLease?.epoch, 2);
     assert.equal(successorLease?.holderId, "new-center");
-    const beforeStale = Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical"));
+    const beforeStale = makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" }).read().revision;
     await assert.rejects(
       cell.run(
         { kind: "task-progress-append", taskId: "task_probe_epoch", text: "stale writer must not append" },
@@ -383,7 +375,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
       ),
       (error: unknown) => (error as { readonly code?: string }).code === "writer_epoch_stale",
     );
-    assert.equal(Number(probeGit(repo, "rev-list", "--count", "refs/ha/canonical")), beforeStale);
+    assert.equal(makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" }).read().revision, beforeStale);
     assert.ok(beforeStale >= before);
     oldAuthority.close();
   } finally {
@@ -394,7 +386,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
   }
 });
 
-test("remote-center recovery leaves no legacy prepared publication after fencing", async () => {
+test("remote-center takeover preserves the committed SQLite outcome without prepared publication refs", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-prepared-")),
     repo = probeRepo(root),
     stateRoot = path.join(root, "state");
@@ -409,9 +401,16 @@ test("remote-center recovery leaves no legacy prepared publication after fencing
       repoId: "probe-repo" as never,
       rootDir: repo as never,
       ownerId: "old-cell",
+      defaultWriterEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: oldLease.epoch,
+        holderId: oldLease.holderId,
+      },
       mode: "remote-center",
       killpoint: (point) => {
-        if (point === "after_head_write" && !triggered) {
+        if (point === "after_sqlite_commit" && !triggered) {
           triggered = true;
           throw new Error("simulated process death after prepared event");
         }
@@ -427,24 +426,47 @@ test("remote-center recovery leaves no legacy prepared publication after fencing
         holderId: oldLease.holderId,
       }),
     );
-    assert.equal(failed.outcome, "op_rejected");
-    assert.equal(failed.code, "service_rejected");
-    assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
-    newAuthority.acquire("probe-repo");
-    await assert.rejects(
-      oldCell.close(),
-      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    assert.equal(failed.status, "accepted_durable");
+    assert.equal(
+      makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" }).readCommandOutcome(failed.opId)?.status,
+      "accepted_durable",
     );
+    assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
+    const next = newAuthority.acquire("probe-repo");
+    await oldCell.close();
     oldCell = undefined;
     recoveryCell = await openRepoCell({
       repoId: "probe-repo" as never,
       rootDir: repo as never,
       ownerId: "new-cell",
+      defaultWriterEpochFence: {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: next.epoch,
+        holderId: next.holderId,
+      },
       mode: "remote-center",
     });
     assert.equal(recoveryCell.status().state, "attached");
     assert.equal(probeGit(repo, "for-each-ref", "--format=%(refname)", "refs/ha-event-prepared/").trim(), "");
-    assert.equal(probeGit(repo, "rev-parse", "refs/ha/canonical"), probeGit(repo, "rev-parse", "HEAD"));
+    const settled = await recoveryCell.run(
+      { kind: "receipt-show", opId: failed.opId },
+      probeBinding(() => newAuthority.assert("probe-repo", next.epoch, next.holderId), {
+        schema: "harness-writer-epoch-fence/v1",
+        stateRoot,
+        repoId: "probe-repo",
+        epoch: next.epoch,
+        holderId: next.holderId,
+      }),
+    );
+    assert.equal(settled.status, "accepted_durable");
+    assert.equal(
+      makeTaskEventReader({ rootDir: repo, repoId: "probe-repo" })
+        .read()
+        .events.filter((event) => event.opId === failed.opId).length,
+      1,
+    );
     newAuthority.close();
     oldAuthority.close();
   } finally {

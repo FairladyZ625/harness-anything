@@ -1,3 +1,5 @@
+import type { RepoCellCore } from "./repo-cell.ts";
+import { attachReceiptAcceptance, waitForReceiptAcceptance } from "../../kernel/src/index.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -138,7 +140,7 @@ export interface RepoCellApiContext {
   readonly terminal: RepoCell["terminal"];
   readonly runtimeStream: AgentRuntimeStreamHub;
   readonly generation: number;
-  readonly recovery: ReturnType<CanonicalEventStore["recover"]>;
+  readonly recovery: RepoCellCore["recovery"];
   readonly lock: { readonly close: () => Promise<void> };
 }
 
@@ -861,7 +863,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
       context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
       try {
         const result = await execute({ ...binding, authorizationDecision }, revision);
-        return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject } as JsonObject;
+        const receipt =
+          typeof result.opId === "string" && typeof result.outcome === "string"
+            ? attachReceiptAcceptance(result as unknown as WriteReceipt, context.store, context.projection)
+            : result;
+        return {
+          ...receipt,
+          authorizationDecision: authorizationDecision as unknown as JsonObject,
+        } as unknown as JsonObject;
       } finally {
         context.activeWriterEpochGuard = null;
         context.activeWriterEpochFence = null;
@@ -948,7 +957,24 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
   };
   return {
     bootstrapReceipt: context.bootstrapReceipt,
-    run,
+    run: async (action, binding, signal) => {
+      const receipt = await run(action, binding, signal);
+      if (
+        action.kind === "settings-update" &&
+        receipt.effects?.length === 1 &&
+        receipt.effects[0] === "settings-local/locale_changed"
+      )
+        return receipt;
+      if (
+        action.kind === "projection-rebuild" ||
+        (!(durablePolicyActions as readonly string[]).includes(action.kind) && action.kind !== "receipt-show")
+      )
+        return receipt;
+      const read = () => attachReceiptAcceptance(receipt, context.store, context.projection);
+      return action.kind === "receipt-show" && action.waitFor !== undefined
+        ? waitForReceiptAcceptance(read, action.waitFor, action.timeoutMs, signal)
+        : read();
+    },
     presetRun,
     spawnRuntime,
     cancelRuntime,
@@ -1028,7 +1054,13 @@ function withAuthorizationDecision(
   rejectionExplanation: string | undefined = receipt.rejectionExplanation ?? undefined,
 ): WriteReceipt {
   return {
+    acceptance: null,
+    projection: { state: "pending", cut: null },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
     ...receipt,
+    status: "unknown",
     authorizationDecision,
     unmetCriteria,
     rejectionExplanation:

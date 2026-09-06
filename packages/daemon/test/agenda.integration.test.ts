@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeGitEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -281,7 +281,7 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
     };
     const eventFor = async (opId: string) => {
         await cell.settlePendingMaterialization("agenda event assertion");
-        return makeGitEventStore({ repoId: "agenda-pin-command", rootDir }).readEvent(opId);
+        return makeTaskEventReader({ repoId: "agenda-pin-command", rootDir }).readEvent(opId);
       },
       pin = await runCli(["task", "pin", "task_z"]);
     assert.equal(pin.outcome, "applied", JSON.stringify(pin));

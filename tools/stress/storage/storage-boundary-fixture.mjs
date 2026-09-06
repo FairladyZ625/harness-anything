@@ -48,6 +48,7 @@ if (mode === "sqlite-command") {
     },
   });
   store.append(docBundle(store, "# Stress S2 content\n", 1, "op-stress-s2-git", "context/stress-s2.md"));
+  await store.settlePendingMaterialization("F08 Git boundary");
   throw new Error(`Git publication did not reach killpoint ${option}`);
 } else {
   throw new Error(`unknown mode: ${mode}`);

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError, type WalMaterializationFenceV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "../../kernel/src/index.ts";
 
 export interface WriterEpochLease {
   readonly repoId: string;
@@ -11,7 +11,13 @@ export interface WriterEpochLease {
   readonly version: number;
   readonly issuedAt: string;
 }
-export type WriterEpochFenceDescriptor = WalMaterializationFenceV1;
+export interface WriterEpochFenceDescriptor {
+  readonly schema: "harness-writer-epoch-fence/v1";
+  readonly stateRoot: string;
+  readonly repoId: string;
+  readonly epoch: number;
+  readonly holderId: string;
+}
 export interface PersistentWriterEpoch {
   readonly acquire: (repoId: string) => WriterEpochLease;
   readonly current: (repoId: string) => WriterEpochLease | null;

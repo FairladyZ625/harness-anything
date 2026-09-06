@@ -78,7 +78,6 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
         occurredAt: cell.now(),
       }),
       appended = cell.store.append(bundle);
-    cell.store.configureWalFlushPolicy?.(settings.walFlush);
     cell.projection.apply(bundle.event, bundle.plan);
     return appended;
   };

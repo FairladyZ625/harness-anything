@@ -8,9 +8,9 @@ export {
   preflightConvertedGenerationActivation,
   preflightCanonicalGeneration,
   readImmutableLegacyGenerationSnapshot,
-} from "./store/legacy-generation-conversion.ts";
-export { sqliteContentObjectPath } from "./store/sqlite-event-store.ts";
-export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./store/event-shape-migration.ts";
+} from "./composition/index.ts";
+export { sqliteContentObjectPath } from "./composition/index.ts";
+export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./composition/index.ts";
 export {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
@@ -353,3 +353,15 @@ export type {
   DaemonRepoMode,
   InvalidDaemonRegistryRepo,
 } from "./daemon/registry.ts";
+
+export { receiptWaitPredicates, unsatisfiedReceiptPredicates } from "./domain/receipt-acceptance.ts";
+export type {
+  ReceiptAcceptanceFields,
+  ReceiptAcceptance,
+  ReceiptConsumerCut,
+  ReceiptFacet,
+  ReceiptGitFacet,
+  ReceiptWaitPredicate,
+} from "./domain/receipt-acceptance.ts";
+
+export { attachReceiptAcceptance, waitForReceiptAcceptance } from "./composition/receipt-acceptance.ts";

@@ -145,27 +145,11 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "entity-archive":
       return authorizeRepoCellAction(input);
-    case "entity-migrate-squads":
-      return authorizeRepoCellAction(input);
     case "fact-reclassify":
       return authorizeRepoCellAction(input);
     case "fact-record":
       return authorizeRepoCellAction(input);
-    case "decision-digests-migrate":
-      return authorizeRepoCellAction(input);
-    case "dispatch-records-migrate":
-      return authorizeRepoCellAction(input);
-    case "fact-rekey":
-      return authorizeRepoCellAction(input);
-    case "relation-events-migrate":
-      return authorizeRepoCellAction(input);
-    case "schedule-definitions-migrate":
-      return authorizeRepoCellAction(input);
-    case "settings-wal-flush-migrate":
-      return authorizeRepoCellAction(input);
     case "fact-type-register":
-      return authorizeRepoCellAction(input);
-    case "ledger-migrate":
       return authorizeRepoCellAction(input);
     case "migrate-import":
       return authorizeRepoCellAction(input);

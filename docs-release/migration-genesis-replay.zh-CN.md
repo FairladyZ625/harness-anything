@@ -1,13 +1,13 @@
 # 台账迁移：创世重放
 
-状态：台账格式早于当前代际的仓库必须走创世重放；已经 canonical、仅遗留
-task-local fact 的仓库走单独的原地 fact rekey。
+本文描述把旧仓导入新目标的 genesis replay。现有 canonical 台账的历史修复在激活前从不可变
+snapshot 转换；参见[历史转换](migration-legacy-ledger-recovery.zh-CN.md)。原地 fact rekey 命令已退役。
 
 ## 变更了什么
 
 台账格式发生了代差变更。上一代写入的记录不满足当前 schema，因此老仓库
 不能整体原地转换。已经 canonical 的仓库可能还留有迁移过渡期的
-task-local fact 形态，这部分由下方唯一的 fact rekey 命令处理。
+task-local fact 形态，这部分必须在 generation-1 激活前完成转换。
 
 对老仓而言，唯一受支持的路径是**创世重放**：把老仓归档成只读底稿，
 新建一个空仓，再把老语料作为 canonical migration 事件按原始顺序重放进新仓。
@@ -19,19 +19,11 @@ ha migrate import --source <source> [--resolve <仓库相对路径>=destination|
     Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
 
-两类输入各有且只有一条命令：
+创世重放的输入与验收：
 
-| 输入                                | 命令                                  | 前置                                                                     | 验收                                                                                                                   |
-| ----------------------------------- | ------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| 早于当前代际的老仓                  | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot。有同 cut projection 时直接使用；没有时导入器从已提交事件和 authored package 自动重建一个临时 oracle。先跑 `--dry-run`。 | 五类现役 ID 集合满足 source ⊆ target；每类差异恰等于 derived + archived/retired；当前事件预校验与 coverage 保全均通过。 |
-| 已 canonical 但有 `fact/<task>/F-*` | `ha migrate rekey-facts`              | 停止该仓 daemon/写入者，在 committed canonical cut 上先跑 `--dry-run`。  | id-map 中 fact 与 `produces` 数量一致；SQLite fact/relation 计数稳定；`ha fact search` 与 `ha fact show <F-id>` 成功。 |
-
-fact-only 路径只在 fleet center 执行一次。marker 携带 ledger epoch；边缘节点
-和 replica 在重放前必须将该 epoch 与本地 projection 比较，发现更高 epoch
-就丢弃 projection，按 canonical cut 做完整 cold rebuild。它们不再次 rekey，
-也不自行生成替代 ref。
-
-本页之外的内容，运行 `ha migrate --help` 查看权威描述。
+| 输入               | 命令                                  | 前置                                                                                                                                                                          | 验收                                                                                                                    |
+| ------------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 早于当前代际的老仓 | `ha migrate import --source <source>` | 冻结写入、停止源 daemon，源必须是 committed snapshot。有同 cut projection 时直接使用；没有时导入器从已提交事件和 authored package 自动重建一个临时 oracle。先跑 `--dry-run`。 | 五类现役 ID 集合满足 source ⊆ target；每类差异恰等于 derived + archived/retired；当前事件预校验与 coverage 保全均通过。 |
 
 ## 为什么不能原地升级
 
@@ -168,34 +160,14 @@ derived + archived/retired；coverage 保全；当前事件预校验通过。任
 
 按报告 code 或行处置：
 
-| 报告 | 动作 |
-| --- | --- |
-| authored 行为 `required` | 按报告原样传入 `--resolve path=destination|source`，再跑 dry-run。 |
-| `migration_projection_oracle_cut_mismatch` | 停止源写入者，重建或删除过期的本地 projection；不改已提交事件。 |
-| `unsupported_legacy_event` | 保留源仓，收集命名的 event 和 schema，作为缺失的兼容 fixture 报告。 |
-| `migration_projection_rebuild_failed` | 保留源仓，根据内层原因修复缺失/损坏的已提交 blob，或报告不支持的 invariant。 |
-| `ACCEPT schedule_definition_facet_mismatch` | 无需修复源。确认这是已知 schedule facet 变体，保留法证归档。 |
+| 报告                                          | 动作                                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------- |
+| authored 行为 `required`                      | 按报告原样传入 `--resolve path=destination                                                              | source`，再跑 dry-run。 |
+| `migration_projection_oracle_cut_mismatch`    | 停止源写入者，重建或删除过期的本地 projection；不改已提交事件。                                         |
+| `unsupported_legacy_event`                    | 保留源仓，收集命名的 event 和 schema，作为缺失的兼容 fixture 报告。                                     |
+| `migration_projection_rebuild_failed`         | 保留源仓，根据内层原因修复缺失/损坏的已提交 blob，或报告不支持的 invariant。                            |
+| `ACCEPT schedule_definition_facet_mismatch`   | 无需修复源。确认这是已知 schedule facet 变体，保留法证归档。                                            |
 | reconciliation `FAIL` 或 `invalid_write_plan` | 不要 apply。保留完整 dry-run 回执并报告失败 kind/event；成功 dry-run 不应把 write-plan 错误拖到 apply。 |
-
-## 仅 fact 原地 rekey
-
-已 canonical 的仓库不要使用 genesis import。停止 daemon 和所有写入者，确认
-canonical cut 已提交后，先预演再执行：
-
-```bash
-ha migrate rekey-facts --dry-run --json
-ha migrate rekey-facts --json
-sqlite3 .harness/cache/projections.sqlite \
-  'select count(*) from fact; select count(*) from relation;'
-ha fact search
-ha fact show <F-id>
-```
-
-dry-run 回执中的 id-map 和计数是预期值。正式执行会把旧 ref 改成
-`fact/F-*`，写入 `harness/facts/F-*.md`，重写 relation endpoint，为可确定的
-owner task 写 `produces` 边，并删除 task-local `facts.md`。重复执行必须返回
-no-op。无法确定 owner 的 fact 不伪造归属，会无 task 边 rekey 并列清单供后续
-回填。
 
 ## FAQ
 

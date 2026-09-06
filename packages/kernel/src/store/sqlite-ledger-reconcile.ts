@@ -49,7 +49,7 @@ export function reconcileSqliteEvents(input: {
       rootDir: input.rootDir,
       snapshotPath: input.snapshotPath,
     }),
-    store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation });
+    store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation, readOnly: true });
   try {
     const metadata = store.metadata(),
       rows = store.eventRows(),
@@ -83,11 +83,23 @@ export function reconcileSqliteEvents(input: {
       expectedObjects = [...new Set(allClaims.map((claim) => claim.sha256))].sort(),
       actualObjects = [...store.contentObjectDigests()].sort(),
       metadataMatches =
-        metadata.repoId === input.repoId && metadata.generation === generation && metadata.revision === rows.length,
+        snapshot.repoId === input.repoId &&
+        snapshot.generation === 0 &&
+        metadata.repoId === input.repoId &&
+        metadata.generation === generation &&
+        metadata.revision === rows.length,
       rowDigestMatches =
         rows.length >= expectedRows.length &&
         stableStringify(rows.slice(0, expectedRows.length)) === stableStringify(expectedRows) &&
-        rows.every((row) => row.digest === `sha256:${sha256Text(row.eventJson)}`),
+        rows.every((row, index) => {
+          const event = parseCanonicalEvent(row.eventJson);
+          return (
+            row.revision === index + 1 &&
+            event.workspaceRevision === row.revision &&
+            event.opId === row.opId &&
+            row.digest === `sha256:${sha256Text(row.eventJson)}`
+          );
+        }),
       outcomeMatches =
         stableStringify(actualOutcomes.slice(0, expectedOutcomes.length)) === stableStringify(expectedOutcomes) &&
         rows.every((row) => {

@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { rejectedAcceptance } from "./receipt-acceptance.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_POLICY, durablePolicyActions } from "../../src/domain/default-policy.ts";
@@ -140,6 +141,7 @@ test("lease and review facts do not change Policy qualification", () => {
 test("public WriteReceipt rejects a missing or null AuthorizationDecision", () => {
   const decision = port.authorize(action("fact-record"), roleContext("repo-write")),
     receipt = {
+      ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "op-authorized",
       code: "state_conflict",
@@ -157,6 +159,7 @@ test("public WriteReceipt rejects a missing or null AuthorizationDecision", () =
 test("public WriteReceipt accepts only structured unmet criteria", () => {
   const decision = port.authorize(action("task-submit"), roleContext("repo-write")),
     receipt = {
+      ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "op-unmet-criterion",
       code: "invalid_transition",

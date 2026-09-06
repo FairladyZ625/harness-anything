@@ -30,7 +30,7 @@ test("empty generation activation remains valid after its first accepted command
     initRepo(root);
     preflightCanonicalGeneration({ rootInput: root, repoId });
     const store = openSqliteEventStore({ repoId, rootInput: root }),
-      seeded = seedLegacySettings(root),
+      seeded = seedLegacySettings(root, false),
       event = seeded.source.read().events[0]!,
       fence = { repoId, holder: "empty-generation-test", epoch: 1 };
     store.appendCommand({
@@ -143,6 +143,10 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     assert.equal(firstRebuild.stateDigest, secondRebuild.stateDigest);
     sqlite.close();
     rmSync(objectPath, { force: true });
+    assert.equal(
+      reconcileSqliteEvents({ repoId, rootDir: root, snapshotPath, databasePath, gitReadback }).objectMatches,
+      false,
+    );
     assert.throws(
       () => preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath }),
       /missing object/u,
@@ -152,7 +156,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
   }
 });
 
-function seedLegacySettings(root: string) {
+function seedLegacySettings(root: string, legacy = true) {
   const body = readFileSync(path.join(root, "harness/harness.yaml"), "utf8"),
     compiled = compileSettingsChangedEvent({
       settings: readSettingsFacet(body),
@@ -166,7 +170,7 @@ function seedLegacySettings(root: string) {
       occurredAt: "2026-09-06T00:00:00.000Z",
     }),
     event = structuredClone(compiled.event);
-  delete event.payload.settings.walFlush;
+  if (legacy) delete event.payload.settings.walFlush;
   const blobs = new Map(compiled.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
   return {
     eventBytes: JSON.stringify(event),

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -112,6 +112,75 @@ test("acceptance subprocess cost is independent of 100 versus 10,000-event histo
     }
     const atTenThousand = localGitObjectRefStore.processCount();
     assert.equal(atTenThousand, before);
+  } finally {
+    await store.drain();
+  }
+});
+
+test("repeated settlement preserves concurrent edits to a claimed document and resumes after resolution", async () => {
+  const rootDir = fixture("claimed-edit"),
+    target = path.join(rootDir, "harness/context/owned.md");
+  initRepo(rootDir);
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, "user edit\n");
+  let store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  store.append(docBundle(store, "accepted content\n", 1, "claimed-edit", "context/owned.md"));
+  await store.settlePendingMaterialization!("first attempt");
+  await store.settlePendingMaterialization!("retry must not bless user bytes");
+  assert.equal(store.followerStatus().git.status, "verified");
+  assert.equal(store.followerStatus().worktree.status, "pending");
+  assert.equal(readFileSync(target, "utf8"), "user edit\n");
+  await store.drain();
+  assert.equal(readFileSync(target, "utf8"), "user edit\n");
+  rmSync(target);
+  store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  await store.settlePendingMaterialization!("user restored pre-publication state");
+  assert.equal(store.followerStatus().worktree.status, "verified");
+  assert.equal(readFileSync(target, "utf8"), "accepted content\n");
+  await store.drain();
+});
+
+test("worktree failure preserves an independently verified Git facet", async () => {
+  const rootDir = fixture("worktree-failure");
+  initRepo(rootDir);
+  let fail = true;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence,
+    killpoint: (point) => {
+      if (fail && point === "before_worktree_rename") throw new Error("worktree unavailable");
+    },
+  });
+  try {
+    store.append(docBundle(store, "accepted\n", 1, "worktree-failure", "context/accepted.md"));
+    await store.settlePendingMaterialization!("injected worktree failure");
+    assert.equal(store.readCommandOutcome("worktree-failure")?.status, "accepted_durable");
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().worktree.status, "pending");
+    fail = false;
+    await store.settlePendingMaterialization!("worktree recovered");
+    assert.equal(store.followerStatus().worktree.status, "verified");
+  } finally {
+    fail = false;
+    await store.drain();
+  }
+});
+
+test("successive Git cuts settle managed files while leaving the caller index untouched", async () => {
+  const rootDir = fixture("successive-cuts");
+  initRepo(rootDir);
+  const beforeIndex = git(rootDir, "ls-files", "--stage"),
+    store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    for (let revision = 1; revision <= 3; revision += 1) {
+      const body = `accepted revision ${revision}\n`;
+      store.append(docBundle(store, body, revision, `successive-${revision}`, "context/managed.md"));
+      await store.settlePendingMaterialization!("successive publication");
+      assert.equal(store.followerStatus().worktree.status, "verified");
+      assert.equal(readFileSync(path.join(rootDir, "harness/context/managed.md"), "utf8"), body);
+      assert.equal(git(rootDir, "ls-files", "--stage"), beforeIndex);
+    }
   } finally {
     await store.drain();
   }

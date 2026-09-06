@@ -676,7 +676,7 @@ export async function runSingleMigrationImport(
     prepared.push(backfillMapPrepared);
     revision += 1;
   }
-  // The WAL is authoritative for each append. Migration defers worktree/Git
+  // SQLite is authoritative for each append. Migration defers worktree/Git
   // materialization and projection reduction, then settles each surface once.
   const unexplained = migrationOracleKinds.filter((kind) => !reconciliation[kind].passed),
     coveragePassed = actual.coverage === expected.coverage,
@@ -695,17 +695,14 @@ export async function runSingleMigrationImport(
       );
     };
   if (writesAllowed) {
-    const bulk = input.store.beginBulkWrite?.();
     try {
       for (const [index, item] of prepared.entries()) {
         throwIfShutdownRequested();
         input.store.append(item);
-        if (!bulk) input.projection.apply(item.event, item.plan);
         if ((index + 1) % 256 === 0) await yieldToEventLoop();
       }
     } finally {
-      await bulk?.finish();
-      if (bulk) input.projection.catchUp?.();
+      input.projection.catchUp?.();
     }
     await yieldToEventLoop();
     throwIfShutdownRequested();

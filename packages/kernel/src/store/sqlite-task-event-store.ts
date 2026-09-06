@@ -196,9 +196,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           readContent,
           accepted,
         ),
-        dirty = pendingWorktreeBaseline
-          ? !worktreeMatchesBaseline(currentLedger.rootDir, pendingWorktreeBaseline)
-          : localGitWorktreeSettlement.hasChanges(currentLedger.rootDir, currentLedger.authoredPrefix || ".");
+        baseline =
+          pendingWorktreeBaseline ??
+          captureGitBaseline(
+            currentLedger.rootDir,
+            accepted.revision > 0 ? localGitObjectRefStore.resolveCommit(currentLedger.rootDir, `${parent}^`) : parent,
+            closureFiles,
+          ),
+        dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, closureFiles);
+      follower = {
+        git: { status: "verified", cut: accepted, commitSha: parent },
+        worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
+      };
       if (!dirty) {
         settleWorktree(currentLedger.rootDir, closureFiles, options.killpoint);
         verifyWorktreeFiles(currentLedger.rootDir, closureFiles);
@@ -227,12 +236,17 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         new Date().toISOString(),
       );
     options.killpoint?.("after_git_commit");
-    const dirty = localGitWorktreeSettlement.hasChanges(currentLedger.rootDir, currentLedger.authoredPrefix || ".");
-    if (dirty) pendingWorktreeBaseline = captureWorktreeBaseline(currentLedger.rootDir, files);
+    const baseline = pendingWorktreeBaseline ?? captureGitBaseline(currentLedger.rootDir, parent, files),
+      dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, files);
+    if (dirty) pendingWorktreeBaseline = baseline;
     finalizeRefs(currentLedger.rootDir, currentRef, commit, parent, tempRef);
     options.killpoint?.("after_git_ref_update");
     verifyGitFiles(currentLedger.rootDir, commit, files);
     certified = { commit, revision: accepted.revision };
+    follower = {
+      git: { status: "verified", cut: accepted, commitSha: commit },
+      worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
+    };
     if (!dirty) {
       settleWorktree(currentLedger.rootDir, files, options.killpoint);
       verifyWorktreeFiles(currentLedger.rootDir, files);
@@ -274,7 +288,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error);
           consumeKnownError(error);
-          follower = pendingFollower(reason);
+          const pending = pendingFollower(reason);
+          follower = {
+            git:
+              follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
+                ? follower.git
+                : pending.git,
+            worktree: pending.worktree,
+          };
           options.onMaterializationHealthChange?.(health("failed", reason));
         } finally {
           scheduled = null;
@@ -306,7 +327,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     layout: () => "sharded-sha256-2/v1",
     append,
     materialize: publishFollower,
-    materializationHealth: () => health(follower.git.status === "verified" ? "ok" : "failed", follower.git.reason),
+    materializationHealth: () =>
+      health(follower.git.status === "verified" ? "ok" : scheduled ? "retrying" : "failed", follower.git.reason),
     drain: async () => {
       await scheduled;
       if (!closed) sqlite.close();
@@ -318,7 +340,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     followerStatus: () => follower,
   };
 
-  function health(state: "ok" | "failed", reason?: string): MaterializationHealth {
+  function health(state: "ok" | "retrying" | "failed", reason?: string): MaterializationHealth {
     return {
       state,
       lastCheckpointRevision: follower.git.cut?.revision ?? 0,
@@ -566,19 +588,45 @@ function settleWorktree(
   if (writes.length) localGitWorktreeSettlement.visible(repoRoot, writes, hooks);
 }
 
-function captureWorktreeBaseline(repoRoot: string, files: readonly PublicationFile[]): ReadonlyMap<string, string> {
+function captureGitBaseline(
+  repoRoot: string,
+  commit: string,
+  files: readonly PublicationFile[],
+): ReadonlyMap<string, string> {
+  const modes = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry.mode]));
   return new Map(
     files.flatMap((file) => {
       const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
       if (target === null) return [];
-      return [[target, worktreeFingerprint(localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`))] as const];
+      const bytes = localGitObjectRefStore.readPath(repoRoot, commit, target);
+      return [
+        [
+          target,
+          bytes === null ? "missing" : `${modes.get(target)}:${sha256Text(bytes.toString("utf8"))}:${bytes.byteLength}`,
+        ],
+      ];
     }),
   );
 }
 
-function worktreeMatchesBaseline(repoRoot: string, baseline: ReadonlyMap<string, string>): boolean {
-  for (const [target, fingerprint] of baseline)
-    if (worktreeFingerprint(localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`)) !== fingerprint) return false;
+function worktreeMatchesBaseline(
+  repoRoot: string,
+  baseline: ReadonlyMap<string, string>,
+  files: readonly PublicationFile[],
+): boolean {
+  const settled = new Map(
+    files.flatMap((file) =>
+      "target" in file
+        ? [[file.target, `${file.mode}:${sha256Text(file.body)}:${Buffer.byteLength(file.body)}`]]
+        : "delete" in file
+          ? [[file.delete, "missing"]]
+          : [],
+    ),
+  );
+  for (const [target, fingerprint] of baseline) {
+    const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`));
+    if (current !== fingerprint && current !== settled.get(target)) return false;
+  }
   return true;
 }
 

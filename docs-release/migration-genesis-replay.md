@@ -1,16 +1,11 @@
 # Ledger Migration: Genesis Replay
 
-Status: required path for repositories whose ledger predates the current
-generation of the Harness Anything record format. A separate in-place fact
-rekey is available for repositories that are already canonical.
+Status: genesis replay imports an older repository into a new destination.
+Historical repairs within an existing canonical ledger use immutable pre-activation
+conversion; see [legacy conversion](migration-legacy-ledger-recovery.md).
+The production in-place fact rekey and historical mutation commands are retired.
 
 ## What changed
-
-The ledger format has changed by a generation. Records written by the previous
-generation do not satisfy the current schema, and a legacy repository therefore
-cannot be converted wholesale in place. Canonical repositories can still carry
-the older task-local fact shape from the fact transition; that narrow backlog is
-handled by the one-shot fact rekey command below.
 
 The only supported path is **genesis replay**: archive the old repository as a
 read-only reference, create a new empty repository, and replay the old corpus
@@ -22,19 +17,6 @@ The genesis-replay entry point is:
 ha migrate import --source <source> [--resolve <repo-relative-path>=destination|source]... [--dry-run]
     Import a legacy Harness repository; resolve reported destination conflicts with repeated --resolve path=destination|source.
 ```
-
-There are two migration inputs and exactly one command for each:
-
-| Input                                                                  | Command                               | Preconditions                                                                                          | Acceptance                                                                                                                                                |
-| ---------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Legacy repository whose ledger predates the current generation         | `ha migrate import --source <source>` | Freeze writers, stop the source daemon, and use a committed source. A same-cut projection is used when present; otherwise the importer rebuilds a disposable oracle from committed events and authored packages. Run `--dry-run` first. | Active IDs satisfy source ⊆ target; each kind's difference equals derived + archived/retired; current-event pre-validation and claim coverage pass. |
-| Already-canonical repository with task-local `fact/<task>/F-*` records | `ha migrate rekey-facts`              | Stop the repository daemon/writers and run against the committed canonical cut. Run `--dry-run` first. | Re-keyed facts and `produces` edges match the dry-run id-map; SQLite fact/relation counts are stable; `ha fact search` and `ha fact show <F-id>` succeed. |
-
-Run the fact-only path once at the fleet center. The marker carries a ledger
-epoch. Edge nodes and replicas must compare that epoch with their local
-projection before replaying; when it is newer, they discard the projection and
-perform a complete cold rebuild from the canonical cut. They do not run a
-second rekey or invent replacement refs.
 
 For anything beyond what this page states, run `ha migrate --help`.
 
@@ -205,35 +187,14 @@ no half-migrated state that can corrupt source data.
 
 Use the report code and row as the repair instruction:
 
-| Report | Action |
-| --- | --- |
-| `required` authored row | Supply the exact printed `--resolve path=destination|source` choice, then dry-run again. |
-| `migration_projection_oracle_cut_mismatch` | Stop source writers and regenerate or remove the stale local projection; do not alter committed events. |
-| `unsupported_legacy_event` | Preserve the source, capture the named event and schema, and report it as a missing compatibility fixture. |
-| `migration_projection_rebuild_failed` | Preserve the source and use the nested cause to repair a missing/corrupt committed blob or report an unsupported invariant. |
-| `ACCEPT schedule_definition_facet_mismatch` | No source repair is required. Confirm the warning is the known schedule facet variant and retain the forensic archive. |
+| Report                                        | Action                                                                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `required` authored row                       | Supply the exact printed `--resolve path=destination                                                                                              | source` choice, then dry-run again. |
+| `migration_projection_oracle_cut_mismatch`    | Stop source writers and regenerate or remove the stale local projection; do not alter committed events.                                           |
+| `unsupported_legacy_event`                    | Preserve the source, capture the named event and schema, and report it as a missing compatibility fixture.                                        |
+| `migration_projection_rebuild_failed`         | Preserve the source and use the nested cause to repair a missing/corrupt committed blob or report an unsupported invariant.                       |
+| `ACCEPT schedule_definition_facet_mismatch`   | No source repair is required. Confirm the warning is the known schedule facet variant and retain the forensic archive.                            |
 | reconciliation `FAIL` or `invalid_write_plan` | Do not apply. Keep the full dry-run receipt and report the failing kind/event; a successful dry-run must not defer a write-plan failure to apply. |
-
-## Fact-only rekey procedure
-
-For an already-canonical repository, do not use genesis import. Stop its daemon
-and all writers at a committed cut, then preview and apply the fact-only command:
-
-```bash
-ha migrate rekey-facts --dry-run --json
-ha migrate rekey-facts --json
-sqlite3 .harness/cache/projections.sqlite \
-  'select count(*) from fact; select count(*) from relation;'
-ha fact search
-ha fact show <F-id>
-```
-
-The dry-run receipt is the id-map and expected count. The apply receipt records
-the same map in the canonical event ledger, rewrites relation endpoints, adds a
-`produces` edge for each known task owner, and removes task-local `facts.md`
-files. Repeat apply is a no-op. If a legacy fact has no determinable owner, it
-is rekeyed without a task edge and listed for later attribution; ownership is
-never guessed.
 
 ## FAQ
 

@@ -5,20 +5,34 @@ import {
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
   makeTaskEventStore,
+  preflightCanonicalGeneration,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
 } from "../../kernel/src/index.ts";
+import { daemonRegistryPaths } from "../../kernel/src/daemon/registry.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
+import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../src/writer-epoch.ts";
 
 const seededSettings = new Set<string>();
+
+function fixtureFence(repoId: string, stateRoot: string): WriterEpochFenceDescriptor {
+  const authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" });
+  try {
+    const lease = authority.acquire(repoId);
+    return { schema: "harness-writer-epoch-fence/v1", stateRoot, repoId, holderId: lease.holderId, epoch: lease.epoch };
+  } finally {
+    authority.close();
+  }
+}
 
 export function seedSettingsEvent(input: {
   readonly repoId: string;
   readonly rootDir: string;
   readonly authoredBranch?: string;
+  readonly writerEpochFence?: WriterEpochFenceDescriptor;
 }): void {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
@@ -27,6 +41,8 @@ export function seedSettingsEvent(input: {
   const store = makeTaskEventStore({
       repoId,
       rootDir,
+      activationPreflight: preflightCanonicalGeneration,
+      ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
     stream = store.read();
@@ -52,14 +68,16 @@ export function seedSettingsEvent(input: {
       occurredAt: "2026-08-27T00:00:00.000Z",
     }),
   );
-  store.beginBulkWrite?.();
   seededSettings.add(fixtureKey);
 }
 
 export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input) => {
   if (input.mode === "remote-edge") return openProductRepoCell(input);
-  await settleSettingsEvent(input);
-  const cell = await openProductRepoCell(input);
+  const defaultWriterEpochFence =
+    input.defaultWriterEpochFence ??
+    fixtureFence(input.repoId, path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"));
+  await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
+  const cell = await openProductRepoCell({ ...input, defaultWriterEpochFence });
   try {
     await cell.read("repo.settings.read");
   } catch (error) {
@@ -74,17 +92,20 @@ async function settleSettingsEvent(input: {
   readonly repoId: string;
   readonly rootDir: string;
   readonly authoredBranch?: string;
+  readonly writerEpochFence?: WriterEpochFenceDescriptor;
 }): Promise<void> {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
   // registerBootstrappedDaemonRepo already placed a durable settings record in
-  // the WAL. Reopening and draining a second store here defeats attach budgets
+  // SQLite. Reopening and draining a second store here defeats attach budgets
   // and masks tests that intentionally exercise an invalid Git layout.
   if (seededSettings.has(fixtureKey)) return;
   const store = makeTaskEventStore({
       repoId,
       rootDir,
+      activationPreflight: preflightCanonicalGeneration,
+      ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
     stream = store.read();
@@ -128,6 +149,9 @@ async function settleSettingsEvent(input: {
 }
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
-  if (input.mode !== "remote-edge") seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot });
+  if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
+    const writerEpochFence = fixtureFence(input.repoId, path.join(daemonRegistryPaths(input).userRoot, "fleet"));
+    seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot, writerEpochFence });
+  }
   return registerProductDaemonRepo(input);
 };

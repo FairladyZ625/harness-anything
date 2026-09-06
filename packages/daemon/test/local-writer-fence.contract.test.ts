@@ -19,13 +19,13 @@ test("every production local binding is covered by a request or cell-default wri
       ["host-action-authorization.ts", 1],
       ["repo-cell-authorization.ts", 1],
       ["repo-cell-open.ts", 1],
-      ["repo-cell.ts", 1],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
   );
 
   const cell = source("repo-cell.ts");
-  assert.match(cell, /walMaterializationFence: \(\) => context\.activeWriterEpochFenceDescriptor/u);
+  assert.match(cell, /writerFence: \(\) =>/u);
+  assert.match(cell, /if \(!fence\) throw new Error/u);
   assert.match(cell, /beforeAppend: \(\) => context\.activeWriterEpochGuard\?\.\(\)/u);
   assert.match(cell, /context\.activeWriterEpochFence\(operation\)/u);
   assert.match(cell, /const fence = context\.activeWriterEpochFenceDescriptor/u);

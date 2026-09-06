@@ -717,7 +717,11 @@ const receiptFields: readonly EntityActionInputField[] = Object.freeze(
     if (name !== "proof")
       return field(
         name,
-        name === "revision" ? "number" : name === "outcome" || name === "opId" ? "string" : "json-object",
+        name === "revision"
+          ? "number"
+          : name === "outcome" || name === "opId" || name === "status"
+            ? "string"
+            : "json-object",
         WRITE_RECEIPT_SCHEMA.required.includes(name as never),
         name === "outcome" ? WRITE_RECEIPT_SCHEMA.outcomes : undefined,
       );
@@ -743,7 +747,7 @@ const createResult = Object.freeze({
   fields: Object.freeze([
     ...receiptFields,
     field("taskId", "string", true),
-    field("status", "string", true, ["planned"]),
+    field("taskStatus", "string", true, ["planned"]),
     field("packagePath", "string", true),
     field("generatedPaths", "string-array", true),
     field("presetDigest", "string", true),

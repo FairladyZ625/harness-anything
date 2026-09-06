@@ -78,7 +78,7 @@ export async function startDaemon(input: {
     };
   };
   // Shutdown used to close the socket first and release the pid file and the singleton lock after the
-  // WAL drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
+  // Git follower drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
   // the lock said "here". Three observers each guessed differently in that gap. Admission is now this
   // flag rather than a closed socket, so the endpoint stays bound and answers `daemon_stopping` until
   // the drain finishes, and endpoint, pid file and lock are released together: an observer either
@@ -95,7 +95,7 @@ export async function startDaemon(input: {
       // must not strand the ones after it: a half-released daemon is the state this whole comment
       // exists to prevent.
       try {
-        // RepoCell.close drains each local WAL before the daemon advertises its terminal boundary.
+        // RepoCell.close drains each Git follower before the daemon advertises its terminal boundary.
         await host!.close();
       } finally {
         lifecycle.record({ event: "process_exit", outcome });

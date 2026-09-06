@@ -52,6 +52,11 @@ export const localRuntimeStateFileSystem = {
     try {
       /* @gate-identity check-bypass-write-boundary/bypass-write-054 */
       writeFileSync(descriptor, value, "utf8");
+      syncDescriptor(descriptor);
+      const directories = [path.dirname(inputPath)];
+      while (path.dirname(directories.at(-1)!) !== directories.at(-1))
+        directories.push(path.dirname(directories.at(-1)!));
+      syncDirectories(directories);
       return true;
     } finally {
       /* @gate-identity check-bypass-write-boundary/bypass-write-055 */
@@ -79,51 +84,30 @@ export const localRuntimeStateFileSystem = {
     writeFileSync(inputPath, value, "utf8"),
 };
 
-// An acknowledged write is durable only after its WAL segment, head, and content
-// objects have crossed this fsync boundary.
-export const localWalFileSystem = {
-  exists: (inputPath: string) => existsSync(inputPath),
-  realpath: (inputPath: string) => realpathSync.native(inputPath),
-  mkdirp: (inputPath: string) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-060 */
-    mkdirSync(inputPath, { recursive: true }),
+// Required content objects and their directory links are durable before SQLite accepts a command.
+export const localContentObjectFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
+  exists: (inputPath: string) => existsSync(inputPath),
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
-  remove: (inputPath: string): void =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-061 */
-    rmSync(inputPath, { force: true }),
-  append: (inputPath: string, body: string): void => {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-062 */
-    mkdirSync(path.dirname(inputPath), { recursive: true });
-    const descriptor =
-      /* @gate-identity check-bypass-write-boundary/bypass-write-063 */
-      openSync(inputPath, "a", 0o600);
-    try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-064 */
-      writeSync(descriptor, body, null, "utf8");
-      /* @gate-identity check-bypass-write-boundary/bypass-write-065 */
-      fsyncSync(descriptor);
-    } finally {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-066 */
-      closeSync(descriptor);
-    }
-  },
   replace: (inputPath: string, body: string): void => {
+    const directories = [path.dirname(inputPath)];
+    while (!existsSync(directories.at(-1)!)) {
+      const parent = path.dirname(directories.at(-1)!);
+      if (parent === directories.at(-1)) break;
+      directories.push(parent);
+    }
     /* @gate-identity check-bypass-write-boundary/bypass-write-067 */
     mkdirSync(path.dirname(inputPath), { recursive: true });
     const temporary = `${inputPath}.${process.pid}.tmp`;
     const descriptor =
       /* @gate-identity check-bypass-write-boundary/bypass-write-068 */
       openSync(temporary, "w", 0o600);
-    // The temp is named after this process. The objects/ sweep in wal-event-log reclaims
-    // whatever it finds unreferenced, but head.json and the segment sit one level above it
-    // and no reader ever enumerates that directory, so a failed write must clear its own.
+    // A failed write owns and removes only its temporary object.
     try {
       try {
         /* @gate-identity check-bypass-write-boundary/bypass-write-069 */
         writeSync(descriptor, body, null, "utf8");
-        /* @gate-identity check-bypass-write-boundary/bypass-write-070 */
-        fsyncSync(descriptor);
+        syncDescriptor(descriptor);
       } finally {
         /* @gate-identity check-bypass-write-boundary/bypass-write-071 */
         closeSync(descriptor);
@@ -135,10 +119,21 @@ export const localWalFileSystem = {
       rmSync(temporary, { force: true });
       throw error;
     }
-    if (process.platform !== "win32") {
+    syncDirectories(directories);
+  },
+};
+
+function syncDescriptor(descriptor: number): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-070 */
+  fsyncSync(descriptor);
+}
+
+function syncDirectories(directories: readonly string[]): void {
+  if (process.platform !== "win32")
+    for (const directoryPath of directories) {
       const directory =
         /* @gate-identity check-bypass-write-boundary/bypass-write-073 */
-        openSync(path.dirname(inputPath), "r");
+        openSync(directoryPath, "r");
       try {
         /* @gate-identity check-bypass-write-boundary/bypass-write-074 */
         fsyncSync(directory);
@@ -147,8 +142,7 @@ export const localWalFileSystem = {
         closeSync(directory);
       }
     }
-  },
-};
+}
 
 function isExclusiveCreateConflict(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";

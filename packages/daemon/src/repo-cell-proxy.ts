@@ -1,6 +1,5 @@
 import path from "node:path";
 import {
-  makeGitEventStore,
   makeTaskEventReader,
   makeTaskProjectionReader,
   timestamp,
@@ -72,10 +71,9 @@ export async function openRepoCellProxy(
     throw error;
   }
   const reader = makeTaskProjectionReader({ rootDir: input.rootDir, ...(input.now ? { now: input.now } : {}) }),
-    gitOptions = { repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch },
-    currentGit = () => makeGitEventStore(gitOptions),
+    ledgerOptions = { repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch },
     readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => {
-      const store = makeTaskEventReader(gitOptions);
+      const store = makeTaskEventReader(ledgerOptions);
       try {
         return read(store);
       } finally {
@@ -87,8 +85,8 @@ export async function openRepoCellProxy(
       localRoot: path.dirname(path.dirname(reader.path)),
       readBasis: (afterRevision) => reader.withSession((projection) => projection.readReplicaBasis(afterRevision)),
       // Fleet replication follows the acknowledged writer cut, including the durable
-      // WAL suffix that may not have reached Git yet. This reader is immutable; the
-      // RepoWriterCell remains the only mutable WAL owner.
+      // ledger suffix that may not have reached Git yet. This reader is immutable; the
+      // RepoWriterCell remains the only accepting writer.
       readLedgerCut: () => readCurrentLedger((store) => store.currentCut()),
       readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
       readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
@@ -156,20 +154,7 @@ export async function openRepoCellProxy(
     binding?: RepoCellBinding,
   ): Awaited<ReturnType<RepoCell["read"]>> => {
     const writableProjection = projection as TaskProjection,
-      needsWalOverlay = (
-        [
-          "repo.entity.actions.explain",
-          "repo.agentRuntime.overview",
-          "repo.agentRuntime.sessions.read",
-        ] as readonly string[]
-      ).includes(method),
-      readStore = needsWalOverlay
-        ? makeTaskEventReader({
-            repoId: input.repoId,
-            rootDir: input.rootDir,
-            authoredBranch: input.authoredBranch,
-          })
-        : currentGit(),
+      readStore = makeTaskEventReader(ledgerOptions),
       unsupportedWrite = async (): Promise<never> => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
       },
@@ -229,7 +214,7 @@ export async function openRepoCellProxy(
         ReturnType<RepoCell["read"]>
       >;
     } finally {
-      if (needsWalOverlay) void readStore.drain();
+      void readStore.drain();
     }
   };
   const run: RepoCell["run"] = async (action, binding, signal) => {

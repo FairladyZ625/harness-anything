@@ -38,7 +38,14 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
 
 export function renderCliReceipt(receipt: Record<string, unknown>): RenderedCliReceipt {
-  const rendered = renderCliReceiptBase(receipt),
+  const base = renderCliReceiptBase(receipt),
+    rendered =
+      receipt.status === "accepted_durable"
+        ? {
+            ...base,
+            text: `${base.text}\nacceptance: accepted_durable; git: ${isRecord(receipt.git) ? String(receipt.git.state) : "pending"}; projection: ${isRecord(receipt.projection) ? String(receipt.projection.state) : "pending"}${isRecord(receipt.wait) ? `; wait: ${String(receipt.wait.state)}` : ""}`,
+          }
+        : base,
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)

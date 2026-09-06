@@ -153,7 +153,7 @@ export function convertLegacyGeneration(input: {
     store.close();
     throw new TaskEventStoreError("invalid_store", "inactive generation revision exceeds immutable source");
   }
-  store.claimWriter(fence);
+  if (plan.events.length > 0) store.claimWriter(fence);
   try {
     for (const event of plan.events.slice(existingRevision)) {
       input.beforeEvent?.(event.workspaceRevision);

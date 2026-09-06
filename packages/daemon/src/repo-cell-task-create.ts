@@ -146,7 +146,7 @@ export function createTask(
         true,
       ),
       taskId: idempotent.taskId,
-      status: idempotent.snapshot.task.status,
+      taskStatus: idempotent.snapshot.task.status,
       packagePath: current.packagePath,
       summary: `reused task ${idempotent.taskId} for the supplied idempotency key`,
     } as WriteReceipt;
@@ -189,7 +189,7 @@ export function createTask(
     },
     commonFields = {
       taskId,
-      status: "planned" as const,
+      taskStatus: "planned" as const,
       packagePath: compiled.packagePath,
       generatedPaths: compiled.documents.map((document) => document.path),
       presetDigest: compiled.snapshot.digest,
