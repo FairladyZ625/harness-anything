@@ -428,7 +428,10 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
     disconnected = assignments[6],
     warmRoot = path.join(fixture.root, "takeover-warm"),
     freshRoot = path.join(fixture.root, "takeover-fresh"),
-    disconnectedRoot = path.join(fixture.root, "takeover-disconnected");
+    disconnectedRoot = path.join(fixture.root, "takeover-disconnected"),
+    oldLease = fixture.writerLease(repo.repoId),
+    oldEpoch = oldLease?.epoch;
+  assert.ok(Number.isSafeInteger(oldEpoch));
   await fixture.pull(warm, warmRoot);
   const oldWrite = await fixture.schedule(
     assignments[0],
@@ -438,7 +441,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
       scheduleId: "campaign",
       name: "Old center accepted",
     },
-    { writerEpoch: 1 },
+    { writerEpoch: oldEpoch },
   );
   assert.equal(oldWrite.outcome, "applied");
   await assert.rejects(
@@ -451,6 +454,10 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
   );
   await fixture.closeCenter();
   await fixture.startCenter("new-center");
+  const newLease = fixture.writerLease(repo.repoId),
+    newEpoch = newLease?.epoch;
+  assert.ok(Number.isSafeInteger(newEpoch));
+  assert.ok(newEpoch > oldEpoch);
   const stale = await fixture.schedule(
     assignments[0],
     "takeover-stale-old-epoch",
@@ -459,7 +466,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
       scheduleId: "campaign",
       name: "Stale center must not write",
     },
-    { writerEpoch: 1 },
+    { writerEpoch: oldEpoch },
   );
   assert.equal(stale.outcome, "op_rejected");
   assert.equal(stale.code, "writer_epoch_stale");
@@ -471,7 +478,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
       scheduleId: "campaign",
       name: "New center accepted",
     },
-    { writerEpoch: 2 },
+    { writerEpoch: newEpoch },
   );
   assert.equal(newWrite.outcome, "applied");
   assert.ok(oldWrite.revision > priorRevision);
@@ -493,23 +500,23 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
         {
           repoId: repo.repoId,
           opId: oldWrite.opId,
-          holder: "old-center",
-          epoch: 1,
+          holder: oldLease.holderId,
+          epoch: oldEpoch,
           sequence: 1,
           status: "accepted_durable",
         },
         {
           repoId: repo.repoId,
           opId: newWrite.opId,
-          holder: "new-center",
-          epoch: 2,
+          holder: newLease.holderId,
+          epoch: newEpoch,
           sequence: 3,
           status: "accepted_durable",
         },
       ],
       writerClaims: [
-        { repoId: repo.repoId, holder: "old-center", epoch: 1, sequence: 0 },
-        { repoId: repo.repoId, holder: "new-center", epoch: 2, sequence: 2 },
+        { repoId: repo.repoId, holder: oldLease.holderId, epoch: oldEpoch, sequence: 0 },
+        { repoId: repo.repoId, holder: newLease.holderId, epoch: newEpoch, sequence: 2 },
       ],
       scheduleClaims: [],
       replicas: [warmResult, freshResult, disconnectedResult].map((result) => ({
@@ -527,8 +534,8 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
           {
             repoId: repo.repoId,
             opId: "takeover-red-stale-write",
-            holder: "old-center",
-            epoch: 1,
+            holder: oldLease.holderId,
+            epoch: oldEpoch,
             sequence: 4,
             status: "accepted_durable",
           },
@@ -548,7 +555,7 @@ async function centerTakeoverArm(fixture, repo, assignments, priorRevision) {
         "warm-fresh-disconnected-recovery",
       ],
       revisions: { old: oldWrite.revision, new: newWrite.revision },
-      writerEpochs: { old: 1, new: 2 },
+      writerEpochs: { old: oldEpoch, new: newEpoch },
       negativeControl: { id: "F14/stale-center-accepted-write", oracleId: "O6", passed: red.verdict === "FAIL" },
       oracles: {
         O1: { verdict: "PASS", acceptedRevisions: [oldWrite.revision, newWrite.revision] },
