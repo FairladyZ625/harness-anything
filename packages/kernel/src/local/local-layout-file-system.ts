@@ -56,7 +56,7 @@ export const localEventFileSystem = {
 };
 
 export const localRuntimeStateFileSystem = {
-  createExclusiveText: (inputPath: string, value: string): boolean => {
+  createExclusiveText: (inputPath: string, value: string | Uint8Array, syncParents = true): boolean => {
     let descriptor: number;
     try {
       descriptor =
@@ -68,12 +68,14 @@ export const localRuntimeStateFileSystem = {
     }
     try {
       /* @gate-identity check-bypass-write-boundary/bypass-write-054 */
-      writeFileSync(descriptor, value, "utf8");
+      writeFileSync(descriptor, value);
       syncDescriptor(descriptor);
-      const directories = [path.dirname(inputPath)];
-      while (path.dirname(directories.at(-1)!) !== directories.at(-1))
-        directories.push(path.dirname(directories.at(-1)!));
-      syncDirectories(directories);
+      if (syncParents) {
+        const directories = [path.dirname(inputPath)];
+        while (path.dirname(directories.at(-1)!) !== directories.at(-1))
+          directories.push(path.dirname(directories.at(-1)!));
+        syncDirectories(directories);
+      }
       return true;
     } finally {
       /* @gate-identity check-bypass-write-boundary/bypass-write-055 */
@@ -96,6 +98,7 @@ export const localRuntimeStateFileSystem = {
   remove: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-058 */
     rmSync(inputPath, { force: true }),
+  syncDirectory: (inputPath: string) => syncDirectories([inputPath]),
   writeText: (inputPath: string, value: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-059 */
     writeFileSync(inputPath, value, "utf8"),
