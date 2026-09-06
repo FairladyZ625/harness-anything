@@ -97,8 +97,8 @@ const taskPlan: MarkdownDocumentContract = {
       "写明证据粒度、需要的阴性对照或变异检查",
     ],
     Verification: [
-      "Stop point = targeted tests for the surface you touched, green, plus a local commit.",
-      "停止点 = 本次改动面的定向测试全绿 + 本地 commit。",
+      "The full gate matrix is GitHub CI's job, not this machine's.",
+      "完整门矩阵是 GitHub CI 的活，不是这台机器的活。",
     ],
   },
 };
