@@ -22,6 +22,7 @@ test("CLI imports two immutable legacy Git Harness repositories into a SQLite ce
     initialize(center, userRoot, "center");
     addSourceData(first, "alpha", "person_alpha");
     addSourceData(second, "beta", "person_beta");
+    run(center, userRoot, ["daemon", "start", "--service"]);
     const receipt = run(center, userRoot, ["migrate", "import", "--source", first, "--source", second]);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(receipt.exitCode, 0);

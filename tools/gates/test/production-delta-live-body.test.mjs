@@ -7,10 +7,9 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
-// G33 judges the pull request as it is now, not as the triggering event payload described it:
-// a rebase moves the merge-base and a body edit changes the declaration, and reruns replay the
-// stale payload. The job therefore reads the body through the API and diffs against origin/main.
-test("production-delta job reads the live PR body and diffs against origin/main", () => {
+// Retained-Path declarations describe the pull request as it is now, while the computed delta is
+// measured from the current branch merge-base. Reruns must not replay the stale event body.
+test("production-delta job reads live retained paths and diffs against origin/main", () => {
   const workflow = readFileSync(path.join(rootDir, ".github/workflows/pr-body.yml"), "utf8");
   const job = workflow.slice(workflow.indexOf("  production-delta:"), workflow.indexOf("\n  evidence-contract:"));
   assert.match(job, /gh pr view "\$PR_NUMBER" --json body/);

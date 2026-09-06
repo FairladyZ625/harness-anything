@@ -710,6 +710,7 @@ test("real CLI runs, archives task-bound dispatches, resumes, waits through stat
     );
     assert.equal(stoppedForRestart.forced, true, JSON.stringify(stoppedForRestart));
     assert.equal(processAlive(workerPid), true, `runtime worker ${String(workerPid)} must survive daemon stop --force`);
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
     const liveAfterRestart = await eventuallyRuntimeStatus(root, env, restartSessionId, "live"),
       daemonAfterRestart = run(root, env, ["daemon", "status"]);
     assert.notEqual(daemonAfterRestart.pid, daemonBeforeRestart.pid, "runtime status must use a restarted daemon");

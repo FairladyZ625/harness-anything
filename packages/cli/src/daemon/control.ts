@@ -9,7 +9,12 @@ import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rp
 import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
 import { terminateProcess } from "../../../daemon/src/process-port.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { runtimeDaemonStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
+import {
+  clearDaemonStoppedMarker,
+  readDaemonStoppedAt,
+  runtimeDaemonStartRefusal,
+  writeDaemonStoppedMarker,
+} from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
@@ -73,6 +78,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "serve") {
       const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
+      clearDaemonStoppedMarker(userRoot, daemonId);
       return serve(userRoot, daemonId, finish);
     }
     if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
@@ -83,6 +89,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
+      writeDaemonStoppedMarker(userRoot, daemonId);
       if (argv.includes("--force")) {
         const forced = await forceStopDaemon(userRoot, daemonId, pid);
         return finish(forced, forced.ok === true ? 0 : 1);
@@ -128,6 +135,10 @@ async function startDaemonService(
       ),
       2,
     );
+  const runtimeRefusal = runtimeDaemonStartRefusal();
+  if (runtimeRefusal)
+    return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
+  clearDaemonStoppedMarker(userRoot, daemonId);
   let running: Record<string, unknown> | null = null;
   try {
     running = await status(userRoot, daemonId, argv);
@@ -135,9 +146,6 @@ async function startDaemonService(
     consumeKnownError(error);
   }
   if (running?.ok === true) return finish(running, 0);
-  const runtimeRefusal = runtimeDaemonStartRefusal();
-  if (runtimeRefusal)
-    return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
   const started = await ensureCliDaemonRunning({
     invokingRoot,
     userRoot,
@@ -303,8 +311,17 @@ async function status(
     consumeKnownError(error);
     resolved = null;
   }
-  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
+  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId);
+  let result: Record<string, unknown>;
+  try {
     result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, undefined, undefined, true);
+  } catch (error) {
+    const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
+    if (!stoppedAt) throw error;
+    consumeKnownError(error);
+    const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
+    result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
+  }
   const target = {
       endpoint,
       daemonId,
@@ -320,6 +337,9 @@ function assessDaemonStatus(result: Record<string, unknown>): {
   readonly receipt: Record<string, unknown>;
   readonly exitCode: 0 | 1;
 } {
+  // A status that could not reach a daemon (including the operator-stop report) exits non-zero like every
+  // other unavailable answer; callers such as the first-run lane poll on that exit code.
+  if (result.ok === false) return { receipt: result, exitCode: 1 };
   const rows = Array.isArray(result.repos) ? result.repos : [],
     retryingRows = rows.flatMap((value) => {
       if (!statusRecord(value) || !statusRecord(value.materialization)) return [];

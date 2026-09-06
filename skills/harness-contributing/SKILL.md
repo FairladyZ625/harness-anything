@@ -290,19 +290,16 @@ unchecked unless that exact command actually passed. Record the top-level
 manifest command and any allowed exclusion in the surrounding Verification
 text.
 
-To obtain `Production-Delta`, replace the template's `N` and `M` with zero as a
-provisional declaration, run the authoritative calculator, replace it with the
-printed `+N/-M`, and run again until it passes:
+Run the authoritative production-delta calculator after all commits. It reports
+the computed addition, deletion, churn, and net values without requiring a PR
+body declaration:
 
 ```bash
 node tools/gates/production-delta.mjs --base origin/main --pr-body-file /tmp/harness-anything-pr-body.md
-${EDITOR:-vi} /tmp/harness-anything-pr-body.md
-node tools/gates/production-delta.mjs --base origin/main --pr-body-file /tmp/harness-anything-pr-body.md
 ```
 
-For a docs-only branch this is normally `Production-Delta: +0/-0`; never assume
-that value for a source change. If production churn exceeds 200 lines or net
-growth exceeds +300, fill both architectural-justification sections.
+If computed production churn exceeds 200 lines or net growth exceeds +300, fill
+both architectural-justification sections.
 
 Preflight the two complete language blocks through the requested environment
 interface, then run the manifest's full PR-body job:
@@ -320,8 +317,8 @@ unset PR_BODY PR_BASE_SHA PR_HEAD_SHA
 docs-only example that exercises every section. It is a fixture, not a template:
 always copy the live repository template for a real PR.
 
-> 中文：所有 commit 完成后再计算 `Production-Delta`。PR body 必须保留模板的完整
-> 英文块、完整中文块和共享 checklist；机读声明只在英文块顶格出现一次。外部贡献者的
+> 中文：所有 commit 完成后运行 production-delta 计算器。PR body 必须保留模板的完整
+> 英文块、完整中文块和共享 checklist；其余机读声明只在英文块顶格出现一次。外部贡献者的
 > `Harness task` 只填公开 issue 号，没有就填 `not applicable`，不要放私有 ID；无依赖
 > 文件变化时删除整条 `Dependency-Change:`。checklist 只勾选直接通过、或由 runner
 > 明确打印并通过的命令。不得把未发生的 CI、人工 review 或测试写成已完成。
@@ -359,7 +356,7 @@ Triage every concrete reviewer or bot finding. Before merge, each P0/P1/P2
 finding must be fixed, explained as a false positive, deferred with an owner and
 reason, or left explicitly blocking. For a fix, edit the same worktree, rerun
 the smallest proving test and affected manifest jobs, make another prefixed
-commit, push normally, and update the PR body and `Production-Delta`. Never
+commit, push normally, and update the PR body. Never
 force-push to escape a failed check.
 
 External contributors and their agents stop after the PR is green, current,

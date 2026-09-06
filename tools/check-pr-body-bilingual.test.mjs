@@ -50,11 +50,7 @@ test("standard two-block PR body passes", () => {
 });
 
 test("production churn above 200 requires both bilingual justification sections", () => {
-  const result = checkPrBodyBilingual(
-    twoBlockBody({
-      english: [validEnglish.replace("\n\n---", ""), "Production-Delta: +201/-0", "", "---"].join("\n"),
-    }),
-  );
+  const result = checkPrBodyBilingual(twoBlockBody(), undefined, { productionDelta: { added: 201, deleted: 0 } });
 
   assert.equal(result.ok, false);
   assert.equal(result.architectureJustification.required, true);
@@ -65,20 +61,14 @@ test("production churn above 200 requires both bilingual justification sections"
 test("a placeholder or separator does not satisfy a required justification", () => {
   const result = checkPrBodyBilingual(
     twoBlockBody({
-      english: [
-        validEnglish.replace("\n\n---", ""),
-        "Production-Delta: +201/-0",
-        "",
-        "## Architectural Justification",
-        "---",
-        "",
-        "---",
-      ].join("\n"),
+      english: [validEnglish.replace("\n\n---", ""), "", "## Architectural Justification", "---", "", "---"].join("\n"),
       chinese: validChinese.replace(
         "\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
         "\n\n## 架构辩护\n\n-\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
       ),
     }),
+    undefined,
+    { productionDelta: { added: 201, deleted: 0 } },
   );
 
   assert.equal(result.ok, false);
@@ -91,7 +81,6 @@ test("production net above 300 passes with non-empty bilingual justification sec
     twoBlockBody({
       english: [
         validEnglish.replace("\n\n---", ""),
-        "Production-Delta: +301/-0",
         "",
         "## Architectural Justification",
         "The new capability belongs in this module because it shares the existing boundary and removes the obsolete path; narrowing the scope would leave the required contract incomplete.",
@@ -103,6 +92,8 @@ test("production net above 300 passes with non-empty bilingual justification sec
         "\n\n## 架构辩护\n\n新能力沿用现有模块边界，并删除了不再需要的旧路径；继续收窄范围会留下不完整的必要契约。\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
       ),
     }),
+    undefined,
+    { productionDelta: { added: 301, deleted: 0 } },
   );
 
   assert.equal(result.ok, true, result.issues.join("\n"));
@@ -120,8 +111,9 @@ test("production net above 300 passes with non-empty bilingual justification sec
 
 test("threshold boundaries do not require justification", () => {
   const result = checkArchitectureJustification({
-    englishBlock: `${validEnglish.replace("\n\n---", "")}\nProduction-Delta: +200/-0\n`,
+    englishBlock: validEnglish,
     chineseBlock: validChinese,
+    productionDelta: { added: 200, deleted: 0 },
   });
 
   assert.equal(architectureJustificationThresholds.maxChurn, 200);
@@ -137,7 +129,6 @@ test("deleted production paths require deleted gates or fixtures", () => {
         validEnglish.replace("\n\n---", ""),
         "Deleted-Production-Paths: packages/legacy.ts",
         "Deleted-Gates-Fixtures: none",
-        "Production-Delta: +0/-4",
         "",
         "---",
       ].join("\n"),
@@ -149,14 +140,13 @@ test("deleted production paths require deleted gates or fixtures", () => {
   assert.equal(result.gateHarvest.hasDeletedProductionPaths, true);
 });
 
-test("deleted production paths pass with a same-commit gate or fixture and CI delta", () => {
+test("deleted production paths pass with a same-commit gate or fixture", () => {
   const result = checkPrBodyBilingual(
     twoBlockBody({
       english: [
         validEnglish.replace("\n\n---", ""),
         "Deleted-Production-Paths: packages/legacy.ts",
         "Deleted-Gates-Fixtures: tools/gates/test/legacy.json",
-        "Production-Delta: +0/-4",
         "",
         "---",
       ].join("\n"),
@@ -164,16 +154,6 @@ test("deleted production paths pass with a same-commit gate or fixture and CI de
   );
 
   assert.equal(result.ok, true, result.issues.join("\n"));
-  assert.equal(result.gateHarvest.productionDeltaCount, 1);
-});
-
-test("deleted production paths require the CI production delta field", () => {
-  const result = checkGateHarvestDeclarations(
-    ["Deleted-Production-Paths: packages/legacy.ts", "Deleted-Gates-Fixtures: tools/gates/test/legacy.json"].join("\n"),
-  );
-
-  assert.equal(result.ok, false);
-  assert.match(result.issues.join("\n"), /requires exactly one CI-backed Production-Delta/u);
 });
 
 test("a body with no deleted production paths preserves existing behavior", () => {

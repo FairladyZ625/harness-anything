@@ -59,7 +59,7 @@ jobs:
           node-version: 24
       - name: Start structured CI observation timer
         run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
-      - name: Verify declared production delta
+      - name: Compute production delta
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
