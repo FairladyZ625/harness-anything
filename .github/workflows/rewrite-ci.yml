@@ -108,7 +108,6 @@ jobs:
     # Four of the reported Windows defects (#1525, #1526, #1538, #1588) are line-ending defects,
     # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
     # Linux runner and one config line, so they should never again be found by a person on Windows.
-    if: github.event_name == 'pull_request' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Convert line endings on checkout the way a Windows host does
@@ -416,7 +415,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
   node26-compatibility:
-    if: github.event_name == 'pull_request' || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
