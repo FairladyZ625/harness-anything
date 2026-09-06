@@ -302,6 +302,91 @@ describe("session transcript replay", () => {
     ]);
   });
 
+  it("maps persisted ZCode reasoning, tools, and response into one transcript turn", () => {
+    const turns = sessionTranscriptTurns([
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.001Z",
+        event: { type: "turn.started", sessionId: "session-zcode", turnId: "turn-zcode" },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.002Z",
+        event: {
+          type: "model.streaming",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          payload: { kind: "reasoning_delta", delta: "Inspect " },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.002Z",
+        event: {
+          type: "model.streaming",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          payload: { kind: "reasoning_delta", delta: "persisted state." },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.003Z",
+        event: {
+          type: "model.streaming",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          payload: {
+            kind: "tool_call",
+            toolCallId: "call-zcode",
+            toolName: "Read",
+            input: { file_path: "task_plan.md" },
+          },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.004Z",
+        event: {
+          type: "tool.updated",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          payload: { kind: "result", toolCallId: "call-zcode", result: "Task contract." },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.004Z",
+        event: {
+          type: "model.streaming",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          payload: { kind: "text_delta", delta: "bounded fix." },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-09-05T00:00:00.005Z",
+        event: {
+          type: "result",
+          sessionId: "session-zcode",
+          turnId: "turn-zcode",
+          response: "Implemented the bounded fix.",
+          usage: { totalTokens: 42 },
+        },
+      },
+    ]);
+
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.status).toBe("completed");
+    expect(turns[0]?.items.map(({ type, label, detail }) => ({ type, label, detail }))).toEqual([
+      { type: "thinking", label: "thinking", detail: "Inspect persisted state." },
+      { type: "tool_call", label: "Read", detail: '{\n  "file_path": "task_plan.md"\n}' },
+      { type: "tool_result", label: "Read", detail: "Task contract." },
+      { type: "text", label: "result", detail: "Implemented the bounded fix." },
+    ]);
+  });
+
   it("states explicitly that a session without a dispatch has no replay record", () => {
     const markup = renderToStaticMarkup(
       createElement(SessionTranscript, {

@@ -237,7 +237,8 @@ function selectDispatchReplayRecord(
 function usefulProviderEvent(event: Readonly<Record<string, unknown>>): boolean {
   const type = event.type,
     message = isJsonObject(event.message) ? event.message : null,
-    content = message && Array.isArray(message.content) ? message.content.filter(isJsonObject) : [];
+    content = message && Array.isArray(message.content) ? message.content.filter(isJsonObject) : [],
+    payload = isJsonObject(event.payload) ? event.payload : null;
   if (type === "assistant")
     return content.some((item) =>
       ["thinking", "text", "tool_use", "server_tool_use", "web_search_tool_result"].includes(String(item.type)),
@@ -260,6 +261,9 @@ function usefulProviderEvent(event: Readonly<Record<string, unknown>>): boolean 
       ].includes(String(item.type))
     );
   }
+  if (type === "model.streaming" && payload)
+    return ["reasoning_delta", "text_delta", "tool_call"].includes(String(payload.kind));
+  if (type === "tool.updated" && payload) return ["result", "error"].includes(String(payload.kind));
   return ["step_update", "result"].includes(String(event.event));
 }
 

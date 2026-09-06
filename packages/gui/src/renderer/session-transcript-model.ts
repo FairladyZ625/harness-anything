@@ -49,15 +49,23 @@ export function sessionTranscriptTurns(
       turns.push(created);
       return created;
     },
-    add = (target: MutableTurn, type: SessionTranscriptItemType, label: string, detail: string, at: string | null) => {
-      const normalized = clip(detail.trim(), DETAIL_LIMIT),
+    add = (
+      target: MutableTurn,
+      type: SessionTranscriptItemType,
+      label: string,
+      detail: string,
+      at: string | null,
+      appendDelta = false,
+    ) => {
+      const normalized = clip(appendDelta ? detail : detail.trim(), DETAIL_LIMIT),
         prior = target.items.at(-1);
       if (!normalized) return;
       if (prior && prior.type === type && (type === "thinking" || type === "text")) {
+        const combined = `${prior.detail}${appendDelta ? "" : "\n\n"}${normalized}`;
         target.items[target.items.length - 1] = {
           ...prior,
-          summary: summaryOf(`${prior.detail}\n\n${normalized}`),
-          detail: clip(`${prior.detail}\n\n${normalized}`, DETAIL_LIMIT),
+          summary: summaryOf(combined),
+          detail: clip(combined, DETAIL_LIMIT),
           occurredAt: at ?? prior.occurredAt,
         };
         return;
@@ -150,10 +158,48 @@ export function sessionTranscriptTurns(
         else if (itemType === "error") add(current, "error", "error", contentOf(item), at);
         continue;
       }
+      if (type === "model.streaming") {
+        current ??= turn(`zcode:${stringOf(event.turnId) ?? turns.length + 1}`, at);
+        if (current.status === "unknown") current.status = "running";
+        const payload = recordOf(event.payload),
+          kind = stringOf(payload?.kind),
+          delta = stringOf(payload?.delta) ?? "";
+        if (kind === "reasoning_delta") add(current, "thinking", "thinking", delta, at, true);
+        else if (kind === "text_delta") add(current, "text", "text", delta, at, true);
+        else if (kind === "tool_call" && payload) {
+          const toolId = stringOf(payload.toolCallId),
+            label = stringOf(payload.toolName) ?? "tool";
+          add(current, "tool_call", label, contentOf(payload.input ?? payload), at);
+          if (toolId) toolTurns.set(toolId, { turn: current, label });
+        }
+        continue;
+      }
+      if (type === "tool.updated") {
+        const payload = recordOf(event.payload),
+          kind = stringOf(payload?.kind),
+          toolId = stringOf(payload?.toolCallId),
+          known = toolId ? toolTurns.get(toolId) : null,
+          target = known?.turn ?? current ?? turn(`zcode:${stringOf(event.turnId) ?? turns.length + 1}`, at),
+          label = known?.label ?? (toolId ? `tool ${toolId}` : "tool");
+        current = target;
+        if (kind === "result" && payload) add(target, "tool_result", label, contentOf(payload.result), at);
+        else if (kind === "error" && payload) add(target, "error", label, contentOf(payload.error), at);
+        continue;
+      }
       if (type === "result") {
         current ??= turn(`provider:${turns.length + 1}`, at);
-        const result = stringOf(event.result);
-        if (result && current.items.at(-1)?.detail !== result) add(current, "text", "result", result, at);
+        const response = stringOf(event.response),
+          result = stringOf(event.result) ?? response,
+          prior = current.items.at(-1);
+        if (response && prior?.type === "text" && prior.label === "text")
+          current.items[current.items.length - 1] = {
+            ...prior,
+            label: "result",
+            summary: summaryOf(response),
+            detail: clip(response, DETAIL_LIMIT),
+            occurredAt: at ?? prior.occurredAt,
+          };
+        else if (result && prior?.detail !== result) add(current, "text", "result", result, at);
         current.status = event.is_error === true ? "failed" : "completed";
         current.endedAt = at;
         continue;
