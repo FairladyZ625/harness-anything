@@ -625,7 +625,9 @@ function capture(tree, command, args) {
 async function withScratch(seed, run) {
   const scratch = await mkdtemp(path.join(tmpdir(), `ha-stress-s4-${seed}-`));
   const targetRoot = path.join(scratch, "target");
-  const controllerRoot = path.join(scratch, "controller");
+  const controllerRoot = process.env.HARNESS_STRESS_EVIDENCE_ROOT
+    ? path.join(path.resolve(process.env.HARNESS_STRESS_EVIDENCE_ROOT), seed, "controller")
+    : path.join(scratch, "controller");
   await mkdir(targetRoot, { recursive: true });
   await mkdir(controllerRoot, { recursive: true });
   try {
