@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -18,8 +18,7 @@ import {
   type SqliteWriterFence,
 } from "../../src/store/sqlite-event-store.ts";
 import { reconcileSqliteEvents } from "../../src/store/sqlite-ledger-reconcile.ts";
-import { eventAt } from "./task-event-store.fixtures.ts";
-import { initRepo } from "./task-event-store.fixtures.ts";
+import { docBundle, eventAt, initRepo } from "./task-event-store.fixtures.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 
@@ -42,6 +41,47 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
     assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "verified");
+  } finally {
+    await store.drain();
+  }
+});
+
+test("canonical killpoint between events and outcome rolls back the accepting transaction", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-atomic-"));
+  initRepo(rootDir);
+  const event = eventAt(1),
+    store = makeTaskEventStore({
+      repoId,
+      rootDir,
+      writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
+      killpoint: (point) => {
+        if (point === "after_event_write") throw new Error("transaction killpoint");
+      },
+    });
+  try {
+    assert.throws(() => store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] }), /killpoint/u);
+    assert.equal(store.readEvent(event.opId), null);
+    assert.equal(store.readCommandOutcome(event.opId), null);
+    assert.equal(store.currentCut().revision, 0);
+  } finally {
+    await store.drain();
+  }
+});
+
+test("Git can verify an accepted document while a concurrently edited worktree remains pending", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-"));
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness/context/local.md"), "local edit\n");
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
+  });
+  try {
+    store.append(docBundle(store, "# Published\n", 1, "doc-one", "context/published.md"));
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().worktree.status, "pending");
   } finally {
     await store.drain();
   }

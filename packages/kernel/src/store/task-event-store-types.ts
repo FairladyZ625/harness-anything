@@ -120,6 +120,21 @@ export interface MaterializationHealth {
   readonly reason?: MaterializationFailureReason;
   readonly lastError?: string;
 }
+export interface CanonicalCommandOutcome {
+  readonly opId: string;
+  readonly status: "accepted_durable" | "rejected";
+  readonly firstRevision: number | null;
+  readonly lastRevision: number | null;
+  readonly recordedAt: string;
+  readonly memberOpIds: readonly string[];
+}
+export interface CanonicalFollowerFacet {
+  readonly status: "pending" | "verified";
+  readonly cut: LedgerCutIdentity | null;
+  readonly commitSha: string | null;
+  readonly reason?: string;
+  readonly conflicts?: readonly string[];
+}
 export type EventPublicationKillpoint =
   | "before_event_write"
   | "after_event_write"
@@ -141,6 +156,12 @@ export interface CanonicalEventStore {
   readonly revisionAt: (commit: LedgerCommitSha) => number | null;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
+  readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;
+  readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
+  readonly followerStatus: () => {
+    readonly git: CanonicalFollowerFacet;
+    readonly worktree: CanonicalFollowerFacet;
+  };
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;

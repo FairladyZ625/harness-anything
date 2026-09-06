@@ -865,6 +865,9 @@ export function makeWalShadowEventStore(options: StoreOptions): CanonicalEventSt
       const event = walByOpId.get(opId) ?? (gitBaseline.eventOids.has(opId) ? git.readEvent(opId) : null);
       return event?.schema === "task-event/v1" ? event : null;
     },
+    readCommandOutcome: (opId) => git.readCommandOutcome(opId),
+    ledgerMetadata: () => git.ledgerMetadata(),
+    followerStatus: () => git.followerStatus(),
     readBatch,
     readContentBlob: (sha256) => wal.readContentBlob(sha256) ?? git.readContentBlob(sha256),
     materializationHealth,

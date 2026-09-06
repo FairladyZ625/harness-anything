@@ -108,6 +108,9 @@ export interface SqliteEventStore {
   readonly contentObjectDigests: () => readonly string[];
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
+  readonly event: (opId: string) => CanonicalEventV1 | null;
+  readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
+  readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
 
@@ -139,13 +142,15 @@ const SQLITE_BUSY = 5,
 // connection holds RESERVED (deadlock avoidance), so with several openers on one fresh ledger a
 // concurrent opener gets SQLITE_BUSY at once no matter the timeout. A bounded retry within the same
 // budget is the only remedy the engine leaves; every pragma here is idempotent.
-function configureLedgerConnection(db: DatabaseSync): void {
+function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
   const deadline = Date.now() + OPEN_BUSY_BUDGET_MS;
   for (;;) {
     try {
       /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
-        `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
-          "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
+        readOnly
+          ? `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA foreign_keys=ON`
+          : `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
+              "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
       );
       return;
     } catch (error) {
@@ -170,14 +175,20 @@ export function openSqliteEventStore(options: {
   readonly rootInput?: HarnessLayoutInput;
   readonly databasePath?: string;
   readonly generation?: number;
+  readonly readOnly?: boolean;
 }): SqliteEventStore {
   const generation = options.generation ?? SQLITE_LEDGER_GENERATION,
     databasePath = options.databasePath ?? sqliteLedgerPath(options.rootInput ?? process.cwd(), generation),
     objectRoot = path.join(path.dirname(databasePath), "objects", "sha256");
-  localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
-  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath);
-  configureLedgerConnection(db);
-  createSchema(db, options.repoId, generation);
+  if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
+  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
+    readOnly: options.readOnly ?? false,
+  });
+  configureLedgerConnection(db, options.readOnly);
+  const query: SqliteQuery = (sql, values = []) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
+  if (!options.readOnly) createSchema(db, options.repoId, generation);
+  else assertMetadata(query, options.repoId, generation);
   const sqliteVersion = String(
     /* @gate-identity check-bypass-write-boundary/bypass-write-126 */ db
       .prepare("SELECT sqlite_version() AS version")
@@ -218,12 +229,12 @@ export function openSqliteEventStore(options: {
       ).run(fence.repoId, fence.holder, fence.epoch);
     });
 
-  const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, opId);
+  const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
   const appendCommand: SqliteEventStore["appendCommand"] = (input) => {
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
       assertFenceShape(input.fence, options.repoId);
-      const prior = readOutcome(db, input.intent.opId);
+      const prior = readOutcome(db, query, input.intent.opId);
       if (prior) {
         if (prior.intentDigest !== input.intent.intentDigest)
           throw new TaskEventStoreError(
@@ -283,7 +294,7 @@ export function openSqliteEventStore(options: {
         input.intent.summary,
         input.rejectionCode ?? null,
       );
-      return readOutcome(db, input.intent.opId)!;
+      return readOutcome(db, query, input.intent.opId)!;
     });
   };
   return {
@@ -292,18 +303,21 @@ export function openSqliteEventStore(options: {
     claimWriter,
     appendCommand,
     outcome,
-    readCommandOutcome: (opId) => readCommandOutcome(db, opId),
-    outcomes: () => readOutcomes(db),
-    metadata: () => readMetadata(db),
-    eventRows: () => readEventRows(db),
+    readCommandOutcome: (opId) => readCommandOutcome(db, query, opId),
+    outcomes: () => readOutcomes(db, query),
+    metadata: () => readMetadata(query),
+    eventRows: () => readEventRows(query),
     readContentObject: (sha256) => readContentObject(objectRoot, sha256),
     contentObjectDigests: () => listContentObjectDigests(objectRoot),
     revision: () => readRevision(db),
     events: () =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db
-        .prepare("SELECT event_json FROM event ORDER BY revision")
-        .all()
-        .map((row) => parseCanonicalEvent(String(row.event_json))),
+      query("SELECT event_json FROM event ORDER BY revision").map((row) => parseCanonicalEvent(String(row.event_json))),
+    event: (opId) => readEvent(query, "op_id", opId),
+    eventAtRevision: (revision) => readEvent(query, "revision", revision),
+    eventsAfter: (revision, limit = 4096) =>
+      query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map((row) =>
+        parseCanonicalEvent(String(row.event_json)),
+      ),
     close: () => db.close(),
   };
 }
@@ -395,6 +409,22 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
     );
 }
 
+type SqliteQuery = (
+  sql: string,
+  values?: readonly (string | number | null)[],
+) => Record<string, import("node:sqlite").SQLOutputValue>[];
+
+function assertMetadata(query: SqliteQuery, repoId: string, generation: number): void {
+  const metadata = readMetadata(query);
+  if (metadata.repoId !== repoId || metadata.generation !== generation)
+    throw new TaskEventStoreError("repo_mismatch", "SQLite ledger belongs to another repository or generation");
+}
+
+function readEvent(query: SqliteQuery, column: "op_id" | "revision", value: string | number): CanonicalEventV1 | null {
+  const row = query(`SELECT event_json FROM event WHERE ${column}=?`, [value]).at(0);
+  return row ? parseCanonicalEvent(String(row.event_json)) : null;
+}
+
 function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
   if (event.schema !== "task-event/v1") return;
   if (event.type === "execution_started") replayClaim(db, event);
@@ -418,28 +448,24 @@ function readWriter(db: DatabaseSync, repoId: string): { readonly holder: string
   return row ? { holder: String(row.holder), epoch: Number(row.epoch) } : null;
 }
 
-function readMetadata(db: DatabaseSync): SqliteLedgerMetadata {
-  const row = db.prepare("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").get()!;
+function readMetadata(query: SqliteQuery): SqliteLedgerMetadata {
+  const row = query("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").at(0)!;
   return { repoId: String(row.repo_id), generation: Number(row.generation), revision: Number(row.revision) };
 }
 
-function readEventRows(db: DatabaseSync): readonly SqliteEventRow[] {
-  return db
-    .prepare("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision")
-    .all()
-    .map((row) => ({
-      revision: Number(row.revision),
-      opId: String(row.op_id),
-      eventJson: String(row.event_json),
-      digest: String(row.digest) as `sha256:${string}`,
-    }));
+function readEventRows(query: SqliteQuery): readonly SqliteEventRow[] {
+  return query("SELECT revision, op_id, event_json, digest FROM event ORDER BY revision").map((row) => ({
+    revision: Number(row.revision),
+    opId: String(row.op_id),
+    eventJson: String(row.event_json),
+    digest: String(row.digest) as `sha256:${string}`,
+  }));
 }
 
-function readOutcomes(db: DatabaseSync): readonly SqliteCommandOutcome[] {
-  return db
-    .prepare("SELECT op_id FROM command_outcome ORDER BY rowid")
-    .all()
-    .map((row) => readOutcome(db, String(row.op_id))!);
+function readOutcomes(db: DatabaseSync, query: SqliteQuery): readonly SqliteCommandOutcome[] {
+  return query("SELECT op_id FROM command_outcome ORDER BY rowid").map(
+    (row) => readOutcome(db, query, String(row.op_id))!,
+  );
 }
 
 function prepareContentObjects(
@@ -489,7 +515,7 @@ function listContentObjectDigests(objectRoot: string): readonly string[] {
     .sort();
 }
 
-function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
+function readOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): SqliteCommandOutcome | null {
   const row = /* @gate-identity check-bypass-write-boundary/bypass-write-112 */ db
     .prepare(
       "SELECT op_id, status, first_revision, last_revision, intent_digest, " +
@@ -507,32 +533,32 @@ function readOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | nul
     summary: String(row.intent_summary),
     rejectionCode: row.rejection_code === null ? null : String(row.rejection_code),
     recordedAt: String(row.recorded_at),
-    memberOpIds: outcomeMemberOpIds(db, row),
+    memberOpIds: outcomeMemberOpIds(query, row),
   };
 }
 
-function readCommandOutcome(db: DatabaseSync, opId: string): SqliteCommandOutcome | null {
-  const direct = readOutcome(db, opId);
+function readCommandOutcome(db: DatabaseSync, query: SqliteQuery, opId: string): SqliteCommandOutcome | null {
+  const direct = readOutcome(db, query, opId);
   if (direct !== null) return direct;
-  const event = db.prepare("SELECT revision FROM event WHERE op_id=?").get(opId);
+  const event = query("SELECT revision FROM event WHERE op_id=?", [opId]).at(0);
   if (!event) return null;
-  const parent = db
-    .prepare(
+  const revision = Number(event.revision),
+    parent = query(
       "SELECT op_id FROM command_outcome " +
         "WHERE first_revision<=? AND last_revision>=? ORDER BY last_revision LIMIT 1",
-    )
-    .get(event.revision, event.revision);
-  return parent ? readOutcome(db, String(parent.op_id)) : null;
+      [revision, revision],
+    ).at(0);
+  return parent ? readOutcome(db, query, String(parent.op_id)) : null;
 }
 
-function outcomeMemberOpIds(db: DatabaseSync, row: Record<string, unknown>): readonly string[] {
+function outcomeMemberOpIds(query: SqliteQuery, row: Record<string, unknown>): readonly string[] {
   if (row.first_revision === null || row.last_revision === null) return [];
   const firstRevision = Number(row.first_revision),
     lastRevision = Number(row.last_revision);
-  return db
-    .prepare("SELECT op_id FROM event WHERE revision BETWEEN ? AND ? ORDER BY revision")
-    .all(firstRevision, lastRevision)
-    .map((event) => String(event.op_id));
+  return query("SELECT op_id FROM event WHERE revision BETWEEN ? AND ? ORDER BY revision", [
+    firstRevision,
+    lastRevision,
+  ]).map((event) => String(event.op_id));
 }
 
 function readRevision(db: DatabaseSync): number {
