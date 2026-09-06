@@ -620,6 +620,7 @@ function AppShell() {
                   onOpenEntityDoc={(kind) =>
                     navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
                   }
+                  onOpenEntityRef={(ref) => navigateToEntity(ref)}
                   onExitDetail={() => updateLocation({ focusedEntityRef: null })}
                   onOpenView={goto}
                   projectName={project.name}

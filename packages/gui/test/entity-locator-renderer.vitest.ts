@@ -4,6 +4,7 @@ import {
   isDirectoryLocator,
   isHtmlDocument,
   isMarkdownDocument,
+  isPdfDocument,
   selectEntityLocatorRenderer,
 } from "../src/renderer/entity-locator-renderer.ts";
 
@@ -20,6 +21,14 @@ describe("entity locator renderer table", () => {
   it("routes html pointers to the html artifact preview", () => {
     for (const value of ["reports/summary.html", "reports/summary.HTM"])
       expect(selectEntityLocatorRenderer({ kind: "repository-path", value }), value).toBe("html");
+  });
+
+  it("routes pdf pointers to the dedicated pdf surface, not the opaque card", () => {
+    // pdf 不是「渲染不了」而是「读面给不了字节」:有自己的事实卡,与 zip/图片分开。
+    for (const value of ["papers/report.pdf", "papers/Report.PDF"])
+      expect(selectEntityLocatorRenderer({ kind: "repository-path", value }), value).toBe("pdf");
+    expect(isPdfDocument("a.pdf")).toBe(true);
+    expect(isPdfDocument("a.md")).toBe(false);
   });
 
   it("routes directory pointers to the directory surface", () => {

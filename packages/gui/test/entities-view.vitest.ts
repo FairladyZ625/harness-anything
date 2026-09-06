@@ -247,13 +247,20 @@ async function settle(): Promise<void> {
   });
 }
 
-function view(focusedRef: string | null, onOpenView: (view: ViewId) => void = noop) {
+function view(
+  focusedRef: string | null,
+  handlers: {
+    readonly onOpenView?: (view: ViewId) => void;
+    readonly onOpenEntityRef?: (ref: string) => void;
+  } = {},
+) {
   return createElement(EntitiesView, {
     repoId: REPO_ID,
     focusedRef,
     onOpenEntityDoc: noop,
+    onOpenEntityRef: handlers.onOpenEntityRef ?? noop,
     onExitDetail: noop,
-    onOpenView,
+    onOpenView: handlers.onOpenView ?? noop,
     projectName: "Probe",
   });
 }
@@ -281,7 +288,7 @@ describe("entities catalog", () => {
   it("labels fixed and declared cards and routes runtime instance management to Providers", async () => {
     stubBridge([], { kinds: [declaredAdrKindRow()] });
     const opened: ViewId[] = [];
-    const container = await renderSurface(view(null, (next) => opened.push(next)));
+    const container = await renderSurface(view(null, { onOpenView: (next) => opened.push(next) }));
     await settle();
     expect(container.querySelector('[data-testid="entities-header"] h1')?.textContent).toBe("实体");
     expect(container.querySelector('[data-testid="entity-doc-card-runtime-instance"]')?.textContent).toContain(
@@ -319,7 +326,7 @@ describe("entity doc detail", () => {
   it("navigates to the entity's live view from the detail header", async () => {
     stubBridge();
     const opened: ViewId[] = [];
-    const container = await renderSurface(view("entitydoc/schedule", (next) => opened.push(next)));
+    const container = await renderSurface(view("entitydoc/schedule", { onOpenView: (next) => opened.push(next) }));
     await settle();
     const button = container.querySelector<HTMLButtonElement>('button[title*="定时计划"]');
     expect(button).not.toBeNull();
@@ -506,5 +513,58 @@ describe("kernel entity detail keeps the same skeleton", () => {
     const empty = container.querySelector('[data-testid="entity-doc-renderer-empty"]');
     expect(empty?.textContent).toContain("看实况");
     expect(container.querySelector('[data-testid="governed-entity-panel"]')).toBeNull();
+  });
+});
+
+describe("catalog-page entity list (goal 4)", () => {
+  it("groups the repo's declared entities by kind with freshness and deep-links on click", async () => {
+    stubBridge([], {
+      kinds: [declaredAdrKindRow()],
+      rows: [
+        { ...governedRow("ADR-0001", "ADR-0001 · 探针"), archived: false },
+        { ...governedRow("ADR-0002", "ADR-0002 · 复核"), archived: true },
+      ],
+    });
+    const openedRefs: string[] = [];
+    const container = await renderSurface(view(null, { onOpenEntityRef: (ref) => openedRefs.push(ref) }));
+    await settle();
+    const list = container.querySelector('[data-testid="governed-entity-catalog-list"]');
+    expect(list).not.toBeNull();
+    // 按 kind 分组:组头带声明的复数显示名与 kind 机器名。
+    const group = container.querySelector(`[data-testid="governed-entity-catalog-group-${ADR_KIND}"]`);
+    expect(group?.textContent).toContain("Architecture Decision Records");
+    // 默认只显示未归档;行上有 freshness 徽标;点击走整条 ref 深链。
+    expect(group?.querySelectorAll('[data-testid^="governed-entity-catalog-row-"]').length).toBe(1);
+    const row = group?.querySelector<HTMLButtonElement>('[data-testid="governed-entity-catalog-row-ADR-0001"]');
+    expect(row?.textContent).toContain("现行");
+    await act(async () => {
+      row!.click();
+    });
+    expect(openedRefs).toEqual([`${ADR_KIND}/ADR-0001`]);
+  });
+
+  it("narrows the catalog list by title/id/locator search and hides when there is nothing to list", async () => {
+    stubBridge([], { kinds: [declaredAdrKindRow()], rows: [governedRow("ADR-0001", "ADR-0001 · 探针")] });
+    const container = await renderSurface(view(null));
+    await settle();
+    const search = container.querySelector<HTMLInputElement>('[data-testid="governed-entity-catalog-search"]');
+    expect(search).not.toBeNull();
+    const type = async (text: string) => {
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(search!, text);
+        search!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+    await type("不存在的词");
+    expect(container.querySelector('[data-testid="governed-entity-catalog-empty"]')).not.toBeNull();
+    await type("0001");
+    expect(container.querySelectorAll('[data-testid^="governed-entity-catalog-row-"]').length).toBe(1);
+    // 没有声明实体时清单整个不渲染,不冒充空区块。
+    const bare = stubBridge([], { kinds: [declaredAdrKindRow()], rows: [] });
+    void bare;
+    const emptyCatalog = await renderSurface(view(null));
+    await settle();
+    expect(emptyCatalog.querySelector('[data-testid="governed-entity-catalog-list"]')).toBeNull();
   });
 });

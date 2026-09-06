@@ -5,7 +5,7 @@
  * 在这里判一次;GUI 别处不得再按扩展名分支。表里只出现仓里已经有的三种渲染
  * 实现,认不出来的一律 `opaque`——显示元数据卡 + 「在系统中打开」,不假装能渲染。
  */
-export type EntityLocatorRenderer = "markdown" | "html" | "directory" | "opaque";
+export type EntityLocatorRenderer = "markdown" | "html" | "pdf" | "directory" | "opaque";
 
 export interface EntityLocator {
   /** kernel artifactLocatorKinds: repository-path / url / external-key。 */
@@ -22,6 +22,15 @@ export function isMarkdownDocument(path: string): boolean {
   return /\.(?:md|markdown)$/iu.test(path);
 }
 
+/**
+ * PDF 有独立路由:它不是「渲染不了」,而是「读面给不了字节」——locator 读面对
+ * 二进制文件返回 `binary` 且不载正文,GUI 因此有一张专门的事实卡(说明缺口在哪),
+ * 不与 zip/图片那类真正的 opaque 指针混同。
+ */
+export function isPdfDocument(path: string): boolean {
+  return /\.pdf$/iu.test(path);
+}
+
 /** 末段不含点、或以 / 结尾 → 目录指针(harness 下的 research 目录一类)。 */
 export function isDirectoryLocator(path: string): boolean {
   if (path.endsWith("/")) return true;
@@ -33,6 +42,7 @@ export function selectEntityLocatorRenderer(locator: EntityLocator): EntityLocat
   if (locator.kind !== "repository-path") return "opaque";
   if (isDirectoryLocator(locator.value)) return "directory";
   if (isHtmlDocument(locator.value)) return "html";
+  if (isPdfDocument(locator.value)) return "pdf";
   if (isMarkdownDocument(locator.value)) return "markdown";
   return "opaque";
 }
