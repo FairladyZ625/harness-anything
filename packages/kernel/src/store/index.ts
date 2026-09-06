@@ -7,11 +7,13 @@ export { reconcileSqliteEvents } from "./sqlite-ledger-reconcile.ts";
 export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
   preflightConvertedGenerationActivation,
   preflightCanonicalGeneration,
   readImmutableLegacyGenerationSnapshot,
 } from "./legacy-generation-conversion.ts";
+export type { StoppedLegacySourceEvidenceV1 } from "./legacy-generation-conversion.ts";
 export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
 export * from "./task-event-store.ts";

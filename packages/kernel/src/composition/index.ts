@@ -17,7 +17,11 @@ export { ledgerGitPath, resolveLedgerGitLayout } from "../store/ledger-git-layou
 export { eventShapeMigrations } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
-export { preflightCanonicalGeneration } from "../store/legacy-generation-conversion.ts";
+export {
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
+  preflightCanonicalGeneration,
+} from "../store/legacy-generation-conversion.ts";
+export type { StoppedLegacySourceEvidenceV1 } from "../store/legacy-generation-conversion.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";
 export type {
   CanonicalContentBlob,

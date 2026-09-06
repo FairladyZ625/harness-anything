@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +10,8 @@ import {
   compileSettingsChangedEvent,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
+  deriveRelationId,
   makeTaskProjection,
   openSqliteEventStore,
   preflightCanonicalGeneration,
@@ -17,11 +20,114 @@ import {
   readSettingsFacet,
   serializeEventHead,
   sha256Text,
+  stableStringify,
+  validateCurrentCanonicalEvent,
   sqliteContentObjectPath,
   type CanonicalEventV1,
   type CanonicalEventStore,
 } from "../../kernel/src/index.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
+
+test("stopped legacy Git plus accepted WAL suffix converts without a strict reader", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-stopped-generation-")),
+    repoId = "stopped-generation",
+    snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json"),
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite");
+  try {
+    initRepo(root);
+    const first = physicalLegacyRelation(),
+      second = physicalLegacySettings(root, 2),
+      firstDigest = `sha256:${sha256Text(first.bytes)}`,
+      secondDigest = `sha256:${sha256Text(second.bytes)}`;
+    assert.ok(validateCurrentCanonicalEvent(first.event).length > 0);
+    mkdirSync(path.join(root, "harness/events"), { recursive: true });
+    writeFileSync(path.join(root, `harness/events/${first.event.opId}.json`), first.bytes);
+    writeFileSync(
+      path.join(root, "harness/events/head.json"),
+      serializeEventHead({ revision: 1, opId: first.event.opId, eventDigest: firstDigest }),
+    );
+    for (const blob of first.blobs) {
+      const target = path.join(root, "harness/objects/sha256", blob.sha256);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, blob.body);
+    }
+    git(root, "add", "harness");
+    git(root, "commit", "-qm", "legacy git prefix");
+    git(root, "update-ref", "refs/ha/canonical", git(root, "rev-parse", "HEAD"));
+    const walRecord = `${stableStringify({
+        schema: "harness-wal/v1",
+        revision: 2,
+        opId: second.event.opId,
+        event: second.event,
+        blobs: second.blobs.map(({ sha256, size, mediaType }) => ({ sha256, size, mediaType })),
+        eventDigest: secondDigest,
+        previousDigest: firstDigest,
+      })}\n`,
+      walRoot = path.join(root, ".harness/wal");
+    mkdirSync(path.join(walRoot, "objects"), { recursive: true });
+    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord);
+    writeFileSync(
+      path.join(walRoot, "head.json"),
+      `${stableStringify({
+        schema: "harness-wal-head/v1",
+        revision: 2,
+        lastSegment: "seg-000000.log",
+        lastOffset: Buffer.byteLength(walRecord),
+        headDigest: secondDigest,
+      })}\n`,
+    );
+    for (const blob of second.blobs) writeFileSync(path.join(walRoot, "objects", blob.sha256), blob.body);
+    const sourceBefore = physicalSourceBytes(root),
+      snapshot = createImmutableLegacyGenerationSnapshotFromStoppedRepository({
+        repoId,
+        rootInput: root,
+        snapshotPath,
+      });
+    assert.deepEqual(
+      {
+        events: snapshot.eventCount,
+        git: snapshot.sourceEvidence.gitRevision,
+        wal: snapshot.sourceEvidence.walRevision,
+      },
+      { events: 2, git: 1, wal: 2 },
+    );
+    assert.throws(
+      () =>
+        convertLegacyGeneration({
+          rootDir: root,
+          snapshotPath,
+          databasePath,
+          beforeEvent: () => {
+            throw new Error("stop");
+          },
+        }),
+      /stop/u,
+    );
+    const converted = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+    assert.equal(converted.rewrittenEvents, 2);
+    assert.equal(convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }).migratedEvents, 0);
+    assert.equal(physicalSourceBytes(root), sourceBefore);
+    const store = openSqliteEventStore({ repoId, databasePath });
+    const events = store.events();
+    assert.equal(Object.hasOwn(events[0]!.payload.relation, "strength"), false);
+    assert.equal(Object.hasOwn(events[1]!.payload.settings, "walFlush"), true);
+    store.close();
+
+    rmSync(snapshotPath, { force: true });
+    rmSync(path.join(walRoot, "objects", second.blobs[0]!.sha256), { force: true });
+    assert.throws(
+      () => createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: root, snapshotPath }),
+      /missing object/u,
+    );
+    writeFileSync(path.join(walRoot, "objects", second.blobs[0]!.sha256), "corrupt");
+    assert.throws(
+      () => createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: root, snapshotPath }),
+      /content object/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("empty generation activation remains valid after its first accepted command", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-empty-generation-")),
@@ -177,6 +283,75 @@ function seedLegacySettings(root: string, legacy = true) {
     blobs: compiled.blobs,
     source: arrayStore([event], (sha256) => blobs.get(sha256) ?? null),
   };
+}
+
+function physicalLegacySettings(root: string, revision: number) {
+  const body = readFileSync(path.join(root, "harness/harness.yaml"), "utf8"),
+    compiled = compileSettingsChangedEvent({
+      settings: readSettingsFacet(body),
+      baseDocumentBody: body,
+      candidateDocumentBody: `${body}\n# physical legacy revision ${revision}\n`,
+      eventId: `event-legacy-settings-${revision}`,
+      opId: `op-legacy-settings-${revision}`,
+      workspaceRevision: revision,
+      actor,
+      source: "local",
+      occurredAt: `2026-09-06T00:00:0${revision}.000Z`,
+    }),
+    event = structuredClone(compiled.event);
+  delete event.payload.settings.walFlush;
+  return {
+    event,
+    blobs: compiled.blobs,
+    bytes: `${stableStringify(event)}\n`,
+  };
+}
+
+function physicalLegacyRelation() {
+  const identity = {
+      source: "task/task-source",
+      target: "task/task-target",
+      type: "depends-on",
+      direction: "directed",
+    },
+    relationId = deriveRelationId(identity),
+    event = {
+      schema: "relation-event/v1",
+      eventId: "event-legacy-relation",
+      workspaceRevision: 1,
+      opId: "op-legacy-relation",
+      relationId,
+      type: "relation_created",
+      actor,
+      source: "local",
+      occurredAt: "2026-09-06T00:00:01.000Z",
+      payload: {
+        relation: {
+          relation_id: relationId,
+          ...identity,
+          origin: "declared",
+          rationale: "Physical legacy relation.",
+          state: "active",
+          strength: "strong",
+        },
+      },
+    } as unknown as CanonicalEventV1;
+  return { event, blobs: [], bytes: `${stableStringify(event)}\n` };
+}
+
+function physicalSourceBytes(root: string): string {
+  return sha256Text(
+    [
+      readFileSync(path.join(root, ".harness/wal/head.json"), "utf8"),
+      readFileSync(path.join(root, ".harness/wal/seg-000000.log"), "utf8"),
+      git(root, "show", "refs/ha/canonical:harness/events/head.json"),
+      git(root, "show", "refs/ha/canonical:harness/events/op-legacy-relation.json"),
+    ].join("\0"),
+  );
+}
+
+function git(root: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
 
 function arrayStore(
