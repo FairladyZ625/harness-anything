@@ -175,7 +175,10 @@ function readStoppedWal(rootDir: string): {
       previous = digest;
       return entry;
     });
-  if (events.at(-1)?.event.workspaceRevision !== revision || (events.length > 0 && previous !== head.headDigest))
+  if (
+    (revision === 0 ? events.length !== 0 : events.at(-1)?.event.workspaceRevision !== revision) ||
+    (events.length > 0 && previous !== head.headDigest)
+  )
     throw new TaskEventStoreError("invalid_store", "legacy WAL head does not match durable records");
   return {
     events,
@@ -192,10 +195,10 @@ function assertWalPrefixAnchor(gitEvents: readonly LegacyEventEntry[], wal: Retu
   if (first === undefined) return;
   const revision = first.event.workspaceRevision,
     expected = revision === 1 ? null : gitEvents[revision - 2]?.bytes;
-  if (
-    expected === undefined ||
-    wal.firstPreviousDigest !== (expected === null ? null : `sha256:${sha256Text(expected)}`)
-  )
+  if (expected === undefined)
+    throw new TaskEventStoreError("invalid_store", `legacy WAL has no prefix before revision ${revision}`);
+  const anchored = expected === null ? null : `sha256:${sha256Text(expected)}`;
+  if (wal.firstPreviousDigest !== null && wal.firstPreviousDigest !== anchored)
     throw new TaskEventStoreError("invalid_store", `legacy WAL suffix is not anchored before revision ${revision}`);
 }
 

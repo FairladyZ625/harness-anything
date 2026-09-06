@@ -54,6 +54,25 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
     git(root, "add", "harness");
     git(root, "commit", "-qm", "legacy git prefix");
     git(root, "update-ref", "refs/ha/canonical", git(root, "rev-parse", "HEAD"));
+    const walRoot = path.join(root, ".harness/wal"),
+      emptyCheckpoint = `${stableStringify({
+        schema: "harness-wal-head/v1",
+        revision: 0,
+        lastSegment: null,
+        lastOffset: 0,
+        headDigest: null,
+      })}\n`,
+      emptySnapshotPath = path.join(root, ".harness/store/imports/empty-checkpoint.snapshot.json");
+    mkdirSync(path.join(walRoot, "objects"), { recursive: true });
+    writeFileSync(path.join(walRoot, "head.json"), emptyCheckpoint);
+    const emptyCheckpointSnapshot = createImmutableLegacyGenerationSnapshotFromStoppedRepository({
+      repoId,
+      rootInput: root,
+      snapshotPath: emptySnapshotPath,
+    });
+    assert.equal(emptyCheckpointSnapshot.eventCount, 1);
+    assert.equal(emptyCheckpointSnapshot.sourceEvidence.walRevision, 0);
+    rmSync(emptySnapshotPath);
     const walRecord = `${stableStringify({
         schema: "harness-wal/v1",
         revision: 2,
@@ -63,26 +82,27 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
         eventDigest: secondDigest,
         previousDigest: firstDigest,
       })}\n`,
-      walRoot = path.join(root, ".harness/wal");
-    mkdirSync(path.join(walRoot, "objects"), { recursive: true });
-    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord);
-    writeFileSync(
-      path.join(walRoot, "head.json"),
-      `${stableStringify({
-        schema: "harness-wal-head/v1",
-        revision: 2,
-        lastSegment: "seg-000000.log",
-        lastOffset: Buffer.byteLength(walRecord),
-        headDigest: secondDigest,
-      })}\n`,
-    );
+      resetWalRecord = walRecord.replace(JSON.stringify(firstDigest), "null"),
+      writeWal = (body: string): void => {
+        writeFileSync(path.join(walRoot, "seg-000000.log"), body);
+        writeFileSync(
+          path.join(walRoot, "head.json"),
+          `${stableStringify({
+            schema: "harness-wal-head/v1",
+            revision: 2,
+            lastSegment: "seg-000000.log",
+            lastOffset: Buffer.byteLength(body),
+            headDigest: secondDigest,
+          })}\n`,
+        );
+      };
     for (const blob of second.blobs) writeFileSync(path.join(walRoot, "objects", blob.sha256), blob.body);
-    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord.replace(firstDigest, `sha256:${"0".repeat(64)}`));
+    writeWal(walRecord.replace(firstDigest, `sha256:${"0".repeat(64)}`));
     assert.throws(
       () => createImmutableLegacyGenerationSnapshotFromStoppedRepository({ repoId, rootInput: root, snapshotPath }),
       /not anchored/u,
     );
-    writeFileSync(path.join(walRoot, "seg-000000.log"), walRecord);
+    writeWal(resetWalRecord);
     const sourceBefore = physicalSourceBytes(root),
       snapshot = createImmutableLegacyGenerationSnapshotFromStoppedRepository({
         repoId,

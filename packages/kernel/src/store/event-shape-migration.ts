@@ -31,14 +31,10 @@ import type { TaskProjection } from "../projection/task-projection-port.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-store-types.ts";
 
-// One-shot history upcasts. A migrating replay walks the ledger into a scratch projection:
-// candidates (`matches`) are replayed alone so each is rewritten against the projection state at
-// its own cut, everything between them is caught up in bulk rounds, and the rewritten event is
-// what the scratch projection applies. The rewrites are then published
-// atomically as rewritten event objects alongside a migration marker, the same publication
-// shape `fact-rekey` uses, so the ledger head and commit are produced by the store. The live
-// projection is left alone: every rewrite is, by construction, what the projection already
-// derived, so it only has to catch up the marker. Cold rebuilds are proved separately.
+// Pure offline generation planner. It replays an immutable generation-0 snapshot into a scratch
+// projection and emits generation-1 event values and required content blobs. Candidates are
+// replayed at their historical cuts; the planner neither mutates the source nor publishes into an
+// active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
   | "relation-events"
   | "decision-digests"
