@@ -54,7 +54,7 @@ test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger"
     const source = JSON.parse(readFileSync(snapshotPath, "utf8")) as {
         readonly schema: string;
         readonly sourceDigest: string;
-        readonly eventBytes: readonly string[];
+        readonly eventSegments: readonly unknown[];
         readonly objects: readonly unknown[];
       },
       counts = sqliteCounts(root),
@@ -64,8 +64,8 @@ test("local CLI accepts and reconciles the canonical generation-1 SQLite ledger"
         readonly generation: number;
         readonly cut: { readonly repoId: string; readonly revision: number; readonly headDigest: string };
       };
-    assert.equal(source.schema, "immutable-legacy-generation-snapshot/v1");
-    assert.deepEqual(source.eventBytes, []);
+    assert.equal(source.schema, "immutable-legacy-generation-snapshot/v2");
+    assert.deepEqual(source.eventSegments, []);
     assert.deepEqual(source.objects, []);
     assert.ok(counts.events > 0, "accepted commands must extend the immutable empty prefix");
     assert.ok(counts.objects > 0, "accepted document claims must have content-object closure");
