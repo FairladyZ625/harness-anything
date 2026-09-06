@@ -4,7 +4,7 @@ import {
   unsatisfiedReceiptPredicates,
   type ReceiptWaitPredicate,
 } from "../domain/receipt-acceptance.ts";
-import type { CanonicalEventStore } from "../store/task-event-store-types.ts";
+import type { CanonicalEventStore } from "./index.ts";
 import type { ReceiptAcceptanceFields, ReceiptConsumerCut, ReceiptFacet } from "../domain/receipt-acceptance.ts";
 import type { TaskProjection, WriteReceiptDraft } from "../index.ts";
 

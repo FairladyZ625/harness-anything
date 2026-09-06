@@ -1,3 +1,4 @@
+import { scaleReport } from "./scale-report.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createReadStream, readFileSync, rmSync } from "node:fs";
@@ -12,8 +13,7 @@ import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.t
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
 import { createProcessTree, createSeededScenario, runScenario } from "../core/controller.mjs";
-import { generateCoverageDenominators } from "../core/denominators.mjs";
-import { buildStressReport, emitStressReport } from "../core/report.mjs";
+import { emitStressReport } from "../core/report.mjs";
 import { openReceiptLog } from "../core/receipt-log.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
@@ -345,89 +345,6 @@ async function measureKillRestart(databasePath) {
   }
 }
 
-async function scaleReport({ seed, command, blobs, rebuild, calibration, caseId, caseVerdict }) {
-  const all = await generateCoverageDenominators({ repoRoot });
-  const mappedIds = mappedCoverage(all.required);
-  const coverage = await generateCoverageDenominators({ repoRoot, mappedIds });
-  return buildStressReport({
-    campaignComplete: false,
-    source: {
-      head: process.env.HARNESS_BUILD_COMMIT ?? null,
-      base: process.env.HARNESS_BASE_COMMIT ?? null,
-      loadedBuild: sourceDigest(),
-      dirty: null,
-    },
-    environment: {
-      node: process.version,
-      sqlite: process.versions.sqlite,
-      os: `${process.platform}-${process.arch}`,
-      filesystem: "isolated Ubuntu temporary filesystem",
-      capabilities: ["S1 receipt controller", "8 concurrent clients", "durable sharded blob objects"],
-    },
-    seed,
-    topology: "one SQLite authority queue, eight concurrent S1 clients, external fsynced receipt logs",
-    generation: 1,
-    counts: {
-      acceptedEvents: command.denominators.acceptedEvents,
-      uniqueBlobs: blobs.denominators.distinctBlobs,
-      maxConcurrentClients: command.maxInFlight,
-      primaryCommands: command.denominators.primaryCommands,
-      idempotentRequests: command.denominators.idempotentRequests,
-      conflictRequests: command.denominators.conflictRequests,
-      totalRequests: command.denominators.totalRequests + blobs.denominators.totalRequests,
-    },
-    coverage: {
-      denominatorSchema: coverage.schema,
-      denominatorDigest: coverage.digest,
-      required: coverage.required.map(({ id }) => id),
-      hit: coverage.hit,
-      missing: coverage.missing,
-      negativeControls: [],
-    },
-    calibration,
-    cases: [
-      {
-        id: caseId,
-        boundaryHits: ["request-fsync", "sqlite-commit", "receipt-fsync", "blob-fsync-rename", "cold-rebuild"],
-        receiptLogs: [...command.logs, blobs.receiptLogPath],
-        measured: {
-          commandElapsedMs: command.elapsedMs,
-          blobElapsedMs: blobs.elapsedMs,
-          rebuildElapsedMs: rebuild.elapsedMs,
-          specialRequestRatio: command.denominators.specialRequestRatio,
-          reconciliationDifferences: rebuild.reconciliation.matches ? 0 : 1,
-          coldRebuilds: [rebuild.first, rebuild.second].map(
-            ({ label, receipt, stateDigest, cut, blobManifestDigest }) => ({
-              label,
-              receipt,
-              stateDigest,
-              cut,
-              blobManifestDigest,
-            }),
-          ),
-        },
-        oracles: {
-          O1: { verdict: "PASS", acceptedEventsFromReceiptLogs: command.denominators.acceptedEvents },
-          O3: { verdict: "PASS", distinctBlobsFromReceiptLog: blobs.denominators.distinctBlobs },
-          O7: {
-            verdict: "PASS",
-            reconciliationMatches: rebuild.reconciliation.matches,
-            firstDigest: rebuild.first.stateDigest,
-            secondDigest: rebuild.second.stateDigest,
-          },
-        },
-        verdict: caseVerdict,
-      },
-    ],
-    replayCommand:
-      "node tools/dispatch-isolated-test.mjs --target ubuntu --file " + path.relative(repoRoot, process.argv[1]),
-    residualRisks: [
-      "The campaign-wide report remains incomplete while F13 generation identity and F14 clock forwarding are unresolved.",
-      "Device-backed ENOSPC and power-loss arms require the operator-created VM mounts.",
-    ],
-  });
-}
-
 function primaryRequest(seed, commandIndex, eventsPerCommand, fence) {
   const firstRevision = commandIndex * eventsPerCommand + 1;
   const expectedEvents = Array.from({ length: eventsPerCommand }, (_value, offset) =>
@@ -621,17 +538,6 @@ function eventStream(events) {
   };
 }
 
-function mappedCoverage(required) {
-  return required
-    .filter(
-      ({ id, source, boundary }) =>
-        id === "event-schema:ci-run-observation/v1" ||
-        (source.includes("sqlite-event-store.ts") && ["commit", "claimWriter"].includes(boundary)) ||
-        (source.includes("durable-file.ts") && ["fsync", "rename"].includes(boundary)),
-    )
-    .map(({ id }) => id);
-}
-
 function inspectSqlite(databasePath) {
   const db = new DatabaseSync(databasePath, { readOnly: true });
   try {
@@ -683,17 +589,6 @@ function capture(tree, command, args) {
     child.once("error", reject);
     child.once("close", (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
-}
-
-function sourceDigest() {
-  const hash = createHash("sha256");
-  for (const file of [
-    "tools/stress/fleet/scale-runner.mjs",
-    "tools/stress/core/controller.mjs",
-    "tools/stress/core/receipt-log.mjs",
-  ])
-    hash.update(readFileSync(path.join(repoRoot, file)));
-  return `source:${hash.digest("hex")}`;
 }
 
 async function withScratch(seed, run) {

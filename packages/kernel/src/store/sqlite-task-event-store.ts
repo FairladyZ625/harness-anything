@@ -5,7 +5,7 @@ import {
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
+import { sha256Bytes, sha256Text } from "../integrity/stable-hash.ts";
 import { type HarnessLayoutInput } from "../layout/index.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import {
@@ -121,7 +121,8 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
     return `refs/heads/${branch}`;
   };
-  let closed = false,
+  let settledWorktreeRevision = 0,
+    closed = false,
     follower = pendingFollower("Git follower has not published this ledger cut"),
     scheduled: Promise<void> | null = null,
     certified: { readonly commit: string; readonly revision: number } | null = null,
@@ -185,7 +186,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef),
       verifiedRevision =
         certified?.commit === parent ? certified.revision : certifiedFollowerRevision(currentLedger, parent, sqlite),
-      pendingEvents = readPendingEvents(sqlite, verifiedRevision),
+      pendingEvents = readPendingEvents(sqlite, Math.min(verifiedRevision, settledWorktreeRevision)),
       files = followerFiles(currentLedger, parent, pendingEvents, readContent, accepted);
     certified = { commit: parent, revision: verifiedRevision };
     if (verifiedRevision === accepted.revision) {
@@ -196,13 +197,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           readContent,
           accepted,
         ),
-        baseline =
-          pendingWorktreeBaseline ??
-          captureGitBaseline(
+        baseline = new Map([
+          ...captureGitBaseline(
             currentLedger.rootDir,
             accepted.revision > 0 ? localGitObjectRefStore.resolveCommit(currentLedger.rootDir, `${parent}^`) : parent,
             closureFiles,
           ),
+          ...(pendingWorktreeBaseline ?? []),
+        ]),
         dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, closureFiles);
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
@@ -212,6 +214,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         settleWorktree(currentLedger.rootDir, closureFiles, options.killpoint);
         verifyWorktreeFiles(currentLedger.rootDir, closureFiles);
         pendingWorktreeBaseline = null;
+        settledWorktreeRevision = accepted.revision;
       }
       follower = {
         git: { status: "verified", cut: accepted, commitSha: parent },
@@ -236,7 +239,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         new Date().toISOString(),
       );
     options.killpoint?.("after_git_commit");
-    const baseline = pendingWorktreeBaseline ?? captureGitBaseline(currentLedger.rootDir, parent, files),
+    const baseline = new Map([
+        ...captureGitBaseline(currentLedger.rootDir, parent, files),
+        ...(pendingWorktreeBaseline ?? []),
+      ]),
       dirty = !worktreeMatchesBaseline(currentLedger.rootDir, baseline, files);
     if (dirty) pendingWorktreeBaseline = baseline;
     finalizeRefs(currentLedger.rootDir, currentRef, commit, parent, tempRef);
@@ -251,6 +257,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       settleWorktree(currentLedger.rootDir, files, options.killpoint);
       verifyWorktreeFiles(currentLedger.rootDir, files);
       pendingWorktreeBaseline = null;
+      settledWorktreeRevision = accepted.revision;
     }
     const manifest = files.find((file) => "target" in file && file.target.endsWith("events/segments/manifest.json"));
     if (!manifest || !("target" in manifest)) throw new Error("outbox manifest is absent");
@@ -374,7 +381,8 @@ function followerFiles(
     }
     for (const claim of canonicalDocumentClaims(event)) {
       const bytes = readContent(claim.sha256);
-      if (!bytes) throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is missing`);
+      if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
+        throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is missing or corrupt`);
       latest.set(claim.path, {
         body: Buffer.from(bytes).toString("utf8"),
         mode: canonicalDocumentMode(event, claim.path),

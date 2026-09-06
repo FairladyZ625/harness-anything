@@ -3,6 +3,7 @@ export * from "./domain/index.ts";
 export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
+  createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
   preflightConvertedGenerationActivation,
@@ -341,6 +342,7 @@ export {
   registerDaemonConnection,
   resolveDaemonRepoByRoot,
   registerDaemonRepo,
+  daemonRegistryPaths,
   removeDaemonConnection,
   unregisterDaemonRepo,
   updateDaemonConnection,
@@ -354,7 +356,11 @@ export type {
   InvalidDaemonRegistryRepo,
 } from "./daemon/registry.ts";
 
-export { receiptWaitPredicates, unsatisfiedReceiptPredicates } from "./domain/receipt-acceptance.ts";
+export {
+  receiptWaitPredicates,
+  unsatisfiedReceiptPredicates,
+  validateReceiptAcceptance,
+} from "./domain/receipt-acceptance.ts";
 export type {
   ReceiptAcceptanceFields,
   ReceiptAcceptance,
@@ -365,3 +371,7 @@ export type {
 } from "./domain/receipt-acceptance.ts";
 
 export { attachReceiptAcceptance, waitForReceiptAcceptance } from "./composition/receipt-acceptance.ts";
+
+export type { StoppedLegacySourceEvidenceV1 } from "./composition/index.ts";
+
+export { validateWriteReceipt } from "./domain/receipt-domain-registry.ts";

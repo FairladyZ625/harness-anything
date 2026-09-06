@@ -9,7 +9,6 @@ import {
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
-  type CanonicalEventStore,
   type DaemonRepoMode,
   type DispatchRecordLeaseSettlement,
   type EventPublicationKillpoint,

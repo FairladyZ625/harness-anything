@@ -66,7 +66,7 @@ test(
           capabilities: ["node:sqlite", "POSIX process SIGKILL", "fsync receipt log"],
         },
         seed,
-        topology: "serial S1 fixture: external controller + SQLite store + RepoCell shadow",
+        topology: "serial S1 fixture: external controller + SQLite store + RepoCell canonical acceptance",
         generation: 1,
         counts: {
           acceptedEvents: core.cut.events.length,
@@ -131,7 +131,7 @@ test(
             verdict: "PASS",
           },
           {
-            id: "S1/repo-cell-shadow",
+            id: "S1/repo-cell-sqlite-acceptance",
             pid: process.pid,
             loadedBuild: sourceBuildId(),
             nodeId: "isolated-s1-node",
@@ -140,7 +140,7 @@ test(
             claim: daemon.taskId,
             cut: { generation: 1, revision: daemon.sqliteRevision },
             schedule: daemon.schedule,
-            boundaryHits: ["repo-cell-wal-append", "sqlite-shadow-append"],
+            boundaryHits: ["repo-cell-sqlite-accept", "sqlite-command-outcome-readback"],
             receiptLog: daemon.receiptLog,
             receiptLogLocation: daemon.receiptLogPath,
             oracles: {},
@@ -545,7 +545,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
   const sqlite = openSqliteEventStore({ repoId, rootInput: targetRoot });
   const before = sqlite.revision();
   sqlite.close();
-  const taskId = "task_stress_s1_shadow";
+  const taskId = "task_stress_s1_sqlite";
   const receiptLogPath = path.join(controllerRoot, "repo-cell-receipts.jsonl");
   const receiptLog = openReceiptLog({
     file: receiptLogPath,
@@ -563,7 +563,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
         intentDigest: digest("repo-cell-task-create"),
         summary: "task-create through RepoCell",
         expectedEvents: [],
-        action: { kind: "task-create", taskId, title: "Stress S1 shadow", profileId: "baseline" },
+        action: { kind: "task-create", taskId, title: "Stress S1 SQLite acceptance", profileId: "baseline" },
       },
     ],
   });
@@ -591,7 +591,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
     await cell.close();
   }
   const after = readSqliteCut(path.join(targetRoot, ".harness", "store", "generations", "1", "ledger.sqlite"));
-  assert.ok(after.revision > before, `SQLite shadow did not advance beyond ${before}`);
+  assert.ok(after.revision > before, `SQLite acceptance did not advance beyond ${before}`);
   assert.ok(after.events.some((event) => event.taskId === taskId));
   return {
     taskId,

@@ -5,7 +5,7 @@ import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { canonicalizeWriteValue, isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
-import { localRuntimeStateFileSystem, localWalFileSystem } from "../local/local-layout-file-system.ts";
+import { localRuntimeStateFileSystem, localEventFileSystem } from "../local/local-layout-file-system.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore } from "./local-version-control-system.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
@@ -466,7 +466,7 @@ function readStoppedWal(rootDir: string): {
   const revision = Number(head.revision),
     lastOffset = Number(head.lastOffset),
     segmentPath = path.join(walRoot, String(head.lastSegment ?? "seg-000000.log")),
-    segment = revision === 0 ? "" : localWalFileSystem.readText(segmentPath),
+    segment = revision === 0 ? "" : localEventFileSystem.readText(segmentPath),
     durable = Buffer.from(segment).subarray(0, lastOffset).toString("utf8");
   if (Buffer.byteLength(durable) !== lastOffset || (durable && !durable.endsWith("\n")))
     throw new TaskEventStoreError("invalid_store", "legacy WAL durable offset splits a record");
@@ -542,9 +542,9 @@ function readStoppedObjects(
     objects.set(sha256, bytes);
   }
   const walObjects = path.join(rootDir, ".harness", "wal", "objects");
-  if (localWalFileSystem.exists(walObjects))
-    for (const name of localWalFileSystem.readNames(walObjects)) {
-      const bytes = Buffer.from(localWalFileSystem.readText(path.join(walObjects, name)));
+  if (localEventFileSystem.exists(walObjects))
+    for (const name of localEventFileSystem.readNames(walObjects)) {
+      const bytes = Buffer.from(localEventFileSystem.readText(path.join(walObjects, name)));
       if (!/^[0-9a-f]{64}$/u.test(name) || sha256Bytes(bytes) !== name)
         throw new TaskEventStoreError("invalid_store", `legacy WAL content object ${name} is invalid`);
       const prior = objects.get(name);
@@ -588,7 +588,7 @@ function writeRawSnapshot(input: {
 }
 
 function readOptionalText(inputPath: string): string | null {
-  return localWalFileSystem.exists(inputPath) ? localWalFileSystem.readText(inputPath) : null;
+  return localEventFileSystem.exists(inputPath) ? localEventFileSystem.readText(inputPath) : null;
 }
 
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {

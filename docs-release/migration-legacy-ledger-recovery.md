@@ -8,7 +8,9 @@ Preserve the old repository and stop its writers before conversion. Keep its
 original database, objects, authored Git history, and backup identity together.
 A projection rebuild cannot repair an invalid canonical source.
 
-The operator conversion API creates an immutable generation-0 snapshot at the
+`createImmutableLegacyGenerationSnapshotFromStoppedRepository` pins the raw
+canonical Git prefix and the accepted legacy WAL suffix through its durable head,
+then creates an immutable generation-0 snapshot at the
 resolved local root's `store/imports/generation-0.snapshot.json`. It retains source
 events and required objects with a source digest. `convertLegacyGeneration`
 validates the converted plan before seeding an inactive generation-1 database.

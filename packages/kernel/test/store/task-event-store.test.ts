@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
-import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
+import { openSqliteEventStore, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store.ts";
 import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 
@@ -181,6 +181,47 @@ test("successive Git cuts settle managed files while leaving the caller index un
       assert.equal(readFileSync(path.join(rootDir, "harness/context/managed.md"), "utf8"), body);
       assert.equal(git(rootDir, "ls-files", "--stage"), beforeIndex);
     }
+  } finally {
+    await store.drain();
+  }
+});
+
+test("new cuts cannot certify worktree visibility over an older unresolved document conflict", async () => {
+  const rootDir = fixture("older-conflict");
+  initRepo(rootDir);
+  const target = path.join(rootDir, "harness/context/conflicted.md");
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, "user edit\n");
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    store.append(docBundle(store, "accepted\n", 1, "older-conflict", "context/conflicted.md"));
+    await store.settlePendingMaterialization!("first conflict");
+    store.append(docBundle(store, "next document\n", 2, "newer-cut", "context/next.md"));
+    await store.settlePendingMaterialization!("new cut with prior conflict");
+    assert.equal(store.followerStatus().git.status, "verified");
+    assert.equal(store.followerStatus().worktree.status, "pending");
+    assert.equal(readFileSync(target, "utf8"), "user edit\n");
+    rmSync(target);
+    await store.settlePendingMaterialization!("resolved both cuts");
+    assert.equal(store.followerStatus().worktree.status, "verified");
+    assert.equal(readFileSync(target, "utf8"), "accepted\n");
+  } finally {
+    await store.drain();
+  }
+});
+
+test("corrupt accepted content cannot be certified by publishing the same corrupt bytes to Git", async () => {
+  const rootDir = fixture("corrupt-content");
+  initRepo(rootDir);
+  const store = makeTaskEventStore({ repoId, rootDir, writerFence });
+  try {
+    const bundle = docBundle(store, "accepted\n", 1, "corrupt-content", "context/accepted.md");
+    store.append(bundle);
+    writeFileSync(sqliteContentObjectPath(rootDir, bundle.blobs[0]!.sha256), "corrupted\n");
+    await store.settlePendingMaterialization!("detect corrupt content");
+    assert.equal(store.readCommandOutcome("corrupt-content")?.status, "accepted_durable");
+    assert.equal(store.followerStatus().git.status, "pending");
+    assert.match(store.followerStatus().git.reason!, /corrupt/u);
   } finally {
     await store.drain();
   }
