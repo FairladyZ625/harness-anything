@@ -1,6 +1,9 @@
 // Internal test access for daemon conversion, receipt and admission scenarios.
 export { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
-export { assertNoPendingHistoricalRewrites } from "../../src/store/event-shape-migration.ts";
+export {
+  assertNoPendingHistoricalRewrites,
+  planLegacyGenerationConversion,
+} from "../../src/store/event-shape-migration.ts";
 export {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   preflightConvertedGenerationActivation,

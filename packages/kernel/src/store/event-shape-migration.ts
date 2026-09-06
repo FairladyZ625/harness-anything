@@ -7,6 +7,8 @@ import {
 } from "../domain/decision-event-document.ts";
 import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
+import { submissionDigest, type SubmissionV1 } from "../domain/execution.ts";
+import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
 import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
@@ -23,6 +25,9 @@ import {
   type ScheduleV1,
 } from "../domain/schedule.ts";
 import { isRelationEvent } from "../domain/relation-event.ts";
+import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
+import { isTaskEvent } from "../domain/doc-sync-canonical-events.ts";
+import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
@@ -36,12 +41,16 @@ import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-sto
 // replayed at their historical cuts; the planner neither mutates the source nor publishes into an
 // active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
+  | "task-v2-snapshots"
   | "relation-events"
+  | "review-submission-pins"
   | "decision-digests"
   | "schedule-definitions"
   | "settings-wal-flush";
 export type EventShapeMigrationKind =
+  | "task-v2-snapshots-migrate"
   | "relation-events-migrate"
+  | "review-submission-pins-migrate"
   | "decision-digests-migrate"
   | "schedule-definitions-migrate"
   | "settings-wal-flush-migrate";
@@ -70,7 +79,142 @@ export interface LegacyGenerationConversionPlan {
     readonly revision: number;
     readonly category: string;
   }[];
+  readonly migrationFamilies: readonly EventShapeMigrationFamilyReport[];
 }
+
+export interface EventShapeMigrationFamilyReport {
+  readonly name: EventShapeMigrationName;
+  readonly count: number;
+  readonly firstRevision: number | null;
+  readonly lastRevision: number | null;
+}
+
+function asTaskBootstrapEvent(event: CanonicalEventV1) {
+  return isTaskBootstrapEvent(event) ? event : null;
+}
+
+function taskWithRetiredRelations(event: CanonicalEventV1): {
+  readonly task: TaskV2;
+  readonly relations: readonly Readonly<Record<string, unknown>>[];
+} | null {
+  const carrier = isTaskEvent(event) ? event : asTaskBootstrapEvent(event);
+  if (carrier === null) return null;
+  const task = carrier.payload.task as TaskV2 & { readonly relations?: unknown };
+  if (!Object.hasOwn(task, "relations")) return null;
+  const { relations, ...current } = task;
+  if (!Array.isArray(relations) || validateTaskV2(current).length > 0) return null;
+  return {
+    task,
+    relations: relations as readonly Readonly<Record<string, unknown>>[],
+  };
+}
+
+const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
+  name: "task-v2-snapshots",
+  // A non-empty carrier reads the relation aggregate at the pre-event cut. In particular,
+  // task_relation_added becomes the canonical relation event before later snapshots drop the
+  // retired hosted field.
+  matches: (event) => (taskWithRetiredRelations(event)?.relations.length ?? 0) > 0,
+  rewrite: (event, cut) => {
+    const legacy = taskWithRetiredRelations(event);
+    if (legacy === null) return null;
+    const { relations: _retiredRelations, ...task } = legacy.task as TaskV2 & {
+      readonly relations: readonly Readonly<Record<string, unknown>>[];
+    };
+    if (legacy.relations.length === 0)
+      return {
+        event: { ...event, payload: { ...event.payload, task } } as CanonicalEventV1,
+        category: "retired empty Task.relations dropped",
+        before: legacy.task,
+        after: task,
+      };
+    if (!isTaskEvent(event))
+      throw new Error(`task snapshot ${event.opId} carries non-empty relations without a task lifecycle mutation`);
+    if (event.type === "task_relation_added") {
+      const addedIds = new Set(event.payload.mutation.fields),
+        added = legacy.relations.filter((relation) => addedIds.has(String(relation.relation_id))),
+        carried = legacy.relations.filter((relation) => !addedIds.has(String(relation.relation_id)));
+      if (added.length !== 1)
+        throw new Error(`task relation event ${event.opId} must identify exactly one added relation`);
+      assertRelationsExistAtCut(carried, cut, event.opId);
+      const relation = added[0]!,
+        relationId = String(relation.relation_id);
+      return {
+        event: {
+          schema: "relation-event/v1",
+          eventId: event.eventId,
+          workspaceRevision: event.workspaceRevision,
+          opId: event.opId,
+          relationId,
+          type: "relation_created",
+          actor: event.actor,
+          source: event.source,
+          occurredAt: event.occurredAt,
+          payload: { relation },
+        } as CanonicalEventV1,
+        category: "embedded task relation promoted to canonical relation_created",
+        before: event,
+        after: { relationId, relation },
+      };
+    }
+    assertRelationsExistAtCut(legacy.relations, cut, event.opId);
+    return {
+      event: { ...event, payload: { ...event.payload, task } } as CanonicalEventV1,
+      category: "retired Task.relations dropped after canonical relation event",
+      before: legacy.task,
+      after: task,
+    };
+  },
+};
+
+function assertRelationsExistAtCut(
+  relations: readonly Readonly<Record<string, unknown>>[],
+  cut: EventShapeCut,
+  opId: string,
+): void {
+  const missing = relations
+    .map((relation) => String(relation.relation_id))
+    .filter((relationId) => cut.readEntityVersionWitness(`relation/${relationId}`).currentVersion === null);
+  if (missing.length > 0)
+    throw new Error(`task snapshot ${opId} carries relations not present at its historical cut: ${missing.join(", ")}`);
+}
+
+const reviewSubmissionPinsMigration: EventShapeMigrationSpec = {
+  name: "review-submission-pins",
+  matches: () => false,
+  rewrite: (event) => {
+    if (!isTaskEvent(event) || (event.type !== "review_recorded" && event.type !== "review_consent_recorded"))
+      return null;
+    const review = event.payload.review as ReviewV1;
+    if (Object.hasOwn(review, "submissionDigest")) return null;
+    const submission = event.payload.execution.submission as SubmissionV1 | null;
+    if (submission === null) throw new Error(`review event ${event.opId} has no submitted execution to pin`);
+    const pin = submissionDigest(submission),
+      pinnedReview = { ...review, submissionDigest: pin };
+    if (event.type === "review_recorded")
+      return {
+        event: { ...event, payload: { ...event.payload, review: pinnedReview } } as CanonicalEventV1,
+        category: "review submission digest pinned",
+        before: review,
+        after: pinnedReview,
+      };
+    const consent = event.payload.consent as ReviewConsentV1,
+      pinnedConsent = {
+        ...consent,
+        reviewDigest: reviewDigest(pinnedReview),
+        ...(Object.hasOwn(consent, "submissionDigest") ? {} : { submissionDigest: pin }),
+      };
+    return {
+      event: {
+        ...event,
+        payload: { ...event.payload, review: pinnedReview, consent: pinnedConsent },
+      } as CanonicalEventV1,
+      category: "review and consent submission digests pinned",
+      before: { review, consent },
+      after: { review: pinnedReview, consent: pinnedConsent },
+    };
+  },
+};
 
 const relationEventsMigration: EventShapeMigrationSpec = {
   name: "relation-events",
@@ -304,7 +448,9 @@ const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
 };
 
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
+  "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
   "relation-events-migrate": relationEventsMigration,
+  "review-submission-pins-migrate": reviewSubmissionPinsMigration,
   "decision-digests-migrate": decisionDigestsMigration,
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
   "settings-wal-flush-migrate": settingsWalFlushMigration,
@@ -321,27 +467,8 @@ export function planLegacyGenerationConversion(input: {
 }): LegacyGenerationConversionPlan {
   const head = input.store.readHead(),
     headRevision = head?.revision ?? 0,
-    byOpId = new Map(input.store.read().events.map((event) => [event.opId, event])),
-    blobs = new Map<string, CanonicalContentBlob>(),
-    rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [];
-  for (const spec of Object.values(eventShapeMigrations)) {
-    const planned = replayRewrites(spec, input, headRevision, head);
-    for (const rewrite of planned) {
-      byOpId.set(rewrite.event.opId, rewrite.event);
-      for (const blob of rewrite.blobs ?? []) blobs.set(blob.sha256, blob);
-      rewrites.push({
-        migration: spec.name,
-        opId: rewrite.event.opId,
-        revision: rewrite.event.workspaceRevision,
-        category: rewrite.category,
-      });
-    }
-  }
-  return {
-    events: [...byOpId.values()].sort((left, right) => left.workspaceRevision - right.workspaceRevision),
-    blobs: [...blobs.values()],
-    rewrites,
-  };
+    replayed = replayRewrites(input, headRevision, head);
+  return { ...replayed, migrationFamilies: summarizeMigrationFamilies(replayed.rewrites) };
 }
 
 export function assertNoPendingHistoricalRewrites(input: {
@@ -360,17 +487,16 @@ export function assertNoPendingHistoricalRewrites(input: {
 const BULK_ROUND_LIMIT = 4096;
 
 function replayRewrites(
-  spec: EventShapeMigrationSpec,
   input: { readonly rootDir: string; readonly store: CanonicalEventStore },
   headRevision: number,
   head: ReturnType<CanonicalEventStore["readHead"]>,
-): readonly EventShapeRewrite[] {
-  const rewrites: EventShapeRewrite[] = [],
-    scratchPath = path.join(tmpdir(), `ha-${spec.name}-${process.pid}-${Date.now()}.sqlite`),
-    pending: CanonicalEventV1[] = [],
-    syntheticBlobs = new Map<string, Uint8Array>();
-  let cap = 0,
-    cursor: string | null = null,
+): Pick<LegacyGenerationConversionPlan, "events" | "blobs" | "rewrites"> {
+  const events: CanonicalEventV1[] = [],
+    blobs = new Map<string, CanonicalContentBlob>(),
+    rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [],
+    scratchPath = path.join(tmpdir(), `ha-event-shapes-${process.pid}-${Date.now()}.sqlite`),
+    pending: CanonicalEventV1[] = [];
+  let cursor: string | null = null,
     exhausted = false,
     prefetchContent: ReturnType<CanonicalEventStore["readBatch"]>["prefetchContent"],
     projection: TaskProjection | null = null;
@@ -384,55 +510,43 @@ function replayRewrites(
       if (batch.prefetchContent) prefetchContent = batch.prefetchContent;
     }
   };
-  // Every migration's rewrite is applied to the scratch projection so it stays valid past shapes
-  // the other migrations own (a decision digest is derived over rewritten relations, and the
-  // strict reducer rejects both legacy shapes); only the requested migration's rewrites are
-  // reported and published.
   const migrations = Object.values(eventShapeMigrations);
-  // A round ends at the next candidate when it is the next event (so its rewrite sees the
-  // projection at revision-1), otherwise right before it or after a full bulk round; with no
-  // events left it ends at the head.
-  const nextCap = (): number => {
+  // Each cut-dependent candidate is the first and only event in its batch. TaskProjection applies
+  // the previous batch before requesting the next one, so rewrite sees the exact pre-event cut.
+  // The stream head remains the real final head, which makes one catchUp settle one state digest.
+  const nextBatch = () => {
     fill();
-    if (pending.length === 0) return headRevision;
+    if (pending.length === 0) return [];
     const candidate = pending.findIndex((event) => migrations.some((migration) => migration.matches(event))),
       count = candidate === 0 ? 1 : Math.min(candidate === -1 ? pending.length : candidate, BULK_ROUND_LIMIT);
-    return pending[count - 1]!.workspaceRevision;
+    return pending
+      .splice(0, count)
+      .map((event) => rewriteToFixedPoint(event, projection!, migrations, blobs, rewrites));
   };
   const stream = {
-    readHead: () =>
-      cap >= headRevision
-        ? head
-        : { revision: cap, eventDigest: `sha256:${sha256Text(`event-shape-migration:${cap}`)}` as `sha256:${string}` },
+    readHead: () => head,
     readBatch: () => {
-      const beyond = pending.findIndex((event) => event.workspaceRevision > cap),
-        events = pending.splice(0, beyond === -1 ? pending.length : beyond).map((event) => {
-          let current = event;
-          for (const migration of migrations) {
-            const rewrite = migration.rewrite(current, projection!);
-            if (rewrite === null) continue;
-            if (migration === spec) rewrites.push(rewrite);
-            for (const blob of rewrite.blobs ?? []) syntheticBlobs.set(blob.sha256, Buffer.from(blob.body));
-            current = rewrite.event;
-          }
-          return current;
-        });
+      const batch = nextBatch(),
+        done = exhausted && pending.length === 0;
+      events.push(...batch);
       return {
-        sourceRevision: cap,
-        events,
-        cursor: null,
-        done: true,
-        accessedItems: events.length,
+        sourceRevision: headRevision,
+        events: batch,
+        cursor: done ? null : String(batch.at(-1)?.workspaceRevision ?? events.length),
+        done,
+        accessedItems: batch.length,
         prefetchContent: (replay: readonly CanonicalEventV1[]) => {
-          const persisted = replay.filter((event) =>
-              contentClaims(event).every((claim) => !syntheticBlobs.has(claim.sha256)),
-            ),
-            content = new Map([...(prefetchContent?.(persisted) ?? []), ...syntheticBlobs]);
+          const persisted = replay.filter((event) => contentClaims(event).every((claim) => !blobs.has(claim.sha256))),
+            generated = [...blobs].map(([sha256, blob]) => [sha256, Buffer.from(blob.body)] as const),
+            content = new Map([...(prefetchContent?.(persisted) ?? []), ...generated]);
           return content;
         },
       };
     },
-    readContentBlob: (sha256: string) => syntheticBlobs.get(sha256) ?? input.store.readContentBlob(sha256),
+    readContentBlob: (sha256: string) => {
+      const generated = blobs.get(sha256);
+      return generated ? Buffer.from(generated.body) : input.store.readContentBlob(sha256);
+    },
   };
   projection = makeTaskProjection({
     rootDir: input.rootDir,
@@ -441,17 +555,61 @@ function replayRewrites(
     catchUpLimit: BULK_ROUND_LIMIT,
   });
   try {
-    let watermark = 0;
-    while (watermark < headRevision) {
-      cap = nextCap();
-      const round = projection.catchUp!();
-      if (round.watermark !== cap)
-        throw new Error(`${spec.name} migrating replay stalled at revision ${round.watermark} before ${cap}`);
-      watermark = cap;
-    }
+    const round = projection.catchUp!();
+    if (round.watermark !== headRevision)
+      throw new Error(`event-shape migration replay stalled at revision ${round.watermark} before ${headRevision}`);
   } finally {
     projection.close();
     for (const suffix of ["", "-wal", "-shm"]) localRuntimeStateFileSystem.remove(`${scratchPath}${suffix}`);
   }
-  return rewrites;
+  return { events, blobs: [...blobs.values()], rewrites };
+}
+
+function rewriteToFixedPoint(
+  event: CanonicalEventV1,
+  cut: EventShapeCut,
+  migrations: readonly EventShapeMigrationSpec[],
+  blobs: Map<string, CanonicalContentBlob>,
+  rewrites: LegacyGenerationConversionPlan["rewrites"][number][],
+): CanonicalEventV1 {
+  let current = event;
+  const applied = new Set<EventShapeMigrationName>(),
+    seen = new Set([canonicalJson(event)]);
+  for (let pass = 0; pass <= migrations.length; pass += 1) {
+    let changed = false;
+    for (const migration of migrations) {
+      const rewrite = migration.rewrite(current, cut);
+      if (rewrite === null) continue;
+      if (applied.has(migration.name)) throw new Error(`${migration.name} is not idempotent for event ${event.opId}`);
+      applied.add(migration.name);
+      changed = true;
+      current = rewrite.event;
+      for (const blob of rewrite.blobs ?? []) blobs.set(blob.sha256, blob);
+      rewrites.push({
+        migration: migration.name,
+        opId: event.opId,
+        revision: event.workspaceRevision,
+        category: rewrite.category,
+      });
+    }
+    if (!changed) return current;
+    const state = canonicalJson(current);
+    if (seen.has(state)) throw new Error(`event-shape migration cycle for event ${event.opId}`);
+    seen.add(state);
+  }
+  throw new Error(`event-shape migrations did not reach a fixed point for event ${event.opId}`);
+}
+
+function summarizeMigrationFamilies(
+  rewrites: LegacyGenerationConversionPlan["rewrites"],
+): readonly EventShapeMigrationFamilyReport[] {
+  return Object.values(eventShapeMigrations).map(({ name }) => {
+    const revisions = rewrites.filter((rewrite) => rewrite.migration === name).map((rewrite) => rewrite.revision);
+    return {
+      name,
+      count: revisions.length,
+      firstRevision: revisions.length === 0 ? null : Math.min(...revisions),
+      lastRevision: revisions.length === 0 ? null : Math.max(...revisions),
+    };
+  });
 }

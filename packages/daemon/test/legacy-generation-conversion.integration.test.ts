@@ -16,26 +16,34 @@ import {
   validateScheduleV1,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
+  currentTaskForWrite,
   deriveRelationId,
   makeTaskProjection,
   openSqliteEventStore,
   preflightCanonicalGeneration,
   reconcileSqliteEvents,
   readSettingsFacet,
+  reviewDigest,
   serializeEventHead,
   sha256Bytes,
   sha256Text,
   stableStringify,
+  submissionDigest,
   validateCurrentCanonicalEvent,
   type CanonicalEventV1,
   type CanonicalEventStore,
+  type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import { assertNoPendingHistoricalRewrites } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  assertNoPendingHistoricalRewrites,
+  planLegacyGenerationConversion,
+} from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   preflightConvertedGenerationActivation,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { sqliteContentObjectPath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 
 test("stopped legacy Git plus accepted WAL suffix converts without a strict reader", () => {
@@ -257,6 +265,22 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     assert.equal(seeded.eventBytes, originalBytes);
     const first = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
     assert.equal(first.rewrittenEvents, 1);
+    assert.deepEqual(
+      first.migrationFamilies.map(({ name, count, firstRevision, lastRevision }) => ({
+        name,
+        count,
+        firstRevision,
+        lastRevision,
+      })),
+      [
+        { name: "task-v2-snapshots", count: 0, firstRevision: null, lastRevision: null },
+        { name: "relation-events", count: 0, firstRevision: null, lastRevision: null },
+        { name: "review-submission-pins", count: 0, firstRevision: null, lastRevision: null },
+        { name: "decision-digests", count: 0, firstRevision: null, lastRevision: null },
+        { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
+        { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
+      ],
+    );
     assert.equal(first.migratedEvents, 1);
     assert.equal(first.active, false);
     const second = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
@@ -658,6 +682,177 @@ test("inactive generation conversion witnesses separated legacy relations at the
     rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+test("Task/v2 snapshot migration preserves lifecycle and relation final state", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-task-v2-")),
+    relationIdentity = {
+      source: "task/task-1",
+      target: "task/task-1",
+      type: "depends-on",
+      direction: "directed",
+    } as const,
+    relationId = deriveRelationId(relationIdentity),
+    relation = {
+      relation_id: relationId,
+      ...relationIdentity,
+      strength: "strong",
+      origin: "declared",
+      state: "active",
+      rationale: "Historical hosted relation.",
+    } as const,
+    fixture = lifecycleFixture(),
+    finalTask = fixture.events.at(-1)!.payload.task,
+    legacyRelation = {
+      ...fixture.events.at(-1),
+      eventId: "event-legacy-task-relation",
+      workspaceRevision: 7,
+      opId: "op_legacy_task_relation",
+      type: "task_relation_added",
+      payload: {
+        task: { ...finalTask, relations: [relation] },
+        mutation: { command: "relate", reason: "Historical relation creation.", fields: [relationId] },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    redundantSnapshot = {
+      ...legacyRelation,
+      eventId: "event-legacy-task-snapshot",
+      workspaceRevision: 8,
+      opId: "op_legacy_task_snapshot",
+      type: "task_amended",
+      payload: {
+        task: { ...finalTask, relations: [relation] },
+        mutation: { command: "amend", reason: "Historical redundant snapshot.", fields: [] },
+        documentClaims: [],
+      },
+    } as unknown as TaskEventV1,
+    legacyEvents = [...fixture.events, legacyRelation, redundantSnapshot],
+    plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(legacyEvents, () => null) });
+  try {
+    const convertedRelation = plan.events[6]!,
+      convertedSnapshot = plan.events[7]!;
+    assert.equal(convertedRelation.schema, "relation-event/v1");
+    assert.equal(convertedRelation.type, "relation_created");
+    assert.equal(convertedRelation.eventId, legacyRelation.eventId);
+    assert.equal(convertedRelation.opId, legacyRelation.opId);
+    assert.equal(convertedRelation.workspaceRevision, legacyRelation.workspaceRevision);
+    assert.equal(convertedRelation.payload.relation.targetObservedVersion, 6);
+    assert.equal(Object.hasOwn(convertedRelation.payload.relation, "strength"), false);
+    assert.equal(Object.hasOwn(convertedSnapshot.payload.task, "relations"), false);
+    assert.ok(plan.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
+    assert.deepEqual(migrationFamily(plan, "task-v2-snapshots"), {
+      name: "task-v2-snapshots",
+      count: 2,
+      firstRevision: 7,
+      lastRevision: 8,
+    });
+    assert.deepEqual(migrationFamily(plan, "relation-events"), {
+      name: "relation-events",
+      count: 1,
+      firstRevision: 7,
+      lastRevision: 7,
+    });
+
+    const legacyProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: arrayStore(legacyEvents, () => null),
+        projectionPath: path.join(root, "legacy.sqlite"),
+      }),
+      convertedProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: arrayStore(plan.events, () => null),
+        projectionPath: path.join(root, "converted.sqlite"),
+      });
+    try {
+      legacyProjection.rebuild();
+      convertedProjection.rebuild();
+      const legacyLifecycle = legacyProjection.read("task-1").snapshot,
+        convertedLifecycle = convertedProjection.read("task-1").snapshot;
+      assert.deepEqual(
+        {
+          ...convertedLifecycle,
+          task: convertedLifecycle.task === null ? null : currentTaskForWrite(convertedLifecycle.task),
+        },
+        {
+          ...legacyLifecycle,
+          task: legacyLifecycle.task === null ? null : currentTaskForWrite(legacyLifecycle.task),
+        },
+      );
+      assert.deepEqual(
+        convertedProjection.getEntity("relation", relationId),
+        legacyProjection.getEntity("relation", relationId),
+      );
+    } finally {
+      legacyProjection.close();
+      convertedProjection.close();
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("review submission migration pins only reviews missing the field", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-generation-review-pins-")),
+    fixture = lifecycleFixture(),
+    legacyEvents = fixture.events.map((event) => {
+      if (event.type === "review_recorded") {
+        const { submissionDigest: _legacyPin, ...review } = event.payload.review;
+        return { ...event, payload: { ...event.payload, review } } as unknown as CanonicalEventV1;
+      }
+      if (event.type !== "review_consent_recorded") return event;
+      const { submissionDigest: _legacyReviewPin, ...review } = event.payload.review,
+        { submissionDigest: _legacyConsentPin, ...consent } = event.payload.consent;
+      return {
+        ...event,
+        payload: { ...event.payload, review, consent: { ...consent, reviewDigest: reviewDigest(review as never) } },
+      } as unknown as CanonicalEventV1;
+    }),
+    plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(legacyEvents, () => null) });
+  try {
+    const reviewEvent = plan.events.find((event) => event.type === "review_recorded")!,
+      consentEvent = plan.events.find((event) => event.type === "review_consent_recorded")!,
+      expectedPin = submissionDigest(reviewEvent.payload.execution.submission);
+    assert.equal(reviewEvent.payload.review.submissionDigest, expectedPin);
+    assert.equal(consentEvent.payload.review.submissionDigest, expectedPin);
+    assert.equal(consentEvent.payload.consent.submissionDigest, expectedPin);
+    assert.equal(consentEvent.payload.consent.reviewDigest, reviewDigest(consentEvent.payload.review));
+    assert.ok(plan.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
+    assert.deepEqual(migrationFamily(plan, "review-submission-pins"), {
+      name: "review-submission-pins",
+      count: 2,
+      firstRevision: 4,
+      lastRevision: 5,
+    });
+
+    const amendedPin = `sha256:${"c".repeat(64)}`,
+      currentEvents = fixture.events.map((event) => {
+        if (event.type !== "review_consent_recorded") return event;
+        const review = { ...event.payload.review, submissionDigest: amendedPin };
+        return {
+          ...event,
+          payload: {
+            ...event.payload,
+            review,
+            consent: { ...event.payload.consent, reviewDigest: reviewDigest(review) },
+          },
+        } as CanonicalEventV1;
+      }),
+      currentPlan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(currentEvents, () => null) }),
+      preserved = currentPlan.events.find((event) => event.type === "review_consent_recorded")!;
+    assert.equal(preserved.payload.review.submissionDigest, amendedPin);
+    assert.equal(preserved.payload.consent.submissionDigest, expectedPin);
+    assert.equal(migrationFamily(currentPlan, "review-submission-pins").count, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function migrationFamily(
+  plan: ReturnType<typeof planLegacyGenerationConversion>,
+  name: ReturnType<typeof planLegacyGenerationConversion>["migrationFamilies"][number]["name"],
+) {
+  return plan.migrationFamilies.find((family) => family.name === name)!;
+}
 
 function seedLegacySettings(root: string, legacy = true) {
   const body = readFileSync(path.join(root, "harness/harness.yaml"), "utf8"),
