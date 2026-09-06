@@ -9,7 +9,12 @@ import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rp
 import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
 import { terminateProcess } from "../../../daemon/src/process-port.ts";
 import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { runtimeDaemonStartRefusal } from "../../../daemon/src/client/daemon-autostart.ts";
+import {
+  clearDaemonStoppedMarker,
+  readDaemonStoppedAt,
+  runtimeDaemonStartRefusal,
+  writeDaemonStoppedMarker,
+} from "../../../daemon/src/client/daemon-autostart.ts";
 import { readDaemonPid, startDaemon } from "../../../daemon/src/runtime.ts";
 import {
   daemonProcessAlive,
@@ -73,6 +78,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "serve") {
       const refusal = runtimeDaemonStartRefusal();
       if (refusal) return finish(daemonFailure("daemon-serve", "daemon_start_runtime_forbidden", refusal.hint), 1);
+      clearDaemonStoppedMarker(userRoot, daemonId);
       return serve(userRoot, daemonId, finish);
     }
     if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
@@ -81,6 +87,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       return finish(assessed.receipt, assessed.exitCode);
     }
     if (command === "stop") {
+      writeDaemonStoppedMarker(userRoot, daemonId);
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
       if (argv.includes("--force")) {
@@ -128,6 +135,10 @@ async function startDaemonService(
       ),
       2,
     );
+  const runtimeRefusal = runtimeDaemonStartRefusal();
+  if (runtimeRefusal)
+    return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
+  clearDaemonStoppedMarker(userRoot, daemonId);
   let running: Record<string, unknown> | null = null;
   try {
     running = await status(userRoot, daemonId, argv);
@@ -135,9 +146,6 @@ async function startDaemonService(
     consumeKnownError(error);
   }
   if (running?.ok === true) return finish(running, 0);
-  const runtimeRefusal = runtimeDaemonStartRefusal();
-  if (runtimeRefusal)
-    return finish(daemonFailure("daemon-start", "daemon_start_runtime_forbidden", runtimeRefusal.hint), 1);
   const started = await ensureCliDaemonRunning({
     invokingRoot,
     userRoot,
@@ -303,8 +311,16 @@ async function status(
     consumeKnownError(error);
     resolved = null;
   }
-  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
+  const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId);
+  let result: Record<string, unknown>;
+  try {
     result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, undefined, undefined, true);
+  } catch (error) {
+    const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
+    if (!stoppedAt) throw error;
+    const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
+    result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
+  }
   const target = {
       endpoint,
       daemonId,
