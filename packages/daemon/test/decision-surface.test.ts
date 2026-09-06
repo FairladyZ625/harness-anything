@@ -41,7 +41,9 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       proposer,
     );
     assert.equal(emptyRepin.outcome, "no_changes");
-    assert.equal(emptyRepin.proof?.canonicalVisible, false);
+    assert.equal(emptyRepin.status, "rejected");
+    assert.equal(emptyRepin.acceptance, null);
+    assert.equal(emptyRepin.proof, undefined);
     const proposed = await cell.run(proposal("Lifecycle surface"), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       oldIdentity = {
