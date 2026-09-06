@@ -987,13 +987,17 @@ for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_
         },
       });
       const first = await crashed.run(action, repoWriteBinding);
-      assert.equal(first.outcome, "op_rejected", JSON.stringify(first));
-      assert.equal(first.status, "rejected");
+      assert.equal(first.status, "accepted_durable", JSON.stringify(first));
+      assert.equal(first.outcome, first.projection.state === "verified" ? "applied" : "pending");
+      assert.equal(first.code, "publication_indeterminate");
+      assert.equal(first.rejectionExplanation, undefined);
       assertValidWriteReceipt(first);
       const acceptedReader = makeTaskEventReader({ repoId, rootDir }),
         acceptedEvents = acceptedReader.read().events.filter((event) => event.schema === "decision-event/v1");
       assert.equal(acceptedEvents.length, 1);
       const acceptedOpId = acceptedEvents[0]!.opId;
+      assert.equal(first.opId, acceptedOpId);
+      assert.deepEqual(first.acceptance?.memberOpIds, [acceptedOpId]);
       assert.equal(acceptedReader.readCommandOutcome(acceptedOpId)?.status, "accepted_durable");
       await acceptedReader.drain();
       await crashed.close();

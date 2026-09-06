@@ -61,8 +61,9 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
     follower.git.cut.revision >= acceptedCut.revision;
   const projected = projection.readCut();
   const visible = projected.watermark >= outcome.lastRevision;
+  const { rejectionExplanation: _rejectionExplanation, ...acceptedReceipt } = receipt;
   return {
-    ...receipt,
+    ...acceptedReceipt,
     status: "accepted_durable",
     acceptance: {
       storage: "sqlite",
