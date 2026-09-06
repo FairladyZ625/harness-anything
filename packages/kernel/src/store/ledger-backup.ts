@@ -23,7 +23,7 @@ export interface LedgerBackupFileV1 {
   readonly size: number;
   readonly sourceSha256: string;
   readonly backupSha256: string;
-  readonly method: "copy" | "vacuum-into";
+  readonly method: "copy" | "vacuum-into" | "symlink";
 }
 
 export function createLedgerBackup(input: {
@@ -44,19 +44,18 @@ export function createLedgerBackup(input: {
   if (sqlitePresent) vacuumSqlite(layout.rootDir, sqlitePath, payloadRoot);
   const legacy = readStoppedLegacyGeneration({ rootInput: input.rootInput }),
     sqlite = sqlitePresent ? inspectSqlite(sqlitePath) : null,
+    sqliteRelative = portable(path.relative(layout.rootDir, sqlitePath)),
     files = inventory(payloadRoot).map((backupFile) => {
       const relative = portable(path.relative(payloadRoot, backupFile)),
-        sourceFile = path.join(layout.rootDir, relative),
-        sourceSha256 =
-          relative === portable(path.relative(layout.rootDir, sqlitePath))
-            ? sha256File(sqlitePath)
-            : sha256File(sourceFile);
+        vacuumed = relative === sqliteRelative,
+        backup = entryDigest(backupFile),
+        source = entryDigest(vacuumed ? sqlitePath : path.join(layout.rootDir, relative));
       return {
         path: relative,
-        size: fileSystem.stat(backupFile).size,
-        sourceSha256,
-        backupSha256: sha256File(backupFile),
-        method: relative === portable(path.relative(layout.rootDir, sqlitePath)) ? "vacuum-into" : "copy",
+        size: backup.size,
+        sourceSha256: source.sha256,
+        backupSha256: backup.sha256,
+        method: vacuumed ? "vacuum-into" : backup.symlink ? "symlink" : "copy",
       } satisfies LedgerBackupFileV1;
     });
   const manifest: LedgerBackupManifestV1 = {
@@ -87,7 +86,7 @@ export function drillLedgerBackup(input: { readonly backupDir: string; readonly 
   verifyManifest(payloadRoot, manifest);
   fileSystem.mkdir(input.shadowParent, { recursive: true });
   const shadowRoot = fileSystem.makeTemporaryDirectory(path.join(path.resolve(input.shadowParent), "restore-drill-"));
-  fileSystem.copy(payloadRoot, shadowRoot, { recursive: true, errorOnExist: true });
+  fileSystem.copy(payloadRoot, shadowRoot, { recursive: true, errorOnExist: true, verbatimSymlinks: true });
   verifyManifest(shadowRoot, manifest);
   const database = manifest.files.find(({ method }) => method === "vacuum-into");
   if (database) inspectSqlite(path.join(shadowRoot, database.path));
@@ -137,7 +136,18 @@ function copySource(rootDir: string, sourcePath: string, payloadRoot: string): v
   const relative = path.relative(rootDir, sourcePath);
   if (relative === ".." || relative.startsWith(`..${path.sep}`))
     throw new Error("backup source escaped repository root");
-  fileSystem.copy(sourcePath, path.join(payloadRoot, relative), { recursive: true, errorOnExist: true });
+  fileSystem.copy(sourcePath, path.join(payloadRoot, relative), {
+    recursive: true,
+    errorOnExist: true,
+    verbatimSymlinks: true,
+    // A repository nested inside a source (a tool worktree under .claude/, a checkout someone
+    // left in the tree) is tool state, not ledger content.
+    filter: (candidate) => candidate === sourcePath || !nestedRepository(candidate),
+  });
+}
+
+function nestedRepository(candidate: string): boolean {
+  return fileSystem.lstat(candidate).isDirectory() && fileSystem.exists(path.join(candidate, ".git"));
 }
 
 function vacuumSqlite(rootDir: string, databasePath: string, payloadRoot: string): void {
@@ -199,23 +209,38 @@ function verifyManifest(root: string, manifest: LedgerBackupManifestV1): void {
   if (JSON.stringify(actual) !== JSON.stringify(manifest.files.map(({ path: file }) => file)))
     throw new Error("backup file inventory differs from manifest");
   for (const entry of manifest.files) {
-    const file = path.join(root, entry.path);
-    if (fileSystem.stat(file).size !== entry.size || sha256File(file) !== entry.backupSha256)
+    const actual = entryDigest(path.join(root, entry.path));
+    if (actual.size !== entry.size || actual.sha256 !== entry.backupSha256)
       throw new Error(`backup file digest differs: ${entry.path}`);
   }
 }
 
-function inventory(root: string): readonly string[] {
-  const files: string[] = [];
-  for (const name of fileSystem.readDirectory(root)) {
-    const candidate = path.join(root, name),
-      stat = fileSystem.stat(candidate);
-    if (stat.isDirectory()) files.push(...inventory(candidate));
-    else if (stat.isFile()) files.push(candidate);
+// Symbolic links are backed up as links: the manifest records the link target, never the
+// bytes behind it. The authored root links out to external repositories (source packs),
+// and following those would pull foreign trees into the ledger backup or fail on links that
+// only resolve from the source location.
+function entryDigest(file: string): { readonly size: number; readonly sha256: string; readonly symlink: boolean } {
+  const stat = fileSystem.lstat(file);
+  if (stat.isSymbolicLink()) {
+    const target = Buffer.from(fileSystem.readLink(file));
+    return { size: target.byteLength, sha256: `sha256:${sha256Bytes(target)}`, symlink: true };
   }
-  return files.sort((left, right) =>
-    portable(path.relative(root, left)).localeCompare(portable(path.relative(root, right))),
-  );
+  return { size: stat.size, sha256: sha256File(file), symlink: false };
+}
+
+function inventory(root: string): readonly string[] {
+  const entries: { readonly file: string; readonly key: string }[] = [],
+    walk = (directory: string) => {
+      for (const name of fileSystem.readDirectory(directory)) {
+        const candidate = path.join(directory, name),
+          stat = fileSystem.lstat(candidate);
+        if (stat.isSymbolicLink() || stat.isFile())
+          entries.push({ file: candidate, key: portable(path.relative(root, candidate)) });
+        else if (stat.isDirectory()) walk(candidate);
+      }
+    };
+  walk(root);
+  return entries.sort((left, right) => left.key.localeCompare(right.key)).map(({ file }) => file);
 }
 
 function sha256File(file: string): string {

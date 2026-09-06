@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -40,6 +40,55 @@ test("generation-aware backup preserves legacy sources and does not create an ab
     rmSync(interruptedDir, { recursive: true, force: true });
   }
 });
+
+test(
+  "backup records symbolic links by target and never follows them",
+  { skip: process.platform === "win32" ? "symbolic links need privileges on Windows" : false },
+  () => {
+    const root = fixture("legacy"),
+      external = mkdtempSync(path.join(os.tmpdir(), "ha-backup-external-")),
+      backupDir = path.join(os.tmpdir(), `ha-backup-symlink-${process.pid}-${Date.now()}`),
+      linked = path.join(root, "harness", "context", "linked-external"),
+      dangling = path.join(root, "harness", "context", "dangling"),
+      nested = path.join(root, "harness", ".claude", "worktrees", "nested");
+    try {
+      mkdirSync(path.join(root, "harness", "context"), { recursive: true });
+      writeFileSync(path.join(external, "secret.md"), "outside the ledger\n");
+      symlinkSync(external, linked);
+      symlinkSync(path.join("..", "missing-target"), dangling);
+      mkdirSync(nested, { recursive: true });
+      writeFileSync(path.join(nested, ".git"), "gitdir: elsewhere\n");
+      writeFileSync(path.join(nested, "note.md"), "tool state\n");
+      const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+        entries = new Map(manifest.files.map((file) => [file.path, file]));
+      for (const [relative, target] of [
+        ["harness/context/linked-external", external],
+        ["harness/context/dangling", path.join("..", "missing-target")],
+      ] as const) {
+        const entry = entries.get(relative)!;
+        assert.equal(entry.method, "symlink");
+        assert.equal(entry.size, Buffer.byteLength(target));
+        assert.equal(entry.sourceSha256, `sha256:${sha256Bytes(Buffer.from(target))}`);
+        assert.equal(entry.backupSha256, entry.sourceSha256);
+      }
+      assert.equal(
+        manifest.files.some(({ path: file }) => file.startsWith("harness/context/linked-external/")),
+        false,
+      );
+      assert.equal(
+        manifest.files.some(({ path: file }) => file.startsWith("harness/.claude/")),
+        false,
+      );
+      const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
+      assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/linked-external")).isSymbolicLink(), true);
+      assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/dangling")).isSymbolicLink(), true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(backupDir, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  },
+);
 
 test("VACUUM backup survives source deletion and rejects wrong generation metadata", () => {
   const root = fixture("sqlite"),
