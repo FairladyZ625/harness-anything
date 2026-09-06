@@ -1,4 +1,16 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { markdownH1 } from "./migration-import-tasks.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,6 +35,7 @@ import {
   taskEntryToRow,
   eventShapeMigrations,
   type CanonicalEventV1,
+  type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
 } from "../../kernel/src/index.ts";
@@ -677,4 +690,95 @@ function cleanScalar(value: string): string {
 
 function portable(value: string): string {
   return value.split(path.sep).join("/");
+}
+
+/** Owns disposable authored bytes for ordered planning; it never opens an accepting ledger. */
+export function createMigrationPlanningWorkspace(sourceRoot: string): {
+  readonly rootDir: string;
+  readonly stage: (bundle: CanonicalWriteBundle) => void;
+  readonly close: () => void;
+} {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "harness-migration-stage-")),
+    sourceLayout = resolveHarnessLayout(sourceRoot),
+    sourceAuthoredRoot = sourceLayout.authoredRoot,
+    sourceLocalRoot = existsSync(sourceLayout.localRoot)
+      ? realpathSync.native(sourceLayout.localRoot)
+      : sourceLayout.localRoot,
+    authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+  mkdirSync(path.dirname(authoredRoot), { recursive: true });
+  if (existsSync(sourceAuthoredRoot))
+    cpSync(realpathSync.native(sourceAuthoredRoot), authoredRoot, {
+      recursive: true,
+      dereference: false,
+      filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
+    });
+  else mkdirSync(authoredRoot, { recursive: true });
+  // Layout discovery must remain confined to this fresh scratch workspace.
+  const scratchConfig = path.join(authoredRoot, "harness.yaml");
+  removeAuthored(scratchConfig);
+  writeFileSync(
+    scratchConfig,
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  return {
+    rootDir,
+    stage: (bundle) => stageAuthored(bundle, authoredRoot),
+    close: () => rmSync(rootDir, { recursive: true, force: true }),
+  };
+}
+
+function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void {
+  const blobs = new Map(bundle.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
+  const entity = bundle.event.schema === "migration-import-event/v1" ? bundle.event.payload.entity : null,
+    claims =
+      entity && "documentClaim" in entity
+        ? [entity.documentClaim]
+        : bundle.event.schema === "people-event/v1"
+          ? [bundle.event.payload.peopleDocumentClaim]
+          : [];
+  if (!entity && bundle.event.schema !== "people-event/v1")
+    throw migrationImportError("invalid_store", `migration staging received unsupported ${bundle.event.schema}`);
+  for (const claim of claims) {
+    const body = blobs.get(claim.sha256);
+    if (!body) throw migrationImportError("invalid_store", `staged document ${claim.path} has no content object`);
+    const target = authoredPath(authoredRoot, claim.path);
+    mkdirSync(path.dirname(target), { recursive: true });
+    removeAuthored(target);
+    const symbolicLink =
+      entity?.kind === "repo-document" &&
+      entity.nodeKind === "symbolic-link" &&
+      entity.documentClaim.path === claim.path;
+    if (symbolicLink) symlinkSync(body.toString("utf8"), target);
+    else writeFileSync(target, body);
+  }
+}
+
+function authoredPath(root: string, relative: string): string {
+  const resolvedRoot = path.resolve(root),
+    target = path.resolve(resolvedRoot, relative),
+    prefix = `${resolvedRoot}${path.sep}`;
+  if (!target.startsWith(prefix))
+    throw migrationImportError("invalid_store", `staged document escapes authored root: ${relative}`);
+  let parent = path.dirname(target);
+  while (parent !== resolvedRoot) {
+    if (lstatExists(parent) && lstatSync(parent).isSymbolicLink())
+      throw migrationImportError("invalid_store", `staged document has a symbolic-link parent: ${relative}`);
+    parent = path.dirname(parent);
+  }
+  return target;
+}
+
+function removeAuthored(target: string): void {
+  if (!existsSync(target) && !lstatExists(target)) return;
+  rmSync(target, { recursive: true, force: true });
+}
+
+function lstatExists(target: string): boolean {
+  try {
+    lstatSync(target);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
 }

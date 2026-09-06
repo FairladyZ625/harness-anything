@@ -4,7 +4,6 @@ import {
   sha256Text,
   stableStringify,
   makeTaskProjection,
-  resolveHarnessLayout,
   serializePersistedCanonicalEvent,
   type CanonicalEventStore,
   type CanonicalEventV1,
@@ -13,25 +12,13 @@ import {
   type RelationFactRow,
 } from "../../kernel/src/index.ts";
 import {
-  cpSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import {
   runSingleMigrationImport,
   type MigrationImportContext,
   type MigrationImportRunInput,
 } from "./migration-import-run.ts";
 import { combineMigrationReceipts, migrationSourceRoots } from "./migration-import-source.ts";
 import { migrationImportError } from "./migration-import-report.ts";
+import { createMigrationPlanningWorkspace } from "./migration-import-oracle-rebuild.ts";
 import type { MigrationImportReceipt } from "./migration-import-types.ts";
 
 export type { MigrationImportReceipt } from "./migration-import-types.ts";
@@ -114,8 +101,7 @@ export async function runMigrationImport(input: MigrationImportRunInput): Promis
           },
         };
   } finally {
-    staged.projection.close();
-    rmSync(staged.rootDir, { recursive: true, force: true });
+    staged.close();
   }
 }
 
@@ -125,29 +111,10 @@ function stagedImportView(input: MigrationImportRunInput): {
   readonly projection: ReturnType<typeof makeTaskProjection>;
   readonly accept: (prepared: readonly CanonicalWriteBundle[]) => void;
   readonly bundles: () => readonly CanonicalWriteBundle[];
+  readonly close: () => void;
 } {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "harness-migration-stage-")),
-    sourceLayout = resolveHarnessLayout(input.rootDir),
-    sourceAuthoredRoot = sourceLayout.authoredRoot,
-    sourceLocalRoot = existsSync(sourceLayout.localRoot)
-      ? realpathSync.native(sourceLayout.localRoot)
-      : sourceLayout.localRoot,
-    authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
-  mkdirSync(path.dirname(authoredRoot), { recursive: true });
-  if (existsSync(sourceAuthoredRoot))
-    cpSync(realpathSync.native(sourceAuthoredRoot), authoredRoot, {
-      recursive: true,
-      dereference: false,
-      filter: (source) => path.basename(source) !== ".git" && source !== sourceLocalRoot,
-    });
-  else mkdirSync(authoredRoot, { recursive: true });
-  // Layout discovery must remain confined to this fresh scratch workspace.
-  const scratchConfig = path.join(authoredRoot, "harness.yaml");
-  removeAuthored(scratchConfig);
-  writeFileSync(
-    scratchConfig,
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
+  const workspace = createMigrationPlanningWorkspace(input.rootDir),
+    rootDir = workspace.rootDir;
   const accepted: CanonicalWriteBundle[] = [],
     events = new Map<string, CanonicalWriteBundle>(),
     outcomes = new Map<string, ReturnType<CanonicalEventStore["readCommandOutcome"]>>(),
@@ -188,7 +155,7 @@ function stagedImportView(input: MigrationImportRunInput): {
             events.set(member.event.opId, member);
             for (const blob of member.blobs) content.set(blob.sha256, Buffer.from(blob.body));
             projectionHolder.current!.apply(member.event, member.plan);
-            stageAuthored(member, authoredRoot);
+            workspace.stage(member);
           }
           outcomes.set(bundle.event.opId, {
             opId: bundle.event.opId,
@@ -228,63 +195,11 @@ function stagedImportView(input: MigrationImportRunInput): {
     projection,
     accept: (prepared) => store.append({ ...prepared.at(-1)!, preceding: prepared.slice(0, -1) }),
     bundles: () => accepted,
+    close: () => {
+      projection.close();
+      workspace.close();
+    },
   };
-}
-
-function stageAuthored(bundle: CanonicalWriteBundle, authoredRoot: string): void {
-  const blobs = new Map(bundle.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
-  const entity = bundle.event.schema === "migration-import-event/v1" ? bundle.event.payload.entity : null,
-    claims =
-      entity && "documentClaim" in entity
-        ? [entity.documentClaim]
-        : bundle.event.schema === "people-event/v1"
-          ? [bundle.event.payload.peopleDocumentClaim]
-          : [];
-  if (!entity && bundle.event.schema !== "people-event/v1")
-    throw migrationImportError("invalid_store", `migration staging received unsupported ${bundle.event.schema}`);
-  for (const claim of claims) {
-    const body = blobs.get(claim.sha256);
-    if (!body) throw migrationImportError("invalid_store", `staged document ${claim.path} has no content object`);
-    const target = authoredPath(authoredRoot, claim.path);
-    mkdirSync(path.dirname(target), { recursive: true });
-    removeAuthored(target);
-    const symbolicLink =
-      entity?.kind === "repo-document" &&
-      entity.nodeKind === "symbolic-link" &&
-      entity.documentClaim.path === claim.path;
-    if (symbolicLink) symlinkSync(body.toString("utf8"), target);
-    else writeFileSync(target, body);
-  }
-}
-
-function authoredPath(root: string, relative: string): string {
-  const resolvedRoot = path.resolve(root),
-    target = path.resolve(resolvedRoot, relative),
-    prefix = `${resolvedRoot}${path.sep}`;
-  if (!target.startsWith(prefix))
-    throw migrationImportError("invalid_store", `staged document escapes authored root: ${relative}`);
-  let parent = path.dirname(target);
-  while (parent !== resolvedRoot) {
-    if (lstatExists(parent) && lstatSync(parent).isSymbolicLink())
-      throw migrationImportError("invalid_store", `staged document has a symbolic-link parent: ${relative}`);
-    parent = path.dirname(parent);
-  }
-  return target;
-}
-
-function removeAuthored(target: string): void {
-  if (!existsSync(target) && !lstatExists(target)) return;
-  rmSync(target, { recursive: true, force: true });
-}
-
-function lstatExists(target: string): boolean {
-  try {
-    lstatSync(target);
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
-    throw error;
-  }
 }
 
 function addFact(context: MigrationImportContext, row: RelationFactRow): void {
