@@ -124,6 +124,7 @@ export interface MigrationImportRunInput {
   readonly projection: TaskProjection;
   readonly now: () => string;
   readonly shouldStop?: () => boolean;
+  readonly stagePrepared?: (prepared: readonly Prepared[]) => void;
 }
 
 export interface MigrationImportContext extends MigrationRelationsContext {
@@ -699,10 +700,12 @@ export async function runSingleMigrationImport(
       if (prepared.length > 0) {
         throwIfShutdownRequested();
         const terminal = prepared.at(-1)!;
-        input.store.append({ ...terminal, preceding: prepared.slice(0, -1) });
+        const command = { ...terminal, preceding: prepared.slice(0, -1) };
+        if (input.stagePrepared) input.stagePrepared(prepared);
+        else input.store.append(command);
       }
     } finally {
-      input.projection.catchUp?.();
+      if (!input.stagePrepared) input.projection.catchUp?.();
     }
     await yieldToEventLoop();
   }

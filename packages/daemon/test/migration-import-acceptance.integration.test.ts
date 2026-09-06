@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +13,8 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 test("migration import commits its prepared members and terminal outcome atomically", async () => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-import-acceptance-")),
     source = path.join(scratch, "legacy"),
+    secondSource = path.join(scratch, "legacy-second"),
+    thirdSource = path.join(scratch, "legacy-third"),
     rootDir = path.join(scratch, "repo"),
     repoId = workspaceId("migration-import-acceptance"),
     binding = { actor, source: "local" as const };
@@ -20,8 +23,12 @@ test("migration import commits its prepared members and terminal outcome atomica
     retry: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     coverageCompleteFixture(source);
+    coverageCompleteFixture(secondSource);
+    coverageCompleteFixture(thirdSource);
+    const thirdSources = sources(thirdSource);
+    execFileSync("git", ["-C", thirdSource, "commit", "--allow-empty", "-m", "distinct third source"]);
     initRepo(rootDir);
-    const action = { kind: "migrate-import" as const, sourceRoots: sources(source) };
+    const action = { kind: "migrate-import" as const, sourceRoots: [...sources(source), ...sources(secondSource)] };
     first = await openRepoCell({
       repoId,
       rootDir: canonicalRoot(rootDir),
@@ -60,11 +67,26 @@ test("migration import commits its prepared members and terminal outcome atomica
     assert.equal(outcome.firstRevision, originalRevision + 1);
     assert.equal(outcome.lastRevision, originalRevision + outcome.memberOpIds.length);
     assert.equal(committed.read().revision, outcome.lastRevision);
+    assert.equal(accepted.acceptance?.revisionFrom, outcome.firstRevision);
+    assert.equal(accepted.acceptance?.revisionTo, outcome.lastRevision);
+    assert.deepEqual(accepted.acceptance?.memberOpIds, outcome.memberOpIds);
     assert.equal(
       committed.read().events.filter(({ opId }) => outcome.memberOpIds.includes(opId)).length,
       outcome.memberOpIds.length,
     );
     await committed.drain();
+    const priorRevision = outcome.lastRevision!,
+      mixedAction = { kind: "migrate-import" as const, sourceRoots: [...thirdSources, ...sources(secondSource)] },
+      trailingNoop = await retry.run(mixedAction, binding);
+    assert.equal(trailingNoop.status, "accepted_durable", JSON.stringify(trailingNoop));
+    assert.ok(trailingNoop.acceptance!.revisionFrom > priorRevision);
+    assert.equal(trailingNoop.acceptance!.revisionTo, trailingNoop.revision);
+    assert.equal(trailingNoop.acceptance!.memberOpIds.at(-1), trailingNoop.opId);
+    const noChanges = await retry.run(mixedAction, binding),
+      repeatedNoChanges = await retry.run(mixedAction, binding);
+    assert.equal(noChanges.outcome, "no_changes");
+    assert.equal(noChanges.acceptance, null);
+    assert.equal(noChanges.opId, repeatedNoChanges.opId);
   } finally {
     await first?.close();
     await retry?.close();
