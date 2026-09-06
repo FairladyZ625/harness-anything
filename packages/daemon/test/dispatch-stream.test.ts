@@ -156,6 +156,16 @@ test("ZCode provider writes and its live worker host form current session activi
   }
 });
 
+test("runtime activity evidence is absent when no local dispatch stream exists", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-missing-activity-"));
+  try {
+    assert.equal(readRuntimeSessionActivityEvidence(rootDir, "dispatch_666666666666666666666666"), undefined);
+    assert.equal(readRuntimeSessionActivityEvidence(path.join(rootDir, "remote-root"), "dispatch-gui"), undefined);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("adoption skips a stream above Node's string limit while runtime cancel still stops the process", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-oversized-read-"));
   const warning = console.warn,

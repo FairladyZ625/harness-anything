@@ -42,6 +42,7 @@ export function readRuntimeSessionActivityEvidence(
   rootDir: string,
   dispatchId: string,
 ): RuntimeSessionActivityEvidence | undefined {
+  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return undefined;
   const stream = readDispatchStreamSummary(rootDir, dispatchId);
   if (!stream) return undefined;
   return {

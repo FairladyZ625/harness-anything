@@ -16,6 +16,7 @@ import {
 import { validateAgentRuntimeOverview, validateAgentRuntimeSession } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
+import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 
@@ -111,6 +112,19 @@ test("live dispatch evidence repairs an unknown session and advances its observe
     }
   }));
 
+test("runtime overview remains available without a local dispatch stream", () =>
+  withRuntime(true, ({ rootDir, store, projection, stream }) => {
+    const reads = makeAgentRuntimeReadModel({
+      readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(rootDir, dispatchId),
+      store,
+      projection,
+      stream,
+    });
+    const overview = reads.overview({});
+    assert.equal(overview.ok, true);
+    assert.equal(overview.sessions[0]?.runtimeSessionId, "runtime-historical");
+  }));
+
 function withRuntime(
   installationPresent: boolean,
   use: (fixture: {
@@ -118,6 +132,7 @@ function withRuntime(
     readonly store: ReturnType<typeof makeTaskEventStore>;
     readonly projection: ReturnType<typeof makeTaskProjection>;
     readonly stream: ReturnType<typeof makeAgentRuntimeStreamHub>;
+    readonly rootDir: string;
   }) => void,
 ): void {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-missing-installation-"));
@@ -138,7 +153,7 @@ function withRuntime(
       readSession: (runtimeSessionId) => projection!.readRuntimeSession(runtimeSessionId),
       canAttach: () => true,
     });
-    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }), store, projection, stream });
+    use({ reads: makeAgentRuntimeReadModel({ store, projection, stream }), store, projection, stream, rootDir });
   } finally {
     projection?.close();
     rmSync(rootDir, { recursive: true, force: true });
