@@ -6,7 +6,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonConnLog } from "../src/conn-log.ts";
+import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
+import { readObserveTail } from "../src/observe-tail.ts";
 import { createDaemonHostRepositoryApi } from "../src/daemon-host-repository-api.ts";
 import { validateObserveTailResult } from "../src/protocol/daemon-protocol-gui-types.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
@@ -264,6 +266,119 @@ test("observe.tail opens a 5000-line JSONL source at the latest page and pages b
     console.info(`observe.tail 5000-line first page: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("observe.tail replays persisted ZCode transcript records", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observe-zcode-"));
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-observe-zcode-user-"));
+  const dispatchId = "dispatch_0123456789abcdef01234567";
+  try {
+    initRepo(rootDir);
+    const stream = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-zcode-transcript",
+      executionId: "execution-zcode-transcript",
+      runtimeSessionId: "runtime-zcode-transcript",
+      instanceId: "zcode-glm",
+      kindId: "zcode",
+      startedAt: "2026-09-05T00:00:00.000Z",
+    });
+    stream.appendProviderEvent(
+      {
+        type: "turn.started",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+      },
+      "2026-09-05T00:00:00.001Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "model.streaming",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        payload: { kind: "reasoning_delta", delta: "Inspect " },
+      },
+      "2026-09-05T00:00:00.002Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "model.streaming",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        payload: { kind: "reasoning_delta", delta: "persisted state." },
+      },
+      "2026-09-05T00:00:00.002Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "model.streaming",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        payload: {
+          kind: "tool_call",
+          toolCallId: "call-zcode",
+          toolName: "Read",
+          input: { file_path: "task_plan.md" },
+        },
+      },
+      "2026-09-05T00:00:00.003Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "tool.updated",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        payload: { kind: "result", toolCallId: "call-zcode", result: "Task contract." },
+      },
+      "2026-09-05T00:00:00.004Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "model.streaming",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        payload: { kind: "text_delta", delta: "bounded fix." },
+      },
+      "2026-09-05T00:00:00.004Z",
+    );
+    stream.appendProviderEvent(
+      {
+        type: "result",
+        sessionId: "session-zcode",
+        turnId: "turn-zcode",
+        response: "Implemented the bounded fix.",
+        usage: { totalTokens: 42 },
+      },
+      "2026-09-05T00:00:00.005Z",
+    );
+
+    const page = await readObserveTail({
+      repoId: workspaceId("observe-zcode"),
+      rootDir,
+      mode: "local",
+      projection: {},
+      userRoot,
+      daemonId: "observe-zcode-daemon",
+      payload: { kind: "dispatch", dispatchId, direction: "history" },
+    });
+
+    assertAvailable(page, "local", "dispatch");
+    assert.deepEqual(
+      page.items.map((record) => [record.kind, record.event?.type]),
+      [
+        ["provider_event", "turn.started"],
+        ["provider_event", "model.streaming"],
+        ["provider_event", "model.streaming"],
+        ["provider_event", "model.streaming"],
+        ["provider_event", "tool.updated"],
+        ["provider_event", "model.streaming"],
+        ["provider_event", "result"],
+      ],
+    );
+  } finally {
     rmSync(rootDir, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
   }
