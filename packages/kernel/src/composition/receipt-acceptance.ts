@@ -41,12 +41,14 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   } as const;
   // A rejected invocation may reuse an operation id belonging to an older accepted intent.
   // Observing that older outcome must not turn this rejection into a successful write.
-  if (receipt.outcome === "op_rejected") return { ...receipt, ...empty, status: "rejected" };
+  const { cut: _cut, commitSha: _commitSha, proof: _proof, ...unprovenReceipt } = receipt;
+  if (receipt.outcome === "op_rejected")
+    return { ...unprovenReceipt, ...empty, status: "rejected" } as R & ReceiptAcceptanceFields;
   if (!outcome) {
     const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected" || receipt.outcome === "no_changes";
-    const { revision: _revision, cut: _cut, commitSha: _commitSha, proof: _proof, ...unaccepted } = receipt;
+    const { revision: _revision, ...unaccepted } = unprovenReceipt;
     return {
-      ...(rejected ? receipt : unaccepted),
+      ...(rejected ? unprovenReceipt : unaccepted),
       ...empty,
       status: rejected ? "rejected" : "unknown",
       ...(receipt.outcome === "applied"

@@ -102,6 +102,7 @@ test("an intent-conflict rejection cannot borrow acceptance from the operation i
       origin: "daemon",
       worktreeVisible: true,
       canonicalVisible: true,
+      proof: { committedRevision: 2, appliedCut: 2, durable: true, canonicalVisible: true, worktreeVisible: true },
     },
     {
       readCommandOutcome: () => ({
@@ -121,5 +122,6 @@ test("an intent-conflict rejection cannot borrow acceptance from the operation i
   assert.equal(receipt.acceptance, null);
   assert.equal(receipt.worktreeVisible, false);
   assert.equal(receipt.canonicalVisible, false);
+  assert.equal(receipt.proof, undefined);
   assert.deepEqual(validateReceiptAcceptance(receipt), []);
 });
