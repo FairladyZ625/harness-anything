@@ -8,13 +8,27 @@ import type { CanonicalEventStore } from "./index.ts";
 import type { ReceiptAcceptanceFields, ReceiptConsumerCut, ReceiptFacet } from "../domain/receipt-acceptance.ts";
 import type { TaskProjection, WriteReceiptDraft } from "../index.ts";
 
+type AcceptedCommandOutcome = NonNullable<ReturnType<CanonicalEventStore["readCommandOutcome"]>> & {
+  readonly status: "accepted_durable";
+  readonly firstRevision: number;
+  readonly lastRevision: number;
+};
+
+/** Resolve only a committed command with its complete acceptance interval. */
+export function readAcceptedCommandOutcome(store: CanonicalEventStore, opId: string): AcceptedCommandOutcome | null {
+  const outcome = store.readCommandOutcome(opId);
+  return outcome?.status === "accepted_durable" && outcome.firstRevision !== null && outcome.lastRevision !== null
+    ? (outcome as AcceptedCommandOutcome)
+    : null;
+}
+
 /** Query the accepting database after execution; draft outcomes never certify durability. */
 export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   receipt: R,
   store: CanonicalEventStore,
   projection: TaskProjection,
 ): R & ReceiptAcceptanceFields {
-  const outcome = store.readCommandOutcome(receipt.opId);
+  const outcome = readAcceptedCommandOutcome(store, receipt.opId);
   const pending = { state: "pending", cut: null } as const;
   const empty = {
     ...("worktreeVisible" in receipt ? { worktreeVisible: false } : {}),
@@ -28,13 +42,8 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   // A rejected invocation may reuse an operation id belonging to an older accepted intent.
   // Observing that older outcome must not turn this rejection into a successful write.
   if (receipt.outcome === "op_rejected") return { ...receipt, ...empty, status: "rejected" };
-  if (
-    !outcome ||
-    outcome.status !== "accepted_durable" ||
-    outcome.lastRevision === null ||
-    outcome.firstRevision === null
-  ) {
-    const rejected = outcome?.status === "rejected" || receipt.outcome === "no_changes";
+  if (!outcome) {
+    const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected" || receipt.outcome === "no_changes";
     const { revision: _revision, cut: _cut, commitSha: _commitSha, proof: _proof, ...unaccepted } = receipt;
     return {
       ...(rejected ? receipt : unaccepted),

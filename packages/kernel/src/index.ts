@@ -337,4 +337,8 @@ export type {
 
 export { validateReceiptAcceptance } from "./domain/receipt-acceptance.ts";
 
-export { attachReceiptAcceptance, waitForReceiptAcceptance } from "./composition/receipt-acceptance.ts";
+export {
+  attachReceiptAcceptance,
+  readAcceptedCommandOutcome,
+  waitForReceiptAcceptance,
+} from "./composition/receipt-acceptance.ts";

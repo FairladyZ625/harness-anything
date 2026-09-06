@@ -1,5 +1,9 @@
 import type { RepoCellCore } from "./repo-cell.ts";
-import { attachReceiptAcceptance, waitForReceiptAcceptance } from "../../kernel/src/index.ts";
+import {
+  attachReceiptAcceptance,
+  readAcceptedCommandOutcome,
+  waitForReceiptAcceptance,
+} from "../../kernel/src/index.ts";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -309,8 +313,8 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         } catch (error) {
           // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
           const head = context.store.readHead(),
-            accepted = head ? context.store.readCommandOutcome(head.opId) : null;
-          if (accepted?.status === "accepted_durable" && accepted.firstRevision! > revisionBeforeExecution)
+            accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
+          if (accepted !== null && accepted.firstRevision > revisionBeforeExecution)
             throw Object.assign(
               context.cellCodedError(
                 "publication_indeterminate",

@@ -11,6 +11,7 @@ import {
   isEntityDeclarationEvent,
   isSameExecution,
   requireEntityStoreKindContract,
+  readAcceptedCommandOutcome,
   timestamp,
   validDomainType,
   type AuthorizationDecision,
@@ -168,7 +169,7 @@ export function makeEntityActionCatalogExecutor(input: {
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
       initialRevision = input.store.readHead()?.revision ?? 0,
-      existingOutcome = input.store.readCommandOutcome(opId),
+      existingOutcome = readAcceptedCommandOutcome(input.store, opId),
       authorizationDecision = decisionAuthorization(action, binding, opId, input),
       occurredAt = input.store.readEvent(opId)?.occurredAt ?? input.now(),
       base = {
@@ -183,14 +184,14 @@ export function makeEntityActionCatalogExecutor(input: {
         proof: {
           committedRevision: existingOutcome?.lastRevision ?? initialRevision,
           appliedCut: input.projection.list().watermark,
-          durable: existingOutcome?.status === "accepted_durable",
+          durable: existingOutcome !== null,
           canonicalVisible:
             existingOutcome?.lastRevision != null && input.projection.list().watermark >= existingOutcome.lastRevision,
           worktreeVisible: false,
         },
         authorizationDecision,
       };
-    if (existingOutcome?.status === "accepted_durable") return { outcome: "applied", ...base };
+    if (existingOutcome !== null) return { outcome: "applied", ...base };
     if (ids.length === 0) return { outcome: "no_changes", ...base };
     if (action.dryRun === true) return { outcome: "pending", ...base };
     const contract = executableAction(action.kind),
@@ -212,7 +213,7 @@ export function makeEntityActionCatalogExecutor(input: {
     input.store.append({ ...terminal, preceding: bundles.slice(0, -1) });
     for (const bundle of bundles) input.projection.apply(bundle.event, bundle.plan);
     publicationKillpoints(input.killpoint);
-    const outcome = input.store.readCommandOutcome(opId),
+    const outcome = readAcceptedCommandOutcome(input.store, opId),
       revision = outcome?.lastRevision ?? terminal.event.workspaceRevision,
       canonicalVisible = input.projection.list().watermark >= revision;
     return {
@@ -222,7 +223,7 @@ export function makeEntityActionCatalogExecutor(input: {
       proof: {
         committedRevision: revision,
         appliedCut: input.projection.list().watermark,
-        durable: outcome?.status === "accepted_durable",
+        durable: outcome !== null,
         canonicalVisible,
         worktreeVisible: false,
       },
