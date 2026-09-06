@@ -1,14 +1,13 @@
 import { scaleReport } from "./scale-report.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { createReadStream, readFileSync, rmSync } from "node:fs";
+import { createReadStream, rmSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync } from "node:sqlite";
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
-import { writeFileDurably } from "../../../packages/daemon/src/durable-file.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
 import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
@@ -31,6 +30,7 @@ const fullConflictRequests = 600;
 export async function runScaleCalibration() {
   const seed = "fleet-scale-calibration-20260906";
   return withScratch(seed, async ({ targetRoot, controllerRoot }) => {
+    const blobClaims = makeBlobClaims(seed, { small: 900, medium: 90, large: 10 });
     const command = await runCommandWorkload({
       seed,
       targetRoot,
@@ -39,18 +39,16 @@ export async function runScaleCalibration() {
       eventsPerCommand: 1,
       replayRequests: 0,
       conflictRequests: 0,
+      blobClaims,
     });
-    const blobs = await runBlobWorkload({
-      seed,
-      targetRoot,
-      controllerRoot,
-      layout: { small: 900, medium: 90, large: 10 },
-    });
+    const blobs = command.blobs;
     const rebuild = runColdRebuilds({
       targetRoot,
       repoId: command.repoId,
-      events: command.events,
       blobClaims: blobs.claims,
+      expectedEvents: command.expectedEvents,
+      expectedCommands: command.primaryCommands,
+      expectedCommandOpIds: command.expectedCommandOpIds,
     });
     const killRestartMs = await measureKillRestart(path.join(targetRoot, "kill-restart.sqlite"));
     const tCmdMs = command.elapsedMs / command.primaryCommands;
@@ -100,6 +98,7 @@ export async function runFullScaleSeed(seedNumber) {
   assert.ok(Number.isInteger(seedNumber) && seedNumber >= 1 && seedNumber <= 3);
   const seed = `fleet-scale-seed-${seedNumber}-20260906`;
   return withScratch(seed, async ({ targetRoot, controllerRoot }) => {
+    const blobClaims = makeBlobClaims(seed, { small: 90_000, medium: 9_000, large: 1_000 });
     const command = await runCommandWorkload({
       seed,
       targetRoot,
@@ -108,18 +107,16 @@ export async function runFullScaleSeed(seedNumber) {
       eventsPerCommand: fullEventsPerCommand,
       replayRequests: fullReplayRequests,
       conflictRequests: fullConflictRequests,
+      blobClaims,
     });
-    const blobs = await runBlobWorkload({
-      seed,
-      targetRoot,
-      controllerRoot,
-      layout: { small: 90_000, medium: 9_000, large: 1_000 },
-    });
+    const blobs = command.blobs;
     const rebuild = runColdRebuilds({
       targetRoot,
       repoId: command.repoId,
-      events: command.events,
       blobClaims: blobs.claims,
+      expectedEvents: command.expectedEvents,
+      expectedCommands: command.primaryCommands,
+      expectedCommandOpIds: command.expectedCommandOpIds,
     });
     assert.equal(command.denominators.acceptedEvents, fullEventCount);
     assert.equal(command.denominators.idempotentRequests, fullReplayRequests);
@@ -152,15 +149,18 @@ async function runCommandWorkload({
   eventsPerCommand,
   replayRequests,
   conflictRequests,
+  blobClaims,
 }) {
   const repoId = `${seed}-repo`;
   const databasePath = path.join(targetRoot, "ledger.sqlite");
   const store = openSqliteEventStore({ repoId, databasePath });
   const fence = { repoId, holder: `${seed}-center`, epoch: 1 };
   store.claimWriter(fence);
-  const primary = Array.from({ length: primaryCommands }, (_value, index) =>
-    primaryRequest(seed, index, eventsPerCommand, fence),
-  );
+  const claimsByCommand = distributeClaims(blobClaims, primaryCommands),
+    primary = Array.from({ length: primaryCommands }, (_value, index) =>
+      primaryRequest(seed, index, eventsPerCommand, fence, claimsByCommand[index]),
+    ),
+    expectedEvents = primary.flatMap(({ expectedEvents: events }) => events);
   const extras = specialRequests(primary, replayRequests, conflictRequests);
   const clientRequests = Array.from({ length: clientCount }, () => []);
   for (const [index, request] of [...primary, ...extras].entries()) clientRequests[index % clientCount].push(request);
@@ -195,6 +195,12 @@ async function runCommandWorkload({
                   summary: request.summary,
                 },
                 events: request.expectedEvents,
+                blobs: request.blobClaims.map((claim) => ({
+                  sha256: claim.sha256,
+                  size: claim.size,
+                  mediaType: "text/plain",
+                  body: blobBody(seed, claim.index, claim.size).toString("utf8"),
+                })),
               });
             } catch (error) {
               if (request.kind !== "conflict") throw error;
@@ -223,8 +229,7 @@ async function runCommandWorkload({
     path.join(controllerRoot, `commands-client-${index + 1}.jsonl`),
   );
   const denominators = await scanCommandReceiptLogs(logs, primaryCommands * eventsPerCommand);
-  const reopened = openSqliteEventStore({ repoId, databasePath });
-  const events = reopened.events();
+  const reopened = openSqliteEventStore({ repoId, databasePath, readOnly: true });
   assert.equal(reopened.revision(), denominators.acceptedEvents);
   reopened.close();
   return {
@@ -236,64 +241,26 @@ async function runCommandWorkload({
     maxInFlight,
     logs,
     denominators,
-    events,
+    expectedEvents,
+    expectedCommandOpIds: primary.map(({ opId }) => opId),
+    blobs: {
+      claims: blobClaims,
+      denominators: { distinctBlobs: new Set(blobClaims.map(({ sha256 }) => sha256)).size, totalRequests: 0 },
+      elapsedMs,
+    },
   };
 }
 
-async function runBlobWorkload({ seed, targetRoot, controllerRoot, layout }) {
-  const objectsRoot = path.join(targetRoot, "objects", "sha256");
-  const claims = blobClaims(seed, layout);
-  const receiptLogPath = path.join(controllerRoot, "blobs.jsonl");
-  const receiptLog = openReceiptLog({
-    file: receiptLogPath,
-    targetRoots: [targetRoot],
-    campaignId: `${seed}-blobs`,
-    seed,
-  });
-  const scenario = createSeededScenario({
-    seed: `${seed}-blobs`,
-    requests: claims.map((claim) => ({
-      requestId: `blob-${claim.index}`,
-      kind: "blob",
-      opId: `blob-${claim.sha256}`,
-      intentDigest: `sha256:${claim.sha256}`,
-      summary: `durable blob ${claim.size}`,
-      expectedEvents: [],
-      blob: claim,
-    })),
-  });
-  const started = performance.now();
-  const result = await runScenario({
-    scenario,
-    receiptLog,
-    watchdogMs: 120_000,
-    adapter: {
-      submit: async (request) => {
-        const body = blobBody(seed, request.blob.index, request.blob.size);
-        assert.equal(hashBytes(body), request.blob.sha256);
-        writeFileDurably(blobPath(objectsRoot, request.blob.sha256), body);
-        return {
-          status: "accepted_durable",
-          opId: request.opId,
-          intentDigest: request.intentDigest,
-        };
-      },
-    },
-  });
-  const elapsedMs = performance.now() - started;
-  assert.equal(
-    result.observations.every(({ receipt }) => receipt !== null),
-    true,
-  );
-  const denominators = await scanBlobReceiptLog(receiptLogPath);
-  return { objectsRoot, claims, receiptLogPath, denominators, elapsedMs, layout };
-}
-
-function runColdRebuilds({ targetRoot, repoId, events, blobClaims }) {
-  const eventStore = eventStream(events);
+function runColdRebuilds({ targetRoot, repoId, expectedEvents, expectedCommands, expectedCommandOpIds, blobClaims }) {
   const runs = [];
   const started = performance.now();
   for (const label of ["first", "second"]) {
+    const ledger = openSqliteEventStore({
+        repoId,
+        databasePath: path.join(targetRoot, "ledger.sqlite"),
+        readOnly: true,
+      }),
+      eventStore = sqliteEventStream(ledger);
     const projection = makeTaskProjection({
       rootDir: targetRoot,
       eventStore,
@@ -303,19 +270,29 @@ function runColdRebuilds({ targetRoot, repoId, events, blobClaims }) {
     const stateDigest = projection.readStateDigest();
     const cut = projection.readCut();
     projection.close();
-    const blobManifestDigest = verifyBlobManifest(path.join(targetRoot, "objects", "sha256"), blobClaims);
+    const blobManifestDigest = verifyBlobManifest(ledger, blobClaims);
+    ledger.close();
     runs.push({ label, receipt, stateDigest, cut, blobManifestDigest });
   }
   const elapsedMs = performance.now() - started;
   const ledger = openSqliteEventStore({ repoId, databasePath: path.join(targetRoot, "ledger.sqlite") }),
     rows = ledger.eventRows(),
+    outcomes = ledger.outcomes(),
+    expectedDigests = expectedEvents.map((event) => `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`),
     reconciliation = {
       matches:
-        rows.length === events.length &&
-        rows.every((row, index) => row.eventJson === serializePersistedCanonicalEvent(events[index])),
-      fixedExpectedEvents: events.length,
+        rows.length === expectedEvents.length &&
+        rows.every(
+          (row, index) =>
+            row.digest === expectedDigests[index] &&
+            row.eventJson === serializePersistedCanonicalEvent(expectedEvents[index]),
+        ) &&
+        outcomes.length === expectedCommands &&
+        outcomes.every((outcome, index) => outcome.opId === expectedCommandOpIds[index]) &&
+        ledger.contentObjectDigests().length === blobClaims.length,
+      fixedExpectedEvents: expectedEvents.length,
       acceptedRows: rows.length,
-      acceptedOutcomes: ledger.outcomes().length,
+      acceptedOutcomes: outcomes.length,
       contentObjects: ledger.contentObjectDigests().length,
     };
   ledger.close();
@@ -345,11 +322,14 @@ async function measureKillRestart(databasePath) {
   }
 }
 
-function primaryRequest(seed, commandIndex, eventsPerCommand, fence) {
+function primaryRequest(seed, commandIndex, eventsPerCommand, fence, blobClaims) {
   const firstRevision = commandIndex * eventsPerCommand + 1;
-  const expectedEvents = Array.from({ length: eventsPerCommand }, (_value, offset) =>
-    scaleEvent(seed, firstRevision + offset),
-  );
+  const expectedEvents = Array.from({ length: eventsPerCommand }, (_value, offset) => {
+    const revision = firstRevision + offset;
+    return offset === 0 && blobClaims.length > 0
+      ? scaleDocumentEvent(seed, revision, blobClaims)
+      : scaleEvent(seed, revision);
+  });
   const opId = `${seed}-command-${commandIndex + 1}`;
   return {
     requestId: `${opId}-primary`,
@@ -358,6 +338,7 @@ function primaryRequest(seed, commandIndex, eventsPerCommand, fence) {
     intentDigest: intentDigest(expectedEvents),
     summary: `${eventsPerCommand} scale events`,
     expectedEvents,
+    blobClaims,
     firstRevision,
     fence,
   };
@@ -411,7 +392,7 @@ function scaleEvent(seed, revision) {
   };
 }
 
-function blobClaims(seed, layout) {
+function makeBlobClaims(seed, layout) {
   const sizes = [
     ...Array.from({ length: layout.small }, () => 1024),
     ...Array.from({ length: layout.medium }, () => 64 * 1024),
@@ -421,6 +402,36 @@ function blobClaims(seed, layout) {
     const body = blobBody(seed, index, size);
     return { index, size, sha256: hashBytes(body) };
   });
+}
+
+function distributeClaims(claims, commandCount) {
+  const grouped = Array.from({ length: commandCount }, () => []);
+  for (const [index, claim] of claims.entries()) grouped[index % commandCount].push(claim);
+  return grouped;
+}
+
+function scaleDocumentEvent(seed, revision, claims) {
+  return {
+    schema: "doc-event/v1",
+    eventId: `${seed}-event-${revision}`,
+    workspaceRevision: revision,
+    opId: `${seed}-event-op-${revision}`,
+    type: "documents_written",
+    actor,
+    source: "local",
+    occurredAt: "2026-09-06T00:00:00.000Z",
+    payload: {
+      executionId: `${seed}-execution`,
+      baseLedgerSha: { repoId: `${seed}-repo`, revision: revision - 1, headDigest: `sha256:${"0".repeat(64)}` },
+      changes: claims.map((claim) => ({
+        path: `scale/${claim.index}.bin`,
+        baseBlobSha256: null,
+        policyId: "opaque-textual-whole-file/v1",
+        candidate: { sha256: claim.sha256, size: claim.size, mediaType: "text/plain" },
+        regionProofs: [],
+      })),
+    },
+  };
 }
 
 function blobBody(seed, index, size) {
@@ -463,17 +474,6 @@ async function scanCommandReceiptLogs(files, expectedMaximumRevision) {
   return { ...totals, specialRequestRatio: special / totals.totalRequests };
 }
 
-async function scanBlobReceiptLog(file) {
-  const blobs = new Set();
-  let totalRequests = 0;
-  await scanReceiptPairs(file, (request, receipt) => {
-    assert.equal(receipt.status, "accepted_durable");
-    totalRequests += 1;
-    blobs.add(request.blob.sha256);
-  });
-  return { distinctBlobs: blobs.size, totalRequests };
-}
-
 async function scanReceiptPairs(file, observe) {
   const lines = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
   let started = false;
@@ -500,10 +500,11 @@ async function scanReceiptPairs(file, observe) {
   assert.equal(pending, null);
 }
 
-function verifyBlobManifest(objectsRoot, claims) {
+function verifyBlobManifest(ledger, claims) {
   const digest = createHash("sha256");
   for (const claim of claims) {
-    const body = readFileSync(blobPath(objectsRoot, claim.sha256));
+    const body = ledger.readContentObject(claim.sha256);
+    assert.ok(body);
     assert.equal(body.byteLength, claim.size);
     assert.equal(hashBytes(body), claim.sha256);
     digest.update(`${claim.index}:${claim.sha256}:${claim.size}\n`);
@@ -511,10 +512,10 @@ function verifyBlobManifest(objectsRoot, claims) {
   return `sha256:${digest.digest("hex")}`;
 }
 
-function eventStream(events) {
+function sqliteEventStream(ledger) {
   return {
     readHead: () => {
-      const last = events.at(-1);
+      const last = ledger.eventAtRevision(ledger.revision());
       return last
         ? {
             revision: last.workspaceRevision,
@@ -523,18 +524,27 @@ function eventStream(events) {
         : null;
     },
     readBatch: (cursor, maxItems) => {
-      const start = cursor === null ? 0 : Number(cursor);
-      const selected = events.slice(start, start + maxItems);
+      const start = cursor === null ? 0 : Number(cursor),
+        sourceRevision = ledger.revision(),
+        selected = ledger.eventsAfter(start, maxItems);
       return {
-        sourceRevision: events.length,
+        sourceRevision,
         events: selected,
-        cursor: start + selected.length >= events.length ? null : String(start + selected.length),
-        done: start + selected.length >= events.length,
+        cursor: start + selected.length >= sourceRevision ? null : String(start + selected.length),
+        done: start + selected.length >= sourceRevision,
         accessedItems: selected.length,
-        prefetchContent: () => new Map(),
+        prefetchContent: () =>
+          new Map(
+            selected.flatMap((event) =>
+              (event.payload?.changes ?? []).flatMap((change) => {
+                const sha = change.candidate?.sha256;
+                return sha ? [[sha, ledger.readContentObject(sha)]] : [];
+              }),
+            ),
+          ),
       };
     },
-    readContentBlob: () => null,
+    readContentBlob: (sha256) => ledger.readContentObject(sha256),
   };
 }
 
@@ -556,10 +566,6 @@ function intentDigest(events) {
 
 function hashBytes(body) {
   return createHash("sha256").update(body).digest("hex");
-}
-
-function blobPath(objectsRoot, sha256) {
-  return path.join(objectsRoot, sha256.slice(0, 2), sha256);
 }
 
 async function waitForRevision(store, revision) {

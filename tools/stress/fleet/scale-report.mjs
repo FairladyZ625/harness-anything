@@ -49,10 +49,10 @@ export async function scaleReport({ seed, command, blobs, rebuild, calibration, 
       {
         id: caseId,
         boundaryHits: ["request-fsync", "sqlite-commit", "receipt-fsync", "blob-fsync-rename", "cold-rebuild"],
-        receiptLogs: [...command.logs, blobs.receiptLogPath],
+        receiptLogs: command.logs,
         measured: {
           commandElapsedMs: command.elapsedMs,
-          blobElapsedMs: blobs.elapsedMs,
+          contentObjectsAcceptedInCommandTransactions: blobs.denominators.distinctBlobs,
           rebuildElapsedMs: rebuild.elapsedMs,
           specialRequestRatio: command.denominators.specialRequestRatio,
           reconciliationDifferences: rebuild.reconciliation.matches ? 0 : 1,
@@ -68,7 +68,7 @@ export async function scaleReport({ seed, command, blobs, rebuild, calibration, 
         },
         oracles: {
           O1: { verdict: "PASS", acceptedEventsFromReceiptLogs: command.denominators.acceptedEvents },
-          O3: { verdict: "PASS", distinctBlobsFromReceiptLog: blobs.denominators.distinctBlobs },
+          O3: { verdict: "PASS", distinctAcceptedContentObjects: blobs.denominators.distinctBlobs },
           O7: {
             verdict: "PASS",
             reconciliationMatches: rebuild.reconciliation.matches,
