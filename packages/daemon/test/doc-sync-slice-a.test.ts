@@ -1,10 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, makeTaskEventStore, parseDocWriteIntent, sha256Text } from "../../kernel/src/index.ts";
+import {
+  DOC_SYNC_INLINE_MAX_BYTES,
+  DOC_POLICY_ID,
+  makeTaskEventReader,
+  parseDocWriteIntent,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
 import { scanAuthoredCandidateInventory } from "../src/doc-sync-candidate-scanner.ts";
@@ -35,7 +41,8 @@ test("HTML research documents are eligible, submit as opaque text, and become cl
     );
     const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    const event = makeTaskEventStore({ repoId, rootDir }).readEvent(submitted.opId);
+    await waitForWorktree(cell, submitted);
+    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       const change = event.payload.changes[0]!;
@@ -87,6 +94,8 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
     const dry = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md", "context/b.md"] }, binding);
     assert.equal(dry.outcome, "pending");
+    assert.equal(dry.acceptance, undefined);
+    assert.equal(dry.proof?.durable, false);
     assert.equal(dry.proof?.canonicalVisible, false);
     assert.deepEqual(rows(dry.evidence), statusRows.slice(0, 2));
     assert.equal(git(rootDir, "rev-parse", "HEAD"), before);
@@ -94,7 +103,8 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.match(String((submitted as Record<string, unknown>).summary), /applied count: 2/u);
     assert.equal(submitted.commitSha, null);
-    const event = makeTaskEventStore({ repoId: "scanner", rootDir }).readEvent(submitted.opId);
+    await waitForWorktree(cell, submitted);
+    const event = makeTaskEventReader({ repoId: "scanner", rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.deepEqual(
@@ -111,19 +121,16 @@ test("status, dry-run, and submit share the repeatable-path scanner and automati
         ["context/a.md", "context/b.md"],
       );
     }
-    assert.deepEqual(
-      git(rootDir, "status", "--porcelain", "-uall")
-        .split("\n")
-        .filter((line) => line.includes(" harness/"))
-        .sort(),
-      [
-        "?? harness/context/a.md",
-        "?? harness/context/b.md",
-        "?? harness/context/ignored.json",
-        "?? harness/tasks/task-one/artifacts/data.json",
-        "?? harness/tasks/task-one/progress.md",
-      ],
-    );
+    assert.equal(git(rootDir, "show", "HEAD:harness/context/a.md"), "# A\n\nfirst");
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/a.md"), "utf8"), "# A\n\nfirst\n");
+    assert.equal(git(rootDir, "ls-files", "harness/context/a.md"), "");
+    const untracked = git(rootDir, "ls-files", "--others", "--exclude-standard", "harness").split("\n");
+    for (const expected of [
+      "harness/context/ignored.json",
+      "harness/tasks/task-one/artifacts/data.json",
+      "harness/tasks/task-one/progress.md",
+    ])
+      assert.equal(untracked.includes(expected), true, `${expected} must remain outside the submitted cut`);
     write(rootDir, "context/a.md", "# Renamed\n\nfirst\n");
     const renamed = await cell.run({ kind: "doc-dry-run", paths: ["context/a.md"] }, binding);
     assert.equal(rows(renamed.evidence)[0]?.state, "eligible");
@@ -236,7 +243,9 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     laterBlocked = "tmp/z-blocked.md";
   try {
     write(rootDir, laterBlocked, "---\nowner: stable\n---\n# Stable\n\nbase\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: [laterBlocked] }, binding)).outcome, "applied");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [laterBlocked] }, binding);
+    assert.equal(submitted.outcome, "applied");
+    await waitForWorktree(cell, submitted);
     write(rootDir, laterBlocked, "---\nowner: changed\n---\n# Removed\n\nbase\n");
     const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
@@ -246,7 +255,10 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     };
     assert.deepEqual(
       detail.unresolvedTouches.map(({ path, requiredRoute }) => [path, requiredRoute]),
-      [[laterBlocked, "typed-machine-writer"]],
+      [
+        ["events/segments/manifest.json", "canonical-event"],
+        [laterBlocked, "typed-machine-writer"],
+      ],
     );
   } finally {
     await cell.close();
@@ -264,10 +276,13 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     write(rootDir, "context/selected.md", "# Selected\n");
     const authored = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
     assert.equal(authored.outcome, "applied", JSON.stringify(authored));
+    await waitForWorktree(cell, authored);
     assert.match(String((authored as Record<string, unknown>).summary), /applied count: 1/u);
 
     const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
     assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
+    assert.equal(repoRelative.acceptance, null);
+    assert.equal(repoRelative.proof, undefined);
 
     const missing = await cell.run({ kind: "doc-submit", paths: ["context/missing.md"] }, binding);
     assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
@@ -276,6 +291,8 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
 
     const clean = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
     assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
+    assert.equal(clean.acceptance, null);
+    assert.equal(clean.proof, undefined);
     assert.equal(clean.code, "no_changes");
     assert.match(String((clean as Record<string, unknown>).summary), /applied count: 0/u);
   } finally {
@@ -305,6 +322,7 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-scope", title: "Scoped task" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForWorktree(cell, created);
     const packagePath = String(created.packagePath);
     write(rootDir, `${packagePath}/notes.md`, "# Task note\n");
     write(rootDir, "context/unrelated.md", "# Unrelated\n");
@@ -322,9 +340,12 @@ test("task-scoped doc sync derives every dirty candidate from the task id", asyn
     );
     const submitted = await cell.run({ kind: "doc-submit", taskId: "task-scope" }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted);
     assert.match(submitted.summary ?? "", new RegExp(`${packagePath}/notes\\.md`, "u"));
     const clean = await cell.run({ kind: "doc-submit", taskId: "task-scope" }, binding);
     assert.equal(clean.outcome, "no_changes", JSON.stringify(clean));
+    assert.equal(clean.acceptance, null);
+    assert.equal(clean.proof, undefined);
     assert.equal(clean.code, "no_changes");
     assert.match(clean.summary ?? "", /applied count: 0/u);
     const mixed = await cell.run({ kind: "doc-submit", taskId: "task-scope", paths: [] }, binding);
@@ -351,6 +372,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
     write(rootDir, logical, "# Temporary\n\nRetire me.\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted);
     rmSync(path.join(rootDir, "harness", logical));
     const mutation = await cell.run({ kind: "doc-status", paths: [logical] }, binding);
     assert.equal(rows(mutation.evidence)[0]?.state, "deletion");
@@ -359,8 +381,10 @@ test("doc retire deletes one projected document and returns an auditable retirem
     ]);
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
-    assert.equal(retired.proof?.canonicalVisible, true);
-    assert.equal(retired.proof?.worktreeVisible, true);
+    const settled = await waitForWorktree(cell, retired);
+    assert.equal(settled.proof?.durable, true);
+    assert.equal(settled.proof?.canonicalVisible, true);
+    assert.equal(settled.proof?.worktreeVisible, true);
     assert.match(retired.evidence ?? "", /^doc-retirement:/u);
     const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as {
       readonly schema: string;
@@ -373,7 +397,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
       baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"),
       reason,
     });
-    const event = makeTaskEventStore({ repoId: "retire", rootDir }).readEvent(retired.opId);
+    const event = makeTaskEventReader({ repoId: "retire", rootDir }).readEvent(retired.opId);
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1") {
       assert.equal(event.payload.retirementReason, reason);
@@ -439,15 +463,20 @@ test("doc retire follows status for a Git-tracked document that was never projec
     const status = await cell.run({ kind: "doc-status", paths: [] }, binding);
     assert.deepEqual(
       rows(status.evidence).map((row) => [row.path, row.state]),
-      [[logical, "deletion"]],
+      [
+        ["events/segments/manifest.json", "blocked"],
+        ["harness.yaml", "clean"],
+        [logical, "deletion"],
+      ],
     );
     assert.deepEqual(status.detail?.deletions, [{ path: logical, baseBlobSha256: sha256Text(body), source: "intent" }]);
 
     const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForWorktree(cell, retired);
     assert.match(retired.evidence ?? "", /^doc-retirement:/u);
     assert.equal(
-      makeTaskEventStore({ repoId: "retire-tracked", rootDir }).readEvent(retired.opId)?.schema,
+      makeTaskEventReader({ repoId: "retire-tracked", rootDir }).readEvent(retired.opId)?.schema,
       "doc-event/v1",
     );
     assert.equal(
@@ -459,14 +488,24 @@ test("doc retire follows status for a Git-tracked document that was never projec
     await cell.close();
     cell = undefined;
     assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
-    assert.equal(git(rootDir, "status", "--porcelain", "--untracked-files=no"), "");
+    assert.equal(git(rootDir, "ls-files", `harness/${logical}`), `harness/${logical}`);
+    assert.equal(existsSync(path.join(rootDir, "harness", logical)), false);
     const reopened = await openRepoCell({
       repoId: workspaceId("retire-tracked"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "retire-tracked-reopened",
     });
     try {
-      assert.deepEqual(rows((await reopened.run({ kind: "doc-status", paths: [] }, binding)).evidence), []);
+      assert.deepEqual(
+        rows((await reopened.run({ kind: "doc-status", paths: [] }, binding)).evidence).map((row) => [
+          row.path,
+          row.state,
+        ]),
+        [
+          ["events/segments/manifest.json", "blocked"],
+          ["harness.yaml", "clean"],
+        ],
+      );
     } finally {
       await reopened.close();
     }
@@ -487,9 +526,11 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
     binding = { actor, source: "local" as const };
   const proofTask = (await cell.run({ kind: "task-create", taskId: "task-proof", title: "Proof" }, binding)) as {
     readonly outcome: string;
+    readonly opId: string;
     readonly packagePath: string;
   };
   assert.equal(proofTask.outcome, "applied", JSON.stringify(proofTask));
+  await waitForWorktree(cell, proofTask);
   const fresh = `${proofTask.packagePath}/artifacts/screenshots/evidence.png`,
     tracked = `${proofTask.packagePath}/artifacts/report.bin`;
   try {
@@ -502,12 +543,16 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
     assert.deepEqual(status.detail?.unresolvedTouches, []);
     const noOp = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
     assert.equal(noOp.outcome, "no_changes");
+    assert.equal(noOp.acceptance, null);
+    assert.equal(noOp.proof, undefined);
     assert.equal(noOp.code, "no_changes");
     assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(String(noOp.opId), /^noop:/u);
 
     write(rootDir, tracked, "textual baseline\n");
-    assert.equal((await cell.run({ kind: "doc-submit", paths: [tracked] }, binding)).outcome, "applied");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [tracked] }, binding);
+    assert.equal(submitted.outcome, "applied");
+    await waitForWorktree(cell, submitted);
     writeFileSync(path.join(rootDir, "harness", tracked), Buffer.from([0xff, 0x00]));
     const blocked = await cell.run({ kind: "doc-status", paths: [tracked] }, binding);
     assert.equal(rows(blocked.evidence)[0]?.state, "blocked");
@@ -539,6 +584,8 @@ test("people-registry ownership is inapplicable while typed writable routes rema
     assert.deepEqual(people.detail?.unresolvedTouches, []);
     const noOp = await cell.run({ kind: "doc-submit", paths: ["people.yaml"] }, binding);
     assert.equal(noOp.outcome, "no_changes");
+    assert.equal(noOp.acceptance, null);
+    assert.equal(noOp.proof, undefined);
     assert.equal(noOp.code, "no_changes");
     assert.match(String(noOp.summary), /applied count: 0/u);
     assert.match(noOp.opId, /^noop:/u);
@@ -552,3 +599,18 @@ test("people-registry ownership is inapplicable while typed writable routes rema
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function waitForWorktree(cell: Awaited<ReturnType<typeof openRepoCell>>, receipt: { readonly opId: string }) {
+  const shown = await cell.run(
+    {
+      kind: "receipt-show",
+      opId: receipt.opId,
+      waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+      timeoutMs: 5_000,
+    },
+    { actor, source: "local" },
+  );
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+  return shown;
+}

@@ -14,7 +14,7 @@ import {
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 test("cancellation and reinstatement are audited and terminal tasks require supersede instead of reopen", async () => {
@@ -121,6 +121,7 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
       },
       binding,
     );
+    await waitForWorktree(cell, leased);
     await realizeTaskPlanFixture(rootDir, String(leased.packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
@@ -318,10 +319,12 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    seedSettingsEvent({ repoId: "task-contract-manual", rootDir });
+    const workspaceRevision = makeTaskEventReader({ repoId: "task-contract-manual", rootDir }).read().revision + 1;
     const event: TaskEventV1 = {
       schema: "task-event/v1",
       eventId: "event-legacy",
-      workspaceRevision: 1,
+      workspaceRevision,
       opId: "op-legacy",
       taskId: "task_legacy_l1",
       type: "task_created",
@@ -368,7 +371,8 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
       { actor, source: "local" },
     );
     assert.equal(receipt.outcome, "pending");
-    assert.equal(receipt.proof?.canonicalVisible, false);
+    assert.equal(receipt.acceptance, null);
+    assert.equal(receipt.proof, undefined);
     assert.equal(
       makeTaskEventReader({ repoId: "task-contract-manual", rootDir }).read().revision,
       revisionBeforeDryRun,
@@ -379,3 +383,18 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+async function waitForWorktree(cell: Awaited<ReturnType<typeof openRepoCell>>, receipt: { readonly opId: string }) {
+  const shown = await cell.run(
+    {
+      kind: "receipt-show",
+      opId: receipt.opId,
+      waitFor: ["accepted_durable", "projection_visible", "git_verified", "worktree_visible"],
+      timeoutMs: 5_000,
+    },
+    { actor, source: "local" },
+  );
+  assert.equal(shown.status, "accepted_durable", JSON.stringify(shown));
+  assert.equal(shown.wait?.state, "satisfied", JSON.stringify(shown));
+  return shown;
+}
