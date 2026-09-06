@@ -1,6 +1,15 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
+  convertLegacyGeneration,
+  createImmutableLegacyGenerationSnapshot,
+  planLegacyGenerationSnapshotConversion,
+  preflightConvertedGenerationActivation,
+  readImmutableLegacyGenerationSnapshot,
+} from "./store/legacy-generation-conversion.ts";
+export { sqliteContentObjectPath } from "./store/sqlite-event-store.ts";
+export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./store/event-shape-migration.ts";
+export {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
   runtimeArchiveText,

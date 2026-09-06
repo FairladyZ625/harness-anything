@@ -1,117 +1,93 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
   compileScheduleDefinitionEvent,
   compileSettingsChangedEvent,
-  contentObjectRelativePath,
+  convertLegacyGeneration,
+  createImmutableLegacyGenerationSnapshot,
   createScheduleV1,
   deriveRelationId,
-  eventObjectRelativePath,
-  eventShapeMigrations,
-  makeTaskEventReader,
-  makeTaskEventStore,
   makeTaskProjection,
+  openSqliteEventStore,
   readSettingsFacet,
-  relationEventWritePlan,
-  runEventShapeMigration,
   sha256Text,
   validateScheduleV1,
 } from "../../../packages/kernel/src/index.ts";
 import { actor, initRepo } from "../../../packages/daemon/test/migration-import.fixtures.ts";
 
-const migrationFixture = path.resolve("packages/daemon/test/stress/recovery/mixed-history-migration.fixture.mjs");
+const fixture = path.resolve("packages/daemon/test/stress/recovery/mixed-history-migration.fixture.mjs");
 
 export async function runMixedHistoryScenario(root) {
   mkdirSync(root, { recursive: true });
-  const repoId = "stress-s3-mixed-history",
-    seeded = await seedMixedHistory(root, repoId),
-    coldPath = path.join(root, ".harness/cache/stress-s3-cold.sqlite"),
-    cold = () =>
-      makeTaskProjection({
-        rootDir: root,
-        eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-        projectionPath: coldPath,
-      });
+  const repoId = "stress-s3-mixed-history";
+  initRepo(root);
+  const seeded = seedMixedHistory(root),
+    source = arrayStore(seeded.events, seeded.objects),
+    snapshotPath = path.join(root, ".harness/store/import/gen0.snapshot.json"),
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+    sourceBytesBefore = seeded.events.map(JSON.stringify);
   let strictMessage = "";
   try {
-    cold().rebuild();
+    const strict = makeTaskProjection({
+      rootDir: root,
+      eventStore: source,
+      projectionPath: path.join(root, "strict.sqlite"),
+    });
+    strict.rebuild();
+    strict.close();
     assert.fail("strict cold rebuild accepted the mixed historical shapes");
   } catch (error) {
     strictMessage = error instanceof Error ? error.message : String(error);
     assert.match(strictMessage, /Relation facet fields|does not match the event definition|walFlush/u);
   }
-
-  const killed = spawnSync(
-    process.execPath,
-    [migrationFixture, root, repoId, "relation-events-migrate", "after_event_write"],
-    { encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" },
-  );
+  createImmutableLegacyGenerationSnapshot({ repoId, source, snapshotPath });
+  const killed = spawnSync(process.execPath, [fixture, root, snapshotPath, databasePath], {
+    encoding: "utf8",
+    timeout: 20_000,
+    killSignal: "SIGKILL",
+  });
   assert.equal(killed.signal, "SIGKILL", `${killed.stderr}\n${killed.stdout}`);
-  assert.match(killed.stdout, /migration-killpoint:after_event_write/u);
+  assert.match(killed.stdout, /conversion-killpoint:before_event_2/u);
+  const first = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }),
+    second = convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+  assert.equal(first.rewrittenEvents, 3);
+  assert.equal(second.migratedEvents, 0);
+  assert.deepEqual(seeded.events.map(JSON.stringify), sourceBytesBefore);
 
-  const migrationResults = [];
-  for (const kind of ["relation-events-migrate", "schedule-definitions-migrate", "settings-wal-flush-migrate"]) {
-    const store = makeTaskEventStore({ repoId, rootDir: root }),
-      receipt = await runEventShapeMigration(eventShapeMigrations[kind], {
-        dryRun: false,
-        actor,
-        rootDir: root,
-        store,
-        now: () => "2026-09-05T12:01:00.000Z",
-      }),
-      repeat = await runEventShapeMigration(eventShapeMigrations[kind], {
-        dryRun: false,
-        actor,
-        rootDir: root,
-        store,
-        now: () => "2026-09-05T12:02:00.000Z",
-      }),
-      repeatReport = JSON.parse(String(repeat.evidence));
-    assert.ok(["applied", "pending"].includes(receipt.outcome), JSON.stringify(receipt));
-    assert.equal(repeat.outcome, "pending", JSON.stringify(repeat));
-    assert.equal(repeatReport.rewrittenEvents, 0, `${kind} must be a zero-rewrite second run`);
-    migrationResults.push({ kind, firstOutcome: receipt.outcome, secondRewrites: repeatReport.rewrittenEvents });
-    await store.drain();
-  }
-
-  const firstProjection = cold(),
-    first = firstProjection.rebuild(),
-    firstDigest = first.stateDigest;
+  const sqlite = openSqliteEventStore({ repoId, databasePath }),
+    events = sqlite.events(),
+    convertedSource = arrayStore(
+      events,
+      new Map(sqlite.contentObjectDigests().map((sha256) => [sha256, sqlite.readContentObject(sha256)])),
+    ),
+    coldPath = path.join(root, "cold.sqlite"),
+    firstProjection = makeTaskProjection({ rootDir: root, eventStore: convertedSource, projectionPath: coldPath }),
+    firstRebuild = firstProjection.rebuild();
   firstProjection.close();
   rmSync(coldPath, { force: true });
-  const secondProjection = cold(),
-    second = secondProjection.rebuild(),
-    secondDigest = second.stateDigest,
-    reader = makeTaskEventReader({ repoId, rootDir: root }),
-    events = reader.read().events,
-    relation = events.find(({ opId }) => opId === seeded.relationOpId),
-    schedule = events.find(({ opId }) => opId === seeded.scheduleOpId),
-    settings = events.find(({ opId }) => opId === seeded.settingsOpId);
-  assert.equal(firstDigest, secondDigest);
-  assert.ok(relation?.schema === "relation-event/v1");
+  const secondProjection = makeTaskProjection({ rootDir: root, eventStore: convertedSource, projectionPath: coldPath }),
+    secondRebuild = secondProjection.rebuild();
+  secondProjection.close();
+  sqlite.close();
+  assert.equal(firstRebuild.stateDigest, secondRebuild.stateDigest);
+  const relation = events.find(({ opId }) => opId === "op-mixed-relation"),
+    schedule = events.find(({ opId }) => opId === "op-mixed-schedule"),
+    settings = events.find(({ opId }) => opId === "op-mixed-settings");
   assert.equal(Object.hasOwn(relation.payload.relation, "strength"), false);
   assert.equal(Object.hasOwn(relation.payload.relation, "targetObservedVersion"), true);
-  assert.ok(schedule?.schema === "schedule-event/v1");
   assert.equal(Object.hasOwn(schedule.payload.schedule.spec.target, "cwd"), false);
-  const claim = schedule.payload.declarationDocumentClaim,
-    scheduleBlob = reader.readContentBlob(claim.sha256);
-  assert.ok(scheduleBlob);
   assert.deepEqual(
     validateScheduleV1({
-      ...JSON.parse(new TextDecoder().decode(scheduleBlob)),
+      ...JSON.parse(
+        new TextDecoder().decode(convertedSource.readContentBlob(schedule.payload.declarationDocumentClaim.sha256)),
+      ),
       status: schedule.payload.schedule.status,
     }),
     [],
   );
-  assert.ok(settings?.schema === "settings-event/v1");
   assert.equal(Object.hasOwn(settings.payload.settings, "walFlush"), true);
-  const migrationMarkers = events.filter(
-    (event) => event.schema === "migration-import-event/v1" && String(event.payload.migratedFrom).includes(":"),
-  );
-  assert.equal(migrationMarkers.length, 3);
-  secondProjection.close();
   return {
     redControl: {
       id: "F10/strict-reducer-rejects-mixed-history",
@@ -120,32 +96,32 @@ export async function runMixedHistoryScenario(root) {
       violations: [strictMessage],
     },
     caseResult: {
-      id: "F10/mixed-history-strict-replay",
-      boundaryHits: [
-        "relation strength without witness",
-        "schedule cwd in event and declaration blob",
-        "settings without walFlush",
-        "migration after_event_write SIGKILL",
-        "second cold rebuild",
-      ],
-      faults: [{ kind: "SIGKILL", boundary: "migration event write before head publication" }],
+      id: "F10/immutable-gen0-to-inactive-gen1",
+      boundaryHits: ["strict legacy rejection", "before event 2 SIGKILL", "two SQLite cold rebuilds"],
+      faults: [{ kind: "SIGKILL", boundary: "inactive conversion before event 2" }],
       observations: {
         strictRejection: strictMessage,
-        migrationResults,
-        migrationMarkers: migrationMarkers.length,
-        firstDigest,
-        secondDigest,
+        sourceDigest: first.sourceDigest,
+        rewrittenEvents: first.rewrittenEvents,
+        retryMigratedEvents: first.migratedEvents,
+        secondConversionEvents: second.migratedEvents,
+        requiredObjects: first.copiedObjects,
+        firstDigest: firstRebuild.stateDigest,
+        secondDigest: secondRebuild.stateDigest,
       },
-      oracles: { strictReducer: "PASS", explicitMigration: "PASS", secondRunZeroRewrites: "PASS" },
+      oracles: {
+        strictReducer: "PASS",
+        immutableSource: "PASS",
+        interruptionRetry: "PASS",
+        secondRunZeroConversions: "PASS",
+      },
       verdict: "PASS",
     },
   };
 }
 
-async function seedMixedHistory(root, repoId) {
-  initRepo(root);
-  const store = makeTaskEventStore({ repoId, rootDir: root }),
-    relation = relationEvent(1),
+function seedMixedHistory(root) {
+  const relation = relationEvent(),
     schedule = createScheduleV1({
       scheduleId: "legacy-schedule",
       name: "Legacy schedule",
@@ -156,7 +132,7 @@ async function seedMixedHistory(root, repoId) {
         target: { kind: "agent", agentId: "worker", runtimeInstanceId: "codex" },
       },
       actor,
-      occurredAt: "2026-09-05T00:00:00.000Z",
+      occurredAt: "2026-09-05T00:01:00.000Z",
     }),
     scheduleCompiled = compileScheduleDefinitionEvent({
       type: "schedule_created",
@@ -179,27 +155,31 @@ async function seedMixedHistory(root, repoId) {
       actor,
       source: "local",
       occurredAt: "2026-09-05T00:02:00.000Z",
-    });
-  store.append({ event: relation, plan: relationEventWritePlan(relation), blobs: [] });
-  store.append(scheduleCompiled);
-  store.append(settingsCompiled);
-  await store.settlePendingMaterialization?.("mixed-history seed");
-  const layout = store.layout();
-  makeLegacyRelation(root, layout, relation.opId);
-  makeLegacySchedule(root, layout, scheduleCompiled.event.opId);
-  makeLegacySettings(root, layout, settingsCompiled.event.opId);
-  git(root, "add", "harness");
-  git(root, "commit", "--quiet", "-m", "mixed historical shapes");
-  git(root, "update-ref", "refs/ha/canonical", "HEAD");
-  await store.drain();
-  return {
-    relationOpId: relation.opId,
-    scheduleOpId: scheduleCompiled.event.opId,
-    settingsOpId: settingsCompiled.event.opId,
+    }),
+    legacyRelation = structuredClone(relation),
+    legacySchedule = structuredClone(scheduleCompiled.event),
+    legacySettings = structuredClone(settingsCompiled.event),
+    target = { ...legacySchedule.payload.schedule.spec.target, cwd: ".worktrees/legacy" },
+    scheduleWithCwd = { ...legacySchedule.payload.schedule, spec: { ...legacySchedule.payload.schedule.spec, target } },
+    { status: _status, ...definition } = scheduleWithCwd,
+    definitionBody = `${JSON.stringify(definition, null, 2)}\n`,
+    definitionSha = sha256Text(definitionBody);
+  const { targetObservedVersion: _witness, ...facet } = legacyRelation.payload.relation;
+  legacyRelation.payload.relation = { ...facet, strength: "strong" };
+  legacySchedule.payload.schedule = scheduleWithCwd;
+  legacySchedule.payload.declarationDocumentClaim = {
+    ...legacySchedule.payload.declarationDocumentClaim,
+    sha256: definitionSha,
+    size: Buffer.byteLength(definitionBody),
   };
+  delete legacySettings.payload.settings.walFlush;
+  const blobs = [...scheduleCompiled.blobs, ...settingsCompiled.blobs],
+    objects = new Map(blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
+  objects.set(definitionSha, Buffer.from(definitionBody));
+  return { events: [legacyRelation, legacySchedule, legacySettings], objects };
 }
 
-function relationEvent(workspaceRevision) {
+function relationEvent() {
   const identity = {
     source: "task/task-source",
     target: "task/task-target",
@@ -209,7 +189,7 @@ function relationEvent(workspaceRevision) {
   return {
     schema: "relation-event/v1",
     eventId: "event-mixed-relation",
-    workspaceRevision,
+    workspaceRevision: 1,
     opId: "op-mixed-relation",
     relationId: deriveRelationId(identity),
     type: "relation_created",
@@ -229,49 +209,18 @@ function relationEvent(workspaceRevision) {
   };
 }
 
-function makeLegacyRelation(root, layout, opId) {
-  mutateEvent(root, layout, opId, (stored) => {
-    const { targetObservedVersion: _witness, ...facet } = stored.payload.relation;
-    stored.payload.relation = { ...facet, strength: "strong" };
-  });
-}
-
-function makeLegacySchedule(root, layout, opId) {
-  mutateEvent(root, layout, opId, (stored) => {
-    const target = { ...stored.payload.schedule.spec.target, cwd: ".worktrees/legacy" },
-      schedule = { ...stored.payload.schedule, spec: { ...stored.payload.schedule.spec, target } },
-      { status: _status, ...definition } = schedule,
-      body = `${JSON.stringify(definition, null, 2)}\n`,
-      sha256 = sha256Text(body),
-      claim = { ...stored.payload.declarationDocumentClaim, sha256, size: Buffer.byteLength(body) },
-      blobPath = path.join(root, "harness", contentObjectRelativePath(sha256, layout));
-    mkdirSync(path.dirname(blobPath), { recursive: true });
-    writeFileSync(blobPath, body);
-    stored.payload = { schedule, declarationDocumentClaim: claim };
-  });
-}
-
-function makeLegacySettings(root, layout, opId) {
-  mutateEvent(root, layout, opId, (stored) => {
-    delete stored.payload.settings.walFlush;
-  });
-}
-
-function mutateEvent(root, layout, opId, mutate) {
-  const eventPath = path.join(root, "harness", eventObjectRelativePath(opId, layout)),
-    stored = JSON.parse(readFileSync(eventPath, "utf8"));
-  mutate(stored);
-  writeFileSync(eventPath, `${sortedJson(stored)}\n`);
-}
-
-function sortedJson(value) {
-  return JSON.stringify(value, (_key, entry) =>
-    entry && typeof entry === "object" && !Array.isArray(entry)
-      ? Object.fromEntries(Object.entries(entry).sort(([left], [right]) => left.localeCompare(right)))
-      : entry,
-  );
-}
-
-function git(root, ...args) {
-  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+function arrayStore(events, objects) {
+  return {
+    read: () => ({ revision: events.length, events }),
+    readHead: () => ({ revision: events.length, eventDigest: `sha256:${sha256Text(JSON.stringify(events.at(-1)))}` }),
+    readBatch: () => ({
+      sourceRevision: events.length,
+      events,
+      cursor: null,
+      done: true,
+      accessedItems: events.length,
+      prefetchContent: () => objects,
+    }),
+    readContentBlob: (sha256) => objects.get(sha256) ?? null,
+  };
 }

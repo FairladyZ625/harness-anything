@@ -329,6 +329,7 @@ export function migrateEventsToSqlite(input: {
   readonly holder?: string;
   readonly epoch?: number;
   readonly verifyExact?: boolean;
+  readonly beforeEvent?: (revision: number) => void;
 }): { readonly migrated: number; readonly revision: number } {
   const fence = {
     repoId: input.repoId,
@@ -340,6 +341,7 @@ export function migrateEventsToSqlite(input: {
   if (existingRevision > input.events.length)
     throw new TaskEventStoreError("invalid_store", "SQLite migration revision exceeds the source stream");
   for (const event of input.events.slice(existingRevision)) {
+    input.beforeEvent?.(event.workspaceRevision);
     const eventJson = serializePersistedCanonicalEvent(event),
       intentDigest = `sha256:${sha256Text(eventJson)}` as const;
     input.store.appendCommand({

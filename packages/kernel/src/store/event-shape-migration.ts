@@ -82,6 +82,17 @@ export interface EventShapeMigrationInput {
   readonly now: () => string;
 }
 
+export interface LegacyGenerationConversionPlan {
+  readonly events: readonly CanonicalEventV1[];
+  readonly blobs: readonly CanonicalContentBlob[];
+  readonly rewrites: readonly {
+    readonly migration: EventShapeMigrationName;
+    readonly opId: string;
+    readonly revision: number;
+    readonly category: string;
+  }[];
+}
+
 const relationEventsMigration: EventShapeMigrationSpec = {
   name: "relation-events",
   // Only a missing target witness needs the projection at the event's cut; dropping strength and
@@ -320,6 +331,53 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "settings-wal-flush-migrate": settingsWalFlushMigration,
 };
 
+/**
+ * Plans the generation-0 to generation-1 shape conversion without changing the source store.
+ * The replay uses the historical projection cut, so relation witnesses and decision digests are
+ * derived from the state that existed immediately before each event.
+ */
+export function planLegacyGenerationConversion(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+}): LegacyGenerationConversionPlan {
+  const head = input.store.readHead(),
+    headRevision = head?.revision ?? 0,
+    byOpId = new Map(input.store.read().events.map((event) => [event.opId, event])),
+    blobs = new Map<string, CanonicalContentBlob>(),
+    rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [];
+  for (const spec of Object.values(eventShapeMigrations)) {
+    const planned = replayRewrites(spec, input, headRevision, head);
+    for (const rewrite of planned) {
+      byOpId.set(rewrite.event.opId, rewrite.event);
+      for (const blob of rewrite.blobs ?? []) blobs.set(blob.sha256, blob);
+      rewrites.push({
+        migration: spec.name,
+        opId: rewrite.event.opId,
+        revision: rewrite.event.workspaceRevision,
+        category: rewrite.category,
+      });
+    }
+  }
+  return {
+    events: [...byOpId.values()].sort((left, right) => left.workspaceRevision - right.workspaceRevision),
+    blobs: [...blobs.values()],
+    rewrites,
+  };
+}
+
+export function assertNoPendingHistoricalRewrites(input: {
+  readonly rootDir: string;
+  readonly store: CanonicalEventStore;
+}): void {
+  const plan = planLegacyGenerationConversion(input);
+  if (plan.rewrites.length === 0) return;
+  const first = plan.rewrites[0]!;
+  throw new Error(
+    `generation activation requires zero pending historical rewrites; found ${plan.rewrites.length}, ` +
+      `first is ${first.migration} at revision ${first.revision} (${first.opId})`,
+  );
+}
+
 export async function runEventShapeMigration(
   spec: EventShapeMigrationSpec,
   input: EventShapeMigrationInput,
@@ -421,7 +479,7 @@ const BULK_ROUND_LIMIT = 4096;
 
 function replayRewrites(
   spec: EventShapeMigrationSpec,
-  input: EventShapeMigrationInput,
+  input: Pick<EventShapeMigrationInput, "rootDir" | "store">,
   headRevision: number,
   head: ReturnType<CanonicalEventStore["readHead"]>,
 ): readonly EventShapeRewrite[] {
