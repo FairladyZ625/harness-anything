@@ -34,7 +34,7 @@ import {
   type CanonicalEventStore,
   type TaskEventV1,
 } from "../../kernel/src/index.ts";
-import { preflightCanonicalGeneration } from "../../kernel/src/store/legacy-generation-conversion.ts";
+import { preflightCanonicalGeneration } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   assertNoPendingHistoricalRewrites,
   planLegacyGenerationConversion,
