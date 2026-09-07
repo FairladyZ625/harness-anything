@@ -326,6 +326,70 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     "x".repeat(200),
   ]);
   assert.equal(excessiveRationale.ok ? "ok" : excessiveRationale.code, "invalid_field");
+  const rationaleOnly = parseThinCommand([
+    "fact",
+    "record",
+    "--task",
+    "task-1",
+    "--statement",
+    "Observed",
+    "--source",
+    "test",
+    "--rationale",
+    "why",
+  ]);
+  assert.deepEqual(rationaleOnly, {
+    ok: false,
+    code: "missing_field",
+    nextAction:
+      "--rationale and --supersedes must be provided together; add --supersedes <fact-ref>, then rerun the command.",
+    json: false,
+  });
+  const supersedesOnly = parseThinCommand([
+    "fact",
+    "record",
+    "--task",
+    "task-1",
+    "--statement",
+    "Observed",
+    "--source",
+    "test",
+    "--supersedes",
+    "fact/F-ABCDEFGH",
+  ]);
+  assert.deepEqual(supersedesOnly, {
+    ok: false,
+    code: "missing_field",
+    nextAction:
+      "--rationale and --supersedes must be provided together; add --rationale <why>, then rerun the command.",
+    json: false,
+  });
+  const superseding = parseThinCommand([
+    "fact",
+    "record",
+    "--task",
+    "task-1",
+    "--statement",
+    "Observed",
+    "--source",
+    "test",
+    "--supersedes",
+    "fact/F-ABCDEFGH",
+    "--rationale",
+    "Corrects the target observation.",
+  ]);
+  assert.equal(superseding.ok, true, JSON.stringify(superseding));
+  if (superseding.ok)
+    assert.deepEqual(superseding.command.action, {
+      kind: "fact-record",
+      taskId: "task-1",
+      statement: "Observed",
+      evidenceSource: "test",
+      confidence: "medium",
+      memoryClass: "episodic",
+      memoryTags: [],
+      supersedes: { factRef: "fact/F-ABCDEFGH", rationale: "Corrects the target observation." },
+    });
   for (const retired of ["--kind", "--summary", "--detail"]) {
     const rejected = parseThinCommand(["fact", "record", "task-1", retired, "legacy"]);
     assert.equal(rejected.ok, false);

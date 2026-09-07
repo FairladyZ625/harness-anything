@@ -116,7 +116,9 @@ test("recorded Fact is durable and immediately searchable through the canonical 
             payload: { ...draft.payload, domainTypes: ["architecture-design"] },
           }),
         ),
-      /Fact domain type architecture-design is not registered/u,
+      (error: unknown) =>
+        code(error) === "fact_type_unregistered" &&
+        /Fact domain type architecture-design is not registered/u.test((error as Error).message),
     );
     const reclassified = service.record(
       compile(projection, {

@@ -46,7 +46,25 @@ test("Fact admission rejects superseding an already-superseded target", () => {
   }
 });
 
-function fact(revision: number, factId: string, supersedesRef?: string): FactEventV1 {
+test("Fact admission names an unregistered domain type instead of a relation failure", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createFactProjectionTables(db);
+    reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
+    assert.throws(
+      () => reduceFactEvent(db, fact(2, "F-BCDEFGHJ", undefined, ["architecture"])),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "fact_type_unregistered" &&
+        /Fact domain type architecture is not registered/u.test(error.message),
+    );
+  } finally {
+    db.close();
+  }
+});
+
+function fact(revision: number, factId: string, supersedesRef?: string, domainTypes?: string[]): FactEventV1 {
   return {
     schema: "fact-event/v1",
     eventId: `event-${revision}`,
@@ -66,6 +84,7 @@ function fact(revision: number, factId: string, supersedesRef?: string): FactEve
       memoryClass: "semantic",
       memoryTags: [],
       provenance: [],
+      ...(domainTypes ? { domainTypes } : {}),
       ...(supersedesRef
         ? { supersedes: { factRef: supersedesRef, rationale: "New observation replaces the target." } }
         : {}),
