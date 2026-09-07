@@ -10,6 +10,8 @@ import {
   type CanonicalEventV1,
   type TaskV2,
 } from "../../src/index.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../src/domain/artifact-text-classification.ts";
+import { DECISION_DOCUMENT_POLICY_ID } from "../../src/domain/decision-event-types.ts";
 import { eventShapeMigrations, type EventShapeCut } from "../../src/store/event-shape-migration.ts";
 
 const actor = { principal: { personId: "person_synthetic" }, executor: null } as const,
@@ -96,14 +98,63 @@ test("legacy import normalization is idempotent and converges with task snapshot
   );
 });
 
+test("legacy import normalization covers every inventory shape", () => {
+  const taskEvent = {
+      ...taskBootstrapEvent(true),
+      schema: "task-event/v1",
+      type: "execution_started",
+      payload: { task: legacyTaskWithProvenance() },
+    } as CanonicalEventV1,
+    taskRewrite = migration().rewrite(taskEvent, cut());
+  assert.ok(taskRewrite);
+  assert.equal(taskRewrite.event.payload.task.schema, "task/v2");
+  assert.equal(taskRewrite.event.payload.task.pinned, false);
+  assert.equal(taskRewrite.event.payload.task.provenance[0].transcriptReachability, "by_session_id");
+
+  const factEvent = migrationFactEvent(),
+    factRewrite = migration().rewrite(factEvent, cut());
+  assert.deepEqual(validateCurrentCanonicalEvent(factEvent), ["migration fact entity is invalid"]);
+  assert.ok(factRewrite);
+  assert.equal(factRewrite.event.payload.entity.fact.observedAt, "2026-08-01T12:25:14.000Z");
+  assert.equal(factRewrite.event.payload.entity.fact.provenance[0].boundAt, "2026-08-01T12:25:14.000Z");
+  assert.deepEqual(validateCurrentCanonicalEvent(factRewrite.event), []);
+
+  const decisionEvent = migrationDecisionEventWithLegacyDecisionTimestamp(),
+    decisionRewrite = migration().rewrite(decisionEvent, cut());
+  assert.deepEqual(validateCurrentCanonicalEvent(decisionEvent), ["migration decision entity is invalid"]);
+  assert.ok(decisionRewrite);
+  assert.equal(decisionRewrite.event.payload.entity.decision.decidedAt, "2026-06-02T16:00:00.000Z");
+  assert.deepEqual(validateCurrentCanonicalEvent(decisionRewrite.event), []);
+
+  const proposal = legacyDecisionProposal(),
+    proposalRewrite = migration().rewrite(proposal, cut());
+  assert.ok(proposalRewrite);
+  assert.equal(Object.keys(proposalRewrite.event.payload).length, 17);
+  assert.deepEqual(validateCurrentCanonicalEvent(proposalRewrite.event), []);
+
+  const doc = legacyDocEvent(),
+    docRewrite = migration().rewrite(doc, cut(taskBootstrapEvent(true)));
+  assert.ok(docRewrite);
+  assert.equal(docRewrite.event.source, "local");
+  assert.deepEqual(Object.keys(docRewrite.event.payload.baseLedgerSha).sort(), ["headDigest", "repoId", "revision"]);
+  assert.deepEqual(validateCurrentCanonicalEvent(docRewrite.event), []);
+});
+
 function migration() {
   return eventShapeMigrations["legacy-import-normalization-migrate"];
 }
 
-function cut(): EventShapeCut {
+function cut(headEvent: CanonicalEventV1 | null = null): EventShapeCut {
   return {
     readEntityVersionWitness: () => ({ currentVersion: null, observedRevision: 0 }),
     readDecisionDocumentState: () => null,
+    readReplicaBasis: () => ({
+      watermark: headEvent?.workspaceRevision ?? 0,
+      sourceRevision: headEvent?.workspaceRevision ?? 0,
+      headEvent,
+      events: [],
+      documents: [],
+    }),
   };
 }
 
@@ -234,6 +285,122 @@ function migrationDecisionEvent(): CanonicalEventV1 {
           path: `decisions/decision-${decisionId}/decision.md`,
         },
       },
+    },
+  } as CanonicalEventV1;
+}
+
+function legacyTaskWithProvenance(): TaskV2 {
+  const value = task(true, legacyMetadata()) as TaskV2 & { schema: string; pinned?: boolean };
+  value.schema = "task/v1";
+  delete value.pinned;
+  return {
+    ...value,
+    provenance: [{ runtime: "codex", sessionId: "session-synthetic", boundAt: "2026-08-01T00:00:00.000Z" }],
+  } as TaskV2;
+}
+
+function migrationFactEvent(): CanonicalEventV1 {
+  const opId = "migration-fact-synthetic";
+  return {
+    schema: "migration-import-event/v1",
+    eventId: `event-${sha256Text(opId)}`,
+    workspaceRevision: 3,
+    opId,
+    type: "entity_migrated",
+    actor,
+    source: "migration-import/v1",
+    occurredAt: "2026-08-01T12:25:14.000Z",
+    payload: {
+      migratedFrom: "F-ABCDEFGH",
+      generation: "v0",
+      entity: {
+        kind: "fact",
+        fact: {
+          factId: "F-ABCDEFGH",
+          statement: "Synthetic fact",
+          evidenceSource: "synthetic",
+          observedAt: "2026-08-01T20:25:14+08:00",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+          provenance: [{ runtime: "codex", sessionId: "session-synthetic", boundAt: "2026-08-01T20:25:14+08:00" }],
+        },
+        documentClaim: { ...claim, path: "facts/F-ABCDEFGH.md" },
+      },
+    },
+  } as CanonicalEventV1;
+}
+
+function migrationDecisionEventWithLegacyDecisionTimestamp(): CanonicalEventV1 {
+  const event = migrationDecisionEvent() as CanonicalEventV1 & {
+    payload: { entity: { decision: { decidedAt: string } } };
+  };
+  event.occurredAt = "2026-06-03T00:00:00.000Z";
+  event.payload.entity.decision.decidedAt = "2026-06-03T00:00:00+08:00";
+  return event;
+}
+
+function legacyDecisionProposal(): CanonicalEventV1 {
+  const decisionId = "dec_SYNTHETIC_PROPOSAL";
+  return {
+    schema: "decision-event/v1",
+    eventId: "event-proposal-synthetic",
+    workspaceRevision: 4,
+    opId: "op-proposal-synthetic",
+    decisionId,
+    type: "decision_proposed",
+    actor,
+    source: "local",
+    occurredAt: "2026-08-14T00:00:00.000Z",
+    payload: {
+      title: "Synthetic proposal",
+      question: "Use the current shape?",
+      riskTier: "medium",
+      urgency: "medium",
+      vertical: "software/coding",
+      preset: "standard-task",
+      appliesTo: { modules: ["kernel"], productLines: [] },
+      decisionClass: "ordinary",
+      chosen: [{ id: "CH1", text: "Yes" }],
+      rejected: [{ id: "RJ1", text: "No", whyNot: "Invalid" }],
+      body: "Synthetic body",
+      claims: [],
+      fulfillments: [],
+      relations: [],
+      baseDocumentSha256: null,
+      decisionDocumentClaim: {
+        path: `decisions/decision-${decisionId}/decision.md`,
+        sha256: "e".repeat(64),
+        size: 1,
+        mediaType: "text/markdown",
+        policyId: DECISION_DOCUMENT_POLICY_ID,
+      },
+    },
+  } as CanonicalEventV1;
+}
+
+function legacyDocEvent(): CanonicalEventV1 {
+  return {
+    schema: "doc-event/v1",
+    eventId: "event-doc-synthetic",
+    workspaceRevision: 2,
+    opId: "op-doc-synthetic",
+    type: "documents_written",
+    actor,
+    source: { kind: "watch_session", sessionId: "watch-synthetic", path: "notes.json", fingerprint: "f".repeat(64) },
+    occurredAt: "2026-08-14T00:00:00.000Z",
+    payload: {
+      executionId: null,
+      baseLedgerSha: { repoId: "synthetic", sha: "a".repeat(40) },
+      changes: [
+        {
+          path: "notes.json",
+          baseBlobSha256: null,
+          candidate: { sha256: "a".repeat(64), size: 1, mediaType: "application/json" },
+          policyId: OPAQUE_TEXTUAL_POLICY_ID,
+          regionProofs: [],
+        },
+      ],
     },
   } as CanonicalEventV1;
 }
