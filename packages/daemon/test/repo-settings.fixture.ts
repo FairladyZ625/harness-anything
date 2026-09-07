@@ -51,11 +51,11 @@ export function seedSettingsEvent(input: {
   readonly rootDir: string;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
-}): void {
+}): ReturnType<typeof makeTaskEventStore> | undefined {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
-  if (seededSettings.has(fixtureKey)) return;
+  if (seededSettings.has(fixtureKey)) return undefined;
   const store = makeTaskEventStore({
       repoId,
       rootDir,
@@ -66,7 +66,7 @@ export function seedSettingsEvent(input: {
     stream = store.read();
   if (stream.events.some((event) => event.schema === "settings-event/v1")) {
     seededSettings.add(fixtureKey);
-    return;
+    return store;
   }
   const documentBody = settingsBase(rootDir),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
@@ -84,6 +84,25 @@ export function seedSettingsEvent(input: {
     }),
   );
   seededSettings.add(fixtureKey);
+  return store;
+}
+
+export async function registerSettledBootstrappedDaemonRepo(
+  input: Parameters<typeof registerProductDaemonRepo>[0],
+): Promise<ReturnType<typeof registerProductDaemonRepo>> {
+  if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
+    const writerEpochFence = fixtureFence(
+        input.repoId,
+        input.canonicalRoot,
+        path.join(daemonRegistryPaths(input).userRoot, "fleet"),
+      ),
+      store = seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot, writerEpochFence });
+    if (store) {
+      store.materialize();
+      await store.drain();
+    }
+  }
+  return registerProductDaemonRepo(input);
 }
 
 export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
