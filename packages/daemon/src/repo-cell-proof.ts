@@ -155,35 +155,47 @@ export async function proofFor(
         (settings.reviewIndependence === "execution"
           ? isIndependentFrom(execution.actor, command.actor)
           : !isSamePerson(execution.actor, command.actor)),
+      dispatchlessExecution =
+        execution?.actor.executor === null &&
+        command.actor.executor === null &&
+        readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0,
+      principalIndependenceRequired =
+        settings.reviewIndependence === "principal" &&
+        execution !== undefined &&
+        isSamePerson(execution.actor, command.actor),
       externalCompletionEvidence = independentActor
         ? false
         : validExternalCompletionEvidence(command, projection, rootDir),
       explicitlyUnreviewed = independentActor ? false : validNoIndependentReview(command, projection, rootDir);
     if (!independentActor && !externalCompletionEvidence && !explicitlyUnreviewed) {
       const principalSettingGuidance =
-        settings.reviewIndependence === "principal" &&
-        execution !== undefined &&
-        isSamePerson(execution.actor, command.actor)
+        principalIndependenceRequired
           ? [
               "Repository setting reviewIndependence currently equals principal, so the reviewer and execution " +
                 "actor must have different principals.",
               "ha settings update --review-independence execution",
             ]
-          : reviewCriterion.nextActions;
+          : dispatchlessExecution
+            ? [
+                "Have a different person run the review, or use HARNESS_ACTOR=agent:<id> for an auditable " +
+                  "same-principal review; ha task declare-executor requires an existing dispatch record and is " +
+                  "unavailable for this execution.",
+              ]
+            : reviewCriterion.nextActions;
       throw cellCriterionError(
         "actor_unauthorized",
-        settings.reviewIndependence === "principal" &&
-          execution !== undefined &&
-          isSamePerson(execution.actor, command.actor)
+        principalIndependenceRequired
           ? "Repository setting reviewIndependence is principal; the reviewer and execution actor have the same " +
               "principal. Change it with `ha settings update --review-independence execution`."
-          : "Task review actor independence proof was not satisfied.",
+          : dispatchlessExecution
+            ? "Task review actor independence proof was not satisfied: the submitted execution has no executor " +
+              "and the current reviewer has no executor. Use a different person, or run the review with " +
+              "HARNESS_ACTOR=agent:<id>; declare-executor requires an existing dispatch record."
+            : "Task review actor independence proof was not satisfied.",
         "review",
         REVIEW_PROOF_CRITERION,
         principalSettingGuidance,
-        settings.reviewIndependence === "principal" &&
-          execution !== undefined &&
-          isSamePerson(execution.actor, command.actor)
+        principalIndependenceRequired
           ? {
               kind: "validation",
               entity: "repository setting",
@@ -192,7 +204,17 @@ export async function proofFor(
               expectation:
                 "Use a reviewer with a different principal, or run ha settings update --review-independence execution",
             }
-          : undefined,
+          : dispatchlessExecution
+            ? {
+                kind: "validation",
+                entity: "task review",
+                field: "actor",
+                actual: "dispatch-less execution and reviewer",
+                expectation:
+                  "Use a different person, or run the review with HARNESS_ACTOR=agent:<id>; " +
+                  "declare-executor requires an existing dispatch record",
+              }
+            : undefined,
       );
     }
     return {

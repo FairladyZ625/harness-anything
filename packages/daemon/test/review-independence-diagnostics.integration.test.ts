@@ -636,6 +636,8 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
       bare,
     );
     assert.equal(unmarked.code, "actor_unauthorized", JSON.stringify(unmarked));
+    assert.match(JSON.stringify(unmarked), /HARNESS_ACTOR=agent:<id>/u);
+    assert.match(JSON.stringify(unmarked), /declare-executor requires an existing dispatch record/u);
     writeFileSync(
       path.join(rootDir, "no-independent-review.json"),
       JSON.stringify({
