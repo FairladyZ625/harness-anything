@@ -10,6 +10,7 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
   readDaemonRegistry,
+  registerDaemonRepo as registerProductDaemonRepo,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
 import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
@@ -20,6 +21,7 @@ import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import {
+  activateEmptyFixtureGeneration,
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
@@ -442,6 +444,34 @@ test("a repository whose open never settles is bounded by an attach budget while
   }
 });
 
+test("an unactivated repository is unavailable while an activated peer attaches and serves", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unactivated-")),
+    userRoot = path.join(parent, "user"),
+    inactive = path.join(parent, "inactive"),
+    active = path.join(parent, "active");
+  rosterRepo(inactive, "inactive");
+  rosterRepo(active, "active");
+  registerProductDaemonRepo({
+    canonicalRoot: inactive,
+    repoId: "inactive",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  registerDaemonRepo({ canonicalRoot: active, repoId: "active", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "host-unactivated", userRoot });
+  try {
+    await host.attachmentsSettled();
+    const inactiveStatus = host.status().repos.find((repo) => repo.repoId === "inactive")!;
+    assert.equal(inactiveStatus.state, "unavailable");
+    assert.match(String(inactiveStatus.lastError), /run operator conversion before attaching this repository/u);
+    assert.equal((await host.run("inactive", { kind: "task-list" }, auth)).code, "repo_unavailable");
+    assert.equal((await host.run("active", { kind: "task-list" }, auth)).outcome, "applied");
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("the host-level re-probe is throttled to one attempt per interval", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-throttle-")),
     rootDir = path.join(parent, "repo"),
@@ -617,6 +647,7 @@ test("remote-edge Cell terminal side effects require Cell-level mode admission",
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     rosterRepo(rootDir, "cell-terminal-mode");
+    activateEmptyFixtureGeneration("cell-terminal-mode", rootDir);
     cell = await openRepoCell({
       repoId: workspaceId("cell-terminal-mode"),
       rootDir: canonicalRoot(rootDir),

@@ -5,14 +5,20 @@ import path from "node:path";
 import {
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
+  convertLegacyGeneration,
+  createImmutableLegacyGenerationSnapshot,
   makeTaskEventStore,
+  openSqliteEventStore,
   preflightCanonicalGeneration,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
   writeRepositorySettingsFacet,
 } from "../../kernel/src/index.ts";
-import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  daemonRegistryPaths,
+  preflightConvertedGenerationActivation,
+} from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell, type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
@@ -23,6 +29,25 @@ import {
 } from "../src/writer-epoch.ts";
 
 const seededSettings = new Set<string>();
+
+export function activateEmptyFixtureGeneration(repoId: string, rootDir: string): void {
+  const layout = resolveHarnessLayout(rootDir),
+    snapshotPath = path.join(layout.localRoot, "store/imports/generation-0.snapshot.json"),
+    databasePath = path.join(layout.localRoot, "store/generations/1/ledger.sqlite");
+  if (existsSync(`${databasePath}.activation.json`)) return;
+  createImmutableLegacyGenerationSnapshot({
+    repoId,
+    snapshotPath,
+    source: {
+      read: () => ({ revision: 0, events: [] }),
+      readContentBlob: () => null,
+    },
+  });
+  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
+  const store = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+  store.close();
+}
 
 function settingsBase(rootDir: string): string {
   const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
@@ -56,6 +81,7 @@ export function seedSettingsEvent(input: {
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
   if (seededSettings.has(fixtureKey)) return;
+  activateEmptyFixtureGeneration(repoId, rootDir);
   const store = makeTaskEventStore({
       repoId,
       rootDir,
@@ -140,6 +166,7 @@ async function settleSettingsEvent(input: {
   // SQLite. Reopening and draining a second store here defeats attach budgets
   // and masks tests that intentionally exercise an invalid Git layout.
   if (seededSettings.has(fixtureKey)) return;
+  activateEmptyFixtureGeneration(repoId, rootDir);
   const store = makeTaskEventStore({
       repoId,
       rootDir,
@@ -185,6 +212,9 @@ async function settleSettingsEvent(input: {
 }
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
+  if (input.repoId && input.canonicalRoot) {
+    activateEmptyFixtureGeneration(input.repoId, input.canonicalRoot);
+  }
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
     const writerEpochFence = fixtureFence(
       input.repoId,

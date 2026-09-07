@@ -186,23 +186,43 @@ test("stopped legacy Git plus accepted WAL suffix converts without a strict read
   }
 });
 
-test("empty generation activation remains valid after its first accepted command", () => {
+test("attach leaves a revision-zero generation over legacy history inactive and unchanged", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-empty-generation-")),
-    repoId = "empty-generation";
+    repoId = "empty-generation",
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+    snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
   try {
     initRepo(root);
-    preflightCanonicalGeneration({ rootInput: root, repoId });
-    const store = openSqliteEventStore({ repoId, rootInput: root }),
-      seeded = seedLegacySettings(root, false),
-      event = seeded.source.read().events[0]!,
-      fence = { repoId, holder: "empty-generation-test", epoch: 1 };
-    store.appendCommand({
-      fence,
-      intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`, summary: event.type },
-      events: [event],
-      blobs: seeded.blobs,
-    });
+    mkdirSync(path.join(root, "harness/events"), { recursive: true });
+    writeFileSync(path.join(root, "harness/events/head.json"), '{"revision":1}\n');
+    const store = openSqliteEventStore({ repoId, databasePath });
     store.close();
+    assert.throws(
+      () => preflightCanonicalGeneration({ rootInput: root, repoId }),
+      /run operator conversion before attaching this repository/u,
+    );
+    assert.equal(existsSync(snapshotPath), false);
+    assert.equal(existsSync(`${databasePath}.import-source.json`), false);
+    assert.equal(existsSync(`${databasePath}.activation.json`), false);
+    const unchanged = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+    assert.equal(unchanged.revision(), 0);
+    unchanged.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("attach validates an activation certificate without replaying the immutable source", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-activated-generation-")),
+    repoId = "activated-generation",
+    snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json"),
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite");
+  try {
+    initRepo(root);
+    createImmutableLegacyGenerationSnapshot({ repoId, source: arrayStore([], () => null), snapshotPath });
+    convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath });
+    preflightConvertedGenerationActivation({ repoId, rootDir: root, snapshotPath, databasePath });
+    writeFileSync(snapshotPath, "not replayed during attach\n");
     assert.doesNotThrow(() => preflightCanonicalGeneration({ rootInput: root, repoId }));
   } finally {
     rmSync(root, { recursive: true, force: true });
