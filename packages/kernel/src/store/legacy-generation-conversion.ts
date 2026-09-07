@@ -14,6 +14,7 @@ import {
 } from "./legacy-generation-source.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
+import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-store.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventStore } from "./task-event-store-types.ts";
 
 export interface ImmutableLegacySnapshotV2 {
@@ -252,6 +253,7 @@ export function convertLegacyGeneration(input: {
     for (const [index, event] of plan.events.entries())
       if (stored[index]?.eventJson !== serializePersistedCanonicalEvent(event))
         throw new TaskEventStoreError("invalid_store", `converted event differs at revision ${index + 1}`);
+    publishConvertedGeneration({ rootInput: input.rootDir, repoId: snapshot.repoId, store });
     return {
       schema: "legacy-generation-conversion/v1",
       repoId: snapshot.repoId,
@@ -325,6 +327,7 @@ export function preflightConvertedGenerationActivation(input: {
       }
     }
     assertNoPendingHistoricalRewrites({ rootDir: input.rootDir, store: sqliteSnapshotStore(store) });
+    readCertifiedGitFollower({ rootInput: input.rootDir, repoId: input.repoId, store });
     const certificatePath = `${databasePath}.activation.json`,
       certificate = `${JSON.stringify({
         schema: "generation-activation/v1",
