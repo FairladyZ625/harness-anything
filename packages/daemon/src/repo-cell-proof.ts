@@ -155,7 +155,10 @@ export async function proofFor(
         (settings.reviewIndependence === "execution"
           ? isIndependentFrom(execution.actor, command.actor)
           : !isSamePerson(execution.actor, command.actor)),
-      dispatchlessExecution = execution?.actor.executor === null && command.actor.executor === null,
+      dispatchlessExecution =
+        execution?.actor.executor === null &&
+        command.actor.executor === null &&
+        readTaskLineageDispatches({ projection, rootDir, taskId: command.taskId }).length === 0,
       principalIndependenceRequired =
         settings.reviewIndependence === "principal" &&
         execution !== undefined &&
