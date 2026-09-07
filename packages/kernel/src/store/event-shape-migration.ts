@@ -11,7 +11,7 @@ import { submissionDigest, type SubmissionV1 } from "../domain/execution.ts";
 import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
-import { isMigrationImportEvent } from "../domain/migration-import-event.ts";
+import { canonicalMigrationProvenance, isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import { normalizeLegacyRelationState } from "../domain/entity-relation.ts";
 import {
   serializeEntityJsonSchema,
@@ -26,14 +26,17 @@ import {
 } from "../domain/schedule.ts";
 import { isRelationEvent } from "../domain/relation-event.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
-import { isTaskEvent } from "../domain/doc-sync-canonical-events.ts";
+import { isTaskEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
+import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
+import { isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
 import { contentClaims } from "./task-event-store-claims-layout.ts";
+import { canonicalLedgerCut } from "./task-event-store-contract.ts";
 import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-store-types.ts";
 
 // Pure offline generation planner. It replays an immutable generation-0 snapshot into a scratch
@@ -42,6 +45,7 @@ import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-sto
 // active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
   | "task-v2-snapshots"
+  | "legacy-import-normalization"
   | "relation-events"
   | "review-submission-pins"
   | "decision-digests"
@@ -49,6 +53,7 @@ export type EventShapeMigrationName =
   | "settings-wal-flush";
 export type EventShapeMigrationKind =
   | "task-v2-snapshots-migrate"
+  | "legacy-import-normalization-migrate"
   | "relation-events-migrate"
   | "review-submission-pins-migrate"
   | "decision-digests-migrate"
@@ -61,7 +66,10 @@ export interface EventShapeRewrite {
   readonly before: unknown;
   readonly after: unknown;
 }
-export type EventShapeCut = Pick<TaskProjection, "readEntityVersionWitness" | "readDecisionDocumentState">;
+export type EventShapeCut = Pick<
+  TaskProjection,
+  "readEntityVersionWitness" | "readDecisionDocumentState" | "readReplicaBasis"
+>;
 export interface EventShapeMigrationSpec {
   readonly name: EventShapeMigrationName;
   // Pure on the event: true for every event whose `rewrite` reads the cut. Only these are replayed
@@ -163,6 +171,165 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
       category: "retired Task.relations dropped after canonical relation event",
       before: legacy.task,
       after: task,
+    };
+  },
+};
+
+function normalizeEmbeddedTaskToCurrentTaskV2(task: TaskV2): TaskV2 | null {
+  const current = task as TaskV2 & { readonly pinned?: unknown };
+  let normalized: TaskV2 = {
+    ...current,
+    schema: "task/v2",
+    ...(Object.hasOwn(current, "pinned") ? {} : { pinned: false }),
+  };
+  if (normalized.metadata !== undefined) {
+    const { longRunning: _retiredLongRunning, ...metadata } = normalized.metadata as TaskV2["metadata"] & {
+      readonly longRunning?: unknown;
+    };
+    normalized = {
+      ...normalized,
+      metadata: {
+        ...metadata,
+        workKind: metadata.workKind ?? null,
+        urgency: metadata.urgency ?? null,
+        verticalId: metadata.verticalId ?? "software/coding",
+        surfaces: metadata.surfaces ?? [],
+      },
+    };
+  }
+  if (
+    Array.isArray(normalized.provenance) &&
+    normalized.provenance.some((entry) => !Object.hasOwn(entry, "transcriptReachability"))
+  )
+    normalized = { ...normalized, provenance: canonicalMigrationProvenance(normalized.provenance) };
+  return canonicalJson(normalized) === canonicalJson(task) ? null : normalized;
+}
+
+function taskCarrier(event: CanonicalEventV1): { readonly task: TaskV2 } | null {
+  const payload = event.payload as unknown;
+  if (!isRecord(payload) || !isRecord(payload.task)) return null;
+  return { task: payload.task as unknown as TaskV2 };
+}
+
+function legacyDocLedgerIdentity(event: CanonicalEventV1): { readonly repoId: string } | null {
+  if (event.schema !== "doc-event/v1" || event.type !== "documents_written" || !isRecord(event.payload)) return null;
+  const payload = event.payload as unknown as Readonly<Record<string, unknown>>,
+    base = payload.baseLedgerSha;
+  return isRecord(base) && typeof base.repoId === "string" && typeof base.sha === "string"
+    ? { repoId: base.repoId }
+    : null;
+}
+
+function canonicalProvenance(entries: readonly unknown[]): ReturnType<typeof canonicalMigrationProvenance> {
+  return canonicalMigrationProvenance(
+    entries.map((entry) =>
+      isRecord(entry) ? { ...entry, boundAt: normalizePersistedTimestamp(entry.boundAt) ?? entry.boundAt } : entry,
+    ),
+  );
+}
+
+const legacyImportNormalizationMigration: EventShapeMigrationSpec = {
+  name: "legacy-import-normalization",
+  matches: (event) => legacyDocLedgerIdentity(event) !== null,
+  rewrite: (event, cut) => {
+    const carrier = taskCarrier(event);
+    if (carrier !== null) {
+      const task = normalizeEmbeddedTaskToCurrentTaskV2(carrier.task);
+      return task === null
+        ? null
+        : {
+            event: { ...event, payload: { ...event.payload, task } } as CanonicalEventV1,
+            category: "embedded task normalized to current Task/v2",
+            before: carrier.task,
+            after: task,
+          };
+    }
+    const legacyLedger = legacyDocLedgerIdentity(event);
+    if (legacyLedger !== null) {
+      const headEvent = cut.readReplicaBasis(null).headEvent,
+        head =
+          headEvent === null
+            ? null
+            : {
+                revision: headEvent.workspaceRevision,
+                opId: headEvent.opId,
+                eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(headEvent))}` as const,
+              },
+        baseLedgerSha = canonicalLedgerCut(legacyLedger.repoId, head);
+      return {
+        event: {
+          ...event,
+          source: isRecord(event.source) && event.source.kind === "watch_session" ? "local" : event.source,
+          payload: { ...event.payload, baseLedgerSha },
+        } as CanonicalEventV1,
+        category: "legacy commit ledger identity normalized to pre-event canonical cut",
+        before: (event.payload as unknown as Readonly<Record<string, unknown>>).baseLedgerSha,
+        after: baseLedgerSha,
+      };
+    }
+    if (event.schema === "decision-event/v1" && event.type === "decision_proposed" && isRecord(event.payload)) {
+      if (Object.hasOwn(event.payload, "provenance")) return null;
+      const payload = {
+        ...event.payload,
+        provenance: canonicalProvenance([{ runtime: "unavailable", sessionId: null, boundAt: event.occurredAt }]),
+      };
+      return {
+        event: { ...event, payload } as CanonicalEventV1,
+        category: "legacy decision proposal normalized to current payload",
+        before: event.payload,
+        after: payload,
+      };
+    }
+    if (!isMigrationImportEvent(event)) return null;
+    const entity = event.payload.entity,
+      task = entity.kind === "task" ? normalizeEmbeddedTaskToCurrentTaskV2(entity.task) : null,
+      fact =
+        entity.kind === "fact"
+          ? {
+              ...entity.fact,
+              observedAt: normalizePersistedTimestamp(entity.fact.observedAt) ?? entity.fact.observedAt,
+              provenance: canonicalProvenance(entity.fact.provenance),
+            }
+          : null,
+      decision =
+        entity.kind === "decision"
+          ? {
+              ...entity.decision,
+              proposedAt: normalizePersistedTimestamp(entity.decision.proposedAt) ?? entity.decision.proposedAt,
+              decidedAt:
+                entity.decision.decidedAt === null
+                  ? null
+                  : (normalizePersistedTimestamp(entity.decision.decidedAt) ?? entity.decision.decidedAt),
+            }
+          : null,
+      occurredAt = event.occurredAt.endsWith("Z") ? null : normalizePersistedTimestamp(event.occurredAt);
+    const normalizedEntity =
+      task !== null
+        ? { ...entity, task }
+        : fact !== null && entity.kind === "fact" && canonicalJson(fact) !== canonicalJson(entity.fact)
+          ? { ...entity, fact }
+          : decision !== null &&
+              entity.kind === "decision" &&
+              canonicalJson(decision) !== canonicalJson(entity.decision)
+            ? { ...entity, decision }
+            : entity;
+    if (normalizedEntity === entity && occurredAt === null) return null;
+    return {
+      event: {
+        ...event,
+        occurredAt: occurredAt ?? event.occurredAt,
+        payload: { ...event.payload, entity: normalizedEntity },
+      } as CanonicalEventV1,
+      category: [
+        task === null ? null : "embedded task normalized to current Task/v2",
+        fact === null ? null : "fact provenance normalized",
+        normalizedEntity !== entity && entity.kind === "decision" ? "decision timestamps normalized" : null,
+        occurredAt ? "occurredAt normalized to Z" : null,
+      ]
+        .filter(Boolean)
+        .join(", "),
+      before: { occurredAt: event.occurredAt, entity },
+      after: { occurredAt: occurredAt ?? event.occurredAt, entity: normalizedEntity },
     };
   },
 };
@@ -449,6 +616,7 @@ const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
 
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
+  "legacy-import-normalization-migrate": legacyImportNormalizationMigration,
   "relation-events-migrate": relationEventsMigration,
   "review-submission-pins-migrate": reviewSubmissionPinsMigration,
   "decision-digests-migrate": decisionDigestsMigration,
