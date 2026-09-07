@@ -58,6 +58,34 @@ export function generationActivationCertificatePath(rootDir: string): string {
   return `${sqliteLedgerPath(rootDir, 1)}.activation.json`;
 }
 
+export function activateEmptyCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput),
+    databasePath = sqliteLedgerPath(input.rootInput, 1),
+    snapshotPath = legacyGenerationSnapshotPath(layout.rootDir);
+  if (localRuntimeStateFileSystem.exists(generationActivationCertificatePath(layout.rootDir))) {
+    preflightCanonicalGeneration(input);
+    return;
+  }
+  if (
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "legacy history requires operator conversion before activating the canonical generation",
+    );
+  createImmutableLegacyGenerationSnapshot({
+    repoId: input.repoId,
+    source: arraySnapshotStore([], new Map()),
+    snapshotPath,
+  });
+  convertLegacyGeneration({ rootDir: layout.rootDir, snapshotPath, databasePath });
+  preflightConvertedGenerationActivation({ repoId: input.repoId, rootDir: layout.rootDir, snapshotPath, databasePath });
+}
+
 export function preflightCanonicalGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;

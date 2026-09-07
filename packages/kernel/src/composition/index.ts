@@ -18,6 +18,7 @@ export { eventShapeMigrations } from "../store/event-shape-migration.ts";
 export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
+  activateEmptyCanonicalGeneration,
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   preflightCanonicalGeneration,
 } from "../store/legacy-generation-conversion.ts";

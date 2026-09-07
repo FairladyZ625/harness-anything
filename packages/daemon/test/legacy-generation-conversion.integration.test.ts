@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import {
+  activateEmptyCanonicalGeneration,
   canonicalEventWritePlan,
   compileSettingsChangedEvent,
   compileScheduleDefinitionEvent,
@@ -207,6 +208,24 @@ test("attach leaves a revision-zero generation over legacy history inactive and 
     const unchanged = openSqliteEventStore({ repoId, databasePath, readOnly: true });
     assert.equal(unchanged.revision(), 0);
     unchanged.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("explicit bootstrap activation creates an empty canonical generation only for a repository without legacy history", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-empty-bootstrap-generation-")),
+    repoId = "empty-bootstrap-generation",
+    databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
+    snapshotPath = path.join(root, ".harness/store/imports/generation-0.snapshot.json");
+  try {
+    initRepo(root);
+    activateEmptyCanonicalGeneration({ rootInput: root, repoId });
+    assert.doesNotThrow(() => preflightCanonicalGeneration({ rootInput: root, repoId }));
+    assert.equal(existsSync(snapshotPath), true);
+    assert.equal(existsSync(`${databasePath}.import-source.json`), true);
+    assert.equal(existsSync(`${databasePath}.activation.json`), true);
+    activateEmptyCanonicalGeneration({ rootInput: root, repoId });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

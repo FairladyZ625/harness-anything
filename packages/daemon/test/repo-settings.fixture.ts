@@ -3,22 +3,17 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
-  convertLegacyGeneration,
-  createImmutableLegacyGenerationSnapshot,
   makeTaskEventStore,
-  openSqliteEventStore,
   preflightCanonicalGeneration,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
   writeRepositorySettingsFacet,
 } from "../../kernel/src/index.ts";
-import {
-  daemonRegistryPaths,
-  preflightConvertedGenerationActivation,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell, type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
@@ -31,22 +26,7 @@ import {
 const seededSettings = new Set<string>();
 
 export function activateEmptyFixtureGeneration(repoId: string, rootDir: string): void {
-  const layout = resolveHarnessLayout(rootDir),
-    snapshotPath = path.join(layout.localRoot, "store/imports/generation-0.snapshot.json"),
-    databasePath = path.join(layout.localRoot, "store/generations/1/ledger.sqlite");
-  if (existsSync(`${databasePath}.activation.json`)) return;
-  createImmutableLegacyGenerationSnapshot({
-    repoId,
-    snapshotPath,
-    source: {
-      read: () => ({ revision: 0, events: [] }),
-      readContentBlob: () => null,
-    },
-  });
-  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
-  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
-  const store = openSqliteEventStore({ repoId, databasePath, readOnly: true });
-  store.close();
+  activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
 }
 
 function settingsBase(rootDir: string): string {

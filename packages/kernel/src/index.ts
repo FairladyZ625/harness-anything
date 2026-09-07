@@ -1,6 +1,7 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
+  activateEmptyCanonicalGeneration,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,

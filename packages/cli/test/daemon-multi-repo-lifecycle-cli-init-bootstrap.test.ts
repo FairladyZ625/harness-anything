@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import {
+  activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   makeTaskEventStore,
   preflightCanonicalGeneration,
@@ -331,6 +332,7 @@ test("center registration keeps an external ledger repository readable and writa
   const fixture = setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
+    activateEmptyCanonicalGeneration({ rootInput: fixture.alpha, repoId: "center" });
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
       store = makeTaskEventStore({
         rootDir: fixture.alpha,

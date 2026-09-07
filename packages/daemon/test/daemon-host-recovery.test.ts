@@ -450,6 +450,8 @@ test("an unactivated repository is unavailable while an activated peer attaches 
     inactive = path.join(parent, "inactive"),
     active = path.join(parent, "active");
   rosterRepo(inactive, "inactive");
+  mkdirSync(path.join(inactive, "harness/events"), { recursive: true });
+  writeFileSync(path.join(inactive, "harness/events/head.json"), '{"revision":1}\n');
   rosterRepo(active, "active");
   registerProductDaemonRepo({
     canonicalRoot: inactive,

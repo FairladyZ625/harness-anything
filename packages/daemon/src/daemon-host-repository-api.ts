@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Daemon ingress filtering and repository dispatch. */
 import {
+  activateEmptyCanonicalGeneration,
   readDaemonRegistry,
   getExecutableEntityAction,
   registerDaemonConnection,
@@ -52,6 +53,8 @@ export function createDaemonHostRepositoryApi(
       await context.cells.get(prepared.repoId)?.close();
       context.cells.delete(prepared.repoId);
       context.unavailable.delete(prepared.repoId);
+      if (!prepared.configureOnly)
+        activateEmptyCanonicalGeneration({ rootInput: prepared.rootDir, repoId: prepared.repoId });
       let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
       try {
         cell = await openRepoCell({
