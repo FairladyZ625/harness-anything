@@ -100,7 +100,8 @@ export function parseFactRecord(
       "missing_field",
       supersedes
         ? "--rationale and --supersedes must be provided together; add --rationale <why>, then rerun the command."
-        : "--rationale and --supersedes must be provided together; add --supersedes <fact-ref>, then rerun the command.",
+        : "--rationale and --supersedes must be provided together; " +
+            "add --supersedes <fact-ref>, then rerun the command.",
       json,
     );
   return accepted(rootDir, repoId, json, {
