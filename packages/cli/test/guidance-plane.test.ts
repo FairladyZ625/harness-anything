@@ -118,6 +118,18 @@ test("write_rejected renders the inner receipt reason and summary without sugges
   );
 });
 
+test("fact_type_unregistered guides registering the domain type before retry", () => {
+  assert.deepEqual(
+    renderCliReceipt({ ok: false, code: "fact_type_unregistered", error: { code: "fact_type_unregistered" } }),
+    {
+      stream: "stderr",
+      text:
+        "error code=fact_type_unregistered hint=Fact domain types must be registered before use; " +
+        "run ha fact type register <type> --source <source>, then retry this command.",
+    },
+  );
+});
+
 test("receipt registry preserves migrated family goldens", () => {
   assert.deepEqual(renderCliReceipt({ command: "runtime-batch", dispatches: [] }), {
     stream: "stdout",

@@ -80,6 +80,12 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["*:remove-dry-run", (args) => `next: remove --dry-run and rerun ${textArg(args, "command")}`],
   ["*:no-action", () => "next: no action required"],
   [
+    "failure:fact-type-unregistered",
+    () =>
+      "Fact domain types must be registered before use; run ha fact type register <type> --source <source>, " +
+      "then retry this command.",
+  ],
+  [
     "failure:daemon-stopping",
     () =>
       "The daemon is draining its write queues before it exits and admits no new work; it releases its " +
@@ -174,6 +180,7 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
         `Inner receipt: ${typeof receipt.summary === "string" ? receipt.summary : "summary unavailable"}`,
     };
   if (code === "daemon_stopping") return { code, hint: renderTemplate("failure", "daemon-stopping", {}) };
+  if (code === "fact_type_unregistered") return { code, hint: renderTemplate("failure", "fact-type-unregistered", {}) };
   if (code === "daemon_restarting" && typeof outer.hint === "string") return { code, hint: outer.hint };
   const diagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     diagnosticHint = diagnostic ? renderDiagnostic(diagnostic) : null,

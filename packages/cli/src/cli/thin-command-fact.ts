@@ -1,5 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { accepted, projectionWaitMs, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import { accepted, projectionWaitMs, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -95,7 +95,15 @@ export function parseFactRecord(
     );
   if (waitProjectionMs === null)
     return rejected("invalid_field", "Use a non-negative safe integer projection wait limit in milliseconds.", json);
-  if (Boolean(supersedes) !== Boolean(rationale)) return rejectInput(inputs, "fact-record", "--rationale", json);
+  if (Boolean(supersedes) !== Boolean(rationale))
+    return rejected(
+      "missing_field",
+      supersedes
+        ? "--rationale and --supersedes must be provided together; add --rationale <why>, then rerun the command."
+        : "--rationale and --supersedes must be provided together; " +
+            "add --supersedes <fact-ref>, then rerun the command.",
+      json,
+    );
   return accepted(rootDir, repoId, json, {
     kind: "fact-record",
     ...(positionalTaskId || flaggedTaskId ? { taskId: positionalTaskId ?? flaggedTaskId } : {}),
