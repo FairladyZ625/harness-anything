@@ -641,33 +641,47 @@ function verifyDocumentClosure(
   commit: string,
   closure: ReturnType<typeof documentClosure>,
 ): void {
-  const modes = new Map(
-    localGitObjectRefStore.listTree(ledger.rootDir, commit).map((entry) => [entry.target, entry.mode]),
-  );
+  const tree = new Map(localGitObjectRefStore.listTree(ledger.rootDir, commit).map((entry) => [entry.target, entry])),
+    bodies = localGitObjectRefStore.readPaths(
+      ledger.rootDir,
+      commit,
+      [...closure.documents.keys()].flatMap((logical) => {
+        const entry = tree.get(ledgerGitPath(ledger, logical));
+        return entry ? [{ target: entry.target, size: entry.size }] : [];
+      }),
+    );
   for (const [logical, expected] of closure.documents) {
     const target = ledgerGitPath(ledger, logical),
-      bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, target);
+      bytes = bodies.get(target) ?? null;
     if (
       bytes === null ||
       bytes.byteLength !== expected.size ||
       sha256Text(bytes.toString("utf8")) !== expected.sha256 ||
-      modes.get(target) !== expected.mode
+      tree.get(target)?.mode !== expected.mode
     )
       throw new TaskEventStoreError("publication_indeterminate", `Git follower document differs at ${logical}`);
   }
   for (const logical of closure.retirements)
-    if (localGitObjectRefStore.readPath(ledger.rootDir, commit, ledgerGitPath(ledger, logical)) !== null)
+    if (tree.has(ledgerGitPath(ledger, logical)))
       throw new TaskEventStoreError("publication_indeterminate", `Git follower retirement differs at ${logical}`);
 }
 
 function verifyGitFiles(repoRoot: string, commit: string, files: readonly PublicationFile[]): void {
-  const modes = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry.mode]));
+  const tree = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry])),
+    bodies = localGitObjectRefStore.readPaths(
+      repoRoot,
+      commit,
+      files.flatMap((file) => {
+        const entry = "target" in file ? tree.get(file.target) : undefined;
+        return entry ? [{ target: entry.target, size: entry.size }] : [];
+      }),
+    );
   for (const file of files) {
     if ("target" in file) {
-      const body = localGitObjectRefStore.readPath(repoRoot, commit, file.target)?.toString("utf8") ?? null;
-      if (body !== file.body || modes.get(file.target) !== file.mode)
+      const body = bodies.get(file.target)?.toString("utf8") ?? null;
+      if (body !== file.body || tree.get(file.target)?.mode !== file.mode)
         throw new TaskEventStoreError("publication_indeterminate", `Git follower read-back differs at ${file.target}`);
-    } else if ("delete" in file && localGitObjectRefStore.readPath(repoRoot, commit, file.delete) !== null) {
+    } else if ("delete" in file && tree.has(file.delete)) {
       throw new TaskEventStoreError("publication_indeterminate", `Git follower did not retire ${file.delete}`);
     }
   }
@@ -770,17 +784,27 @@ function captureGitBaseline(
   commit: string,
   files: readonly PublicationFile[],
 ): ReadonlyMap<string, string> {
-  const modes = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry.mode]));
-  return new Map(
-    files.flatMap((file) => {
+  const tree = new Map(localGitObjectRefStore.listTree(repoRoot, commit).map((entry) => [entry.target, entry])),
+    targets = files.flatMap((file) => {
       const target = "target" in file ? file.target : "delete" in file ? file.delete : null;
-      if (target === null) return [];
-      const bytes = localGitObjectRefStore.readPath(repoRoot, commit, target);
+      return target === null ? [] : [target];
+    }),
+    bodies = localGitObjectRefStore.readPaths(
+      repoRoot,
+      commit,
+      targets.flatMap((target) => {
+        const entry = tree.get(target);
+        return entry ? [{ target, size: entry.size }] : [];
+      }),
+    );
+  return new Map(
+    targets.map((target) => {
+      const bytes = bodies.get(target) ?? null;
       return [
-        [
-          target,
-          bytes === null ? "missing" : `${modes.get(target)}:${sha256Text(bytes.toString("utf8"))}:${bytes.byteLength}`,
-        ],
+        target,
+        bytes === null
+          ? "missing"
+          : `${tree.get(target)?.mode}:${sha256Text(bytes.toString("utf8"))}:${bytes.byteLength}`,
       ];
     }),
   );

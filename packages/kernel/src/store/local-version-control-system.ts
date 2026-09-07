@@ -230,6 +230,24 @@ function localGitBytes(repoRoot: string, args: readonly string[], input?: Uint8A
     });
   }
 }
+// Synchronous git input always travels through a regular-file descriptor: a socketpair stdin
+// wedges intermittently on macOS worker threads (task_fc929174), whatever the payload size.
+function withStdinFile<T>(
+  repoRoot: string,
+  prefix: string,
+  chunks: Iterable<string | Uint8Array>,
+  run: (descriptor: number) => T,
+): T {
+  const temporaryRoot = path.join(repoRoot, ".harness"),
+    temporaryPath = path.join(temporaryRoot, `${prefix}${process.pid}-${randomUUID()}`);
+  localRuntimeStateFileSystem.mkdirp(temporaryRoot);
+  try {
+    localRuntimeStateFileSystem.writeExclusiveStream(temporaryPath, chunks);
+    return localRuntimeStateFileSystem.withReadDescriptor(temporaryPath, run);
+  } finally {
+    localRuntimeStateFileSystem.remove(temporaryPath);
+  }
+}
 export const localGitObjectRefStore = Object.freeze({
   processCount: () => localGitProcesses,
   commitTimestamp: (repoRoot: string, commit: string): string | null => {
@@ -288,10 +306,11 @@ export const localGitObjectRefStore = Object.freeze({
       chunkBytes = 0;
     const flush = () => {
       if (chunk.length === 0) return;
-      const output = localGitBytes(
+      const output = withStdinFile(
         repoRoot,
-        ["cat-file", "--batch"],
-        Buffer.from(chunk.map(({ target }) => `${commit}:${target}\n`).join("")),
+        ".ha-cat-file-batch-",
+        [chunk.map(({ target }) => `${commit}:${target}\n`).join("")],
+        (inputFd) => localGitBytes(repoRoot, ["cat-file", "--batch"], inputFd),
       );
       let offset = 0;
       for (const { target } of chunk) {
@@ -346,25 +365,14 @@ export const localGitObjectRefStore = Object.freeze({
           : [];
       });
   },
-  importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) => {
-    // The fast-import stream is handed to git as a regular-file descriptor: a socketpair stdin
-    // wedges intermittently on macOS (task_fc929174), and the whole publication is one spawn.
-    const temporaryRoot = path.join(repoRoot, ".harness"),
-      temporaryPath = path.join(temporaryRoot, `.ha-fast-import-${process.pid}-${randomUUID()}`);
-    localRuntimeStateFileSystem.mkdirp(temporaryRoot);
-    try {
-      localRuntimeStateFileSystem.writeExclusiveStream(temporaryPath, input);
-      return localRuntimeStateFileSystem.withReadDescriptor(temporaryPath, (inputFd) =>
-        localGitBytes(
-          repoRoot,
-          ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
-          inputFd,
-        ),
-      );
-    } finally {
-      localRuntimeStateFileSystem.remove(temporaryPath);
-    }
-  },
+  importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
+    withStdinFile(repoRoot, ".ha-fast-import-", input, (inputFd) =>
+      localGitBytes(
+        repoRoot,
+        ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
+        inputFd,
+      ),
+    ),
   listRefs: (repoRoot: string, refs: readonly string[]) =>
     runGit(repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", ...refs),
   updateRef: (repoRoot: string, ref: string, sha: string, previous?: string) => {
