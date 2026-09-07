@@ -8,7 +8,7 @@ import test from "node:test";
 import {
   canonicalEventWritePlan,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
+  activateEmptyCanonicalGeneration,
   type AgentRuntimeEventV1,
   type SessionProvenanceV1,
 } from "../../kernel/src/index.ts";
@@ -171,7 +171,7 @@ async function seedRuntime(rootDir: string): Promise<void> {
   const store = makeTaskEventStore({
     repoId: "session-identity-writes",
     rootDir,
-    activationPreflight: preflightCanonicalGeneration,
+    activationPreflight: activateEmptyCanonicalGeneration,
   });
   for (const event of runtimeEvents())
     store.append({

@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import {
+  legacyGenerationSnapshotPath,
+  makeTaskEventReader,
+  preflightConvertedGenerationActivation,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -114,7 +118,7 @@ test("Git event-layout corruption cannot revoke SQLite acceptance or reads", asy
   }
 });
 
-test("SQLite malformed canonical rows fail closed during activation", async () => {
+test("SQLite malformed canonical rows fail closed during operator activation validation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-invalid-activation-"));
   let cell: RepoCell | undefined;
   try {
@@ -132,8 +136,14 @@ test("SQLite malformed canonical rows fail closed during activation", async () =
       db = new DatabaseSync(databasePath);
     db.prepare("UPDATE event SET event_json = ? WHERE revision = 1").run("{}");
     db.close();
-    await assert.rejects(
-      openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-invalid-two" }),
+    assert.throws(
+      () =>
+        preflightConvertedGenerationActivation({
+          repoId,
+          rootDir,
+          snapshotPath: legacyGenerationSnapshotPath(rootDir),
+          databasePath,
+        }),
       /event|canonical|invalid|schema/iu,
     );
   } finally {

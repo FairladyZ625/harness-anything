@@ -21,7 +21,6 @@ import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { canonicalRoot, workspaceId, type DaemonStatusResult } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import {
-  activateEmptyFixtureGeneration,
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
@@ -649,7 +648,6 @@ test("remote-edge Cell terminal side effects require Cell-level mode admission",
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     rosterRepo(rootDir, "cell-terminal-mode");
-    activateEmptyFixtureGeneration("cell-terminal-mode", rootDir);
     cell = await openRepoCell({
       repoId: workspaceId("cell-terminal-mode"),
       rootDir: canonicalRoot(rootDir),

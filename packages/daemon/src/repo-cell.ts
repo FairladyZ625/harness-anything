@@ -5,8 +5,8 @@ import {
   closeoutReadiness,
   configureLedgerMaintenance,
   consumeKnownError,
+  activateEmptyCanonicalGeneration,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
   makeTaskProjection,
   type DaemonRepoMode,
 } from "../../kernel/src/index.ts";
@@ -85,7 +85,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     repoId: context.input.repoId,
     rootDir: context.rootDir,
     authoredBranch: context.authoredBranch,
-    activationPreflight: preflightCanonicalGeneration,
+    activationPreflight: activateEmptyCanonicalGeneration,
     killpoint: context.input.killpoint,
     onMaterializationHealthChange: context.input.onMaterializationHealthChange,
     writerFence: () => {

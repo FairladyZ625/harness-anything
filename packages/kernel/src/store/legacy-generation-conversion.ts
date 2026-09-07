@@ -75,7 +75,7 @@ export function activateEmptyCanonicalGeneration(input: {
   )
     throw new TaskEventStoreError(
       "invalid_store",
-      "legacy history requires operator conversion before activating the canonical generation",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
     );
   createImmutableLegacyGenerationSnapshot({
     repoId: input.repoId,

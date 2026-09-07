@@ -7,7 +7,6 @@ import {
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
@@ -24,10 +23,6 @@ import {
 } from "../src/writer-epoch.ts";
 
 const seededSettings = new Set<string>();
-
-export function activateEmptyFixtureGeneration(repoId: string, rootDir: string): void {
-  activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
-}
 
 function settingsBase(rootDir: string): string {
   const settingsPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
@@ -61,11 +56,10 @@ export function seedSettingsEvent(input: {
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
   if (seededSettings.has(fixtureKey)) return;
-  activateEmptyFixtureGeneration(repoId, rootDir);
   const store = makeTaskEventStore({
       repoId,
       rootDir,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
@@ -146,11 +140,10 @@ async function settleSettingsEvent(input: {
   // SQLite. Reopening and draining a second store here defeats attach budgets
   // and masks tests that intentionally exercise an invalid Git layout.
   if (seededSettings.has(fixtureKey)) return;
-  activateEmptyFixtureGeneration(repoId, rootDir);
   const store = makeTaskEventStore({
       repoId,
       rootDir,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
@@ -192,9 +185,6 @@ async function settleSettingsEvent(input: {
 }
 
 export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
-  if (input.repoId && input.canonicalRoot) {
-    activateEmptyFixtureGeneration(input.repoId, input.canonicalRoot);
-  }
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
     const writerEpochFence = fixtureFence(
       input.repoId,

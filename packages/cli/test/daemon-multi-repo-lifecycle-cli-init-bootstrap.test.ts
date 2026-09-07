@@ -9,7 +9,6 @@ import {
   activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
   readSettingsFacet,
   repositorySettings,
 } from "../../kernel/src/index.ts";
@@ -332,12 +331,11 @@ test("center registration keeps an external ledger repository readable and writa
   const fixture = setup();
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
-    activateEmptyCanonicalGeneration({ rootInput: fixture.alpha, repoId: "center" });
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
       store = makeTaskEventStore({
         rootDir: fixture.alpha,
         repoId: "center",
-        activationPreflight: preflightCanonicalGeneration,
+        activationPreflight: activateEmptyCanonicalGeneration,
       });
     store.append(
       compileSettingsChangedEvent({

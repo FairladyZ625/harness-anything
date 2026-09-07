@@ -5,6 +5,7 @@ export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
+  preflightConvertedGenerationActivation,
   preflightCanonicalGeneration,
 } from "./composition/index.ts";
 export {

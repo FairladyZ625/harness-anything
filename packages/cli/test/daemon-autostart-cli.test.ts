@@ -32,7 +32,7 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   canonicalEventWritePlan,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
+  activateEmptyCanonicalGeneration,
   registerDaemonRepo,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
@@ -1287,7 +1287,7 @@ async function seedLegacyTask(root: string, userRoot: string, repoId: string, ta
     store = makeTaskEventStore({
       repoId,
       rootDir: root,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
     });
   try {
@@ -1322,7 +1322,7 @@ async function seedAttachableRuntime(
     store = makeTaskEventStore({
       repoId,
       rootDir: root,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       writerFence: () => ({ repoId, holderId: lease.holderId, epoch: lease.epoch }),
     }),
     firstRevision = store.read().revision + 1;
