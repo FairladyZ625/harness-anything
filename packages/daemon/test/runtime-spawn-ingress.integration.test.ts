@@ -284,7 +284,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Mission\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
       );
     });
-    await t.test("only enforced Codex workspace-write receives a callback relay", async () => {
+    await t.test("enforced Codex runtimes receive a callback relay without opening operator routes", async () => {
       const directEndpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
         cases = [
           {
@@ -351,10 +351,20 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           },
         });
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-        assert.equal(launchedEnv?.HARNESS_DAEMON_ENDPOINT, directEndpoint);
-        assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, undefined);
-        assert.equal(launchedPersistence?.callbackRelay, undefined);
-        assert.ok(launchedPrompt.includes(`Daemon endpoint: ${directEndpoint}`));
+        const receivesRelay = runtime.kindId === "codex" && runtime.isolationState === "enforced";
+        if (receivesRelay) {
+          assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
+          assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
+          assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+          assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
+          assert.equal(launchedPersistence?.callbackRelay?.endpoint, directEndpoint);
+          assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
+        } else {
+          assert.equal(launchedEnv?.HARNESS_DAEMON_ENDPOINT, directEndpoint);
+          assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, undefined);
+          assert.equal(launchedPersistence?.callbackRelay, undefined);
+          assert.ok(launchedPrompt.includes(`Daemon endpoint: ${directEndpoint}`));
+        }
       }
     });
     await t.test("the first dispatch holds the task lease and a concurrent second dispatch is rejected", async () => {
