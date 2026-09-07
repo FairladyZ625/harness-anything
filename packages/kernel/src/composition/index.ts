@@ -20,7 +20,6 @@ export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
   activateEmptyCanonicalGeneration,
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
-  preflightCanonicalGeneration,
 } from "../store/legacy-generation-conversion.ts";
 export type { StoppedLegacySourceEvidenceV1 } from "../store/legacy-generation-conversion.ts";
 export { resolveRetirableDocument } from "../store/ledger-document.ts";
@@ -63,7 +62,6 @@ export {
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
-  preflightConvertedGenerationActivation,
   readImmutableLegacyGenerationSnapshot,
 } from "../store/legacy-generation-conversion.ts";
 export { sqliteContentObjectPath } from "../store/sqlite-event-store.ts";

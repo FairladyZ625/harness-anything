@@ -11,8 +11,6 @@ export {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
-  preflightConvertedGenerationActivation,
-  preflightCanonicalGeneration,
   readImmutableLegacyGenerationSnapshot,
 } from "./legacy-generation-conversion.ts";
 export type { StoppedLegacySourceEvidenceV1 } from "./legacy-generation-conversion.ts";
