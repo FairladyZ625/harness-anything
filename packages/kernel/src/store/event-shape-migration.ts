@@ -28,6 +28,7 @@ import { isRelationEvent } from "../domain/relation-event.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { isTaskEvent } from "../domain/doc-sync-canonical-events.ts";
 import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
+import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
@@ -42,6 +43,7 @@ import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-sto
 // active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
   | "task-v2-snapshots"
+  | "legacy-import-normalization"
   | "relation-events"
   | "review-submission-pins"
   | "decision-digests"
@@ -49,6 +51,7 @@ export type EventShapeMigrationName =
   | "settings-wal-flush";
 export type EventShapeMigrationKind =
   | "task-v2-snapshots-migrate"
+  | "legacy-import-normalization-migrate"
   | "relation-events-migrate"
   | "review-submission-pins-migrate"
   | "decision-digests-migrate"
@@ -163,6 +166,67 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
       category: "retired Task.relations dropped after canonical relation event",
       before: legacy.task,
       after: task,
+    };
+  },
+};
+
+function normalizeEmbeddedTaskToCurrentTaskV2(task: TaskV2): TaskV2 | null {
+  const current = task as TaskV2 & { readonly pinned?: unknown };
+  let normalized: TaskV2 = Object.hasOwn(current, "pinned") ? current : { ...current, pinned: false };
+  if (normalized.metadata !== undefined) {
+    const { longRunning: _retiredLongRunning, ...metadata } = normalized.metadata as TaskV2["metadata"] & {
+      readonly longRunning?: unknown;
+    };
+    normalized = {
+      ...normalized,
+      metadata: {
+        ...metadata,
+        workKind: metadata.workKind ?? null,
+        urgency: metadata.urgency ?? null,
+        verticalId: metadata.verticalId ?? "software/coding",
+        surfaces: metadata.surfaces ?? [],
+      },
+    };
+  }
+  return canonicalJson(normalized) === canonicalJson(task) ? null : normalized;
+}
+
+const legacyImportNormalizationMigration: EventShapeMigrationSpec = {
+  name: "legacy-import-normalization",
+  matches: () => false,
+  rewrite: (event) => {
+    const carrier = asTaskBootstrapEvent(event);
+    if (carrier !== null) {
+      const task = normalizeEmbeddedTaskToCurrentTaskV2(carrier.payload.task as TaskV2);
+      return task === null
+        ? null
+        : {
+            event: { ...event, payload: { ...event.payload, task } } as CanonicalEventV1,
+            category: "embedded task normalized to current Task/v2",
+            before: carrier.payload.task,
+            after: task,
+          };
+    }
+    if (!isMigrationImportEvent(event)) return null;
+    const entity = event.payload.entity,
+      task = entity.kind === "task" ? normalizeEmbeddedTaskToCurrentTaskV2(entity.task) : null,
+      occurredAt = event.occurredAt.endsWith("Z") ? null : normalizePersistedTimestamp(event.occurredAt);
+    if (task === null && occurredAt === null) return null;
+    const normalizedEntity = task === null ? entity : { ...entity, task };
+    return {
+      event: {
+        ...event,
+        occurredAt: occurredAt ?? event.occurredAt,
+        payload: { ...event.payload, entity: normalizedEntity },
+      } as CanonicalEventV1,
+      category: [
+        task === null ? null : "embedded task normalized to current Task/v2",
+        occurredAt ? "occurredAt normalized to Z" : null,
+      ]
+        .filter(Boolean)
+        .join(", "),
+      before: { occurredAt: event.occurredAt, entity },
+      after: { occurredAt: occurredAt ?? event.occurredAt, entity: normalizedEntity },
     };
   },
 };
@@ -449,6 +513,7 @@ const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
 
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
+  "legacy-import-normalization-migrate": legacyImportNormalizationMigration,
   "relation-events-migrate": relationEventsMigration,
   "review-submission-pins-migrate": reviewSubmissionPinsMigration,
   "decision-digests-migrate": decisionDigestsMigration,

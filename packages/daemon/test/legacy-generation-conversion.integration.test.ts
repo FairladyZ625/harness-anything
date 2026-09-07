@@ -352,6 +352,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       })),
       [
         { name: "task-v2-snapshots", count: 0, firstRevision: null, lastRevision: null },
+        { name: "legacy-import-normalization", count: 0, firstRevision: null, lastRevision: null },
         { name: "relation-events", count: 0, firstRevision: null, lastRevision: null },
         { name: "review-submission-pins", count: 0, firstRevision: null, lastRevision: null },
         { name: "decision-digests", count: 0, firstRevision: null, lastRevision: null },
