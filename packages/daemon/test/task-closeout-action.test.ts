@@ -8,6 +8,7 @@ import type { ActorIdentity, AuthorizationDecision, WriteReceipt } from "../../k
 import { runTaskCloseoutAction, type CloseoutStep } from "../../application/src/task-closeout-action.ts";
 import { gateChecks } from "../src/repo-cell-proof.ts";
 import { readWorkspaceText } from "../src/workspace-text-port.ts";
+import { authorizeCloseoutLeaf } from "../src/repo-cell-closeout.ts";
 
 const taskId = "task-closeout",
   executionId = "execution-closeout",
@@ -194,6 +195,43 @@ test("closeout runs four canonical leaf commands without impersonating the creat
   } finally {
     rmSync(value.rootDir, { recursive: true, force: true });
   }
+});
+
+test("complete leaf reuses an allowed center decision, while non-allowed remains denied", () => {
+  const action = { kind: "task-complete", taskId } as const,
+    actorValue = actor("worker-agent"),
+    allowed = { ...authorizationDecision, actor: actorValue },
+    binding = { actor: actorValue, source: "local", authorizationDecision: allowed } as const;
+  assert.equal(
+    authorizeCloseoutLeaf({
+      stage: "complete",
+      binding,
+      actor: actorValue,
+      action,
+      actionId: "a",
+      revision: 1,
+      now: "2026-01-01T00:00:00Z",
+    }).outcome,
+    "allowed",
+  );
+  const deniedBinding = {
+    ...binding,
+    source: "declared",
+    authorizationBindingMode: "declared",
+    authorizationDecision: undefined,
+  } as const;
+  assert.equal(
+    authorizeCloseoutLeaf({
+      stage: "complete",
+      binding: deniedBinding,
+      actor: actorValue,
+      action,
+      actionId: "a",
+      revision: 1,
+      now: "2026-01-01T00:00:00Z",
+    }).outcome,
+    "denied",
+  );
 });
 test("closeout upgrades a stale preset snapshot before the first lifecycle mutation", async () => {
   const value = setup(snapshot(), undefined, caller, undefined, false);
