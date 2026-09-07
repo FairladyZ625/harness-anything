@@ -18,13 +18,13 @@ import {
   statSync,
   symlinkSync,
   unlinkSync,
-  writeSync,
   writeFileSync,
 } from "node:fs";
 import { open as openAsync } from "node:fs/promises";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
@@ -347,34 +347,22 @@ export const localGitObjectRefStore = Object.freeze({
       });
   },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) => {
+    // The fast-import stream is handed to git as a regular-file descriptor: a socketpair stdin
+    // wedges intermittently on macOS (task_fc929174), and the whole publication is one spawn.
     const temporaryRoot = path.join(repoRoot, ".harness"),
       temporaryPath = path.join(temporaryRoot, `.ha-fast-import-${process.pid}-${randomUUID()}`);
-    mkdirSync(temporaryRoot, { recursive: true });
-    let inputFd: number | null = null,
-      temporaryCreated = false;
+    localRuntimeStateFileSystem.mkdirp(temporaryRoot);
     try {
-      const outputFd = openSync(temporaryPath, "wx");
-      temporaryCreated = true;
-      try {
-        for (const chunk of input) {
-          const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
-          for (let offset = 0; offset < bytes.byteLength; ) offset += writeSync(outputFd, bytes, offset);
-        }
-      } finally {
-        closeSync(outputFd);
-      }
-      inputFd = openSync(temporaryPath, "r");
-      return localGitBytes(
-        repoRoot,
-        ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
-        inputFd,
+      localRuntimeStateFileSystem.writeExclusiveStream(temporaryPath, input);
+      return localRuntimeStateFileSystem.withReadDescriptor(temporaryPath, (inputFd) =>
+        localGitBytes(
+          repoRoot,
+          ["-c", "core.fsync=committed,reference", "-c", "core.fsyncMethod=fsync", "fast-import", "--quiet", "--force"],
+          inputFd,
+        ),
       );
     } finally {
-      try {
-        if (inputFd !== null) closeSync(inputFd);
-      } finally {
-        if (temporaryCreated) unlinkSync(temporaryPath);
-      }
+      localRuntimeStateFileSystem.remove(temporaryPath);
     }
   },
   listRefs: (repoRoot: string, refs: readonly string[]) =>

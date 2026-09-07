@@ -99,6 +99,34 @@ export const localRuntimeStateFileSystem = {
     /* @gate-identity check-bypass-write-boundary/bypass-write-058 */
     rmSync(inputPath, { force: true }),
   syncDirectory: (inputPath: string) => syncDirectories([inputPath]),
+  withReadDescriptor: <T>(inputPath: string, use: (descriptor: number) => T): T => {
+    const descriptor =
+      /* @gate-identity check-bypass-write-boundary/bypass-write-129 */
+      openSync(inputPath, "r");
+    try {
+      return use(descriptor);
+    } finally {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-130 */
+      closeSync(descriptor);
+    }
+  },
+  writeExclusiveStream: (inputPath: string, chunks: Iterable<string | Uint8Array>): void => {
+    const descriptor =
+      /* @gate-identity check-bypass-write-boundary/bypass-write-131 */
+      openSync(inputPath, "wx");
+    try {
+      for (const chunk of chunks) {
+        const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+        for (let offset = 0; offset < bytes.byteLength; )
+          offset +=
+            /* @gate-identity check-bypass-write-boundary/bypass-write-132 */
+            writeSync(descriptor, bytes, offset);
+      }
+    } finally {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-133 */
+      closeSync(descriptor);
+    }
+  },
   writeText: (inputPath: string, value: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-059 */
     writeFileSync(inputPath, value, "utf8"),
