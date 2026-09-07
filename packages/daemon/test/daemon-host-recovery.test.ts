@@ -10,6 +10,7 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
   readDaemonRegistry,
+  registerDaemonRepo as registerProductDaemonRepo,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
 import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
@@ -436,6 +437,36 @@ test("a repository whose open never settles is bounded by an attach budget while
       "attached",
       "a late open completion must heal the timed-out latch",
     );
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("an unactivated repository is unavailable while an activated peer attaches and serves", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unactivated-")),
+    userRoot = path.join(parent, "user"),
+    inactive = path.join(parent, "inactive"),
+    active = path.join(parent, "active");
+  rosterRepo(inactive, "inactive");
+  mkdirSync(path.join(inactive, "harness/events"), { recursive: true });
+  writeFileSync(path.join(inactive, "harness/events/head.json"), '{"revision":1}\n');
+  rosterRepo(active, "active");
+  registerProductDaemonRepo({
+    canonicalRoot: inactive,
+    repoId: "inactive",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  registerDaemonRepo({ canonicalRoot: active, repoId: "active", userRoot, createConvenienceLinks: false });
+  const host = await openDaemonHost({ daemonId: "host-unactivated", userRoot });
+  try {
+    await host.attachmentsSettled();
+    const inactiveStatus = host.status().repos.find((repo) => repo.repoId === "inactive")!;
+    assert.equal(inactiveStatus.state, "unavailable");
+    assert.match(String(inactiveStatus.lastError), /run operator conversion before attaching this repository/u);
+    assert.equal((await host.run("inactive", { kind: "task-list" }, auth)).code, "repo_unavailable");
+    assert.equal((await host.run("active", { kind: "task-list" }, auth)).outcome, "applied");
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

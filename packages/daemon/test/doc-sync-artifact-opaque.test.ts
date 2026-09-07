@@ -15,7 +15,9 @@ import {
   makeTaskEventStore,
   parseDocWriteIntent,
   sha256Bytes,
+  sqliteLedgerPath,
 } from "../../kernel/src/index.ts";
+import { preflightConvertedGenerationActivation } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -382,6 +384,12 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
   await store.drain();
   const converted = convertLegacyGeneration({ rootDir, snapshotPath });
   assert.equal(converted.migratedEvents, 1);
+  preflightConvertedGenerationActivation({
+    repoId,
+    rootDir,
+    snapshotPath,
+    databasePath: sqliteLedgerPath(rootDir, 1),
+  });
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "opaque-prose-restamp" });
   try {
     const firstBody = `${legacy}Current state.\n`;

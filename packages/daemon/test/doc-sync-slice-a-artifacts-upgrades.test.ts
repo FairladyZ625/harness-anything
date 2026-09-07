@@ -9,7 +9,7 @@ import {
   MIGRATION_DOCUMENT_POLICY_ID,
   makeTaskEventReader,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
+  activateEmptyCanonicalGeneration,
   serializeCanonicalEvent,
 } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -263,7 +263,7 @@ test("an authored edit of a migrated governance standard upgrades its policy in 
     legacy = "# Docs Library\n\nfact 用 invalidate。\n",
     repoId = workspaceId("upgrade"),
     binding = ownerBinding;
-  const seed = makeTaskEventStore({ repoId, rootDir, activationPreflight: preflightCanonicalGeneration });
+  const seed = makeTaskEventStore({ repoId, rootDir, activationPreflight: activateEmptyCanonicalGeneration });
   seed.append(standardMigration(1, standard, legacy));
   await seed.drain();
   const cell = await openRepoCell({

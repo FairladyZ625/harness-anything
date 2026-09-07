@@ -5,13 +5,12 @@ export * from "./local-version-control-system.ts";
 export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "./sqlite-ledger-reconcile.ts";
 export {
+  activateEmptyCanonicalGeneration,
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   planLegacyGenerationSnapshotConversion,
-  preflightConvertedGenerationActivation,
-  preflightCanonicalGeneration,
   readImmutableLegacyGenerationSnapshot,
 } from "./legacy-generation-conversion.ts";
 export type { StoppedLegacySourceEvidenceV1 } from "./legacy-generation-conversion.ts";

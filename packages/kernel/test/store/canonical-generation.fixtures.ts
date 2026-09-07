@@ -6,6 +6,7 @@ export {
 } from "../../src/store/event-shape-migration.ts";
 export {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
+  preflightCanonicalGeneration,
   preflightConvertedGenerationActivation,
 } from "../../src/store/legacy-generation-conversion.ts";
 export { migrateEventsToSqlite, sqliteContentObjectPath } from "../../src/store/sqlite-event-store.ts";

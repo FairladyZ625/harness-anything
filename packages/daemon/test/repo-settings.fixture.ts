@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
   readSettingsFacet,
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
@@ -59,7 +59,7 @@ export function seedSettingsEvent(input: {
   const store = makeTaskEventStore({
       repoId,
       rootDir,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),
@@ -143,7 +143,7 @@ async function settleSettingsEvent(input: {
   const store = makeTaskEventStore({
       repoId,
       rootDir,
-      activationPreflight: preflightCanonicalGeneration,
+      activationPreflight: activateEmptyCanonicalGeneration,
       ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
     }),

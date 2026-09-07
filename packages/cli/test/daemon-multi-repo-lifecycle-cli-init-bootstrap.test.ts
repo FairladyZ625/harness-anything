@@ -6,9 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { readDaemonPid } from "../../daemon/src/runtime.ts";
 import {
+  activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   makeTaskEventStore,
-  preflightCanonicalGeneration,
   readSettingsFacet,
   repositorySettings,
 } from "../../kernel/src/index.ts";
@@ -335,7 +335,7 @@ test("center registration keeps an external ledger repository readable and writa
       store = makeTaskEventStore({
         rootDir: fixture.alpha,
         repoId: "center",
-        activationPreflight: preflightCanonicalGeneration,
+        activationPreflight: activateEmptyCanonicalGeneration,
       });
     store.append(
       compileSettingsChangedEvent({

@@ -58,48 +58,68 @@ export function generationActivationCertificatePath(rootDir: string): string {
   return `${sqliteLedgerPath(rootDir, 1)}.activation.json`;
 }
 
-export function preflightCanonicalGeneration(input: {
+export function activateEmptyCanonicalGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;
 }): void {
   const layout = resolveHarnessLayout(input.rootInput),
     databasePath = sqliteLedgerPath(input.rootInput, 1),
     snapshotPath = legacyGenerationSnapshotPath(layout.rootDir);
-  if (!localRuntimeStateFileSystem.exists(databasePath)) {
-    if (
-      localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
-      localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
-    )
-      throw new TaskEventStoreError("invalid_store", "legacy history requires generation conversion before activation");
-    initializeEmptyCanonicalGeneration(layout.rootDir, input.repoId, snapshotPath, databasePath);
+  if (localRuntimeStateFileSystem.exists(generationActivationCertificatePath(layout.rootDir))) {
+    preflightCanonicalGeneration(input);
     return;
   }
-  const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
-  const revision = store.revision();
-  store.close();
-  if (revision === 0 && !localRuntimeStateFileSystem.exists(snapshotPath)) {
-    initializeEmptyCanonicalGeneration(layout.rootDir, input.repoId, snapshotPath, databasePath);
-    return;
-  }
-  if (!localRuntimeStateFileSystem.exists(snapshotPath))
-    throw new TaskEventStoreError("invalid_store", "nonempty generation requires its immutable source snapshot");
-  preflightConvertedGenerationActivation({
+  if (
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "events")) ||
+    localRuntimeStateFileSystem.exists(path.join(layout.authoredRoot, "objects"))
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  createImmutableLegacyGenerationSnapshot({
     repoId: input.repoId,
-    rootDir: layout.rootDir,
+    source: arraySnapshotStore([], new Map()),
     snapshotPath,
-    databasePath,
   });
+  convertLegacyGeneration({ rootDir: layout.rootDir, snapshotPath, databasePath });
+  preflightConvertedGenerationActivation({ repoId: input.repoId, rootDir: layout.rootDir, snapshotPath, databasePath });
 }
 
-function initializeEmptyCanonicalGeneration(
-  rootDir: string,
-  repoId: string,
-  snapshotPath: string,
-  databasePath: string,
-): void {
-  createImmutableLegacyGenerationSnapshot({ repoId, source: arraySnapshotStore([], new Map()), snapshotPath });
-  convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
-  preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
+export function preflightCanonicalGeneration(input: {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+}): void {
+  const layout = resolveHarnessLayout(input.rootInput),
+    databasePath = sqliteLedgerPath(input.rootInput, 1),
+    certificatePath = generationActivationCertificatePath(layout.rootDir),
+    markerPath = `${databasePath}.import-source.json`;
+  if (
+    !localRuntimeStateFileSystem.exists(databasePath) ||
+    !localRuntimeStateFileSystem.exists(markerPath) ||
+    !localRuntimeStateFileSystem.exists(certificatePath)
+  )
+    throw new TaskEventStoreError(
+      "invalid_store",
+      "canonical generation is not activated; run operator conversion before attaching this repository",
+    );
+  const marker = JSON.parse(localRuntimeStateFileSystem.readText(markerPath)),
+    certificate = JSON.parse(localRuntimeStateFileSystem.readText(certificatePath));
+  if (
+    certificate.schema !== "generation-activation/v1" ||
+    certificate.repoId !== input.repoId ||
+    certificate.sourceDigest !== marker.sourceDigest ||
+    !Number.isSafeInteger(certificate.importedPrefixRevision) ||
+    certificate.importedPrefixRevision < 0
+  )
+    throw new TaskEventStoreError("invalid_store", "generation activation certificate differs");
+  const store = openSqliteEventStore({ repoId: input.repoId, databasePath, generation: 1, readOnly: true });
+  try {
+    if (store.revision() < certificate.importedPrefixRevision)
+      throw new TaskEventStoreError("invalid_store", "generation revision precedes its activation certificate");
+  } finally {
+    store.close();
+  }
 }
 
 export function createImmutableLegacyGenerationSnapshot(input: {

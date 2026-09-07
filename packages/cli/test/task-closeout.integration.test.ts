@@ -10,7 +10,9 @@ import {
   convertLegacyGeneration,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
+  sqliteLedgerPath,
 } from "../../kernel/src/index.ts";
+import { preflightConvertedGenerationActivation } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -133,6 +135,12 @@ test("a standard task with only task-package deliverables completes without a fa
       fence: { repoId: "closeout-report", holder: "cold-import", epoch: 40 },
     });
     assert.equal(imported.migratedEvents, snapshot.eventCount);
+    preflightConvertedGenerationActivation({
+      repoId: "closeout-report",
+      rootDir: root,
+      snapshotPath,
+      databasePath: sqliteLedgerPath(root, 1),
+    });
   } finally {
     await sourceLedger.drain();
   }
