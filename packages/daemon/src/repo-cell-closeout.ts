@@ -6,6 +6,27 @@ import { readPacketSource } from "./repo-cell-packets.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
+export function authorizeCloseoutLeaf(input: {
+  readonly stage: string;
+  readonly binding: RepoCellBinding;
+  readonly actor: RepoCellBinding["actor"];
+  readonly action: RepoTaskAction;
+  readonly actionId: string;
+  readonly revision: number;
+  readonly now: string;
+}) {
+  const unqualifiedBinding = { ...input.binding, actor: input.actor, authorizationDecision: undefined };
+  return input.stage === "complete" && input.binding.authorizationDecision?.outcome === "allowed"
+    ? input.binding.authorizationDecision
+    : authorizeRepoCellAction({
+        action: input.action,
+        binding: unqualifiedBinding,
+        actionId: input.actionId,
+        revision: input.revision,
+        now: input.now,
+      });
+}
+
 export async function closeoutTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -50,9 +71,11 @@ export async function closeoutTask(
         revision = cell.store.readHead()?.revision ?? 0,
         unqualifiedBinding = { ...binding, actor, authorizationDecision: undefined },
         actionId = cell.operationId(leafAction, unqualifiedBinding, cell.input.repoId, revision),
-        authorizationDecision = authorizeRepoCellAction({
+        authorizationDecision = authorizeCloseoutLeaf({
+          stage,
+          binding,
+          actor,
           action: leafAction,
-          binding: unqualifiedBinding,
           actionId,
           revision,
           now: cell.now(),
