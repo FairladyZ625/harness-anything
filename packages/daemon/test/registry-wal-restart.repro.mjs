@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { daemonProcessAlive } from "../src/daemon-singleton.ts";
 import { readDaemonPid } from "../src/runtime.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
   cli = path.join(repositoryRoot, "packages/cli/src/index.ts");
@@ -23,7 +23,12 @@ export async function reproduceRegistrySqliteRestart(arm, options = {}) {
     daemonId = `registry-wal-${arm}`,
     fixture = { fixtureRoot, rootDir, userRoot, repoId, daemonId };
   rosterRepo(rootDir, repoId);
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  await registerSettledBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    createConvenienceLinks: false,
+  });
   downgradeRegistryToV1(userRoot);
   startDaemon(fixture);
   await waitForAttached(fixture);
