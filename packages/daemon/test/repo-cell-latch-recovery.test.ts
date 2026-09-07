@@ -36,24 +36,43 @@ test("task identity lookup remains available while the projection catches up", (
   assert.deepEqual([...projectedTaskIds(cell)], ["task-existing"]);
 });
 
-test("task identity lookup preserves a canonical scan failure while the projection catches up", () => {
+test("task identity lookup settles a canonical scan failure and caches fail-closed", () => {
   const scanFailure = Object.assign(new Error("canonical event object is unavailable"), { code: "invalid_store" }),
+    reads = { count: 0 },
     cell = {
       knownTaskIds: null,
       projection: { list: () => ({ watermark: 2, sourceRevision: 4, rows: [] }) },
       store: {
         readBatch: () => {
+          reads.count += 1;
           throw scanFailure;
         },
       },
       cellCodedError,
     };
 
-  assert.throws(
-    () => projectedTaskIds(cell),
-    (error: unknown) => error === scanFailure,
-  );
-  assert.equal(cell.knownTaskIds, null);
+  assert.deepEqual([...projectedTaskIds(cell)], []);
+  assert.deepEqual([...projectedTaskIds(cell)], []);
+  assert.equal(reads.count, 1);
+  assert.notEqual(cell.knownTaskIds, null);
+});
+
+test("task identity lookup settles a non-advancing canonical scan", () => {
+  let reads = 0;
+  const cell = {
+    knownTaskIds: null,
+    projection: { list: () => ({ watermark: 0, sourceRevision: 1, rows: [] }) },
+    store: {
+      readBatch: () => {
+        reads += 1;
+        return { events: [], cursor: null, done: false };
+      },
+    },
+    cellCodedError,
+  };
+  assert.deepEqual([...projectedTaskIds(cell)], []);
+  assert.deepEqual([...projectedTaskIds(cell)], []);
+  assert.equal(reads, 1);
 });
 
 test("projection recovery names and carries the reachable rebuild command", () => {

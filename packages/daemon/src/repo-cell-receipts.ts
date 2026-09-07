@@ -3,6 +3,7 @@ import {
   isTaskEvent,
   isTaskProgressEvent,
   contractForDeclarationEvent,
+  consumeKnownError,
   type CanonicalEventV1,
   type TaskProgressEventV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -199,16 +200,23 @@ export function projectedTaskIds(cell: ProjectedTaskIdsContext): Set<string> {
   }
   const taskIds = new Set<string>();
   let cursor: string | null = null;
-  for (;;) {
-    const batch = cell.store.readBatch(cursor, 4096) as {
-      readonly events: readonly CanonicalEventV1[];
-      readonly cursor: string | null;
-      readonly done: boolean;
-    };
-    for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
-    if (batch.done) break;
-    if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
-    cursor = batch.cursor;
+  try {
+    for (;;) {
+      const batch = cell.store.readBatch(cursor, 4096) as {
+        readonly events: readonly CanonicalEventV1[];
+        readonly cursor: string | null;
+        readonly done: boolean;
+      };
+      for (const event of batch.events) if (isTaskEvent(event)) taskIds.add(event.taskId);
+      if (batch.done) break;
+      if (batch.cursor === cursor) throw new Error("canonical task event scan did not advance");
+      cursor = batch.cursor;
+    }
+  } catch (error) {
+    // A failed canonical scan must settle this cell's lookup rather than trigger
+    // an unbounded internal retry loop. An empty set is fail-closed for writes.
+    consumeKnownError(error);
+    taskIds.clear();
   }
   cell.knownTaskIds = taskIds;
   return cell.knownTaskIds;
