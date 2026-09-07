@@ -428,6 +428,10 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       "kernel",
       "--product-line",
       "platform",
+      "--limit",
+      "25",
+      "--cursor",
+      "WyJkZWNfTEVER0VSX0UxIl0",
     ]),
     show = parseThinCommand(["decision", "show", "E12", "--include-body"]);
   assert.equal(
@@ -461,6 +465,8 @@ test("Decision CLI maps every canonical command and keeps the five local error c
       legacyRange: { start: 1, end: 20 },
       module: "kernel",
       productLine: "platform",
+      limit: 25,
+      cursor: "WyJkZWNfTEVER0VSX0UxIl0",
     });
   if (show.ok)
     assert.deepEqual(show.command.action, {

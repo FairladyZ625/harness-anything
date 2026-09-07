@@ -196,6 +196,7 @@ export interface DecisionProjectionListRead {
   readonly decisions: readonly DecisionProjectionRow[];
   readonly watermark: number;
   readonly sourceRevision: number;
+  readonly page?: ProjectionPage;
 }
 export interface DecisionAgendaProjectionPageRead {
   readonly status: "ready" | "pending";

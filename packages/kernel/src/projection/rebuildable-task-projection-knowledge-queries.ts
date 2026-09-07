@@ -2,7 +2,7 @@
 import {
   assertDecisionAdmission,
   listDecisionAgendaRowsPage,
-  listDecisionRows,
+  listDecisionRowsPage,
   readDecisionGraphRows,
   readDecisionRow,
   readDecisionRows,
@@ -144,12 +144,14 @@ export function knowledgeQueryApi(
       }),
     listDecisions: (filters) =>
       withDatabase(projectionPath, readHead, (db) => {
-        const cut = readProjectionCut(db, readHead);
+        const cut = readProjectionCut(db, readHead),
+          page = listDecisionRowsPage(db, filters);
         return {
           status: cut.status,
-          decisions: listDecisionRows(db, filters),
+          decisions: page.rows,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
+          ...(page.page ? { page: page.page } : {}),
         };
       }),
     listDecisionAgendaPage: (query) =>
