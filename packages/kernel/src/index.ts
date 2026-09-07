@@ -291,7 +291,6 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   openSqliteEventStore,
-  publishConvertedGeneration,
   readCertifiedGitFollower,
   sqliteLedgerPath,
   reconcileSqliteEvents,

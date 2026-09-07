@@ -6,7 +6,7 @@ export {
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
 export { makeTaskEventReader, makeTaskEventStore } from "../store/task-event-store-factory.ts";
-export { publishConvertedGeneration, readCertifiedGitFollower } from "../store/task-event-store-factory.ts";
+export { readCertifiedGitFollower } from "../store/task-event-store-factory.ts";
 export type {
   CertifiedGitFollower,
   SqliteCanonicalEventStore,

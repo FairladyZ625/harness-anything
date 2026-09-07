@@ -27,11 +27,7 @@ export {
   canonicalEventWritePlan,
   validateCanonicalWriteBundle,
 } from "./task-event-store-contract.ts";
-export {
-  makeTaskEventStore,
-  publishConvertedGeneration,
-  readCertifiedGitFollower,
-} from "./task-event-store-factory.ts";
+export { makeTaskEventStore, readCertifiedGitFollower } from "./task-event-store-factory.ts";
 export type { CertifiedGitFollower } from "./task-event-store-factory.ts";
 export {
   canonicalDocumentClaims,
