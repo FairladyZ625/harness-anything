@@ -69,8 +69,9 @@ export function publishConvertedGeneration(input: {
   if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
   const authoredRef = `refs/heads/${branch}`,
     parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
-    revision = input.store.revision(),
-    event = input.store.eventAtRevision(revision),
+    revision = input.store.revision();
+  if (revision === 0) return { commitSha: parent, revision, changed: false };
+  const event = input.store.eventAtRevision(revision),
     cut = canonicalLedgerCut(input.repoId, event ? eventHead(event) : null),
     files = followerFiles(ledger, parent, readEventsThrough(input.store, revision), input.store.readContentObject, cut),
     manifestTarget = ledgerGitPath(ledger, "events/segments/manifest.json"),
